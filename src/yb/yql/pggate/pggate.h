@@ -46,6 +46,7 @@
 #include "yb/yql/pggate/pg_gate_fwd.h"
 #include "yb/yql/pggate/pg_statement.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
+#include "yb/cdc/cdc_service.pb.h"
 
 namespace yb {
 namespace pggate {
@@ -562,6 +563,9 @@ class PgApiImpl {
   //------------------------------------------------------------------------------------------------
   // System Validation.
   CHECKED_STATUS ValidatePlacement(const char *placement_info);
+
+  // CHECKED_STATUS CDCGetChanges(const YBCGetChangesResponse* response);
+  Result<YBCGetChangesResponse> CDCGetChanges();
 
  private:
   // Control variables.

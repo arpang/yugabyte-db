@@ -26,6 +26,22 @@ message QLMapValuePB {
   repeated QLValuePB values = 2;
 }
 
+message DatumMessagePB {
+  optional string column_name = 1;
+  optional int64 column_type = 2;
+  oneof datum {
+    int32 datum_int32 = 3;
+    int64 datum_int64 = 4;
+    float datum_float = 5;
+    double datum_double = 6;
+    bool datum_bool = 7;
+    string datum_string = 8;
+    bytes datum_bytes = 9;
+    bool datum_missing = 10;
+  }
+  optional QLValuePB ql_value = 11;
+}
+
 //--------------------------------------------------------------------------------------------------
 // YQL support.
 // The following section is common for all query language.
@@ -167,19 +183,4 @@ enum QLOperator {
   // Operators that take no operand. For use in "if" clause only currently.
   QL_OP_EXISTS = 20;     // IF EXISTS
   QL_OP_NOT_EXISTS = 21; // IF NOT EXISTS
-}
-
-message DatumMessagePB {
-  optional string column_name = 1;
-  optional int64 column_type = 2;
-  oneof datum {
-    int32 datum_int32 = 3;
-    int64 datum_int64 = 4;
-    float datum_float = 5;
-    double datum_double = 6;
-    bool datum_bool = 7;
-    string datum_string = 8;
-    bytes datum_bytes = 9;
-    bool datum_missing = 10;
-  }
 }

@@ -54,7 +54,7 @@ set(PGGATE_SRCS
 
 ADD_YB_LIBRARY(yb_pggate_flags
                SRCS pggate_flags.cc
-               DEPS yb_util)
+               DEPS yb_util cdc_service_proto)
 
 set(PGGATE_LIBS
     consensus_error

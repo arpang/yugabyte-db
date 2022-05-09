@@ -575,6 +575,10 @@ void YBCStopSysTablePrefetching();
 void YBCRegisterSysTableForPrefetching(
     YBCPgOid database_oid, YBCPgOid table_oid, YBCPgOid index_oid);
 
+// YBCStatus YBCPgCDCGetChanges(const YBCGetChangesResponse* response);
+
+YBCGetChangesResponse YBCPgCDCGetChanges();
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
