@@ -564,8 +564,8 @@ class PgApiImpl {
   // System Validation.
   CHECKED_STATUS ValidatePlacement(const char *placement_info);
 
-  // CHECKED_STATUS CDCGetChanges(const YBCGetChangesResponse* response);
-  Result<YBCGetChangesResponse> CDCGetChanges();
+  CHECKED_STATUS CDCGetChanges(YBCGetChangesResponse* response);
+  // Result<YBCGetChangesResponse> CDCGetChanges();
 
  private:
   // Control variables.

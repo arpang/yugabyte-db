@@ -1622,11 +1622,14 @@ void PgApiImpl::RegisterSysTableForPrefetching(
   }
 }
 
-Result<YBCGetChangesResponse> PgApiImpl::CDCGetChanges() {
-// Status PgApiImpl::CDCGetChanges(const YBCGetChangesResponse* response) {
+// Result<YBCGetChangesResponse> PgApiImpl::CDCGetChanges() {
+Status PgApiImpl::CDCGetChanges(YBCGetChangesResponse* response) {
+    LOG(INFO) << "Arpan CDCGetChanges";
     HostPort host_port;
     CHECK_OK(host_port.ParseString(FLAGS_rpc_bind_addresses, 0));
-    host_port.set_port(PggateOptions::kDefaultPort);
+    //CHECK_OK(host_port.ParseString("0.0.0.0:9100", 0));
+    // host_port.set_port(PggateOptions::kDefaultPort);
+    LOG(INFO) << "Arpan hostport:  " << host_port.ToString() << "\n";
     // rpc::ProxyCache* proxy_cache_copy = proxy_cache_.get();
     std::unique_ptr<cdc::CDCServiceProxy> cdc_proxy = std::make_unique<cdc::CDCServiceProxy>(
       proxy_cache_.get(), host_port);
@@ -1636,8 +1639,8 @@ Result<YBCGetChangesResponse> PgApiImpl::CDCGetChanges() {
     cdc::GetChangesRequestPB change_req;
     // cdc::GetChangesResponsePB change_resp;
     
-    // change_req->set_stream_id(stream_id);
-    // change_req->set_tablet_id(tablets.Get(0).tablet_id());
+    change_req.set_stream_id("c5fa389665d44fbeacfd892a2740a9e9");
+    change_req.set_tablet_id("94c7ae247f96456694704175557026f8"); // (tablets.Get(0).tablet_id());
     change_req.mutable_from_cdc_sdk_checkpoint()->set_index(0);
     change_req.mutable_from_cdc_sdk_checkpoint()->set_term(0);
     change_req.mutable_from_cdc_sdk_checkpoint()->set_key("");
@@ -1646,58 +1649,59 @@ Result<YBCGetChangesResponse> PgApiImpl::CDCGetChanges() {
     cdc::GetChangesResponsePB change_resp;
 
     rpc::RpcController get_changes_rpc;
-    
+    LOG(INFO) << "Before RETURN_NOT_OK\n";
     RETURN_NOT_OK(cdc_proxy->GetChanges(change_req, &change_resp, &get_changes_rpc));
-
+    LOG(INFO) << "After RETURN_NOT_OK\n";
     int row_count = change_resp.cdc_sdk_proto_records_size();
     YBCRowMessage *rows = (YBCRowMessage *) malloc(sizeof(YBCRowMessage) * row_count);
 
-    YBCGetChangesResponse response;
-    response.row_count = row_count;
-    response.rows = rows;
+    // YBCGetChangesResponse response;
+    response->row_count = row_count;
+    response->rows = rows;
 
     for (int i = 0; i < row_count; i++) {
       cdc::CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
-      if (!record.has_row_message()) continue;
-      cdc::RowMessage row_message = record.row_message();
-      int col_count = row_message.new_tuple_size();
-      DatumMessage *cols = (DatumMessage *) malloc(sizeof(DatumMessage) * col_count);
       YBCRowMessage row;
-      row.col_count = col_count;
-      row.cols = cols;
-      rows[i] = row;
-      for(int j = 0; j < col_count; j++) {
-        DatumMessagePB datum_message = row_message.new_tuple(j);
+      int col_count = 0;
+      if (record.has_row_message()) {
+        cdc::RowMessage row_message = record.row_message();
+        col_count = row_message.new_tuple_size();
+        DatumMessage *cols = (DatumMessage *) malloc(sizeof(DatumMessage) * col_count);
+        row.cols = cols;
+        for(int j = 0; j < col_count; j++) {
+          DatumMessagePB datum_message = row_message.new_tuple(j);
+          YBCDatumMessage col;
+          if (datum_message.has_column_name()) {
+            col.column_name = datum_message.column_name().c_str();  
+          }
+          if (datum_message.has_column_type()) {
+            col.column_type = datum_message.column_type();
+          }
+          if (datum_message.has_ql_value()) {
+              uint64 datum;
+              bool is_null;
 
-
-        YBCDatumMessage col;
-        if (datum_message.has_column_name()) {
-          col.column_name = datum_message.column_name().c_str();  
+              // YbgTypeDesc type_desc{(int) datum_message.column_type(), -1 /* typmod */};
+              int type_oid = (int) datum_message.column_type();
+              YBCPgTypeAttrs type_attrs{-1};
+              // const YBCPgTypeEntity* type_entity = yb::docdb::DocPgGetTypeEntity(type_desc);
+              const YBCPgTypeEntity * type_entity = FindTypeEntity(type_oid);
+              LOG(INFO) << "Before RETURN_NOT_OK 2\n";
+              RETURN_NOT_OK(PgValueFromPB(type_entity, type_attrs, datum_message.ql_value(), &datum, &is_null));
+              LOG(INFO) << "After RETURN_NOT_OK 2\n";
+              col.datum = datum;
+              col.is_null = is_null;
+          }
+          cols[j] = col;
         }
-        if (datum_message.has_column_type()) {
-          col.column_type = datum_message.column_type();
-        }
-        if (datum_message.has_ql_value()) {
-            uint64 datum;
-            bool is_null;
-
-            // YbgTypeDesc type_desc{(int) datum_message.column_type(), -1 /* typmod */};
-            int type_oid = (int) datum_message.column_type();
-            YBCPgTypeAttrs type_attrs{-1};
-            // const YBCPgTypeEntity* type_entity = yb::docdb::DocPgGetTypeEntity(type_desc);
-            const YBCPgTypeEntity * type_entity = FindTypeEntity(type_oid);
-            RETURN_NOT_OK(PgValueFromPB(type_entity, type_attrs, datum_message.ql_value(), &datum, &is_null));
-
-            col.datum = datum;
-            col.is_null = is_null;
-        }
-        cols[j] = col;
       }
+      row.col_count = col_count;
+      rows[i] = row;
     }
 
+    return Status::OK();
     // RETURN_NOT_OK(cdc_proxy_->GetChanges(change_req, &change_resp, &get_changes_rpc));
-
-    return Result(response);
+    // return Result(response);
 };
 
 } // namespace pggate
