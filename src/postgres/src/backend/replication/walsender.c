@@ -93,6 +93,12 @@
 #include "utils/resowner.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
+// #include "ent/src/yb/integration-tests/cdcsdk_test_base.cc"
+// #include "yb/cdc/cdc_service.h"
+// #include "yb/client/client.h"
+#include "yb/yql/pggate/ybc_pggate.h"
+// #include "yb/yql/pggate/pggate.h"
+#include "utils/lsyscache.h"
 
 /*
  * Maximum data payload in a WAL data message.  Must be >= XLOG_BLCKSZ.
@@ -294,6 +300,7 @@ InitWalSender(void)
 void
 WalSndErrorCleanup(void)
 {
+	// YBCDestroyPgGate();
 	LWLockReleaseAll();
 	ConditionVariableCancelSleep();
 	pgstat_report_wait_end();
@@ -1131,6 +1138,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 static void
 WalSndPrepareWrite(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xid, bool last_write)
 {
+	// elog(INFO, "WalSndPrepareWrite lsn: %ld", lsn);
 	/* can't have sync rep confused by sending the same LSN several times */
 	if (!last_write)
 		lsn = InvalidXLogRecPtr;
@@ -1383,7 +1391,7 @@ WalSndWaitForWal(XLogRecPtr loc)
 		 * streaming, so fail the current WAL fetch request.
 		 */
 		if (streamingDoneReceiving && streamingDoneSending &&
-			!pq_is_send_pending())
+		!pq_is_send_pending())
 			break;
 
 		/* die if timeout was reached */
@@ -2117,6 +2125,7 @@ WalSndLoop(WalSndSendDataCallback send_data)
 	 */
 	for (;;)
 	{
+		elog(INFO, "Inside WalSndLoop");
 		/*
 		 * Emergency bailout if postmaster has died.  This is to avoid the
 		 * necessity for manual cleanup of all postmaster children.
@@ -2224,13 +2233,15 @@ WalSndLoop(WalSndSendDataCallback send_data)
 
 			if (pq_is_send_pending())
 				wakeEvents |= WL_SOCKET_WRITEABLE;
-
+			elog(INFO, "WalSndLoop: starting sleep");
 			/* Sleep until something happens or we time out */
 			WaitLatchOrSocket(MyLatch, wakeEvents,
 							  MyProcPort->sock, sleeptime,
 							  WAIT_EVENT_WAL_SENDER_MAIN);
+			elog(INFO, "WalSndLoop: ending sleep");
 		}
 	}
+	elog(INFO, "Outside WalSndLoop, returning");
 	return;
 }
 
@@ -2767,6 +2778,56 @@ XLogSendLogical(void)
 {
 	XLogRecord *record;
 	char	   *errm;
+	elog(INFO, "Inside XLogSendLogical");
+	
+	YBCGetChangesResponse response;
+	HandleYBStatus(YBCPgCDCGetChanges(&response));
+	elog(INFO, "Row counts: %d", response.row_count);
+	StartTransactionCommand();
+	for (int i = 0; i < response.row_count; i++) {
+		YBCRowMessage row = response.rows[i];
+		elog(INFO, "For %d row, col counts: %d", i, row.col_count);
+		for (int j = 0; j < row.col_count; j++) {
+			YBCDatumMessage col = row.cols[j];
+			Oid typid = (Oid) col.column_type;
+			elog(INFO, "typid: %d", typid);
+			Oid			typoutput;	/* output function */
+			bool		typisvarlena;
+			elog(INFO, "Before getTypeOutputInfo");
+			getTypeOutputInfo(typid, &typoutput, &typisvarlena);
+			elog(INFO, "After getTypeOutputInfo");
+			// elog(INFO, "Value of %d row %d col: %s", i, j, OidOutputFunctionCall(typoutput, col.datum));
+			char* str_value;
+			if (col.is_null)
+				str_value = "null";
+			else if (typisvarlena && VARATT_IS_EXTERNAL_ONDISK(col.datum))
+				str_value = "unchanged-toast-datum";
+			else if (!typisvarlena)
+				str_value = OidOutputFunctionCall(typoutput, col.datum);
+			else {
+				Datum		val;	/* definitely detoasted Datum */
+				val = PointerGetDatum(PG_DETOAST_DATUM(col.datum));
+				str_value = OidOutputFunctionCall(typoutput, val);
+			}
+				
+			elog(INFO, "Value of %d row %d col: typid %d datum %lld string: %s", i, j, typid, col.datum, str_value);
+//			elog(INFO, "Value of %d row %d col: typid %d datum %lld", i, j, typid, col.datum);
+		}
+	}
+	AbortCurrentTransaction();
+
+	// Relation relation = RelationIdGetRelation(16384);
+	// logical_decoding_ctx->callbacks.change_cb(logical_decoding_ctx, txn, relation, change);
+
+	// ReorderBufferTXN *txn = (ReorderBufferTXN *)MemoryContextAlloc(rb->txn_context, sizeof(ReorderBufferTXN));
+	ReorderBufferTXN *txn = (ReorderBufferTXN *) malloc(sizeof(ReorderBufferTXN));
+	txn->xid = 123;
+
+	logical_decoding_ctx->accept_writes = true;
+	logical_decoding_ctx->write_xid = txn->xid;
+	logical_decoding_ctx->write_location = 0;
+
+	logical_decoding_ctx->callbacks.begin_cb(logical_decoding_ctx, txn);
 
 	/*
 	 * Don't know whether we've caught up yet. We'll set WalSndCaughtUp to
@@ -2775,8 +2836,9 @@ XLogSendLogical(void)
 	 * didn't wait - i.e. when we're shutting down.
 	 */
 	WalSndCaughtUp = false;
-
+	// elog(INFO, "XLogSendLogical: before reading record");
 	record = XLogReadRecord(logical_decoding_ctx->reader, logical_startptr, &errm);
+	// elog(INFO, "XLogSendLogical: after reading record");
 	logical_startptr = InvalidXLogRecPtr;
 
 	/* xlog record was invalid */
@@ -2793,8 +2855,9 @@ XLogSendLogical(void)
 		 * WalSndUpdateProgress which is called by output plugin through
 		 * logical decoding write api.
 		 */
+		// elog(INFO, "XLogSendLogical: before decoding");
 		LogicalDecodingProcessRecord(logical_decoding_ctx, logical_decoding_ctx->reader);
-
+		// elog(INFO, "XLogSendLogical: after decoding");
 		sentPtr = logical_decoding_ctx->reader->EndRecPtr;
 
 		/*
@@ -2831,6 +2894,8 @@ XLogSendLogical(void)
 		walsnd->sentPtr = sentPtr;
 		SpinLockRelease(&walsnd->mutex);
 	}
+
+	// elog(INFO, "Returning from XLogSendLogical");
 }
 
 /*
