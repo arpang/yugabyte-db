@@ -2770,6 +2770,14 @@ XLogSendPhysical(void)
 	return;
 }
 
+static enum ReorderBufferChangeType ToReorderBufferChangeType(const char* v)
+{
+    if (!strcmp(v, "INSERT")) return REORDER_BUFFER_CHANGE_INSERT;
+	if (!strcmp(v, "UPDATE")) return REORDER_BUFFER_CHANGE_UPDATE;
+	if (!strcmp(v, "DELETE")) return REORDER_BUFFER_CHANGE_DELETE;
+    return REORDER_BUFFER_CHANGE_MESSAGE;
+}
+
 /*
  * Stream out logically decoded data.
  */
@@ -2780,22 +2788,41 @@ XLogSendLogical(void)
 	char	   *errm;
 	elog(INFO, "Inside XLogSendLogical");
 	
+	ReorderBufferTXN *txn = (ReorderBufferTXN *) malloc(sizeof(ReorderBufferTXN));
+	// txn->xid = 123;
+	logical_decoding_ctx->accept_writes = true;
+	logical_decoding_ctx->write_xid = txn->xid;
+	logical_decoding_ctx->write_location = 0;
+	// logical_decoding_ctx->callbacks.begin_cb(logical_decoding_ctx, txn);
+
 	YBCGetChangesResponse response;
 	HandleYBStatus(YBCPgCDCGetChanges(&response));
+
 	elog(INFO, "Row counts: %d", response.row_count);
 	StartTransactionCommand();
+	
 	for (int i = 0; i < response.row_count; i++) {
 		YBCRowMessage row = response.rows[i];
 		elog(INFO, "For %d row, col counts: %d", i, row.col_count);
+
+		Relation relation = RelationIdGetRelation(row.table_oid);
+		// TupleDesc tupdesc = RelationGetDescr(relation);
+
+		Datum datums[row.col_count];
+		bool is_nulls[row.col_count];
+
 		for (int j = 0; j < row.col_count; j++) {
 			YBCDatumMessage col = row.cols[j];
+			datums[j] = col.datum;
+			is_nulls[j] = col.is_null;
+
 			Oid typid = (Oid) col.column_type;
-			elog(INFO, "typid: %d", typid);
+			// elog(INFO, "typid: %d", typid);
 			Oid			typoutput;	/* output function */
 			bool		typisvarlena;
-			elog(INFO, "Before getTypeOutputInfo");
+			// elog(INFO, "Before getTypeOutputInfo");
 			getTypeOutputInfo(typid, &typoutput, &typisvarlena);
-			elog(INFO, "After getTypeOutputInfo");
+			// elog(INFO, "After getTypeOutputInfo");
 			// elog(INFO, "Value of %d row %d col: %s", i, j, OidOutputFunctionCall(typoutput, col.datum));
 			char* str_value;
 			if (col.is_null)
@@ -2808,26 +2835,54 @@ XLogSendLogical(void)
 				Datum		val;	/* definitely detoasted Datum */
 				val = PointerGetDatum(PG_DETOAST_DATUM(col.datum));
 				str_value = OidOutputFunctionCall(typoutput, val);
-			}
-				
+			}	
 			elog(INFO, "Value of %d row %d col: typid %d datum %lld string: %s", i, j, typid, col.datum, str_value);
-//			elog(INFO, "Value of %d row %d col: typid %d datum %lld", i, j, typid, col.datum);
+		}
+
+		txn->xid = row.transaction_id;
+
+		elog(INFO, "Processing action: %s", row.action);
+
+		if (!strcmp(row.action, "BEGIN")) {
+			elog(INFO, "Begin CB");
+			logical_decoding_ctx->callbacks.begin_cb(logical_decoding_ctx, txn);
+		}
+		else if (!strcmp(row.action, "COMMIT")) {
+			elog(INFO, "Commit CB");
+			txn->commit_time = row.commit_time;
+			logical_decoding_ctx->callbacks.commit_cb(logical_decoding_ctx, txn, 0);
+		}
+		else if (!strcmp(row.action, "INSERT") || !strcmp(row.action, "UPDATE") || !strcmp(row.action, "DELETE")) {
+			elog(INFO, "Change CB");
+			ReorderBufferChange *change = (ReorderBufferChange *) malloc(sizeof(ReorderBufferChange));
+			change->action = ToReorderBufferChangeType(row.action);
+			// HeapTuple head_tuple = heap_form_tuple(tupdesc, datums, is_nulls);
+			// ReorderBufferTupleBuf *new_tuple = (ReorderBufferTupleBuf *) malloc(sizeof(ReorderBufferTupleBuf));
+			// new_tuple->tuple = *head_tuple;
+			change->data.tp.newtuple = NULL; 
+			change->data.tp.oldtuple = NULL;
+			elog(INFO, "Before Change CB");
+			logical_decoding_ctx->callbacks.change_cb(logical_decoding_ctx, txn, relation, change);
+			elog(INFO, "After Change CB");
+		}
+		else {
+			elog(INFO, "Unsupported action: %s", row.action);
 		}
 	}
 	AbortCurrentTransaction();
 
 	// Relation relation = RelationIdGetRelation(16384);
 	// logical_decoding_ctx->callbacks.change_cb(logical_decoding_ctx, txn, relation, change);
-
+	
 	// ReorderBufferTXN *txn = (ReorderBufferTXN *)MemoryContextAlloc(rb->txn_context, sizeof(ReorderBufferTXN));
-	ReorderBufferTXN *txn = (ReorderBufferTXN *) malloc(sizeof(ReorderBufferTXN));
-	txn->xid = 123;
+	// ReorderBufferTXN *txn = (ReorderBufferTXN *) malloc(sizeof(ReorderBufferTXN));
+	// txn->xid = 123;
 
-	logical_decoding_ctx->accept_writes = true;
-	logical_decoding_ctx->write_xid = txn->xid;
-	logical_decoding_ctx->write_location = 0;
+	// logical_decoding_ctx->accept_writes = true;
+	// logical_decoding_ctx->write_xid = txn->xid;
+	// logical_decoding_ctx->write_location = 0;
 
-	logical_decoding_ctx->callbacks.begin_cb(logical_decoding_ctx, txn);
+	// logical_decoding_ctx->callbacks.begin_cb(logical_decoding_ctx, txn);
 
 	/*
 	 * Don't know whether we've caught up yet. We'll set WalSndCaughtUp to

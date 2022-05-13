@@ -1638,9 +1638,12 @@ Status PgApiImpl::CDCGetChanges(YBCGetChangesResponse* response) {
     
     cdc::GetChangesRequestPB change_req;
     // cdc::GetChangesResponsePB change_resp;
-    
-    change_req.set_stream_id("c5fa389665d44fbeacfd892a2740a9e9");
-    change_req.set_tablet_id("94c7ae247f96456694704175557026f8"); // (tablets.Get(0).tablet_id());
+
+    // change_req.set_stream_id("c5fa389665d44fbeacfd892a2740a9e9");
+    // change_req.set_tablet_id("94c7ae247f96456694704175557026f8"); //
+    // (tablets.Get(0).tablet_id());
+    change_req.set_stream_id("1b09c93306ac49b1b0b8ee94104eaa62");
+    change_req.set_tablet_id("f16928729bc34bdebcd11a687ce1cadd");  // (tablets.Get(0).tablet_id());
     change_req.mutable_from_cdc_sdk_checkpoint()->set_index(0);
     change_req.mutable_from_cdc_sdk_checkpoint()->set_term(0);
     change_req.mutable_from_cdc_sdk_checkpoint()->set_key("");
@@ -1693,6 +1696,39 @@ Status PgApiImpl::CDCGetChanges(YBCGetChangesResponse* response) {
               col.is_null = is_null;
           }
           cols[j] = col;
+        }
+
+        if (row_message.has_commit_time()) {
+          row.commit_time = row_message.commit_time();
+        } else {
+          row.commit_time = -1;
+        }
+
+        if (row_message.has_transaction_id()) {
+          LOG(INFO) << "Transaction id: " << row_message.transaction_id();
+          row.transaction_id = std::stoi(row_message.transaction_id());  // does it work?
+        } else {
+          row.transaction_id = -1;
+        }
+
+        if (row_message.has_op()) {
+          row.action = RowMessage_Op_Name(row_message.op()).c_str();
+        } else {
+          row.action = RowMessage_Op_Name(cdc::RowMessage_Op::RowMessage_Op_UNKNOWN).c_str();
+        }
+
+        if (row_message.has_table_id()) {
+          LOG(INFO) << "Table Id: " << row_message.table_id();
+          Result<uint32_t> oid_result = yb::GetPgsqlTableOid(row_message.table_id());
+          LOG(INFO) << "OID conversion ok: " << oid_result.ok();
+          RETURN_NOT_OK(oid_result);
+          LOG(INFO) << "After RETURN_NOT_OK check";
+          // uint32_t oid_value = ;
+          // printf("oid: %ud\n", oid_value);
+          // row.table_name = row_message.table().c_str();
+          row.table_oid = oid_result.get();
+        } else {
+          row.table_oid = -1;
         }
       }
       row.col_count = col_count;

@@ -353,6 +353,9 @@ message RowMessage {
 
   // truncate info
   optional yb.tserver.TruncateRequestPB truncate_request_info = 13;
+
+  // docdb table id
+  optional string table_id = 14;
 }
 
 message CDCSDKProtoRecordPB {

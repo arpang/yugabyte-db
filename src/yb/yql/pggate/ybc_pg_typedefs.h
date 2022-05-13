@@ -381,6 +381,11 @@ typedef struct DatumMessage {
 typedef struct RowMessage {
   int col_count;
   YBCDatumMessage* cols;
+  uint64_t commit_time;
+  uint32_t transaction_id;
+  const char* action;
+  // const char* table_name;
+  uint32_t table_oid;
 } YBCRowMessage;
 
 typedef struct GetChangesResponse {
