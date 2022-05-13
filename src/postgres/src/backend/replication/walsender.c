@@ -2125,7 +2125,7 @@ WalSndLoop(WalSndSendDataCallback send_data)
 	 */
 	for (;;)
 	{
-		elog(INFO, "Inside WalSndLoop");
+		// elog(INFO, "Inside WalSndLoop");
 		/*
 		 * Emergency bailout if postmaster has died.  This is to avoid the
 		 * necessity for manual cleanup of all postmaster children.
@@ -2233,15 +2233,15 @@ WalSndLoop(WalSndSendDataCallback send_data)
 
 			if (pq_is_send_pending())
 				wakeEvents |= WL_SOCKET_WRITEABLE;
-			elog(INFO, "WalSndLoop: starting sleep");
+			// elog(INFO, "WalSndLoop: starting sleep");
 			/* Sleep until something happens or we time out */
 			WaitLatchOrSocket(MyLatch, wakeEvents,
 							  MyProcPort->sock, sleeptime,
 							  WAIT_EVENT_WAL_SENDER_MAIN);
-			elog(INFO, "WalSndLoop: ending sleep");
+			// elog(INFO, "WalSndLoop: ending sleep");
 		}
 	}
-	elog(INFO, "Outside WalSndLoop, returning");
+	// elog(INFO, "Outside WalSndLoop, returning");
 	return;
 }
 
@@ -2786,7 +2786,7 @@ XLogSendLogical(void)
 {
 	XLogRecord *record;
 	char	   *errm;
-	elog(INFO, "Inside XLogSendLogical");
+	// elog(INFO, "Inside XLogSendLogical");
 	
 	ReorderBufferTXN *txn = (ReorderBufferTXN *) palloc(sizeof(ReorderBufferTXN));
 	// txn->xid = 123;
@@ -2798,18 +2798,18 @@ XLogSendLogical(void)
 	YBCGetChangesResponse response;
 	HandleYBStatus(YBCPgCDCGetChanges(&response));
 
-	elog(INFO, "Row counts: %d", response.row_count);
+	// elog(INFO, "Row counts: %d", response.row_count);
 	StartTransactionCommand();
 	
 	for (int i = 0; i < response.row_count; i++) {
 		YBCRowMessage row = response.rows[i];
-		elog(INFO, "For %d row, col counts: %d", i, row.col_count);
+		// elog(INFO, "For %d row, col counts: %d", i, row.col_count);
 
 		Relation relation = RelationIdGetRelation(row.table_oid);
 		TupleDesc tupdesc = RelationGetDescr(relation);
 
 		int num_attributes = tupdesc->natts;
-		elog(INFO, "Num attributes %d", num_attributes);
+		// elog(INFO, "Num attributes %d", num_attributes);
 		// Datum datums[row.col_count];
 		// bool is_nulls[row.col_count];
 		Datum datums[num_attributes];
@@ -2817,14 +2817,17 @@ XLogSendLogical(void)
 
 		for (int j = 0; j < row.col_count; j++) {
 			YBCDatumMessage col = row.cols[j];
-			elog(INFO, "Processing column %d: name %s, type: %d datum: %lld is_null: %d", j, col.column_name, (Oid) col.column_type, col.datum, col.is_null);
+			// elog(INFO, "Processing column %d: name %s, type: %d datum: %lld is_null: %d", j, col.column_name, (Oid) col.column_type, col.datum, col.is_null);
 			int k = 0;
 			for(k = 0; k < num_attributes; k++) {
-				elog(INFO, "Looking up attribute %d with name %s", k, tupdesc->attrs[k].attname.data);
+				// elog(INFO, "Looking up attribute %d with name %s", k, tupdesc->attrs[k].attname.data);
 				if (!strcmp(tupdesc->attrs[k].attname.data, col.column_name)) break;
 			}
-			elog(INFO, "For column %s, k: %d", col.column_name, k);
-			if (k == num_attributes) continue;
+			
+			if (k == num_attributes) {
+				elog(INFO, "Could not find with name %s in pg attributes", col.column_name);
+				continue;
+			}
 			datums[k] = col.datum;
 			is_nulls[k] = col.is_null;
 
@@ -2856,29 +2859,24 @@ XLogSendLogical(void)
 		elog(INFO, "Processing action: %s", row.action);
 
 		if (!strcmp(row.action, "BEGIN")) {
-			elog(INFO, "Begin CB");
+			// elog(INFO, "Begin CB");
 			logical_decoding_ctx->callbacks.begin_cb(logical_decoding_ctx, txn);
 		}
 		else if (!strcmp(row.action, "COMMIT")) {
-			elog(INFO, "Commit CB");
+			// elog(INFO, "Commit CB");
 			txn->commit_time = row.commit_time;
 			logical_decoding_ctx->callbacks.commit_cb(logical_decoding_ctx, txn, 0);
 		}
 		else if (!strcmp(row.action, "INSERT") || !strcmp(row.action, "UPDATE") || !strcmp(row.action, "DELETE")) {
-			elog(INFO, "Change CB");
+			// elog(INFO, "Change CB");
 			ReorderBufferChange *change = (ReorderBufferChange *) palloc(sizeof(ReorderBufferChange));
 			change->action = ToReorderBufferChangeType(row.action);
-			elog(INFO, "Before heap_form_tuple");
 			HeapTuple head_tuple = heap_form_tuple(tupdesc, datums, is_nulls);
-			elog(INFO, "After heap_form_tuple");
 			ReorderBufferTupleBuf *new_tuple = (ReorderBufferTupleBuf *) palloc(sizeof(ReorderBufferTupleBuf));
 			new_tuple->tuple = *head_tuple;
-			elog(INFO, "new_tuple set up done");
 			change->data.tp.newtuple = new_tuple; 
 			change->data.tp.oldtuple = NULL;
-			elog(INFO, "Before Change CB");
 			logical_decoding_ctx->callbacks.change_cb(logical_decoding_ctx, txn, relation, change);
-			elog(INFO, "After Change CB");
 		}
 		else {
 			elog(INFO, "Unsupported action: %s", row.action);
