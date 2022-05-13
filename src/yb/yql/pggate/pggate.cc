@@ -1652,92 +1652,104 @@ Status PgApiImpl::CDCGetChanges(YBCGetChangesResponse* response) {
     cdc::GetChangesResponsePB change_resp;
 
     rpc::RpcController get_changes_rpc;
-    LOG(INFO) << "Before RETURN_NOT_OK\n";
+    // LOG(INFO) << "Before RETURN_NOT_OK\n";
     RETURN_NOT_OK(cdc_proxy->GetChanges(change_req, &change_resp, &get_changes_rpc));
-    LOG(INFO) << "After RETURN_NOT_OK\n";
+    // LOG(INFO) << "After RETURN_NOT_OK\n";
     int row_count = change_resp.cdc_sdk_proto_records_size();
     YBCRowMessage *rows = (YBCRowMessage *) malloc(sizeof(YBCRowMessage) * row_count);
 
     // YBCGetChangesResponse response;
-    response->row_count = row_count;
-    response->rows = rows;
 
     for (int i = 0; i < row_count; i++) {
       cdc::CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
-      YBCRowMessage row;
-      int col_count = 0;
-      if (record.has_row_message()) {
-        cdc::RowMessage row_message = record.row_message();
-        col_count = row_message.new_tuple_size();
-        DatumMessage *cols = (DatumMessage *) malloc(sizeof(DatumMessage) * col_count);
-        row.cols = cols;
-        for(int j = 0; j < col_count; j++) {
-          DatumMessagePB datum_message = row_message.new_tuple(j);
-          YBCDatumMessage col;
-          if (datum_message.has_column_name()) {
-            col.column_name = datum_message.column_name().c_str();  
-          }
-          if (datum_message.has_column_type()) {
-            col.column_type = datum_message.column_type();
-          }
-          if (datum_message.has_ql_value()) {
-              uint64 datum;
-              bool is_null;
+      // YBCRowMessage row;
+      // int col_count = 0;
 
-              // YbgTypeDesc type_desc{(int) datum_message.column_type(), -1 /* typmod */};
-              int type_oid = (int) datum_message.column_type();
-              YBCPgTypeAttrs type_attrs{-1};
-              // const YBCPgTypeEntity* type_entity = yb::docdb::DocPgGetTypeEntity(type_desc);
-              const YBCPgTypeEntity * type_entity = FindTypeEntity(type_oid);
-              LOG(INFO) << "Before RETURN_NOT_OK 2\n";
-              RETURN_NOT_OK(PgValueFromPB(type_entity, type_attrs, datum_message.ql_value(), &datum, &is_null));
-              LOG(INFO) << "After RETURN_NOT_OK 2\n";
-              col.datum = datum;
-              col.is_null = is_null;
-          }
-          cols[j] = col;
-        }
-
-        if (row_message.has_commit_time()) {
-          row.commit_time = row_message.commit_time();
-        } else {
-          row.commit_time = -1;
-        }
-
-        if (row_message.has_transaction_id()) {
-          LOG(INFO) << "Transaction id: " << row_message.transaction_id();
-          row.transaction_id = std::stoi(row_message.transaction_id());  // does it work?
-        } else {
-          row.transaction_id = -1;
-        }
-
-        if (row_message.has_op()) {
-          row.action = RowMessage_Op_Name(row_message.op()).c_str();
-        } else {
-          row.action = RowMessage_Op_Name(cdc::RowMessage_Op::RowMessage_Op_UNKNOWN).c_str();
-        }
-
-        if (row_message.has_table_id()) {
-          LOG(INFO) << "Table Id: " << row_message.table_id();
-          Result<uint32_t> oid_result = yb::GetPgsqlTableOid(row_message.table_id());
-          LOG(INFO) << "OID conversion ok: " << oid_result.ok();
-          RETURN_NOT_OK(oid_result);
-          LOG(INFO) << "After RETURN_NOT_OK check";
-          // uint32_t oid_value = ;
-          // printf("oid: %ud\n", oid_value);
-          // row.table_name = row_message.table().c_str();
-          row.table_oid = oid_result.get();
-        } else {
-          row.table_oid = -1;
-        }
+      if (!record.has_row_message()) {
+        rows[i].col_count = 0;
+        continue;
       }
-      row.col_count = col_count;
-      rows[i] = row;
+      cdc::RowMessage row_message = record.row_message();
+      int col_count = row_message.new_tuple_size();
+      DatumMessage *cols = (DatumMessage *)malloc(sizeof(DatumMessage) * col_count);
+      
+      for (int j = 0; j < col_count; j++) {
+        DatumMessagePB datum_message = row_message.new_tuple(j);
+        // YBCDatumMessage col;
+        if (datum_message.has_column_name()) {
+          LOG(INFO) << "Setting column name " << datum_message.column_name();
+          char *name = (char *)malloc(sizeof(char) * datum_message.column_name().length());
+          strcpy(name, datum_message.column_name().c_str());
+          // cols[j].column_name = datum_message.column_name().c_str();
+          cols[j].column_name = name;
+          LOG(INFO) << "Set column name " << cols[j].column_name;
+        } else {
+          cols[j].column_name = "NA";
+        }
+        if (datum_message.has_column_type()) {
+          cols[j].column_type = datum_message.column_type();
+        }
+        if (datum_message.has_ql_value()) {
+          uint64 datum;
+          bool is_null;
+
+          // YbgTypeDesc type_desc{(int) datum_message.column_type(), -1 /* typmod */};
+          int type_oid = (int)datum_message.column_type();
+          YBCPgTypeAttrs type_attrs{-1};
+          // const YBCPgTypeEntity* type_entity = yb::docdb::DocPgGetTypeEntity(type_desc);
+          const YBCPgTypeEntity *type_entity = FindTypeEntity(type_oid);
+          LOG(INFO) << "Before RETURN_NOT_OK 2\n";
+          RETURN_NOT_OK(
+              PgValueFromPB(type_entity, type_attrs, datum_message.ql_value(), &datum, &is_null));
+          LOG(INFO) << "After RETURN_NOT_OK 2\n";
+          cols[j].datum = datum;
+          cols[j].is_null = is_null;
+        }
+        // cols[j] = col;
+        LOG(INFO) << "Verify column name: " << cols[j].column_name;
+      }
+
+      if (row_message.has_commit_time()) {
+        rows[i].commit_time = row_message.commit_time();
+      } else {
+        rows[i].commit_time = -1;
+      }
+
+      if (row_message.has_transaction_id()) {
+        LOG(INFO) << "Transaction id: " << row_message.transaction_id();
+        rows[i].transaction_id = std::stoi(row_message.transaction_id());  // does it work?
+      } else {
+        rows[i].transaction_id = -1;
+      }
+
+      if (row_message.has_op()) {
+        rows[i].action = RowMessage_Op_Name(row_message.op()).c_str();
+      } else {
+        rows[i].action = RowMessage_Op_Name(cdc::RowMessage_Op::RowMessage_Op_UNKNOWN).c_str();
+      }
+
+      if (row_message.has_table_id()) {
+        // LOG(INFO) << "Table Id: " << row_message.table_id();
+        Result<uint32_t> oid_result = yb::GetPgsqlTableOid(row_message.table_id());
+        // LOG(INFO) << "OID conversion ok: " << oid_result.ok();
+        RETURN_NOT_OK(oid_result);
+        // LOG(INFO) << "After RETURN_NOT_OK check";
+        // uint32_t oid_value = ;
+        // printf("oid: %ud\n", oid_value);
+        // row.table_name = row_message.table().c_str();
+        rows[i].table_oid = oid_result.get();
+      } else {
+        rows[i].table_oid = -1;
+      }
+
+      rows[i].cols = cols;
+      rows[i].col_count = col_count;
     }
 
+    response->row_count = row_count;
+    response->rows = rows;
+
     return Status::OK();
-    // RETURN_NOT_OK(cdc_proxy_->GetChanges(change_req, &change_resp, &get_changes_rpc));
-    // return Result(response);
 };
 
 } // namespace pggate

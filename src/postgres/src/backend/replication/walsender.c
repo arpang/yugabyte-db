@@ -2788,7 +2788,7 @@ XLogSendLogical(void)
 	char	   *errm;
 	elog(INFO, "Inside XLogSendLogical");
 	
-	ReorderBufferTXN *txn = (ReorderBufferTXN *) malloc(sizeof(ReorderBufferTXN));
+	ReorderBufferTXN *txn = (ReorderBufferTXN *) palloc(sizeof(ReorderBufferTXN));
 	// txn->xid = 123;
 	logical_decoding_ctx->accept_writes = true;
 	logical_decoding_ctx->write_xid = txn->xid;
@@ -2806,37 +2806,49 @@ XLogSendLogical(void)
 		elog(INFO, "For %d row, col counts: %d", i, row.col_count);
 
 		Relation relation = RelationIdGetRelation(row.table_oid);
-		// TupleDesc tupdesc = RelationGetDescr(relation);
+		TupleDesc tupdesc = RelationGetDescr(relation);
 
-		Datum datums[row.col_count];
-		bool is_nulls[row.col_count];
+		int num_attributes = tupdesc->natts;
+		elog(INFO, "Num attributes %d", num_attributes);
+		// Datum datums[row.col_count];
+		// bool is_nulls[row.col_count];
+		Datum datums[num_attributes];
+		bool is_nulls[num_attributes];
 
 		for (int j = 0; j < row.col_count; j++) {
 			YBCDatumMessage col = row.cols[j];
-			datums[j] = col.datum;
-			is_nulls[j] = col.is_null;
+			elog(INFO, "Processing column %d: name %s, type: %d datum: %lld is_null: %d", j, col.column_name, (Oid) col.column_type, col.datum, col.is_null);
+			int k = 0;
+			for(k = 0; k < num_attributes; k++) {
+				elog(INFO, "Looking up attribute %d with name %s", k, tupdesc->attrs[k].attname.data);
+				if (!strcmp(tupdesc->attrs[k].attname.data, col.column_name)) break;
+			}
+			elog(INFO, "For column %s, k: %d", col.column_name, k);
+			if (k == num_attributes) continue;
+			datums[k] = col.datum;
+			is_nulls[k] = col.is_null;
 
-			Oid typid = (Oid) col.column_type;
+			// Oid typid = (Oid) col.column_type;
 			// elog(INFO, "typid: %d", typid);
-			Oid			typoutput;	/* output function */
-			bool		typisvarlena;
+			// Oid			typoutput;	/* output function */
+			// bool		typisvarlena;
 			// elog(INFO, "Before getTypeOutputInfo");
-			getTypeOutputInfo(typid, &typoutput, &typisvarlena);
+			// getTypeOutputInfo(typid, &typoutput, &typisvarlena);
 			// elog(INFO, "After getTypeOutputInfo");
 			// elog(INFO, "Value of %d row %d col: %s", i, j, OidOutputFunctionCall(typoutput, col.datum));
-			char* str_value;
-			if (col.is_null)
-				str_value = "null";
-			else if (typisvarlena && VARATT_IS_EXTERNAL_ONDISK(col.datum))
-				str_value = "unchanged-toast-datum";
-			else if (!typisvarlena)
-				str_value = OidOutputFunctionCall(typoutput, col.datum);
-			else {
-				Datum		val;	/* definitely detoasted Datum */
-				val = PointerGetDatum(PG_DETOAST_DATUM(col.datum));
-				str_value = OidOutputFunctionCall(typoutput, val);
-			}	
-			elog(INFO, "Value of %d row %d col: typid %d datum %lld string: %s", i, j, typid, col.datum, str_value);
+			// char* str_value;
+			// if (col.is_null)
+			// 	str_value = "null";
+			// else if (typisvarlena && VARATT_IS_EXTERNAL_ONDISK(col.datum))
+			// 	str_value = "unchanged-toast-datum";
+			// else if (!typisvarlena)
+			// 	str_value = OidOutputFunctionCall(typoutput, col.datum);
+			// else {
+			// 	Datum		val;	/* definitely detoasted Datum */
+			// 	val = PointerGetDatum(PG_DETOAST_DATUM(col.datum));
+			// 	str_value = OidOutputFunctionCall(typoutput, val);
+			// }	
+			// elog(INFO, "Value of %d row %d col: typid %d datum %lld string: %s", i, j, typid, col.datum, str_value);
 		}
 
 		txn->xid = row.transaction_id;
@@ -2854,12 +2866,15 @@ XLogSendLogical(void)
 		}
 		else if (!strcmp(row.action, "INSERT") || !strcmp(row.action, "UPDATE") || !strcmp(row.action, "DELETE")) {
 			elog(INFO, "Change CB");
-			ReorderBufferChange *change = (ReorderBufferChange *) malloc(sizeof(ReorderBufferChange));
+			ReorderBufferChange *change = (ReorderBufferChange *) palloc(sizeof(ReorderBufferChange));
 			change->action = ToReorderBufferChangeType(row.action);
-			// HeapTuple head_tuple = heap_form_tuple(tupdesc, datums, is_nulls);
-			// ReorderBufferTupleBuf *new_tuple = (ReorderBufferTupleBuf *) malloc(sizeof(ReorderBufferTupleBuf));
-			// new_tuple->tuple = *head_tuple;
-			change->data.tp.newtuple = NULL; 
+			elog(INFO, "Before heap_form_tuple");
+			HeapTuple head_tuple = heap_form_tuple(tupdesc, datums, is_nulls);
+			elog(INFO, "After heap_form_tuple");
+			ReorderBufferTupleBuf *new_tuple = (ReorderBufferTupleBuf *) palloc(sizeof(ReorderBufferTupleBuf));
+			new_tuple->tuple = *head_tuple;
+			elog(INFO, "new_tuple set up done");
+			change->data.tp.newtuple = new_tuple; 
 			change->data.tp.oldtuple = NULL;
 			elog(INFO, "Before Change CB");
 			logical_decoding_ctx->callbacks.change_cb(logical_decoding_ctx, txn, relation, change);
