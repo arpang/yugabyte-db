@@ -239,6 +239,7 @@ Result<string> WritePostgresConfig(const PgProcessConf& conf) {
 
   // Add shared_preload_libraries to the ysql_pg.conf.
   lines.push_back(Format("shared_preload_libraries='$0'", boost::join(metricsLibs, ",")));
+  lines.push_back(Format("wal_level=logical"));
 
   if (conf.enable_tls) {
     lines.push_back("ssl=on");
@@ -306,6 +307,7 @@ Result<string> WritePgHbaConfig(const PgProcessConf& conf) {
   if (lines.empty()) {
     LOG(WARNING) << "No hba configuration lines found, defaulting to trust all configuration.";
     lines.push_back("host all all all trust");
+    lines.push_back("local all all trust");
   }
 
   // Add comments to the hba config file noting the internally hardcoded config line.

@@ -1717,9 +1717,9 @@ Status PgApiImpl::CDCGetChanges(YBCGetChangesResponse* response) {
 
     if (row_message.has_transaction_id()) {
       LOG(INFO) << "Transaction id: " << row_message.transaction_id();
-      rows[i].transaction_id = std::stoi(row_message.transaction_id());  // does it work?
+      rows[i].transaction_id = 1;  // std::stoi(row_message.transaction_id());  // does it work?
     } else {
-      rows[i].transaction_id = -1;
+      rows[i].transaction_id = 1;
     }
 
     if (row_message.has_op()) {
