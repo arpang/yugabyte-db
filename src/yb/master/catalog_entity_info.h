@@ -405,7 +405,11 @@ class TableInfo : public RefCountedThreadSafe<TableInfo>,
 
   bool has_pgschema_name() const;
 
+  const string& pgschema_name() const;
+
   bool has_pg_type_oid() const;
+
+  // uint32_t pg_type_oid() const;
 
   // True if the table is colocated (including tablegroups, excluding YSQL system tables).
   bool colocated() const;

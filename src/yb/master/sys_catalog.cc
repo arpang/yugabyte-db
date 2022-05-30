@@ -1286,7 +1286,7 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
 
   Schema projection;
   RETURN_NOT_OK(schema.CreateProjectionByNames(
-      {"attrelid", "attname", "atttypid", "attnum"}, &projection, schema.num_key_columns()));
+      {"attrelid", "attnum", "attname", "atttypid"}, &projection, schema.num_key_columns()));
   const auto attrelid_col_id = VERIFY_RESULT(projection.ColumnIdByName("attrelid")).rep();
   const auto attname_col_id = VERIFY_RESULT(projection.ColumnIdByName("attname")).rep();
   const auto atttypid_col_id = VERIFY_RESULT(projection.ColumnIdByName("atttypid")).rep();
@@ -1316,8 +1316,16 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
     const auto& atttypid_col = row.GetValue(atttypid_col_id);
     const auto& attnum_col = row.GetValue(attnum_col_id);
 
-    if (attnum_col->int32_value() < 0) {
+    if (!attnum_col) {
+      return STATUS(
+          Corruption,
+          Substitute("Could not read attnum column from pg_attribute for attrelid $0:", table_oid));
+    }
+
+    // LOG(INFO) << "attnum_col: " << attnum_col->int16_value();
+    if (attnum_col->int16_value() < 0) {
       // ignore system columns
+      LOG(INFO) << "Ignoring system colum with attnum_col: " << attnum_col->int16_value();
       continue;
     }
 
@@ -1342,7 +1350,7 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
     }
 
     type_oid_map[attname] = atttypid;
-    VLOG(1) << "attrelid: " << table_oid << " attname: " << attname << " atttypid: " << atttypid;
+    LOG(INFO) << "attrelid: " << table_oid << " attname: " << attname << " atttypid: " << atttypid;
   }
   return type_oid_map;
 }
