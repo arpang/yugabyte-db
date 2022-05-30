@@ -403,6 +403,10 @@ class TableInfo : public RefCountedThreadSafe<TableInfo>,
 
   const Status GetSchema(Schema* schema) const;
 
+  bool has_pgschema_name() const;
+
+  bool has_pg_type_oid() const;
+
   // True if the table is colocated (including tablegroups, excluding YSQL system tables).
   bool colocated() const;
 

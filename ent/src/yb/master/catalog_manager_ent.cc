@@ -2683,9 +2683,10 @@ Status CatalogManager::CreateCDCStream(const CreateCDCStreamRequestPB* req,
     }
   }
 
-
+  // TODO: can id_type_option_value be kNamespaceId?
   if (id_type_option_value != cdc::kNamespaceId) {
     scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(req->table_id()));
+
     {
       auto l = table->LockForRead();
       if (l->started_deleting()) {
@@ -2704,6 +2705,53 @@ Status CatalogManager::CreateCDCStream(const CreateCDCStreamRequestPB* req,
       return STATUS(InternalError,
                     "Unable to change the WAL retention time for table", req->table_id(),
                     MasterError(MasterErrorPB::INTERNAL_ERROR));
+    }
+
+    {
+      SharedLock lock(mutex_);        // TODO: correct?
+      auto l = table->LockForRead();  // TODO: correct?
+      if (table->GetTableType() == PGSQL_TABLE_TYPE) {
+        bool has_pgschema_name = table->has_pgschema_name();
+        bool has_pg_type_oid = table->has_pg_type_oid();
+        if (!has_pgschema_name || !has_pg_type_oid) {
+          AlterTableRequestPB alter_table_req_pg_type;
+          alter_table_req_pg_type.mutable_table()->set_table_id(req->table_id());
+          AlterTableResponsePB alter_table_resp_pg_type;
+          if (!has_pgschema_name) {
+            string pgschema_name = VERIFY_RESULT(GetPgSchemaName(table));
+            alter_table_req_pg_type.set_pgschema_name(pgschema_name);
+          }
+
+          if (!has_pg_type_oid) {
+            for (const auto& entry : VERIFY_RESULT(GetPgTypeOid(table))) {
+              auto* step = alter_table_req_pg_type.add_alter_schema_steps();
+              step->set_type(::yb::master::AlterTableRequestPB_StepType::
+                                 AlterTableRequestPB_StepType_SET_PG_TYPE);
+              auto set_pg_type = step->mutable_set_pg_type();
+              set_pg_type->set_name(entry.first);
+              set_pg_type->set_pg_type_oid(entry.second);
+            }
+          }
+          Status s = this->AlterTable(&alter_table_req_pg_type, &alter_table_resp_pg_type, rpc);
+          if (!s.ok()) {
+            return STATUS(
+                InternalError, "Unable to change the WAL retention time for table", req->table_id(),
+                MasterError(MasterErrorPB::INTERNAL_ERROR));
+          }
+        }
+        // if (!table->has_pgschema_name()) {
+        //   string pgschema_name = VERIFY_RESULT(GetPgSchemaName(table));
+        //   // 0. Alter table command
+        // }
+        // if (!table->has_pg_type_oid()) {
+        //   std::unordered_map<string, uint32_t> pg_type_oid_map =
+        //   VERIFY_RESULT(GetPgTypeOid(table));
+        //   // 1. Alter table flow?
+        //   // 2. Can we resue update metadata api? What params does it take?
+        //   // 3. get the current schema
+        //   // 4. compute the updated the schema
+        // }
+      }
     }
   }
 
