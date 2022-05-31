@@ -382,7 +382,7 @@ message AlterTableRequestPB {
   optional TransactionMetadataPB transaction = 9;
 
   // If set, updates the pgschema_name in SchemaPB.
-  optional string pgschema_name = 10; 
+  optional string pgschema_name = 10;
 }
 
 message AlterTableResponsePB {
