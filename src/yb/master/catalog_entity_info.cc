@@ -342,12 +342,12 @@ const string& TableInfo::pgschema_name() const {
 }
 
 bool TableInfo::has_pg_type_oid() const {
-   for (const auto &col : LockForRead()->schema().columns()) {
-     if (!col.has_pg_type_oid()) {
-       return false;
-     }
-   }
-   return true;
+  for (const auto& col : LockForRead()->schema().columns()) {
+    if (!col.has_pg_type_oid()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool TableInfo::colocated() const {
