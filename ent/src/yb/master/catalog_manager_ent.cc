@@ -2670,6 +2670,50 @@ void CatalogManager::GetAllCDCStreams(std::vector<scoped_refptr<CDCStreamInfo>>*
   }
 }
 
+Status CatalogManager::BackfillCDCMetadata(scoped_refptr<TableInfo> table, rpc::RpcContext* rpc) {
+  const TableId& table_id = table->id();
+  AlterTableRequestPB alter_table_req_pg_type;
+  bool backfill_required = false;
+  {
+    SharedLock lock(mutex_);
+    auto l = table->LockForRead();
+    if (table->GetTableType() == PGSQL_TABLE_TYPE) {
+      if (!table->has_pgschema_name()) {
+        LOG(INFO) << "CreateCDCStream: backfilling pgschema_name";
+        string pgschema_name = VERIFY_RESULT(GetPgSchemaName(table));
+        VLOG(1) << "For table: " << table->name() << " found pgschema_name: " << pgschema_name;
+        alter_table_req_pg_type.set_pgschema_name(pgschema_name);
+        backfill_required = true;
+      }
+
+      if (!table->has_pg_type_oid()) {
+        LOG(INFO) << "CreateCDCStream: backfilling pg_type_oid";
+        for (const auto& entry : VERIFY_RESULT(GetPgTypeOid(table))) {
+          VLOG(1) << "For table:" << table->name() << " column:" << entry.first
+                  << ", pg_type_oid: " << entry.second;
+          auto* step = alter_table_req_pg_type.add_alter_schema_steps();
+          step->set_type(::yb::master::AlterTableRequestPB_StepType::
+                             AlterTableRequestPB_StepType_SET_COLUMN_PG_TYPE);
+          auto set_column_pg_type = step->mutable_set_column_pg_type();
+          set_column_pg_type->set_name(entry.first);
+          set_column_pg_type->set_pg_type_oid(entry.second);
+        }
+        backfill_required = true;
+      }
+    }
+  }
+
+  if (backfill_required) {
+    alter_table_req_pg_type.mutable_table()->set_table_id(table_id);
+    AlterTableResponsePB alter_table_resp_pg_type;
+    return this->AlterTable(&alter_table_req_pg_type, &alter_table_resp_pg_type, rpc);
+  } else {
+    LOG(INFO) << "CreateCDCStream: found pgschema_name (" << table->pgschema_name()
+              << ") and pg_type_oid, no backfilling required for table id: " << table_id;
+    return Status::OK();
+  }
+}
+
 Status CatalogManager::CreateCDCStream(const CreateCDCStreamRequestPB* req,
                                        CreateCDCStreamResponsePB* resp,
                                        rpc::RpcContext* rpc) {
@@ -2706,49 +2750,11 @@ Status CatalogManager::CreateCDCStream(const CreateCDCStreamRequestPB* req,
                     MasterError(MasterErrorPB::INTERNAL_ERROR));
     }
 
-    AlterTableRequestPB alter_table_req_pg_type;
-    bool backfill_required = false;
-    {
-      SharedLock lock(mutex_);
-      auto l = table->LockForRead();
-      if (table->GetTableType() == PGSQL_TABLE_TYPE) {
-        if (!table->has_pgschema_name()) {
-          LOG(INFO) << "CreateCDCStream: backfilling pgschema_name";
-          string pgschema_name = VERIFY_RESULT(GetPgSchemaName(table));
-          VLOG(1) << "For table: " << table->name() << " found pgschema_name: " << pgschema_name;
-          alter_table_req_pg_type.set_pgschema_name(pgschema_name);
-          backfill_required = true;
-        }
-
-        if (!table->has_pg_type_oid()) {
-          LOG(INFO) << "CreateCDCStream: backfilling pg_type_oid";
-          for (const auto& entry : VERIFY_RESULT(GetPgTypeOid(table))) {
-            VLOG(1) << "For table:" << table->name() << " column:" << entry.first
-                    << ", pg_type_oid: " << entry.second;
-            auto* step = alter_table_req_pg_type.add_alter_schema_steps();
-            step->set_type(::yb::master::AlterTableRequestPB_StepType::
-                               AlterTableRequestPB_StepType_SET_COLUMN_PG_TYPE);
-            auto set_column_pg_type = step->mutable_set_column_pg_type();
-            set_column_pg_type->set_name(entry.first);
-            set_column_pg_type->set_pg_type_oid(entry.second);
-          }
-          backfill_required = true;
-        }
-      }
-    }
-
-    if (backfill_required) {
-      alter_table_req_pg_type.mutable_table()->set_table_id(req->table_id());
-      AlterTableResponsePB alter_table_resp_pg_type;
-      Status s = this->AlterTable(&alter_table_req_pg_type, &alter_table_resp_pg_type, rpc);
-      if (!s.ok()) {
-        return STATUS(
-            InternalError, "Unable to backfill pgschema_name and/or pg_type_oid", req->table_id(),
-            MasterError(MasterErrorPB::INTERNAL_ERROR));
-      }
-    } else {
-      LOG(INFO) << "CreateCDCStream: found pgschema_name (" << table->pgschema_name()
-                << ") and pg_type_oid, no backfilling required for table id: " << req->table_id();
+    Status status = BackfillCDCMetadata(table, rpc);
+    if (!status.ok()) {
+      return STATUS(
+          InternalError, "Unable to backfill pgschema_name and/or pg_type_oid", req->table_id(),
+          MasterError(MasterErrorPB::INTERNAL_ERROR));
     }
   }
 

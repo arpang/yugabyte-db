@@ -1321,7 +1321,7 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
     }
 
     if (attnum_col->int16_value() < 0) {
-      // ignore system columns
+      // Ignore system columns.
       VLOG(1) << "Ignoring system column (attnum = " << attnum_col->int16_value()
               << ") for attrelid $0:" << table_oid;
       continue;
@@ -1346,8 +1346,8 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
     uint32_t atttypid = atttypid_col->uint32_value();
 
     if (atttypid == 0) {
-      // ignore invalid columns
-      VLOG(1) << "Ignoring invalid column " << attname << " (atttypid = 0)"
+      // Ignore dropped columns.
+      VLOG(1) << "Ignoring dropped column " << attname << " (atttypid = 0)"
               << " for attrelid $0:" << table_oid;
       continue;
     }
