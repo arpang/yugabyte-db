@@ -325,7 +325,7 @@ message AlterTableRequestPB {
     ADD_COLUMN = 1;
     DROP_COLUMN = 2;
     RENAME_COLUMN = 3;
-    SET_PG_TYPE = 5;
+    SET_COLUMN_PG_TYPE = 5;
 
     // TODO(KUDU-861): this will subsume RENAME_COLUMN, but not yet implemented
     // on the master side.
@@ -347,8 +347,8 @@ message AlterTableRequestPB {
     required string new_name = 2;
   }
 
-  message SetPgType {
-    // Name of the column for which to update pg_type_oid.
+  message SetColumnPgType {
+    // Name of the column for which to update the pg_type_oid.
     required string name = 1;
     required uint32 pg_type_oid = 2;
   }
@@ -360,7 +360,7 @@ message AlterTableRequestPB {
     optional AddColumn add_column = 2;
     optional DropColumn drop_column = 3;
     optional RenameColumn rename_column = 4;
-    optional SetPgType set_pg_type = 5;
+    optional SetColumnPgType set_column_pg_type = 5;
   }
 
   required TableIdentifierPB table = 1;
@@ -381,7 +381,7 @@ message AlterTableRequestPB {
   // DDL Dependent upon Transaction success (abort removes). Used by YSQL.
   optional TransactionMetadataPB transaction = 9;
 
-  // If set, updates the pgschema_name in SchemaPB
+  // If set, updates the pgschema_name in SchemaPB.
   optional string pgschema_name = 10; 
 }
 

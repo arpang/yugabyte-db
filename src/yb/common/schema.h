@@ -1210,7 +1210,7 @@ class SchemaBuilder {
 
   Status RemoveColumn(const std::string& name);
   Status RenameColumn(const std::string& old_name, const std::string& new_name);
-  Status SetPGType(const std::string& name, const std::uint32_t pg_type_oid);
+  Status SetColumnPGType(const std::string& name, const uint32_t pg_type_oid);
   Status AlterProperties(const TablePropertiesPB& pb);
 
  private:

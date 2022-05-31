@@ -2683,7 +2683,6 @@ Status CatalogManager::CreateCDCStream(const CreateCDCStreamRequestPB* req,
     }
   }
 
-  // TODO: can id_type_option_value be kNamespaceId?
   if (id_type_option_value != cdc::kNamespaceId) {
     scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(req->table_id()));
 
@@ -2710,18 +2709,13 @@ Status CatalogManager::CreateCDCStream(const CreateCDCStreamRequestPB* req,
     AlterTableRequestPB alter_table_req_pg_type;
     bool backfill_required = false;
     {
-      SharedLock lock(mutex_);        // TODO: correct?
-      auto l = table->LockForRead();  // TODO: correct?
+      SharedLock lock(mutex_);
+      auto l = table->LockForRead();
       if (table->GetTableType() == PGSQL_TABLE_TYPE) {
-        // TODO: does it work or should i check against default values too?
-        // bool has_pgschema_name = table->has_pgschema_name();
-        // bool has_pg_type_oid = table->has_pg_type_oid();
-        // backfill_required = !has_pgschema_name || !has_pg_type_oid;
         if (!table->has_pgschema_name()) {
           LOG(INFO) << "CreateCDCStream: backfilling pgschema_name";
-          // TODO: make the below debug
           string pgschema_name = VERIFY_RESULT(GetPgSchemaName(table));
-          LOG(INFO) << "For table:" << table->name() << "found pgschema_name: " << pgschema_name;
+          VLOG(1) << "For table: " << table->name() << " found pgschema_name: " << pgschema_name;
           alter_table_req_pg_type.set_pgschema_name(pgschema_name);
           backfill_required = true;
         }
@@ -2729,15 +2723,14 @@ Status CatalogManager::CreateCDCStream(const CreateCDCStreamRequestPB* req,
         if (!table->has_pg_type_oid()) {
           LOG(INFO) << "CreateCDCStream: backfilling pg_type_oid";
           for (const auto& entry : VERIFY_RESULT(GetPgTypeOid(table))) {
-            // TODO: make it debug
-            LOG(INFO) << "For table:" << table->name() << " column:" << entry.first
-                      << ", pg_type_oid: " << entry.second;
+            VLOG(1) << "For table:" << table->name() << " column:" << entry.first
+                    << ", pg_type_oid: " << entry.second;
             auto* step = alter_table_req_pg_type.add_alter_schema_steps();
             step->set_type(::yb::master::AlterTableRequestPB_StepType::
-                               AlterTableRequestPB_StepType_SET_PG_TYPE);
-            auto set_pg_type = step->mutable_set_pg_type();
-            set_pg_type->set_name(entry.first);
-            set_pg_type->set_pg_type_oid(entry.second);
+                               AlterTableRequestPB_StepType_SET_COLUMN_PG_TYPE);
+            auto set_column_pg_type = step->mutable_set_column_pg_type();
+            set_column_pg_type->set_name(entry.first);
+            set_column_pg_type->set_pg_type_oid(entry.second);
           }
           backfill_required = true;
         }

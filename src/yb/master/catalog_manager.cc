@@ -5691,19 +5691,19 @@ Status ApplyAlterSteps(server::Clock* clock,
         break;
       }
 
-      case AlterTableRequestPB::SET_PG_TYPE: {
-        if (!step.has_set_pg_type()) {
-          return STATUS(InvalidArgument, "SET_PG_TYPE missing column info");
+      case AlterTableRequestPB::SET_COLUMN_PG_TYPE: {
+        if (!step.has_set_column_pg_type()) {
+          return STATUS(InvalidArgument, "SET_COLUMN_PG_TYPE missing column info");
         }
 
-        RETURN_NOT_OK(
-            builder.SetPGType(step.set_pg_type().name(), step.set_pg_type().pg_type_oid()));
+        RETURN_NOT_OK(builder.SetColumnPGType(
+            step.set_column_pg_type().name(), step.set_column_pg_type().pg_type_oid()));
         // TODO: significance of the last argument?
         ddl_log_entries->emplace_back(
             time, table_id, current_pb,
             Format(
-                "Set pg-type_oid for column $0 => $1", step.set_pg_type().name(),
-                step.set_pg_type().pg_type_oid()));
+                "Set pg_type_oid for column $0 => $1", step.set_column_pg_type().name(),
+                step.set_column_pg_type().pg_type_oid()));
         break;
       }
 

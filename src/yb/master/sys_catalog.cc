@@ -1276,7 +1276,7 @@ Result<string> SysCatalogTable::ReadPgNamespaceNspname(const uint32_t database_o
 
 Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
     const uint32_t database_oid, const uint32_t table_oid) {
-  TRACE_EVENT0("master", "GetPgTypeOid");
+  TRACE_EVENT0("master", "ReadPgTypeOid");
 
   const tablet::TabletPtr tablet = tablet_peer()->shared_tablet();
 
@@ -1288,9 +1288,9 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
   RETURN_NOT_OK(schema.CreateProjectionByNames(
       {"attrelid", "attnum", "attname", "atttypid"}, &projection, schema.num_key_columns()));
   const auto attrelid_col_id = VERIFY_RESULT(projection.ColumnIdByName("attrelid")).rep();
+  const auto attnum_col_id = VERIFY_RESULT(projection.ColumnIdByName("attnum")).rep();
   const auto attname_col_id = VERIFY_RESULT(projection.ColumnIdByName("attname")).rep();
   const auto atttypid_col_id = VERIFY_RESULT(projection.ColumnIdByName("atttypid")).rep();
-  const auto attnum_col_id = VERIFY_RESULT(projection.ColumnIdByName("attnum")).rep();
 
   auto iter = VERIFY_RESULT(tablet->NewRowIterator(
       projection.CopyWithoutColumnIds(), {} /* read_hybrid_time */, pg_table_id));
@@ -1312,8 +1312,6 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
 
-    const auto& attname_col = row.GetValue(attname_col_id);
-    const auto& atttypid_col = row.GetValue(atttypid_col_id);
     const auto& attnum_col = row.GetValue(attnum_col_id);
 
     if (!attnum_col) {
@@ -1322,12 +1320,15 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
           Substitute("Could not read attnum column from pg_attribute for attrelid $0:", table_oid));
     }
 
-    // LOG(INFO) << "attnum_col: " << attnum_col->int16_value();
     if (attnum_col->int16_value() < 0) {
       // ignore system columns
-      LOG(INFO) << "Ignoring system colum with attnum_col: " << attnum_col->int16_value();
+      VLOG(1) << "Ignoring system column (attnum = " << attnum_col->int16_value()
+              << ") for attrelid $0:" << table_oid;
       continue;
     }
+
+    const auto& attname_col = row.GetValue(attname_col_id);
+    const auto& atttypid_col = row.GetValue(atttypid_col_id);
 
     if (!attname_col) {
       return STATUS(
@@ -1346,11 +1347,13 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
 
     if (atttypid == 0) {
       // ignore invalid columns
+      VLOG(1) << "Ignoring invalid column " << attname << " (atttypid = 0)"
+              << " for attrelid $0:" << table_oid;
       continue;
     }
 
     type_oid_map[attname] = atttypid;
-    LOG(INFO) << "attrelid: " << table_oid << " attname: " << attname << " atttypid: " << atttypid;
+    VLOG(1) << "attrelid: " << table_oid << " attname: " << attname << " atttypid: " << atttypid;
   }
   return type_oid_map;
 }
