@@ -5698,7 +5698,6 @@ Status ApplyAlterSteps(server::Clock* clock,
 
         RETURN_NOT_OK(builder.SetColumnPGType(
             step.set_column_pg_type().name(), step.set_column_pg_type().pg_type_oid()));
-        // TODO: significance of the last argument?
         ddl_log_entries->emplace_back(
             time, table_id, current_pb,
             Format(
