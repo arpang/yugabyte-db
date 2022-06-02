@@ -1315,9 +1315,8 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
     const auto& attnum_col = row.GetValue(attnum_col_id);
 
     if (!attnum_col) {
-      return STATUS(
-          Corruption,
-          Substitute("Could not read attnum column from pg_attribute for attrelid $0:", table_oid));
+      return STATUS_FORMAT(
+          Corruption, "Could not read attnum column from pg_attribute for attrelid $0:", table_oid);
     }
 
     if (attnum_col->int16_value() < 0) {
@@ -1330,17 +1329,11 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgTypeOid(
     const auto& attname_col = row.GetValue(attname_col_id);
     const auto& atttypid_col = row.GetValue(atttypid_col_id);
 
-    if (!attname_col) {
-      return STATUS(
-          Corruption,
-          Substitute(
-              "Could not read attname column from pg_attribute for attrelid $0:", table_oid));
-    }
-    if (!atttypid_col) {
-      return STATUS(
-          Corruption,
-          Substitute(
-              "Could not read atttypid column from pg_attribute for attrelid $0:", table_oid));
+    if (!attname_col || !atttypid_col) {
+      std::string corrupted_col = !attname_col ? "attname" : "atttypid";
+      return STATUS_FORMAT(
+          Corruption, "Could not read $0 column from pg_attribute for attrelid $1:", corrupted_col,
+          table_oid);
     }
     string attname = attname_col->string_value();
     uint32_t atttypid = atttypid_col->uint32_value();
