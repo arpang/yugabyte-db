@@ -2670,7 +2670,8 @@ void CatalogManager::GetAllCDCStreams(std::vector<scoped_refptr<CDCStreamInfo>>*
   }
 }
 
-Status CatalogManager::BackfillCDCMetadata(scoped_refptr<TableInfo> table, rpc::RpcContext* rpc) {
+Status CatalogManager::BackfillMetadataForCDC(
+    scoped_refptr<TableInfo> table, rpc::RpcContext* rpc) {
   const TableId& table_id = table->id();
   AlterTableRequestPB alter_table_req_pg_type;
   bool backfill_required = false;
@@ -2679,7 +2680,7 @@ Status CatalogManager::BackfillCDCMetadata(scoped_refptr<TableInfo> table, rpc::
     auto l = table->LockForRead();
     if (table->GetTableType() == PGSQL_TABLE_TYPE) {
       if (!table->has_pgschema_name()) {
-        LOG(INFO) << "CreateCDCStream: backfilling pgschema_name";
+        LOG_WITH_FUNC(INFO) << "backfilling pgschema_name";
         string pgschema_name = VERIFY_RESULT(GetPgSchemaName(table));
         VLOG(1) << "For table: " << table->name() << " found pgschema_name: " << pgschema_name;
         alter_table_req_pg_type.set_pgschema_name(pgschema_name);
@@ -2687,7 +2688,7 @@ Status CatalogManager::BackfillCDCMetadata(scoped_refptr<TableInfo> table, rpc::
       }
 
       if (!table->has_pg_type_oid()) {
-        LOG(INFO) << "CreateCDCStream: backfilling pg_type_oid";
+        LOG_WITH_FUNC(INFO) << "backfilling pg_type_oid";
         for (const auto& entry : VERIFY_RESULT(GetPgTypeOid(table))) {
           VLOG(1) << "For table:" << table->name() << " column:" << entry.first
                   << ", pg_type_oid: " << entry.second;
@@ -2704,12 +2705,15 @@ Status CatalogManager::BackfillCDCMetadata(scoped_refptr<TableInfo> table, rpc::
   }
 
   if (backfill_required) {
+    // The alter table asynchrnously propagates the change to the tablets. It is okay here as these
+    // fields are only required at stream consumption and there is a gap between stream creation and
+    // consumption because the former is generally done manually.
     alter_table_req_pg_type.mutable_table()->set_table_id(table_id);
     AlterTableResponsePB alter_table_resp_pg_type;
     return this->AlterTable(&alter_table_req_pg_type, &alter_table_resp_pg_type, rpc);
   } else {
-    LOG(INFO) << "CreateCDCStream: found pgschema_name (" << table->pgschema_name()
-              << ") and pg_type_oid, no backfilling required for table id: " << table_id;
+    LOG_WITH_FUNC(INFO) << "found pgschema_name (" << table->pgschema_name()
+                        << ") and pg_type_oid, no backfilling required for table id: " << table_id;
     return Status::OK();
   }
 }
@@ -2750,7 +2754,7 @@ Status CatalogManager::CreateCDCStream(const CreateCDCStreamRequestPB* req,
                     MasterError(MasterErrorPB::INTERNAL_ERROR));
     }
 
-    Status status = BackfillCDCMetadata(table, rpc);
+    Status status = BackfillMetadataForCDC(table, rpc);
     if (!status.ok()) {
       return STATUS(
           InternalError, "Unable to backfill pgschema_name and/or pg_type_oid", req->table_id(),
