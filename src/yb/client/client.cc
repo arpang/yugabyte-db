@@ -2063,6 +2063,50 @@ Result<std::vector<YBTableName>> YBClient::ListUserTables(const NamespaceId& ns_
   return result;
 }
 
+Result<bool> YBClient::ListEnums(const std::string& ns_name) {
+  master::ListEnumsRequestPB req;
+  master::ListEnumsResponsePB resp;
+
+  req.mutable_namespace_()->set_database_type(YQL_DATABASE_PGSQL);
+  req.mutable_namespace_()->set_name(ns_name);
+
+  CALL_SYNC_LEADER_MASTER_RPC(req, resp, ListEnums);
+
+  LOG(INFO) << "Found Enums: " << resp.enums_size();
+  for (int i = 0; i < resp.enums_size(); i++) {
+    LOG(INFO) << "Printing enum: " << i;
+    const master::EnumInfoPB& enum_info = resp.enums(i);
+    LOG(INFO) << "Enum oid " << enum_info.oid() << " enumlabel: " << enum_info.enumlabel();
+    // string id = "unknown";
+    // string name = "unknown";
+
+    // if (udt_type_info.has_id()) {
+    //   id = udt_type_info.id();
+    // }
+    // if (udt_type_info.has_name()) {
+    //   name = udt_type_info.name();
+    // }
+
+    // LOG(INFO) << "UDT id: " << id << ", name: " << name
+    //           << " #field_names: " << udt_type_info.field_names_size()
+    //           << " #field_types: " << udt_type_info.field_types_size();
+    // for (int j = 0; j < udt_type_info.field_names_size(); j++) {
+    //   LOG(INFO) << "Field name " << j << ": " << udt_type_info.field_names(j);
+    // }
+
+    // for (int j = 0; j < udt_type_info.field_types_size(); j++) {
+    //   const QLTypePB& ql_type_pb = udt_type_info.field_types(i);
+
+    //   LOG(INFO) << "ql_type_pb.main(): " << ql_type_pb.main();
+
+    //   for (int k = 0; k < ql_type_pb.params_size(); k++) {
+    //     LOG(INFO) << "ql_type_pb.params.main: " << ql_type_pb.params(k).main();
+    //   }
+    // }
+  }
+  return true;
+}
+
 Result<bool> YBClient::TableExists(const YBTableName& table_name) {
   for (const YBTableName& table : VERIFY_RESULT(ListTables(table_name.table_name()))) {
     if (table == table_name) {

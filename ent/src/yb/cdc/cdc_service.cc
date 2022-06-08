@@ -514,6 +514,8 @@ class CDCServiceImpl::Impl {
   TabletCheckpoints tablet_checkpoints_ GUARDED_BY(mutex_);
 
   CDCStateMetadata cdc_state_metadata_ GUARDED_BY(mutex_);
+
+  std::unordered_map<int, std::unordered_map<uint32_t, string>> enumlabel_cache_;
 };
 
 CDCServiceImpl::CDCServiceImpl(TSTabletManager* tablet_manager,
@@ -834,6 +836,15 @@ Status CDCServiceImpl::CreateCDCStreamForNamespace(
       RefreshCacheOnFail(session->TEST_ApplyAndFlush(ops)), CDCError(CDCErrorPB::INTERNAL_ERROR));
 
   resp->set_db_stream_id(db_stream_id);
+
+  // here:
+  // master::NamespaceIdentifierPB namespace_identifier;
+  // namespace_identifier.set_name(req->namespace_name());
+
+  LOG(INFO) << "Finding enums for namespace: " << req->namespace_name();
+  auto print_enums = VERIFY_RESULT_OR_SET_CODE(
+      client()->ListEnums(req->namespace_name()), CDCError(CDCErrorPB::INTERNAL_ERROR));
+  LOG(INFO) << "print_enums: " << print_enums;
 
   // Clear creation_state so no changes are reversed by scope_exit since we succeeded.
   creation_state.Clear();

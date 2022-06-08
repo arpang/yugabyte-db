@@ -608,6 +608,23 @@ message GetUDTypeInfoResponsePB {
   optional UDTypeInfoPB udtype = 2;
 }
 
+
+message ListEnumsRequestPB {
+   // The table namespace (if empty - uses default namespace).
+  optional NamespaceIdentifierPB namespace = 1;
+}
+
+message EnumInfoPB {
+  required uint32 oid = 1;
+  required string enumlabel = 2;
+}
+
+message ListEnumsResponsePB {
+  // The error, if an error occurred with this request.
+  optional MasterErrorPB error = 1;
+  repeated EnumInfoPB enums = 2;
+}
+
 service MasterDdl {
   option (yb.rpc.custom_service_name) = "yb.master.MasterService";
 
@@ -654,4 +671,6 @@ service MasterDdl {
   rpc DeleteUDType(DeleteUDTypeRequestPB) returns (DeleteUDTypeResponsePB);
   rpc ListUDTypes(ListUDTypesRequestPB) returns (ListUDTypesResponsePB);
   rpc GetUDTypeInfo(GetUDTypeInfoRequestPB) returns (GetUDTypeInfoResponsePB);
+
+  rpc ListEnums(ListEnumsRequestPB) returns (ListEnumsResponsePB);
 }

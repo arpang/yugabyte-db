@@ -52,6 +52,7 @@ class MasterDdlServiceImpl : public MasterServiceBase, public MasterDdlIf {
     (IsDeleteTableDone)
     (IsTruncateTableDone)
     (LaunchBackfillIndexForTable)
+    (ListEnums)
     (ListNamespaces)
     (ListTablegroups)
     (ListTables)

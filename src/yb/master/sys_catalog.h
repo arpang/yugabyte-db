@@ -182,6 +182,9 @@ class SysCatalogTable {
   Result<std::unordered_map<string, uint32_t>> ReadPgTypeOid(
       const uint32_t database_oid, const uint32_t table_oid);
 
+  // Read enumtypid and enumlabel from pg_attribute catalog table.
+  Result<std::unordered_map<uint32_t, string>> ReadPgEnum(const uint32_t database_oid);
+
   // Read the pg_tablespace catalog table and return a map with all the tablespaces and their
   // respective placement information.
   Result<std::shared_ptr<TablespaceIdToReplicationInfoMap>> ReadPgTablespaceInfo();
