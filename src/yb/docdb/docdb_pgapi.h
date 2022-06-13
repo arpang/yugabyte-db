@@ -26,6 +26,7 @@
 
 #include <map>
 #include <vector>
+#include <unordered_map>
 
 #include "yb/common/column_id.h"
 #include "yb/common/common_fwd.h"
@@ -98,10 +99,12 @@ Result<std::vector<std::string>> ExtractTextArrayFromQLBinaryValue(const QLValue
 
 Status SetValueFromQLBinary(const QLValuePB ql_value,
                             const int pg_data_type,
+                            const std::unordered_map<uint32_t, std::string> &enum_oid_label_map,
                             DatumMessagePB* cdc_datum_message = NULL);
 
 Status SetValueFromQLBinaryHelper(const QLValuePB ql_value,
                                   const int elem_type,
+                                  const std::unordered_map<uint32_t, std::string> &enum_oid_label_map,
                                   DatumMessagePB* cdc_datum_message = NULL);
 
 } // namespace docdb

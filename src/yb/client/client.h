@@ -589,7 +589,8 @@ class YBClient {
   // 'tables' is appended to only on success.
   Result<std::vector<YBTableName>> ListUserTables(const NamespaceId& ns_id = "");
 
-  Result<bool> ListEnums(const std::string& ns_name);
+  Status PopulateEnumOidLabelMap(
+      const std::string& ns_name, std::unordered_map<uint32_t, string>* map);
 
   // List all running tablets' uuids for this table.
   // 'tablets' is appended to only on success.

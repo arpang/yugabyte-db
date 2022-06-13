@@ -199,15 +199,14 @@ Status DocPgEvalExpr(YbgPreparedExpr expr,
   return Status::OK();
 }
 
-Status SetValueFromQLBinary(const QLValuePB ql_value,
-                            const int pg_data_type,
-                            DatumMessagePB* cdc_datum_message) {
+Status SetValueFromQLBinary(
+    const QLValuePB ql_value, const int pg_data_type,
+    const std::unordered_map<uint32_t, string> &enum_oid_label_map,
+    DatumMessagePB *cdc_datum_message) {
   PG_RETURN_NOT_OK(YbgPrepareMemoryContext());
 
-  RETURN_NOT_OK(SetValueFromQLBinaryHelper(
-    ql_value,
-    pg_data_type,
-    cdc_datum_message));
+  RETURN_NOT_OK(
+      SetValueFromQLBinaryHelper(ql_value, pg_data_type, enum_oid_label_map, cdc_datum_message));
   PG_RETURN_NOT_OK(YbgResetMemoryContext());
   return Status::OK();
 }
@@ -259,6 +258,8 @@ Result<std::vector<std::string>> ExtractTextArrayFromQLBinaryValue(const QLValue
   PG_RETURN_NOT_OK(YbgResetMemoryContext());
   return result;
 }
+
+// void set_enum_value()
 
 void set_decoded_string_value(
     uint64_t datum,
@@ -602,7 +603,9 @@ void set_range_array_string_value(
 // This function expects that YbgPrepareMemoryContext was called
 // by the caller of this function.
 Status SetValueFromQLBinaryHelper(
-    const QLValuePB ql_value, const int pg_data_type, DatumMessagePB *cdc_datum_message) {
+    const QLValuePB ql_value, const int pg_data_type,
+    const std::unordered_map<uint32_t, string> &enum_oid_label_map,
+    DatumMessagePB *cdc_datum_message) {
   uint64_t size;
   char* val;
   const char* timezone = "GMT";
@@ -1247,10 +1250,20 @@ Status SetValueFromQLBinaryHelper(
       // val = const_cast<char *>(anyenum_val.c_str());
       // uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<void *>(val), size, &type_attrs);
       int64_t anyenum_val = ql_value.int64_value();
+      LOG(INFO) << "ql_value.int64_value() " << ql_value.int64_value();
+      LOG(INFO) << "ql_value.int32_value() " << ql_value.int32_value();
+      LOG(INFO) << "ql_value.uint64_value() " << ql_value.uint64_value();
+      LOG(INFO) << "ql_value.uint32_value() " << ql_value.uint32_value();
       size = arg_type->datum_fixed_size;
       uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<int64 *>(&anyenum_val), size, &type_attrs);
-      set_string_value(datum, func_name, cdc_datum_message);
+      LOG(INFO) << "uint64_t datum " << datum;
+      LOG(INFO) << "Found :"
+                << !(enum_oid_label_map.find((uint32_t)datum) == enum_oid_label_map.end());
+      auto label = enum_oid_label_map.at((uint32_t)datum);
+      LOG(INFO) << "enum label" << label;
+      // set_string_value(datum, func_name, cdc_datum_message);
       // cdc_datum_message->set_datum_string("");
+      cdc_datum_message->set_datum_string(label.c_str(), strlen(label.c_str()));
       break;
 
       // func_name = "byteaout";

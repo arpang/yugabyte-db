@@ -573,8 +573,6 @@ class CDCServiceImpl::Impl {
   TabletCheckpoints tablet_checkpoints_ GUARDED_BY(mutex_);
 
   CDCStateMetadata cdc_state_metadata_ GUARDED_BY(mutex_);
-
-  std::unordered_map<int, std::unordered_map<uint32_t, string>> enumlabel_cache_;
 };
 
 CDCServiceImpl::CDCServiceImpl(TSTabletManager* tablet_manager,
@@ -802,6 +800,18 @@ Result<NamespaceId> CDCServiceImpl::GetNamespaceId(const std::string& ns_name) {
   return namespace_info_resp.namespace_().id();
 }
 
+Status CDCServiceImpl::GetEnumLabelCache(
+    NamespaceName ns_name, std::unordered_map<uint32_t, string>* cache) {
+  std::lock_guard<decltype(mutex_)> l(mutex_);
+  if (enumlabel_cache_.find(ns_name) == enumlabel_cache_.end()) {
+    std::unordered_map<uint32_t, string> enum_oid_name_map;
+    RETURN_NOT_OK(client()->PopulateEnumOidLabelMap(ns_name, &enum_oid_name_map));
+    enumlabel_cache_[ns_name] = enum_oid_name_map;
+  }
+  *cache = enumlabel_cache_.at(ns_name);
+  return Status::OK();
+}
+
 Status CDCServiceImpl::CreateCDCStreamForNamespace(
     const CreateCDCStreamRequestPB* req,
     CreateCDCStreamResponsePB* resp,
@@ -899,11 +909,6 @@ Status CDCServiceImpl::CreateCDCStreamForNamespace(
   // here:
   // master::NamespaceIdentifierPB namespace_identifier;
   // namespace_identifier.set_name(req->namespace_name());
-
-  LOG(INFO) << "Finding enums for namespace: " << req->namespace_name();
-  auto print_enums = VERIFY_RESULT_OR_SET_CODE(
-      client()->ListEnums(req->namespace_name()), CDCError(CDCErrorPB::INTERNAL_ERROR));
-  LOG(INFO) << "print_enums: " << print_enums;
 
   // Clear creation_state so no changes are reversed by scope_exit since we succeeded.
   creation_state.Clear();
@@ -1263,10 +1268,18 @@ void CDCServiceImpl::GetChanges(const GetChangesRequestPB* req,
     std::string commit_timestamp;
     OpId last_streamed_op_id;
     auto cached_schema = impl_->GetOrAddSchema(producer_tablet, req->need_schema_info());
+    auto namespace_name = tablet_peer->tablet()->metadata()->namespace_name();
+    std::unordered_map<uint32_t, string> enum_oid_label_map;
+    if (!GetEnumLabelCache(namespace_name, &enum_oid_label_map).ok()) {
+      LOG(ERROR) << "Error getting enum label cache.";
+      return;
+    }
+    LOG_WITH_FUNC(INFO) << "Found :"
+                        << !(enum_oid_label_map.find(16392) == enum_oid_label_map.end());
     s = cdc::GetChangesForCDCSDK(
         req->stream_id(), req->tablet_id(), cdc_sdk_op_id, record, tablet_peer, mem_tracker,
-        &msgs_holder, resp, &commit_timestamp, &cached_schema,
-        &last_streamed_op_id, &last_readable_index, get_changes_deadline);
+        &msgs_holder, resp, &commit_timestamp, &cached_schema, &last_streamed_op_id,
+        enum_oid_label_map, &last_readable_index, get_changes_deadline);
 
     impl_->UpdateCDCStateMetadata(
         producer_tablet, commit_timestamp, cached_schema, last_streamed_op_id);

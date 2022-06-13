@@ -2080,7 +2080,8 @@ Result<std::vector<YBTableName>> YBClient::ListUserTables(const NamespaceId& ns_
   return result;
 }
 
-Result<bool> YBClient::ListEnums(const std::string& ns_name) {
+Status YBClient::PopulateEnumOidLabelMap(
+    const std::string& ns_name, std::unordered_map<uint32_t, string>* map) {
   master::ListEnumsRequestPB req;
   master::ListEnumsResponsePB resp;
 
@@ -2094,34 +2095,9 @@ Result<bool> YBClient::ListEnums(const std::string& ns_name) {
     LOG(INFO) << "Printing enum: " << i;
     const master::EnumInfoPB& enum_info = resp.enums(i);
     LOG(INFO) << "Enum oid " << enum_info.oid() << " enumlabel: " << enum_info.enumlabel();
-    // string id = "unknown";
-    // string name = "unknown";
-
-    // if (udt_type_info.has_id()) {
-    //   id = udt_type_info.id();
-    // }
-    // if (udt_type_info.has_name()) {
-    //   name = udt_type_info.name();
-    // }
-
-    // LOG(INFO) << "UDT id: " << id << ", name: " << name
-    //           << " #field_names: " << udt_type_info.field_names_size()
-    //           << " #field_types: " << udt_type_info.field_types_size();
-    // for (int j = 0; j < udt_type_info.field_names_size(); j++) {
-    //   LOG(INFO) << "Field name " << j << ": " << udt_type_info.field_names(j);
-    // }
-
-    // for (int j = 0; j < udt_type_info.field_types_size(); j++) {
-    //   const QLTypePB& ql_type_pb = udt_type_info.field_types(i);
-
-    //   LOG(INFO) << "ql_type_pb.main(): " << ql_type_pb.main();
-
-    //   for (int k = 0; k < ql_type_pb.params_size(); k++) {
-    //     LOG(INFO) << "ql_type_pb.params.main: " << ql_type_pb.params(k).main();
-    //   }
-    // }
+    map->insert({enum_info.oid(), enum_info.enumlabel()});
   }
-  return true;
+  return Status::OK();
 }
 
 Result<bool> YBClient::TableExists(const YBTableName& table_name) {
