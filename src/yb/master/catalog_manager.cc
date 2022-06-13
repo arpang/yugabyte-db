@@ -4820,7 +4820,7 @@ Result<string> CatalogManager::GetPgSchemaName(const TableInfoPtr& table_info) {
   return sys_catalog_->ReadPgNamespaceNspname(database_oid, relnamespace_oid);
 }
 
-Result<std::unordered_map<string, uint32_t>> CatalogManager::GetPgTypeOid(
+Result<std::unordered_map<string, uint32_t>> CatalogManager::GetPgAttNameTypidMap(
     const TableInfoPtr& table_info) {
   RSTATUS_DCHECK_EQ(
       table_info->GetTableType(), PGSQL_TABLE_TYPE, InternalError,
@@ -4832,7 +4832,16 @@ Result<std::unordered_map<string, uint32_t>> CatalogManager::GetPgTypeOid(
       table_oid = VERIFY_RESULT(GetPgsqlTableOid(matview_pg_table_ids_map_[table_info->id()]));
     }
   }
-  return sys_catalog_->ReadPgTypeOid(database_oid, table_oid);
+  return sys_catalog_->ReadPgAttributeInfo(database_oid, table_oid);
+}
+
+Result<std::unordered_map<uint32_t, PgTypeInfo>> CatalogManager::GetPgTypeInfo(
+    const scoped_refptr<NamespaceInfo>& namespace_info, vector<uint32_t>* type_oids) {
+  RSTATUS_DCHECK_EQ(
+      namespace_info->database_type(), YQL_DATABASE_PGSQL, InternalError,
+      Format("Expected YSQL database, got: $0", namespace_info->database_type()));
+  const uint32_t database_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(namespace_info->id()));
+  return sys_catalog_->ReadPgTypeInfo(database_oid, type_oids);
 }
 
 // Truncate a Table.
@@ -5301,6 +5310,9 @@ Status CatalogManager::DeleteTableInternal(
       }
     }
   }
+
+  RETURN_NOT_OK(DeleteCDCStreamsMetadataForTable(
+      resp->deleted_table_ids(resp->deleted_table_ids_size() - 1)));
 
   // If there are any permissions granted on this table find them and delete them. This is necessary
   // because we keep track of the permissions based on the canonical resource name which is a
@@ -8135,6 +8147,7 @@ Status CatalogManager::DeleteYsqlDBTables(const scoped_refptr<NamespaceInfo>& da
     id_list.push_back(table_and_lock.first->id());
   }
   RETURN_NOT_OK(DeleteCDCStreamsForTables(id_list));
+  RETURN_NOT_OK(DeleteCDCStreamsMetadataForTables(id_list));
 
   // Send a DeleteTablet() RPC request to each tablet replica in the table.
   for (auto &table_and_lock : tables) {
@@ -8672,6 +8685,13 @@ Status CatalogManager::DeleteCDCStreamsForTables(const vector<TableId>& table_id
   return Status::OK();
 }
 
+Status CatalogManager::DeleteCDCStreamsMetadataForTable(const TableId& table) {
+  return Status::OK();
+}
+
+Status CatalogManager::DeleteCDCStreamsMetadataForTables(const vector<TableId>& table_ids) {
+  return Status::OK();
+}
 
 bool CatalogManager::CDCStreamExistsUnlocked(const CDCStreamId& stream_id) {
   return false;

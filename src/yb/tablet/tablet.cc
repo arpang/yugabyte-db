@@ -493,6 +493,7 @@ Tablet::Tablet(const TabletInitData& data)
     transaction_participant_->IgnoreAllTransactionsStartedBefore(restoration_hybrid_time);
   }
   SyncRestoringOperationFilter(ResetSplit::kFalse);
+  external_txn_intents_state_ = std::make_unique<docdb::ExternalTxnIntentsState>();
 }
 
 Tablet::~Tablet() {
@@ -1275,8 +1276,9 @@ Status Tablet::ApplyKeyValueRowOperations(
 
     // See comments for PrepareExternalWriteBatch.
     rocksdb::WriteBatch intents_write_batch;
-    bool has_non_exteranl_records = PrepareExternalWriteBatch(
-        put_batch, hybrid_time, intents_db_.get(), regular_write_batch_ptr, &intents_write_batch);
+    bool has_non_external_records = PrepareExternalWriteBatch(
+        put_batch, hybrid_time, intents_db_.get(), regular_write_batch_ptr, &intents_write_batch,
+        external_txn_intents_state_.get());
 
     if (intents_write_batch.Count() != 0) {
       if (!metadata_->is_under_twodc_replication()) {
@@ -1286,7 +1288,7 @@ Status Tablet::ApplyKeyValueRowOperations(
     }
 
     docdb::NonTransactionalWriter writer(put_batch, hybrid_time);
-    if (!already_applied_to_regular_db && has_non_exteranl_records) {
+    if (!already_applied_to_regular_db && has_non_external_records) {
       regular_write_batch.SetDirectWriter(&writer);
     }
     if (regular_write_batch.Count() != 0 || regular_write_batch.HasDirectWriter()) {
@@ -3784,6 +3786,12 @@ Schema Tablet::GetKeySchema(const std::string& table_id) const {
 }
 
 HybridTime Tablet::DeleteMarkerRetentionTime(const std::vector<rocksdb::FileMetaData*>& inputs) {
+  auto scoped_read_operation = CreateNonAbortableScopedRWOperation();
+  if (!scoped_read_operation.ok()) {
+    // Prevent markers from being deleted when we cannot calculate retention time during shutdown.
+    return HybridTime::kMin;
+  }
+
   // Query order is important. Since it is not atomic, we should be sure that write would not sneak
   // our queries. So we follow write record travel order.
 
