@@ -801,9 +801,9 @@ Result<NamespaceId> CDCServiceImpl::GetNamespaceId(const std::string& ns_name) {
 }
 
 Status CDCServiceImpl::GetEnumLabelCache(
-    NamespaceName ns_name, std::unordered_map<uint32_t, string>* cache) {
+    NamespaceName ns_name, std::unordered_map<uint32_t, string>* cache, bool force_fresh) {
   std::lock_guard<decltype(mutex_)> l(mutex_);
-  if (enumlabel_cache_.find(ns_name) == enumlabel_cache_.end()) {
+  if (force_fresh || enumlabel_cache_.find(ns_name) == enumlabel_cache_.end()) {
     std::unordered_map<uint32_t, string> enum_oid_name_map;
     RETURN_NOT_OK(client()->PopulateEnumOidLabelMap(ns_name, &enum_oid_name_map));
     enumlabel_cache_[ns_name] = enum_oid_name_map;
@@ -890,6 +890,10 @@ Status CDCServiceImpl::CreateCDCStreamForNamespace(
     stream_ids.push_back(std::move(stream_id));
     table_ids.push_back(table_iter.table_id());
   }
+
+  LOG_WITH_FUNC(INFO) << "adding enums for " << req->namespace_name();
+  std::unordered_map<uint32_t, string> enum_oid_label_map;
+  RETURN_NOT_OK(GetEnumLabelCache(req->namespace_name(), &enum_oid_label_map, true));
 
   // Add stream to cache.
   AddStreamMetadataToCache(
@@ -1270,12 +1274,14 @@ void CDCServiceImpl::GetChanges(const GetChangesRequestPB* req,
     auto cached_schema = impl_->GetOrAddSchema(producer_tablet, req->need_schema_info());
     auto namespace_name = tablet_peer->tablet()->metadata()->namespace_name();
     std::unordered_map<uint32_t, string> enum_oid_label_map;
+    // LOG_WITH_FUNC(INFO) << "looking up enums for " << namespace_name;
     if (!GetEnumLabelCache(namespace_name, &enum_oid_label_map).ok()) {
       LOG(ERROR) << "Error getting enum label cache.";
       return;
     }
-    LOG_WITH_FUNC(INFO) << "Found :"
-                        << !(enum_oid_label_map.find(16392) == enum_oid_label_map.end());
+    // LOG_WITH_FUNC(INFO) << "Cache entry count: " << enum_oid_label_map.size();
+    // LOG_WITH_FUNC(INFO) << "Found:"
+    //                     << !(enum_oid_label_map.find(16392) == enum_oid_label_map.end());
     s = cdc::GetChangesForCDCSDK(
         req->stream_id(), req->tablet_id(), cdc_sdk_op_id, record, tablet_peer, mem_tracker,
         &msgs_holder, resp, &commit_timestamp, &cached_schema, &last_streamed_op_id,

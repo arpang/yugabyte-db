@@ -337,7 +337,8 @@ class CDCServiceImpl : public CDCServiceIf {
       std::shared_ptr<yb::consensus::ReplicateMsg> split_op_msg,
       const client::YBSessionPtr& session);
 
-  Status GetEnumLabelCache(NamespaceName ns_name, std::unordered_map<uint32_t, string>* cache);
+  Status GetEnumLabelCache(
+      NamespaceName ns_name, std::unordered_map<uint32_t, string>* cache, bool force_fresh = false);
 
   rpc::Rpcs rpcs_;
 

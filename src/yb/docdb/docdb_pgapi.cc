@@ -1245,34 +1245,18 @@ Status SetValueFromQLBinaryHelper(
     case ANYENUMOID: {
       LOG(INFO) << "Processing ANYENUMOID";
       func_name = "anyenum_out";
-      // string anyenum_val = ql_value.binary_value();
-      // size = anyenum_val.size();
-      // val = const_cast<char *>(anyenum_val.c_str());
-      // uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<void *>(val), size, &type_attrs);
       int64_t anyenum_val = ql_value.int64_value();
-      LOG(INFO) << "ql_value.int64_value() " << ql_value.int64_value();
-      LOG(INFO) << "ql_value.int32_value() " << ql_value.int32_value();
-      LOG(INFO) << "ql_value.uint64_value() " << ql_value.uint64_value();
-      LOG(INFO) << "ql_value.uint32_value() " << ql_value.uint32_value();
       size = arg_type->datum_fixed_size;
       uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<int64 *>(&anyenum_val), size, &type_attrs);
-      LOG(INFO) << "uint64_t datum " << datum;
-      LOG(INFO) << "Found :"
-                << !(enum_oid_label_map.find((uint32_t)datum) == enum_oid_label_map.end());
-      auto label = enum_oid_label_map.at((uint32_t)datum);
-      LOG(INFO) << "enum label" << label;
-      // set_string_value(datum, func_name, cdc_datum_message);
-      // cdc_datum_message->set_datum_string("");
+      string label = "";
+      if (enum_oid_label_map.find((uint32_t)datum) != enum_oid_label_map.end()) {
+        label = enum_oid_label_map.at((uint32_t)datum);
+        LOG(INFO) << "For enum oid: " << datum << " found label" << label;
+      } else {
+        LOG(WARNING) << "For enum oid: " << datum << " no label found in cache" << label;
+      }
       cdc_datum_message->set_datum_string(label.c_str(), strlen(label.c_str()));
       break;
-
-      // func_name = "byteaout";
-      // string bytea_val = ql_value.binary_value();
-      // size = bytea_val.size();
-      // val = const_cast<char *>(bytea_val.c_str());
-      // uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<void *>(val), size, &type_attrs);
-      // set_string_value(datum, func_name, cdc_datum_message);
-      // break;
     }
     case FDW_HANDLEROID: {
       func_name = "fdw_handler_out";
