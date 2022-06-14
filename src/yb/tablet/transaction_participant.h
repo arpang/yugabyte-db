@@ -206,9 +206,9 @@ class TransactionParticipant : public TransactionStatusManager {
 
   std::string DumpTransactions() const;
 
-  void SetIntentRetainOpIdAndTime(const yb::OpId& op_id, const MonoDelta& cdc_sdk_op_id_expiration);
+  void SetRetainOpId(const OpId& op_id) const;
 
-  OpId TEST_GetRetainOpId() const;
+  OpId GetRetainOpId() const;
 
   const TabletId& tablet_id() const override;
 

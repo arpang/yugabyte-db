@@ -71,8 +71,6 @@ struct TabletCheckpoint {
   OpId op_id;
   // Timestamp at which the op ID was last updated.
   CoarseTimePoint last_update_time;
-  // Timestamp at which stream polling happen.
-  CoarseTimePoint last_active_time;
 
   bool ExpiredAt(std::chrono::milliseconds duration, std::chrono::time_point<CoarseMonoClock> now) {
     return (now - last_update_time) > duration;
@@ -84,12 +82,9 @@ struct TabletCheckpoint {
 struct TabletCDCCheckpointInfo {
   OpId cdc_op_id = OpId::Max();
   OpId cdc_sdk_op_id = OpId::Invalid();
-  MonoDelta cdc_sdk_op_id_expiration = MonoDelta::kZero;
-  CoarseTimePoint cdc_sdk_most_active_time = CoarseTimePoint::min();
 };
 
 using TabletOpIdMap = std::unordered_map<TabletId, TabletCDCCheckpointInfo>;
-using TabletIdStreamIdSet = std::set<pair<TabletId, CDCStreamId>>;
 
 class CDCServiceImpl : public CDCServiceIf {
  public:
@@ -138,7 +133,7 @@ class CDCServiceImpl : public CDCServiceIf {
 
   CHECKED_STATUS UpdateCdcReplicatedIndexEntry(
       const string& tablet_id, int64 replicated_index, boost::optional<int64> replicated_term,
-      const OpId& cdc_sdk_replicated_op, const MonoDelta& cdc_sdk_op_id_expiration);
+      const OpId& cdc_sdk_replicated_op);
 
   Result<SetCDCCheckpointResponsePB> SetCDCCheckpoint(
       const SetCDCCheckpointRequestPB& req, CoarseTimePoint deadline) override;
@@ -170,7 +165,8 @@ class CDCServiceImpl : public CDCServiceIf {
   // Returns true if this server has received a GetChanges call.
   bool CDCEnabled();
 
-  void SetCDCServiceEnabled();
+  Status RetainIntents(
+      const std::shared_ptr<tablet::TabletPeer>& tablet_peer, const OpId& cdc_sdk_op_id);
 
  private:
   FRIEND_TEST(CDCServiceTest, TestMetricsOnDeletedReplication);
@@ -228,7 +224,7 @@ class CDCServiceImpl : public CDCServiceIf {
                                  rpc::RpcContext* context,
                                  const std::shared_ptr<tablet::TabletPeer>& peer);
 
-  void UpdateTabletPeersWithMinReplicatedIndex(TabletOpIdMap* tablet_min_checkpoint_map);
+  void UpdateTabletPeersWithMinReplicatedIndex(const TabletOpIdMap& tablet_min_checkpoint_map);
 
   Result<OpId> TabletLeaderLatestEntryOpId(const TabletId& tablet_id);
 
@@ -284,9 +280,6 @@ class CDCServiceImpl : public CDCServiceIf {
   // tablet and then update the peers' log objects. Also used to update lag metrics.
   void UpdatePeersAndMetrics();
 
-  // This method deletes entries from the cdc_state table that are contained in the set.
-  Status DeleteCDCStateTableMetadata(const TabletIdStreamIdSet& cdc_state_entries_to_delete);
-
   MicrosTime GetLastReplicatedTime(const std::shared_ptr<tablet::TabletPeer>& tablet_peer);
 
   bool ShouldUpdateLagMetrics(MonoTime time_since_update_metrics);
@@ -312,9 +305,7 @@ class CDCServiceImpl : public CDCServiceIf {
       CreateCDCStreamResponsePB* resp,
       CoarseTimePoint deadline);
 
-  Result<TabletOpIdMap> PopulateTabletCheckPointInfo(
-      const TabletId& input_tablet_id = "",
-      TabletIdStreamIdSet* tablet_stream_to_be_deleted = nullptr);
+  Result<TabletOpIdMap> PopulateTabletCheckPointInfo(const TabletId& input_tablet_id = "");
 
   Status SetInitialCheckPoint(
       const OpId& checkpoint, const string& tablet_id,

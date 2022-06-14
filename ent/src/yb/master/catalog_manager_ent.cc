@@ -2587,7 +2587,7 @@ std::vector<scoped_refptr<CDCStreamInfo>> CatalogManager::FindCDCStreamsForTable
     auto ltm = entry.second->LockForRead();
     // for xCluster the first entry will be the table_id
     if (!ltm->table_id().empty() && ltm->table_id().Get(0) == table_id &&
-        !ltm->started_deleting() && ltm->namespace_id().empty()) {
+        !ltm->started_deleting()) {
       streams.push_back(entry.second);
     }
   }
@@ -2603,8 +2603,7 @@ std::vector<scoped_refptr<CDCStreamInfo>> CatalogManager::FindCDCStreamsForTable
     auto ltm = entry.second->LockForRead();
     uint32_t table_list_size = ltm->table_id().size();
     for (uint32_t i = 0; i < table_list_size; i++) {
-      if (ltm->table_id().Get(i) == table_id && !ltm->is_deleting_metadata() &&
-          !ltm->namespace_id().empty()) {
+      if (ltm->table_id().Get(i) == table_id && !ltm->is_deleting_metadata()) {
         streams.push_back(entry.second);
       }
     }
@@ -3074,7 +3073,6 @@ Status CatalogManager::CleanUpDeletedCDCStreams(
   std::shared_ptr<client::YBSession> session = ybclient->NewSession();
   std::vector<std::pair<CDCStreamId, std::shared_ptr<client::YBqlWriteOp>>> stream_ops;
   std::set<CDCStreamId> failed_streams;
-  std::string stream_type;
   for (const auto& stream : streams) {
     LOG(INFO) << "Deleting rows for stream " << stream->id();
     for (const auto& table_id : stream->table_id()) {
@@ -3091,33 +3089,15 @@ Status CatalogManager::CleanUpDeletedCDCStreams(
       }
 
       for (const auto& tablet : tablets) {
-        if (!stream->namespace_id().empty()) {
-          // CDCSDK stream.
-          stream_type = "CDCSDK";
-          const auto update_op = cdc_table.NewUpdateOp();
-          auto* const update_req = update_op->mutable_request();
-          QLAddStringHashValue(update_req, tablet->tablet_id());
-          QLAddStringRangeValue(update_req, stream->id());
-          cdc_table.AddStringColumnValue(
-              update_req, master::kCdcCheckpoint, OpId::Max().ToString());
-          auto* condition = update_req->mutable_if_expr()->mutable_condition();
-          condition->set_op(QL_OP_EXISTS);
-          session->Apply(update_op);
-          LOG(INFO) << "Setting checkpoint to OpId::Max() for stream " << stream->id()
-                    << " and tablet " << tablet->tablet_id() << " with request "
-                    << update_req->ShortDebugString();
-        } else {
-          // XCluster stream.
-          const auto delete_op = cdc_table.NewDeleteOp();
-          auto* delete_req = delete_op->mutable_request();
+        const auto delete_op = cdc_table.NewDeleteOp();
+        auto* delete_req = delete_op->mutable_request();
 
-          QLAddStringHashValue(delete_req, tablet->tablet_id());
-          QLAddStringRangeValue(delete_req, stream->id());
-          session->Apply(delete_op);
-          stream_ops.push_back(std::make_pair(stream->id(), delete_op));
-          LOG(INFO) << "Deleting stream " << stream->id() << " for tablet " << tablet->tablet_id()
-                    << " with request " << delete_req->ShortDebugString();
-        }
+        QLAddStringHashValue(delete_req, tablet->tablet_id());
+        QLAddStringRangeValue(delete_req, stream->id());
+        session->Apply(delete_op);
+        stream_ops.push_back(std::make_pair(stream->id(), delete_op));
+        LOG(INFO) << "Deleting stream " << stream->id() << " for tablet " << tablet->tablet_id()
+                  << " with request " << delete_req->ShortDebugString();
       }
     }
   }
@@ -3125,11 +3105,7 @@ Status CatalogManager::CleanUpDeletedCDCStreams(
   s = session->Flush();
   if (!s.ok()) {
     LOG(ERROR) << "Unable to flush operations to delete cdc streams: " << s;
-    if (stream_type == "CDCSDK") {
-      return s.CloneAndPrepend("Error setting checkpoint to OpId::Max() in cdc_state table");
-    } else {
-      return s.CloneAndPrepend("Error deleting cdc stream rows from cdc_state table");
-    }
+    return s.CloneAndPrepend("Error deleting cdc stream rows from cdc_state table");
   }
 
   for (const auto& e : stream_ops) {
