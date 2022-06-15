@@ -259,8 +259,6 @@ Result<std::vector<std::string>> ExtractTextArrayFromQLBinaryValue(const QLValue
   return result;
 }
 
-// void set_enum_value()
-
 void set_decoded_string_value(
     uint64_t datum,
     const char* func_name,
@@ -272,9 +270,6 @@ void set_decoded_string_value(
     return;
   }
 
-  // if (std::strcmp(func_name, "anyenum_out") == 0) {
-  //   decoded_str = EnumDecodeDatum(func_name, (uintptr_t)datum);
-  // }
   if (timezone == nullptr)
     decoded_str = DecodeDatum(func_name, (uintptr_t)datum);
   else
@@ -1243,17 +1238,16 @@ Status SetValueFromQLBinaryHelper(
       break;
     }
     case ANYENUMOID: {
-      LOG(INFO) << "Processing ANYENUMOID";
-      func_name = "anyenum_out";
-      int64_t anyenum_val = ql_value.int64_value();
+      int64_t yb_enum_oid = ql_value.int64_value();
       size = arg_type->datum_fixed_size;
-      uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<int64 *>(&anyenum_val), size, &type_attrs);
+      uint64_t enum_oid =
+          arg_type->yb_to_datum(reinterpret_cast<int64 *>(&yb_enum_oid), size, &type_attrs);
       string label = "";
-      if (enum_oid_label_map.find((uint32_t)datum) != enum_oid_label_map.end()) {
-        label = enum_oid_label_map.at((uint32_t)datum);
-        LOG(INFO) << "For enum oid: " << datum << " found label" << label;
+      if (enum_oid_label_map.find((uint32_t)enum_oid) != enum_oid_label_map.end()) {
+        label = enum_oid_label_map.at((uint32_t)enum_oid);
+        VLOG(1) << "For enum oid: " << enum_oid << " found label" << label;
       } else {
-        LOG(WARNING) << "For enum oid: " << datum << " no label found in cache" << label;
+        LOG(WARNING) << "For enum oid: " << enum_oid << " no label found in cache " << label;
       }
       cdc_datum_message->set_datum_string(label.c_str(), strlen(label.c_str()));
       break;

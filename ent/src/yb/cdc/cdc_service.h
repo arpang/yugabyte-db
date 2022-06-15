@@ -338,7 +338,8 @@ class CDCServiceImpl : public CDCServiceIf {
       const client::YBSessionPtr& session);
 
   Status GetEnumLabelCache(
-      NamespaceName ns_name, std::unordered_map<uint32_t, string>* cache, bool force_fresh = false);
+      NamespaceName ns_name, std::unordered_map<uint32_t, string>* cache,
+      bool force_update = false);
 
   rpc::Rpcs rpcs_;
 
@@ -361,7 +362,7 @@ class CDCServiceImpl : public CDCServiceIf {
   std::unordered_map<std::string, std::shared_ptr<StreamMetadata>> stream_metadata_
       GUARDED_BY(mutex_);
 
-  // map of namespace name to (map of oid to enumlabel)
+  // Map of namespace name to (map of enum oid to enumlabel).
   std::unordered_map<string, std::unordered_map<uint32_t, string>> enumlabel_cache_
       GUARDED_BY(mutex_);
 

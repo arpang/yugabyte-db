@@ -1367,8 +1367,6 @@ Result<std::unordered_map<uint32_t, string>> SysCatalogTable::ReadPgEnum(
   const auto oid_col_id = VERIFY_RESULT(projection.ColumnIdByName("oid")).rep();
   const auto enumlabel_col_id = VERIFY_RESULT(projection.ColumnIdByName("enumlabel")).rep();
 
-  // TODO: add support for hybrid time
-  // TODO: add support for passing the already read max enum oid
   auto iter = VERIFY_RESULT(tablet->NewRowIterator(
       projection.CopyWithoutColumnIds(), {} /* read_hybrid_time */, pg_table_id));
   {
@@ -1473,7 +1471,6 @@ Result<std::unordered_map<uint32_t, PgTypeInfo>> SysCatalogTable::ReadPgTypeInfo
   }
   return type_oid_info_map;
 }
-
 
 Status SysCatalogTable::CopyPgsqlTables(
     const vector<TableId>& source_table_ids, const vector<TableId>& target_table_ids,

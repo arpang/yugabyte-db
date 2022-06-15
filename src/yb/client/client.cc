@@ -2090,11 +2090,10 @@ Status YBClient::PopulateEnumOidLabelMap(
 
   CALL_SYNC_LEADER_MASTER_RPC(req, resp, ListEnums);
 
-  LOG(INFO) << "Found Enums: " << resp.enums_size();
+  VLOG(1) << "For namespace " << ns_name << " found " << resp.enums_size() << " enums";
   for (int i = 0; i < resp.enums_size(); i++) {
-    LOG(INFO) << "Printing enum: " << i;
     const master::EnumInfoPB& enum_info = resp.enums(i);
-    LOG(INFO) << "Enum oid " << enum_info.oid() << " enumlabel: " << enum_info.enumlabel();
+    VLOG(1) << "Enum oid " << enum_info.oid() << " enumlabel: " << enum_info.enumlabel();
     map->insert({enum_info.oid(), enum_info.enumlabel()});
   }
   return Status::OK();

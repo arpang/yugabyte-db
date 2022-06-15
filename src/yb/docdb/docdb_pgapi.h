@@ -25,8 +25,8 @@
 #define YB_DOCDB_DOCDB_PGAPI_H_
 
 #include <map>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 #include "yb/common/column_id.h"
 #include "yb/common/common_fwd.h"
