@@ -805,7 +805,7 @@ Status CDCServiceImpl::GetEnumLabelCache(
   std::lock_guard<decltype(mutex_)> l(mutex_);
   if (force_update || enumlabel_cache_.find(ns_name) == enumlabel_cache_.end()) {
     std::unordered_map<uint32_t, string> enum_oid_name_map;
-    RETURN_NOT_OK(client()->PopulateEnumOidLabelMap(ns_name, &enum_oid_name_map));
+    RETURN_NOT_OK(client()->PopulatePgEnumOidLabelMap(ns_name, &enum_oid_name_map));
     enumlabel_cache_[ns_name] = enum_oid_name_map;
   }
   *cache = enumlabel_cache_.at(ns_name);

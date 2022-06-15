@@ -8629,22 +8629,6 @@ Status CatalogManager::ListUDTypes(const ListUDTypesRequestPB* req,
   return Status::OK();
 }
 
-Status CatalogManager::ListEnums(const ListEnumsRequestPB* req, ListEnumsResponsePB* resp) {
-  SharedLock lock(mutex_);
-  auto namespace_info = VERIFY_NAMESPACE_FOUND(FindNamespaceUnlocked(req->namespace_()), resp);
-  RSTATUS_DCHECK_EQ(
-      namespace_info->database_type(), YQL_DATABASE_PGSQL, InternalError,
-      Format("Expected YSQL database, got: $0", namespace_info->database_type()));
-  const uint32_t database_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(namespace_info->id()));
-  const auto enum_oid_label_map = VERIFY_RESULT(sys_catalog_->ReadPgEnum(database_oid));
-  for (const auto& entry : enum_oid_label_map) {
-    EnumInfoPB* enum_info_pb = resp->add_enums();
-    enum_info_pb->set_oid(entry.first);
-    enum_info_pb->set_enumlabel(entry.second);
-  }
-  return Status::OK();
-}
-
 void CatalogManager::DisableTabletSplittingInternal(
     const MonoDelta& duration, const std::string& feature) {
   tablet_split_manager_.DisableSplittingFor(duration, feature);

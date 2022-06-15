@@ -114,94 +114,96 @@
 
 using namespace std::literals;
 
+using google::protobuf::RepeatedPtrField;
+using std::string;
+using std::vector;
+using yb::master::AlterRoleRequestPB;
+using yb::master::AlterRoleResponsePB;
 using yb::master::AlterTableRequestPB;
+using yb::master::CreateCDCStreamRequestPB;
+using yb::master::CreateCDCStreamResponsePB;
+using yb::master::CreateNamespaceRequestPB;
+using yb::master::CreateNamespaceResponsePB;
+using yb::master::CreateRoleRequestPB;
+using yb::master::CreateRoleResponsePB;
 using yb::master::CreateTablegroupRequestPB;
 using yb::master::CreateTablegroupResponsePB;
+using yb::master::CreateTransactionStatusTableRequestPB;
+using yb::master::CreateTransactionStatusTableResponsePB;
+using yb::master::CreateUDTypeRequestPB;
+using yb::master::CreateUDTypeResponsePB;
+using yb::master::DeleteCDCStreamRequestPB;
+using yb::master::DeleteCDCStreamResponsePB;
+using yb::master::DeleteNamespaceRequestPB;
+using yb::master::DeleteNamespaceResponsePB;
+using yb::master::DeleteRoleRequestPB;
+using yb::master::DeleteRoleResponsePB;
 using yb::master::DeleteTablegroupRequestPB;
 using yb::master::DeleteTablegroupResponsePB;
-using yb::master::ListTablegroupsRequestPB;
-using yb::master::ListTablegroupsResponsePB;
+using yb::master::DeleteUDTypeRequestPB;
+using yb::master::DeleteUDTypeResponsePB;
+using yb::master::GetCDCDBStreamInfoRequestPB;
+using yb::master::GetCDCDBStreamInfoResponsePB;
+using yb::master::GetCDCStreamRequestPB;
+using yb::master::GetCDCStreamResponsePB;
+using yb::master::GetMasterClusterConfigRequestPB;
+using yb::master::GetMasterClusterConfigResponsePB;
 using yb::master::GetNamespaceInfoRequestPB;
 using yb::master::GetNamespaceInfoResponsePB;
+using yb::master::GetPermissionsRequestPB;
+using yb::master::GetPermissionsResponsePB;
 using yb::master::GetTableLocationsRequestPB;
 using yb::master::GetTableLocationsResponsePB;
 using yb::master::GetTabletLocationsRequestPB;
 using yb::master::GetTabletLocationsResponsePB;
 using yb::master::GetTransactionStatusTabletsRequestPB;
 using yb::master::GetTransactionStatusTabletsResponsePB;
+using yb::master::GetUDTypeInfoRequestPB;
+using yb::master::GetUDTypeInfoResponsePB;
+using yb::master::GetUDTypeMetadataRequestPB;
+using yb::master::GetUDTypeMetadataResponsePB;
+using yb::master::GetYsqlCatalogConfigRequestPB;
+using yb::master::GetYsqlCatalogConfigResponsePB;
+using yb::master::GrantRevokePermissionRequestPB;
+using yb::master::GrantRevokePermissionResponsePB;
+using yb::master::GrantRevokeRoleRequestPB;
+using yb::master::GrantRevokeRoleResponsePB;
+using yb::master::IsBootstrapRequiredRequestPB;
+using yb::master::IsBootstrapRequiredResponsePB;
 using yb::master::IsLoadBalancedRequestPB;
 using yb::master::IsLoadBalancedResponsePB;
 using yb::master::IsLoadBalancerIdleRequestPB;
 using yb::master::IsLoadBalancerIdleResponsePB;
+using yb::master::ListLiveTabletServersRequestPB;
+using yb::master::ListLiveTabletServersResponsePB;
+using yb::master::ListLiveTabletServersResponsePB_Entry;
 using yb::master::ListMastersRequestPB;
 using yb::master::ListMastersResponsePB;
+using yb::master::ListNamespacesRequestPB;
+using yb::master::ListNamespacesResponsePB;
+using yb::master::ListTablegroupsRequestPB;
+using yb::master::ListTablegroupsResponsePB;
 using yb::master::ListTablesRequestPB;
 using yb::master::ListTablesResponsePB;
 using yb::master::ListTablesResponsePB_TableInfo;
 using yb::master::ListTabletServersRequestPB;
 using yb::master::ListTabletServersResponsePB;
 using yb::master::ListTabletServersResponsePB_Entry;
-using yb::master::ListLiveTabletServersRequestPB;
-using yb::master::ListLiveTabletServersResponsePB;
-using yb::master::ListLiveTabletServersResponsePB_Entry;
-using yb::master::CreateNamespaceRequestPB;
-using yb::master::CreateNamespaceResponsePB;
-using yb::master::DeleteNamespaceRequestPB;
-using yb::master::DeleteNamespaceResponsePB;
-using yb::master::ListNamespacesRequestPB;
-using yb::master::ListNamespacesResponsePB;
-using yb::master::ReservePgsqlOidsRequestPB;
-using yb::master::ReservePgsqlOidsResponsePB;
-using yb::master::GetYsqlCatalogConfigRequestPB;
-using yb::master::GetYsqlCatalogConfigResponsePB;
-using yb::master::CreateUDTypeRequestPB;
-using yb::master::CreateUDTypeResponsePB;
-using yb::master::AlterRoleRequestPB;
-using yb::master::AlterRoleResponsePB;
-using yb::master::CreateRoleRequestPB;
-using yb::master::CreateRoleResponsePB;
-using yb::master::DeleteUDTypeRequestPB;
-using yb::master::DeleteUDTypeResponsePB;
-using yb::master::DeleteRoleRequestPB;
-using yb::master::DeleteRoleResponsePB;
-using yb::master::GetPermissionsRequestPB;
-using yb::master::GetPermissionsResponsePB;
-using yb::master::GrantRevokeRoleRequestPB;
-using yb::master::GrantRevokeRoleResponsePB;
-using yb::master::GetUDTypeInfoRequestPB;
-using yb::master::GetUDTypeInfoResponsePB;
-using yb::master::GrantRevokePermissionResponsePB;
-using yb::master::GrantRevokePermissionRequestPB;
 using yb::master::MasterDdlProxy;
-using yb::master::ReplicationInfoPB;
-using yb::master::TabletLocationsPB;
-using yb::master::RedisConfigSetRequestPB;
-using yb::master::RedisConfigSetResponsePB;
+using yb::master::PlacementInfoPB;
 using yb::master::RedisConfigGetRequestPB;
 using yb::master::RedisConfigGetResponsePB;
-using yb::master::CreateCDCStreamRequestPB;
-using yb::master::CreateCDCStreamResponsePB;
-using yb::master::DeleteCDCStreamRequestPB;
-using yb::master::DeleteCDCStreamResponsePB;
-using yb::master::GetCDCDBStreamInfoRequestPB;
-using yb::master::GetCDCDBStreamInfoResponsePB;
-using yb::master::GetCDCStreamRequestPB;
-using yb::master::GetCDCStreamResponsePB;
+using yb::master::RedisConfigSetRequestPB;
+using yb::master::RedisConfigSetResponsePB;
+using yb::master::ReplicationInfoPB;
+using yb::master::ReservePgsqlOidsRequestPB;
+using yb::master::ReservePgsqlOidsResponsePB;
+using yb::master::TabletLocationsPB;
 using yb::master::UpdateCDCStreamRequestPB;
 using yb::master::UpdateCDCStreamResponsePB;
-using yb::master::IsBootstrapRequiredRequestPB;
-using yb::master::IsBootstrapRequiredResponsePB;
-using yb::master::GetMasterClusterConfigRequestPB;
-using yb::master::GetMasterClusterConfigResponsePB;
-using yb::master::CreateTransactionStatusTableRequestPB;
-using yb::master::CreateTransactionStatusTableResponsePB;
 using yb::master::UpdateConsumerOnProducerSplitRequestPB;
 using yb::master::UpdateConsumerOnProducerSplitResponsePB;
-using yb::master::PlacementInfoPB;
 using yb::rpc::Messenger;
-using std::string;
-using std::vector;
-using google::protobuf::RepeatedPtrField;
 
 using namespace yb::size_literals;  // NOLINT.
 
@@ -2080,21 +2082,22 @@ Result<std::vector<YBTableName>> YBClient::ListUserTables(const NamespaceId& ns_
   return result;
 }
 
-Status YBClient::PopulateEnumOidLabelMap(
+Status YBClient::PopulatePgEnumOidLabelMap(
     const std::string& ns_name, std::unordered_map<uint32_t, string>* map) {
-  master::ListEnumsRequestPB req;
-  master::ListEnumsResponsePB resp;
+  GetUDTypeMetadataRequestPB req;
+  GetUDTypeMetadataResponsePB resp;
 
   req.mutable_namespace_()->set_database_type(YQL_DATABASE_PGSQL);
   req.mutable_namespace_()->set_name(ns_name);
+  req.set_pg_enum_info(true);
 
-  CALL_SYNC_LEADER_MASTER_RPC(req, resp, ListEnums);
+  CALL_SYNC_LEADER_MASTER_RPC_EX(Replication, req, resp, GetUDTypeMetadata);
 
   VLOG(1) << "For namespace " << ns_name << " found " << resp.enums_size() << " enums";
   for (int i = 0; i < resp.enums_size(); i++) {
-    const master::EnumInfoPB& enum_info = resp.enums(i);
-    VLOG(1) << "Enum oid " << enum_info.oid() << " enumlabel: " << enum_info.enumlabel();
-    map->insert({enum_info.oid(), enum_info.enumlabel()});
+    const master::PgEnumInfoPB& enum_info = resp.enums(i);
+    VLOG(1) << "Enum oid " << enum_info.oid() << " enum label: " << enum_info.label();
+    map->insert({enum_info.oid(), enum_info.label()});
   }
   return Status::OK();
 }

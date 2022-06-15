@@ -476,8 +476,6 @@ class CatalogManager :
                                GetUDTypeInfoResponsePB* resp,
                                rpc::RpcContext* rpc);
 
-  Status ListEnums(const ListEnumsRequestPB* req, ListEnumsResponsePB* resp);
-
   // Disables tablet splitting for a specified amount of time.
   Status DisableTabletSplitting(
       const DisableTabletSplittingRequestPB* req, DisableTabletSplittingResponsePB* resp,
