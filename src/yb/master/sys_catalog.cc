@@ -1373,8 +1373,9 @@ Result<std::unordered_map<uint32_t, string>> SysCatalogTable::ReadPgEnum(
     auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
     const std::vector<docdb::KeyEntryValue> empty_key_components;
     docdb::DocPgsqlScanSpec spec(
-        projection, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components, nullptr /* cond */,
-        boost::none /* hash_code */, boost::none /* max_hash_code */, nullptr /* where */);
+        projection, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components,
+        nullptr /* cond */, boost::none /* hash_code */, boost::none /* max_hash_code */,
+        nullptr /* where */);
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
 

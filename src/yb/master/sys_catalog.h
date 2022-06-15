@@ -190,7 +190,7 @@ class SysCatalogTable {
 
   // Read enumtypid and enumlabel from pg_enum catalog table.
   Result<std::unordered_map<uint32_t, string>> ReadPgEnum(const uint32_t database_oid);
-  
+
   // Read oid, typtype and typbasetype from pg_type catalog table.
   Result<std::unordered_map<uint32_t, PgTypeInfo>> ReadPgTypeInfo(
       const uint32_t database_oid, vector<uint32_t>* type_oids);
