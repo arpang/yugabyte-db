@@ -798,14 +798,13 @@ class CatalogManager :
   Result<TableDescription> DescribeTable(
       const TableInfoPtr& table_info, bool succeed_if_create_in_progress);
 
-  Result<std::string> GetPgSchemaName(const TableInfoPtr& table_info) REQUIRES_SHARED(mutex_);
+  Result<std::string> GetPgSchemaName(const TableInfoPtr& table_info);
 
   Result<std::unordered_map<std::string, uint32_t>> GetPgAttNameTypidMap(
-      const TableInfoPtr& table_info) REQUIRES_SHARED(mutex_);
+      const TableInfoPtr& table_info);
 
   Result<std::unordered_map<uint32_t, PgTypeInfo>> GetPgTypeInfo(
-      const scoped_refptr<NamespaceInfo>& namespace_info, vector<uint32_t>* type_oids)
-      REQUIRES_SHARED(mutex_);
+      const scoped_refptr<NamespaceInfo>& namespace_info, vector<uint32_t>* type_oids);
 
   void AssertLeaderLockAcquiredForReading() const override {
     leader_lock_.AssertAcquiredForReading();

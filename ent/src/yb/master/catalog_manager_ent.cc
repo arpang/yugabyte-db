@@ -2776,24 +2776,36 @@ void CatalogManager::GetAllCDCStreams(std::vector<scoped_refptr<CDCStreamInfo>>*
 
 Status CatalogManager::BackfillMetadataForCDC(
     scoped_refptr<TableInfo> table, rpc::RpcContext* rpc) {
-  const TableId& table_id = table->id();
+  TableId table_id;
+  TableName table_name;
+  bool has_pg_type_oid;
+  bool has_pgschema_name;
+  NamespaceId ns_id;
+  yb::TableType table_type;
+  {
+    auto l = table->LockForRead();
+    table_id = table->id();
+    table_name = table->name();
+    has_pg_type_oid = table->has_pg_type_oid();
+    has_pgschema_name = table->has_pgschema_name();
+    ns_id = table->namespace_id();
+    table_type = table->GetTableType();
+  }
   AlterTableRequestPB alter_table_req_pg_type;
   bool backfill_required = false;
   {
-    SharedLock lock(mutex_);
-    auto l = table->LockForRead();
-    if (table->GetTableType() == PGSQL_TABLE_TYPE) {
-      if (!table->has_pg_type_oid()) {
+    if (table_type == PGSQL_TABLE_TYPE) {
+      if (!has_pg_type_oid) {
         LOG_WITH_FUNC(INFO) << "backfilling pg_type_oid";
         auto const att_name_typid_map = VERIFY_RESULT(GetPgAttNameTypidMap(table));
         vector<uint32_t> type_oids;
         for (const auto& entry : att_name_typid_map) {
           type_oids.push_back(entry.second);
         }
-        auto ns = VERIFY_RESULT(FindNamespaceByIdUnlocked(table->namespace_id()));
+        auto ns = VERIFY_RESULT(FindNamespaceById(ns_id));
         auto const type_oid_info_map = VERIFY_RESULT(GetPgTypeInfo(ns, &type_oids));
         for (const auto& entry : att_name_typid_map) {
-          VLOG(1) << "For table:" << table->name() << " column:" << entry.first
+          VLOG(1) << "For table:" << table_name << " column:" << entry.first
                   << ", pg_type_oid: " << entry.second;
           auto* step = alter_table_req_pg_type.add_alter_schema_steps();
           step->set_type(::yb::master::AlterTableRequestPB_StepType::
@@ -2822,10 +2834,10 @@ Status CatalogManager::BackfillMetadataForCDC(
       // it is present or not. It is a safeguard against
       // https://phabricator.dev.yugabyte.com/D17099 which fills the pgschema_name in memory if it
       // is not present without backfilling it to master's disk or tservers.
-      if (backfill_required || !table->has_pgschema_name()) {
+      if (backfill_required || !has_pgschema_name) {
         LOG_WITH_FUNC(INFO) << "backfilling pgschema_name";
         string pgschema_name = VERIFY_RESULT(GetPgSchemaName(table));
-        VLOG(1) << "For table: " << table->name() << " found pgschema_name: " << pgschema_name;
+        VLOG(1) << "For table: " << table_name << " found pgschema_name: " << pgschema_name;
         alter_table_req_pg_type.set_pgschema_name(pgschema_name);
         backfill_required = true;
       }
@@ -2840,8 +2852,9 @@ Status CatalogManager::BackfillMetadataForCDC(
     AlterTableResponsePB alter_table_resp_pg_type;
     return this->AlterTable(&alter_table_req_pg_type, &alter_table_resp_pg_type, rpc);
   } else {
-    LOG_WITH_FUNC(INFO) << "found pgschema_name (" << table->pgschema_name()
-                        << ") and pg_type_oid, no backfilling required for table id: " << table_id;
+    LOG_WITH_FUNC(INFO)
+        << "found pgschema_name and pg_type_oid, no backfilling required for table id: "
+        << table_id;
     return Status::OK();
   }
 }
