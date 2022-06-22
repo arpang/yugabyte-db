@@ -51,6 +51,8 @@
 
 #include "yb/yql/cql/ql/util/errcodes.h"
 
+#include "yb/util/logging.h"
+
 DEFINE_test_flag(bool, pause_write_apply_after_if, false,
                  "Pause application of QLWriteOperation after evaluating if condition.");
 
@@ -400,6 +402,8 @@ Status QLWriteOperation::ReadColumns(const DocOperationApplyData& data,
                                      Schema *param_static_projection,
                                      Schema *param_non_static_projection,
                                      QLTableRow* table_row) {
+  LOG_WITH_FUNC(INFO) << "Start " << param_static_projection->ToString() << "\n"
+                      << param_non_static_projection->ToString();
   Schema *static_projection = param_static_projection;
   Schema *non_static_projection = param_non_static_projection;
 

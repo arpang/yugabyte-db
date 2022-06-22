@@ -344,6 +344,7 @@ class HybridScanChoices : public ScanChoices {
   // Constructs a list of ranges for each column from the given scanspec.
   // A filter of the form col1 IN (1,4,5) is converted to a filter
   // in the form col1 IN ([1, 1], [4, 4], [5, 5]).
+
   HybridScanChoices(const Schema& schema,
                     const KeyBytes &lower_doc_key,
                     const KeyBytes &upper_doc_key,
@@ -355,6 +356,7 @@ class HybridScanChoices : public ScanChoices {
                     : ScanChoices(is_forward_scan),
                         lower_doc_key_(lower_doc_key),
                         upper_doc_key_(upper_doc_key) {
+    LOG(INFO) << "Arpan HybridScanChoices";
     auto range_cols_scan_options = range_options;
     size_t idx = 0;
     range_cols_scan_options_lower_.reserve(schema.num_range_key_columns());
@@ -365,8 +367,10 @@ class HybridScanChoices : public ScanChoices {
     for (idx = schema.num_hash_key_columns();
             idx < schema.num_key_columns(); idx++) {
       const ColumnId col_idx = schema.column_id(idx);
+      const string col_name = schema.column_names()[idx];
       range_cols_scan_options_lower_.push_back({});
       range_cols_scan_options_upper_.push_back({});
+      LOG_WITH_FUNC(INFO) << "Prcoessing coluumn " << col_name << " " << col_idx;
 
       // If this is a range bound filter, we create a singular
       // list of the given range bound
@@ -385,6 +389,8 @@ class HybridScanChoices : public ScanChoices {
 
         range_cols_scan_options_lower_[idx - num_hash_cols].push_back(lower);
         range_cols_scan_options_upper_[idx - num_hash_cols].push_back(upper);
+        LOG_WITH_FUNC(INFO) << "For column " << col_name << " range bound single entry: lower "
+                            << lower << " upper " << upper;
       } else {
 
         // If this is an option filter, we turn each option into a
@@ -413,14 +419,18 @@ class HybridScanChoices : public ScanChoices {
             const auto& upper = val;
             range_cols_scan_options_lower_[idx - num_hash_cols].push_back(lower);
             range_cols_scan_options_upper_[idx - num_hash_cols].push_back(upper);
+            LOG_WITH_FUNC(INFO) << "For column " << col_name
+                                << " range option lower and upper: " << lower;
           }
-
         } else {
             // If no filter is specified, we just impose an artificial range
             // filter [kLowest, kHighest]
             range_cols_scan_options_lower_[idx - num_hash_cols].emplace_back(KeyEntryType::kLowest);
             range_cols_scan_options_upper_[idx - num_hash_cols].emplace_back(
                 KeyEntryType::kHighest);
+            LOG_WITH_FUNC(INFO) << "For column " << col_name
+                                << " no filter specified, artfificial single value: lower "
+                                << KeyEntryType::kLowest << " upper " << KeyEntryType::kHighest;
         }
       }
     }
@@ -487,6 +497,7 @@ class HybridScanChoices : public ScanChoices {
 // Sets current_scan_target_ to the first tuple in the filter space
 // that is >= new_target.
 Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
+  LOG(INFO) << "HybridScanChoices::SkipTargetsUpTo " << DocKey::DebugSliceToString(new_target);
   VLOG(2) << __PRETTY_FUNCTION__ << " Updating current target to be >= "
           << DocKey::DebugSliceToString(new_target);
   DCHECK(!FinishedWithScanChoices());
@@ -1057,10 +1068,13 @@ Result<bool> DocRowwiseIterator::InitScanChoices(
 
   if (!FLAGS_disable_hybrid_scan) {
     if (doc_spec.range_options() || doc_spec.range_bounds()) {
+      LOG(INFO) << "doc_spec.range_options() " << (doc_spec.range_options() != nullptr);
+      LOG(INFO) << "doc_spec.range_bounds() " << (doc_spec.range_bounds() != nullptr);
+      LOG(INFO) << "lower_doc_key.ToString() " << lower_doc_key.ToString();
+      LOG(INFO) << "upper_doc_key.ToString() " << upper_doc_key.ToString();
       scan_choices_.reset(new HybridScanChoices(
           doc_read_context_.schema, doc_spec, lower_doc_key, upper_doc_key));
     }
-
     return false;
   }
 
@@ -1081,7 +1095,6 @@ Result<bool> DocRowwiseIterator::InitScanChoices(
 Result<bool> DocRowwiseIterator::InitScanChoices(
     const DocPgsqlScanSpec& doc_spec, const KeyBytes& lower_doc_key,
     const KeyBytes& upper_doc_key) {
-
   if (!FLAGS_disable_hybrid_scan) {
     if (doc_spec.range_options() || doc_spec.range_bounds()) {
       scan_choices_.reset(new HybridScanChoices(
