@@ -6096,9 +6096,6 @@ Status CatalogManager::GetTableSchemaInternal(const GetTableSchemaRequestPB* req
       !table->is_system() &&
       !IsSequencesSystemTable(*table) &&
       !table->IsColocationParentTable()) {
-    // SharedLock lock(mutex_);
-    // TRACE("Acquired catalog manager lock for schema name lookup");
-
     auto pgschema_name = GetPgSchemaName(table);
     if (!pgschema_name.ok() || pgschema_name->empty()) {
       LOG(WARNING) << Format(
