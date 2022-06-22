@@ -318,6 +318,9 @@ record_out(PG_FUNCTION_ARGS)
 	/* Extract type info from the tuple itself */
 	tupType = HeapTupleHeaderGetTypeId(rec);
 	tupTypmod = HeapTupleHeaderGetTypMod(rec);
+
+	printf("Arpan tupType %u tupTypmod %d\n", tupType, tupTypmod);
+
 	tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
 	ncolumns = tupdesc->natts;
 

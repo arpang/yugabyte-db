@@ -1130,21 +1130,23 @@ Status SetValueFromQLBinaryHelper(
       break;
     }
     case RECORDOID: {
-      /*func_name = "record_out";
+      func_name = "record_out";
       string record_val = ql_value.binary_value();
       size = record_val.size();
       val = const_cast<char *>(record_val.c_str());
       uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
 
-      if (!is_proto_record) {
-        set_decoded_string_value(datum, func_name, is_proto_record);
-      } else {
+      // if (!is_proto_record) {
+      //   set_decoded_string_value(datum, func_name, is_proto_record);
+      // } else {
+      //     set_decoded_string_value(datum, func_name,
+      //                              cdc_datum_message);
+      // }
 
-          set_decoded_string_value(datum, func_name,
+      set_decoded_string_value(datum, func_name,
                                    cdc_datum_message);
-      }*/
 
-      cdc_datum_message->set_datum_string("");
+      // cdc_datum_message->set_datum_string("");
       break;
     }
     case CSTRINGOID: {
