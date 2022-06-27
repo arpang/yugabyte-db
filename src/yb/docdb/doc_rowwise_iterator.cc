@@ -373,17 +373,18 @@ class HybridScanChoices : public ScanChoices {
   // A filter of the form col1 IN (1,4,5) is converted to a filter
   // in the form col1 IN ([1, 1], [4, 4], [5, 5]).
 
-  HybridScanChoices(const Schema& schema,
-                    const KeyBytes &lower_doc_key,
-                    const KeyBytes &upper_doc_key,
-                    bool is_forward_scan,
-                    const std::vector<ColumnId> &range_options_indexes,
-                    const std::shared_ptr<std::vector<std::vector<KeyEntryValue>>>& range_options,
-                    const std::vector<ColumnId> range_bounds_indexes,
-                    const QLScanRange *range_bounds)
-                    : ScanChoices(is_forward_scan),
-                        lower_doc_key_(lower_doc_key),
-                        upper_doc_key_(upper_doc_key) {
+  HybridScanChoices(
+      const Schema& schema,
+      const KeyBytes& lower_doc_key,
+      const KeyBytes& upper_doc_key,
+      bool is_forward_scan,
+      const std::vector<ColumnId>& range_options_indexes,
+      const std::shared_ptr<std::vector<std::vector<KeyEntryValue>>>& range_options,
+      const std::vector<ColumnId>
+          range_bounds_indexes,
+      const QLScanRange* range_bounds,
+      const std::vector<size_t>& range_options_sizes)
+      : ScanChoices(is_forward_scan), lower_doc_key_(lower_doc_key), upper_doc_key_(upper_doc_key) {
     LOG(INFO) << "Arpan HybridScanChoices";
     auto range_cols_scan_options = range_options;
     size_t idx = 0;
@@ -391,8 +392,15 @@ class HybridScanChoices : public ScanChoices {
 
     size_t num_hash_cols = schema.num_hash_key_columns();
 
-    for (idx = schema.num_hash_key_columns();
-            idx < schema.num_key_columns(); idx++) {
+    range_options_sizes_ = range_options_sizes;
+    for (idx = num_hash_cols; idx < schema.num_key_columns(); idx++) {
+      // todo: there are 3 cases: (1) range bound (2) range option (3) none
+      // for (1): TODO
+      // for (2): range_options_sizes should contain the correct size
+      // for (3): the below conditional update should work
+      if (range_options_sizes_[idx - num_hash_cols] == 0) {
+        range_options_sizes_[idx - num_hash_cols] = 1;
+      }
       const ColumnId col_idx = schema.column_id(idx);
       const string col_name = schema.column_names()[idx];
       LOG_WITH_FUNC(INFO) << "Prcoessing coluumn " << col_name << " " << col_idx;
@@ -472,28 +480,29 @@ class HybridScanChoices : public ScanChoices {
     } else {
       current_scan_target_ = upper_doc_key;
     }
-
   }
 
-  HybridScanChoices(const Schema& schema,
-                    const DocPgsqlScanSpec& doc_spec,
-                    const KeyBytes &lower_doc_key,
-                    const KeyBytes &upper_doc_key)
-      : HybridScanChoices(schema, lower_doc_key, upper_doc_key,
-                          doc_spec.is_forward_scan(), doc_spec.range_options_indexes(),
-                          doc_spec.range_options(), doc_spec.range_bounds_indexes(),
-                          doc_spec.range_bounds()) {
-  }
+  HybridScanChoices(
+      const Schema& schema,
+      const DocPgsqlScanSpec& doc_spec,
+      const KeyBytes& lower_doc_key,
+      const KeyBytes& upper_doc_key)
+      : HybridScanChoices(
+            schema, lower_doc_key, upper_doc_key, doc_spec.is_forward_scan(),
+            doc_spec.range_options_indexes(), doc_spec.range_options(),
+            doc_spec.range_bounds_indexes(), doc_spec.range_bounds(),
+            vector<size_t>(doc_spec.range_options()->size(), 1)) {}
 
-  HybridScanChoices(const Schema& schema,
-                    const DocQLScanSpec& doc_spec,
-                    const KeyBytes &lower_doc_key,
-                    const KeyBytes &upper_doc_key)
-      : HybridScanChoices(schema, lower_doc_key, upper_doc_key,
-                          doc_spec.is_forward_scan(), doc_spec.range_options_indexes(),
-                          doc_spec.range_options(), doc_spec.range_bounds_indexes(),
-                          doc_spec.range_bounds()) {
-  }
+  HybridScanChoices(
+      const Schema& schema,
+      const DocQLScanSpec& doc_spec,
+      const KeyBytes& lower_doc_key,
+      const KeyBytes& upper_doc_key)
+      : HybridScanChoices(
+            schema, lower_doc_key, upper_doc_key, doc_spec.is_forward_scan(),
+            doc_spec.range_options_indexes(), doc_spec.range_options(),
+            doc_spec.range_bounds_indexes(), doc_spec.range_bounds(),
+            doc_spec.range_options_sizes()) {}
 
   Status SkipTargetsUpTo(const Slice& new_target) override;
   Status DoneWithCurrentTarget() override;
@@ -509,6 +518,7 @@ class HybridScanChoices : public ScanChoices {
   Status IncrementScanTargetAtColumn(int start_col);
 
  private:
+  Result<bool> SkipTargetsUpToHelper(size_t& col_idx, DocKeyDecoder& decoder);
   KeyBytes prev_scan_target_;
 
   // The following encodes the list of ranges we are iterating over
@@ -525,7 +535,147 @@ class HybridScanChoices : public ScanChoices {
 
   const KeyBytes lower_doc_key_;
   const KeyBytes upper_doc_key_;
+
+  std::vector<size_t> range_options_sizes_;
 };
+
+// return true to break, false otherwise
+Result<bool> HybridScanChoices::SkipTargetsUpToHelper(size_t& col_idx, DocKeyDecoder& decoder) {
+  // col_idxs[i] - num_hash_cols
+  // size_t size = range_options_sizes_.size();
+
+  KeyEntryValue target_value;
+  RETURN_NOT_OK(decoder.DecodeKeyEntryValue(&target_value));
+
+  const auto& current_choices = range_cols_scan_options_[col_idx];
+  auto current_it = current_scan_target_ranges_[col_idx];
+  DCHECK(current_it != current_choices.end());
+  auto lower = current_it->lower_val();
+  auto upper = current_it->upper_val();
+
+  bool lower_incl = current_it->lower_inclusive();
+  bool upper_incl = current_it->upper_inclusive();
+
+  using kval_cmp_fn_t = std::function<bool(const KeyEntryValue&, const KeyEntryValue&)>;
+
+  kval_cmp_fn_t lower_cmp_fn =
+      lower_incl ? [](const KeyEntryValue& t1, const KeyEntryValue& t2) { return t1 >= t2; }
+                 : [](const KeyEntryValue& t1, const KeyEntryValue& t2) { return t1 > t2; };
+  kval_cmp_fn_t upper_cmp_fn =
+      upper_incl ? [](const KeyEntryValue& t1, const KeyEntryValue& t2) { return t1 <= t2; }
+                 : [](const KeyEntryValue& t1, const KeyEntryValue& t2) { return t1 < t2; };
+
+  // If it's in range then good, continue after appending the target value
+  // column.
+  if (lower_cmp_fn(target_value, lower) && upper_cmp_fn(target_value, upper)) {
+    target_value.AppendToKey(&current_scan_target_);
+    return false;
+  }
+
+  // If target_value is not in the current range then we must find a range
+  // that works for it.
+  // If we are above all ranges then increment the index of the previous
+  // column.
+  // Else, target_value is below at least one range: find the lowest lower
+  // bound above target_value and use that, this relies on the assumption
+  // that all our filter ranges are disjoint.
+
+  auto it = current_choices.begin();
+
+  // Find an upper (lower) bound closest to target_value
+  OptionRange target_value_range(target_value, true, target_value, true);
+  if (is_forward_scan_) {
+    it = std::lower_bound(
+        current_choices.begin(), current_choices.end(), target_value_range, OptionRange::upper_lt);
+  } else {
+    it = std::lower_bound(
+        current_choices.begin(), current_choices.end(), target_value_range, OptionRange::lower_gt);
+  }
+
+  if (it == current_choices.end()) {
+    // target value is higher than all range options and
+    // we need to increment.
+    RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(col_idx) - 1));
+    col_idx = current_scan_target_ranges_.size();
+    return true;
+  }
+
+  current_scan_target_ranges_[col_idx] = it;
+
+  // If we are within a range then target_value itself should work
+
+  lower = it->lower_val();
+  upper = it->upper_val();
+
+  lower_incl = it->lower_inclusive();
+  upper_incl = it->upper_inclusive();
+
+  lower_cmp_fn = lower_incl
+                     ? [](const KeyEntryValue& t1, const KeyEntryValue& t2) { return t1 >= t2; }
+                     : [](const KeyEntryValue& t1, const KeyEntryValue& t2) { return t1 > t2; };
+  upper_cmp_fn = upper_incl
+                     ? [](const KeyEntryValue& t1, const KeyEntryValue& t2) { return t1 <= t2; }
+                     : [](const KeyEntryValue& t1, const KeyEntryValue& t2) { return t1 < t2; };
+  if (target_value >= lower && target_value <= upper) {
+    target_value.AppendToKey(&current_scan_target_);
+
+    if (lower_cmp_fn(target_value, lower) && upper_cmp_fn(target_value, upper)) {
+      // target_value satisfies the current range condition.
+      // Let's move on.
+      return false;
+    }
+
+    // We're here because the strictness part of a bound is broken
+
+    // If a strict upper bound is broken then we can increment
+    // and move on to the next target
+
+    DCHECK(target_value == upper || target_value == lower);
+
+    if (is_forward_scan_ && target_value == upper) {
+      RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(col_idx)));
+      col_idx = current_scan_target_ranges_.size();
+      return true;
+    }
+
+    if (!is_forward_scan_ && target_value == lower) {
+      RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(col_idx)));
+      col_idx = current_scan_target_ranges_.size();
+      return true;
+    }
+
+    // If a strict lower bound is broken then we can simply append
+    // a kHighest (kLowest) to get a target that satisfies the strict
+    // lower bound
+    if (is_forward_scan_) {
+      KeyEntryValue(KeyEntryType::kHighest).AppendToKey(&current_scan_target_);
+    } else {
+      KeyEntryValue(KeyEntryType::kLowest).AppendToKey(&current_scan_target_);
+    }
+    col_idx++;
+    return true;
+  }
+
+  // Otherwise we must set it to the next lower bound.
+  // This only works as we are assuming all given ranges are
+  // disjoint.
+
+  DCHECK((is_forward_scan_ && lower > target_value) || (!is_forward_scan_ && upper < target_value));
+
+  if (is_forward_scan_) {
+    lower.AppendToKey(&current_scan_target_);
+    if (!lower_incl) {
+      KeyEntryValue(KeyEntryType::kHighest).AppendToKey(&current_scan_target_);
+    }
+  } else {
+    upper.AppendToKey(&current_scan_target_);
+    if (!upper_incl) {
+      KeyEntryValue(KeyEntryType::kLowest).AppendToKey(&current_scan_target_);
+    }
+  }
+  col_idx++;
+  return true;
+}
 
 // Sets current_scan_target_ to the first tuple in the filter space
 // that is >= new_target.
@@ -547,7 +697,7 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     l_d_j <= D <= u_d_j
       3           5
 
-    a b  0 d  -> a  b l_c  d
+    a b  0 d  -> a  b l_c  0
 
     a b  5 d  -> a  b  5   d
                   [ Will subsequently seek out of document on reading the subdoc]
@@ -606,160 +756,167 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
   size_t col_idx = 0;
   KeyEntryValue target_value;
   for (col_idx = 0; col_idx < current_scan_target_ranges_.size(); col_idx++) {
-    RETURN_NOT_OK(decoder.DecodeKeyEntryValue(&target_value));
-
-    const auto &current_choices = range_cols_scan_options_[col_idx];
-    auto current_it = current_scan_target_ranges_[col_idx];
-    DCHECK(current_it != current_choices.end());
-    auto lower = current_it->lower_val();
-    auto upper = current_it->upper_val();
-
-    bool lower_incl = current_it->lower_inclusive();
-    bool upper_incl = current_it->upper_inclusive();
-
-    using kval_cmp_fn_t =
-        std::function<bool(const KeyEntryValue&, const KeyEntryValue &)>;
-
-    kval_cmp_fn_t lower_cmp_fn = lower_incl ? [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
-                                                return t1 >= t2;
-                                              }
-                                            : [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
-                                                return t1 > t2;
-                                              };
-    kval_cmp_fn_t upper_cmp_fn = upper_incl ? [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
-                                                return t1 <= t2;
-                                              }
-                                            : [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
-                                                return t1 < t2;
-                                              };
-
-    // If it's in range then good, continue after appending the target value
-    // column.
-    if (lower_cmp_fn(target_value, lower)
-        && upper_cmp_fn(target_value, upper)) {
-      target_value.AppendToKey(&current_scan_target_);
-      continue;
-    }
-
-    // If target_value is not in the current range then we must find a range
-    // that works for it.
-    // If we are above all ranges then increment the index of the previous
-    // column.
-    // Else, target_value is below at least one range: find the lowest lower
-    // bound above target_value and use that, this relies on the assumption
-    // that all our filter ranges are disjoint.
-
-    auto it = current_choices.begin();
-
-    // Find an upper (lower) bound closest to target_value
-    OptionRange target_value_range(target_value, true, target_value, true);
-    if (is_forward_scan_) {
-      it = std::lower_bound(current_choices.begin(),
-                            current_choices.end(),
-                            target_value_range,
-                            OptionRange::upper_lt);
-    } else {
-      it = std::lower_bound(current_choices.begin(),
-                            current_choices.end(),
-                            target_value_range,
-                            OptionRange::lower_gt);
-    }
-
-    if (it == current_choices.end()) {
-      // target value is higher than all range options and
-      // we need to increment.
-      RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(col_idx) - 1));
-      col_idx = current_scan_target_ranges_.size();
+    if (VERIFY_RESULT(SkipTargetsUpToHelper(col_idx, decoder))) {
       break;
     }
+    // RETURN_NOT_OK(decoder.DecodeKeyEntryValue(&target_value));
 
-    current_scan_target_ranges_[col_idx] = it;
+    // const auto &current_choices = range_cols_scan_options_[col_idx];
+    // auto current_it = current_scan_target_ranges_[col_idx];
+    // DCHECK(current_it != current_choices.end());
+    // auto lower = current_it->lower_val();
+    // auto upper = current_it->upper_val();
 
-    // If we are within a range then target_value itself should work
+    // bool lower_incl = current_it->lower_inclusive();
+    // bool upper_incl = current_it->upper_inclusive();
 
-    lower = it->lower_val();
-    upper = it->upper_val();
+    // using kval_cmp_fn_t =
+    //     std::function<bool(const KeyEntryValue&, const KeyEntryValue &)>;
 
-    lower_incl = it->lower_inclusive();
-    upper_incl = it->upper_inclusive();
+    // kval_cmp_fn_t lower_cmp_fn = lower_incl ? [](const KeyEntryValue& t1, const KeyEntryValue&
+    // t2) {
+    //                                             return t1 >= t2;
+    //                                           }
+    //                                         : [](const KeyEntryValue& t1, const KeyEntryValue&
+    //                                         t2) {
+    //                                             return t1 > t2;
+    //                                           };
+    // kval_cmp_fn_t upper_cmp_fn = upper_incl ? [](const KeyEntryValue& t1, const KeyEntryValue&
+    // t2) {
+    //                                             return t1 <= t2;
+    //                                           }
+    //                                         : [](const KeyEntryValue& t1, const KeyEntryValue&
+    //                                         t2) {
+    //                                             return t1 < t2;
+    //                                           };
 
-    lower_cmp_fn = lower_incl ? [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
-                                  return t1 >= t2;
-                                }
-                              : [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
-                                  return t1 > t2;
-                                };
-    upper_cmp_fn = upper_incl ? [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
-                                  return t1 <= t2;
-                                }
-                              : [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
-                                  return t1 < t2;
-                                };
-    if (target_value >= lower && target_value <= upper) {
-      target_value.AppendToKey(&current_scan_target_);
+    // // If it's in range then good, continue after appending the target value
+    // // column.
+    // if (lower_cmp_fn(target_value, lower)
+    //     && upper_cmp_fn(target_value, upper)) {
+    //   target_value.AppendToKey(&current_scan_target_);
+    //   continue;
+    // }
 
-      if (lower_cmp_fn(target_value, lower)
-          && upper_cmp_fn(target_value, upper)) {
-        // target_value satisfies the current range condition.
-        // Let's move on.
-        continue;
-      }
+    // // If target_value is not in the current range then we must find a range
+    // // that works for it.
+    // // If we are above all ranges then increment the index of the previous
+    // // column.
+    // // Else, target_value is below at least one range: find the lowest lower
+    // // bound above target_value and use that, this relies on the assumption
+    // // that all our filter ranges are disjoint.
 
-      // We're here because the strictness part of a bound is broken
+    // auto it = current_choices.begin();
 
-      // If a strict upper bound is broken then we can increment
-      // and move on to the next target
+    // // Find an upper (lower) bound closest to target_value
+    // OptionRange target_value_range(target_value, true, target_value, true);
+    // if (is_forward_scan_) {
+    //   it = std::lower_bound(current_choices.begin(),
+    //                         current_choices.end(),
+    //                         target_value_range,
+    //                         OptionRange::upper_lt);
+    // } else {
+    //   it = std::lower_bound(current_choices.begin(),
+    //                         current_choices.end(),
+    //                         target_value_range,
+    //                         OptionRange::lower_gt);
+    // }
 
-      DCHECK(target_value == upper || target_value == lower);
+    // if (it == current_choices.end()) {
+    //   // target value is higher than all range options and
+    //   // we need to increment.
+    //   RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(col_idx) - 1));
+    //   col_idx = current_scan_target_ranges_.size();
+    //   break;
+    // }
 
-      if (is_forward_scan_ && target_value == upper) {
-        RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(col_idx)));
-        col_idx = current_scan_target_ranges_.size();
-        break;
-      }
+    // current_scan_target_ranges_[col_idx] = it;
 
-      if (!is_forward_scan_ && target_value == lower) {
-        RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(col_idx)));
-        col_idx = current_scan_target_ranges_.size();
-        break;
-      }
+    // // If we are within a range then target_value itself should work
 
-      // If a strict lower bound is broken then we can simply append
-      // a kHighest (kLowest) to get a target that satisfies the strict
-      // lower bound
-      if (is_forward_scan_) {
-        KeyEntryValue(KeyEntryType::kHighest)
-            .AppendToKey(&current_scan_target_);
-      } else {
-        KeyEntryValue(KeyEntryType::kLowest)
-            .AppendToKey(&current_scan_target_);
-      }
-      col_idx++;
-      break;
-    }
+    // lower = it->lower_val();
+    // upper = it->upper_val();
 
-    // Otherwise we must set it to the next lower bound.
-    // This only works as we are assuming all given ranges are
-    // disjoint.
+    // lower_incl = it->lower_inclusive();
+    // upper_incl = it->upper_inclusive();
 
-    DCHECK((is_forward_scan_ && lower > target_value)
-            || (!is_forward_scan_ && upper < target_value));
+    // lower_cmp_fn = lower_incl ? [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
+    //                               return t1 >= t2;
+    //                             }
+    //                           : [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
+    //                               return t1 > t2;
+    //                             };
+    // upper_cmp_fn = upper_incl ? [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
+    //                               return t1 <= t2;
+    //                             }
+    //                           : [](const KeyEntryValue& t1, const KeyEntryValue& t2) {
+    //                               return t1 < t2;
+    //                             };
+    // if (target_value >= lower && target_value <= upper) {
+    //   target_value.AppendToKey(&current_scan_target_);
 
-    if (is_forward_scan_) {
-      lower.AppendToKey(&current_scan_target_);
-      if (!lower_incl) {
-        KeyEntryValue(KeyEntryType::kHighest)
-            .AppendToKey(&current_scan_target_);
-      }
-    } else {
-      upper.AppendToKey(&current_scan_target_);
-      if (!upper_incl) {
-        KeyEntryValue(KeyEntryType::kLowest)
-            .AppendToKey(&current_scan_target_);
-      }
-    }
-    col_idx++;
-    break;
+    //   if (lower_cmp_fn(target_value, lower)
+    //       && upper_cmp_fn(target_value, upper)) {
+    //     // target_value satisfies the current range condition.
+    //     // Let's move on.
+    //     continue;
+    //   }
+
+    //   // We're here because the strictness part of a bound is broken
+
+    //   // If a strict upper bound is broken then we can increment
+    //   // and move on to the next target
+
+    //   DCHECK(target_value == upper || target_value == lower);
+
+    //   if (is_forward_scan_ && target_value == upper) {
+    //     RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(col_idx)));
+    //     col_idx = current_scan_target_ranges_.size();
+    //     break;
+    //   }
+
+    //   if (!is_forward_scan_ && target_value == lower) {
+    //     RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(col_idx)));
+    //     col_idx = current_scan_target_ranges_.size();
+    //     break;
+    //   }
+
+    //   // If a strict lower bound is broken then we can simply append
+    //   // a kHighest (kLowest) to get a target that satisfies the strict
+    //   // lower bound
+    //   if (is_forward_scan_) {
+    //     KeyEntryValue(KeyEntryType::kHighest)
+    //         .AppendToKey(&current_scan_target_);
+    //   } else {
+    //     KeyEntryValue(KeyEntryType::kLowest)
+    //         .AppendToKey(&current_scan_target_);
+    //   }
+    //   col_idx++;
+    //   break;
+    // }
+
+    // // Otherwise we must set it to the next lower bound.
+    // // This only works as we are assuming all given ranges are
+    // // disjoint.
+
+    // DCHECK((is_forward_scan_ && lower > target_value)
+    //         || (!is_forward_scan_ && upper < target_value));
+
+    // if (is_forward_scan_) {
+    //   lower.AppendToKey(&current_scan_target_);
+    //   if (!lower_incl) {
+    //     KeyEntryValue(KeyEntryType::kHighest)
+    //         .AppendToKey(&current_scan_target_);
+    //   }
+    // } else {
+    //   upper.AppendToKey(&current_scan_target_);
+    //   if (!upper_incl) {
+    //     KeyEntryValue(KeyEntryType::kLowest)
+    //         .AppendToKey(&current_scan_target_);
+    //   }
+    // }
+    // col_idx++;
+    // break;
   }
 
   // Reset the remaining range columns to lower bounds for forward scans

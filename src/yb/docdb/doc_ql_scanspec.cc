@@ -81,6 +81,7 @@ DocQLScanSpec::DocQLScanSpec(
     DCHECK(condition);
     range_options_ = std::make_shared<std::vector<std::vector<KeyEntryValue>>>(
         schema_.num_range_key_columns());
+    range_options_sizes_.reserve(schema_.num_range_key_columns());
     InitRangeOptions(*condition);
 
     if (FLAGS_disable_hybrid_scan) {
@@ -94,6 +95,20 @@ DocQLScanSpec::DocQLScanSpec(
         }
     }
   }
+}
+
+// Takes in sorted index list.
+bool AreIndexesContinous(const vector<int>& col_idxs) {
+  vector<int> copy = col_idxs;
+  std::sort(copy.begin(), copy.end());
+  int prev_idx = -1;
+  for (auto const idx : copy) {
+    if (prev_idx != -1 && idx != prev_idx + 1) {
+      return false;
+    }
+    prev_idx = idx;
+  }
+  return true;
 }
 
 void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
@@ -110,43 +125,113 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
     case QLOperator::QL_OP_IN: {
       DCHECK_EQ(condition.operands_size(), 2);
       // Skip any condition where LHS is not a column (e.g. subscript columns: 'map[k] = v')
-      if (condition.operands(0).expr_case() != QLExpressionPB::kColumnId) {
+      const auto& lhs = condition.operands(0);
+      const auto& rhs = condition.operands(1);
+
+      if (lhs.expr_case() != QLExpressionPB::kColumnId ||
+          lhs.expr_case() != QLExpressionPB::kColumns) {
         return;
       }
 
       // Skip any RHS expressions that are not evaluated yet.
-      if (condition.operands(1).expr_case() != QLExpressionPB::kValue) {
+      if (rhs.expr_case() != QLExpressionPB::kValue) {
         return;
       }
 
-      ColumnId col_id = ColumnId(condition.operands(0).column_id());
-      int col_idx = schema_.find_column_by_id(col_id);
+      if (lhs.has_column_id()) {
+        ColumnId col_id = ColumnId(lhs.column_id());
+        int col_idx = schema_.find_column_by_id(col_id);
 
-      // Skip any non-range columns.
-      if (!schema_.is_range_column(col_idx)) {
-        return;
-      }
+        range_options_sizes_[col_idx - num_hash_cols] = 1;
 
-      SortingType sortingType = schema_.column(col_idx).sorting_type();
-      range_options_indexes_.emplace_back(condition.operands(0).column_id());
+        // Skip any non-range columns.
+        if (!schema_.is_range_column(col_idx)) {
+          return;
+        }
 
-      if (condition.op() == QL_OP_EQUAL) {
-        auto pv = KeyEntryValue::FromQLValuePBForKey(condition.operands(1).value(), sortingType);
-        (*range_options_)[col_idx - num_hash_cols].push_back(std::move(pv));
-      } else { // QL_OP_IN
-        DCHECK_EQ(condition.op(), QL_OP_IN);
-        DCHECK(condition.operands(1).value().has_list_value());
-        const auto &options = condition.operands(1).value().list_value();
-        int opt_size = options.elems_size();
-        (*range_options_)[col_idx - num_hash_cols].reserve(opt_size);
+        SortingType sorting_type = schema_.column(col_idx).sorting_type();
+        // TODO: confusing - name says indexes but stores ids
+        range_options_indexes_.emplace_back(col_id);
 
-        // IN arguments should have been de-duplicated and ordered ascendingly by the executor.
-        bool is_reverse_order = is_forward_scan_ ^ (sortingType == SortingType::kAscending);
-        for (int i = 0; i < opt_size; i++) {
-          int elem_idx = is_reverse_order ? opt_size - i - 1 : i;
-          const auto &elem = options.elems(elem_idx);
-          auto pv = KeyEntryValue::FromQLValuePBForKey(elem, sortingType);
+        if (condition.op() == QL_OP_EQUAL) {
+          auto pv = KeyEntryValue::FromQLValuePBForKey(rhs.value(), sorting_type);
           (*range_options_)[col_idx - num_hash_cols].push_back(std::move(pv));
+        } else {  // QL_OP_IN
+          DCHECK_EQ(condition.op(), QL_OP_IN);
+          DCHECK(rhs.value().has_list_value());
+          const auto& options = rhs.value().list_value();
+          int opt_size = options.elems_size();
+          (*range_options_)[col_idx - num_hash_cols].reserve(opt_size);
+
+          // IN arguments should have been de-duplicated and ordered ascendingly by the executor.
+          bool is_reverse_order = is_forward_scan_ ^ (sorting_type == SortingType::kAscending);
+          for (int i = 0; i < opt_size; i++) {
+            int elem_idx = is_reverse_order ? opt_size - i - 1 : i;
+            const auto& elem = options.elems(elem_idx);
+            auto pv = KeyEntryValue::FromQLValuePBForKey(elem, sorting_type);
+            (*range_options_)[col_idx - num_hash_cols].push_back(std::move(pv));
+          }
+        }
+      } else if (lhs.has_columns()) {
+        vector<ColumnId> col_ids;
+        vector<int> col_idxs;
+        size_t num_cols = lhs.columns().ids().size();
+        DCHECK(num_cols > 0);
+
+        for (auto entry : lhs.columns().ids()) {
+          ColumnId col_id = ColumnId(entry);
+          int col_idx = schema_.find_column_by_id(col_id);
+          // TODO: is it correct
+          if (!schema_.is_range_column(col_idx)) {
+            continue;
+          }
+          col_ids.push_back(col_id);
+          col_idxs.push_back(col_idx);
+        }
+
+        DCHECK(AreIndexesContinous(col_idxs));
+
+        for (size_t i = 0; i < num_cols; i++) {
+          range_options_indexes_.emplace_back(col_ids[i]);
+          range_options_sizes_[col_idxs[i] - num_hash_cols] = num_cols;
+        }
+
+        auto start_idx = *std::min_element(col_idxs.begin(), col_idxs.end());
+
+        // sorting type of only the first col matters
+        SortingType sorting_type = schema_.column(start_idx).sorting_type();
+
+        if (condition.op() == QL_OP_EQUAL) {
+          DCHECK(rhs.value().has_list_value());
+          const auto& values = rhs.value().list_value();
+          DCHECK_EQ(num_cols, values.elems_size());
+
+          for (size_t i = 0; i < num_cols; i++) {
+            auto pv = KeyEntryValue::FromQLValuePBForKey(values.elems((int)i), sorting_type);
+            (*range_options_)[col_idxs[i] - num_hash_cols].push_back(std::move(pv));
+          }
+        } else if (condition.op() == QL_OP_IN) {
+          DCHECK(rhs.value().has_list_value());
+          const auto& options = rhs.value().list_value();
+          int opt_size = options.elems_size();
+          for (size_t i = 0; i < num_cols; i++) {
+            (*range_options_)[col_idxs[i] - num_hash_cols].reserve(opt_size);
+          }
+
+          // IN arguments should have been de-duplicated and ordered ascendingly by the
+          // executor.
+          bool is_reverse_order = is_forward_scan_ ^ (sorting_type == SortingType::kAscending);
+          for (int i = 0; i < opt_size; i++) {
+            int elem_idx = is_reverse_order ? opt_size - i - 1 : i;
+            const auto& elem = options.elems(elem_idx);
+            DCHECK(elem.has_list_value());
+            const auto& values = elem.list_value();
+            DCHECK_EQ(num_cols, values.elems_size());
+            for (size_t i = 0; i < num_cols; i++) {
+              auto pv = KeyEntryValue::FromQLValuePBForKey(values.elems((int)i), sorting_type);
+              (*range_options_)[col_idxs[i] - num_hash_cols].push_back(std::move(pv));
+            }
+          }
         }
       }
 

@@ -2223,6 +2223,7 @@ bool UpdateIndexesLocally(const PTDmlStmt *tnode, const QLWriteRequestPB& req) {
           case QLExpressionPB::ExprCase::kCondition: FALLTHROUGH_INTENDED;
           case QLExpressionPB::ExprCase::kBocall: FALLTHROUGH_INTENDED;
           case QLExpressionPB::ExprCase::kBindId: FALLTHROUGH_INTENDED;
+          case QLExpressionPB::ExprCase::kColumns:FALLTHROUGH_INTENDED;
           case QLExpressionPB::ExprCase::EXPR_NOT_SET:
             return false;
         }

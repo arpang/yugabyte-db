@@ -87,13 +87,15 @@ class DocQLScanSpec : public QLScanSpec {
     return range_bounds_indexes_;
   }
 
+  const std::vector<size_t> range_options_sizes() const { return range_options_sizes_; }
+
  private:
   static const DocKey& DefaultStartDocKey();
 
   // Return inclusive lower/upper range doc key considering the start_doc_key.
   Result<KeyBytes> Bound(const bool lower_bound) const;
 
-  // Initialize range_options_ if hashed_components_ in set and all range columns have one or more
+  // Initialize range_options_ if hashed_components_ is set and all range columns have one or more
   // options (i.e. using EQ/IN conditions). Otherwise range_options_ will stay null and we will
   // only use the range_bounds for scanning.
   void InitRangeOptions(const QLConditionPB& condition);
@@ -132,6 +134,11 @@ class DocQLScanSpec : public QLScanSpec {
   // Indexes of columns that have range option filters such as
   // c2 IN (1, 5, 6, 9)
   std::vector<ColumnId> range_options_indexes_;
+
+  // Stores the number of columns in a range option filter indexed by column index.
+  // For filter: H = .. AND A in (..) AND (C, D) in (...) AND E in (...) where A, B, C, D, E are
+  // range columns, range_options_sizes_ will contain [1, 0, 2, 2, 1]
+  std::vector<size_t> range_options_sizes_;
 
   // Does the scan include static columns also?
   const bool include_static_columns_;

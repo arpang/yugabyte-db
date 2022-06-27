@@ -123,6 +123,7 @@ Status QLExprExecutor::EvalExpr(const QLExpressionPB& ql_expr,
 
     case QLExpressionPB::ExprCase::kBocall: FALLTHROUGH_INTENDED;
     case QLExpressionPB::ExprCase::kBindId: FALLTHROUGH_INTENDED;
+    case QLExpressionPB::ExprCase::kColumns: FALLTHROUGH_INTENDED;
     case QLExpressionPB::ExprCase::EXPR_NOT_SET:
       result_writer.SetNull();
   }

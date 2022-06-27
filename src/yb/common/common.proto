@@ -436,6 +436,10 @@ message QLJsonOperationPB {
   required QLExpressionPB operand = 2;
 }
 
+message QLColumnIdsPB {
+  repeated int32 ids = 1;
+}
+
 // An expression in a WHERE condition
 message QLExpressionPB {
   oneof expr {
@@ -448,6 +452,7 @@ message QLExpressionPB {
     QLBCallPB tscall = 7;                   // Tablet server builtin calls.
     QLBCallPB bocall = 8;                   // Builtin operator calls.
     QLJsonColumnOperationsPB json_column = 9; // Json column operators.
+    QLColumnIdsPB columns = 10;
   }
 }
 
