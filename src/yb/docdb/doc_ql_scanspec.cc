@@ -79,8 +79,7 @@ DocQLScanSpec::DocQLScanSpec(
   if (!hashed_components_->empty() && schema_.num_range_key_columns() > 0 &&
       range_bounds_ && range_bounds_->has_in_range_options()) {
     DCHECK(condition);
-    range_options_ = std::make_shared<std::vector<std::vector<KeyEntryValue>>>(
-        schema_.num_range_key_columns());
+    range_options_ = std::make_shared<std::vector<Options>>(schema_.num_range_key_columns());
     range_options_sizes_.reserve(schema_.num_range_key_columns());
     InitRangeOptions(*condition);
 
@@ -92,6 +91,8 @@ DocQLScanSpec::DocQLScanSpec(
                 range_options_ = nullptr;
                 break;
             }
+
+            i = i + (*range_options_)[i][0].size() - 1;
         }
     }
   }
@@ -155,7 +156,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
 
         if (condition.op() == QL_OP_EQUAL) {
           auto pv = KeyEntryValue::FromQLValuePBForKey(rhs.value(), sorting_type);
-          (*range_options_)[col_idx - num_hash_cols].push_back(std::move(pv));
+          (*range_options_)[col_idx - num_hash_cols].push_back({pv});
         } else {  // QL_OP_IN
           DCHECK_EQ(condition.op(), QL_OP_IN);
           DCHECK(rhs.value().has_list_value());
@@ -169,7 +170,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
             int elem_idx = is_reverse_order ? opt_size - i - 1 : i;
             const auto& elem = options.elems(elem_idx);
             auto pv = KeyEntryValue::FromQLValuePBForKey(elem, sorting_type);
-            (*range_options_)[col_idx - num_hash_cols].push_back(std::move(pv));
+            (*range_options_)[col_idx - num_hash_cols].push_back({pv});
           }
         }
       } else if (lhs.has_columns()) {
@@ -205,32 +206,36 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           DCHECK(rhs.value().has_list_value());
           const auto& values = rhs.value().list_value();
           DCHECK_EQ(num_cols, values.elems_size());
-
+          Option option(num_cols);
           for (size_t i = 0; i < num_cols; i++) {
             auto pv = KeyEntryValue::FromQLValuePBForKey(values.elems((int)i), sorting_type);
-            (*range_options_)[col_idxs[i] - num_hash_cols].push_back(std::move(pv));
+            option.push_back(pv);
           }
+          (*range_options_)[start_idx - num_hash_cols].push_back(std::move(option));
         } else if (condition.op() == QL_OP_IN) {
           DCHECK(rhs.value().has_list_value());
           const auto& options = rhs.value().list_value();
-          int opt_size = options.elems_size();
-          for (size_t i = 0; i < num_cols; i++) {
-            (*range_options_)[col_idxs[i] - num_hash_cols].reserve(opt_size);
-          }
+          int num_options = options.elems_size();
+          // for (size_t i = 0; i < num_cols; i++) {
+          //   (*range_options_)[col_idxs[i] - num_hash_cols].reserve(num_options);
+          // }
 
           // IN arguments should have been de-duplicated and ordered ascendingly by the
           // executor.
           bool is_reverse_order = is_forward_scan_ ^ (sorting_type == SortingType::kAscending);
-          for (int i = 0; i < opt_size; i++) {
-            int elem_idx = is_reverse_order ? opt_size - i - 1 : i;
+          for (int i = 0; i < num_options; i++) {
+            int elem_idx = is_reverse_order ? num_options - i - 1 : i;
             const auto& elem = options.elems(elem_idx);
             DCHECK(elem.has_list_value());
             const auto& values = elem.list_value();
             DCHECK_EQ(num_cols, values.elems_size());
-            for (size_t i = 0; i < num_cols; i++) {
-              auto pv = KeyEntryValue::FromQLValuePBForKey(values.elems((int)i), sorting_type);
-              (*range_options_)[col_idxs[i] - num_hash_cols].push_back(std::move(pv));
+
+            Option option(num_cols);
+            for (size_t j = 0; j < num_cols; j++) {
+              auto pv = KeyEntryValue::FromQLValuePBForKey(values.elems((int)j), sorting_type);
+              option.push_back(pv);
             }
+            (*range_options_)[start_idx - num_hash_cols].push_back(std::move(option));
           }
         }
       }
