@@ -402,6 +402,7 @@ class HybridScanChoices : public ScanChoices {
     LOG(INFO) << "Arpan HybridScanChoices";
 
     // range_cols_scan_options_.reserve(schema.num_range_key_columns());
+    // TODO: Should we extend tuple filtering to range bounds?
 
     size_t num_hash_cols = schema.num_hash_key_columns();
 
@@ -433,6 +434,7 @@ class HybridScanChoices : public ScanChoices {
             GetQLRangeBoundIsInclusive(range, col_sort_type, true),
             upper,
             GetQLRangeBoundIsInclusive(range, col_sort_type, false));
+        range_options_sizes_.push_back(1);
       } else if (col_has_range_option) {
         size_t num_cols = range_options_sizes[idx - num_hash_cols];
         auto& options = (*range_options)[idx - num_hash_cols];
@@ -463,6 +465,7 @@ class HybridScanChoices : public ScanChoices {
           range_cols_scan_options_[idx - num_hash_cols].emplace_back(lower, true, upper, true);
         }
         idx = idx + num_cols - 1;
+        range_options_sizes_.push_back(num_cols);
       } else {
         // If no filter is specified, we just impose an artificial range
         // filter [kLowest, kHighest]
@@ -472,6 +475,7 @@ class HybridScanChoices : public ScanChoices {
         range_cols_scan_options_[idx - num_hash_cols].emplace_back(
             KeyEntryValue(KeyEntryType::kLowest), true, KeyEntryValue(KeyEntryType::kHighest),
             true);
+        range_options_sizes_.push_back(1);
       }
     }
 
@@ -541,7 +545,8 @@ class HybridScanChoices : public ScanChoices {
   const KeyBytes lower_doc_key_;
   const KeyBytes upper_doc_key_;
 
-  // std::vector<size_t> range_options_sizes_;
+  // TODO: fill me
+  std::vector<size_t> range_options_sizes_;
 };
 
 void AppendToKey(const vector<KeyEntryValue>& values, KeyBytes* key_bytes) {
@@ -549,6 +554,14 @@ void AppendToKey(const vector<KeyEntryValue>& values, KeyBytes* key_bytes) {
     value.AppendToKey(key_bytes);
   }
   return;
+}
+
+Result<std::vector<KeyEntryValue>> DecodeKeyEntryValue(DocKeyDecoder* decoder, size_t num_cols) {
+  std::vector<KeyEntryValue> values(num_cols);
+  for (size_t i = 0; i < num_cols; i++) {
+    RETURN_NOT_OK(decoder->DecodeKeyEntryValue(&values[i]));
+  }
+  return values;
 }
 
 // Sets current_scan_target_ to the first tuple in the filter space
@@ -630,14 +643,16 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
   size_t idx = 0;
   for (idx = 0; idx < current_scan_target_ranges_.size(); idx++) {
     const auto& options = range_cols_scan_options_[idx];
-    size_t num_cols = options[0].size();
+    size_t num_cols = range_options_sizes_[idx];
     auto current_it = current_scan_target_ranges_[idx];
     DCHECK(current_it != options.end());
 
-    vector<KeyEntryValue> target_value(num_cols);
-    for (size_t i = 0; i < num_cols; i++) {
-      RETURN_NOT_OK(decoder.DecodeKeyEntryValue(&target_value[i]));
-    }
+    // vector<KeyEntryValue> target_value(num_cols);
+    // for (size_t i = 0; i < num_cols; i++) {
+    //   RETURN_NOT_OK(decoder.DecodeKeyEntryValue(&target_value[i]));
+    // }
+
+    vector<KeyEntryValue> target_value = VERIFY_RESULT(DecodeKeyEntryValue(&decoder, num_cols));
 
     auto lower = current_it->lower_val();
     auto upper = current_it->upper_val();
@@ -849,11 +864,12 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
   // refer to the documentation of this function to see what extremal
   // means here
   std::vector<bool> is_extremal;
-  vector<KeyEntryValue> target_value;
+
   for (int i = 0; i <= col_idx; ++i) {
-    RETURN_NOT_OK(t_decoder.DecodeKeyEntryValue(&target_value));
-    is_extremal.push_back(target_value ==
-        upper_extremal_fn(*current_scan_target_ranges_[i]));
+    size_t num_cols = range_options_sizes_[i];
+    vector<KeyEntryValue> target_value = VERIFY_RESULT(DecodeKeyEntryValue(&t_decoder, num_cols));
+    // RETURN_NOT_OK(t_decoder.DecodeKeyEntryValue(&target_value));
+    is_extremal.push_back(target_value == upper_extremal_fn(*current_scan_target_ranges_[i]));
   }
 
   // this variable tells us whether we start by appending
@@ -888,7 +904,9 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
   DocKeyDecoder decoder(current_scan_target_);
   RETURN_NOT_OK(decoder.DecodeToRangeGroup());
   for (int i = 0; i < col_idx; ++i) {
-    RETURN_NOT_OK(decoder.DecodeKeyEntryValue());
+    size_t num_cols = range_options_sizes_[i];
+    VERIFY_RESULT(DecodeKeyEntryValue(&decoder, num_cols));
+    // RETURN_NOT_OK(decoder.DecodeKeyEntryValue());
   }
 
   if (col_idx < 0) {
@@ -925,8 +943,7 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
     auto it_0 = i == col_idx ? current_scan_target_ranges_[col_idx]
                              : range_cols_scan_options_[i].begin();
     current_scan_target_ranges_[i] = it_0;
-    lower_extremal_fn(*it_0)
-        .AppendToKey(&current_scan_target_);
+    AppendToKey(lower_extremal_fn(*it_0), &current_scan_target_);
     if (!lower_extremal_incl_fn(*it_0)) {
       if (is_forward_scan_) {
         KeyEntryValue(KeyEntryType::kHighest)
