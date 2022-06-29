@@ -91,8 +91,8 @@ DocQLScanSpec::DocQLScanSpec(
                 range_options_ = nullptr;
                 break;
             }
-
-            i = i + (*range_options_)[i][0].size() - 1;
+            i = i + range_options_sizes_[i] - 1;
+            // i = i + (*range_options_)[i][0].size() - 1;
         }
     }
   }

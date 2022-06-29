@@ -121,7 +121,18 @@ class DiscreteScanChoices : public ScanChoices {
   DiscreteScanChoices(const DocQLScanSpec& doc_spec, const KeyBytes& lower_doc_key,
                       const KeyBytes& upper_doc_key)
       : ScanChoices(doc_spec.is_forward_scan()) {
-    range_cols_scan_options_ = doc_spec.range_options();
+    auto options = doc_spec.range_options();
+    auto sizes = doc_spec.range_options_sizes();
+    for (size_t idx = 0; idx < options->size(); idx++) {
+      if ((*options)[idx].empty()) {
+        continue;
+      }
+      range_cols_scan_options_->push_back((*options)[idx]);
+      range_options_sizes_.push_back(sizes[idx]);
+    }
+    // range_cols_scan_options_ = doc_spec.range_options();
+    // range_options_sizes_ = doc_spec.range_options_sizes();
+
     current_scan_target_idxs_.resize(range_cols_scan_options_->size());
     for (size_t i = 0; i < range_cols_scan_options_->size(); i++) {
       current_scan_target_idxs_[i] = range_cols_scan_options_->at(i).begin();
@@ -145,6 +156,7 @@ class DiscreteScanChoices : public ScanChoices {
                       const KeyBytes& upper_doc_key)
       : ScanChoices(doc_spec.is_forward_scan()) {
     range_cols_scan_options_ = doc_spec.range_options();
+    range_options_sizes_ = doc_spec.range_options_sizes();
     current_scan_target_idxs_.resize(range_cols_scan_options_->size());
     for (size_t i = 0; i < range_cols_scan_options_->size(); i++) {
       current_scan_target_idxs_[i] = (*range_cols_scan_options_)[i].begin();
@@ -192,6 +204,8 @@ class DiscreteScanChoices : public ScanChoices {
   //                             corresponding index (updated along with current_scan_target_idxs_).
   std::shared_ptr<std::vector<Options>> range_cols_scan_options_;
   mutable std::vector<Options::const_iterator> current_scan_target_idxs_;
+
+  std::vector<size_t> range_options_sizes_;
 };
 
 Status DiscreteScanChoices::IncrementScanTargetAtColumn(size_t start_col) {
@@ -218,14 +232,15 @@ Status DiscreteScanChoices::IncrementScanTargetAtColumn(size_t start_col) {
   DocKeyDecoder decoder(current_scan_target_);
   RETURN_NOT_OK(decoder.DecodeToRangeGroup());
   for (int i = 0; i != col_idx; ++i) {
-    RETURN_NOT_OK(decoder.DecodeKeyEntryValue());
+    VERIFY_RESULT(DecodeKeyEntryValue(&decoder, range_options_sizes_[i]));
+    // RETURN_NOT_OK(decoder.DecodeKeyEntryValue());
   }
 
   current_scan_target_.Truncate(
       decoder.left_input().cdata() - current_scan_target_.AsSlice().cdata());
 
   for (size_t i = col_idx; i <= start_col; ++i) {
-    current_scan_target_idxs_[i]->AppendToKey(&current_scan_target_);
+    AppendToKey(*current_scan_target_idxs_[i], &current_scan_target_);
   }
 
   return Status::OK();
@@ -239,7 +254,7 @@ Result<bool> DiscreteScanChoices::InitScanTargetRangeGroupIfNeeded() {
   if (!VERIFY_RESULT(decoder.HasPrimitiveValue())) {
     current_scan_target_.mutable_data()->pop_back();
     for (size_t col_idx = 0; col_idx < range_cols_scan_options_->size(); col_idx++) {
-      current_scan_target_idxs_[col_idx]->AppendToKey(&current_scan_target_);
+      AppendToKey(*current_scan_target_idxs_[col_idx], &current_scan_target_);
     }
     current_scan_target_.AppendKeyEntryType(KeyEntryType::kGroupEnd);
     return true;
@@ -270,16 +285,16 @@ Status DiscreteScanChoices::SkipTargetsUpTo(const Slice& new_target) {
   current_scan_target_.Reset(Slice(new_target.data(), decoder.left_input().data()));
 
   size_t col_idx = 0;
-  KeyEntryValue target_value;
+  vector<KeyEntryValue> target_value;
   while (col_idx < range_cols_scan_options_->size()) {
-    RETURN_NOT_OK(decoder.DecodeKeyEntryValue(&target_value));
+    target_value = VERIFY_RESULT(DecodeKeyEntryValue(&decoder, range_options_sizes_[col_idx]));
     const auto& choices = (*range_cols_scan_options_)[col_idx];
     auto& it = current_scan_target_idxs_[col_idx];
 
     // Fast-path in case the existing value for this column already matches the new target.
     if (target_value == *it) {
       col_idx++;
-      target_value.AppendToKey(&current_scan_target_);
+      AppendToKey(target_value, &current_scan_target_);
       continue;
     }
 
@@ -298,7 +313,7 @@ Status DiscreteScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     }
 
     // Else, update the current target value for this column.
-    it->AppendToKey(&current_scan_target_);
+    AppendToKey(*it, &current_scan_target_);
 
     // If we did not find an exact match we are already beyond the new target so we can stop.
     if (target_value != *it) {
@@ -314,7 +329,7 @@ Status DiscreteScanChoices::SkipTargetsUpTo(const Slice& new_target) {
   // leftover columns (i.e. set all following indexes to 0).
   for (size_t i = col_idx; i < current_scan_target_idxs_.size(); i++) {
     current_scan_target_idxs_[i] = (*range_cols_scan_options_)[i].begin();
-    current_scan_target_idxs_[i]->AppendToKey(&current_scan_target_);
+    AppendToKey(*current_scan_target_idxs_[i], &current_scan_target_);
   }
 
   current_scan_target_.AppendKeyEntryType(KeyEntryType::kGroupEnd);
@@ -446,9 +461,9 @@ class HybridScanChoices : public ScanChoices {
         LOG_WITH_FUNC(INFO) << "For column " << col_name << " range bound single entry: lower "
                             << lower << " upper " << upper;
         range_cols_scan_options_[idx - num_hash_cols].emplace_back(
-            lower,
+            vector{lower},
             GetQLRangeBoundIsInclusive(range, col_sort_type, true),
-            upper,
+            vector{upper},
             GetQLRangeBoundIsInclusive(range, col_sort_type, false));
         range_options_sizes_.push_back(1);
       } else if (col_has_range_option) {
@@ -463,11 +478,10 @@ class HybridScanChoices : public ScanChoices {
           //
           // As of D15647 we do not send empty options.
           // This is kept for backward compatibility during rolling upgrades.
-          // vector<KeyEntryValue> hg=i
           range_cols_scan_options_[idx - num_hash_cols].emplace_back(
-              vector(num_cols, KeyEntryType::kHighest),
+              vector(num_cols, KeyEntryValue(KeyEntryType::kHighest)),
               true,
-              vector(num_cols, KeyEntryType::kLowest),
+              vector(num_cols, KeyEntryValue(KeyEntryType::kLowest)),
               true);
         }
 
@@ -489,7 +503,9 @@ class HybridScanChoices : public ScanChoices {
                             << " no filter specified, artfificial single value: lower "
                             << KeyEntryType::kLowest << " upper " << KeyEntryType::kHighest;
         range_cols_scan_options_[idx - num_hash_cols].emplace_back(
-            KeyEntryValue(KeyEntryType::kLowest), true, KeyEntryValue(KeyEntryType::kHighest),
+            vector{KeyEntryValue(KeyEntryType::kLowest)},
+            true,
+            vector{KeyEntryValue(KeyEntryType::kHighest)},
             true);
         range_options_sizes_.push_back(1);
       }
@@ -515,8 +531,9 @@ class HybridScanChoices : public ScanChoices {
       : HybridScanChoices(
             schema, lower_doc_key, upper_doc_key, doc_spec.is_forward_scan(),
             doc_spec.range_options_indexes(), doc_spec.range_options(),
-            doc_spec.range_bounds_indexes(), doc_spec.range_bounds(),
-            vector(doc_spec.range_options()->size(), 1)) {}
+            doc_spec.range_bounds_indexes(), doc_spec.range_bounds(), doc_spec.range_options_sizes()
+            // vector(doc_spec.range_options()->size(), 1)
+        ) {}
 
   HybridScanChoices(
       const Schema& schema,
