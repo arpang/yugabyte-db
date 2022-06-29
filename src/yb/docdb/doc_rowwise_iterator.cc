@@ -94,6 +94,22 @@ class ScanChoices {
   // current target.
   virtual Status SeekToCurrentTarget(IntentAwareIterator* db_iter) = 0;
 
+  static void AppendToKey(const vector<KeyEntryValue>& values, KeyBytes* key_bytes) {
+    for (const auto& value : values) {
+      value.AppendToKey(key_bytes);
+    }
+    return;
+  }
+
+  static Result<std::vector<KeyEntryValue>> DecodeKeyEntryValue(
+      DocKeyDecoder* decoder, size_t num_cols) {
+    std::vector<KeyEntryValue> values(num_cols);
+    for (size_t i = 0; i < num_cols; i++) {
+      RETURN_NOT_OK(decoder->DecodeKeyEntryValue(&values[i]));
+    }
+    return values;
+  }
+
  protected:
   const bool is_forward_scan_;
   KeyBytes current_scan_target_;
@@ -174,8 +190,8 @@ class DiscreteScanChoices : public ScanChoices {
   //  current_scan_target_       goes from [1][2,4,6] up to [1][3,5,6] -- is the doc key containing,
   //                             for each range column, the value (option) referenced by the
   //                             corresponding index (updated along with current_scan_target_idxs_).
-  std::shared_ptr<std::vector<std::vector<KeyEntryValue>>> range_cols_scan_options_;
-  mutable std::vector<std::vector<KeyEntryValue>::const_iterator> current_scan_target_idxs_;
+  std::shared_ptr<std::vector<Options>> range_cols_scan_options_;
+  mutable std::vector<Options::const_iterator> current_scan_target_idxs_;
 };
 
 Status DiscreteScanChoices::IncrementScanTargetAtColumn(size_t start_col) {
@@ -545,24 +561,8 @@ class HybridScanChoices : public ScanChoices {
   const KeyBytes lower_doc_key_;
   const KeyBytes upper_doc_key_;
 
-  // TODO: fill me
   std::vector<size_t> range_options_sizes_;
 };
-
-void AppendToKey(const vector<KeyEntryValue>& values, KeyBytes* key_bytes) {
-  for (const auto& value : values) {
-    value.AppendToKey(key_bytes);
-  }
-  return;
-}
-
-Result<std::vector<KeyEntryValue>> DecodeKeyEntryValue(DocKeyDecoder* decoder, size_t num_cols) {
-  std::vector<KeyEntryValue> values(num_cols);
-  for (size_t i = 0; i < num_cols; i++) {
-    RETURN_NOT_OK(decoder->DecodeKeyEntryValue(&values[i]));
-  }
-  return values;
-}
 
 // Sets current_scan_target_ to the first tuple in the filter space
 // that is >= new_target.
@@ -662,18 +662,31 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     using kval_cmp_fn_t =
         std::function<bool(const vector<KeyEntryValue>&, const vector<KeyEntryValue>&)>;
 
-    // TODO
-    kval_cmp_fn_t lower_cmp_fn = lower_incl
-                                     ? [](const vector<KeyEntryValue>& t1,
-                                          const vector<KeyEntryValue>& t2) { return t1 >= t2; }
-                                     : [](const vector<KeyEntryValue>& t1,
-                                          const vector<KeyEntryValue>& t2) { return t1 > t2; };
+    kval_cmp_fn_t lower_cmp_fn =
+        [lower_incl](const vector<KeyEntryValue>& t1, const vector<KeyEntryValue>& t2) {
+          DCHECK(t1.size() == t2.size());
+          size_t i = 0;
+          while (t1[i] == t2[i]) {
+            i++;
+          }
+          if (i == t1.size()) {
+            return lower_incl;
+          }
+          return t1[i] > t2[i];
+        };
 
-    kval_cmp_fn_t upper_cmp_fn = upper_incl
-                                     ? [](const vector<KeyEntryValue>& t1,
-                                          const vector<KeyEntryValue>& t2) { return t1 <= t2; }
-                                     : [](const vector<KeyEntryValue>& t1,
-                                          const vector<KeyEntryValue>& t2) { return t1 < t2; };
+    kval_cmp_fn_t upper_cmp_fn =
+        [upper_incl](const vector<KeyEntryValue>& t1, const vector<KeyEntryValue>& t2) {
+          DCHECK(t1.size() == t2.size());
+          size_t i = 0;
+          while (t1[i] == t2[i]) {
+            i++;
+          }
+          if (i == t1.size()) {
+            return upper_incl;
+          }
+          return t1[i] < t2[i];
+        };
 
     // If it's in range then good, continue after appending the target value
     // column.
@@ -721,15 +734,30 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     lower_incl = it->lower_inclusive();
     upper_incl = it->upper_inclusive();
 
-    // TODO
-    lower_cmp_fn = lower_incl ? [](const vector<KeyEntryValue>& t1,
-                                   const vector<KeyEntryValue>& t2) { return t1 >= t2; }
-                              : [](const vector<KeyEntryValue>& t1,
-                                   const vector<KeyEntryValue>& t2) { return t1 > t2; };
-    upper_cmp_fn = upper_incl ? [](const vector<KeyEntryValue>& t1,
-                                   const vector<KeyEntryValue>& t2) { return t1 <= t2; }
-                              : [](const vector<KeyEntryValue>& t1,
-                                   const vector<KeyEntryValue>& t2) { return t1 < t2; };
+    // TODO: do we really need to redefine?
+    lower_cmp_fn = [lower_incl](const vector<KeyEntryValue>& t1, const vector<KeyEntryValue>& t2) {
+      DCHECK(t1.size() == t2.size());
+      size_t i = 0;
+      while (t1[i] == t2[i]) {
+        i++;
+      }
+      if (i == t1.size()) {
+        return lower_incl;
+      }
+      return t1[i] > t2[i];
+    };
+
+    upper_cmp_fn = [upper_incl](const vector<KeyEntryValue>& t1, const vector<KeyEntryValue>& t2) {
+      DCHECK(t1.size() == t2.size());
+      size_t i = 0;
+      while (t1[i] == t2[i]) {
+        i++;
+      }
+      if (i == t1.size()) {
+        return upper_incl;
+      }
+      return t1[i] < t2[i];
+    };
 
     if (target_value >= lower && target_value <= upper) {
       // target_value.AppendToKey(&current_scan_target_);
