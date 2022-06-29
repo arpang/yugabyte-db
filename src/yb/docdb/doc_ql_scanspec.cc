@@ -80,8 +80,25 @@ DocQLScanSpec::DocQLScanSpec(
       range_bounds_ && range_bounds_->has_in_range_options()) {
     DCHECK(condition);
     range_options_ = std::make_shared<std::vector<Options>>(schema_.num_range_key_columns());
-    range_options_sizes_.reserve(schema_.num_range_key_columns());
+    range_options_sizes_ = vector<size_t>(schema_.num_range_key_columns());
     InitRangeOptions(*condition);
+    LOG(INFO) << "range_options_sizes_: " << range_options_sizes_.size();
+    for (size_t i = 0; i < range_options_sizes_.size(); i++) {
+      LOG(INFO) << range_options_sizes_[i];
+    }
+
+    LOG(INFO) << "range_options_: " << range_options_->size();
+    for (size_t i = 0; i < range_options_->size(); i++) {
+      LOG(INFO) << "range_options_[" << i << "]"
+                << " size: " << (*range_options_)[i].size();
+      for (size_t j = 0; j < (*range_options_)[i].size(); j++) {
+        LOG(INFO) << "range_options_[" << i << "][" << j << "]"
+                  << " size: " << (*range_options_)[i][j].size();
+        for (size_t k = 0; k < (*range_options_)[i][j].size(); k++) {
+          LOG(INFO) << (*range_options_)[i][j][k];
+        }
+      }
+    }
 
     if (FLAGS_disable_hybrid_scan) {
         // Range options are only valid if all range columns
@@ -113,6 +130,7 @@ bool AreIndexesContinous(const vector<int>& col_idxs) {
 }
 
 void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
+  LOG(INFO) << "Inside InitRangeOptions";
   size_t num_hash_cols = schema_.num_hash_key_columns();
   switch (condition.op()) {
     case QLOperator::QL_OP_AND:
@@ -124,12 +142,14 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
 
     case QLOperator::QL_OP_EQUAL:
     case QLOperator::QL_OP_IN: {
+      LOG(INFO) << "Inside QL_OP_EQUAL/QL_OP_IN";
       DCHECK_EQ(condition.operands_size(), 2);
       // Skip any condition where LHS is not a column (e.g. subscript columns: 'map[k] = v')
       const auto& lhs = condition.operands(0);
       const auto& rhs = condition.operands(1);
-
-      if (lhs.expr_case() != QLExpressionPB::kColumnId ||
+      LOG(INFO) << lhs.expr_case() << " " << QLExpressionPB::kColumnId << " "
+                << QLExpressionPB::kColumns;
+      if (lhs.expr_case() != QLExpressionPB::kColumnId &&
           lhs.expr_case() != QLExpressionPB::kColumns) {
         return;
       }
@@ -138,11 +158,13 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
       if (rhs.expr_case() != QLExpressionPB::kValue) {
         return;
       }
-
+      LOG(INFO) << "Before has_column_id check";
       if (lhs.has_column_id()) {
+        LOG(INFO) << "has_column_id passed";
         ColumnId col_id = ColumnId(lhs.column_id());
         int col_idx = schema_.find_column_by_id(col_id);
-
+        LOG(INFO) << "Updating range_options_sizes_ at index (" << col_idx << "-" << num_hash_cols
+                  << "):" << (col_idx - num_hash_cols);
         range_options_sizes_[col_idx - num_hash_cols] = 1;
 
         // Skip any non-range columns.
@@ -174,6 +196,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           }
         }
       } else if (lhs.has_columns()) {
+        LOG(INFO) << "has_columns passed";
         vector<ColumnId> col_ids;
         vector<int> col_idxs;
         size_t num_cols = lhs.columns().ids().size();

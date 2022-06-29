@@ -386,10 +386,23 @@ class OptionRange {
   bool upper_inclusive() const { return upper_inclusive_; }
   size_t size() const { return lower_.size(); }
 
+  const void log() const {
+    LOG(INFO) << "Num cols: " << lower_.size() << " lower_inclusive: " << lower_inclusive_
+              << " upper_inclusive: " << upper_inclusive_;
+    LOG(INFO) << "Lower";
+    for (auto const& entry : lower_) {
+      LOG(INFO) << entry;
+    }
+    LOG(INFO) << "Upper";
+    for (auto const& entry : upper_) {
+      LOG(INFO) << entry;
+    }
+  }
+
   static bool upper_lt(const OptionRange& range1, const OptionRange& range2) {
     DCHECK(range1.size() == range2.size());
     size_t i = 0;
-    while (range1.upper_[i] == range2.upper_[i]) {
+    while (i != range1.size() && range1.upper_[i] == range2.upper_[i]) {
       i++;
     }
     return i != range1.size() && range1.upper_[i] < range2.upper_[i];
@@ -399,7 +412,7 @@ class OptionRange {
                        const OptionRange &range2) {
     DCHECK(range1.size() == range2.size());
     size_t i = 0;
-    while (range1.lower_[i] == range2.lower_[i]) {
+    while (i != range1.size() && range1.lower_[i] == range2.lower_[i]) {
       i++;
     }
     return i != range1.size() && range1.lower_[i] > range2.lower_[i];
@@ -441,8 +454,9 @@ class HybridScanChoices : public ScanChoices {
       const ColumnId col_id = schema.column_id(idx);
       const string col_name = schema.column_names()[idx];
       LOG_WITH_FUNC(INFO) << "Prcoessing column " << col_name << " " << col_id;
-      range_cols_scan_options_.push_back({});
-
+      // range_cols_scan_options_.push_back({});
+      vector<OptionRange> current_options;
+      size_t option_size = 1;
       bool col_has_range_option =
           std::find(range_options_col_ids.begin(), range_options_col_ids.end(), col_id) !=
           range_options_col_ids.end();
@@ -460,14 +474,15 @@ class HybridScanChoices : public ScanChoices {
 
         LOG_WITH_FUNC(INFO) << "For column " << col_name << " range bound single entry: lower "
                             << lower << " upper " << upper;
-        range_cols_scan_options_[idx - num_hash_cols].emplace_back(
+        // range_cols_scan_options_[idx - num_hash_cols]
+        current_options.emplace_back(
             vector{lower},
             GetQLRangeBoundIsInclusive(range, col_sort_type, true),
             vector{upper},
             GetQLRangeBoundIsInclusive(range, col_sort_type, false));
-        range_options_sizes_.push_back(1);
+        // range_options_sizes_.push_back(1);
       } else if (col_has_range_option) {
-        size_t num_cols = range_options_sizes[idx - num_hash_cols];
+        option_size = range_options_sizes[idx - num_hash_cols];
         auto& options = (*range_options)[idx - num_hash_cols];
 
         if (options.empty()) {
@@ -478,10 +493,11 @@ class HybridScanChoices : public ScanChoices {
           //
           // As of D15647 we do not send empty options.
           // This is kept for backward compatibility during rolling upgrades.
-          range_cols_scan_options_[idx - num_hash_cols].emplace_back(
-              vector(num_cols, KeyEntryValue(KeyEntryType::kHighest)),
+          // range_cols_scan_options_[idx - num_hash_cols]
+          current_options.emplace_back(
+              vector(option_size, KeyEntryValue(KeyEntryType::kHighest)),
               true,
-              vector(num_cols, KeyEntryValue(KeyEntryType::kLowest)),
+              vector(option_size, KeyEntryValue(KeyEntryType::kLowest)),
               true);
         }
 
@@ -489,26 +505,29 @@ class HybridScanChoices : public ScanChoices {
           const auto& lower = val;
           const auto& upper = val;
           LOG_WITH_FUNC(INFO) << "For column " << col_name << " range option lower and upper: ";
-          for (size_t i = 0; i < num_cols; i++) {
+          for (size_t i = 0; i < option_size; i++) {
             LOG_WITH_FUNC(INFO) << "col : " << i << " value: " << lower[i];
           }
-          range_cols_scan_options_[idx - num_hash_cols].emplace_back(lower, true, upper, true);
+          // range_cols_scan_options_[idx - num_hash_cols]
+          current_options.emplace_back(lower, true, upper, true);
         }
-        idx = idx + num_cols - 1;
-        range_options_sizes_.push_back(num_cols);
+        idx = idx + option_size - 1;
+        // range_options_sizes_.push_back(num_cols);
       } else {
         // If no filter is specified, we just impose an artificial range
         // filter [kLowest, kHighest]
         LOG_WITH_FUNC(INFO) << "For column " << col_name
                             << " no filter specified, artfificial single value: lower "
                             << KeyEntryType::kLowest << " upper " << KeyEntryType::kHighest;
-        range_cols_scan_options_[idx - num_hash_cols].emplace_back(
+        // range_cols_scan_options_[idx - num_hash_cols]
+        current_options.emplace_back(
             vector{KeyEntryValue(KeyEntryType::kLowest)},
             true,
             vector{KeyEntryValue(KeyEntryType::kHighest)},
             true);
-        range_options_sizes_.push_back(1);
       }
+      range_cols_scan_options_.push_back(current_options);
+      range_options_sizes_.push_back(option_size);
     }
 
     current_scan_target_ranges_.resize(range_cols_scan_options_.size());
@@ -520,6 +539,19 @@ class HybridScanChoices : public ScanChoices {
       current_scan_target_ = lower_doc_key;
     } else {
       current_scan_target_ = upper_doc_key;
+    }
+
+    LOG(INFO) << "range_options_sizes_ " << range_options_sizes_.size();
+    for (const auto& val : range_options_sizes_) {
+      LOG(INFO) << val;
+    }
+
+    LOG(INFO) << "range_cols_scan_options_ " << range_cols_scan_options_.size();
+    for (const auto& options : range_cols_scan_options_) {
+      LOG(INFO) << "New In clause";
+      for (const auto& option : options) {
+        option.log();
+      }
     }
   }
 
@@ -683,7 +715,7 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
         [lower_incl](const vector<KeyEntryValue>& t1, const vector<KeyEntryValue>& t2) {
           DCHECK(t1.size() == t2.size());
           size_t i = 0;
-          while (t1[i] == t2[i]) {
+          while (i < t1.size() && t1[i] == t2[i]) {
             i++;
           }
           if (i == t1.size()) {
@@ -696,7 +728,7 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
         [upper_incl](const vector<KeyEntryValue>& t1, const vector<KeyEntryValue>& t2) {
           DCHECK(t1.size() == t2.size());
           size_t i = 0;
-          while (t1[i] == t2[i]) {
+          while (i < t1.size() && t1[i] == t2[i]) {
             i++;
           }
           if (i == t1.size()) {
@@ -755,7 +787,7 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     lower_cmp_fn = [lower_incl](const vector<KeyEntryValue>& t1, const vector<KeyEntryValue>& t2) {
       DCHECK(t1.size() == t2.size());
       size_t i = 0;
-      while (t1[i] == t2[i]) {
+      while (i < t1.size() && t1[i] == t2[i]) {
         i++;
       }
       if (i == t1.size()) {
@@ -767,7 +799,7 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     upper_cmp_fn = [upper_incl](const vector<KeyEntryValue>& t1, const vector<KeyEntryValue>& t2) {
       DCHECK(t1.size() == t2.size());
       size_t i = 0;
-      while (t1[i] == t2[i]) {
+      while (i < t1.size() && t1[i] == t2[i]) {
         i++;
       }
       if (i == t1.size()) {
