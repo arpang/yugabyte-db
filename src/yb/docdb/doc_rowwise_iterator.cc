@@ -1496,11 +1496,11 @@ Result<bool> DocRowwiseIterator::HasNext() const {
 
   bool doc_found = false;
   while (!doc_found) {
-    LOG_WITH_FUNC(INFO) << "Inside while !doc_found";
-    LOG_WITH_FUNC(INFO) << "!db_iter_->valid() " << !db_iter_->valid();
-    LOG_WITH_FUNC(INFO) << "scan_choices_ != nullptr " << (scan_choices_ != nullptr);
-    LOG_WITH_FUNC(INFO) << "scan_choices_->FinishedWithScanChoices()"
-                        << scan_choices_->FinishedWithScanChoices();
+    // LOG_WITH_FUNC(INFO) << "Inside while !doc_found";
+    // LOG_WITH_FUNC(INFO) << "!db_iter_->valid() " << !db_iter_->valid();
+    // LOG_WITH_FUNC(INFO) << "scan_choices_ != nullptr " << (scan_choices_ != nullptr);
+    // LOG_WITH_FUNC(INFO) << "scan_choices_->FinishedWithScanChoices()"
+    //                     << scan_choices_->FinishedWithScanChoices();
     if (!db_iter_->valid() || (scan_choices_ && scan_choices_->FinishedWithScanChoices())) {
       done_ = true;
       return false;
