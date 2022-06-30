@@ -1344,6 +1344,7 @@ Result<bool> DocRowwiseIterator::InitScanChoices(
 
   if (!FLAGS_disable_hybrid_scan) {
     if (doc_spec.range_options() || doc_spec.range_bounds()) {
+      LOG(INFO) << "Adding HybridScanChoices";
       LOG(INFO) << "doc_spec.range_options() " << (doc_spec.range_options() != nullptr);
       LOG(INFO) << "doc_spec.range_bounds() " << (doc_spec.range_bounds() != nullptr);
       LOG(INFO) << "lower_doc_key.ToString() " << lower_doc_key.ToString();
@@ -1355,6 +1356,7 @@ Result<bool> DocRowwiseIterator::InitScanChoices(
   }
 
   if (doc_spec.range_options()) {
+    LOG(INFO) << "Adding DiscreteScanChoices";
     scan_choices_.reset(new DiscreteScanChoices(doc_spec, lower_doc_key, upper_doc_key));
     // Let's not seek to the lower doc key or upper doc key. We know exactly what we want.
     RETURN_NOT_OK(AdvanceIteratorToNextDesiredRow());
@@ -1362,6 +1364,7 @@ Result<bool> DocRowwiseIterator::InitScanChoices(
   }
 
   if (doc_spec.range_bounds()) {
+    LOG(INFO) << "Adding RangeBasedScanChoices";
     scan_choices_.reset(new RangeBasedScanChoices(doc_read_context_.schema, doc_spec));
   }
 
