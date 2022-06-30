@@ -73,11 +73,11 @@ DocQLScanSpec::DocQLScanSpec(
         range_bounds_indexes_ = range_bounds_->GetColIds();
     }
 
-    LOG(INFO) << "Checking to init range options";
-    LOG(INFO) << "!hashed_components_->empty() " << !hashed_components_->empty();
-    LOG(INFO) << "schema_.num_range_key_columns() > 0 " << (schema_.num_range_key_columns() > 0);
-    LOG(INFO) << "range_bounds_: " << (range_bounds_ != nullptr);
-    LOG(INFO) << "range_bounds_->has_in_range_options() " << range_bounds_->has_in_range_options();
+    // LOG(INFO) << "Checking to init range options";
+    // LOG(INFO) << "!hashed_components_->empty() " << !hashed_components_->empty();
+    // LOG(INFO) << "schema_.num_range_key_columns() > 0 " << (schema_.num_range_key_columns() > 0);
+    // LOG(INFO) << "range_bounds_: " << (range_bounds_ != nullptr);
+    // LOG(INFO) << "range_bounds_->has_in_range_options() " << range_bounds_->has_in_range_options();
 
     // If the hash key is fixed and we have range columns with IN condition, try to construct the
     // exact list of range options to scan for.
