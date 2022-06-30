@@ -121,6 +121,7 @@ class DiscreteScanChoices : public ScanChoices {
   DiscreteScanChoices(const DocQLScanSpec& doc_spec, const KeyBytes& lower_doc_key,
                       const KeyBytes& upper_doc_key)
       : ScanChoices(doc_spec.is_forward_scan()) {
+    range_cols_scan_options_ = std::make_shared<std::vector<Options>>();
     auto options = doc_spec.range_options();
     auto sizes = doc_spec.range_options_sizes();
     for (size_t idx = 0; idx < options->size(); idx++) {
@@ -1421,7 +1422,7 @@ Status DocRowwiseIterator::DoInit(const T& doc_spec) {
     has_bound_key_ = !upper_doc_key.empty();
     if (has_bound_key_) {
       bound_key_ = std::move(upper_doc_key);
-      LOG_WITH_FUNC(INFO) << "SetUpperbound : " << SubDocKey::DebugSliceToString(bound_key_);
+      // LOG_WITH_FUNC(INFO) << "SetUpperbound : " << SubDocKey::DebugSliceToString(bound_key_);
       db_iter_->SetUpperbound(bound_key_);
     }
   } else {
