@@ -96,8 +96,12 @@ Schema DocRowwiseIteratorTest::kProjectionForIteratorTests;
 
 constexpr int32_t kFixedHashCode = 0;
 
-const KeyBytes GetKeyBytes(string hash, string r1, string r2) {
-  return DocKey(kFixedHashCode, KeyEntryValues(hash), KeyEntryValues(r1, r2)).Encode();
+const KeyBytes GetKeyBytes(
+    string hash_key, string range_key1, string range_key2, string range_key3) {
+  return DocKey(
+             kFixedHashCode, KeyEntryValues(hash_key),
+             KeyEntryValues(range_key1, range_key2, range_key3))
+      .Encode();
 }
 
 const Schema population_schema(
@@ -110,9 +114,12 @@ const Schema population_schema(
      ColumnSchema(
          "city", DataType::STRING, /* is_nullable = */ false, false, false, false, 0,
          SortingType::kAscending),
+     ColumnSchema(
+         "area", DataType::STRING, /* is_nullable = */ false, false, false, false, 0,
+         SortingType::kAscending),
      // Non-key columns
      ColumnSchema("population", DataType::INT64, true)},
-    {10_ColId, 20_ColId, 30_ColId, 40_ColId}, 3);
+    {10_ColId, 20_ColId, 30_ColId, 40_ColId, 50_ColId}, 4);
 
 const std::string INDIA = "INDIA";
 const std::string CG = "CG";
@@ -128,33 +135,64 @@ const std::string CHENNAI = "CHENNAI";
 const std::string MADURAI = "MADURAI";
 const std::string OOTY = "OOTY";
 
+const std::string AREA1 = "AREA1";
+const std::string AREA2 = "AREA2";
+
 void DocRowwiseIteratorTest::InsertPopulationData() {
   ASSERT_OK(SetPrimitive(
-      DocPath(GetKeyBytes(INDIA, CG, BHILAI), KeyEntryValue::MakeColumnId(40_ColId)),
+      DocPath(GetKeyBytes(INDIA, CG, BHILAI, AREA1), KeyEntryValue::MakeColumnId(50_ColId)),
       QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
   ASSERT_OK(SetPrimitive(
-      DocPath(GetKeyBytes(INDIA, CG, DURG), KeyEntryValue::MakeColumnId(40_ColId)),
+      DocPath(GetKeyBytes(INDIA, CG, DURG, AREA1), KeyEntryValue::MakeColumnId(50_ColId)),
       QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
   ASSERT_OK(SetPrimitive(
-      DocPath(GetKeyBytes(INDIA, CG, RPR), KeyEntryValue::MakeColumnId(40_ColId)),
+      DocPath(GetKeyBytes(INDIA, CG, RPR, AREA1), KeyEntryValue::MakeColumnId(50_ColId)),
       QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
   ASSERT_OK(SetPrimitive(
-      DocPath(GetKeyBytes(INDIA, KA, BLR), KeyEntryValue::MakeColumnId(40_ColId)),
+      DocPath(GetKeyBytes(INDIA, KA, BLR, AREA1), KeyEntryValue::MakeColumnId(50_ColId)),
       QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
   ASSERT_OK(SetPrimitive(
-      DocPath(GetKeyBytes(INDIA, KA, MLR), KeyEntryValue::MakeColumnId(40_ColId)),
+      DocPath(GetKeyBytes(INDIA, KA, MLR, AREA1), KeyEntryValue::MakeColumnId(50_ColId)),
       QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
   ASSERT_OK(SetPrimitive(
-      DocPath(GetKeyBytes(INDIA, KA, MYSORE), KeyEntryValue::MakeColumnId(40_ColId)),
+      DocPath(GetKeyBytes(INDIA, KA, MYSORE, AREA1), KeyEntryValue::MakeColumnId(50_ColId)),
       QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
   ASSERT_OK(SetPrimitive(
-      DocPath(GetKeyBytes(INDIA, TN, CHENNAI), KeyEntryValue::MakeColumnId(40_ColId)),
+      DocPath(GetKeyBytes(INDIA, TN, CHENNAI, AREA1), KeyEntryValue::MakeColumnId(50_ColId)),
       QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
   ASSERT_OK(SetPrimitive(
-      DocPath(GetKeyBytes(INDIA, TN, MADURAI), KeyEntryValue::MakeColumnId(40_ColId)),
+      DocPath(GetKeyBytes(INDIA, TN, MADURAI, AREA1), KeyEntryValue::MakeColumnId(50_ColId)),
       QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
   ASSERT_OK(SetPrimitive(
-      DocPath(GetKeyBytes(INDIA, TN, OOTY), KeyEntryValue::MakeColumnId(40_ColId)),
+      DocPath(GetKeyBytes(INDIA, TN, OOTY, AREA1), KeyEntryValue::MakeColumnId(50_ColId)),
+      QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
+
+  ASSERT_OK(SetPrimitive(
+      DocPath(GetKeyBytes(INDIA, CG, BHILAI, AREA2), KeyEntryValue::MakeColumnId(50_ColId)),
+      QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
+  ASSERT_OK(SetPrimitive(
+      DocPath(GetKeyBytes(INDIA, CG, DURG, AREA2), KeyEntryValue::MakeColumnId(50_ColId)),
+      QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
+  ASSERT_OK(SetPrimitive(
+      DocPath(GetKeyBytes(INDIA, CG, RPR, AREA2), KeyEntryValue::MakeColumnId(50_ColId)),
+      QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
+  ASSERT_OK(SetPrimitive(
+      DocPath(GetKeyBytes(INDIA, KA, BLR, AREA2), KeyEntryValue::MakeColumnId(50_ColId)),
+      QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
+  ASSERT_OK(SetPrimitive(
+      DocPath(GetKeyBytes(INDIA, KA, MLR, AREA2), KeyEntryValue::MakeColumnId(50_ColId)),
+      QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
+  ASSERT_OK(SetPrimitive(
+      DocPath(GetKeyBytes(INDIA, KA, MYSORE, AREA2), KeyEntryValue::MakeColumnId(50_ColId)),
+      QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
+  ASSERT_OK(SetPrimitive(
+      DocPath(GetKeyBytes(INDIA, TN, CHENNAI, AREA2), KeyEntryValue::MakeColumnId(50_ColId)),
+      QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
+  ASSERT_OK(SetPrimitive(
+      DocPath(GetKeyBytes(INDIA, TN, MADURAI, AREA2), KeyEntryValue::MakeColumnId(50_ColId)),
+      QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
+  ASSERT_OK(SetPrimitive(
+      DocPath(GetKeyBytes(INDIA, TN, OOTY, AREA2), KeyEntryValue::MakeColumnId(50_ColId)),
       QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
 }
 
@@ -171,16 +209,19 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterHybridScanTest) {
   auto ids = cond.add_operands()->mutable_columns();
   ids->add_ids(20_ColId);
   ids->add_ids(30_ColId);
+  ids->add_ids(40_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
   auto option1 = options->add_elems()->mutable_list_value();
   option1->add_elems()->set_string_value(CG);
   option1->add_elems()->set_string_value(DURG);
+  option1->add_elems()->set_string_value(AREA1);
 
   auto option2 = options->add_elems()->mutable_list_value();
   option2->add_elems()->set_string_value(KA);
   option2->add_elems()->set_string_value(MYSORE);
+  option2->add_elems()->set_string_value(AREA1);
 
   DocQLScanSpec spec(
       population_schema, kFixedHashCode, kFixedHashCode, hashed_components, &cond, nullptr,
@@ -206,6 +247,10 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterHybridScanTest) {
 
   ASSERT_OK(row.GetValue(population_schema.column_id(3), &value));
   ASSERT_FALSE(value.IsNull());
+  ASSERT_EQ(AREA1, value.string_value());
+
+  ASSERT_OK(row.GetValue(population_schema.column_id(4), &value));
+  ASSERT_FALSE(value.IsNull());
   ASSERT_EQ(10, value.int64_value());
 
   ASSERT_TRUE(ASSERT_RESULT(iter.HasNext()));
@@ -224,6 +269,10 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterHybridScanTest) {
   ASSERT_EQ(MYSORE, value.string_value());
 
   ASSERT_OK(row.GetValue(population_schema.column_id(3), &value));
+  ASSERT_FALSE(value.IsNull());
+  ASSERT_EQ(AREA1, value.string_value());
+
+  ASSERT_OK(row.GetValue(population_schema.column_id(4), &value));
   ASSERT_FALSE(value.IsNull());
   ASSERT_EQ(10, value.int64_value());
 
@@ -244,16 +293,19 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterDiscreteScanTest) {
   auto ids = cond.add_operands()->mutable_columns();
   ids->add_ids(20_ColId);
   ids->add_ids(30_ColId);
+  ids->add_ids(40_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
   auto option1 = options->add_elems()->mutable_list_value();
   option1->add_elems()->set_string_value(CG);
   option1->add_elems()->set_string_value(DURG);
+  option1->add_elems()->set_string_value(AREA1);
 
   auto option2 = options->add_elems()->mutable_list_value();
   option2->add_elems()->set_string_value(KA);
   option2->add_elems()->set_string_value(MYSORE);
+  option2->add_elems()->set_string_value(AREA1);
 
   DocQLScanSpec spec(
       population_schema, kFixedHashCode, kFixedHashCode, hashed_components, &cond, nullptr,
@@ -279,6 +331,10 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterDiscreteScanTest) {
 
   ASSERT_OK(row.GetValue(population_schema.column_id(3), &value));
   ASSERT_FALSE(value.IsNull());
+  ASSERT_EQ(AREA1, value.string_value());
+
+  ASSERT_OK(row.GetValue(population_schema.column_id(4), &value));
+  ASSERT_FALSE(value.IsNull());
   ASSERT_EQ(10, value.int64_value());
 
   ASSERT_TRUE(ASSERT_RESULT(iter.HasNext()));
@@ -297,6 +353,10 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterDiscreteScanTest) {
   ASSERT_EQ(MYSORE, value.string_value());
 
   ASSERT_OK(row.GetValue(population_schema.column_id(3), &value));
+  ASSERT_FALSE(value.IsNull());
+  ASSERT_EQ(AREA1, value.string_value());
+
+  ASSERT_OK(row.GetValue(population_schema.column_id(4), &value));
   ASSERT_FALSE(value.IsNull());
   ASSERT_EQ(10, value.int64_value());
 
