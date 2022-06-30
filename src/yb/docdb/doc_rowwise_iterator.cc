@@ -225,6 +225,7 @@ Status DiscreteScanChoices::IncrementScanTargetAtColumn(size_t start_col) {
 
   if (col_idx < 0) {
     // If we got here we finished all the options and are done.
+    LOG_WITH_FUNC(INFO) << "setting finished to true";
     finished_ = true;
     return Status::OK();
   }
@@ -1063,7 +1064,7 @@ Status HybridScanChoices::DoneWithCurrentTarget() {
     finished_ = bound_key.empty() ? false
                   : is_forward_scan_
                       == (current_scan_target_.CompareTo(bound_key) >= 0);
-    VLOG(4) << "finished_ = " << finished_;
+    LOG_WITH_FUNC(INFO) << "finished_ = " << finished_;
   }
 
 
@@ -1420,6 +1421,7 @@ Status DocRowwiseIterator::DoInit(const T& doc_spec) {
     has_bound_key_ = !upper_doc_key.empty();
     if (has_bound_key_) {
       bound_key_ = std::move(upper_doc_key);
+      LOG_WITH_FUNC(INFO) << "SetUpperbound : " << SubDocKey::DebugSliceToString(bound_key_);
       db_iter_->SetUpperbound(bound_key_);
     }
   } else {
@@ -1476,6 +1478,8 @@ Status DocRowwiseIterator::AdvanceIteratorToNextDesiredRow() const {
 Result<bool> DocRowwiseIterator::HasNext() const {
   VLOG(4) << __PRETTY_FUNCTION__;
 
+  LOG_WITH_FUNC(INFO) << "has_next_status_ " << has_next_status_;
+
   // Repeated HasNext calls (without Skip/NextRow in between) should be idempotent:
   // 1. If a previous call failed we returned the same status.
   // 2. If a row is already available (row_ready_), return true directly.
@@ -1491,6 +1495,11 @@ Result<bool> DocRowwiseIterator::HasNext() const {
 
   bool doc_found = false;
   while (!doc_found) {
+    LOG_WITH_FUNC(INFO) << "Inside while !doc_found";
+    LOG_WITH_FUNC(INFO) << "!db_iter_->valid() " << !db_iter_->valid();
+    LOG_WITH_FUNC(INFO) << "scan_choices_ != nullptr " << (scan_choices_ != nullptr);
+    LOG_WITH_FUNC(INFO) << "scan_choices_->FinishedWithScanChoices()"
+                        << scan_choices_->FinishedWithScanChoices();
     if (!db_iter_->valid() || (scan_choices_ && scan_choices_->FinishedWithScanChoices())) {
       done_ = true;
       return false;
@@ -1502,6 +1511,8 @@ Result<bool> DocRowwiseIterator::HasNext() const {
       has_next_status_ = key_data.status();
       return has_next_status_;
     }
+
+    LOG(INFO) << "*fetched_key is " << SubDocKey::DebugSliceToString(key_data->key);
 
     VLOG(4) << "*fetched_key is " << SubDocKey::DebugSliceToString(key_data->key);
     if (debug_dump_) {

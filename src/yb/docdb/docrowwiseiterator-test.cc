@@ -90,10 +90,10 @@ const Schema DocRowwiseIteratorTest::kSchemaForIteratorTests({
     }, 2);
 
 Schema DocRowwiseIteratorTest::kProjectionForIteratorTests;
+constexpr int32_t kFixedHashCode = 0;
 
-template <class... T>
-const KeyBytes GetKeyBytes(T... args) {
-  return DocKey(KeyEntryValues(args...)).Encode();
+const KeyBytes GetKeyBytes(string hash, string r1, string r2) {
+  return DocKey(kFixedHashCode, KeyEntryValues(hash), KeyEntryValues(r1, r2)).Encode();
 }
 
 TEST_F(DocRowwiseIteratorTest, ArpanTest) {
@@ -180,12 +180,13 @@ TEST_F(DocRowwiseIteratorTest, ArpanTest) {
 
   LOG(INFO) << "Condition " << cond.ShortDebugString();
 
-  DocKeyDecoder decoder(KeyEntryValue(INDIA).ToKeyBytes());
-  uint16_t hash_code;
-  ASSERT_OK(decoder.DecodeHashCode(&hash_code));
+  //   DocKeyDecoder decoder(KeyEntryValue(INDIA).ToKeyBytes());
+  //   uint16_t hash_code;
+  //   ASSERT_OK(decoder.DecodeHashCode(&hash_code));
 
   DocQLScanSpec spec(
-      schema, hash_code, hash_code, hashed_components, &cond, nullptr, rocksdb::kDefaultQueryId);
+      schema, kFixedHashCode, kFixedHashCode, hashed_components, &cond, nullptr,
+      rocksdb::kDefaultQueryId);
   ASSERT_OK(iter.Init(spec));
 
   QLTableRow row;
