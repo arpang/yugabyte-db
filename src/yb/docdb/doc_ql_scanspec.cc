@@ -73,46 +73,54 @@ DocQLScanSpec::DocQLScanSpec(
         range_bounds_indexes_ = range_bounds_->GetColIds();
     }
 
+    LOG(INFO) << "Checking to init range options";
+    LOG(INFO) << "!hashed_components_->empty() " << !hashed_components_->empty();
+    LOG(INFO) << "schema_.num_range_key_columns() > 0 " << (schema_.num_range_key_columns() > 0);
+    LOG(INFO) << "range_bounds_: " << (range_bounds_ != nullptr);
+    LOG(INFO) << "range_bounds_->has_in_range_options() " << range_bounds_->has_in_range_options();
 
-  // If the hash key is fixed and we have range columns with IN condition, try to construct the
-  // exact list of range options to scan for.
-  if (!hashed_components_->empty() && schema_.num_range_key_columns() > 0 &&
-      range_bounds_ && range_bounds_->has_in_range_options()) {
-    DCHECK(condition);
-    range_options_ = std::make_shared<std::vector<Options>>(schema_.num_range_key_columns());
-    range_options_sizes_ = vector<size_t>(schema_.num_range_key_columns());
-    InitRangeOptions(*condition);
-    LOG(INFO) << "range_options_sizes_: " << range_options_sizes_.size();
-    for (size_t i = 0; i < range_options_sizes_.size(); i++) {
-      LOG(INFO) << range_options_sizes_[i];
-    }
+    // If the hash key is fixed and we have range columns with IN condition, try to construct the
+    // exact list of range options to scan for.
+    if (!hashed_components_->empty() && schema_.num_range_key_columns() > 0 && range_bounds_ &&
+        range_bounds_->has_in_range_options()) {
+      LOG(INFO) << "Initing range options";
+      DCHECK(condition);
+      range_options_ = std::make_shared<std::vector<Options>>(schema_.num_range_key_columns());
+      range_options_sizes_ = vector<size_t>(schema_.num_range_key_columns());
+      InitRangeOptions(*condition);
+      LOG(INFO) << "range_options_sizes_: " << range_options_sizes_.size();
+      for (size_t i = 0; i < range_options_sizes_.size(); i++) {
+        LOG(INFO) << range_options_sizes_[i];
+      }
 
-    LOG(INFO) << "range_options_: " << range_options_->size();
-    for (size_t i = 0; i < range_options_->size(); i++) {
-      LOG(INFO) << "range_options_[" << i << "]"
-                << " size: " << (*range_options_)[i].size();
-      for (size_t j = 0; j < (*range_options_)[i].size(); j++) {
-        LOG(INFO) << "range_options_[" << i << "][" << j << "]"
-                  << " size: " << (*range_options_)[i][j].size();
-        for (size_t k = 0; k < (*range_options_)[i][j].size(); k++) {
-          LOG(INFO) << (*range_options_)[i][j][k];
+      LOG(INFO) << "range_options_: " << range_options_->size();
+      for (size_t i = 0; i < range_options_->size(); i++) {
+        LOG(INFO) << "range_options_[" << i << "]"
+                  << " size: " << (*range_options_)[i].size();
+        for (size_t j = 0; j < (*range_options_)[i].size(); j++) {
+          LOG(INFO) << "range_options_[" << i << "][" << j << "]"
+                    << " size: " << (*range_options_)[i][j].size();
+          for (size_t k = 0; k < (*range_options_)[i][j].size(); k++) {
+            LOG(INFO) << (*range_options_)[i][j][k];
+          }
         }
       }
-    }
 
-    if (FLAGS_disable_hybrid_scan) {
+      if (FLAGS_disable_hybrid_scan) {
         // Range options are only valid if all range columns
         // are set (i.e. have one or more options).
         for (size_t i = 0; i < schema_.num_range_key_columns(); i++) {
-            if ((*range_options_)[i].empty()) {
-                range_options_ = nullptr;
-                break;
-            }
-            i = i + range_options_sizes_[i] - 1;
-            // i = i + (*range_options_)[i][0].size() - 1;
+          if ((*range_options_)[i].empty()) {
+            range_options_ = nullptr;
+            break;
+          }
+          i = i + range_options_sizes_[i] - 1;
+          // i = i + (*range_options_)[i][0].size() - 1;
         }
+      }
+    } else {
+      LOG(INFO) << "Not initing range options";
     }
-  }
 }
 
 // Takes in sorted index list.
@@ -147,8 +155,8 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
       // Skip any condition where LHS is not a column (e.g. subscript columns: 'map[k] = v')
       const auto& lhs = condition.operands(0);
       const auto& rhs = condition.operands(1);
-      LOG(INFO) << lhs.expr_case() << " " << QLExpressionPB::kColumnId << " "
-                << QLExpressionPB::kColumns;
+      LOG(INFO) << "Matcing expression case: " << lhs.expr_case() << " "
+                << QLExpressionPB::kColumnId << " " << QLExpressionPB::kColumns;
       if (lhs.expr_case() != QLExpressionPB::kColumnId &&
           lhs.expr_case() != QLExpressionPB::kColumns) {
         return;
@@ -200,6 +208,8 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
         vector<ColumnId> col_ids;
         vector<int> col_idxs;
         size_t num_cols = lhs.columns().ids().size();
+        LOG(INFO) << "num cols in the in clause " << num_cols;
+        LOG(INFO) << "LHS: " << lhs.ShortDebugString();
         DCHECK(num_cols > 0);
 
         for (auto entry : lhs.columns().ids()) {
@@ -253,8 +263,9 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
             const auto& values = elem.list_value();
             DCHECK_EQ(num_cols, values.elems_size());
 
-            Option option(num_cols);
+            Option option;
             for (size_t j = 0; j < num_cols; j++) {
+              LOG(INFO) << "Pushing " << values.elems((int)j).ShortDebugString();
               auto pv = KeyEntryValue::FromQLValuePBForKey(values.elems((int)j), sorting_type);
               option.push_back(pv);
             }

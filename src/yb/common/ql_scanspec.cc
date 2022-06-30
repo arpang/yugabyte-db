@@ -38,6 +38,7 @@ template <class Value>
 struct ColumnValue {
   bool lhs_is_column = false;
   ColumnId column_id;
+  vector<ColumnId> column_ids;
   const Value* value = nullptr;
 
   explicit operator bool() const {
@@ -74,6 +75,21 @@ auto GetColumnValue(const Col& col) {
     }
     return ResultType();
   }
+  if (it->expr_case() == decltype(it->expr_case())::kColumns) {
+    vector<ColumnId> column_ids;
+    for (auto id : it->columns().ids()) {
+      column_ids.emplace_back(ColumnId(id));
+    }
+    ++it;
+    if (it->expr_case() == decltype(it->expr_case())::kValue) {
+      return ResultType{
+          .lhs_is_column = true,
+          .column_ids = column_ids,
+          .value = &it->value(),
+      };
+    }
+    return ResultType();
+  }
   return ResultType();
 }
 
@@ -97,12 +113,39 @@ void QLScanRange::Init(const Cond& condition) {
   bool has_range_column = false;
   using ExprCase = decltype(operands.begin()->expr_case());
   for (const auto& operand : operands) {
-    if (operand.expr_case() == ExprCase::kColumnId &&
-        schema_.is_range_column(ColumnId(operand.column_id()))) {
-      has_range_column = true;
+    std::vector<int> column_ids;
+    if (operand.expr_case() == ExprCase::kColumnId) {
+      column_ids.push_back(operand.column_id());
+    } else if (operand.expr_case() == ExprCase::kColumns) {
+      for (auto id : operand.columns().ids()) {
+        column_ids.push_back(id);
+      }
+    }
+    if (column_ids.empty()) {
+      continue;
+    }
+    // TODO: does every column has to be a range column?
+    for (auto id : column_ids) {
+      if (schema_.is_range_column(ColumnId(id))) {
+        has_range_column = true;
+        break;
+      }
+    }
+
+    if (has_range_column) {
       break;
     }
+    // bool case1 = operand.expr_case() == ExprCase::kColumnId &&
+    //              schema_.is_range_column(ColumnId(operand.column_id()));
+    // bool case2 = operand.expr_case() == ExprCase::kColumns;
+
+    // if (case1 || case2) {
+    //   has_range_column = true;
+    //   break;
+    // }
   }
+
+  LOG(INFO) << "has_range_column " << has_range_column;
 
   bool is_inclusive = true;
 
@@ -227,13 +270,22 @@ void QLScanRange::Init(const Cond& condition) {
           // IN arguments should have already been de-duplicated and ordered by the executor.
           auto in_size = column_value.value->list_value().elems().size();
           if (in_size > 0) {
-            auto& range = ranges_[column_value.column_id];
-            QLLowerBound lower_bound(*column_value.value->list_value().elems().begin(), true);
-            range.min_bound = lower_bound;
-            auto last = column_value.value->list_value().elems().end();
-            --last;
-            QLUpperBound upper_bound(*last, true);
-            range.max_bound = upper_bound;
+            LOG(INFO) << "column_value.column_id " << column_value.column_id;
+            LOG(INFO) << "column_value.column_ids.size " << column_value.column_ids.size();
+            ColumnId col_id = column_value.column_id;
+            // if (column_value.column_ids.size() > 0) {
+            //   // TODO: make change in RangeBasedScanChoices to handle this
+            //   col_id = column_value.column_ids[0];  // use the first column ID
+            // }
+            if (col_id != 0) {
+              auto& range = ranges_[col_id];
+              QLLowerBound lower_bound(*column_value.value->list_value().elems().begin(), true);
+              range.min_bound = lower_bound;
+              auto last = column_value.value->list_value().elems().end();
+              --last;
+              QLUpperBound upper_bound(*last, true);
+              range.max_bound = upper_bound;
+            }
           }
           has_in_range_options_ = true;
         }
