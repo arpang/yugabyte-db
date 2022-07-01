@@ -818,7 +818,7 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterRangeScanTest) {
   ASSERT_FALSE(ASSERT_RESULT(iter.HasNext()));
 }
 
-TEST_F(DocRowwiseIteratorTest, SimpleTest) {
+TEST_F(DocRowwiseIteratorTest, SimpleRangeScanTest) {
   FLAGS_disable_hybrid_scan = true;
   InsertPopulationData();
   DocReadContext doc_read_context(population_schema, 1);
@@ -829,20 +829,10 @@ TEST_F(DocRowwiseIteratorTest, SimpleTest) {
   const std::vector<KeyEntryValue> hashed_components{KeyEntryValue(INDIA)};
 
   QLConditionPB cond;
-  //   auto ids = cond.add_operands()->mutable_columns();
-  //   ids->add_ids(20_ColId);
   cond.add_operands()->set_column_id(20_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
-
-  // auto option1 = options->add_elems()->mutable_list_value();
   options->add_elems()->set_string_value(CG);
-  options->add_elems()->set_string_value(KA);
-  // option1->add_elems()->set_string_value(AREA1);
-
-  //   auto option2 = options->add_elems()->mutable_list_value();
-  //   option2->add_elems()->set_string_value(MYSORE);
-  //   option2->add_elems()->set_string_value(AREA1);
 
   DocQLScanSpec spec(
       population_schema, kFixedHashCode, kFixedHashCode, hashed_components, &cond, nullptr,
@@ -854,61 +844,46 @@ TEST_F(DocRowwiseIteratorTest, SimpleTest) {
   ASSERT_TRUE(ASSERT_RESULT(iter.HasNext()));
   ASSERT_OK(iter.NextRow(&row));
 
-  ASSERT_OK(row.GetValue(population_schema.column_id(0), &value));
-  ASSERT_FALSE(value.IsNull());
-  ASSERT_EQ(INDIA, value.string_value());
-
   ASSERT_OK(row.GetValue(population_schema.column_id(1), &value));
   ASSERT_FALSE(value.IsNull());
   ASSERT_EQ(CG, value.string_value());
-
-  //   ASSERT_OK(row.GetValue(population_schema.column_id(2), &value));
-  //   ASSERT_FALSE(value.IsNull());
-  //   ASSERT_EQ(DURG, value.string_value());
-
-  //   ASSERT_OK(row.GetValue(population_schema.column_id(3), &value));
-  //   ASSERT_FALSE(value.IsNull());
-  //   ASSERT_EQ(AREA1, value.string_value());
-
-  //   ASSERT_OK(row.GetValue(population_schema.column_id(4), &value));
-  //   ASSERT_FALSE(value.IsNull());
-  //   ASSERT_EQ(10, value.int64_value());
 
   ASSERT_TRUE(ASSERT_RESULT(iter.HasNext()));
   ASSERT_OK(iter.NextRow(&row));
 
-  ASSERT_OK(row.GetValue(population_schema.column_id(0), &value));
-  ASSERT_FALSE(value.IsNull());
-  ASSERT_EQ(INDIA, value.string_value());
-
   ASSERT_OK(row.GetValue(population_schema.column_id(1), &value));
   ASSERT_FALSE(value.IsNull());
   ASSERT_EQ(CG, value.string_value());
-
-  //   ASSERT_OK(row.GetValue(population_schema.column_id(2), &value));
-  //   ASSERT_FALSE(value.IsNull());
-  //   ASSERT_EQ(MYSORE, value.string_value());
-
-  //   ASSERT_OK(row.GetValue(population_schema.column_id(3), &value));
-  //   ASSERT_FALSE(value.IsNull());
-  //   ASSERT_EQ(AREA1, value.string_value());
-
-  //   ASSERT_OK(row.GetValue(population_schema.column_id(4), &value));
-  //   ASSERT_FALSE(value.IsNull());
-  //   ASSERT_EQ(10, value.int64_value());
 
   ASSERT_TRUE(ASSERT_RESULT(iter.HasNext()));
   ASSERT_OK(iter.NextRow(&row));
 
-  ASSERT_OK(row.GetValue(population_schema.column_id(0), &value));
+  ASSERT_OK(row.GetValue(population_schema.column_id(1), &value));
   ASSERT_FALSE(value.IsNull());
-  ASSERT_EQ(INDIA, value.string_value());
+  ASSERT_EQ(CG, value.string_value());
+
+  ASSERT_TRUE(ASSERT_RESULT(iter.HasNext()));
+  ASSERT_OK(iter.NextRow(&row));
 
   ASSERT_OK(row.GetValue(population_schema.column_id(1), &value));
   ASSERT_FALSE(value.IsNull());
   ASSERT_EQ(CG, value.string_value());
 
-  // ASSERT_FALSE(ASSERT_RESULT(iter.HasNext()));
+  ASSERT_TRUE(ASSERT_RESULT(iter.HasNext()));
+  ASSERT_OK(iter.NextRow(&row));
+
+  ASSERT_OK(row.GetValue(population_schema.column_id(1), &value));
+  ASSERT_FALSE(value.IsNull());
+  ASSERT_EQ(CG, value.string_value());
+
+  ASSERT_TRUE(ASSERT_RESULT(iter.HasNext()));
+  ASSERT_OK(iter.NextRow(&row));
+
+  ASSERT_OK(row.GetValue(population_schema.column_id(1), &value));
+  ASSERT_FALSE(value.IsNull());
+  ASSERT_EQ(CG, value.string_value());
+
+  ASSERT_FALSE(ASSERT_RESULT(iter.HasNext()));
 }
 
 TEST_F(DocRowwiseIteratorTest, DocRowwiseIteratorTest) {
