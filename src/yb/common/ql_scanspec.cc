@@ -37,13 +37,33 @@ QLScanRange::QLScanRange(const Schema& schema, const QLConditionPB& condition)
 template <class Value>
 struct ColumnValue {
   bool lhs_is_column = false;
+
+  // single column/value
   ColumnId column_id;
-  vector<ColumnId> column_ids;
   const Value* value = nullptr;
+
+  // grouped columns/values
+  const vector<ColumnId> column_ids;
+  // vector<Value*> values;
 
   explicit operator bool() const {
     return value != nullptr;
   }
+
+  // void helper(Value* value_, size_t num_cols) {
+  //   DCHECK(value->has_list_value());
+  //   for (size_t i = 0; i < num_cols; i++) {
+  //     values.push_back({});
+  //   }
+  //   for (const auto& entry : value->list_value().elems()) {
+  //     DCHECK(entry.has_list_value());
+  //     DCHECK((size_t)entry.list_value().elems().size() == num_cols);
+  //     for (size_t i = 0; i < num_cols; i++) {
+  //       values[i].push_back(entry.list_value().elems(i));
+  //       // *(values[i]->mutable_list_value()->add_elems()) = entry.list_value().elems(i);
+  //     }
+  //   }
+  // }
 };
 
 template <class Col>
@@ -51,6 +71,9 @@ auto GetColumnValue(const Col& col) {
   CHECK_EQ(col.size(), 2);
   auto it = col.begin();
   using ResultType = ColumnValue<typename std::remove_reference<decltype(it->value())>::type>;
+
+  // using ValueType = typename std::remove_reference<decltype(it->value())>::type;
+
   if (it->expr_case() == decltype(it->expr_case())::kColumnId) {
     ColumnId column_id(it->column_id());
     ++it;
@@ -80,13 +103,17 @@ auto GetColumnValue(const Col& col) {
     for (auto id : it->columns().ids()) {
       column_ids.emplace_back(ColumnId(id));
     }
+    // size_t num_cols = column_ids.size();
     ++it;
+
     if (it->expr_case() == decltype(it->expr_case())::kValue) {
-      return ResultType{
+      auto result = ResultType{
           .lhs_is_column = true,
-          .column_ids = column_ids,
           .value = &it->value(),
+          .column_ids = column_ids,
       };
+      // result.helper(&it->value(), num_cols);
+      return result;
     }
     return ResultType();
   }
@@ -268,16 +295,16 @@ void QLScanRange::Init(const Cond& condition) {
         if (column_value) {
           // - <column> IN (<value>) --> min/max bounds = <value>
           // IN arguments should have already been de-duplicated and ordered by the executor.
+
+          // if (column_value.value) {
+          // column_value.value->list_value().elems().begin()->list_value().elems();
+
           auto in_size = column_value.value->list_value().elems().size();
+          // TODO: (discuss with Tanuj) if in_size == 0, shouldn't be set lower = +Inf and upper =
+          // -inf
           if (in_size > 0) {
-            LOG(INFO) << "column_value.column_id " << column_value.column_id;
-            LOG(INFO) << "column_value.column_ids.size " << column_value.column_ids.size();
             ColumnId col_id = column_value.column_id;
-            // if (column_value.column_ids.size() > 0) {
-            //   // TODO: make change in RangeBasedScanChoices to handle this
-            //   col_id = column_value.column_ids[0];  // use the first column ID
-            // }
-            if (col_id != 0) {
+            if (col_id > 0) {
               auto& range = ranges_[col_id];
               QLLowerBound lower_bound(*column_value.value->list_value().elems().begin(), true);
               range.min_bound = lower_bound;
@@ -285,8 +312,56 @@ void QLScanRange::Init(const Cond& condition) {
               --last;
               QLUpperBound upper_bound(*last, true);
               range.max_bound = upper_bound;
+            } else {
+              std::vector<ColumnId> col_ids = column_value.column_ids;
+              auto lower = column_value.value->list_value().elems().begin();
+              auto upper = column_value.value->list_value().elems().end();
+              --upper;
+              DCHECK(col_ids.size() == (size_t)lower->list_value().elems().size());
+              DCHECK(col_ids.size() == (size_t)upper->list_value().elems().size());
+
+              size_t i = 0;
+              for (auto const& entry : lower->list_value().elems()) {
+                auto& range = ranges_[col_ids[i]];
+                range.min_bound = QLLowerBound(entry, true);
+                LOG(INFO) << "For columns " << col_ids[i] << "min bound "
+                          << entry.ShortDebugString();
+                ++i;
+              }
+
+              i = 0;
+              for (auto const& entry : upper->list_value().elems()) {
+                auto& range = ranges_[col_ids[i]];
+                range.max_bound = QLLowerBound(entry, true);
+                LOG(INFO) << "For columns " << col_ids[i] << "max bound "
+                          << entry.ShortDebugString();
+                ++i;
+              }
             }
           }
+          //}
+          // else if (column_value.values) {
+          // }
+
+          // auto in_size = column_value.value->list_value().elems().size();
+          // if (in_size > 0) {
+          //   LOG(INFO) << "column_value.column_id " << column_value.column_id;
+          //   LOG(INFO) << "column_value.column_ids.size " << column_value.column_ids.size();
+          //   ColumnId col_id = column_value.column_id;
+          //   if (column_value.column_ids.size() > 0) {
+          //     // TODO: make change in RangeBasedScanChoices to handle this
+          //     col_id = column_value.column_ids[0];  // use the first column ID
+          //   }
+          //   // if (col_id != 0) {
+          //   auto& range = ranges_[col_id];
+          //   QLLowerBound lower_bound(*column_value.value->list_value().elems().begin(), true);
+          //   range.min_bound = lower_bound;
+          //   auto last = column_value.value->list_value().elems().end();
+          //   --last;
+          //   QLUpperBound upper_bound(*last, true);
+          //   range.max_bound = upper_bound;
+          //   //}
+          // }
           has_in_range_options_ = true;
         }
       }

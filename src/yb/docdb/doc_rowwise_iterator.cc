@@ -126,6 +126,7 @@ class DiscreteScanChoices : public ScanChoices {
     auto sizes = doc_spec.range_options_sizes();
     for (size_t idx = 0; idx < options->size(); idx++) {
       if ((*options)[idx].empty()) {
+        LOG(INFO) << "Empty found";
         continue;
       }
       range_cols_scan_options_->push_back((*options)[idx]);
@@ -1136,13 +1137,21 @@ class RangeBasedScanChoices : public ScanChoices {
     DCHECK(doc_spec.range_bounds());
     lower_.reserve(schema.num_range_key_columns());
     upper_.reserve(schema.num_range_key_columns());
-    size_t idx = 0;
-    for (idx = schema.num_hash_key_columns(); idx < schema.num_key_columns(); idx++) {
+    // const auto& sizes = doc_spec.range_options_sizes();
+    for (size_t idx = schema.num_hash_key_columns(); idx < schema.num_key_columns(); idx++) {
       const ColumnId col_idx = schema.column_id(idx);
       const auto col_sort_type = schema.column(idx).sorting_type();
       const QLScanRange::QLRange range = doc_spec.range_bounds()->RangeFor(col_idx);
-      lower_.push_back(GetQLRangeBoundAsPVal(range, col_sort_type, true /* lower_bound */));
-      upper_.push_back(GetQLRangeBoundAsPVal(range, col_sort_type, false /* upper_bound */));
+      auto lower = GetQLRangeBoundAsPVal(range, col_sort_type, true /* lower_bound */);
+      lower_.push_back(lower);
+      auto upper = GetQLRangeBoundAsPVal(range, col_sort_type, false /* upper_bound */);
+      upper_.push_back(upper);
+      LOG_WITH_FUNC(INFO) << " RangeBasedScanChoices For column " << col_idx << " lower: " << lower
+                          << " upper: " << upper;
+
+      // if (sizes[idx] > 1) {
+      //   idx = idx + sizes[idx] - 1;
+      // }
     }
   }
 
@@ -1151,14 +1160,20 @@ class RangeBasedScanChoices : public ScanChoices {
     DCHECK(doc_spec.range_bounds());
     lower_.reserve(schema.num_range_key_columns());
     upper_.reserve(schema.num_range_key_columns());
+    // const auto& sizes = doc_spec.range_options_sizes();
     for (auto idx = schema.num_hash_key_columns(); idx < schema.num_key_columns(); idx++) {
       const ColumnId col_idx = schema.column_id(idx);
       const auto col_sort_type = schema.column(idx).sorting_type();
       const QLScanRange::QLRange range = doc_spec.range_bounds()->RangeFor(col_idx);
       const auto lower = GetQLRangeBoundAsPVal(range, col_sort_type, true /* lower_bound */);
       const auto upper = GetQLRangeBoundAsPVal(range, col_sort_type, false /* upper_bound */);
+      LOG_WITH_FUNC(INFO) << " RangeBasedScanChoices For column " << col_idx << " lower: " << lower
+                          << " upper: " << upper;
       lower_.emplace_back(lower);
       upper_.emplace_back(upper);
+      // if (sizes[idx] > 1) {
+      //   idx = idx + sizes[idx] - 1;
+      // }
     }
   }
 
