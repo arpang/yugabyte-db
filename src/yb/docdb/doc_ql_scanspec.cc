@@ -77,7 +77,8 @@ DocQLScanSpec::DocQLScanSpec(
     // LOG(INFO) << "!hashed_components_->empty() " << !hashed_components_->empty();
     // LOG(INFO) << "schema_.num_range_key_columns() > 0 " << (schema_.num_range_key_columns() > 0);
     // LOG(INFO) << "range_bounds_: " << (range_bounds_ != nullptr);
-    // LOG(INFO) << "range_bounds_->has_in_range_options() " << range_bounds_->has_in_range_options();
+    // LOG(INFO) << "range_bounds_->has_in_range_options() "
+    // <<range_bounds_->has_in_range_options();
 
     // If the hash key is fixed and we have range columns with IN condition, try to construct the
     // exact list of range options to scan for.
@@ -209,7 +210,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
         size_t num_cols = lhs.columns().ids().size();
         LOG(INFO) << "num cols in the in clause " << num_cols;
         LOG(INFO) << "LHS: " << lhs.ShortDebugString();
-        DCHECK(num_cols > 0);
+        DCHECK_GT(num_cols, 0);
 
         for (auto entry : lhs.columns().ids()) {
           ColumnId col_id = ColumnId(entry);
@@ -243,7 +244,8 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           DCHECK_EQ(num_cols, values.elems_size());
           Option option(num_cols);
           for (size_t i = 0; i < num_cols; i++) {
-            auto pv = KeyEntryValue::FromQLValuePBForKey(values.elems((int)i), sorting_type);
+            auto pv =
+                KeyEntryValue::FromQLValuePBForKey(values.elems(static_cast<int>(i)), sorting_type);
             option.push_back(pv);
           }
           (*range_options_)[start_idx - num_hash_cols].push_back(std::move(option));
@@ -263,8 +265,9 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
 
             Option option;
             for (size_t j = 0; j < num_cols; j++) {
-              LOG(INFO) << "Pushing " << values.elems((int)j).ShortDebugString();
-              auto pv = KeyEntryValue::FromQLValuePBForKey(values.elems((int)j), sorting_type);
+              LOG(INFO) << "Pushing " << values.elems(static_cast<int>(j)).ShortDebugString();
+              auto pv = KeyEntryValue::FromQLValuePBForKey(
+                  values.elems(static_cast<int>(j)), sorting_type);
               option.push_back(pv);
             }
             (*range_options_)[start_idx - num_hash_cols].push_back(std::move(option));
