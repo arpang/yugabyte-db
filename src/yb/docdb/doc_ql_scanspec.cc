@@ -115,7 +115,6 @@ DocQLScanSpec::DocQLScanSpec(
             break;
           }
           i = i + range_options_sizes_[i] - 1;
-          // i = i + (*range_options_)[i][0].size() - 1;
         }
       }
     } else {
@@ -234,7 +233,8 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
 
         auto start_idx = *std::min_element(col_idxs.begin(), col_idxs.end());
 
-        // sorting type of only the first col matters
+        // TODO: Add a dcheck that all columns have same sorting type
+
         SortingType sorting_type = schema_.column(start_idx).sorting_type();
 
         if (condition.op() == QL_OP_EQUAL) {
@@ -251,10 +251,6 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           DCHECK(rhs.value().has_list_value());
           const auto& options = rhs.value().list_value();
           int num_options = options.elems_size();
-          // for (size_t i = 0; i < num_cols; i++) {
-          //   (*range_options_)[col_idxs[i] - num_hash_cols].reserve(num_options);
-          // }
-
           // IN arguments should have been de-duplicated and ordered ascendingly by the
           // executor.
           bool is_reverse_order = is_forward_scan_ ^ (sorting_type == SortingType::kAscending);

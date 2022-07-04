@@ -28,7 +28,6 @@ namespace docdb {
 
 using Option = std::vector<KeyEntryValue>;  // an option in an IN/EQ clause
 using Options = std::vector<Option>;        // all the options in an IN clause
-// using OptionColIds = std::vector<ColumnId>;  // id of columns in an IN clause
 
 // DocDB variant of QL scanspec.
 class DocQLScanSpec : public QLScanSpec {

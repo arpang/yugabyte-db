@@ -132,9 +132,6 @@ class DiscreteScanChoices : public ScanChoices {
       range_cols_scan_options_->push_back((*options)[idx]);
       range_options_sizes_.push_back(sizes[idx]);
     }
-    // range_cols_scan_options_ = doc_spec.range_options();
-    // range_options_sizes_ = doc_spec.range_options_sizes();
-
     current_scan_target_idxs_.resize(range_cols_scan_options_->size());
     for (size_t i = 0; i < range_cols_scan_options_->size(); i++) {
       current_scan_target_idxs_[i] = range_cols_scan_options_->at(i).begin();
@@ -236,7 +233,6 @@ Status DiscreteScanChoices::IncrementScanTargetAtColumn(size_t start_col) {
   RETURN_NOT_OK(decoder.DecodeToRangeGroup());
   for (int i = 0; i != col_idx; ++i) {
     VERIFY_RESULT(DecodeKeyEntryValue(&decoder, range_options_sizes_[i]));
-    // RETURN_NOT_OK(decoder.DecodeKeyEntryValue());
   }
 
   current_scan_target_.Truncate(
@@ -448,7 +444,6 @@ class HybridScanChoices : public ScanChoices {
       : ScanChoices(is_forward_scan), lower_doc_key_(lower_doc_key), upper_doc_key_(upper_doc_key) {
     LOG(INFO) << "Arpan HybridScanChoices";
 
-    // range_cols_scan_options_.reserve(schema.num_range_key_columns());
     // TODO: Should we extend tuple filtering to range bounds?
 
     size_t num_hash_cols = schema.num_hash_key_columns();
@@ -457,7 +452,6 @@ class HybridScanChoices : public ScanChoices {
       const ColumnId col_id = schema.column_id(idx);
       const string col_name = schema.column_names()[idx];
       LOG_WITH_FUNC(INFO) << "Prcoessing column " << col_name << " " << col_id;
-      // range_cols_scan_options_.push_back({});
       vector<OptionRange> current_options;
       size_t option_size = 1;
       bool col_has_range_option =
@@ -477,7 +471,6 @@ class HybridScanChoices : public ScanChoices {
 
         LOG_WITH_FUNC(INFO) << "For column " << col_name << " range bound single entry: lower "
                             << lower << " upper " << upper;
-        // range_cols_scan_options_[idx - num_hash_cols]
         current_options.emplace_back(
             vector{lower},
             GetQLRangeBoundIsInclusive(range, col_sort_type, true),
@@ -496,7 +489,6 @@ class HybridScanChoices : public ScanChoices {
           //
           // As of D15647 we do not send empty options.
           // This is kept for backward compatibility during rolling upgrades.
-          // range_cols_scan_options_[idx - num_hash_cols]
           current_options.emplace_back(
               vector(option_size, KeyEntryValue(KeyEntryType::kHighest)),
               true,
@@ -511,7 +503,6 @@ class HybridScanChoices : public ScanChoices {
           for (size_t i = 0; i < option_size; i++) {
             LOG_WITH_FUNC(INFO) << "col : " << i << " value: " << lower[i];
           }
-          // range_cols_scan_options_[idx - num_hash_cols]
           current_options.emplace_back(lower, true, upper, true);
         }
         idx = idx + option_size - 1;
@@ -522,7 +513,6 @@ class HybridScanChoices : public ScanChoices {
         LOG_WITH_FUNC(INFO) << "For column " << col_name
                             << " no filter specified, artfificial single value: lower "
                             << KeyEntryType::kLowest << " upper " << KeyEntryType::kHighest;
-        // range_cols_scan_options_[idx - num_hash_cols]
         current_options.emplace_back(
             vector{KeyEntryValue(KeyEntryType::kLowest)},
             true,
@@ -595,7 +585,6 @@ class HybridScanChoices : public ScanChoices {
   Status IncrementScanTargetAtColumn(int start_col);
 
  private:
-  // Result<bool> SkipTargetsUpToHelper(size_t& col_idx, DocKeyDecoder& decoder);
   KeyBytes prev_scan_target_;
 
   // The following encodes the list of ranges we are iterating over
@@ -698,11 +687,6 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     size_t num_cols = range_options_sizes_[idx];
     auto current_it = current_scan_target_ranges_[idx];
     DCHECK(current_it != options.end());
-
-    // vector<KeyEntryValue> target_value(num_cols);
-    // for (size_t i = 0; i < num_cols; i++) {
-    //   RETURN_NOT_OK(decoder.DecodeKeyEntryValue(&target_value[i]));
-    // }
 
     vector<KeyEntryValue> target_value = VERIFY_RESULT(DecodeKeyEntryValue(&decoder, num_cols));
 
@@ -948,7 +932,6 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
   for (int i = 0; i <= col_idx; ++i) {
     size_t num_cols = range_options_sizes_[i];
     vector<KeyEntryValue> target_value = VERIFY_RESULT(DecodeKeyEntryValue(&t_decoder, num_cols));
-    // RETURN_NOT_OK(t_decoder.DecodeKeyEntryValue(&target_value));
     is_extremal.push_back(target_value == upper_extremal_fn(*current_scan_target_ranges_[i]));
   }
 
@@ -986,7 +969,6 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
   for (int i = 0; i < col_idx; ++i) {
     size_t num_cols = range_options_sizes_[i];
     VERIFY_RESULT(DecodeKeyEntryValue(&decoder, num_cols));
-    // RETURN_NOT_OK(decoder.DecodeKeyEntryValue());
   }
 
   if (col_idx < 0) {
@@ -1137,7 +1119,6 @@ class RangeBasedScanChoices : public ScanChoices {
     DCHECK(doc_spec.range_bounds());
     lower_.reserve(schema.num_range_key_columns());
     upper_.reserve(schema.num_range_key_columns());
-    // const auto& sizes = doc_spec.range_options_sizes();
     for (size_t idx = schema.num_hash_key_columns(); idx < schema.num_key_columns(); idx++) {
       const ColumnId col_idx = schema.column_id(idx);
       const auto col_sort_type = schema.column(idx).sorting_type();
@@ -1148,10 +1129,6 @@ class RangeBasedScanChoices : public ScanChoices {
       upper_.push_back(upper);
       LOG_WITH_FUNC(INFO) << " RangeBasedScanChoices For column " << col_idx << " lower: " << lower
                           << " upper: " << upper;
-
-      // if (sizes[idx] > 1) {
-      //   idx = idx + sizes[idx] - 1;
-      // }
     }
   }
 
@@ -1160,7 +1137,6 @@ class RangeBasedScanChoices : public ScanChoices {
     DCHECK(doc_spec.range_bounds());
     lower_.reserve(schema.num_range_key_columns());
     upper_.reserve(schema.num_range_key_columns());
-    // const auto& sizes = doc_spec.range_options_sizes();
     for (auto idx = schema.num_hash_key_columns(); idx < schema.num_key_columns(); idx++) {
       const ColumnId col_idx = schema.column_id(idx);
       const auto col_sort_type = schema.column(idx).sorting_type();
@@ -1171,9 +1147,6 @@ class RangeBasedScanChoices : public ScanChoices {
                           << " upper: " << upper;
       lower_.emplace_back(lower);
       upper_.emplace_back(upper);
-      // if (sizes[idx] > 1) {
-      //   idx = idx + sizes[idx] - 1;
-      // }
     }
   }
 
