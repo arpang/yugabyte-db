@@ -56,10 +56,11 @@ auto GetColumnValue(const Col& col) {
     ColumnId column_id(it->column_id());
     ++it;
     if (it->expr_case() == decltype(it->expr_case())::kValue) {
-      return ResultType {
-        .lhs_is_column = true,
-        .column_id = column_id,
-        .value = &it->value(),
+      return ResultType{
+          .lhs_is_column = true,
+          .column_id = column_id,
+          .column_ids = {},
+          .value = &it->value(),
       };
     }
     return ResultType();
@@ -68,10 +69,11 @@ auto GetColumnValue(const Col& col) {
     auto* value = &it->value();
     ++it;
     if (it->expr_case() == decltype(it->expr_case())::kColumnId) {
-      return ResultType {
-        .lhs_is_column = false,
-        .column_id = ColumnId(it->column_id()),
-        .value = value,
+      return ResultType{
+          .lhs_is_column = false,
+          .column_id = ColumnId(it->column_id()),
+          .column_ids = {},
+          .value = value,
       };
     }
     return ResultType();
@@ -86,6 +88,7 @@ auto GetColumnValue(const Col& col) {
     if (it->expr_case() == decltype(it->expr_case())::kValue) {
       auto result = ResultType{
           .lhs_is_column = true,
+          .column_id = ColumnId(0),
           .column_ids = column_ids,
           .value = &it->value(),
       };
@@ -265,7 +268,7 @@ void QLScanRange::Init(const Cond& condition) {
           // TODO: (discuss with Tanuj) if in_size == 0, shouldn't we set lower=+Inf &  upper=-inf
           if (in_size > 0) {
             ColumnId col_id = column_value.column_id;
-            if (col_id > 0) {
+            if (col_id != ColumnId(0)) {
               auto& range = ranges_[col_id];
               QLLowerBound lower_bound(*column_value.value->list_value().elems().begin(), true);
               range.min_bound = lower_bound;
