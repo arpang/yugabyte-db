@@ -87,7 +87,7 @@ DocQLScanSpec::DocQLScanSpec(
       // LOG(INFO) << "Initing range options";
       DCHECK(condition);
       range_options_ = std::make_shared<std::vector<Options>>(schema_.num_range_key_columns());
-      range_options_num_cols_ = vector<size_t>(schema_.num_range_key_columns());
+      range_options_num_cols_ = vector<size_t>(schema_.num_range_key_columns(), 0);
       InitRangeOptions(*condition);
       // LOG(INFO) << "range_options_sizes_: " << range_options_num_cols_.size();
       // for (size_t i = 0; i < range_options_num_cols_.size(); i++) {
@@ -174,13 +174,13 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
         // LOG(INFO) << "Updating range_options_sizes_ at index (" << col_idx << "-" <<
         // num_hash_cols
         //           << "):" << (col_idx - num_hash_cols);
-        range_options_num_cols_[col_idx - num_hash_cols] = 1;
 
         // Skip any non-range columns.
         if (!schema_.is_range_column(col_idx)) {
           return;
         }
 
+        range_options_num_cols_[col_idx - num_hash_cols] = 1;
         SortingType sorting_type = schema_.column(col_idx).sorting_type();
         // TODO: confusing - name says indexes but stores ids
         range_options_indexes_.emplace_back(col_id);
