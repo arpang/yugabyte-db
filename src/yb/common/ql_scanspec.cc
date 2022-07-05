@@ -38,12 +38,13 @@ template <class Value>
 struct ColumnValue {
   bool lhs_is_column = false;
 
-  // single column/value
+  // single column
   ColumnId column_id;
-  const Value* value = nullptr;
 
-  // grouped columns/values
+  // grouped columns
   const vector<ColumnId> column_ids;
+
+  const Value* value = nullptr;
 
   explicit operator bool() const { return value != nullptr; }
 };
@@ -53,7 +54,6 @@ auto GetColumnValue(const Col& col) {
   CHECK_EQ(col.size(), 2);
   auto it = col.begin();
   using ResultType = ColumnValue<typename std::remove_reference<decltype(it->value())>::type>;
-
   if (it->expr_case() == decltype(it->expr_case())::kColumnId) {
     ColumnId column_id(it->column_id());
     ++it;
@@ -263,10 +263,8 @@ void QLScanRange::Init(const Cond& condition) {
         if (column_value) {
           // - <column> IN (<value>) --> min/max bounds = <value>
           // IN arguments should have already been de-duplicated and ordered by the executor.
-
           auto in_size = column_value.value->list_value().elems().size();
-          // TODO: (discuss with Tanuj) if in_size == 0, shouldn't be set lower = +Inf and upper =
-          // -inf
+          // TODO: (discuss with Tanuj) if in_size == 0, shouldn't we set lower=+Inf &  upper=-inf
           if (in_size > 0) {
             ColumnId col_id = column_value.column_id;
             if (col_id > 0) {
@@ -289,17 +287,17 @@ void QLScanRange::Init(const Cond& condition) {
               for (auto const& entry : lower->list_value().elems()) {
                 auto& range = ranges_[col_ids[i]];
                 range.min_bound = QLLowerBound(entry, true);
-                LOG(INFO) << "For columns " << col_ids[i] << "min bound "
-                          << entry.ShortDebugString();
+                // LOG(INFO) << "For columns " << col_ids[i] << "min bound "
+                //           << entry.ShortDebugString();
                 ++i;
               }
 
               i = 0;
               for (auto const& entry : upper->list_value().elems()) {
                 auto& range = ranges_[col_ids[i]];
-                range.max_bound = QLLowerBound(entry, true);
-                LOG(INFO) << "For columns " << col_ids[i] << "max bound "
-                          << entry.ShortDebugString();
+                range.max_bound = QLUpperBound(entry, true);
+                // LOG(INFO) << "For columns " << col_ids[i] << "max bound "
+                //           << entry.ShortDebugString();
                 ++i;
               }
             }

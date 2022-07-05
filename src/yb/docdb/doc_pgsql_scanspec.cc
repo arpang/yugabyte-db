@@ -176,7 +176,7 @@ void DocPgsqlScanSpec::InitRangeOptions(const PgsqlConditionPB& condition) {
       SortingType sortingType = schema_.column(col_idx).sorting_type();
       range_options_indexes_.emplace_back(condition.operands(0).column_id());
 
-      range_options_sizes_[col_idx - num_hash_cols] = 1;
+      range_options_num_cols_[col_idx - num_hash_cols] = 1;
 
       if (condition.op() == QL_OP_EQUAL) {
         auto pv = KeyEntryValue::FromQLValuePBForKey(condition.operands(1).value(), sortingType);
