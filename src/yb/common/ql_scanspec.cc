@@ -24,8 +24,6 @@ DECLARE_bool(disable_hybrid_scan);
 
 namespace yb {
 
-using std::unordered_map;
-using std::pair;
 using std::vector;
 
 //-------------------------------------- QL scan range --------------------------------------
@@ -88,8 +86,8 @@ auto GetColumnValue(const Col& col) {
     if (it->expr_case() == decltype(it->expr_case())::kValue) {
       auto result = ResultType{
           .lhs_is_column = true,
-          .value = &it->value(),
           .column_ids = column_ids,
+          .value = &it->value(),
       };
       return result;
     }
