@@ -223,9 +223,10 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           col_idxs.push_back(col_idx);
         }
 
-        RSTATUS_DCHECK(
-            AreColumnsContinous(col_idxs), IllegalState,
-            "Clustering columns must appear in the PRIMARY KEY order in multi-column relations");
+        DCHECK(AreColumnsContinous(col_idxs));
+        // RSTATUS_DCHECK(
+        //     AreColumnsContinous(col_idxs), IllegalState,
+        //     "Clustering columns must appear in the PRIMARY KEY order in multi-column relations");
 
         for (size_t i = 0; i < num_cols; i++) {
           range_options_indexes_.emplace_back(col_ids[i]);
