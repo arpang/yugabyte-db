@@ -315,7 +315,7 @@ using namespace yb::ql;
                           a_expr b_expr ctext_expr c_expr AexprConst bindvar
                           collection_expr target_el in_expr
                           func_expr func_application func_arg_expr
-                          inactive_a_expr inactive_c_expr
+                          inactive_a_expr inactive_c_expr implicit_row
 
 %type <PRoleOption>       RoleOption
 
@@ -324,7 +324,7 @@ using namespace yb::ql;
 %type <PCollectionExpr>   // An expression for CQL collections:
                           //  - Map/Set/List/Tuple/Frozen/User-Defined Types.
                           map_elems map_expr set_elems set_expr list_elems list_expr
-                          tuple_elems tuple_expr
+                          tuple_elems tuple_expr expr_list 
 
 %type <PExprListNode>     // A list of expressions.
                           target_list opt_target_list
@@ -565,7 +565,7 @@ using namespace yb::ql;
                           RuleActionMulti opt_column_list opt_name_list
                           name_list role_list
                           opt_array_bounds qualified_name_list
-                          type_name_list any_operator expr_list
+                          type_name_list any_operator
                           multiple_set_clause def_list
                           reloption_list TriggerFuncArgs
                           opclass_item_list opclass_drop_list
@@ -579,7 +579,7 @@ using namespace yb::ql;
                           locked_rels_list extract_list overlay_list position_list substr_list
                           trim_list opt_interval interval_second OptSeqOptList SeqOptList
                           rowsfrom_item rowsfrom_list opt_col_def_list ExclusionConstraintList
-                          ExclusionConstraintElem row explicit_row implicit_row
+                          ExclusionConstraintElem row explicit_row
                           type_list NumericOnly_list
                           func_alias_clause generic_option_list alter_generic_option_list
                           copy_generic_opt_list copy_generic_opt_arg_list
@@ -3571,6 +3571,9 @@ c_expr:
   | func_expr {
     $$ = $1;
   }
+  | implicit_row {
+    $$ = $1;
+  }
   | inactive_c_expr {
     PARSER_UNSUPPORTED(@1);
   }
@@ -3588,8 +3591,6 @@ inactive_c_expr:
   | ARRAY select_with_parens {
   }
   | explicit_row {
-  }
-  | implicit_row {
   }
   | GROUPING '(' expr_list ')' {
   }
@@ -3924,7 +3925,7 @@ opt_existing_window_name:
 
 opt_partition_clause:
   PARTITION BY expr_list {
-    $$ = $3;
+    // $$ = $3;
   }
   | /*EMPTY*/ {
   }
@@ -3975,7 +3976,7 @@ frame_bound:
 // ROW keyword, there must be more than one a_expr inside the parens.
 row:
   ROW '(' expr_list ')' {
-    $$ = $3;
+    // $$ = $3;
   }
   | ROW '(' ')' {
   }
@@ -3985,7 +3986,7 @@ row:
 
 explicit_row:
   ROW '(' expr_list ')' {
-    $$ = $3;
+    // $$ = $3;
   }
   | ROW '(' ')' {
   }
@@ -3993,6 +3994,8 @@ explicit_row:
 
 implicit_row:
   '(' expr_list ',' a_expr ')' {
+    $2->AddElement($4);
+    $$ = $2;
   }
 ;
 
@@ -4061,8 +4064,12 @@ subquery_Op:
 
 expr_list:
   a_expr {
+    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::LIST);
+    $$->AddElement($1);
   }
   | expr_list ',' a_expr {
+    $1->AddElement($3);
+    $$ = $1;
   }
 ;
 
