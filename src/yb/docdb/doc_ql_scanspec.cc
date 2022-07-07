@@ -23,6 +23,7 @@
 #include "yb/docdb/doc_scanspec_util.h"
 #include "yb/docdb/value_type.h"
 
+#include "yb/util/logging.h"
 #include "yb/util/result.h"
 #include "yb/util/status_format.h"
 
@@ -205,7 +206,8 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           }
         }
       } else if (lhs.has_columns()) {
-        // LOG(INFO) << "has_columns passed";
+        LOG_WITH_FUNC(INFO) << "has_columns passed";
+        LOG_WITH_FUNC(INFO) << "condition: " << condition.ShortDebugString();
         vector<ColumnId> col_ids;
         vector<int> col_idxs;
         size_t num_cols = lhs.columns().ids().size();

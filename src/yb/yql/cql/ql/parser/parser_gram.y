@@ -4065,6 +4065,7 @@ subquery_Op:
 expr_list:
   a_expr {
     $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::LIST);
+    // PTQualifiedName::SharedPtr name_node = MAKE_NODE(@1, PTQualifiedName, $1);
     $$->AddElement($1);
   }
   | expr_list ',' a_expr {

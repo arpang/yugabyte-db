@@ -33,6 +33,7 @@
 #include "yb/util/net/inetaddress.h"
 #include "yb/util/net/net_util.h"
 #include "yb/util/stol_utils.h"
+#include "yb/util/logging.h"
 
 #include "yb/yql/cql/ql/ptree/column_desc.h"
 #include "yb/yql/cql/ql/ptree/pt_bcall.h"
@@ -217,6 +218,8 @@ Status PTExpr::SetupSemStateForOp3(SemState *sem_state) {
 }
 
 Status PTExpr::CheckExpectedTypeCompatibility(SemContext *sem_context) {
+  // LOG(INFO) << "has_valid_internal_type() " << has_valid_internal_type();
+  // LOG(INFO) << "has_valid_ql_type_id() " << has_valid_ql_type_id();
   CHECK(has_valid_internal_type() && has_valid_ql_type_id());
 
   // Check if RHS accepts NULL.
@@ -234,6 +237,16 @@ Status PTExpr::CheckExpectedTypeCompatibility(SemContext *sem_context) {
 
   // Check if RHS is convertible to LHS.
   if (!sem_context->expr_expected_ql_type()->IsUnknown()) {
+    QLTypePB pb_type1;
+    QLTypePB pb_type2;
+    sem_context->expr_expected_ql_type()->ToQLTypePB(&pb_type1);
+    ql_type_->ToQLTypePB(&pb_type2);
+    // LOG(INFO) << "sem_context->expr_expected_ql_type(): "
+    //           << sem_context->expr_expected_ql_type()->type_info()->name;
+    // LOG(INFO) << "sem_context->expr_expected_ql_type() PB : " << pb_type1.ShortDebugString();
+    // LOG(INFO) << "ql_type_: " << ql_type_->type_info()->name;
+
+    // LOG(INFO) << "ql_type_ PB: " << pb_type2.ShortDebugString();
     if (!sem_context->IsConvertible(sem_context->expr_expected_ql_type(), ql_type_)) {
       return sem_context->Error(this, ErrorCode::DATATYPE_MISMATCH);
     }
@@ -272,7 +285,8 @@ Status PTExpr::CheckEqualityOperands(SemContext *sem_context,
 
 
 Status PTExpr::CheckLhsExpr(SemContext *sem_context) {
-  if (op_ != ExprOperator::kRef && op_ != ExprOperator::kBcall) {
+  if (op_ != ExprOperator::kRef && op_ != ExprOperator::kBcall &&
+      op_ != ExprOperator::kCollection) {
     return sem_context->Error(this,
                               "Only column refs and builtin calls are allowed for left hand value",
                               ErrorCode::CQL_STATEMENT_INVALID);
@@ -866,6 +880,7 @@ Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
 Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
                                                PTExpr::SharedPtr op1,
                                                PTExpr::SharedPtr op2) {
+  LOG(INFO) << "PTRelationExpr::AnalyzeOperator";
   // "op1" and "op2" must have been analyzed before getting here
   switch (ql_op_) {
     case QL_OP_NOT_EQUAL: FALLTHROUGH_INTENDED;
@@ -939,11 +954,11 @@ Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
   WhereExprState *where_state = sem_context->where_state();
   if (where_state != nullptr) {
     // CheckLhsExpr already checks that this is either kRef or kBcall
-    DCHECK(op1->index_desc() != nullptr ||
-           op1->expr_op() == ExprOperator::kRef ||
-           op1->expr_op() == ExprOperator::kSubColRef ||
-           op1->expr_op() == ExprOperator::kJsonOperatorRef ||
-           op1->expr_op() == ExprOperator::kBcall);
+    DCHECK(
+        op1->index_desc() != nullptr || op1->expr_op() == ExprOperator::kRef ||
+        op1->expr_op() == ExprOperator::kSubColRef ||
+        op1->expr_op() == ExprOperator::kJsonOperatorRef ||
+        op1->expr_op() == ExprOperator::kBcall || op1->expr_op() == ExprOperator::kCollection);
     if (op1->index_desc()) {
       return where_state->AnalyzeColumnOp(sem_context, this, op1->index_desc(), op2);
     } else if (op1->expr_op() == ExprOperator::kRef) {
@@ -978,6 +993,41 @@ Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
         return sem_context->Error(loc(), "Builtin call not allowed in where clause",
                                   ErrorCode::CQL_STATEMENT_INVALID);
       }
+    } else if (op1->expr_op() == ExprOperator::kCollection) {
+      // LOG_WITH_FUNC(INFO) << "this->ql_op(): " << this->ql_op();
+      const PTCollectionExpr *collection_expr = static_cast<const PTCollectionExpr *>(op1.get());
+      // for (auto key : collection_expr->keys()) {
+      //   LOG_WITH_FUNC(INFO) << "key: " << key;
+      // }
+      // value_it = expr->values().begin()
+      // QLExpressionPB *arg_pb;
+
+      std::vector<const ColumnDesc *> col_descs;
+      for (auto &value : collection_expr->values()) {
+        // value->expr_op()
+        // auto a = static_cast<const string *>(value.get());
+        // arg_pb = bcall_pb->add_operands();
+        // auto a = value->expr_op();
+        // if (a == ExprOperator::kRef) {
+        //   LOG(INFO) << "Something";
+        //   auto ref = static_cast<const PTRef *>(value.get());
+        //   auto b = ref->expr_op();
+        //   if (b == ExprOperator::kRef) {
+        //     LOG(INFO) << ref->desc()->id();
+        //   }
+        // } else {
+        //   LOG_WITH_FUNC(INFO) << "ExprOperator other than kRef encountered";
+        // }
+
+        LOG_WITH_FUNC(INFO) << "value: " << value;
+        LOG_WITH_FUNC(INFO) << "QLName: " << value->QLName();
+        LOG_WITH_FUNC(INFO) << "MangledName: " << value->MangledName();
+        PTRef *ref = static_cast<PTRef *>(value.get());
+        LOG_WITH_FUNC(INFO) << "ref->AnalyzeOperator: " << ref->AnalyzeOperator(sem_context);
+        LOG_WITH_FUNC(INFO) << "ref->desc()->name(): " << ref->desc()->name();
+        col_descs.push_back(ref->desc());
+      }
+      return where_state->AnalyzeMultiColumnOp(sem_context, this, col_descs, op2);
     }
   }
 
