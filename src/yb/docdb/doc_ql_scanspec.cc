@@ -169,7 +169,8 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
       }
       // LOG(INFO) << "Before has_column_id check";
       if (lhs.has_column_id()) {
-        // LOG(INFO) << "has_column_id passed";
+        LOG_WITH_FUNC(INFO) << "has_column_id passed";
+        LOG_WITH_FUNC(INFO) << "condition: " << condition.ShortDebugString();
         ColumnId col_id = ColumnId(lhs.column_id());
         int col_idx = schema_.find_column_by_id(col_id);
         // LOG(INFO) << "Updating range_options_sizes_ at index (" << col_idx << "-" <<

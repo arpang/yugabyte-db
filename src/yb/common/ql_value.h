@@ -134,6 +134,7 @@ class QLValue {
   QLVALUE_PRIMITIVE_GETTER(list);
   QLVALUE_PRIMITIVE_GETTER(frozen);
   QLVALUE_PRIMITIVE_GETTER(gin_null);
+  QLVALUE_PRIMITIVE_GETTER(tuple);
   #undef QLVALUE_PRIMITIVE_GETTER
 
   static Timestamp timestamp_value(const QLValuePB& pb);

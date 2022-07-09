@@ -36,6 +36,8 @@
 #include "yb/yql/cql/ql/exec/executor.h"
 #include "yb/yql/cql/ql/ptree/pt_expr.h"
 
+#include "yb/util/logging.h"
+
 namespace yb {
 namespace ql {
 
@@ -44,10 +46,11 @@ using strings::Substitute;
 Status Executor::PTConstToPB(const PTExpr::SharedPtr& expr,
                                      QLValuePB *const_pb,
                                      bool negate) {
+  LOG_WITH_FUNC(INFO) << "Starting";
   if (expr->internal_type() == InternalType::VALUE_NOT_SET) {
     SetNull(const_pb);
   }
-
+  // LOG_WITH_FUNC(INFO) << "expr->expr_op() " << expr->expr_op(;
   switch (expr->expr_op()) {
     case ExprOperator::kUMinus:
       return PTUMinusToPB(static_cast<const PTOperator1*>(expr.get()), const_pb);
@@ -59,8 +62,11 @@ Status Executor::PTConstToPB(const PTExpr::SharedPtr& expr,
       return Status::OK();
     }
 
+    case ExprOperator::kCollection: {
+      return PTExprToPB(static_cast<const PTCollectionExpr *>(expr.get()), const_pb);
+    }
+
     case ExprOperator::kConst:
-    case ExprOperator::kCollection:
       break;
 
     default:
@@ -455,6 +461,16 @@ Status Executor::PTExprToPB(const PTCollectionExpr *const_pt, QLValuePB *const_p
     }
 
     case LIST: {
+      QLSeqValuePB *list_value = const_pb->mutable_list_value();
+      for (auto &elem : const_pt->values()) {
+        // Expected elem to be constant because CQL only allows collection of constants.
+        QLValuePB *elem_pb = list_value->add_elems();
+        RETURN_NOT_OK(PTConstToPB(elem, elem_pb));
+      }
+      break;
+    }
+
+    case TUPLE: {
       QLSeqValuePB *list_value = const_pb->mutable_list_value();
       for (auto &elem : const_pt->values()) {
         // Expected elem to be constant because CQL only allows collection of constants.

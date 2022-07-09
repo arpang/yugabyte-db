@@ -595,12 +595,14 @@ class PTExpr2 : public expr_class {
     RETURN_NOT_OK(this->CheckOperator(sem_context));
 
     // Run semantic analysis on child nodes.
+    // LOG(INFO) << "Starting OP1 analysis";
     SemState sem_state(sem_context);
     RETURN_NOT_OK(this->SetupSemStateForOp1(&sem_state));
     RETURN_NOT_OK(op1_->Analyze(sem_context));
 
     RETURN_NOT_OK(this->SetupSemStateForOp2(&sem_state));
     RETURN_NOT_OK(op2_->Analyze(sem_context));
+
     sem_state.ResetContextState();
 
     // Analyze this node operator and setup its ql_type and internal_type_.

@@ -108,6 +108,8 @@ std::string PTExpr::MetadataName() const {
 
 bool PTExpr::has_valid_internal_type() {
   // internal_type_ is not set in case of PTNull.
+  // LOG(INFO) << "ql_type_->main() " << ql_type_->main();
+  // LOG(INFO) << "internal_type_  " << internal_type_;
   return ql_type_->main() == DataType::NULL_VALUE_TYPE ||
          internal_type_ != InternalType::VALUE_NOT_SET;
 }
@@ -243,10 +245,10 @@ Status PTExpr::CheckExpectedTypeCompatibility(SemContext *sem_context) {
     ql_type_->ToQLTypePB(&pb_type2);
     // LOG(INFO) << "sem_context->expr_expected_ql_type(): "
     //           << sem_context->expr_expected_ql_type()->type_info()->name;
-    // LOG(INFO) << "sem_context->expr_expected_ql_type() PB : " << pb_type1.ShortDebugString();
+    LOG(INFO) << "sem_context->expr_expected_ql_type() PB : " << pb_type1.ShortDebugString();
     // LOG(INFO) << "ql_type_: " << ql_type_->type_info()->name;
 
-    // LOG(INFO) << "ql_type_ PB: " << pb_type2.ShortDebugString();
+    LOG(INFO) << "ql_type_ PB: " << pb_type2.ShortDebugString();
     if (!sem_context->IsConvertible(sem_context->expr_expected_ql_type(), ql_type_)) {
       return sem_context->Error(this, ErrorCode::DATATYPE_MISMATCH);
     }
@@ -486,6 +488,14 @@ PTCollectionExpr::PTCollectionExpr(MemoryContext* memctx,
              client::YBColumnSchema::ToInternalDataType(ql_type), ql_type),
       keys_(memctx), values_(memctx), udtype_field_values_(memctx) {}
 
+// explicit PTExpr(
+//     MemoryContext *memctx,
+//     YBLocationPtr loc,
+//     ExprOperator op = ExprOperator::kNoOp,
+//     yb::QLOperator ql_op = yb::QLOperator::QL_OP_NOOP,
+//     InternalType internal_type = InternalType::VALUE_NOT_SET,
+//     DataType ql_type_id = DataType::UNKNOWN_DATA);
+
 PTCollectionExpr::PTCollectionExpr(MemoryContext* memctx, YBLocationPtr loc, DataType literal_type)
     : PTCollectionExpr(memctx, loc, QLType::Create(literal_type)) {}
 
@@ -496,10 +506,26 @@ Status PTCollectionExpr::Analyze(SemContext *sem_context) {
   }
 
   RETURN_NOT_OK(CheckOperator(sem_context));
+
+  // TODO: how to only do this for LHS, ie a tuple of columns?
+  if (ql_type_->main() == DataType::TUPLE && ql_type_->params().size() != values_.size()) {
+    for (const auto &value : values_) {
+      PTRef *ref = static_cast<PTRef *>(value.get());
+      RETURN_NOT_OK(ref->AnalyzeOperator(sem_context));
+      if (ref->desc()) {
+        ql_type_->add_param(ref->ql_type());
+      } 
+      // else {
+      //   Status::OK
+      // }
+    }
+  }
+
   const shared_ptr<QLType>& expected_type = sem_context->expr_expected_ql_type();
 
   // If no expected type is given, use type inferred during parsing
   if (expected_type->main() == DataType::UNKNOWN_DATA) {
+    LOG_WITH_FUNC(INFO) << "CheckExpectedTypeCompatibility being call from here";
     return CheckExpectedTypeCompatibility(sem_context);
   }
 
@@ -510,7 +536,7 @@ Status PTCollectionExpr::Analyze(SemContext *sem_context) {
   }
 
   const MCSharedPtr<MCString>& bindvar_name = sem_context->bindvar_name();
-
+  size_t i = 0;
   // Checking type parameters.
   switch (expected_type->main()) {
     case MAP: {
@@ -623,8 +649,33 @@ Status PTCollectionExpr::Analyze(SemContext *sem_context) {
     }
 
     case TUPLE:
-      return sem_context->Error(this, "Tuple type not supported yet",
-                                ErrorCode::FEATURE_NOT_SUPPORTED);
+      i = 0;
+      LOG(INFO) << i;
+      for (const auto& elem: values_) {
+        SemState sem_state(sem_context);
+        sem_state.set_allowing_column_refs(false);
+        const shared_ptr<QLType> &val_type = expected_type->param_type(i);
+        // NULL value in the LIST is allowed for right operand of IN/NOT IN operators only.
+        sem_state.SetExprState(
+            val_type, YBColumnSchema::ToInternalDataType(val_type), bindvar_name, nullptr,
+            NullIsAllowed(is_in_operand()));
+        RETURN_NOT_OK(elem->Analyze(sem_context));
+        RETURN_NOT_OK(elem->CheckRhsExpr(sem_context));
+        ++i;
+        sem_state.ResetContextState();
+      }
+      break;
+
+      // for (auto &elem : values_) {
+      //   RETURN_NOT_OK(elem->Analyze(sem_context));
+      //   RETURN_NOT_OK(elem->CheckRhsExpr(sem_context));
+      // }
+
+      // for (auto &elem : values_) {
+      // }
+      //break;
+      // return sem_context->Error(this, "Tuple type not supported yet",
+      //                           ErrorCode::FEATURE_NOT_SUPPORTED);
 
     default:
       return sem_context->Error(this, ErrorCode::DATATYPE_MISMATCH);
@@ -729,6 +780,7 @@ Status PTRelationExpr::SetupSemStateForOp1(SemState *sem_state) {
 }
 
 Status PTRelationExpr::SetupSemStateForOp2(SemState *sem_state) {
+  LOG_WITH_FUNC(INFO) << "Starting";
   // The state of operand2 is dependent on operand1.
   PTExpr::SharedPtr operand1 = op1();
   DCHECK_NOTNULL(operand1.get());
@@ -815,21 +867,32 @@ Status PTRelationExpr::SetupSemStateForOp2(SemState *sem_state) {
 
     case QL_OP_IN: FALLTHROUGH_INTENDED;
     case QL_OP_NOT_IN: {
+      // TODO: handle the case when operand1->ql_type()->main() == tuple
+      // actually not here, in op1 analysis
+      // till the time you reach here operand1->ql_type() should already be correctly populated
+      // id_ = tuple and params containing 1 entry for every column
       auto ql_type = QLType::CreateTypeList(operand1->ql_type());
+
+      LOG_WITH_FUNC(INFO) << "operand1->ql_type() " << operand1->ql_type();
+      LOG_WITH_FUNC(INFO) << "ql_type " << ql_type;
+      LOG_WITH_FUNC(INFO) << "operand1->internal_type() " << operand1->internal_type();
 
       if (operand1->index_desc() != nullptr) {
         // Operand1 is a index column.
+        LOG_WITH_FUNC(INFO) << "CASE 1";
         sem_state->SetExprState(operand1->ql_type(),
                                 operand1->internal_type(),
                                 operand1->index_name(),
                                 operand1->index_desc());
       } else if (operand1->expr_op() == ExprOperator::kRef) {
+        LOG_WITH_FUNC(INFO) << "CASE 2";
         const PTRef *ref = static_cast<const PTRef *>(operand1.get());
         sem_state->SetExprState(ql_type,
                                 ref->internal_type(),
                                 ref->bindvar_name(),
                                 ref->desc());
       } else {
+        LOG_WITH_FUNC(INFO) << "CASE 3";
         sem_state->SetExprState(ql_type, operand1->internal_type());
       }
       break;
@@ -842,7 +905,7 @@ Status PTRelationExpr::SetupSemStateForOp2(SemState *sem_state) {
   if (!sem_state->bindvar_name()) {
     sem_state->set_bindvar_name(PTBindVar::default_bindvar_name());
   }
-
+  LOG_WITH_FUNC(INFO) << "Ending";
   return Status::OK();
 }
 
@@ -880,7 +943,7 @@ Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
 Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
                                                PTExpr::SharedPtr op1,
                                                PTExpr::SharedPtr op2) {
-  LOG(INFO) << "PTRelationExpr::AnalyzeOperator";
+  LOG_WITH_FUNC(INFO) << "Starting";
   // "op1" and "op2" must have been analyzed before getting here
   switch (ql_op_) {
     case QL_OP_NOT_EQUAL: FALLTHROUGH_INTENDED;
@@ -905,6 +968,9 @@ Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
       RETURN_NOT_OK(op1->CheckLhsExpr(sem_context));
       RETURN_NOT_OK(op2->CheckRhsExpr(sem_context));
       // For IN operator, we check compatibility between op1's type and op2's value_type.
+      LOG_WITH_FUNC(INFO) << "op1->ql_type_id() " << op1->ql_type_id();
+      LOG_WITH_FUNC(INFO) << "op2->ql_type()->values_type()->main() "
+                          << op2->ql_type()->values_type()->main();
       if (!sem_context->IsComparable(op1->ql_type_id(), op2->ql_type()->values_type()->main())) {
         return sem_context->Error(this, "Cannot compare values of these datatypes",
                                   ErrorCode::INCOMPARABLE_DATATYPES);
@@ -1019,12 +1085,14 @@ Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
         //   LOG_WITH_FUNC(INFO) << "ExprOperator other than kRef encountered";
         // }
 
-        LOG_WITH_FUNC(INFO) << "value: " << value;
-        LOG_WITH_FUNC(INFO) << "QLName: " << value->QLName();
-        LOG_WITH_FUNC(INFO) << "MangledName: " << value->MangledName();
+        // LOG_WITH_FUNC(INFO) << "value: " << value;
+        // LOG_WITH_FUNC(INFO) << "QLName: " << value->QLName();
+        // LOG_WITH_FUNC(INFO) << "MangledName: " << value->MangledName();
+
+        // TODO: remove this
         PTRef *ref = static_cast<PTRef *>(value.get());
-        LOG_WITH_FUNC(INFO) << "ref->AnalyzeOperator: " << ref->AnalyzeOperator(sem_context);
-        LOG_WITH_FUNC(INFO) << "ref->desc()->name(): " << ref->desc()->name();
+        // RETURN_NOT_OK(ref->AnalyzeOperator(sem_context));
+        // LOG_WITH_FUNC(INFO) << "ref->desc()->name(): " << ref->desc()->name();
         col_descs.push_back(ref->desc());
       }
       return where_state->AnalyzeMultiColumnOp(sem_context, this, col_descs, op2);
@@ -1046,7 +1114,7 @@ Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
         ErrorCode::FEATURE_NOT_SUPPORTED);
     }
   }
-
+  LOG_WITH_FUNC(INFO) << "Ending";
   return Status::OK();
 }
 

@@ -957,7 +957,7 @@ Status Executor::ExecPTNode(const PTSelectStmt *tnode, TnodeContext* tnode_conte
 
   // Where clause - Hash, range, and regular columns.
   req->set_is_aggregate(tnode->is_aggregate());
-  LOG(INFO) << "tnode->multi_col_where_ops().size() " << tnode->multi_col_where_ops().size();
+  // LOG(INFO) << "tnode->multi_col_where_ops().size() " << tnode->multi_col_where_ops().size();
   Result<uint64_t> max_rows_estimate = WhereClauseToPB(req, tnode->key_where_ops(),
                                                        tnode->where_ops(),
                                                        tnode->multi_col_where_ops(),

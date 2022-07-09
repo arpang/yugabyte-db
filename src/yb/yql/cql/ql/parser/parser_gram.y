@@ -325,6 +325,7 @@ using namespace yb::ql;
                           //  - Map/Set/List/Tuple/Frozen/User-Defined Types.
                           map_elems map_expr set_elems set_expr list_elems list_expr
                           tuple_elems tuple_expr expr_list 
+                          // tuple_list_elems tuple_list_expr
 
 %type <PExprListNode>     // A list of expressions.
                           target_list opt_target_list
@@ -4064,7 +4065,7 @@ subquery_Op:
 
 expr_list:
   a_expr {
-    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::LIST);
+    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::TUPLE);
     // PTQualifiedName::SharedPtr name_node = MAKE_NODE(@1, PTQualifiedName, $1);
     $$->AddElement($1);
   }
@@ -4429,7 +4430,7 @@ tuple_elems:
     $$ = $1;
   }
   | a_expr {
-    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::TUPLE);
+    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::LIST);
     $$->AddElement($1);
   }
 ;
@@ -4439,9 +4440,30 @@ tuple_expr:
     $$ = $2;
   }
   | '(' ')' {
-    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::TUPLE);
+    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::LIST);
   }
 ;
+
+
+/* tuple_list_elems:
+  tuple_list_elems ',' tuple_expr {
+    $1->AddElement($3);
+    $$ = $1;
+  }
+  | tuple_expr {
+    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::LIST);
+    $$->AddElement($1);
+  }
+;
+
+tuple_list_expr:
+  '(' tuple_list_elems ')' {
+    $$ = $2;
+  }
+  | '(' ')' {
+    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::LIST);
+  }
+; */
 
 collection_expr:
  // '{ }' can mean either (empty) map or set so we treat it separately here and infer the expected
@@ -4461,6 +4483,10 @@ collection_expr:
 ;
 
 in_expr:
+  /* tuple_list_expr {
+       $1->set_is_in_operand();
+    $$ = $1; 
+  } | */
   tuple_expr {
     $1->set_is_in_operand();
     $$ = $1;

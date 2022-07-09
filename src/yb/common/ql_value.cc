@@ -111,6 +111,8 @@ int QLValue::CompareTo(const QLValue& other) const {
     }
     case InternalType::kMapValue: FALLTHROUGH_INTENDED;
     case InternalType::kSetValue: FALLTHROUGH_INTENDED;
+    case InternalType::kTupleValue:
+      FALLTHROUGH_INTENDED;
     case InternalType::kListValue:
       LOG(FATAL) << "Internal error: collection types are not comparable";
       return 0;
@@ -240,6 +242,7 @@ void DoAppendToKey(const PB& value_pb, string* bytes) {
     case InternalType::kMapValue: FALLTHROUGH_INTENDED;
     case InternalType::kSetValue: FALLTHROUGH_INTENDED;
     case InternalType::kListValue: FALLTHROUGH_INTENDED;
+    case InternalType::kTupleValue: FALLTHROUGH_INTENDED;
     case InternalType::kJsonbValue:
       LOG(FATAL) << "Runtime error: This datatype("
                  << int(value_pb.value_case())
@@ -635,6 +638,20 @@ string QLValue::ToValueString(const QuotesType quotes_type) const {
       }
     }
 
+    case InternalType::kTupleValue: {
+      std::stringstream ss;
+      QLSeqValuePB tuple = tuple_value();
+      ss << "(";
+      for (int i = 0; i < tuple.elems_size(); i++) {
+        if (i > 0) {
+          ss << ", ";
+        }
+        ss << QLValue(tuple.elems(i)).ToString();
+      }
+      ss << ")";
+      return ss.str();
+    }
+
     case InternalType::VALUE_NOT_SET:
       LOG(FATAL) << "Internal error: value should not be null";
       return "null";
@@ -988,6 +1005,7 @@ int DoCompare(const PB& lhs, const PB& rhs) {
       return SeqCompare(lhs.frozen_value(), rhs.frozen_value());
     case QLValuePB::kMapValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kSetValue: FALLTHROUGH_INTENDED;
+    case QLValuePB::kTupleValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kListValue:
       LOG(FATAL) << "Internal error: collection types are not comparable";
       return 0;
@@ -1074,6 +1092,7 @@ int Compare(const QLValuePB& lhs, const QLValue& rhs) {
       return Compare(lhs.frozen_value(), rhs.frozen_value());
     case QLValuePB::kMapValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kSetValue: FALLTHROUGH_INTENDED;
+    case QLValuePB::kTupleValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kListValue:
       LOG(FATAL) << "Internal error: collection types are not comparable";
       return 0;
