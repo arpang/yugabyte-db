@@ -62,9 +62,11 @@ Status Executor::PTConstToPB(const PTExpr::SharedPtr& expr,
       return Status::OK();
     }
 
-    case ExprOperator::kCollection: {
-      return PTExprToPB(static_cast<const PTCollectionExpr *>(expr.get()), const_pb);
-    }
+    case ExprOperator::kCollection: 
+    // {
+    //   return PTExprToPB(static_cast<const PTCollectionExpr *>(expr.get()), const_pb);
+    // }
+    FALLTHROUGH_INTENDED;
 
     case ExprOperator::kConst:
       break;
@@ -111,6 +113,7 @@ Status Executor::PTConstToPB(const PTExpr::SharedPtr& expr,
     case DataType::MAP: FALLTHROUGH_INTENDED;
     case DataType::SET: FALLTHROUGH_INTENDED;
     case DataType::LIST: FALLTHROUGH_INTENDED;
+    case DataType::TUPLE: FALLTHROUGH_INTENDED;
     case DataType::FROZEN: FALLTHROUGH_INTENDED;
     case DataType::USER_DEFINED_TYPE: {
       DCHECK(!negate) << "Invalid datatype for negation";
