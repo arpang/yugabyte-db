@@ -64,6 +64,8 @@ class DocRowwiseIteratorTest : public DocDBTestBase {
   }
 
   void InsertPopulationData();
+
+  void InsertTestRangeData();
 };
 
 const std::string kStrKey1 = "row1";
@@ -196,6 +198,85 @@ void DocRowwiseIteratorTest::InsertPopulationData() {
       QLValue::PrimitiveInt64(10), HybridTime::FromMicros(1000)));
 }
 
+const KeyBytes GetKeyBytes(int32_t hash_key, int32_t range_key1, int32_t range_key2) {
+  return DocKey(kFixedHashCode, KeyEntryValues(hash_key), KeyEntryValues(range_key1, range_key2))
+      .Encode();
+}
+
+const Schema test_range_schema(
+    {ColumnSchema(
+         "h", DataType::INT32, /* is_nullable = */ false, true, false, false, 0,
+         SortingType::kAscending),
+     ColumnSchema(
+         "r1", DataType::INT32, /* is_nullable = */ false, false, false, false, 0,
+         SortingType::kAscending),
+     ColumnSchema(
+         "r2", DataType::INT32, /* is_nullable = */ false, false, false, false, 0,
+         SortingType::kAscending),
+     // Non-key columns
+     ColumnSchema("payload", DataType::INT32, true)},
+    {10_ColId, 11_ColId, 12_ColId, 13_ColId}, 3);
+
+void DocRowwiseIteratorTest::InsertTestRangeData() {
+  int h = 5;
+  for (int r1 = 5; r1 < 8; r1++) {
+    for (int r2 = 4; r2 < 9; r2++) {
+      ASSERT_OK(SetPrimitive(
+          DocPath(GetKeyBytes(h, r1, r2), KeyEntryValue::MakeColumnId(13_ColId)),
+          QLValue::Primitive(r2), HybridTime::FromMicros(1000)));
+    }
+  }
+}
+
+TEST_F(DocRowwiseIteratorTest, ClusteredFilterTestRange) {
+  InsertTestRangeData();
+  DocReadContext doc_read_context(test_range_schema, 1);
+
+  DocRowwiseIterator iter(
+      test_range_schema, doc_read_context, kNonTransactionalOperationContext, doc_db(),
+      CoarseTimePoint::max() /* deadline */, ReadHybridTime::FromMicros(2000));
+  const std::vector<KeyEntryValue> hashed_components{KeyEntryValue::Int32(5)};
+
+  QLConditionPB cond;
+  auto ids = cond.add_operands()->mutable_columns();
+  ids->add_ids(11_ColId);
+  ids->add_ids(12_ColId);
+  cond.set_op(QL_OP_IN);
+  auto options = cond.add_operands()->mutable_value()->mutable_list_value();
+
+  auto option1 = options->add_elems()->mutable_tuple_value();
+  option1->add_elems()->set_int32_value(5);
+  option1->add_elems()->set_int32_value(6);
+
+  DocQLScanSpec spec(
+      test_range_schema, kFixedHashCode, kFixedHashCode, hashed_components, &cond, nullptr,
+      rocksdb::kDefaultQueryId);
+  ASSERT_OK(iter.Init(spec));
+
+  QLTableRow row;
+  QLValue value;
+  ASSERT_TRUE(ASSERT_RESULT(iter.HasNext()));
+  ASSERT_OK(iter.NextRow(&row));
+
+  ASSERT_OK(row.GetValue(test_range_schema.column_id(0), &value));
+  ASSERT_FALSE(value.IsNull());
+  ASSERT_EQ(5, value.int32_value());
+
+  ASSERT_OK(row.GetValue(test_range_schema.column_id(1), &value));
+  ASSERT_FALSE(value.IsNull());
+  ASSERT_EQ(5, value.int32_value());
+
+  ASSERT_OK(row.GetValue(test_range_schema.column_id(2), &value));
+  ASSERT_FALSE(value.IsNull());
+  ASSERT_EQ(6, value.int32_value());
+
+  ASSERT_OK(row.GetValue(test_range_schema.column_id(3), &value));
+  ASSERT_FALSE(value.IsNull());
+  ASSERT_EQ(6, value.int32_value());
+
+  ASSERT_FALSE(ASSERT_RESULT(iter.HasNext()));
+}
+
 TEST_F(DocRowwiseIteratorTest, ClusteredFilterHybridScanTest) {
   InsertPopulationData();
   DocReadContext doc_read_context(population_schema, 1);
@@ -213,12 +294,12 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterHybridScanTest) {
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
-  auto option1 = options->add_elems()->mutable_list_value();
+  auto option1 = options->add_elems()->mutable_tuple_value();
   option1->add_elems()->set_string_value(CG);
   option1->add_elems()->set_string_value(DURG);
   option1->add_elems()->set_string_value(AREA1);
 
-  auto option2 = options->add_elems()->mutable_list_value();
+  auto option2 = options->add_elems()->mutable_tuple_value();
   option2->add_elems()->set_string_value(KA);
   option2->add_elems()->set_string_value(MYSORE);
   option2->add_elems()->set_string_value(AREA1);
@@ -295,11 +376,11 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterSubsetColTest) {
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
-  auto option1 = options->add_elems()->mutable_list_value();
+  auto option1 = options->add_elems()->mutable_tuple_value();
   option1->add_elems()->set_string_value(CG);
   option1->add_elems()->set_string_value(DURG);
 
-  auto option2 = options->add_elems()->mutable_list_value();
+  auto option2 = options->add_elems()->mutable_tuple_value();
   option2->add_elems()->set_string_value(KA);
   option2->add_elems()->set_string_value(MYSORE);
 
@@ -421,11 +502,11 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterSubsetColTest2) {
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
-  auto option1 = options->add_elems()->mutable_list_value();
+  auto option1 = options->add_elems()->mutable_tuple_value();
   option1->add_elems()->set_string_value(DURG);
   option1->add_elems()->set_string_value(AREA1);
 
-  auto option2 = options->add_elems()->mutable_list_value();
+  auto option2 = options->add_elems()->mutable_tuple_value();
   option2->add_elems()->set_string_value(MYSORE);
   option2->add_elems()->set_string_value(AREA1);
 
@@ -505,10 +586,10 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterMultiInTest) {
   cond1->set_op(QL_OP_IN);
 
   auto options = cond1->add_operands()->mutable_value()->mutable_list_value();
-  auto option1 = options->add_elems()->mutable_list_value();
+  auto option1 = options->add_elems()->mutable_tuple_value();
   option1->add_elems()->set_string_value(CG);
   option1->add_elems()->set_string_value(DURG);
-  auto option2 = options->add_elems()->mutable_list_value();
+  auto option2 = options->add_elems()->mutable_tuple_value();
   option2->add_elems()->set_string_value(KA);
   option2->add_elems()->set_string_value(MYSORE);
 
@@ -625,12 +706,12 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterDiscreteScanTest) {
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
-  auto option1 = options->add_elems()->mutable_list_value();
+  auto option1 = options->add_elems()->mutable_tuple_value();
   option1->add_elems()->set_string_value(CG);
   option1->add_elems()->set_string_value(DURG);
   option1->add_elems()->set_string_value(AREA1);
 
-  auto option2 = options->add_elems()->mutable_list_value();
+  auto option2 = options->add_elems()->mutable_tuple_value();
   option2->add_elems()->set_string_value(KA);
   option2->add_elems()->set_string_value(MYSORE);
   option2->add_elems()->set_string_value(AREA1);
@@ -708,11 +789,11 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterRangeScanTest) {
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
-  auto option1 = options->add_elems()->mutable_list_value();
+  auto option1 = options->add_elems()->mutable_tuple_value();
   option1->add_elems()->set_string_value(DURG);
   option1->add_elems()->set_string_value(AREA1);
 
-  auto option2 = options->add_elems()->mutable_list_value();
+  auto option2 = options->add_elems()->mutable_tuple_value();
   option2->add_elems()->set_string_value(MYSORE);
   option2->add_elems()->set_string_value(AREA1);
 
