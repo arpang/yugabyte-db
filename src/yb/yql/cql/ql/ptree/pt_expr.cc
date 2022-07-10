@@ -514,7 +514,7 @@ Status PTCollectionExpr::Analyze(SemContext *sem_context) {
       RETURN_NOT_OK(ref->AnalyzeOperator(sem_context));
       if (ref->desc()) {
         ql_type_->add_param(ref->ql_type());
-      } 
+      }
       // else {
       //   Status::OK
       // }

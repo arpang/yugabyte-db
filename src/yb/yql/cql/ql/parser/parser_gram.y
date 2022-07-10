@@ -324,7 +324,7 @@ using namespace yb::ql;
 %type <PCollectionExpr>   // An expression for CQL collections:
                           //  - Map/Set/List/Tuple/Frozen/User-Defined Types.
                           map_elems map_expr set_elems set_expr list_elems list_expr
-                          tuple_elems tuple_expr expr_list 
+                          tuple_elems tuple_expr expr_list
                           // tuple_list_elems tuple_list_expr
 
 %type <PExprListNode>     // A list of expressions.
@@ -4485,7 +4485,7 @@ collection_expr:
 in_expr:
   /* tuple_list_expr {
        $1->set_is_in_operand();
-    $$ = $1; 
+    $$ = $1;
   } | */
   tuple_expr {
     $1->set_is_in_operand();

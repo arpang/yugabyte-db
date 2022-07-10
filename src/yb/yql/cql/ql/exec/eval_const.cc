@@ -62,7 +62,7 @@ Status Executor::PTConstToPB(const PTExpr::SharedPtr& expr,
       return Status::OK();
     }
 
-    case ExprOperator::kCollection: 
+    case ExprOperator::kCollection:
     // {
     //   return PTExprToPB(static_cast<const PTCollectionExpr *>(expr.get()), const_pb);
     // }

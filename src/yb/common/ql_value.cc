@@ -112,7 +112,7 @@ int QLValue::CompareTo(const QLValue& other) const {
     case InternalType::kFrozenValue: {
       return Compare(frozen_value(), other.frozen_value());
     }
-    case InternalType::kTupleValue: 
+    case InternalType::kTupleValue:
       return TupleCompare(tuple_value(), other.tuple_value());
     case InternalType::kMapValue: FALLTHROUGH_INTENDED;
     case InternalType::kSetValue: FALLTHROUGH_INTENDED;
