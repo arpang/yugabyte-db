@@ -1801,7 +1801,7 @@ TEST_F(QLTestSelectedExpr, ClusteredFilteringTest2) {
   CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6), (5, 7))");
   // CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND r1 in (5, 6)");
   std::shared_ptr<QLRowBlock> row_block = processor->row_block();
-  CHECK_EQ(row_block->row_count(), 1);
+  CHECK_EQ(row_block->row_count(), 2);
   // {
   //   const QLRow& row = row_block->row(0);
   //   CHECK_EQ(row.column(0).int32_value(), 5);
@@ -1810,11 +1810,17 @@ TEST_F(QLTestSelectedExpr, ClusteredFilteringTest2) {
   //   CHECK_EQ(row.column(3).int32_value(), 5);
   // }
   {
-    const QLRow& row = row_block->row(0);
+    QLRow& row = row_block->row(0);
     CHECK_EQ(row.column(0).int32_value(), 5);
     CHECK_EQ(row.column(1).int32_value(), 5);
     CHECK_EQ(row.column(2).int32_value(), 6);
     CHECK_EQ(row.column(3).int32_value(), 6);
+
+    row = row_block->row(1);
+    CHECK_EQ(row.column(0).int32_value(), 5);
+    CHECK_EQ(row.column(1).int32_value(), 5);
+    CHECK_EQ(row.column(2).int32_value(), 7);
+    CHECK_EQ(row.column(3).int32_value(), 7);
   }
 }
 

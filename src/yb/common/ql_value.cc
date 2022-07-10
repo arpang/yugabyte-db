@@ -55,6 +55,9 @@ static int GenericCompare(const T& lhs, const T& rhs) {
   return 0;
 }
 
+template <class PB>
+int TupleCompare(const PB& lhs, const PB& rhs);
+
 //------------------------- instance methods for abstract QLValue class -----------------------
 
 int QLValue::CompareTo(const QLValue& other) const {
@@ -109,11 +112,15 @@ int QLValue::CompareTo(const QLValue& other) const {
     case InternalType::kFrozenValue: {
       return Compare(frozen_value(), other.frozen_value());
     }
+    case InternalType::kTupleValue: 
+      return TupleCompare(tuple_value(), other.tuple_value());
     case InternalType::kMapValue: FALLTHROUGH_INTENDED;
     case InternalType::kSetValue: FALLTHROUGH_INTENDED;
-    case InternalType::kTupleValue:
-      FALLTHROUGH_INTENDED;
+    // case InternalType::kTupleValue:
+    //   LOG(INFO) << "kTupleValue";
+    //   FALLTHROUGH_INTENDED;
     case InternalType::kListValue:
+      LOG(INFO) << "kListValue";
       LOG(FATAL) << "Internal error: collection types are not comparable";
       return 0;
 
@@ -926,6 +933,35 @@ bool BothNull(const QLValuePB& lhs, const QLValue& rhs) {
   return IsNull(lhs) && rhs.IsNull();
 }
 
+template <class PB>
+int TupleCompare(const PB& lhs_tuple, const PB& rhs_tuple) {
+  // Compare elements one by one.
+  // DCHECK(lhs.has_tuple_value());
+  // DCHECK(rhs.has_tuple_value());
+  // const auto& lhs_tuple = lhs.tuple_value();
+  // const auto& rhs_tuple = rhs.tuple_value();
+  DCHECK(lhs_tuple.elems().size() == rhs_tuple.elems().size());
+
+  auto li = lhs_tuple.elems().begin();
+  auto ri = rhs_tuple.elems().begin();
+  for (auto i = lhs_tuple.elems().size(); i > 0; --i, ++li, ++ri) {
+    if (IsNull(*li)) {
+      if (!IsNull(*ri)) {
+        return -1;
+      }
+    } else {
+      if (IsNull(*ri)) {
+        return 1;
+      }
+      int result = Compare(*li, *ri);
+      if (result != 0) {
+        return result;
+      }
+    }
+  }
+  return 0;
+}
+
 template <class Seq>
 int SeqCompare(const Seq& lhs, const Seq& rhs) {
   // Compare elements one by one.
@@ -960,6 +996,7 @@ int DoCompare(const PB& lhs, const PB& rhs) {
   }
   CHECK(DoComparable(lhs, rhs));
   CHECK(BothNotNull(lhs, rhs));
+  LOG(INFO) << "lhs.value_case()" << lhs.value_case();
   switch (lhs.value_case()) {
     case QLValuePB::kInt8Value:   return GenericCompare(lhs.int8_value(), rhs.int8_value());
     case QLValuePB::kInt16Value:  return GenericCompare(lhs.int16_value(), rhs.int16_value());
@@ -1003,9 +1040,11 @@ int DoCompare(const PB& lhs, const PB& rhs) {
       return GenericCompare(QLValue::timeuuid_value(lhs), QLValue::timeuuid_value(rhs));
     case QLValuePB::kFrozenValue:
       return SeqCompare(lhs.frozen_value(), rhs.frozen_value());
+    case QLValuePB::kTupleValue:
+      return TupleCompare(lhs.tuple_value(), rhs.tuple_value());
     case QLValuePB::kMapValue: FALLTHROUGH_INTENDED;
-    case QLValuePB::kSetValue: FALLTHROUGH_INTENDED;
-    case QLValuePB::kTupleValue: FALLTHROUGH_INTENDED;
+    case QLValuePB::kSetValue:
+      FALLTHROUGH_INTENDED;
     case QLValuePB::kListValue:
       LOG(FATAL) << "Internal error: collection types are not comparable";
       return 0;
@@ -1032,6 +1071,8 @@ int DoCompare(const PB& lhs, const PB& rhs) {
 
 
 int Compare(const QLValuePB& lhs, const QLValuePB& rhs) {
+  LOG(INFO) << "Compare lhs" << lhs.ShortDebugString();
+  LOG(INFO) << "Compare rhs" << rhs.ShortDebugString();
   return DoCompare(lhs, rhs);
 }
 
