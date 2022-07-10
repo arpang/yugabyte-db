@@ -281,11 +281,11 @@ void QLScanRange::Init(const Cond& condition) {
               auto lower = column_value.value->list_value().elems().begin();
               auto upper = column_value.value->list_value().elems().end();
               --upper;
-              DCHECK(col_ids.size() == (size_t)lower->list_value().elems().size());
-              DCHECK(col_ids.size() == (size_t)upper->list_value().elems().size());
+              DCHECK(col_ids.size() == (size_t)lower->tuple_value().elems().size());
+              DCHECK(col_ids.size() == (size_t)upper->tuple_value().elems().size());
 
               size_t i = 0;
-              for (auto const& entry : lower->list_value().elems()) {
+              for (auto const& entry : lower->tuple_value().elems()) {
                 auto& range = ranges_[col_ids[i]];
                 range.min_bound = QLLowerBound(entry, true);
                 // LOG(INFO) << "For columns " << col_ids[i] << "min bound "
@@ -294,7 +294,7 @@ void QLScanRange::Init(const Cond& condition) {
               }
 
               i = 0;
-              for (auto const& entry : upper->list_value().elems()) {
+              for (auto const& entry : upper->tuple_value().elems()) {
                 auto& range = ranges_[col_ids[i]];
                 range.max_bound = QLUpperBound(entry, true);
                 // LOG(INFO) << "For columns " << col_ids[i] << "max bound "

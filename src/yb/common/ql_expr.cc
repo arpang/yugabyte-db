@@ -91,13 +91,13 @@ Status QLExprExecutor::EvalExpr(const QLExpressionPB& ql_expr,
     case QLExpressionPB::ExprCase::kColumns: {
       // TODO: is it okay?
       QLValuePB* value = new QLValuePB();
-      auto list_value = value->mutable_list_value();
+      auto tuple_value = value->mutable_tuple_value();
 
       for (auto const& id : ql_expr.columns().ids()) {
         // result_writer.NewValue();
         QLExprResult temp;
         RETURN_NOT_OK(table_row.ReadColumn(id, temp.Writer()));
-        auto entry = list_value->add_elems();
+        auto entry = tuple_value->add_elems();
         temp.MoveTo(entry);
       }
       LOG(INFO) << "EvalExpr value: " << value->ShortDebugString();
@@ -257,9 +257,9 @@ Result<bool> In(
   for (const auto& elem : rhs.Value().list_value().elems()) {
     LOG(INFO) << "elem " << elem.ShortDebugString();
     LOG(INFO) << "lhs->Value() " << lhs->Value().ShortDebugString();
-    if (elem.has_list_value() && lhs->Value().has_list_value()) {
-      const auto& elem_list = elem.list_value().elems();
-      const auto& lhs_list = lhs->Value().list_value().elems();
+    if (elem.has_tuple_value() && lhs->Value().has_tuple_value()) {
+      const auto& elem_list = elem.tuple_value().elems();
+      const auto& lhs_list = lhs->Value().tuple_value().elems();
       if (elem_list.size() != lhs_list.size()) {
         return STATUS(RuntimeError, "values not comparable");
       }

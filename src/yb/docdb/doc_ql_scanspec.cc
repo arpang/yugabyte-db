@@ -262,8 +262,8 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           for (int i = 0; i < num_options; i++) {
             int elem_idx = is_reverse_order ? num_options - i - 1 : i;
             const auto& elem = options.elems(elem_idx);
-            DCHECK(elem.has_list_value());
-            const auto& value = elem.list_value();
+            DCHECK(elem.has_tuple_value());
+            const auto& value = elem.tuple_value();
             DCHECK_EQ(num_cols, value.elems_size());
 
             Option option;

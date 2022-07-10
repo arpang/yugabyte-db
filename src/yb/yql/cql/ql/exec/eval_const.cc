@@ -474,10 +474,10 @@ Status Executor::PTExprToPB(const PTCollectionExpr *const_pt, QLValuePB *const_p
     }
 
     case TUPLE: {
-      QLSeqValuePB *list_value = const_pb->mutable_list_value();
+      QLSeqValuePB *tuple_value = const_pb->mutable_tuple_value();
       for (auto &elem : const_pt->values()) {
         // Expected elem to be constant because CQL only allows collection of constants.
-        QLValuePB *elem_pb = list_value->add_elems();
+        QLValuePB *elem_pb = tuple_value->add_elems();
         RETURN_NOT_OK(PTConstToPB(elem, elem_pb));
       }
       break;
