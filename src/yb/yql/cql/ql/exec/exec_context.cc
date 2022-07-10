@@ -224,6 +224,7 @@ TnodeContext* TnodeContext::AddChildTnode(const TreeNode* tnode) {
 }
 
 Status TnodeContext::AppendRowsResult(RowsResult::SharedPtr&& rows_result) {
+  LOG(INFO) << "Inside AppendRowsResult";
   // Append data arriving from DocDB.
   // (1) SELECT without nested query.
   //  - SELECT <select_list> FROM <table or index>

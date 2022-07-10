@@ -88,6 +88,23 @@ Status QLExprExecutor::EvalExpr(const QLExpressionPB& ql_expr,
       RETURN_NOT_OK(table_row.ReadColumn(ql_expr.column_id(), result_writer));
       break;
 
+    case QLExpressionPB::ExprCase::kColumns: {
+      // TODO: is it okay?
+      QLValuePB* value = new QLValuePB();
+      auto list_value = value->mutable_list_value();
+
+      for (auto const& id : ql_expr.columns().ids()) {
+        // result_writer.NewValue();
+        QLExprResult temp;
+        RETURN_NOT_OK(table_row.ReadColumn(id, temp.Writer()));
+        auto entry = list_value->add_elems();
+        temp.MoveTo(entry);
+      }
+      LOG(INFO) << "EvalExpr value: " << value->ShortDebugString();
+      result_writer.SetExisting(value);
+      break;
+    }
+
     case QLExpressionPB::ExprCase::kJsonColumn: {
       QLExprResult temp;
       const QLJsonColumnOperationsPB& json_ops = ql_expr.json_column();
@@ -122,8 +139,8 @@ Status QLExprExecutor::EvalExpr(const QLExpressionPB& ql_expr,
       return EvalCondition(ql_expr.condition(), table_row, &result_writer.NewValue());
 
     case QLExpressionPB::ExprCase::kBocall: FALLTHROUGH_INTENDED;
-    case QLExpressionPB::ExprCase::kBindId: FALLTHROUGH_INTENDED;
-    case QLExpressionPB::ExprCase::kColumns: FALLTHROUGH_INTENDED;
+    case QLExpressionPB::ExprCase::kBindId:
+      FALLTHROUGH_INTENDED;
     case QLExpressionPB::ExprCase::EXPR_NOT_SET:
       result_writer.SetNull();
   }
@@ -228,15 +245,48 @@ Status QLExprExecutor::EvalCondition(const QLConditionPB& condition,
 template <class Operands, class Res>
 Result<bool> In(
     QLExprExecutor* executor, const Operands& operands, const QLTableRow& table_row, Res* lhs) {
+  LOG(INFO) << "table_row " << table_row.ToString();
+
   Res rhs(lhs);
   RETURN_NOT_OK(EvalOperands(executor, operands, table_row, lhs->Writer(), rhs.Writer()));
+  LOG(INFO) << "Returned from EvalOperands " << (lhs == nullptr);
+
+  LOG(INFO) << "LHS " << lhs->Value().ShortDebugString();
+  LOG(INFO) << "RHS " << rhs.Value().ShortDebugString();
 
   for (const auto& elem : rhs.Value().list_value().elems()) {
-    if (!Comparable(elem, lhs->Value())) {
-       return STATUS(RuntimeError, "values not comparable");
-    }
-    if (elem == lhs->Value()) {
-      return true;
+    LOG(INFO) << "elem " << elem.ShortDebugString();
+    LOG(INFO) << "lhs->Value() " << lhs->Value().ShortDebugString();
+    if (elem.has_list_value() && lhs->Value().has_list_value()) {
+      const auto& elem_list = elem.list_value().elems();
+      const auto& lhs_list = lhs->Value().list_value().elems();
+      if (elem_list.size() != lhs_list.size()) {
+        return STATUS(RuntimeError, "values not comparable");
+      }
+      bool matched = true;
+      auto e_itr = elem_list.begin();
+      auto l_itr = lhs_list.begin();
+      for (size_t i = 0; i < (size_t)elem_list.size(); i++) {
+        if (!Comparable(*e_itr, *e_itr)) {
+          return STATUS(RuntimeError, "values not comparable");
+        }
+        if (*e_itr != *l_itr) {
+          matched = false;
+          break;
+        }
+        ++e_itr;
+        ++l_itr;
+      }
+      if (matched) {
+        return true;
+      }
+    } else {
+      if (!Comparable(elem, lhs->Value())) {
+        return STATUS(RuntimeError, "values not comparable");
+      }
+      if (elem == lhs->Value()) {
+        return true;
+      }
     }
   }
 
@@ -440,6 +490,12 @@ Status QLExprExecutor::DoEvalExpr(const PB& ql_expr,
     case PgsqlExpressionPB::ExprCase::kColumnId:
       return EvalColumnRef(ql_expr.column_id(), table_row, result_writer);
 
+    case PgsqlExpressionPB::ExprCase::kColumns:
+      // TODO: fix me
+      for (auto const& id : ql_expr.columns().ids()) {
+        RETURN_NOT_OK(EvalColumnRef(id, table_row, result_writer));
+      }
+      return Status::OK();
     case PgsqlExpressionPB::ExprCase::kBfcall:
       return EvalBFCall<bfpg::BFOpcode>(ql_expr.bfcall(), *table_row, &result_writer.NewValue());
 
@@ -451,8 +507,8 @@ Status QLExprExecutor::DoEvalExpr(const PB& ql_expr,
 
     case PgsqlExpressionPB::ExprCase::kBocall: FALLTHROUGH_INTENDED;
     case PgsqlExpressionPB::ExprCase::kBindId: FALLTHROUGH_INTENDED;
-    case PgsqlExpressionPB::ExprCase::kAliasId: FALLTHROUGH_INTENDED;
-    case PgsqlExpressionPB::ExprCase::kColumns: FALLTHROUGH_INTENDED;
+    case PgsqlExpressionPB::ExprCase::kAliasId:
+      FALLTHROUGH_INTENDED;
     case PgsqlExpressionPB::ExprCase::EXPR_NOT_SET:
       result_writer.SetNull();
   }

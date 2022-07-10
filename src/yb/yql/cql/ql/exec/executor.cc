@@ -943,6 +943,7 @@ Status Executor::ExecPTNode(const PTSelectStmt *tnode, TnodeContext* tnode_conte
           << "Expecting result type is ROWS=" << static_cast<int>(ExecutedResult::Type::ROWS)
           << ", got result type=" << static_cast<int>(result_->type());
       auto rows_result = std::static_pointer_cast<RowsResult>(result_);
+      LOG(INFO) << "rows_result->rows_data() " << rows_result->rows_data();
       RSTATUS_DCHECK(rows_result->paging_state().empty(),
                      Corruption, "Expecting result_ to be empty with empty paging state");
       RSTATUS_DCHECK(rows_result->rows_data() == string(4, '\0'), // Encoded row_count == 0.
@@ -966,6 +967,8 @@ Status Executor::ExecPTNode(const PTSelectStmt *tnode, TnodeContext* tnode_conte
                                                        tnode->partition_key_ops(),
                                                        tnode->func_ops(),
                                                        tnode_context);
+
+  LOG(INFO) << "max_rows_estimate " << max_rows_estimate;
   if (PREDICT_FALSE(!max_rows_estimate)) {
     return exec_context_->Error(tnode, max_rows_estimate.status(), ErrorCode::INVALID_ARGUMENTS);
   }
@@ -1767,6 +1770,7 @@ void Executor::FlushAsync(ResetAsyncCalls* reset_async_calls) {
                 if (!op->rows_data().empty()) {
                   DCHECK_EQ(++row_count, 1) << exec_context.stmt()
                                             << " returned multiple status rows";
+                  LOG(INFO) << "Appending result";
                   RETURN_NOT_OK(AppendRowsResult(std::make_shared<RowsResult>(op.get())));
                 }
               }
