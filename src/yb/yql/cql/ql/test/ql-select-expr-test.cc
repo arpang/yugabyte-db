@@ -1837,6 +1837,32 @@ TEST_F(QLTestSelectedExpr, ClusteredFilteringTest3) {
   EXPECT_NE(s.message().ToBuffer().find("Column count mismatch"), string::npos) << s;
 }
 
+
+TEST_F(QLTestSelectedExpr, ClusteredFilteringEmptyTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
+  CHECK_VALID_STMT(create_stmt);
+
+  int h = 5;
+  for (int r1 = 5; r1 < 8; r1++) {
+    for (int r2 = 4; r2 < 9; r2++) {
+      CHECK_VALID_STMT(strings::Substitute(
+          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
+    }
+  }
+
+  // Checking Row
+  CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ()");
+  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
+  CHECK_EQ(row_block->row_count(), 0);
+}
+
 TEST_F(QLTestSelectedExpr, ScanChoicesTest) {
   // Init the simulated cluster.
   ASSERT_NO_FATALS(CreateSimulatedCluster());
