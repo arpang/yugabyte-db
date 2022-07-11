@@ -89,14 +89,12 @@ Status QLExprExecutor::EvalExpr(const QLExpressionPB& ql_expr,
       break;
 
     case QLExpressionPB::ExprCase::kColumns: {
-      // TODO: any alternate to declaring on heap?
       QLValuePB* value = new QLValuePB();
       auto tuple_value = value->mutable_tuple_value();
       for (auto const& id : ql_expr.columns().ids()) {
         QLExprResult temp;
         RETURN_NOT_OK(table_row.ReadColumn(id, temp.Writer()));
-        auto entry = tuple_value->add_elems();
-        temp.MoveTo(entry);
+        temp.MoveTo(tuple_value->add_elems());
       }
       result_writer.SetExisting(value);
       break;
@@ -249,7 +247,7 @@ Result<bool> In(
       const auto& rhs_elem_tuple = rhs_elem.tuple_value().elems();
       const auto& lhs_tuple = lhs->Value().tuple_value().elems();
       if (rhs_elem_tuple.size() != lhs_tuple.size()) {
-        return STATUS(RuntimeError, "Tuple with different sizes cannot be compared");
+        return STATUS(RuntimeError, "Tuples of different size cannot be compared");
       }
       bool matched = true;
       auto r_itr = rhs_elem_tuple.begin();

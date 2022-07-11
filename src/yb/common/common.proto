@@ -436,6 +436,7 @@ message QLJsonOperationPB {
   required QLExpressionPB operand = 2;
 }
 
+// List of columns ids in LHS of IN operation (in future for =, >, < too).
 message QLColumnIdsPB {
   repeated int32 ids = 1;
 }

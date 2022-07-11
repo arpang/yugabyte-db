@@ -132,7 +132,10 @@ void QLScanRange::Init(const Cond& condition) {
     if (column_ids.empty()) {
       continue;
     }
-    // TODO: does every column has to be a range column?
+
+    // For operand.expr_case() == ExprCase::kColumnId, there will be just one column and
+    // for operand.expr_case() == ExprCase::kColumns, all the columns are given to be range columns,
+    // so in order to set has_range_column as true it suffices to find a single range column.
     for (auto id : column_ids) {
       if (schema_.is_range_column(ColumnId(id))) {
         has_range_column = true;
@@ -286,18 +289,12 @@ void QLScanRange::Init(const Cond& condition) {
               DCHECK(col_ids.size() == (size_t)lower->tuple_value().elems().size());
               DCHECK(col_ids.size() == (size_t)upper->tuple_value().elems().size());
 
-              size_t i = 0;
-              for (auto const& entry : lower->tuple_value().elems()) {
+              auto l_itr = lower->tuple_value().elems().begin();
+              auto u_itr = upper->tuple_value().elems().begin();
+              for (size_t i = 0; i < col_ids.size(); ++i, ++l_itr, ++u_itr) {
                 auto& range = ranges_[col_ids[i]];
-                range.min_bound = QLLowerBound(entry, true);
-                ++i;
-              }
-
-              i = 0;
-              for (auto const& entry : upper->tuple_value().elems()) {
-                auto& range = ranges_[col_ids[i]];
-                range.max_bound = QLUpperBound(entry, true);
-                ++i;
+                range.min_bound = QLLowerBound(*l_itr, true);
+                range.max_bound = QLUpperBound(*u_itr, true);
               }
             }
           }

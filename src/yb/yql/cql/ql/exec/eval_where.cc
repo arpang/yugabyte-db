@@ -73,16 +73,15 @@ Status Executor::WhereClauseToPB(QLWriteRequestPB *req,
   return Status::OK();
 }
 
-Result<uint64_t> Executor::WhereClauseToPB(
-    QLReadRequestPB* req,
-    const MCVector<ColumnOp>& key_where_ops,
-    const MCList<ColumnOp>& where_ops,
-    const MCList<MultiColumnOp>& multi_col_where_ops,
-    const MCList<SubscriptedColumnOp>& subcol_where_ops,
-    const MCList<JsonColumnOp>& jsoncol_where_ops,
-    const MCList<PartitionKeyOp>& partition_key_ops,
-    const MCList<FuncOp>& func_ops,
-    TnodeContext* tnode_context) {
+Result<uint64_t> Executor::WhereClauseToPB(QLReadRequestPB* req,
+                                           const MCVector<ColumnOp>& key_where_ops,
+                                           const MCList<ColumnOp>& where_ops,
+                                           const MCList<MultiColumnOp>& multi_col_where_ops,
+                                           const MCList<SubscriptedColumnOp>& subcol_where_ops,
+                                           const MCList<JsonColumnOp>& jsoncol_where_ops,
+                                           const MCList<PartitionKeyOp>& partition_key_ops,
+                                           const MCList<FuncOp>& func_ops,
+                                           TnodeContext* tnode_context) {
   uint64_t max_rows_estimate = std::numeric_limits<uint64_t>::max();
 
   // Setup the lower/upper bounds on the partition key -- if any
@@ -268,6 +267,7 @@ Result<uint64_t> Executor::WhereClauseToPB(
     for (const auto& col_op : multi_col_where_ops) {
       QLConditionPB* cond = where_pb->add_operands()->mutable_condition();
       RETURN_NOT_OK(WhereMultiColumnOpToPB(cond, col_op));
+      DCHECK(cond->op() == QL_OP_IN);
       // Update the estimate for the number of selected rows if needed.
       int in_size = cond->operands(1).value().list_value().elems_size();
       if (in_size == 0) {  // Fast path for returning no results when 'IN' list is empty.
@@ -303,8 +303,8 @@ Status Executor::WhereColumnOpToPB(QLConditionPB* condition, const ColumnOp& col
   condition->set_op(col_op.yb_op());
 
   // Operand 1: The column.
-  const ColumnDesc* col_desc = col_op.desc();
-  QLExpressionPB* expr_pb = condition->add_operands();
+  const ColumnDesc *col_desc = col_op.desc();
+  QLExpressionPB *expr_pb = condition->add_operands();
   VLOG(3) << "WHERE condition, column id = " << col_desc->id();
   expr_pb->set_column_id(col_desc->id());
 
@@ -318,7 +318,7 @@ Status Executor::WhereColumnOpToPB(QLConditionPB* condition, const ColumnOp& col
     RETURN_NOT_OK(PTExprToPB(col_op.expr(), &tmp_expr_pb));
     std::set<QLValuePB> opts_set;
     for (QLValuePB& value_pb :
-         *tmp_expr_pb.mutable_value()->mutable_list_value()->mutable_elems()) {
+        *tmp_expr_pb.mutable_value()->mutable_list_value()->mutable_elems()) {
       if (!QLValue::IsNull(value_pb)) {
         opts_set.insert(std::move(value_pb));
       }

@@ -86,7 +86,9 @@ class DocPgsqlScanSpec : public PgsqlScanSpec {
     return range_bounds_.get();
   }
 
-  const std::shared_ptr<std::vector<Options>>& range_options() const { return range_options_; }
+  const std::shared_ptr<std::vector<Options>>& range_options() const {
+    return range_options_;
+  }
 
   const std::vector<ColumnId> range_options_indexes() const {
     return range_options_indexes_;
@@ -96,7 +98,9 @@ class DocPgsqlScanSpec : public PgsqlScanSpec {
     return range_bounds_indexes_;
   }
 
-  const std::vector<size_t> range_options_num_cols() const { return range_options_num_cols_; }
+  const std::vector<size_t> range_options_num_cols() const {
+    return range_options_num_cols_;
+  }
 
  private:
   static const DocKey& DefaultStartDocKey();

@@ -68,7 +68,9 @@ class DocQLScanSpec : public QLScanSpec {
     return query_id_;
   }
 
-  const std::shared_ptr<std::vector<Options>>& range_options() const { return range_options_; }
+  const std::shared_ptr<std::vector<Options>>& range_options() const {
+    return range_options_;
+  }
 
   bool include_static_columns() const {
     return include_static_columns_;
@@ -80,13 +82,17 @@ class DocQLScanSpec : public QLScanSpec {
 
   const Schema* schema() const override { return &schema_; }
 
-  const std::vector<ColumnId> range_options_indexes() const { return range_options_indexes_; }
+  const std::vector<ColumnId> range_options_indexes() const {
+    return range_options_indexes_;
+  }
 
   const std::vector<ColumnId> range_bounds_indexes() const {
     return range_bounds_indexes_;
   }
 
-  const std::vector<size_t> range_options_num_cols() const { return range_options_num_cols_; }
+  const std::vector<size_t> range_options_num_cols() const {
+    return range_options_num_cols_;
+  }
 
  private:
   static const DocKey& DefaultStartDocKey();

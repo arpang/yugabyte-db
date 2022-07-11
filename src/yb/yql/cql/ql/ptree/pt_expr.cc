@@ -484,7 +484,7 @@ Status PTCollectionExpr::Analyze(SemContext *sem_context) {
 
   RETURN_NOT_OK(CheckOperator(sem_context));
 
-  // TODO: how to only do this for LHS, ie a tuple of columns?
+  // TODO: looks clumsy, how to do this more cleanly?
   if (ql_type_->main() == DataType::TUPLE && ql_type_->params().size() != values_.size()) {
     for (const auto &value : values_) {
       PTRef *ref = static_cast<PTRef *>(value.get());

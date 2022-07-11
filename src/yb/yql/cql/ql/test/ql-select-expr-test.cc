@@ -1655,214 +1655,6 @@ TEST_F(QLTestSelectedExpr, ScanRangeTestIncDecReverse) {
   }
 }
 
-TEST_F(QLTestSelectedExpr, ClusteredFilteringTestSimple) {
-  // Init the simulated cluster.
-  ASSERT_NO_FATALS(CreateSimulatedCluster());
-
-  // Get a processor.
-  TestQLProcessor* processor = GetQLProcessor();
-  LOG(INFO) << "Running simple query test.";
-  // Create the table 1.
-  const char* create_stmt =
-      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
-  CHECK_VALID_STMT(create_stmt);
-
-  int h = 5;
-  for (int r1 = 5; r1 < 8; r1++) {
-    for (int r2 = 4; r2 < 9; r2++) {
-      CHECK_VALID_STMT(strings::Substitute(
-          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
-    }
-  }
-
-  // Checking Row
-  CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5");
-  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
-  CHECK_EQ(row_block->row_count(), 15);
-  // {
-  //   const QLRow& row = row_block->row(0);
-  //   CHECK_EQ(row.column(0).int32_value(), 5);
-  //   CHECK_EQ(row.column(1).int32_value(), 5);
-  //   CHECK_EQ(row.column(2).int32_value(), 5);
-  //   CHECK_EQ(row.column(3).int32_value(), 5);
-  // }
-  {
-    const QLRow& row = row_block->row(0);
-    CHECK_EQ(row.column(0).int32_value(), 5);
-    // CHECK_EQ(row.column(1).int32_value(), 5);
-    // CHECK_EQ(row.column(2).int32_value(), 6);
-    // CHECK_EQ(row.column(3).int32_value(), 6);
-  }
-}
-
-TEST_F(QLTestSelectedExpr, ClusteredFilteringTestSimpleIn) {
-  // Init the simulated cluster.
-  ASSERT_NO_FATALS(CreateSimulatedCluster());
-
-  // Get a processor.
-  TestQLProcessor* processor = GetQLProcessor();
-  LOG(INFO) << "Running simple query test.";
-  // Create the table 1.
-  const char* create_stmt =
-      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
-  CHECK_VALID_STMT(create_stmt);
-
-  int h = 5;
-  for (int r1 = 5; r1 < 8; r1++) {
-    for (int r2 = 4; r2 < 9; r2++) {
-      CHECK_VALID_STMT(strings::Substitute(
-          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
-    }
-  }
-
-  // Checking Row
-  CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND r1 in (5, 6)");
-  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
-  CHECK_EQ(row_block->row_count(), 10);
-  // {
-  //   const QLRow& row = row_block->row(0);
-  //   CHECK_EQ(row.column(0).int32_value(), 5);
-  //   CHECK_EQ(row.column(1).int32_value(), 5);
-  //   CHECK_EQ(row.column(2).int32_value(), 5);
-  //   CHECK_EQ(row.column(3).int32_value(), 5);
-  // }
-  {
-    const QLRow& row = row_block->row(0);
-    CHECK_EQ(row.column(0).int32_value(), 5);
-    // CHECK_EQ(row.column(1).int32_value(), 5);
-    // CHECK_EQ(row.column(2).int32_value(), 6);
-    // CHECK_EQ(row.column(3).int32_value(), 6);
-  }
-}
-
-
-TEST_F(QLTestSelectedExpr, ClusteredFilteringTest) {
-  // Init the simulated cluster.
-  ASSERT_NO_FATALS(CreateSimulatedCluster());
-
-  // Get a processor.
-  TestQLProcessor* processor = GetQLProcessor();
-  LOG(INFO) << "Running simple query test.";
-  // Create the table 1.
-  const char* create_stmt =
-      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
-  CHECK_VALID_STMT(create_stmt);
-
-  int h = 5;
-  for (int r1 = 5; r1 < 8; r1++) {
-    for (int r2 = 4; r2 < 9; r2++) {
-      CHECK_VALID_STMT(strings::Substitute(
-          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
-    }
-  }
-
-  // Checking Row
-  CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6))");
-  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
-  CHECK_EQ(row_block->row_count(), 1);
-  {
-    const QLRow& row = row_block->row(0);
-    CHECK_EQ(row.column(0).int32_value(), 5);
-    CHECK_EQ(row.column(1).int32_value(), 5);
-    CHECK_EQ(row.column(2).int32_value(), 6);
-    CHECK_EQ(row.column(3).int32_value(), 6);
-  }
-}
-
-TEST_F(QLTestSelectedExpr, ClusteredFilteringTest2) {
-  // Init the simulated cluster.
-  ASSERT_NO_FATALS(CreateSimulatedCluster());
-
-  // Get a processor.
-  TestQLProcessor* processor = GetQLProcessor();
-  LOG(INFO) << "Running simple query test.";
-  // Create the table 1.
-  const char* create_stmt =
-      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
-  CHECK_VALID_STMT(create_stmt);
-
-  int h = 5;
-  for (int r1 = 5; r1 < 8; r1++) {
-    for (int r2 = 4; r2 < 9; r2++) {
-      CHECK_VALID_STMT(strings::Substitute(
-          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
-    }
-  }
-
-  // Checking Row
-  CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6), (5, 7))");
-  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
-  CHECK_EQ(row_block->row_count(), 2);
-  {
-    QLRow& row = row_block->row(0);
-    CHECK_EQ(row.column(0).int32_value(), 5);
-    CHECK_EQ(row.column(1).int32_value(), 5);
-    CHECK_EQ(row.column(2).int32_value(), 6);
-    CHECK_EQ(row.column(3).int32_value(), 6);
-
-    row = row_block->row(1);
-    CHECK_EQ(row.column(0).int32_value(), 5);
-    CHECK_EQ(row.column(1).int32_value(), 5);
-    CHECK_EQ(row.column(2).int32_value(), 7);
-    CHECK_EQ(row.column(3).int32_value(), 7);
-  }
-}
-
-TEST_F(QLTestSelectedExpr, ClusteredFilteringTest3) {
-  // Init the simulated cluster.
-  ASSERT_NO_FATALS(CreateSimulatedCluster());
-
-  // Get a processor.
-  TestQLProcessor* processor = GetQLProcessor();
-  LOG(INFO) << "Running simple query test.";
-  // Create the table 1.
-  const char* create_stmt =
-      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
-  CHECK_VALID_STMT(create_stmt);
-
-  int h = 5;
-  for (int r1 = 5; r1 < 8; r1++) {
-    for (int r2 = 4; r2 < 9; r2++) {
-      CHECK_VALID_STMT(strings::Substitute(
-          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
-    }
-  }
-
-  Status s =
-      processor->Run("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6, 8), (5, 7))");
-  LOG(INFO) << "Expected error: " << s;
-  EXPECT_TRUE(s.IsQLError()) << "Expected QLError, got: " << s;
-  EXPECT_EQ(GetErrorCode(s), ErrorCode::INVALID_ARGUMENTS)
-      << "Expected INVALID_ARGUMENT, got " << s;
-  EXPECT_NE(s.message().ToBuffer().find("Column count mismatch"), string::npos) << s;
-}
-
-
-TEST_F(QLTestSelectedExpr, ClusteredFilteringEmptyTest) {
-  // Init the simulated cluster.
-  ASSERT_NO_FATALS(CreateSimulatedCluster());
-
-  // Get a processor.
-  TestQLProcessor* processor = GetQLProcessor();
-  // Create the table 1.
-  const char* create_stmt =
-      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
-  CHECK_VALID_STMT(create_stmt);
-
-  int h = 5;
-  for (int r1 = 5; r1 < 8; r1++) {
-    for (int r2 = 4; r2 < 9; r2++) {
-      CHECK_VALID_STMT(strings::Substitute(
-          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
-    }
-  }
-
-  // Checking Row
-  CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ()");
-  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
-  CHECK_EQ(row_block->row_count(), 0);
-}
-
 TEST_F(QLTestSelectedExpr, ScanChoicesTest) {
   // Init the simulated cluster.
   ASSERT_NO_FATALS(CreateSimulatedCluster());
@@ -2172,6 +1964,132 @@ TEST_F(QLTestSelectedExpr, TestPreparedStatementWithCollections) {
       "{ int32:1, int32:1, map:{int32:2 -> string:\"b\", int32:3 -> string:\"c\"}, "
       "set:{int32:4, int32:5}, list:[string:\"x\", string:\"y\"] }");
   LOG(INFO) << "Done.";
+}
+
+TEST_F(QLTestSelectedExpr, MultiColumnInTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  LOG(INFO) << "Running simple query test.";
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
+  CHECK_VALID_STMT(create_stmt);
+
+  int h = 5;
+  for (int r1 = 5; r1 < 8; r1++) {
+    for (int r2 = 4; r2 < 9; r2++) {
+      CHECK_VALID_STMT(strings::Substitute(
+          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
+    }
+  }
+
+  // Checking Row
+  CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6))");
+  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
+  CHECK_EQ(row_block->row_count(), 1);
+  {
+    const QLRow& row = row_block->row(0);
+    CHECK_EQ(row.column(0).int32_value(), 5);
+    CHECK_EQ(row.column(1).int32_value(), 5);
+    CHECK_EQ(row.column(2).int32_value(), 6);
+    CHECK_EQ(row.column(3).int32_value(), 6);
+  }
+}
+
+TEST_F(QLTestSelectedExpr, MultiArgumentMultiColumnInTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  LOG(INFO) << "Running simple query test.";
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
+  CHECK_VALID_STMT(create_stmt);
+
+  int h = 5;
+  for (int r1 = 5; r1 < 8; r1++) {
+    for (int r2 = 4; r2 < 9; r2++) {
+      CHECK_VALID_STMT(strings::Substitute(
+          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
+    }
+  }
+
+  // Checking Row
+  CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6), (5, 7))");
+  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
+  CHECK_EQ(row_block->row_count(), 2);
+  {
+    QLRow& row = row_block->row(0);
+    CHECK_EQ(row.column(0).int32_value(), 5);
+    CHECK_EQ(row.column(1).int32_value(), 5);
+    CHECK_EQ(row.column(2).int32_value(), 6);
+    CHECK_EQ(row.column(3).int32_value(), 6);
+
+    row = row_block->row(1);
+    CHECK_EQ(row.column(0).int32_value(), 5);
+    CHECK_EQ(row.column(1).int32_value(), 5);
+    CHECK_EQ(row.column(2).int32_value(), 7);
+    CHECK_EQ(row.column(3).int32_value(), 7);
+  }
+}
+
+TEST_F(QLTestSelectedExpr, InvalidArgumentMultiColumnInTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  LOG(INFO) << "Running simple query test.";
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
+  CHECK_VALID_STMT(create_stmt);
+
+  int h = 5;
+  for (int r1 = 5; r1 < 8; r1++) {
+    for (int r2 = 4; r2 < 9; r2++) {
+      CHECK_VALID_STMT(strings::Substitute(
+          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
+    }
+  }
+
+  Status s =
+      processor->Run("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6, 8), (5, 7))");
+  LOG(INFO) << "Expected error: " << s;
+  EXPECT_TRUE(s.IsQLError()) << "Expected QLError, got: " << s;
+  EXPECT_EQ(GetErrorCode(s), ErrorCode::INVALID_ARGUMENTS)
+      << "Expected INVALID_ARGUMENT, got " << s;
+  EXPECT_NE(s.message().ToBuffer().find("elements in value tuple, but got"), string::npos) << s;
+}
+
+TEST_F(QLTestSelectedExpr, EmptyArgumentMultiColumnInTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
+  CHECK_VALID_STMT(create_stmt);
+
+  int h = 5;
+  for (int r1 = 5; r1 < 8; r1++) {
+    for (int r2 = 4; r2 < 9; r2++) {
+      CHECK_VALID_STMT(strings::Substitute(
+          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
+    }
+  }
+
+  // Checking Row
+  CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ()");
+  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
+  CHECK_EQ(row_block->row_count(), 0);
 }
 
 } // namespace ql

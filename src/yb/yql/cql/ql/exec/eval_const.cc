@@ -36,14 +36,14 @@
 #include "yb/yql/cql/ql/exec/executor.h"
 #include "yb/yql/cql/ql/ptree/pt_expr.h"
 
-#include "yb/util/logging.h"
-
 namespace yb {
 namespace ql {
 
 using strings::Substitute;
 
-Status Executor::PTConstToPB(const PTExpr::SharedPtr &expr, QLValuePB *const_pb, bool negate) {
+Status Executor::PTConstToPB(const PTExpr::SharedPtr& expr,
+                                     QLValuePB *const_pb,
+                                     bool negate) {
   if (expr->internal_type() == InternalType::VALUE_NOT_SET) {
     SetNull(const_pb);
   }
