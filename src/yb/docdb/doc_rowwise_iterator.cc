@@ -416,19 +416,16 @@ class HybridScanChoices : public ScanChoices {
   // A filter of the form col1 IN (1,4,5) is converted to a filter
   // in the form col1 IN ([1, 1], [4, 4], [5, 5]).
 
-  HybridScanChoices(
-      const Schema& schema,
-      const KeyBytes& lower_doc_key,
-      const KeyBytes& upper_doc_key,
-      bool is_forward_scan,
-      const std::vector<ColumnId>& range_options_col_ids,
-      const std::shared_ptr<std::vector<Options>>& range_options,
-      const std::vector<ColumnId>& range_bounds_col_ids,
-      const QLScanRange* range_bounds,
-      const std::vector<size_t>& range_options_num_cols)
+  HybridScanChoices(const Schema& schema,
+                    const KeyBytes& lower_doc_key,
+                    const KeyBytes& upper_doc_key,
+                    bool is_forward_scan,
+                    const std::vector<ColumnId>& range_options_col_ids,
+                    const std::shared_ptr<std::vector<Options>>& range_options,
+                    const std::vector<ColumnId>& range_bounds_col_ids,
+                    const QLScanRange* range_bounds,
+                    const std::vector<size_t>& range_options_num_cols)
       : ScanChoices(is_forward_scan), lower_doc_key_(lower_doc_key), upper_doc_key_(upper_doc_key) {
-    // TODO: Should we extend tuple filtering to range bounds?
-
     size_t num_hash_cols = schema.num_hash_key_columns();
 
     for (size_t idx = num_hash_cols; idx < schema.num_key_columns(); idx++) {
@@ -502,22 +499,20 @@ class HybridScanChoices : public ScanChoices {
     }
   }
 
-  HybridScanChoices(
-      const Schema& schema,
-      const DocPgsqlScanSpec& doc_spec,
-      const KeyBytes& lower_doc_key,
-      const KeyBytes& upper_doc_key)
+  HybridScanChoices(const Schema& schema,
+                    const DocPgsqlScanSpec& doc_spec,
+                    const KeyBytes& lower_doc_key,
+                    const KeyBytes& upper_doc_key)
       : HybridScanChoices(
             schema, lower_doc_key, upper_doc_key, doc_spec.is_forward_scan(),
             doc_spec.range_options_indexes(), doc_spec.range_options(),
             doc_spec.range_bounds_indexes(), doc_spec.range_bounds(),
             doc_spec.range_options_num_cols()) {}
 
-  HybridScanChoices(
-      const Schema& schema,
-      const DocQLScanSpec& doc_spec,
-      const KeyBytes& lower_doc_key,
-      const KeyBytes& upper_doc_key)
+  HybridScanChoices(const Schema& schema,
+                    const DocQLScanSpec& doc_spec,
+                    const KeyBytes& lower_doc_key,
+                    const KeyBytes& upper_doc_key)
       : HybridScanChoices(
             schema, lower_doc_key, upper_doc_key, doc_spec.is_forward_scan(),
             doc_spec.range_options_indexes(), doc_spec.range_options(),

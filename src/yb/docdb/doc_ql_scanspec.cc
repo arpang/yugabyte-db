@@ -189,7 +189,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           range_options_num_cols_[col_idxs[i] - num_hash_cols] = num_cols;
         }
 
-        // TODO: Add a dcheck that all columns have same sorting type
+        // TODO: Remove the constraint that all columns must have same sorting type
         auto start_idx = *std::min_element(col_idxs.begin(), col_idxs.end());
         SortingType sorting_type = schema_.column(start_idx).sorting_type();
 
