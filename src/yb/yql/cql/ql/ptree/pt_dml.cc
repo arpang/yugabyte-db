@@ -586,12 +586,12 @@ Status WhereExprState::AnalyzeMultiColumnOp(
               col_desc->name()),
           ErrorCode::CQL_STATEMENT_INVALID);
     }
-    if (idx != -1 && (idx + 1) != (int)col_desc->index()) {
+    if (idx != -1 && (idx + 1) != static_cast<int>(col_desc->index())) {
       return sem_context->Error(
           expr, "Clustering columns must appear in the PRIMARY KEY order in multi-column relations",
           ErrorCode::CQL_STATEMENT_INVALID);
     }
-    idx = (int)col_desc->index();
+    idx = static_cast<int>(col_desc->index());
     ColumnOpCounter& counter = op_counters_->at(col_desc->index());
     counter.increase_in();
     if (!counter.is_valid()) {
@@ -599,7 +599,7 @@ Status WhereExprState::AnalyzeMultiColumnOp(
           expr, "Illogical condition for where clause", ErrorCode::CQL_STATEMENT_INVALID);
     }
   }
-  LOG(INFO) << "Appending to multi col operation expr->ql_op() " << expr->ql_op();
+  // LOG(INFO) << "Appending to multi col operation expr->ql_op() " << expr->ql_op();
   multi_colum_ops_->emplace_back(col_descs, value, expr->ql_op());
 
   return Status::OK();

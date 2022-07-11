@@ -659,11 +659,8 @@ Status PTCollectionExpr::Analyze(SemContext *sem_context) {
                 "Column count mismatch, expected $0, got $1", expected_type->params().size(),
                 values_.size()),
             ErrorCode::INVALID_ARGUMENTS);
-        // SCHECK(
-        //     values_.size() == expected_type->params().size(), RuntimeError,
-        //     "Column count mismatch");
       }
-      for (const auto& elem: values_) {
+      for (const auto &elem : values_) {
         SemState sem_state(sem_context);
         sem_state.set_allowing_column_refs(false);
         const shared_ptr<QLType> &val_type = expected_type->param_type(i);
@@ -677,18 +674,6 @@ Status PTCollectionExpr::Analyze(SemContext *sem_context) {
         sem_state.ResetContextState();
       }
       break;
-
-      // for (auto &elem : values_) {
-      //   RETURN_NOT_OK(elem->Analyze(sem_context));
-      //   RETURN_NOT_OK(elem->CheckRhsExpr(sem_context));
-      // }
-
-      // for (auto &elem : values_) {
-      // }
-      //break;
-      // return sem_context->Error(this, "Tuple type not supported yet",
-      //                           ErrorCode::FEATURE_NOT_SUPPORTED);
-
     default:
       return sem_context->Error(this, ErrorCode::DATATYPE_MISMATCH);
   }
