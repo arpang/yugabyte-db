@@ -46,7 +46,7 @@ using strings::Substitute;
 Status Executor::PTConstToPB(const PTExpr::SharedPtr& expr,
                                      QLValuePB *const_pb,
                                      bool negate) {
-  LOG_WITH_FUNC(INFO) << "Starting";
+  // LOG_WITH_FUNC(INFO) << "Starting";
   if (expr->internal_type() == InternalType::VALUE_NOT_SET) {
     SetNull(const_pb);
   }
