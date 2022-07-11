@@ -274,9 +274,11 @@ Status PTExpr::CheckEqualityOperands(SemContext *sem_context,
 Status PTExpr::CheckLhsExpr(SemContext *sem_context) {
   if (op_ != ExprOperator::kRef && op_ != ExprOperator::kBcall &&
       op_ != ExprOperator::kCollection) {
-    return sem_context->Error(this,
-                              "Only column refs and builtin calls are allowed for left hand value",
-                              ErrorCode::CQL_STATEMENT_INVALID);
+    return sem_context->Error(
+        this,
+        "Only column refs, collections of column refs and builtin calls are allowed for left hand "
+        "value",
+        ErrorCode::CQL_STATEMENT_INVALID);
   }
   return Status::OK();
 }
@@ -635,7 +637,7 @@ Status PTCollectionExpr::Analyze(SemContext *sem_context) {
         SemState sem_state(sem_context);
         sem_state.set_allowing_column_refs(false);
         const shared_ptr<QLType> &val_type = expected_type->param_type(i);
-        // NULL value in the LIST is allowed for right operand of IN/NOT IN operators only.
+        // NULL value in the TUPLE is allowed for right operand of IN/NOT IN operators only.
         sem_state.SetExprState(
             val_type, YBColumnSchema::ToInternalDataType(val_type), bindvar_name, nullptr,
             NullIsAllowed(is_in_operand()));
@@ -895,8 +897,9 @@ Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
   return Status::OK();
 }
 
-Status PTRelationExpr::AnalyzeOperator(
-    SemContext *sem_context, PTExpr::SharedPtr op1, PTExpr::SharedPtr op2) {
+Status PTRelationExpr::AnalyzeOperator(SemContext *sem_context,
+                                               PTExpr::SharedPtr op1,
+                                               PTExpr::SharedPtr op2) {
   // "op1" and "op2" must have been analyzed before getting here
   switch (ql_op_) {
     case QL_OP_NOT_EQUAL: FALLTHROUGH_INTENDED;

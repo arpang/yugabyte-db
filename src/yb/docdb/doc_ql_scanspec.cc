@@ -177,10 +177,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
         for (const auto id : lhs.columns().ids()) {
           ColumnId col_id = ColumnId(id);
           int col_idx = schema_.find_column_by_id(col_id);
-          // TODO: is this correct
-          if (!schema_.is_range_column(col_idx)) {
-            continue;
-          }
+          DCHECK(schema_.is_range_column(col_idx));
           col_ids.push_back(col_id);
           col_idxs.push_back(col_idx);
         }
