@@ -627,7 +627,7 @@ Status PTCollectionExpr::Analyze(SemContext *sem_context) {
         return sem_context->Error(
             this,
             Format(
-                "Column count mismatch, expected $0, got $1", expected_type->params().size(),
+                "Expected $0 elements in value tuple, but got $1", expected_type->params().size(),
                 values_.size()),
             ErrorCode::INVALID_ARGUMENTS);
       }

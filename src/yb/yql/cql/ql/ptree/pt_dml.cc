@@ -540,7 +540,7 @@ Status WhereExprState::AnalyzeMultiColumnOp(
 
   if (expr->ql_op() != QL_OP_IN) {
     return sem_context->Error(
-        expr, "Multi-column reolation not supported for operator",
+        expr, "Multi-column relation not supported for the operator",
         ErrorCode::CQL_STATEMENT_INVALID);
   }
 
@@ -582,11 +582,18 @@ Status WhereExprState::AnalyzeMultiColumnOp(
           expr,
           Format(
               "Multi-column relations can only be applied to clustering columns but was applied "
-              "to: %s",
+              "to: $0",
               col_desc->name()),
           ErrorCode::CQL_STATEMENT_INVALID);
     }
     if (idx != -1 && (idx + 1) != static_cast<int>(col_desc->index())) {
+      if (idx == static_cast<int>(col_desc->index())) {
+        // repeating column
+        return sem_context->Error(
+            expr,
+            Format("Column \"$0\" appeared twice in a relation", col_desc->name()),
+            ErrorCode::CQL_STATEMENT_INVALID);
+      }
       return sem_context->Error(
           expr, "Clustering columns must appear in the PRIMARY KEY order in multi-column relations",
           ErrorCode::CQL_STATEMENT_INVALID);
