@@ -126,7 +126,6 @@ class DiscreteScanChoices : public ScanChoices {
     auto num_cols = doc_spec.range_options_num_cols();
     for (size_t idx = 0; idx < options->size(); idx++) {
       if ((*options)[idx].empty()) {
-        // LOG(INFO) << "Empty found";
         continue;
       }
       range_cols_scan_options_->push_back((*options)[idx]);
@@ -224,7 +223,6 @@ Status DiscreteScanChoices::IncrementScanTargetAtColumn(size_t start_col) {
 
   if (col_idx < 0) {
     // If we got here we finished all the options and are done.
-    // LOG_WITH_FUNC(INFO) << "setting finished to true";
     finished_ = true;
     return Status::OK();
   }
@@ -385,19 +383,6 @@ class OptionRange {
   bool upper_inclusive() const { return upper_inclusive_; }
   size_t size() const { return lower_.size(); }
 
-  // const void log() const {
-  //   LOG(INFO) << "Num cols: " << lower_.size() << " lower_inclusive: " << lower_inclusive_
-  //             << " upper_inclusive: " << upper_inclusive_;
-  //   LOG(INFO) << "Lower";
-  //   for (auto const& entry : lower_) {
-  //     LOG(INFO) << entry;
-  //   }
-  //   LOG(INFO) << "Upper";
-  //   for (auto const& entry : upper_) {
-  //     LOG(INFO) << entry;
-  //   }
-  // }
-
   static bool upper_lt(const OptionRange& range1, const OptionRange& range2) {
     DCHECK(range1.size() == range2.size());
     size_t i = 0;
@@ -442,15 +427,12 @@ class HybridScanChoices : public ScanChoices {
       const QLScanRange* range_bounds,
       const std::vector<size_t>& range_options_num_cols)
       : ScanChoices(is_forward_scan), lower_doc_key_(lower_doc_key), upper_doc_key_(upper_doc_key) {
-    // LOG(INFO) << "Arpan HybridScanChoices";
     // TODO: Should we extend tuple filtering to range bounds?
 
     size_t num_hash_cols = schema.num_hash_key_columns();
 
     for (size_t idx = num_hash_cols; idx < schema.num_key_columns(); idx++) {
       const ColumnId col_id = schema.column_id(idx);
-      // const string col_name = schema.column_names()[idx];
-      // LOG_WITH_FUNC(INFO) << "Prcoessing column " << col_name << " " << col_id;
       vector<OptionRange> current_options;
       size_t num_cols = 1;
       bool col_has_range_option =
@@ -467,15 +449,11 @@ class HybridScanChoices : public ScanChoices {
         const QLScanRange::QLRange range = range_bounds->RangeFor(col_id);
         const auto lower = GetQLRangeBoundAsPVal(range, col_sort_type, true /* lower_bound */);
         const auto upper = GetQLRangeBoundAsPVal(range, col_sort_type, false /* upper_bound */);
-
-        // LOG_WITH_FUNC(INFO) << "For column " << col_name << " range bound single entry: lower "
-        //                     << lower << " upper " << upper;
         current_options.emplace_back(
             vector{lower},
             GetQLRangeBoundIsInclusive(range, col_sort_type, true),
             vector{upper},
             GetQLRangeBoundIsInclusive(range, col_sort_type, false));
-        // range_options_sizes_.push_back(1);
       } else if (col_has_range_option) {
         num_cols = range_options_num_cols[idx - num_hash_cols];
         auto& options = (*range_options)[idx - num_hash_cols];
@@ -496,22 +474,12 @@ class HybridScanChoices : public ScanChoices {
         }
 
         for (const auto& option : options) {
-          // const auto& lower = option;
-          // const auto& upper = option;
-          // LOG_WITH_FUNC(INFO) << "For column " << col_name << " range option lower and upper: ";
-          // for (size_t i = 0; i < option_size; i++) {
-          //   LOG_WITH_FUNC(INFO) << "col : " << i << " value: " << lower[i];
-          // }
           current_options.emplace_back(option, true, option, true);
         }
         idx = idx + num_cols - 1;
-        // range_options_sizes_.push_back(num_cols);
       } else {
         // If no filter is specified, we just impose an artificial range
         // filter [kLowest, kHighest]
-        // LOG_WITH_FUNC(INFO) << "For column " << col_name
-        //                     << " no filter specified, artfificial single value: lower "
-        //                     << KeyEntryType::kLowest << " upper " << KeyEntryType::kHighest;
         current_options.emplace_back(
             vector{KeyEntryValue(KeyEntryType::kLowest)},
             true,
@@ -532,19 +500,6 @@ class HybridScanChoices : public ScanChoices {
     } else {
       current_scan_target_ = upper_doc_key;
     }
-
-    // LOG(INFO) << "range_options_sizes_ " << range_options_num_cols_.size();
-    // for (const auto& val : range_options_num_cols_) {
-    //   LOG(INFO) << val;
-    // }
-
-    // LOG(INFO) << "range_cols_scan_options_ " << range_cols_scan_options_.size();
-    // for (const auto& options : range_cols_scan_options_) {
-    //   LOG(INFO) << "New In clause";
-    //   for (const auto& option : options) {
-    //     option.log();
-    //   }
-    // }
   }
 
   HybridScanChoices(
@@ -556,9 +511,7 @@ class HybridScanChoices : public ScanChoices {
             schema, lower_doc_key, upper_doc_key, doc_spec.is_forward_scan(),
             doc_spec.range_options_indexes(), doc_spec.range_options(),
             doc_spec.range_bounds_indexes(), doc_spec.range_bounds(),
-            doc_spec.range_options_num_cols()
-            // vector(doc_spec.range_options()->size(), 1)
-        ) {}
+            doc_spec.range_options_num_cols()) {}
 
   HybridScanChoices(
       const Schema& schema,
@@ -608,7 +561,6 @@ class HybridScanChoices : public ScanChoices {
 // Sets current_scan_target_ to the first tuple in the filter space
 // that is >= new_target.
 Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
-  // LOG(INFO) << "HybridScanChoices::SkipTargetsUpTo " << DocKey::DebugSliceToString(new_target);
   VLOG(2) << __PRETTY_FUNCTION__ << " Updating current target to be >= "
           << DocKey::DebugSliceToString(new_target);
   DCHECK(!FinishedWithScanChoices());
@@ -1128,9 +1080,6 @@ class RangeBasedScanChoices : public ScanChoices {
       lower_.push_back(lower);
       auto upper = GetQLRangeBoundAsPVal(range, col_sort_type, false /* upper_bound */);
       upper_.push_back(upper);
-      // LOG_WITH_FUNC(INFO) << " RangeBasedScanChoices For column " << col_idx << " lower: " <<
-      // lower
-      //                     << " upper: " << upper;
     }
   }
 
@@ -1145,9 +1094,6 @@ class RangeBasedScanChoices : public ScanChoices {
       const QLScanRange::QLRange range = doc_spec.range_bounds()->RangeFor(col_idx);
       const auto lower = GetQLRangeBoundAsPVal(range, col_sort_type, true /* lower_bound */);
       const auto upper = GetQLRangeBoundAsPVal(range, col_sort_type, false /* upper_bound */);
-      // LOG_WITH_FUNC(INFO) << " RangeBasedScanChoices For column " << col_idx << " lower: " <<
-      // lower
-      //                     << " upper: " << upper;
       lower_.emplace_back(lower);
       upper_.emplace_back(upper);
     }
@@ -1335,11 +1281,6 @@ Result<bool> DocRowwiseIterator::InitScanChoices(
 
   if (!FLAGS_disable_hybrid_scan) {
     if (doc_spec.range_options() || doc_spec.range_bounds()) {
-      // LOG(INFO) << "Adding HybridScanChoices";
-      // LOG(INFO) << "doc_spec.range_options() " << (doc_spec.range_options() != nullptr);
-      // LOG(INFO) << "doc_spec.range_bounds() " << (doc_spec.range_bounds() != nullptr);
-      // LOG(INFO) << "lower_doc_key.ToString() " << lower_doc_key.ToString();
-      // LOG(INFO) << "upper_doc_key.ToString() " << upper_doc_key.ToString();
       scan_choices_.reset(new HybridScanChoices(
           doc_read_context_.schema, doc_spec, lower_doc_key, upper_doc_key));
     }
@@ -1347,7 +1288,6 @@ Result<bool> DocRowwiseIterator::InitScanChoices(
   }
 
   if (doc_spec.range_options()) {
-    // LOG(INFO) << "Adding DiscreteScanChoices";
     scan_choices_.reset(new DiscreteScanChoices(doc_spec, lower_doc_key, upper_doc_key));
     // Let's not seek to the lower doc key or upper doc key. We know exactly what we want.
     RETURN_NOT_OK(AdvanceIteratorToNextDesiredRow());
@@ -1355,7 +1295,6 @@ Result<bool> DocRowwiseIterator::InitScanChoices(
   }
 
   if (doc_spec.range_bounds()) {
-    // LOG(INFO) << "Adding RangeBasedScanChoices";
     scan_choices_.reset(new RangeBasedScanChoices(doc_read_context_.schema, doc_spec));
   }
 
@@ -1416,7 +1355,6 @@ Status DocRowwiseIterator::DoInit(const T& doc_spec) {
     has_bound_key_ = !upper_doc_key.empty();
     if (has_bound_key_) {
       bound_key_ = std::move(upper_doc_key);
-      // LOG_WITH_FUNC(INFO) << "SetUpperbound : " << SubDocKey::DebugSliceToString(bound_key_);
       db_iter_->SetUpperbound(bound_key_);
     }
   } else {
@@ -1472,9 +1410,6 @@ Status DocRowwiseIterator::AdvanceIteratorToNextDesiredRow() const {
 
 Result<bool> DocRowwiseIterator::HasNext() const {
   VLOG(4) << __PRETTY_FUNCTION__;
-
-  // LOG_WITH_FUNC(INFO) << "has_next_status_ " << has_next_status_;
-
   // Repeated HasNext calls (without Skip/NextRow in between) should be idempotent:
   // 1. If a previous call failed we returned the same status.
   // 2. If a row is already available (row_ready_), return true directly.
@@ -1490,11 +1425,6 @@ Result<bool> DocRowwiseIterator::HasNext() const {
 
   bool doc_found = false;
   while (!doc_found) {
-    // LOG_WITH_FUNC(INFO) << "Inside while !doc_found";
-    // LOG_WITH_FUNC(INFO) << "!db_iter_->valid() " << !db_iter_->valid();
-    // LOG_WITH_FUNC(INFO) << "scan_choices_ != nullptr " << (scan_choices_ != nullptr);
-    // LOG_WITH_FUNC(INFO) << "scan_choices_->FinishedWithScanChoices()"
-    //                     << scan_choices_->FinishedWithScanChoices();
     if (!db_iter_->valid() || (scan_choices_ && scan_choices_->FinishedWithScanChoices())) {
       done_ = true;
       return false;
@@ -1506,8 +1436,6 @@ Result<bool> DocRowwiseIterator::HasNext() const {
       has_next_status_ = key_data.status();
       return has_next_status_;
     }
-
-    // LOG(INFO) << "*fetched_key is " << SubDocKey::DebugSliceToString(key_data->key);
 
     VLOG(4) << "*fetched_key is " << SubDocKey::DebugSliceToString(key_data->key);
     if (debug_dump_) {

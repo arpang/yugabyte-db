@@ -1032,8 +1032,7 @@ int DoCompare(const PB& lhs, const PB& rhs) {
     case QLValuePB::kTupleValue:
       return TupleCompare(lhs.tuple_value(), rhs.tuple_value());
     case QLValuePB::kMapValue: FALLTHROUGH_INTENDED;
-    case QLValuePB::kSetValue:
-      FALLTHROUGH_INTENDED;
+    case QLValuePB::kSetValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kListValue:
       LOG(FATAL) << "Internal error: collection types are not comparable";
       return 0;
@@ -1120,8 +1119,7 @@ int Compare(const QLValuePB& lhs, const QLValue& rhs) {
     case QLValuePB::kTupleValue:
       return TupleCompare(lhs.tuple_value(), rhs.tuple_value());
     case QLValuePB::kMapValue: FALLTHROUGH_INTENDED;
-    case QLValuePB::kSetValue:
-      FALLTHROUGH_INTENDED;
+    case QLValuePB::kSetValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kListValue:
       LOG(FATAL) << "Internal error: collection types are not comparable";
       return 0;

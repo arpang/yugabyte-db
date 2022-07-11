@@ -44,7 +44,9 @@ struct ColumnValue {
 
   const Value* value = nullptr;
 
-  explicit operator bool() const { return value != nullptr; }
+  explicit operator bool() const {
+    return value != nullptr;
+  }
 };
 
 template <class Col>
@@ -56,7 +58,7 @@ auto GetColumnValue(const Col& col) {
     ColumnId column_id(it->column_id());
     ++it;
     if (it->expr_case() == decltype(it->expr_case())::kValue) {
-      return ResultType{
+      return ResultType {
           .lhs_is_column = true,
           .column_id = column_id,
           .column_ids = {},
@@ -69,7 +71,7 @@ auto GetColumnValue(const Col& col) {
     auto* value = &it->value();
     ++it;
     if (it->expr_case() == decltype(it->expr_case())::kColumnId) {
-      return ResultType{
+      return ResultType {
           .lhs_is_column = false,
           .column_id = ColumnId(it->column_id()),
           .column_ids = {},
@@ -86,7 +88,7 @@ auto GetColumnValue(const Col& col) {
     ++it;
 
     if (it->expr_case() == decltype(it->expr_case())::kValue) {
-      auto result = ResultType{
+      auto result = ResultType {
           .lhs_is_column = true,
           .column_id = ColumnId(0),
           .column_ids = column_ids,
@@ -288,8 +290,6 @@ void QLScanRange::Init(const Cond& condition) {
               for (auto const& entry : lower->tuple_value().elems()) {
                 auto& range = ranges_[col_ids[i]];
                 range.min_bound = QLLowerBound(entry, true);
-                // LOG(INFO) << "For columns " << col_ids[i] << "min bound "
-                //           << entry.ShortDebugString();
                 ++i;
               }
 
@@ -297,8 +297,6 @@ void QLScanRange::Init(const Cond& condition) {
               for (auto const& entry : upper->tuple_value().elems()) {
                 auto& range = ranges_[col_ids[i]];
                 range.max_bound = QLUpperBound(entry, true);
-                // LOG(INFO) << "For columns " << col_ids[i] << "max bound "
-                //           << entry.ShortDebugString();
                 ++i;
               }
             }

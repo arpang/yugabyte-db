@@ -92,14 +92,12 @@ Status QLExprExecutor::EvalExpr(const QLExpressionPB& ql_expr,
       // TODO: any alternate to declaring on heap?
       QLValuePB* value = new QLValuePB();
       auto tuple_value = value->mutable_tuple_value();
-
       for (auto const& id : ql_expr.columns().ids()) {
         QLExprResult temp;
         RETURN_NOT_OK(table_row.ReadColumn(id, temp.Writer()));
         auto entry = tuple_value->add_elems();
         temp.MoveTo(entry);
       }
-      // LOG(INFO) << "EvalExpr value: " << value->ShortDebugString();
       result_writer.SetExisting(value);
       break;
     }
@@ -138,8 +136,7 @@ Status QLExprExecutor::EvalExpr(const QLExpressionPB& ql_expr,
       return EvalCondition(ql_expr.condition(), table_row, &result_writer.NewValue());
 
     case QLExpressionPB::ExprCase::kBocall: FALLTHROUGH_INTENDED;
-    case QLExpressionPB::ExprCase::kBindId:
-      FALLTHROUGH_INTENDED;
+    case QLExpressionPB::ExprCase::kBindId: FALLTHROUGH_INTENDED;
     case QLExpressionPB::ExprCase::EXPR_NOT_SET:
       result_writer.SetNull();
   }
@@ -244,17 +241,10 @@ Status QLExprExecutor::EvalCondition(const QLConditionPB& condition,
 template <class Operands, class Res>
 Result<bool> In(
     QLExprExecutor* executor, const Operands& operands, const QLTableRow& table_row, Res* lhs) {
-  // LOG(INFO) << "table_row " << table_row.ToString();
   Res rhs(lhs);
   RETURN_NOT_OK(EvalOperands(executor, operands, table_row, lhs->Writer(), rhs.Writer()));
-  // LOG(INFO) << "Returned from EvalOperands " << (lhs == nullptr);
-
-  // LOG(INFO) << "LHS " << lhs->Value().ShortDebugString();
-  // LOG(INFO) << "RHS " << rhs.Value().ShortDebugString();
 
   for (const auto& rhs_elem : rhs.Value().list_value().elems()) {
-    // LOG(INFO) << "elem " << elem.ShortDebugString();
-    // LOG(INFO) << "lhs->Value() " << lhs->Value().ShortDebugString();
     if (rhs_elem.has_tuple_value() && lhs->Value().has_tuple_value()) {
       const auto& rhs_elem_tuple = rhs_elem.tuple_value().elems();
       const auto& lhs_tuple = lhs->Value().tuple_value().elems();
