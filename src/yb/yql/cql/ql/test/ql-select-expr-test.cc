@@ -1758,16 +1758,8 @@ TEST_F(QLTestSelectedExpr, ClusteredFilteringTest) {
 
   // Checking Row
   CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6))");
-  // CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND r1 in (5, 6)");
   std::shared_ptr<QLRowBlock> row_block = processor->row_block();
   CHECK_EQ(row_block->row_count(), 1);
-  // {
-  //   const QLRow& row = row_block->row(0);
-  //   CHECK_EQ(row.column(0).int32_value(), 5);
-  //   CHECK_EQ(row.column(1).int32_value(), 5);
-  //   CHECK_EQ(row.column(2).int32_value(), 5);
-  //   CHECK_EQ(row.column(3).int32_value(), 5);
-  // }
   {
     const QLRow& row = row_block->row(0);
     CHECK_EQ(row.column(0).int32_value(), 5);
@@ -1799,16 +1791,8 @@ TEST_F(QLTestSelectedExpr, ClusteredFilteringTest2) {
 
   // Checking Row
   CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6), (5, 7))");
-  // CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND r1 in (5, 6)");
   std::shared_ptr<QLRowBlock> row_block = processor->row_block();
   CHECK_EQ(row_block->row_count(), 2);
-  // {
-  //   const QLRow& row = row_block->row(0);
-  //   CHECK_EQ(row.column(0).int32_value(), 5);
-  //   CHECK_EQ(row.column(1).int32_value(), 5);
-  //   CHECK_EQ(row.column(2).int32_value(), 5);
-  //   CHECK_EQ(row.column(3).int32_value(), 5);
-  // }
   {
     QLRow& row = row_block->row(0);
     CHECK_EQ(row.column(0).int32_value(), 5);
@@ -1822,6 +1806,35 @@ TEST_F(QLTestSelectedExpr, ClusteredFilteringTest2) {
     CHECK_EQ(row.column(2).int32_value(), 7);
     CHECK_EQ(row.column(3).int32_value(), 7);
   }
+}
+
+TEST_F(QLTestSelectedExpr, ClusteredFilteringTest3) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  LOG(INFO) << "Running simple query test.";
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
+  CHECK_VALID_STMT(create_stmt);
+
+  int h = 5;
+  for (int r1 = 5; r1 < 8; r1++) {
+    for (int r2 = 4; r2 < 9; r2++) {
+      CHECK_VALID_STMT(strings::Substitute(
+          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
+    }
+  }
+
+  Status s =
+      processor->Run("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6, 8), (5, 7))");
+  LOG(INFO) << "Expected error: " << s;
+  EXPECT_TRUE(s.IsQLError()) << "Expected QLError, got: " << s;
+  EXPECT_EQ(GetErrorCode(s), ErrorCode::INVALID_ARGUMENTS)
+      << "Expected INVALID_ARGUMENT, got " << s;
+  EXPECT_NE(s.message().ToBuffer().find("Column count mismatch"), string::npos) << s;
 }
 
 TEST_F(QLTestSelectedExpr, ScanChoicesTest) {

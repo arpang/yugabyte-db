@@ -245,18 +245,18 @@ Status QLExprExecutor::EvalCondition(const QLConditionPB& condition,
 template <class Operands, class Res>
 Result<bool> In(
     QLExprExecutor* executor, const Operands& operands, const QLTableRow& table_row, Res* lhs) {
-  LOG(INFO) << "table_row " << table_row.ToString();
+  // LOG(INFO) << "table_row " << table_row.ToString();
 
   Res rhs(lhs);
   RETURN_NOT_OK(EvalOperands(executor, operands, table_row, lhs->Writer(), rhs.Writer()));
-  LOG(INFO) << "Returned from EvalOperands " << (lhs == nullptr);
+  // LOG(INFO) << "Returned from EvalOperands " << (lhs == nullptr);
 
-  LOG(INFO) << "LHS " << lhs->Value().ShortDebugString();
-  LOG(INFO) << "RHS " << rhs.Value().ShortDebugString();
+  // LOG(INFO) << "LHS " << lhs->Value().ShortDebugString();
+  // LOG(INFO) << "RHS " << rhs.Value().ShortDebugString();
 
   for (const auto& elem : rhs.Value().list_value().elems()) {
-    LOG(INFO) << "elem " << elem.ShortDebugString();
-    LOG(INFO) << "lhs->Value() " << lhs->Value().ShortDebugString();
+    // LOG(INFO) << "elem " << elem.ShortDebugString();
+    // LOG(INFO) << "lhs->Value() " << lhs->Value().ShortDebugString();
     if (elem.has_tuple_value() && lhs->Value().has_tuple_value()) {
       const auto& elem_list = elem.tuple_value().elems();
       const auto& lhs_list = lhs->Value().tuple_value().elems();

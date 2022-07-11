@@ -650,7 +650,19 @@ Status PTCollectionExpr::Analyze(SemContext *sem_context) {
 
     case TUPLE:
       i = 0;
-      LOG(INFO) << i;
+      LOG(INFO) << "values_.size() " << values_.size() << " expected_type->params().size() "
+                << expected_type->params().size();
+      if (values_.size() != expected_type->params().size()) {
+        return sem_context->Error(
+            this,
+            Format(
+                "Column count mismatch, expected $0, got $1", expected_type->params().size(),
+                values_.size()),
+            ErrorCode::INVALID_ARGUMENTS);
+        // SCHECK(
+        //     values_.size() == expected_type->params().size(), RuntimeError,
+        //     "Column count mismatch");
+      }
       for (const auto& elem: values_) {
         SemState sem_state(sem_context);
         sem_state.set_allowing_column_refs(false);
