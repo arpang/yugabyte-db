@@ -110,18 +110,18 @@ class DocQLScanSpec : public QLScanSpec {
   // The scan range within the hash key when a WHERE condition is specified.
   const std::unique_ptr<const QLScanRange> range_bounds_;
 
-  // Indexes of columns that have range bounds such as c2 < 4 AND c2 >= 1
+  // Ids of columns that have range bounds such as c2 < 4 AND c2 >= 1.
   std::vector<ColumnId> range_bounds_indexes_;
 
   // Schema of the columns to scan.
   const Schema& schema_;
 
   // Hash code to scan at (interpreted as lower bound if hashed_components_ are empty)
-  // hash values are positive int16_t
+  // hash values are positive int16_t.
   const boost::optional<int32_t> hash_code_;
 
   // Max hash code to scan at (upper bound, only useful if hashed_components_ are empty)
-  // hash values are positive int16_t
+  // hash values are positive int16_t.
   const boost::optional<int32_t> max_hash_code_;
 
   // The hashed_components are owned by the caller of QLScanSpec.
@@ -130,13 +130,12 @@ class DocQLScanSpec : public QLScanSpec {
   // The range value options if set. (possibly more than one due to IN conditions).
   std::shared_ptr<std::vector<Options>> range_options_;
 
-  // Column ids that have range option filters such as
-  // c2 IN (1, 5, 6, 9)
+  // Ids of columns that have range option filters such as c2 IN (1, 5, 6, 9).
   std::vector<ColumnId> range_options_indexes_;
 
-  // Stores the number of columns in a range option filter indexed by column index.
+  // Stores the number of columns involved in a range option filter.
   // For filter: A in (..) AND (C, D) in (...) AND E in (...) where A, B, C, D, E are
-  // range columns, range_options_sizes_ will contain [1, 0, 2, 2, 1]
+  // range columns, range_options_num_cols_ will contain [1, 0, 2, 2, 1].
   std::vector<size_t> range_options_num_cols_;
 
   // Does the scan include static columns also?

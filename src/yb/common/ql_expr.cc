@@ -89,18 +89,17 @@ Status QLExprExecutor::EvalExpr(const QLExpressionPB& ql_expr,
       break;
 
     case QLExpressionPB::ExprCase::kColumns: {
-      // TODO: is it okay?
+      // TODO: any alternate to declaring on heap?
       QLValuePB* value = new QLValuePB();
       auto tuple_value = value->mutable_tuple_value();
 
       for (auto const& id : ql_expr.columns().ids()) {
-        // result_writer.NewValue();
         QLExprResult temp;
         RETURN_NOT_OK(table_row.ReadColumn(id, temp.Writer()));
         auto entry = tuple_value->add_elems();
         temp.MoveTo(entry);
       }
-      LOG(INFO) << "EvalExpr value: " << value->ShortDebugString();
+      // LOG(INFO) << "EvalExpr value: " << value->ShortDebugString();
       result_writer.SetExisting(value);
       break;
     }
@@ -246,7 +245,6 @@ template <class Operands, class Res>
 Result<bool> In(
     QLExprExecutor* executor, const Operands& operands, const QLTableRow& table_row, Res* lhs) {
   // LOG(INFO) << "table_row " << table_row.ToString();
-
   Res rhs(lhs);
   RETURN_NOT_OK(EvalOperands(executor, operands, table_row, lhs->Writer(), rhs.Writer()));
   // LOG(INFO) << "Returned from EvalOperands " << (lhs == nullptr);
@@ -254,37 +252,35 @@ Result<bool> In(
   // LOG(INFO) << "LHS " << lhs->Value().ShortDebugString();
   // LOG(INFO) << "RHS " << rhs.Value().ShortDebugString();
 
-  for (const auto& elem : rhs.Value().list_value().elems()) {
+  for (const auto& rhs_elem : rhs.Value().list_value().elems()) {
     // LOG(INFO) << "elem " << elem.ShortDebugString();
     // LOG(INFO) << "lhs->Value() " << lhs->Value().ShortDebugString();
-    if (elem.has_tuple_value() && lhs->Value().has_tuple_value()) {
-      const auto& elem_list = elem.tuple_value().elems();
-      const auto& lhs_list = lhs->Value().tuple_value().elems();
-      if (elem_list.size() != lhs_list.size()) {
-        return STATUS(RuntimeError, "values not comparable");
+    if (rhs_elem.has_tuple_value() && lhs->Value().has_tuple_value()) {
+      const auto& rhs_elem_tuple = rhs_elem.tuple_value().elems();
+      const auto& lhs_tuple = lhs->Value().tuple_value().elems();
+      if (rhs_elem_tuple.size() != lhs_tuple.size()) {
+        return STATUS(RuntimeError, "Tuple with different sizes cannot be compared");
       }
       bool matched = true;
-      auto e_itr = elem_list.begin();
-      auto l_itr = lhs_list.begin();
-      for (size_t i = 0; i < (size_t)elem_list.size(); i++) {
-        if (!Comparable(*e_itr, *e_itr)) {
+      auto r_itr = rhs_elem_tuple.begin();
+      auto l_itr = lhs_tuple.begin();
+      for (size_t i = 0; i < static_cast<size_t>(rhs_elem_tuple.size()); i++, ++r_itr, ++l_itr) {
+        if (!Comparable(*r_itr, *r_itr)) {
           return STATUS(RuntimeError, "values not comparable");
         }
-        if (*e_itr != *l_itr) {
+        if (*r_itr != *l_itr) {
           matched = false;
           break;
         }
-        ++e_itr;
-        ++l_itr;
       }
       if (matched) {
         return true;
       }
     } else {
-      if (!Comparable(elem, lhs->Value())) {
+      if (!Comparable(rhs_elem, lhs->Value())) {
         return STATUS(RuntimeError, "values not comparable");
       }
-      if (elem == lhs->Value()) {
+      if (rhs_elem == lhs->Value()) {
         return true;
       }
     }
@@ -489,13 +485,6 @@ Status QLExprExecutor::DoEvalExpr(const PB& ql_expr,
 
     case PgsqlExpressionPB::ExprCase::kColumnId:
       return EvalColumnRef(ql_expr.column_id(), table_row, result_writer);
-
-    case PgsqlExpressionPB::ExprCase::kColumns:
-      // TODO: fix me
-      for (auto const& id : ql_expr.columns().ids()) {
-        RETURN_NOT_OK(EvalColumnRef(id, table_row, result_writer));
-      }
-      return Status::OK();
     case PgsqlExpressionPB::ExprCase::kBfcall:
       return EvalBFCall<bfpg::BFOpcode>(ql_expr.bfcall(), *table_row, &result_writer.NewValue());
 
@@ -507,8 +496,8 @@ Status QLExprExecutor::DoEvalExpr(const PB& ql_expr,
 
     case PgsqlExpressionPB::ExprCase::kBocall: FALLTHROUGH_INTENDED;
     case PgsqlExpressionPB::ExprCase::kBindId: FALLTHROUGH_INTENDED;
-    case PgsqlExpressionPB::ExprCase::kAliasId:
-      FALLTHROUGH_INTENDED;
+    case PgsqlExpressionPB::ExprCase::kColumns: FALLTHROUGH_INTENDED; // TODO(arpan): handle this
+    case PgsqlExpressionPB::ExprCase::kAliasId: FALLTHROUGH_INTENDED;
     case PgsqlExpressionPB::ExprCase::EXPR_NOT_SET:
       result_writer.SetNull();
   }

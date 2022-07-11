@@ -396,11 +396,10 @@ Status QLWriteOperation::GetDocPaths(
   return Status::OK();
 }
 
-Status QLWriteOperation::ReadColumns(
-    const DocOperationApplyData& data,
-    Schema* param_static_projection,
-    Schema* param_non_static_projection,
-    QLTableRow* table_row) {
+Status QLWriteOperation::ReadColumns(const DocOperationApplyData& data,
+                                     Schema *param_static_projection,
+                                     Schema *param_non_static_projection,
+                                     QLTableRow* table_row) {
   Schema *static_projection = param_static_projection;
   Schema *non_static_projection = param_non_static_projection;
 
@@ -1769,10 +1768,6 @@ Status QLReadOperation::AddRowToResult(const std::unique_ptr<QLScanSpec>& spec,
                                        int* match_count,
                                        size_t *num_rows_skipped) {
   VLOG(3) << __FUNCTION__ << " : " << yb::ToString(row);
-  // LOG(INFO) << " QLReadOperation::AddRowToResult " << resultset->rsrow_count() << " "
-  //           << row_count_limit;
-  // auto row_string = row.ToString();
-  // LOG(INFO) << "row " << row_string;
   if (resultset->rsrow_count() < row_count_limit) {
     bool match = false;
     RETURN_NOT_OK(spec->Match(row, &match));
@@ -1789,9 +1784,6 @@ Status QLReadOperation::AddRowToResult(const std::unique_ptr<QLScanSpec>& spec,
       }
     }
   }
-  // LOG(INFO) << "num_rows_skipped " << *num_rows_skipped;
-  // LOG(INFO) << "END QLReadOperation::AddRowToResult " << resultset->rsrow_count() << " "
-  //           << row_count_limit;
   return Status::OK();
 }
 

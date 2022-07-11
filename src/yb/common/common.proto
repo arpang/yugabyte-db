@@ -452,7 +452,7 @@ message QLExpressionPB {
     QLBCallPB tscall = 7;                   // Tablet server builtin calls.
     QLBCallPB bocall = 8;                   // Builtin operator calls.
     QLJsonColumnOperationsPB json_column = 9; // Json column operators.
-    QLColumnIdsPB columns = 10;
+    QLColumnIdsPB columns = 10;             // List of column ids.
   }
 }
 
