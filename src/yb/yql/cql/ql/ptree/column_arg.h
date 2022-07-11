@@ -100,7 +100,7 @@ class ColumnOp : public ColumnArg {
   yb::QLOperator yb_op_;
 };
 
-// This class represents an operation on multipple columns.
+// This class represents an operation on multiple columns.
 class MultiColumnOp {
  public:
   //------------------------------------------------------------------------------------------------
@@ -115,17 +115,7 @@ class MultiColumnOp {
     yb_op_ = yb_op;
   }
 
-  // MultiColumnOp(const MultiColumnOp& column_op)
-  //     : MultiColumnOp(column_op.descs_, column_op.expr_, column_op.yb_op_) {}
   virtual ~MultiColumnOp() {}
-
-  // void Init(const vector<const ColumnDesc*> descs, const PTExprPtr& expr, yb::QLOperator yb_op) {
-  //   descs_ = descs;
-  //   expr_ = expr;
-  //   yb_op_ = yb_op;
-  // }
-
-  // void OutputTo(std::ostream* out) const;
 
   std::vector<const ColumnDesc*> descs() const { return descs_; }
 

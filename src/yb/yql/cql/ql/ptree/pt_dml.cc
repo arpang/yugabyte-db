@@ -599,7 +599,6 @@ Status WhereExprState::AnalyzeMultiColumnOp(
           expr, "Illogical condition for where clause", ErrorCode::CQL_STATEMENT_INVALID);
     }
   }
-  // LOG(INFO) << "Appending to multi col operation expr->ql_op() " << expr->ql_op();
   multi_colum_ops_->emplace_back(col_descs, value, expr->ql_op());
 
   return Status::OK();
