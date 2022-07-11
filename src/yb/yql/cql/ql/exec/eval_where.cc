@@ -29,8 +29,6 @@
 #include "yb/yql/cql/ql/ptree/pt_expr.h"
 #include "yb/yql/cql/ql/ptree/pt_select.h"
 
-#include "yb/util/logging.h"
-
 namespace yb {
 namespace ql {
 
@@ -268,8 +266,6 @@ Result<uint64_t> Executor::WhereClauseToPB(
     }
 
     for (const auto& col_op : multi_col_where_ops) {
-      // LOG(INFO) << "Processing multi col op " << col_op.expr();
-      // LOG(INFO) << "Processing multi col operator " << col_op.yb_op();
       QLConditionPB* cond = where_pb->add_operands()->mutable_condition();
       RETURN_NOT_OK(WhereMultiColumnOpToPB(cond, col_op));
       // Update the estimate for the number of selected rows if needed.
@@ -320,7 +316,6 @@ Status Executor::WhereColumnOpToPB(QLConditionPB* condition, const ColumnOp& col
   if (col_op.yb_op() == QL_OP_IN && col_op.desc()->is_primary()) {
     QLExpressionPB tmp_expr_pb;
     RETURN_NOT_OK(PTExprToPB(col_op.expr(), &tmp_expr_pb));
-    LOG_WITH_FUNC(INFO) << "tmp_expr_pb " << tmp_expr_pb.ShortDebugString();
     std::set<QLValuePB> opts_set;
     for (QLValuePB& value_pb :
          *tmp_expr_pb.mutable_value()->mutable_list_value()->mutable_elems()) {
@@ -340,9 +335,9 @@ Status Executor::WhereColumnOpToPB(QLConditionPB* condition, const ColumnOp& col
 }
 
 Status Executor::WhereMultiColumnOpToPB(QLConditionPB* condition, const MultiColumnOp& col_op) {
-  // Set the operator.
   DCHECK(col_op.yb_op() == QL_OP_IN);
 
+  // Set the operator.
   condition->set_op(col_op.yb_op());
 
   // Operand 1: The column.
@@ -359,12 +354,7 @@ Status Executor::WhereMultiColumnOpToPB(QLConditionPB* condition, const MultiCol
   // Special case for IN condition arguments on primary key -- we de-duplicate and order them here
   // to match Cassandra semantics.
   QLExpressionPB tmp_expr_pb;
-  LOG_WITH_FUNC(INFO) << "Before calling PTExprToPB";
   RETURN_NOT_OK(PTExprToPB(col_op.expr(), &tmp_expr_pb));
-
-  LOG_WITH_FUNC(INFO) << "tmp_expr_pb " << tmp_expr_pb.ShortDebugString();
-
-  LOG_WITH_FUNC(INFO) << "tmp_expr_pb " << tmp_expr_pb.ShortDebugString();
 
   std::set<QLValuePB> opts_set;
   for (QLValuePB& value_pb : *tmp_expr_pb.mutable_value()->mutable_list_value()->mutable_elems()) {

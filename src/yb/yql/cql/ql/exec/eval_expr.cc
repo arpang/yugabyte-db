@@ -26,8 +26,6 @@
 #include "yb/yql/cql/ql/ptree/pt_expr.h"
 #include "yb/yql/cql/ql/util/statement_params.h"
 
-#include "yb/util/logging.h"
-
 namespace yb {
 namespace ql {
 
@@ -57,10 +55,7 @@ Status Executor::PTExprToPB(const PTExpr::SharedPtr& expr, QLExpressionPB *expr_
       // First try to fold literals. Literal-folding is a bit faster than constant folding, so we
       // keep this process although constant-folding can also fold literals.
       QLValuePB *const_pb = expr_pb->mutable_value();
-      LOG_WITH_FUNC(INFO) << "Before calling PTConstToPB for " << expr;
-      bool a = PTConstToPB(expr, const_pb).ok();
-      LOG_WITH_FUNC(INFO) << "PTConstToPB(expr, const_pb).ok() " << a;
-      if (!a) {
+      if (!PTConstToPB(expr, const_pb).ok()) {
         // Use constant folding because literal-folding cannot fold expressions.
         // Example: "List<BLOB>" with function calls.
         //   [ TextAsBlob('a'), IntAsBlob(1) ]

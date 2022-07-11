@@ -325,7 +325,6 @@ using namespace yb::ql;
                           //  - Map/Set/List/Tuple/Frozen/User-Defined Types.
                           map_elems map_expr set_elems set_expr list_elems list_expr
                           tuple_elems tuple_expr expr_list
-                          // tuple_list_elems tuple_list_expr
 
 %type <PExprListNode>     // A list of expressions.
                           target_list opt_target_list
@@ -3925,9 +3924,7 @@ opt_existing_window_name:
 ;
 
 opt_partition_clause:
-  PARTITION BY expr_list {
-    // $$ = $3;
-  }
+  PARTITION BY expr_list {}
   | /*EMPTY*/ {
   }
 ;
@@ -3976,9 +3973,7 @@ frame_bound:
 // without conflicting with the parenthesized a_expr production.  Without the
 // ROW keyword, there must be more than one a_expr inside the parens.
 row:
-  ROW '(' expr_list ')' {
-    // $$ = $3;
-  }
+  ROW '(' expr_list ')' {}
   | ROW '(' ')' {
   }
   | '(' expr_list ',' a_expr ')' {
@@ -3986,9 +3981,7 @@ row:
 ;
 
 explicit_row:
-  ROW '(' expr_list ')' {
-    // $$ = $3;
-  }
+  ROW '(' expr_list ')' {}
   | ROW '(' ')' {
   }
 ;
@@ -4066,7 +4059,6 @@ subquery_Op:
 expr_list:
   a_expr {
     $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::TUPLE);
-    // PTQualifiedName::SharedPtr name_node = MAKE_NODE(@1, PTQualifiedName, $1);
     $$->AddElement($1);
   }
   | expr_list ',' a_expr {
@@ -4444,27 +4436,6 @@ tuple_expr:
   }
 ;
 
-
-/* tuple_list_elems:
-  tuple_list_elems ',' tuple_expr {
-    $1->AddElement($3);
-    $$ = $1;
-  }
-  | tuple_expr {
-    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::LIST);
-    $$->AddElement($1);
-  }
-;
-
-tuple_list_expr:
-  '(' tuple_list_elems ')' {
-    $$ = $2;
-  }
-  | '(' ')' {
-    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::LIST);
-  }
-; */
-
 collection_expr:
  // '{ }' can mean either (empty) map or set so we treat it separately here and infer the expected
  // type (i.e. map or set) during type analysis
@@ -4483,10 +4454,6 @@ collection_expr:
 ;
 
 in_expr:
-  /* tuple_list_expr {
-       $1->set_is_in_operand();
-    $$ = $1;
-  } | */
   tuple_expr {
     $1->set_is_in_operand();
     $$ = $1;

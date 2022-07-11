@@ -1016,16 +1016,12 @@ void IntentAwareIterator::SkipFutureRecords(const Direction direction) {
   auto prefix = CurrentPrefix();
   while (iter_.Valid()) {
     if (!iter_.key().starts_with(prefix)) {
-      // LOG_WITH_FUNC(INFO) << "Unmatched prefix: " << SubDocKey::DebugSliceToString(iter_.key())
-      //                     << ", prefix: " << SubDocKey::DebugSliceToString(prefix);
       VLOG(4) << "Unmatched prefix: " << SubDocKey::DebugSliceToString(iter_.key())
               << ", prefix: " << SubDocKey::DebugSliceToString(prefix);
       iter_valid_ = false;
       return;
     }
     if (!SatisfyBounds(iter_.key())) {
-      // LOG_WITH_FUNC(INFO) << "Out of bounds: " << SubDocKey::DebugSliceToString(iter_.key())
-      //                     << ", upperbound: " << SubDocKey::DebugSliceToString(upperbound_);
       VLOG(4) << "Out of bounds: " << SubDocKey::DebugSliceToString(iter_.key())
               << ", upperbound: " << SubDocKey::DebugSliceToString(upperbound_);
       iter_valid_ = false;

@@ -43,14 +43,10 @@ namespace ql {
 
 using strings::Substitute;
 
-Status Executor::PTConstToPB(const PTExpr::SharedPtr& expr,
-                                     QLValuePB *const_pb,
-                                     bool negate) {
-  // LOG_WITH_FUNC(INFO) << "Starting";
+Status Executor::PTConstToPB(const PTExpr::SharedPtr &expr, QLValuePB *const_pb, bool negate) {
   if (expr->internal_type() == InternalType::VALUE_NOT_SET) {
     SetNull(const_pb);
   }
-  // LOG_WITH_FUNC(INFO) << "expr->expr_op() " << expr->expr_op(;
   switch (expr->expr_op()) {
     case ExprOperator::kUMinus:
       return PTUMinusToPB(static_cast<const PTOperator1*>(expr.get()), const_pb);
@@ -62,13 +58,8 @@ Status Executor::PTConstToPB(const PTExpr::SharedPtr& expr,
       return Status::OK();
     }
 
+    case ExprOperator::kConst: FALLTHROUGH_INTENDED;
     case ExprOperator::kCollection:
-    // {
-    //   return PTExprToPB(static_cast<const PTCollectionExpr *>(expr.get()), const_pb);
-    // }
-    FALLTHROUGH_INTENDED;
-
-    case ExprOperator::kConst:
       break;
 
     default:
