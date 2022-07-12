@@ -2038,7 +2038,7 @@ TEST_F(QLTestSelectedExpr, MultiArgumentMultiColumnInTest) {
   }
 }
 
-TEST_F(QLTestSelectedExpr, InvalidArgumentMultiColumnInTest) {
+TEST_F(QLTestSelectedExpr, InvalidArgMultiColumnInTest) {
   // Init the simulated cluster.
   ASSERT_NO_FATALS(CreateSimulatedCluster());
 
@@ -2064,10 +2064,12 @@ TEST_F(QLTestSelectedExpr, InvalidArgumentMultiColumnInTest) {
   EXPECT_TRUE(s.IsQLError()) << "Expected QLError, got: " << s;
   EXPECT_EQ(GetErrorCode(s), ErrorCode::INVALID_ARGUMENTS)
       << "Expected INVALID_ARGUMENT, got " << s;
-  EXPECT_NE(s.message().ToBuffer().find("elements in value tuple, but got"), string::npos) << s;
+  EXPECT_NE(
+      s.message().ToBuffer().find("Expected 2 elements in value tuple, but got 3"), string::npos)
+      << s;
 }
 
-TEST_F(QLTestSelectedExpr, EmptyArgumentMultiColumnInTest) {
+TEST_F(QLTestSelectedExpr, EmptyArgMultiColumnInTest) {
   // Init the simulated cluster.
   ASSERT_NO_FATALS(CreateSimulatedCluster());
 
@@ -2090,6 +2092,102 @@ TEST_F(QLTestSelectedExpr, EmptyArgumentMultiColumnInTest) {
   CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ()");
   std::shared_ptr<QLRowBlock> row_block = processor->row_block();
   CHECK_EQ(row_block->row_count(), 0);
+}
+
+TEST_F(QLTestSelectedExpr, InvalidColumnOrderMultiColumnInTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  LOG(INFO) << "Running simple query test.";
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 int, r3 int, PRIMARY KEY ((h), r1, r2, r3));";
+  CHECK_VALID_STMT(create_stmt);
+
+  int h = 5;
+  for (int r1 = 5; r1 < 8; r1++) {
+    for (int r2 = 4; r2 < 9; r2++) {
+      CHECK_VALID_STMT(strings::Substitute(
+          "INSERT INTO test_range (h, r1, r2, r3) VALUES($0, $1, $2, $2);", h, r1, r2));
+    }
+  }
+
+  Status s =
+      processor->Run("SELECT * FROM test_range WHERE h = 5 AND (r1, r3) in ((5, 6), (5, 7))");
+  LOG(INFO) << "Expected error: " << s;
+  EXPECT_TRUE(s.IsQLError()) << "Expected QLError, got: " << s;
+  EXPECT_EQ(GetErrorCode(s), ErrorCode::CQL_STATEMENT_INVALID)
+      << "Expected INVALID_ARGUMENT, got " << s;
+  EXPECT_NE(
+      s.message().ToBuffer().find(
+          "Clustering columns must appear in the PRIMARY KEY order in multi-column relations"),
+      string::npos)
+      << s;
+}
+
+TEST_F(QLTestSelectedExpr, RepeatingColumMultiColumnInTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  LOG(INFO) << "Running simple query test.";
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 int, r3 int, PRIMARY KEY ((h), r1, r2, r3));";
+  CHECK_VALID_STMT(create_stmt);
+
+  int h = 5;
+  for (int r1 = 5; r1 < 8; r1++) {
+    for (int r2 = 4; r2 < 9; r2++) {
+      CHECK_VALID_STMT(strings::Substitute(
+          "INSERT INTO test_range (h, r1, r2, r3) VALUES($0, $1, $2, $2);", h, r1, r2));
+    }
+  }
+
+  Status s =
+      processor->Run("SELECT * FROM test_range WHERE h = 5 AND (r1, r1) in ((5, 6), (5, 7))");
+  LOG(INFO) << "Expected error: " << s;
+  EXPECT_TRUE(s.IsQLError()) << "Expected QLError, got: " << s;
+  EXPECT_EQ(GetErrorCode(s), ErrorCode::CQL_STATEMENT_INVALID)
+      << "Expected INVALID_ARGUMENT, got " << s;
+  EXPECT_NE(s.message().ToBuffer().find("Column \"r1\" appeared twice in a relation"), string::npos)
+      << s;
+}
+
+TEST_F(QLTestSelectedExpr, NonRangeColMultiColumnInTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  LOG(INFO) << "Running simple query test.";
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
+  CHECK_VALID_STMT(create_stmt);
+
+  int h = 5;
+  for (int r1 = 5; r1 < 8; r1++) {
+    for (int r2 = 4; r2 < 9; r2++) {
+      CHECK_VALID_STMT(strings::Substitute(
+          "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
+    }
+  }
+
+  Status s =
+      processor->Run("SELECT * FROM test_range WHERE h = 5 AND (r1, payload) in ((5, 6), (5, 7))");
+  LOG(INFO) << "Expected error: " << s;
+  EXPECT_TRUE(s.IsQLError()) << "Expected QLError, got: " << s;
+  EXPECT_EQ(GetErrorCode(s), ErrorCode::CQL_STATEMENT_INVALID)
+      << "Expected INVALID_ARGUMENT, got " << s;
+  EXPECT_NE(
+      s.message().ToBuffer().find("Multi-column relations can only be applied to clustering "
+                                  "columns but was applied to: payload"),
+      string::npos)
+      << s;
 }
 
 } // namespace ql
