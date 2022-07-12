@@ -40,7 +40,7 @@ struct ColumnValue {
   ColumnId column_id;
 
   // grouped columns
-  const vector<ColumnId> column_ids;
+  const std::vector<ColumnId> column_ids;
 
   const Value* value = nullptr;
 
@@ -81,7 +81,7 @@ auto GetColumnValue(const Col& col) {
     return ResultType();
   }
   if (it->expr_case() == decltype(it->expr_case())::kColumns) {
-    vector<ColumnId> column_ids;
+    std::vector<ColumnId> column_ids;
     for (auto id : it->columns().ids()) {
       column_ids.emplace_back(ColumnId(id));
     }

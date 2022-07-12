@@ -117,7 +117,7 @@ class WhereExprState {
 
   Status AnalyzeMultiColumnOp(SemContext *sem_context,
                                       const PTRelationExpr *expr,
-                                      const vector<const ColumnDesc *> col_desc,
+                                      const std::vector<const ColumnDesc *> col_desc,
                                       PTExprPtr value);
 
   Status AnalyzeColumnFunction(SemContext *sem_context,

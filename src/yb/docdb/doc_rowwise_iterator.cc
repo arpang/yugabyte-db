@@ -447,9 +447,9 @@ class HybridScanChoices : public ScanChoices {
         const auto lower = GetQLRangeBoundAsPVal(range, col_sort_type, true /* lower_bound */);
         const auto upper = GetQLRangeBoundAsPVal(range, col_sort_type, false /* upper_bound */);
         current_options.emplace_back(
-            vector{lower},
+            std::vector{lower},
             GetQLRangeBoundIsInclusive(range, col_sort_type, true),
-            vector{upper},
+            std::vector{upper},
             GetQLRangeBoundIsInclusive(range, col_sort_type, false));
       } else if (col_has_range_option) {
         num_cols = range_options_num_cols[idx - num_hash_cols];
@@ -464,9 +464,9 @@ class HybridScanChoices : public ScanChoices {
           // As of D15647 we do not send empty options.
           // This is kept for backward compatibility during rolling upgrades.
           current_options.emplace_back(
-              vector(num_cols, KeyEntryValue(KeyEntryType::kHighest)),
+              std::vector(num_cols, KeyEntryValue(KeyEntryType::kHighest)),
               true,
-              vector(num_cols, KeyEntryValue(KeyEntryType::kLowest)),
+              std::vector(num_cols, KeyEntryValue(KeyEntryType::kLowest)),
               true);
         }
 
@@ -478,9 +478,9 @@ class HybridScanChoices : public ScanChoices {
         // If no filter is specified, we just impose an artificial range
         // filter [kLowest, kHighest]
         current_options.emplace_back(
-            vector{KeyEntryValue(KeyEntryType::kLowest)},
+            std::vector{KeyEntryValue(KeyEntryType::kLowest)},
             true,
-            vector{KeyEntryValue(KeyEntryType::kHighest)},
+            std::vector{KeyEntryValue(KeyEntryType::kHighest)},
             true);
       }
       range_cols_scan_options_.push_back(current_options);

@@ -519,7 +519,7 @@ bool PTDmlStmt::StaticColumnArgsOnly() const {
 Status WhereExprState::AnalyzeMultiColumnOp(
     SemContext* sem_context,
     const PTRelationExpr* expr,
-    const vector<const ColumnDesc*>
+    const std::vector<const ColumnDesc*>
         col_descs,
     PTExprPtr value) {
   for (const auto& col_desc : col_descs) {

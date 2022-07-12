@@ -109,7 +109,7 @@ class MultiColumnOp {
   typedef std::shared_ptr<const MultiColumnOp> SharedPtrConst;
 
   MultiColumnOp(
-      const vector<const ColumnDesc*> descs, const PTExprPtr& expr, yb::QLOperator yb_op) {
+      const std::vector<const ColumnDesc*> descs, const PTExprPtr& expr, yb::QLOperator yb_op) {
     descs_ = descs;
     expr_ = expr;
     yb_op_ = yb_op;
