@@ -79,7 +79,7 @@ DocQLScanSpec::DocQLScanSpec(
         range_bounds_->has_in_range_options()) {
       DCHECK(condition);
       range_options_ = std::make_shared<std::vector<Options>>(schema_.num_range_key_columns());
-      range_options_num_cols_ = vector<size_t>(schema_.num_range_key_columns(), 0);
+      range_options_num_cols_ = std::vector<size_t>(schema_.num_range_key_columns(), 0);
       InitRangeOptions(*condition);
 
       if (FLAGS_disable_hybrid_scan) {
@@ -96,8 +96,8 @@ DocQLScanSpec::DocQLScanSpec(
     }
 }
 
-bool AreColumnsContinous(const vector<int>& col_idxs) {
-  vector<int> copy = col_idxs;
+bool AreColumnsContinous(const std::vector<int>& col_idxs) {
+  std::vector<int> copy = col_idxs;
   std::sort(copy.begin(), copy.end());
   int prev_idx = -1;
   for (auto const idx : copy) {
@@ -169,8 +169,8 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           }
         }
       } else if (lhs.has_columns()) {
-        vector<ColumnId> col_ids;
-        vector<int> col_idxs;
+        std::vector<ColumnId> col_ids;
+        std::vector<int> col_idxs;
         size_t num_cols = lhs.columns().ids().size();
         DCHECK_GT(num_cols, 0);
 
