@@ -2190,5 +2190,56 @@ TEST_F(QLTestSelectedExpr, NonRangeColMultiColumnInTest) {
       << s;
 }
 
+TEST_F(QLTestSelectedExpr, OrderMultiColumnInTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  LOG(INFO) << "Running simple query test.";
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 text, payload int, PRIMARY KEY ((h), r1, r2)) "
+      "WITH CLUSTERING ORDER BY (r1 DESC, r2 ASC);";
+  CHECK_VALID_STMT(create_stmt);
+
+  for (int h = 0; h < 10; h++) {
+    for (int r1 = 0; r1 < 10; r1++) {
+      for (int r2 = 0; r2 < 10; r2++) {
+        int v = h * 100 + r1 * 10 + r2;
+        CHECK_VALID_STMT(strings::Substitute(
+            "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, '$2', $3);", h, r1 * 10,
+            r2 * 10, v));
+      }
+    }
+  }
+
+  // Checking Row
+  CHECK_VALID_STMT(
+      "SELECT * FROM test_range WHERE h = 1 AND (r1, r2) IN ((60, '70'), (80, '30'), (10, "
+      "'70'))");
+  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
+  CHECK_EQ(row_block->row_count(), 3);
+  {
+    QLRow& row = row_block->row(0);
+    CHECK_EQ(row.column(0).int32_value(), 1);
+    CHECK_EQ(row.column(1).int32_value(), 80);
+    CHECK_EQ(row.column(2).string_value(), "30");
+    CHECK_EQ(row.column(3).int32_value(), 183);
+
+    row = row_block->row(1);
+    CHECK_EQ(row.column(0).int32_value(), 1);
+    CHECK_EQ(row.column(1).int32_value(), 60);
+    CHECK_EQ(row.column(2).string_value(), "70");
+    CHECK_EQ(row.column(3).int32_value(), 167);
+
+    row = row_block->row(2);
+    CHECK_EQ(row.column(0).int32_value(), 1);
+    CHECK_EQ(row.column(1).int32_value(), 10);
+    CHECK_EQ(row.column(2).string_value(), "70");
+    CHECK_EQ(row.column(3).int32_value(), 117);
+  }
+}
+
 } // namespace ql
 } // namespace yb
