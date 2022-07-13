@@ -744,7 +744,6 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
       return t1[i] < t2[i];
     };
 
-    // TODO: Will this work?
     if (target_value >= lower && target_value <= upper) {
       // target_value.AppendToKey(&current_scan_target_);
       AppendToKey(target_value, &current_scan_target_);
@@ -789,7 +788,6 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     // This only works as we are assuming all given ranges are
     // disjoint.
 
-    // TODO: Will this work?
     DCHECK(
         (is_forward_scan_ && lower > target_value) || (!is_forward_scan_ && upper < target_value));
 
