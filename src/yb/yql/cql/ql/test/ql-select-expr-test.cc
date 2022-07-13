@@ -2217,27 +2217,57 @@ TEST_F(QLTestSelectedExpr, OrderMultiColumnInTest) {
   // Checking Row
   CHECK_VALID_STMT(
       "SELECT * FROM test_range WHERE h = 1 AND (r1, r2) IN ((60, '70'), (80, '30'), (10, "
-      "'70'))");
+      "'70'), (60, '60'), (80, '10'), (50, '40'), (10, '80'), (10, '0'))");
   std::shared_ptr<QLRowBlock> row_block = processor->row_block();
-  CHECK_EQ(row_block->row_count(), 3);
+  CHECK_EQ(row_block->row_count(), 8);
   {
     QLRow& row = row_block->row(0);
+    CHECK_EQ(row.column(0).int32_value(), 1);
+    CHECK_EQ(row.column(1).int32_value(), 80);
+    CHECK_EQ(row.column(2).string_value(), "10");
+    CHECK_EQ(row.column(3).int32_value(), 181);
+
+    row = row_block->row(1);
     CHECK_EQ(row.column(0).int32_value(), 1);
     CHECK_EQ(row.column(1).int32_value(), 80);
     CHECK_EQ(row.column(2).string_value(), "30");
     CHECK_EQ(row.column(3).int32_value(), 183);
 
-    row = row_block->row(1);
+    row = row_block->row(2);
+    CHECK_EQ(row.column(0).int32_value(), 1);
+    CHECK_EQ(row.column(1).int32_value(), 60);
+    CHECK_EQ(row.column(2).string_value(), "60");
+    CHECK_EQ(row.column(3).int32_value(), 166);
+
+    row = row_block->row(3);
     CHECK_EQ(row.column(0).int32_value(), 1);
     CHECK_EQ(row.column(1).int32_value(), 60);
     CHECK_EQ(row.column(2).string_value(), "70");
     CHECK_EQ(row.column(3).int32_value(), 167);
 
-    row = row_block->row(2);
+    row = row_block->row(4);
+    CHECK_EQ(row.column(0).int32_value(), 1);
+    CHECK_EQ(row.column(1).int32_value(), 50);
+    CHECK_EQ(row.column(2).string_value(), "40");
+    CHECK_EQ(row.column(3).int32_value(), 154);
+
+    row = row_block->row(5);
+    CHECK_EQ(row.column(0).int32_value(), 1);
+    CHECK_EQ(row.column(1).int32_value(), 10);
+    CHECK_EQ(row.column(2).string_value(), "0");
+    CHECK_EQ(row.column(3).int32_value(), 110);
+
+    row = row_block->row(6);
     CHECK_EQ(row.column(0).int32_value(), 1);
     CHECK_EQ(row.column(1).int32_value(), 10);
     CHECK_EQ(row.column(2).string_value(), "70");
     CHECK_EQ(row.column(3).int32_value(), 117);
+
+    row = row_block->row(7);
+    CHECK_EQ(row.column(0).int32_value(), 1);
+    CHECK_EQ(row.column(1).int32_value(), 10);
+    CHECK_EQ(row.column(2).string_value(), "80");
+    CHECK_EQ(row.column(3).int32_value(), 118);
   }
 }
 

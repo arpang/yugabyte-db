@@ -171,7 +171,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
       } else if (lhs.has_columns()) {
         std::vector<ColumnId> col_ids;
         std::vector<int> col_idxs;
-        size_t num_cols = lhs.columns().ids().size();
+        size_t num_cols = lhs.columns().ids_size();
         DCHECK_GT(num_cols, 0);
 
         for (const auto id : lhs.columns().ids()) {
@@ -189,9 +189,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           range_options_num_cols_[col_idxs[i] - num_hash_cols] = num_cols;
         }
 
-        // TODO: Remove the constraint that all columns must have same sorting type
         auto start_idx = *std::min_element(col_idxs.begin(), col_idxs.end());
-        SortingType sorting_type = schema_.column(start_idx).sorting_type();
 
         if (condition.op() == QL_OP_EQUAL) {
           DCHECK(rhs.value().has_list_value());
@@ -199,6 +197,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           DCHECK_EQ(num_cols, value.elems_size());
           Option option(num_cols);
           for (size_t i = 0; i < num_cols; i++) {
+            SortingType sorting_type = schema_.column(col_idxs[i]).sorting_type();
             auto pv =
                 KeyEntryValue::FromQLValuePBForKey(value.elems(static_cast<int>(i)), sorting_type);
             option.push_back(pv);
@@ -210,16 +209,25 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           int num_options = options.elems_size();
           // IN arguments should have been de-duplicated and ordered ascendingly by the
           // executor.
-          bool is_reverse_order = is_forward_scan_ ^ (sorting_type == SortingType::kAscending);
+
+          std::vector<bool> reverse;
+          for (size_t i = 0; i < num_cols; i++) {
+            SortingType sorting_type = schema_.column(col_idxs[i]).sorting_type();
+            bool is_reverse_order = is_forward_scan_ ^ (sorting_type == SortingType::kAscending);
+            reverse.push_back(is_reverse_order);
+          }
+
+          vector<QLValuePB> sorted_options = SortTuplesbyOrdering(options, reverse);
+
           for (int i = 0; i < num_options; i++) {
-            int elem_idx = is_reverse_order ? num_options - i - 1 : i;
-            const auto& elem = options.elems(elem_idx);
+            const auto& elem = sorted_options[i];
             DCHECK(elem.has_tuple_value());
             const auto& value = elem.tuple_value();
             DCHECK_EQ(num_cols, value.elems_size());
 
             Option option;
             for (size_t j = 0; j < num_cols; j++) {
+              SortingType sorting_type = schema_.column(col_idxs[j]).sorting_type();
               auto pv = KeyEntryValue::FromQLValuePBForKey(
                   value.elems(static_cast<int>(j)), sorting_type);
               option.push_back(pv);

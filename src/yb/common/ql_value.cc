@@ -929,6 +929,44 @@ bool BothNull(const QLValuePB& lhs, const QLValue& rhs) {
   return IsNull(lhs) && rhs.IsNull();
 }
 
+vector<QLValuePB> SortTuplesbyOrdering(
+    const QLSeqValuePB& options, const std::vector<bool>& reverse) {
+  vector<QLValuePB> tuples{options.elems().begin(), options.elems().end()};
+  std::sort(tuples.begin(), tuples.end(), [reverse](const auto& t1, const auto& t2) {
+    const auto& tuple1 = t1.tuple_value();
+    const auto& tuple2 = t2.tuple_value();
+    DCHECK(tuple1.elems().size() == tuple2.elems().size());
+    auto li = tuple1.elems().begin();
+    auto ri = tuple2.elems().begin();
+    int i = 0;
+    int cmp = 0;
+    for (i = 0; i < tuple1.elems().size(); ++i, ++li, ++ri) {
+      if (IsNull(*li)) {
+        if (!IsNull(*ri)) {
+          cmp = 1;
+          break;
+        }
+      } else {
+        if (IsNull(*ri)) {
+          cmp = 0;
+          break;
+        }
+        int result = Compare(*li, *ri);
+        if (result != 0) {
+          cmp = (result < 0);
+          break;
+        }
+      }
+    }
+
+    if (i != tuple1.elems().size() && reverse[i]) {
+      cmp = cmp ^ 1;
+    }
+    return cmp;
+  });
+  return tuples;
+}
+
 template <class PB>
 int TupleCompare(const PB& lhs_tuple, const PB& rhs_tuple) {
   DCHECK(lhs_tuple.elems().size() == rhs_tuple.elems().size());

@@ -283,14 +283,34 @@ void QLScanRange::Init(const Cond& condition) {
               range.max_bound = upper_bound;
             } else {
               std::vector<ColumnId> col_ids = column_value.column_ids;
-              auto lower = column_value.value->list_value().elems().begin();
-              auto upper = column_value.value->list_value().elems().end();
-              --upper;
-              DCHECK(col_ids.size() == (size_t)lower->tuple_value().elems().size());
-              DCHECK(col_ids.size() == (size_t)upper->tuple_value().elems().size());
+              const auto& options = column_value.value->list_value().elems();
+              size_t num_cols = col_ids.size();
+              auto options_itr = options.begin();
 
-              auto l_itr = lower->tuple_value().elems().begin();
-              auto u_itr = upper->tuple_value().elems().begin();
+              auto lower = *options.begin();
+              auto upper = *options.begin();
+
+              while(options_itr != options.end()) {
+                DCHECK_EQ(num_cols, options_itr->tuple_value().elems().size());
+                auto tuple_itr = options_itr->tuple_value().elems().begin();
+                auto l_itr = lower.mutable_tuple_value()->mutable_elems()->begin();
+                auto u_itr = upper.mutable_tuple_value()->mutable_elems()->begin();
+                while(tuple_itr != options_itr->tuple_value().elems().end()) {
+                  if (*l_itr > *tuple_itr) {
+                    *l_itr = *tuple_itr;
+                  }
+                  if (*u_itr < *tuple_itr) {
+                    *u_itr = *tuple_itr;
+                  }
+                  ++tuple_itr;
+                  ++l_itr;
+                  ++u_itr;
+                }
+                ++options_itr;
+              }
+
+              auto l_itr = lower.tuple_value().elems().begin();
+              auto u_itr = upper.tuple_value().elems().begin();
               for (size_t i = 0; i < col_ids.size(); ++i, ++l_itr, ++u_itr) {
                 auto& range = ranges_[col_ids[i]];
                 range.min_bound = QLLowerBound(*l_itr, true);
