@@ -593,7 +593,8 @@ void ConcatStrings(const std::string& lhs, const std::string& rhs, QLValuePB* re
 void ConcatStrings(const std::string& lhs, const std::string& rhs, QLValue* result);
 void ConcatStrings(const Slice& lhs, const Slice& rhs, LWQLValuePB* result);
 
-vector<QLValuePB> SortTuplesbyOrdering(const QLSeqValuePB& options, const std::vector<bool>& reverse);
+vector<QLValuePB> SortTuplesbyOrdering(
+    const QLSeqValuePB& options, const std::vector<bool>& reverse);
 
 #define YB_SET_INT_VALUE(ql_valuepb, input, bits) \
   case DataType::BOOST_PP_CAT(INT, bits): { \
