@@ -238,9 +238,9 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterTestRange) {
   const std::vector<KeyEntryValue> hashed_components{KeyEntryValue::Int32(5)};
 
   QLConditionPB cond;
-  auto ids = cond.add_operands()->mutable_columns();
-  ids->add_ids(11_ColId);
-  ids->add_ids(12_ColId);
+  auto ids = cond.add_operands()->mutable_tuple();
+  ids->add_operands()->set_column_id(11_ColId);
+  ids->add_operands()->set_column_id(12_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
@@ -287,10 +287,10 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterHybridScanTest) {
   const std::vector<KeyEntryValue> hashed_components{KeyEntryValue(INDIA)};
 
   QLConditionPB cond;
-  auto ids = cond.add_operands()->mutable_columns();
-  ids->add_ids(20_ColId);
-  ids->add_ids(30_ColId);
-  ids->add_ids(40_ColId);
+  auto ids = cond.add_operands()->mutable_tuple();
+  ids->add_operands()->set_column_id(20_ColId);
+  ids->add_operands()->set_column_id(30_ColId);
+  ids->add_operands()->set_column_id(40_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
@@ -370,9 +370,9 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterSubsetColTest) {
   const std::vector<KeyEntryValue> hashed_components{KeyEntryValue(INDIA)};
 
   QLConditionPB cond;
-  auto ids = cond.add_operands()->mutable_columns();
-  ids->add_ids(20_ColId);
-  ids->add_ids(30_ColId);
+  auto ids = cond.add_operands()->mutable_tuple();
+  ids->add_operands()->set_column_id(20_ColId);
+  ids->add_operands()->set_column_id(30_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
@@ -496,9 +496,9 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterSubsetColTest2) {
   const std::vector<KeyEntryValue> hashed_components{KeyEntryValue(INDIA)};
 
   QLConditionPB cond;
-  auto ids = cond.add_operands()->mutable_columns();
-  ids->add_ids(30_ColId);
-  ids->add_ids(40_ColId);
+  auto ids = cond.add_operands()->mutable_tuple();
+  ids->add_operands()->set_column_id(30_ColId);
+  ids->add_operands()->set_column_id(40_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
@@ -580,9 +580,9 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterMultiInTest) {
   auto cond1 = cond.add_operands()->mutable_condition();
   auto cond2 = cond.add_operands()->mutable_condition();
 
-  auto ids = cond1->add_operands()->mutable_columns();
-  ids->add_ids(20_ColId);
-  ids->add_ids(30_ColId);
+  auto ids = cond1->add_operands()->mutable_tuple();
+  ids->add_operands()->set_column_id(20_ColId);
+  ids->add_operands()->set_column_id(30_ColId);
   cond1->set_op(QL_OP_IN);
 
   auto options = cond1->add_operands()->mutable_value()->mutable_list_value();
@@ -668,9 +668,9 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterEmptyInTest) {
   auto cond1 = cond.add_operands()->mutable_condition();
   auto cond2 = cond.add_operands()->mutable_condition();
 
-  auto ids = cond1->add_operands()->mutable_columns();
-  ids->add_ids(20_ColId);
-  ids->add_ids(30_ColId);
+  auto ids = cond1->add_operands()->mutable_tuple();
+  ids->add_operands()->set_column_id(20_ColId);
+  ids->add_operands()->set_column_id(30_ColId);
   cond1->set_op(QL_OP_IN);
 
   cond1->add_operands()->mutable_value()->mutable_list_value();
@@ -699,10 +699,10 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterDiscreteScanTest) {
   const std::vector<KeyEntryValue> hashed_components{KeyEntryValue(INDIA)};
 
   QLConditionPB cond;
-  auto ids = cond.add_operands()->mutable_columns();
-  ids->add_ids(20_ColId);
-  ids->add_ids(30_ColId);
-  ids->add_ids(40_ColId);
+  auto ids = cond.add_operands()->mutable_tuple();
+  ids->add_operands()->set_column_id(20_ColId);
+  ids->add_operands()->set_column_id(30_ColId);
+  ids->add_operands()->set_column_id(40_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
@@ -783,9 +783,9 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterRangeScanTest) {
   const std::vector<KeyEntryValue> hashed_components{KeyEntryValue(INDIA)};
 
   QLConditionPB cond;
-  auto ids = cond.add_operands()->mutable_columns();
-  ids->add_ids(30_ColId);
-  ids->add_ids(40_ColId);
+  auto ids = cond.add_operands()->mutable_tuple();
+  ids->add_operands()->set_column_id(30_ColId);
+  ids->add_operands()->set_column_id(40_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 

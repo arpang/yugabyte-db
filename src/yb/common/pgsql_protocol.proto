@@ -64,7 +64,7 @@ message PgsqlExpressionPB {
     PgsqlBCallPB tscall = 6;                   // Tablet server builtin calls.
     PgsqlBCallPB bocall = 7;                   // Builtin operator calls.
     PgsqlConditionPB condition = 8;            // Logical condition that evaluates to true/false.
-    QLColumnIdsPB columns = 9;                 // List of column ids.
+    QLTupleExpressionPB tuple = 9;             // Tuple expression in LHS.
   }
 }
 

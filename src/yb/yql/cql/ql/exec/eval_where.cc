@@ -340,12 +340,12 @@ Status Executor::WhereMultiColumnOpToPB(QLConditionPB* condition, const MultiCol
   // Set the operator.
   condition->set_op(col_op.yb_op());
 
-  // Operand 1: The column.
+  // Operand 1: The columns.
   QLExpressionPB* expr_pb = condition->add_operands();
-  auto cols = expr_pb->mutable_columns();
+  auto cols = expr_pb->mutable_tuple();
   for (const auto& col_desc : col_op.descs()) {
     VLOG(3) << "WHERE condition, column id = " << col_desc->id();
-    cols->add_ids(col_desc->id());
+    cols->add_operands()->set_column_id(col_desc->id());
   }
 
   // Operand 2: The expression.

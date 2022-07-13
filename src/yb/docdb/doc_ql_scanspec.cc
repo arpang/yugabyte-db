@@ -126,7 +126,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
       const auto& lhs = condition.operands(0);
       const auto& rhs = condition.operands(1);
       if (lhs.expr_case() != QLExpressionPB::kColumnId &&
-          lhs.expr_case() != QLExpressionPB::kColumns) {
+          lhs.expr_case() != QLExpressionPB::kTuple) {
         return;
       }
 
@@ -168,14 +168,15 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
             (*range_options_)[col_idx - num_hash_cols].push_back({pv});
           }
         }
-      } else if (lhs.has_columns()) {
+      } else if (lhs.has_tuple()) {
         std::vector<ColumnId> col_ids;
         std::vector<int> col_idxs;
-        size_t num_cols = lhs.columns().ids_size();
+        size_t num_cols = lhs.tuple().operands_size();
         DCHECK_GT(num_cols, 0);
 
-        for (const auto id : lhs.columns().ids()) {
-          ColumnId col_id = ColumnId(id);
+        for (const auto& operand : lhs.tuple().operands()) {
+          DCHECK(operand.has_column_id());
+          ColumnId col_id = ColumnId(operand.column_id());
           int col_idx = schema_.find_column_by_id(col_id);
           DCHECK(schema_.is_range_column(col_idx));
           col_ids.push_back(col_id);

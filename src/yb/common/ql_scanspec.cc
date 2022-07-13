@@ -80,10 +80,11 @@ auto GetColumnValue(const Col& col) {
     }
     return ResultType();
   }
-  if (it->expr_case() == decltype(it->expr_case())::kColumns) {
+  if (it->expr_case() == decltype(it->expr_case())::kTuple) {
     std::vector<ColumnId> column_ids;
-    for (auto id : it->columns().ids()) {
-      column_ids.emplace_back(ColumnId(id));
+    for (const auto& operand : it->tuple().operands()) {
+      DCHECK(operand.has_column_id());
+      column_ids.emplace_back(ColumnId(operand.column_id()));
     }
     ++it;
 
@@ -124,9 +125,10 @@ void QLScanRange::Init(const Cond& condition) {
     std::vector<int> column_ids;
     if (operand.expr_case() == ExprCase::kColumnId) {
       column_ids.push_back(operand.column_id());
-    } else if (operand.expr_case() == ExprCase::kColumns) {
-      for (auto id : operand.columns().ids()) {
-        column_ids.push_back(id);
+    } else if (operand.expr_case() == ExprCase::kTuple) {
+      for (auto const& operand : operand.tuple().operands()) {
+        DCHECK(operand.has_column_id());
+        column_ids.push_back(operand.column_id());
       }
     }
     if (column_ids.empty()) {
@@ -134,7 +136,7 @@ void QLScanRange::Init(const Cond& condition) {
     }
 
     // For operand.expr_case() == ExprCase::kColumnId, there will be just one column and
-    // for operand.expr_case() == ExprCase::kColumns, all the columns are given to be range columns,
+    // for operand.expr_case() == ExprCase::kTuple, all the columns are given to be range columns,
     // so in order to set has_range_column as true it suffices to find a single range column.
     for (auto id : column_ids) {
       if (schema_.is_range_column(ColumnId(id))) {

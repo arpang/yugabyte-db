@@ -88,12 +88,13 @@ Status QLExprExecutor::EvalExpr(const QLExpressionPB& ql_expr,
       RETURN_NOT_OK(table_row.ReadColumn(ql_expr.column_id(), result_writer));
       break;
 
-    case QLExpressionPB::ExprCase::kColumns: {
+    case QLExpressionPB::ExprCase::kTuple: {
       QLValuePB* value = &result_writer.NewValue();
       auto tuple_value = value->mutable_tuple_value();
-      for (auto const& id : ql_expr.columns().ids()) {
+      for (auto const& operand : ql_expr.tuple().operands()) {
         QLExprResult temp;
-        RETURN_NOT_OK(table_row.ReadColumn(id, temp.Writer()));
+        DCHECK(operand.has_column_id());
+        RETURN_NOT_OK(table_row.ReadColumn(operand.column_id(), temp.Writer()));
         temp.MoveTo(tuple_value->add_elems());
       }
       result_writer.SetExisting(value);
@@ -483,7 +484,7 @@ Status QLExprExecutor::DoEvalExpr(const PB& ql_expr,
 
     case PgsqlExpressionPB::ExprCase::kBocall: FALLTHROUGH_INTENDED;
     case PgsqlExpressionPB::ExprCase::kBindId: FALLTHROUGH_INTENDED;
-    case PgsqlExpressionPB::ExprCase::kColumns: FALLTHROUGH_INTENDED;
+    case PgsqlExpressionPB::ExprCase::kTuple: FALLTHROUGH_INTENDED;
     case PgsqlExpressionPB::ExprCase::kAliasId: FALLTHROUGH_INTENDED;
     case PgsqlExpressionPB::ExprCase::EXPR_NOT_SET:
       result_writer.SetNull();

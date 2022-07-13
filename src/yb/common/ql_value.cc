@@ -697,6 +697,7 @@ string QLValue::ToString() const {
     case InternalType::kListValue: res = "list:"; break;
     case InternalType::kFrozenValue: res = "frozen:"; break;
     case InternalType::kVirtualValue: res = ""; break;
+    case InternalType::kTupleValue: res = "tuple:"; break;
 
     case InternalType::VALUE_NOT_SET:
       LOG(FATAL) << "Internal error: value should not be null";
