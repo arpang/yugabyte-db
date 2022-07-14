@@ -203,6 +203,8 @@ class DiscreteScanChoices : public ScanChoices {
   std::shared_ptr<std::vector<Options>> range_cols_scan_options_;
   mutable std::vector<Options::const_iterator> current_scan_target_idxs_;
 
+  // For every set of range options, stores the number of columns involved
+  // (the number of columns can be more than one with the support for multi-column operations)
   std::vector<size_t> range_options_num_cols_;
 };
 
@@ -377,9 +379,9 @@ class OptionRange {
     DCHECK(lower.size() == upper.size());
   }
 
-  const std::vector<KeyEntryValue>& lower_val() const { return lower_; }
+  const std::vector<KeyEntryValue>& lower() const { return lower_; }
   bool lower_inclusive() const { return lower_inclusive_; }
-  const std::vector<KeyEntryValue>& upper_val() const { return upper_; }
+  const std::vector<KeyEntryValue>& upper() const { return upper_; }
   bool upper_inclusive() const { return upper_inclusive_; }
   size_t size() const { return lower_.size(); }
 
@@ -542,6 +544,8 @@ class HybridScanChoices : public ScanChoices {
   const KeyBytes lower_doc_key_;
   const KeyBytes upper_doc_key_;
 
+  // For every set of range options, stores the number of columns involved
+  // (the number of columns can be more than one with the support for multi-column operations)
   std::vector<size_t> range_options_num_cols_;
 };
 
@@ -630,8 +634,8 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     std::vector<KeyEntryValue> target_value =
         VERIFY_RESULT(DecodeKeyEntryValue(&decoder, num_cols));
 
-    auto lower = current_it->lower_val();
-    auto upper = current_it->upper_val();
+    auto lower = current_it->lower();
+    auto upper = current_it->upper();
     bool lower_incl = current_it->lower_inclusive();
     bool upper_incl = current_it->upper_inclusive();
 
@@ -688,8 +692,8 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
 
     // If we are within a range then target_value itself should work
 
-    lower = it->lower_val();
-    upper = it->upper_val();
+    lower = it->lower();
+    upper = it->upper();
 
     lower_incl = it->lower_inclusive();
     upper_incl = it->upper_inclusive();
@@ -769,9 +773,9 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
   for (size_t i = idx; i < range_cols_scan_options_.size(); i++) {
     current_scan_target_ranges_[i] = range_cols_scan_options_[i].begin();
     if (is_forward_scan_) {
-      AppendToKey(current_scan_target_ranges_[i]->lower_val(), &current_scan_target_);
+      AppendToKey(current_scan_target_ranges_[i]->lower(), &current_scan_target_);
     } else {
-      AppendToKey(current_scan_target_ranges_[i]->upper_val(), &current_scan_target_);
+      AppendToKey(current_scan_target_ranges_[i]->upper(), &current_scan_target_);
     }
   }
 
@@ -820,14 +824,14 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
 
   using extremal_fn_incl_t = std::function<bool(const OptionRange &)>;
 
-  extremal_fn_t lower_extremal_fn = is_forward_scan_ ? &OptionRange::lower_val
-                                                     : &OptionRange::upper_val;
+  extremal_fn_t lower_extremal_fn = is_forward_scan_ ? &OptionRange::lower
+                                                     : &OptionRange::upper;
 
   extremal_fn_incl_t lower_extremal_incl_fn = is_forward_scan_ ? &OptionRange::lower_inclusive
                                                                : &OptionRange::upper_inclusive;
 
-  extremal_fn_t upper_extremal_fn = is_forward_scan_ ? &OptionRange::upper_val
-                                                     : &OptionRange::lower_val;
+  extremal_fn_t upper_extremal_fn = is_forward_scan_ ? &OptionRange::upper
+                                                     : &OptionRange::lower;
 
   DocKeyDecoder t_decoder(current_scan_target_);
   RETURN_NOT_OK(t_decoder.DecodeToRangeGroup());

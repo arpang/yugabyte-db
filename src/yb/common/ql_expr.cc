@@ -473,6 +473,7 @@ Status QLExprExecutor::DoEvalExpr(const PB& ql_expr,
 
     case PgsqlExpressionPB::ExprCase::kColumnId:
       return EvalColumnRef(ql_expr.column_id(), table_row, result_writer);
+
     case PgsqlExpressionPB::ExprCase::kBfcall:
       return EvalBFCall<bfpg::BFOpcode>(ql_expr.bfcall(), *table_row, &result_writer.NewValue());
 
