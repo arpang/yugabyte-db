@@ -16,7 +16,7 @@ package yb;
 
 option java_package = "org.yb";
 
-// Sequence of values used to represent Lists, Sets and Tuples)
+// Sequence of values used to represent Lists, Sets and Tuples
 message QLSeqValuePB {
   repeated QLValuePB elems = 1;
 }
