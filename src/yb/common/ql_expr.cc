@@ -91,10 +91,10 @@ Status QLExprExecutor::EvalExpr(const QLExpressionPB& ql_expr,
     case QLExpressionPB::ExprCase::kTuple: {
       QLValuePB* value = &result_writer.NewValue();
       auto tuple_value = value->mutable_tuple_value();
-      for (auto const& operand : ql_expr.tuple().operands()) {
+      for (auto const& elems : ql_expr.tuple().elems()) {
         QLExprResult temp;
-        DCHECK(operand.has_column_id());
-        RETURN_NOT_OK(table_row.ReadColumn(operand.column_id(), temp.Writer()));
+        DCHECK(elems.has_column_id());
+        RETURN_NOT_OK(table_row.ReadColumn(elems.column_id(), temp.Writer()));
         temp.MoveTo(tuple_value->add_elems());
       }
       result_writer.SetExisting(value);

@@ -239,8 +239,8 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterTestRange) {
 
   QLConditionPB cond;
   auto ids = cond.add_operands()->mutable_tuple();
-  ids->add_operands()->set_column_id(11_ColId);
-  ids->add_operands()->set_column_id(12_ColId);
+  ids->add_elems()->set_column_id(11_ColId);
+  ids->add_elems()->set_column_id(12_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
@@ -288,9 +288,9 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterHybridScanTest) {
 
   QLConditionPB cond;
   auto ids = cond.add_operands()->mutable_tuple();
-  ids->add_operands()->set_column_id(20_ColId);
-  ids->add_operands()->set_column_id(30_ColId);
-  ids->add_operands()->set_column_id(40_ColId);
+  ids->add_elems()->set_column_id(20_ColId);
+  ids->add_elems()->set_column_id(30_ColId);
+  ids->add_elems()->set_column_id(40_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
@@ -371,8 +371,8 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterSubsetColTest) {
 
   QLConditionPB cond;
   auto ids = cond.add_operands()->mutable_tuple();
-  ids->add_operands()->set_column_id(20_ColId);
-  ids->add_operands()->set_column_id(30_ColId);
+  ids->add_elems()->set_column_id(20_ColId);
+  ids->add_elems()->set_column_id(30_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
@@ -497,8 +497,8 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterSubsetColTest2) {
 
   QLConditionPB cond;
   auto ids = cond.add_operands()->mutable_tuple();
-  ids->add_operands()->set_column_id(30_ColId);
-  ids->add_operands()->set_column_id(40_ColId);
+  ids->add_elems()->set_column_id(30_ColId);
+  ids->add_elems()->set_column_id(40_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
@@ -581,8 +581,8 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterMultiInTest) {
   auto cond2 = cond.add_operands()->mutable_condition();
 
   auto ids = cond1->add_operands()->mutable_tuple();
-  ids->add_operands()->set_column_id(20_ColId);
-  ids->add_operands()->set_column_id(30_ColId);
+  ids->add_elems()->set_column_id(20_ColId);
+  ids->add_elems()->set_column_id(30_ColId);
   cond1->set_op(QL_OP_IN);
 
   auto options = cond1->add_operands()->mutable_value()->mutable_list_value();
@@ -669,8 +669,8 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterEmptyInTest) {
   auto cond2 = cond.add_operands()->mutable_condition();
 
   auto ids = cond1->add_operands()->mutable_tuple();
-  ids->add_operands()->set_column_id(20_ColId);
-  ids->add_operands()->set_column_id(30_ColId);
+  ids->add_elems()->set_column_id(20_ColId);
+  ids->add_elems()->set_column_id(30_ColId);
   cond1->set_op(QL_OP_IN);
 
   cond1->add_operands()->mutable_value()->mutable_list_value();
@@ -700,9 +700,9 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterDiscreteScanTest) {
 
   QLConditionPB cond;
   auto ids = cond.add_operands()->mutable_tuple();
-  ids->add_operands()->set_column_id(20_ColId);
-  ids->add_operands()->set_column_id(30_ColId);
-  ids->add_operands()->set_column_id(40_ColId);
+  ids->add_elems()->set_column_id(20_ColId);
+  ids->add_elems()->set_column_id(30_ColId);
+  ids->add_elems()->set_column_id(40_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 
@@ -784,8 +784,8 @@ TEST_F(DocRowwiseIteratorTest, ClusteredFilterRangeScanTest) {
 
   QLConditionPB cond;
   auto ids = cond.add_operands()->mutable_tuple();
-  ids->add_operands()->set_column_id(30_ColId);
-  ids->add_operands()->set_column_id(40_ColId);
+  ids->add_elems()->set_column_id(30_ColId);
+  ids->add_elems()->set_column_id(40_ColId);
   cond.set_op(QL_OP_IN);
   auto options = cond.add_operands()->mutable_value()->mutable_list_value();
 

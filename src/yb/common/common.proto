@@ -438,7 +438,7 @@ message QLJsonOperationPB {
 
 // Tuple expression in LHS of IN operation (in future for =, >, < too).
 message QLTupleExpressionPB {
-  repeated QLExpressionPB operands = 1;
+  repeated QLExpressionPB elems = 1;
 }
 
 // An expression in a WHERE condition

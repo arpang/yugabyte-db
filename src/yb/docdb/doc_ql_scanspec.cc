@@ -171,12 +171,12 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
       } else if (lhs.has_tuple()) {
         std::vector<ColumnId> col_ids;
         std::vector<int> col_idxs;
-        size_t num_cols = lhs.tuple().operands_size();
+        size_t num_cols = lhs.tuple().elems_size();
         DCHECK_GT(num_cols, 0);
 
-        for (const auto& operand : lhs.tuple().operands()) {
-          DCHECK(operand.has_column_id());
-          ColumnId col_id = ColumnId(operand.column_id());
+        for (const auto& elem : lhs.tuple().elems()) {
+          DCHECK(elem.has_column_id());
+          ColumnId col_id = ColumnId(elem.column_id());
           int col_idx = schema_.find_column_by_id(col_id);
           DCHECK(schema_.is_range_column(col_idx));
           col_ids.push_back(col_id);
