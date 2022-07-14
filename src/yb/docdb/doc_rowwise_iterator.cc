@@ -385,21 +385,13 @@ class OptionRange {
 
   static bool upper_lt(const OptionRange& range1, const OptionRange& range2) {
     DCHECK(range1.size() == range2.size());
-    size_t i = 0;
-    while (i != range1.size() && range1.upper_[i] == range2.upper_[i]) {
-      i++;
-    }
-    return i != range1.size() && range1.upper_[i] < range2.upper_[i];
+    return range1.upper_ < range2.upper_;
   }
 
   static bool lower_gt(const OptionRange &range1,
                        const OptionRange &range2) {
     DCHECK(range1.size() == range2.size());
-    size_t i = 0;
-    while (i != range1.size() && range1.lower_[i] == range2.lower_[i]) {
-      i++;
-    }
-    return i != range1.size() && range1.lower_[i] > range2.lower_[i];
+    return range1.lower_ > range2.lower_;
   }
 
  private:
@@ -646,31 +638,16 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     using kval_cmp_fn_t =
         std::function<bool(const std::vector<KeyEntryValue>&, const std::vector<KeyEntryValue>&)>;
 
-    kval_cmp_fn_t lower_cmp_fn =
-        [lower_incl](const std::vector<KeyEntryValue>& t1, const std::vector<KeyEntryValue>& t2) {
-          DCHECK(t1.size() == t2.size());
-          size_t i = 0;
-          while (i < t1.size() && t1[i] == t2[i]) {
-            i++;
-          }
-          if (i == t1.size()) {
-            return lower_incl;
-          }
-          return t1[i] > t2[i];
-        };
-
-    kval_cmp_fn_t upper_cmp_fn =
-        [upper_incl](const std::vector<KeyEntryValue>& t1, const std::vector<KeyEntryValue>& t2) {
-          DCHECK(t1.size() == t2.size());
-          size_t i = 0;
-          while (i < t1.size() && t1[i] == t2[i]) {
-            i++;
-          }
-          if (i == t1.size()) {
-            return upper_incl;
-          }
-          return t1[i] < t2[i];
-        };
+    kval_cmp_fn_t lower_cmp_fn = lower_incl
+                                     ? [](const std::vector<KeyEntryValue>& t1,
+                                          const std::vector<KeyEntryValue>& t2) { return t1 >= t2; }
+                                     : [](const std::vector<KeyEntryValue>& t1,
+                                          const std::vector<KeyEntryValue>& t2) { return t1 > t2; };
+    kval_cmp_fn_t upper_cmp_fn = upper_incl
+                                     ? [](const std::vector<KeyEntryValue>& t1,
+                                          const std::vector<KeyEntryValue>& t2) { return t1 <= t2; }
+                                     : [](const std::vector<KeyEntryValue>& t1,
+                                          const std::vector<KeyEntryValue>& t2) { return t1 < t2; };
 
     // If it's in range then good, continue after appending the target value
     // column.
@@ -717,35 +694,16 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     lower_incl = it->lower_inclusive();
     upper_incl = it->upper_inclusive();
 
-    // TODO: do we really need to redefine?
-    lower_cmp_fn = [lower_incl](
-                       const std::vector<KeyEntryValue>& t1, const std::vector<KeyEntryValue>& t2) {
-      DCHECK(t1.size() == t2.size());
-      size_t i = 0;
-      while (i < t1.size() && t1[i] == t2[i]) {
-        i++;
-      }
-      if (i == t1.size()) {
-        return lower_incl;
-      }
-      return t1[i] > t2[i];
-    };
-
-    upper_cmp_fn = [upper_incl](
-                       const std::vector<KeyEntryValue>& t1, const std::vector<KeyEntryValue>& t2) {
-      DCHECK(t1.size() == t2.size());
-      size_t i = 0;
-      while (i < t1.size() && t1[i] == t2[i]) {
-        i++;
-      }
-      if (i == t1.size()) {
-        return upper_incl;
-      }
-      return t1[i] < t2[i];
-    };
+    lower_cmp_fn = lower_incl ? [](const std::vector<KeyEntryValue>& t1,
+                                   const std::vector<KeyEntryValue>& t2) { return t1 >= t2; }
+                              : [](const std::vector<KeyEntryValue>& t1,
+                                   const std::vector<KeyEntryValue>& t2) { return t1 > t2; };
+    upper_cmp_fn = upper_incl ? [](const std::vector<KeyEntryValue>& t1,
+                                   const std::vector<KeyEntryValue>& t2) { return t1 <= t2; }
+                              : [](const std::vector<KeyEntryValue>& t1,
+                                   const std::vector<KeyEntryValue>& t2) { return t1 < t2; };
 
     if (target_value >= lower && target_value <= upper) {
-      // target_value.AppendToKey(&current_scan_target_);
       AppendToKey(target_value, &current_scan_target_);
       if (lower_cmp_fn(target_value, lower) && upper_cmp_fn(target_value, upper)) {
         // target_value satisfies the current range condition.
@@ -1280,6 +1238,7 @@ Result<bool> DocRowwiseIterator::InitScanChoices(
       scan_choices_.reset(new HybridScanChoices(
           doc_read_context_.schema, doc_spec, lower_doc_key, upper_doc_key));
     }
+
     return false;
   }
 
@@ -1406,6 +1365,7 @@ Status DocRowwiseIterator::AdvanceIteratorToNextDesiredRow() const {
 
 Result<bool> DocRowwiseIterator::HasNext() const {
   VLOG(4) << __PRETTY_FUNCTION__;
+
   // Repeated HasNext calls (without Skip/NextRow in between) should be idempotent:
   // 1. If a previous call failed we returned the same status.
   // 2. If a row is already available (row_ready_), return true directly.
