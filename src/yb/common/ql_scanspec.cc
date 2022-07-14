@@ -293,6 +293,7 @@ void QLScanRange::Init(const Cond& condition) {
               auto upper = *options.begin();
 
               while(options_itr != options.end()) {
+                DCHECK(options_itr->has_tuple_value());
                 DCHECK_EQ(num_cols, options_itr->tuple_value().elems().size());
                 auto tuple_itr = options_itr->tuple_value().elems().begin();
                 auto l_itr = lower.mutable_tuple_value()->mutable_elems()->begin();

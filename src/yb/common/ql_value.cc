@@ -934,6 +934,8 @@ vector<QLValuePB> SortTuplesbyOrdering(
     const QLSeqValuePB& options, const std::vector<bool>& reverse) {
   vector<QLValuePB> tuples{options.elems().begin(), options.elems().end()};
   std::sort(tuples.begin(), tuples.end(), [reverse](const auto& t1, const auto& t2) {
+    DCHECK(t1.has_tuple_value());
+    DCHECK(t2.has_tuple_value());
     const auto& tuple1 = t1.tuple_value();
     const auto& tuple2 = t2.tuple_value();
     DCHECK(tuple1.elems().size() == tuple2.elems().size());
