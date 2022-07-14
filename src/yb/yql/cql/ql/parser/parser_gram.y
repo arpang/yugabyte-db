@@ -324,7 +324,7 @@ using namespace yb::ql;
 %type <PCollectionExpr>   // An expression for CQL collections:
                           //  - Map/Set/List/Tuple/Frozen/User-Defined Types.
                           map_elems map_expr set_elems set_expr list_elems list_expr
-                          in_operand_elems in_operand expr_list
+                          in_operand_elems in_operand tuple_elems
 
 %type <PExprListNode>     // A list of expressions.
                           target_list opt_target_list
@@ -565,7 +565,7 @@ using namespace yb::ql;
                           RuleActionMulti opt_column_list opt_name_list
                           name_list role_list
                           opt_array_bounds qualified_name_list
-                          type_name_list any_operator
+                          type_name_list any_operator expr_list
                           multiple_set_clause def_list
                           reloption_list TriggerFuncArgs
                           opclass_item_list opclass_drop_list
@@ -3924,7 +3924,9 @@ opt_existing_window_name:
 ;
 
 opt_partition_clause:
-  PARTITION BY expr_list {}
+  PARTITION BY expr_list {
+    $$ = $3;
+  }
   | /*EMPTY*/ {
   }
 ;
@@ -3973,21 +3975,31 @@ frame_bound:
 // without conflicting with the parenthesized a_expr production.  Without the
 // ROW keyword, there must be more than one a_expr inside the parens.
 row:
-  ROW '(' expr_list ')' {}
-  | ROW '(' ')' {
-  }
-  | '(' expr_list ',' a_expr ')' {
-  }
+  explicit_row {}
+  | implicit_row {}
 ;
 
 explicit_row:
-  ROW '(' expr_list ')' {}
+  ROW '(' expr_list ')' {
+    $$ = $3;
+  }
   | ROW '(' ')' {
+  }
+;
+
+tuple_elems:
+  a_expr {
+    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::TUPLE);
+    $$->AddElement($1);
+  }
+  | tuple_elems ',' a_expr {
+    $1->AddElement($3);
+    $$ = $1;
   }
 ;
 
 implicit_row:
-  '(' expr_list ',' a_expr ')' {
+  '(' tuple_elems ',' a_expr ')' {
     $2->AddElement($4);
     $$ = $2;
   }
@@ -4058,12 +4070,8 @@ subquery_Op:
 
 expr_list:
   a_expr {
-    $$ = MAKE_NODE(@1, PTCollectionExpr, DataType::TUPLE);
-    $$->AddElement($1);
   }
   | expr_list ',' a_expr {
-    $1->AddElement($3);
-    $$ = $1;
   }
 ;
 
