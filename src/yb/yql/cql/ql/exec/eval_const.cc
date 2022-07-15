@@ -47,6 +47,7 @@ Status Executor::PTConstToPB(const PTExpr::SharedPtr& expr,
   if (expr->internal_type() == InternalType::VALUE_NOT_SET) {
     SetNull(const_pb);
   }
+
   switch (expr->expr_op()) {
     case ExprOperator::kUMinus:
       return PTUMinusToPB(static_cast<const PTOperator1*>(expr.get()), const_pb);

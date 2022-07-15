@@ -121,7 +121,7 @@ class DiscreteScanChoices : public ScanChoices {
   DiscreteScanChoices(const DocQLScanSpec& doc_spec, const KeyBytes& lower_doc_key,
                       const KeyBytes& upper_doc_key)
       : ScanChoices(doc_spec.is_forward_scan()) {
-    range_cols_scan_options_ = std::make_shared<std::vector<Options>>();
+    range_cols_scan_options_ = std::make_shared<std::vector<OptionList>>();
     auto& options = doc_spec.range_options();
     auto& num_cols = doc_spec.range_options_num_cols();
     for (size_t idx = 0; idx < options->size(); idx++) {
@@ -180,10 +180,10 @@ class DiscreteScanChoices : public ScanChoices {
 
  protected:
   // Utility function for (multi)key scans. Updates the target scan key by incrementing the option
-  // index for one column. Will handle overflow by setting current column index to 0 and
-  // incrementing the previous column instead. If it overflows at first column it means we are done,
-  // so it clears the scan target idxs array.
-  Status IncrementScanTargetAtColumn(size_t start_col);
+  // index for an OptionList. Will handle overflow by setting current index to 0 and
+  // incrementing the previous index instead. If it overflows at first index
+  // it means we are done, so it clears the scan target idxs array.
+  Status IncrementScanTargetAtOptionList(size_t start_option_list_idx);
 
   // Utility function for (multi)key scans to initialize the range portion of the current scan
   // target, scan target with the first option.
@@ -192,30 +192,32 @@ class DiscreteScanChoices : public ScanChoices {
 
  private:
   // For (multi)key scans (e.g. selects with 'IN' condition on the range columns) we hold the
-  // options for each range column as we iteratively seek to each target key.
-  // e.g. for a query "h = 1 and r1 in (2,3) and r2 in (4,5) and r3 = 6":
-  //  range_cols_scan_options_   [[2, 3], [4, 5], [6]] -- value options for each column.
+  // options for each IN/EQ clause as we iteratively seek to each target key.
+  // e.g. for a query "h = 1 and r1 in (2,3) and (r2, r3) in ((4,5), (6,7)) and r4 = 8":
+  //  range_cols_scan_options_   [[[2], [3]], [[4, 5], [6,7]], [[8]]] --  value options for each
+  //                                                                      IN/EQ clause.
   //  current_scan_target_idxs_  goes from [0, 0, 0] up to [1, 1, 0] -- except when including the
   //                             static row when it starts from [0, 0, -1] instead.
-  //  current_scan_target_       goes from [1][2,4,6] up to [1][3,5,6] -- is the doc key containing,
-  //                             for each range column, the value (option) referenced by the
-  //                             corresponding index (updated along with current_scan_target_idxs_).
-  std::shared_ptr<std::vector<Options>> range_cols_scan_options_;
-  mutable std::vector<Options::const_iterator> current_scan_target_idxs_;
+  //  current_scan_target_       goes from [1][2,4,5,8] up to [1][3,6,7,8] -- is the doc key
+  //                             containing, for each option set, the value (option) referenced
+  //                             by the corresponding index (updated along with
+  //                             current_scan_target_idxs_).
+  std::shared_ptr<std::vector<OptionList>> range_cols_scan_options_;
+  mutable std::vector<OptionList::const_iterator> current_scan_target_idxs_;
 
   // For every set of range options, stores the number of columns involved
   // (the number of columns can be more than one with the support for multi-column operations)
   std::vector<size_t> range_options_num_cols_;
 };
 
-Status DiscreteScanChoices::IncrementScanTargetAtColumn(size_t start_col) {
-  DCHECK_LE(start_col, current_scan_target_idxs_.size());
+Status DiscreteScanChoices::IncrementScanTargetAtOptionList(size_t start_option_list_idx) {
+  DCHECK_LE(start_option_list_idx, current_scan_target_idxs_.size());
 
-  // Increment start col, move backwards in case of overflow.
-  ssize_t col_idx = start_col;
-  for (; col_idx >= 0; col_idx--) {
-    const auto& choices = (*range_cols_scan_options_)[col_idx];
-    auto& it = current_scan_target_idxs_[col_idx];
+  // Increment start option list, move backwards in case of overflow.
+  ssize_t option_list_idx = start_option_list_idx;
+  for (; option_list_idx >= 0; option_list_idx--) {
+    const auto& choices = (*range_cols_scan_options_)[option_list_idx];
+    auto& it = current_scan_target_idxs_[option_list_idx];
 
     if (++it != choices.end()) {
       break;
@@ -223,7 +225,7 @@ Status DiscreteScanChoices::IncrementScanTargetAtColumn(size_t start_col) {
     it = choices.begin();
   }
 
-  if (col_idx < 0) {
+  if (option_list_idx < 0) {
     // If we got here we finished all the options and are done.
     finished_ = true;
     return Status::OK();
@@ -231,14 +233,14 @@ Status DiscreteScanChoices::IncrementScanTargetAtColumn(size_t start_col) {
 
   DocKeyDecoder decoder(current_scan_target_);
   RETURN_NOT_OK(decoder.DecodeToRangeGroup());
-  for (int i = 0; i != col_idx; ++i) {
+  for (int i = 0; i != option_list_idx; ++i) {
     VERIFY_RESULT(DecodeKeyEntryValue(&decoder, range_options_num_cols_[i]));
   }
 
   current_scan_target_.Truncate(
       decoder.left_input().cdata() - current_scan_target_.AsSlice().cdata());
 
-  for (size_t i = col_idx; i <= start_col; ++i) {
+  for (size_t i = option_list_idx; i <= start_option_list_idx; ++i) {
     AppendToKey(*current_scan_target_idxs_[i], &current_scan_target_);
   }
 
@@ -252,8 +254,9 @@ Result<bool> DiscreteScanChoices::InitScanTargetRangeGroupIfNeeded() {
   // Initialize the range key values if needed (i.e. we scanned the static row until now).
   if (!VERIFY_RESULT(decoder.HasPrimitiveValue())) {
     current_scan_target_.mutable_data()->pop_back();
-    for (size_t col_idx = 0; col_idx < range_cols_scan_options_->size(); col_idx++) {
-      AppendToKey(*current_scan_target_idxs_[col_idx], &current_scan_target_);
+    for (size_t option_list_idx = 0; option_list_idx < range_cols_scan_options_->size();
+         option_list_idx++) {
+      AppendToKey(*current_scan_target_idxs_[option_list_idx], &current_scan_target_);
     }
     current_scan_target_.AppendKeyEntryType(KeyEntryType::kGroupEnd);
     return true;
@@ -267,7 +270,7 @@ Status DiscreteScanChoices::DoneWithCurrentTarget() {
 
   // Initialize the first target/option if not done already, otherwise go to the next one.
   if (!VERIFY_RESULT(InitScanTargetRangeGroupIfNeeded())) {
-    RETURN_NOT_OK(IncrementScanTargetAtColumn(range_cols_scan_options_->size() - 1));
+    RETURN_NOT_OK(IncrementScanTargetAtOptionList(range_cols_scan_options_->size() - 1));
     current_scan_target_.AppendKeyEntryType(KeyEntryType::kGroupEnd);
   }
   return Status::OK();
@@ -283,16 +286,17 @@ Status DiscreteScanChoices::SkipTargetsUpTo(const Slice& new_target) {
   RETURN_NOT_OK(decoder.DecodeToRangeGroup());
   current_scan_target_.Reset(Slice(new_target.data(), decoder.left_input().data()));
 
-  size_t col_idx = 0;
+  size_t option_list_idx = 0;
   std::vector<KeyEntryValue> target_value;
-  while (col_idx < range_cols_scan_options_->size()) {
-    target_value = VERIFY_RESULT(DecodeKeyEntryValue(&decoder, range_options_num_cols_[col_idx]));
-    const auto& choices = (*range_cols_scan_options_)[col_idx];
-    auto& it = current_scan_target_idxs_[col_idx];
+  while (option_list_idx < range_cols_scan_options_->size()) {
+    target_value =
+        VERIFY_RESULT(DecodeKeyEntryValue(&decoder, range_options_num_cols_[option_list_idx]));
+    const auto& choices = (*range_cols_scan_options_)[option_list_idx];
+    auto& it = current_scan_target_idxs_[option_list_idx];
 
     // Fast-path in case the existing value for this column already matches the new target.
     if (target_value == *it) {
-      col_idx++;
+      option_list_idx++;
       AppendToKey(target_value, &current_scan_target_);
       continue;
     }
@@ -304,10 +308,10 @@ Status DiscreteScanChoices::SkipTargetsUpTo(const Slice& new_target) {
       it = std::lower_bound(choices.begin(), choices.end(), target_value, std::greater<>());
     }
 
-    // If we overflowed, the new target value for this column is larger than all our options, so
-    // we go back and increment the previous column instead.
+    // If we overflowed, the new target value for this option list is larger than all our options,
+    // so we go back and increment the previous index instead.
     if (it == choices.end()) {
-      RETURN_NOT_OK(IncrementScanTargetAtColumn(col_idx - 1));
+      RETURN_NOT_OK(IncrementScanTargetAtOptionList(option_list_idx - 1));
       break;
     }
 
@@ -316,17 +320,17 @@ Status DiscreteScanChoices::SkipTargetsUpTo(const Slice& new_target) {
 
     // If we did not find an exact match we are already beyond the new target so we can stop.
     if (target_value != *it) {
-      col_idx++;
+      option_list_idx++;
       break;
     }
 
-    col_idx++;
+    option_list_idx++;
   }
 
   // If there are any columns left (i.e. we stopped early), it means we did not find an exact
   // match and we reached beyond the new target key. So we need to include all options for the
   // leftover columns (i.e. set all following indexes to 0).
-  for (size_t i = col_idx; i < current_scan_target_idxs_.size(); i++) {
+  for (size_t i = option_list_idx; i < current_scan_target_idxs_.size(); i++) {
     current_scan_target_idxs_[i] = (*range_cols_scan_options_)[i].begin();
     AppendToKey(*current_scan_target_idxs_[i], &current_scan_target_);
   }
@@ -362,7 +366,7 @@ Status DiscreteScanChoices::SeekToCurrentTarget(IntentAwareIterator* db_iter) {
 // below. So a filter for a column given in the
 // Doc(QL/PGSQL)ScanSpec is converted into an OptionRange.
 // In the end, each HybridScanChoices
-// instance should have a sorted list of disjoint ranges to filter each column.
+// instance should have a sorted list of disjoint ranges for every IN/EQ clause.
 // Right now this supports a conjunction of range bound and discrete filters.
 // Disjunctions are also supported but are UNTESTED.
 // TODO: Test disjunctions when YSQL and YQL support pushing those down
@@ -406,16 +410,17 @@ class OptionRange {
 class HybridScanChoices : public ScanChoices {
  public:
 
-  // Constructs a list of ranges for each column from the given scanspec.
-  // A filter of the form col1 IN (1,4,5) is converted to a filter
-  // in the form col1 IN ([1, 1], [4, 4], [5, 5]).
+  // Constructs a list of ranges for each IN/EQ clause from the given scanspec.
+  // A filter of the form col1 IN (1,2) is converted to col1 IN ([[1], [1]], [[2], [2]]).
+  // And filter of the form (col2, col3) IN ((3,4), (5,6)) is converted to
+  // (col2, col3) IN ([[3, 4], [3, 4]], [[5, 6], [5, 6]]).
 
   HybridScanChoices(const Schema& schema,
                     const KeyBytes& lower_doc_key,
                     const KeyBytes& upper_doc_key,
                     bool is_forward_scan,
                     const std::vector<ColumnId>& range_options_col_ids,
-                    const std::shared_ptr<std::vector<Options>>& range_options,
+                    const std::shared_ptr<std::vector<OptionList>>& range_options,
                     const std::vector<ColumnId>& range_bounds_col_ids,
                     const QLScanRange* range_bounds,
                     const std::vector<size_t>& range_options_num_cols)
@@ -478,6 +483,8 @@ class HybridScanChoices : public ScanChoices {
             true);
       }
       range_cols_scan_options_.push_back(current_options);
+      // For IN/EQ clause at index i,
+      // range_options_num_cols_[i] == range_cols_scan_options_[i][0].upper.size()
       range_options_num_cols_.push_back(num_cols);
     }
 
@@ -519,12 +526,10 @@ class HybridScanChoices : public ScanChoices {
 
  protected:
   // Utility function for (multi)key scans. Updates the target scan key by
-  // incrementing the option
-  // index for one column. Will handle overflow by setting current column
-  // index to 0 and incrementing the previous column instead. If it overflows
-  // at first column it means we are done, so it clears the scan target idxs
-  // array.
-  Status IncrementScanTargetAtColumn(int start_col);
+  // incrementing the option index for an OptionList. Will handle overflow by setting current
+  // index to 0 and incrementing the previous index instead. If it overflows at first index
+  // it means we are done, so it clears the scan target idxs array.
+  Status IncrementScanTargetAtOptionList(int start_option_list_idx);
 
  private:
   KeyBytes prev_scan_target_;
@@ -624,11 +629,12 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
   RETURN_NOT_OK(decoder.DecodeToRangeGroup());
   current_scan_target_.Reset(Slice(new_target.data(), decoder.left_input().data()));
 
-  size_t idx = 0;
-  for (idx = 0; idx < current_scan_target_ranges_.size(); idx++) {
-    const auto& options = range_cols_scan_options_[idx];
-    size_t num_cols = range_options_num_cols_[idx];
-    auto current_it = current_scan_target_ranges_[idx];
+  size_t option_list_idx = 0;
+  for (option_list_idx = 0; option_list_idx < current_scan_target_ranges_.size();
+       option_list_idx++) {
+    const auto& options = range_cols_scan_options_[option_list_idx];
+    size_t num_cols = range_options_num_cols_[option_list_idx];
+    auto current_it = current_scan_target_ranges_[option_list_idx];
     DCHECK(current_it != options.end());
 
     std::vector<KeyEntryValue> target_value =
@@ -683,12 +689,12 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
     if (it == options.end()) {
       // target value is higher than all range options and
       // we need to increment.
-      RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(idx) - 1));
-      idx = current_scan_target_ranges_.size();
+      RETURN_NOT_OK(IncrementScanTargetAtOptionList(static_cast<int>(option_list_idx) - 1));
+      option_list_idx = current_scan_target_ranges_.size();
       break;
     }
 
-    current_scan_target_ranges_[idx] = it;
+    current_scan_target_ranges_[option_list_idx] = it;
 
     // If we are within a range then target_value itself should work
 
@@ -723,14 +729,14 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
       DCHECK(target_value == upper || target_value == lower);
 
       if (is_forward_scan_ && target_value == upper) {
-        RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(idx)));
-        idx = current_scan_target_ranges_.size();
+        RETURN_NOT_OK(IncrementScanTargetAtOptionList(static_cast<int>(option_list_idx)));
+        option_list_idx = current_scan_target_ranges_.size();
         break;
       }
 
       if (!is_forward_scan_ && target_value == lower) {
-        RETURN_NOT_OK(IncrementScanTargetAtColumn(static_cast<int>(idx)));
-        idx = current_scan_target_ranges_.size();
+        RETURN_NOT_OK(IncrementScanTargetAtOptionList(static_cast<int>(option_list_idx)));
+        option_list_idx = current_scan_target_ranges_.size();
         break;
       }
 
@@ -742,7 +748,7 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
       } else {
         KeyEntryValue(KeyEntryType::kLowest).AppendToKey(&current_scan_target_);
       }
-      idx++;
+      option_list_idx++;
       break;
     }
 
@@ -764,13 +770,13 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
         KeyEntryValue(KeyEntryType::kLowest).AppendToKey(&current_scan_target_);
       }
     }
-    idx++;
+    option_list_idx++;
     break;
   }
 
   // Reset the remaining range columns to lower bounds for forward scans
   // or upper bounds for backward scans.
-  for (size_t i = idx; i < range_cols_scan_options_.size(); i++) {
+  for (size_t i = option_list_idx; i < range_cols_scan_options_.size(); i++) {
     current_scan_target_ranges_[i] = range_cols_scan_options_[i].begin();
     if (is_forward_scan_) {
       AppendToKey(current_scan_target_ranges_[i]->lower(), &current_scan_target_);
@@ -785,7 +791,7 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
   return Status::OK();
 }
 
-// Update the value at start column by setting it up for incrementing to the
+// Update the value at start OptionList by setting it up for incrementing to the
 // next allowed value in the filter space
 // ---------------------------------------------------------------------------
 // There are two important cases to consider here.
@@ -814,11 +820,11 @@ Status HybridScanChoices::SkipTargetsUpTo(const Slice& new_target) {
 // This function leaves the scan target as is if the next tuple in the current
 // scan direction is also the next tuple in the filter space and start_col
 // is given as the last column
-Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
-  VLOG_WITH_FUNC(2) << "Incrementing at " << start_col;
+Status HybridScanChoices::IncrementScanTargetAtOptionList(int start_option_list_idx) {
+  VLOG_WITH_FUNC(2) << "Incrementing at " << start_option_list_idx;
 
   // Increment start col, move backwards in case of overflow.
-  int col_idx = start_col;
+  int option_list_idx = start_option_list_idx;
   // lower and upper here are taken relative to the scan order
   using extremal_fn_t = std::function<const std::vector<KeyEntryValue>&(const OptionRange&)>;
 
@@ -839,7 +845,7 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
   // refer to the documentation of this function to see what extremal
   // means here
   std::vector<bool> is_extremal;
-  for (int i = 0; i <= col_idx; ++i) {
+  for (int i = 0; i <= option_list_idx; ++i) {
     size_t num_cols = range_options_num_cols_[i];
     std::vector<KeyEntryValue> target_value =
         VERIFY_RESULT(DecodeKeyEntryValue(&t_decoder, num_cols));
@@ -850,41 +856,42 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
   // kHighest/kLowest at col_idx after the following for loop
   bool start_with_infinity = true;
 
-  for (; col_idx >= 0; col_idx--) {
-    auto &it = current_scan_target_ranges_[col_idx];
+  for (; option_list_idx >= 0; option_list_idx--) {
+    auto& it = current_scan_target_ranges_[option_list_idx];
 
-    if (!is_extremal[col_idx]) {
-      col_idx++;
+    if (!is_extremal[option_list_idx]) {
+      option_list_idx++;
       start_with_infinity = true;
       break;
     }
 
-    if (++it != range_cols_scan_options_[col_idx].end()) {
+    if (++it != range_cols_scan_options_[option_list_idx].end()) {
       // and if this value is at the extremal bound
-      DCHECK(is_extremal[col_idx]);
+      DCHECK(is_extremal[option_list_idx]);
       // if we are AT the boundary of a strict bound then we
       // want to append an infinity after this column to satisfy
       // the strict bound requirement
       start_with_infinity = !lower_extremal_incl_fn(*it);
       if (start_with_infinity) {
-        col_idx++;
+        option_list_idx++;
       }
       break;
     }
 
-    current_scan_target_ranges_[col_idx] = range_cols_scan_options_[col_idx].begin();
+    current_scan_target_ranges_[option_list_idx] =
+        range_cols_scan_options_[option_list_idx].begin();
   }
 
   DocKeyDecoder decoder(current_scan_target_);
   RETURN_NOT_OK(decoder.DecodeToRangeGroup());
-  for (int i = 0; i < col_idx; ++i) {
+  for (int i = 0; i < option_list_idx; ++i) {
     size_t num_cols = range_options_num_cols_[i];
     VERIFY_RESULT(DecodeKeyEntryValue(&decoder, num_cols));
   }
 
-  if (col_idx < 0) {
+  if (option_list_idx < 0) {
     // If we got here we finished all the options and are done.
-    col_idx++;
+    option_list_idx++;
     start_with_infinity = true;
     is_options_done_ = true;
   }
@@ -892,15 +899,14 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
   current_scan_target_.Truncate(
       decoder.left_input().cdata() - current_scan_target_.AsSlice().cdata());
 
-
   if (start_with_infinity &&
-        (col_idx < static_cast<int64>(current_scan_target_ranges_.size()))) {
+      (option_list_idx < static_cast<int64>(current_scan_target_ranges_.size()))) {
     if (is_forward_scan_) {
       KeyEntryValue(KeyEntryType::kHighest).AppendToKey(&current_scan_target_);
     } else {
       KeyEntryValue(KeyEntryType::kLowest).AppendToKey(&current_scan_target_);
     }
-    col_idx++;
+    option_list_idx++;
   }
 
   if (start_with_infinity) {
@@ -912,9 +918,9 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
   // We don't want to necessarily reset col_idx as it may
   // have been the case that we got here via an increment on col_idx
   int64 current_scan_target_ranges_size = static_cast<int64>(current_scan_target_ranges_.size());
-  for (int i = col_idx; i < current_scan_target_ranges_size; ++i) {
-    auto it_0 = i == col_idx ? current_scan_target_ranges_[col_idx]
-                             : range_cols_scan_options_[i].begin();
+  for (int i = option_list_idx; i < current_scan_target_ranges_size; ++i) {
+    auto it_0 = i == option_list_idx ? current_scan_target_ranges_[option_list_idx]
+                                     : range_cols_scan_options_[i].begin();
     current_scan_target_ranges_[i] = it_0;
     AppendToKey(lower_extremal_fn(*it_0), &current_scan_target_);
     if (!lower_extremal_incl_fn(*it_0)) {
@@ -935,8 +941,8 @@ Status HybridScanChoices::IncrementScanTargetAtColumn(int start_col) {
 Status HybridScanChoices::DoneWithCurrentTarget() {
   // prev_scan_target_ is necessary for backwards scans
   prev_scan_target_ = current_scan_target_;
-  RETURN_NOT_OK(IncrementScanTargetAtColumn(
-      static_cast<int>(current_scan_target_ranges_.size()) - 1));
+  RETURN_NOT_OK(
+      IncrementScanTargetAtOptionList(static_cast<int>(current_scan_target_ranges_.size()) - 1));
   current_scan_target_.AppendKeyEntryType(KeyEntryType::kGroupEnd);
 
   // if we we incremented the last index then
@@ -968,14 +974,14 @@ Status HybridScanChoices::DoneWithCurrentTarget() {
       << " and prev_scan_target_ is " << DocKey::DebugSliceToString(prev_scan_target_);
 
   // The below condition is either indicative of the special case
-  // where IncrementScanTargetAtColumn didn't change the target due
+  // where IncrementScanTargetAtOptionList didn't change the target due
   // to the case specified in the last section of the
-  // documentation for IncrementScanTargetAtColumn or we have exhausted
+  // documentation for IncrementScanTargetAtOptionList or we have exhausted
   // all available range keys for the given hash key (indicated
   // by is_options_done_)
   // We clear the scan target in these cases to indicate that the
   // current_scan_target_ has been used and is invalid
-  // In all other cases, IncrementScanTargetAtColumn has updated
+  // In all other cases, IncrementScanTargetAtOptionList has updated
   // current_scan_target_ to the new value that we want to seek to.
   // Hence, we shouldn't clear it in those cases
   if (prev_scan_target_ == current_scan_target_ || is_options_done_) {
@@ -1263,6 +1269,7 @@ Result<bool> DocRowwiseIterator::InitScanChoices(
 Result<bool> DocRowwiseIterator::InitScanChoices(
     const DocPgsqlScanSpec& doc_spec, const KeyBytes& lower_doc_key,
     const KeyBytes& upper_doc_key) {
+
   if (!FLAGS_disable_hybrid_scan) {
     if (doc_spec.range_options() || doc_spec.range_bounds()) {
       scan_choices_.reset(new HybridScanChoices(

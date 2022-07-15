@@ -86,9 +86,7 @@ class DocPgsqlScanSpec : public PgsqlScanSpec {
     return range_bounds_.get();
   }
 
-  const std::shared_ptr<std::vector<Options>>& range_options() const {
-    return range_options_;
-  }
+  const std::shared_ptr<std::vector<OptionList>>& range_options() const { return range_options_; }
 
   const std::vector<ColumnId> range_options_indexes() const {
     return range_options_indexes_;
@@ -123,7 +121,7 @@ class DocPgsqlScanSpec : public PgsqlScanSpec {
   void InitRangeOptions(const PgsqlConditionPB& condition);
 
   // The range value options if set. (possibly more than one due to IN conditions).
-  std::shared_ptr<std::vector<Options>> range_options_;
+  std::shared_ptr<std::vector<OptionList>> range_options_;
 
   // Ids of columns that have range option filters such as c2 IN (1, 5, 6, 9).
   std::vector<ColumnId> range_options_indexes_;

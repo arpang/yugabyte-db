@@ -78,7 +78,7 @@ DocQLScanSpec::DocQLScanSpec(
     if (!hashed_components_->empty() && schema_.num_range_key_columns() > 0 && range_bounds_ &&
         range_bounds_->has_in_range_options()) {
       DCHECK(condition);
-      range_options_ = std::make_shared<std::vector<Options>>(schema_.num_range_key_columns());
+      range_options_ = std::make_shared<std::vector<OptionList>>(schema_.num_range_key_columns());
       range_options_num_cols_ = std::vector<size_t>(schema_.num_range_key_columns(), 0);
       InitRangeOptions(*condition);
 

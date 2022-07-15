@@ -27,7 +27,7 @@ namespace yb {
 namespace docdb {
 
 using Option = std::vector<KeyEntryValue>;  // an option in an IN/EQ clause
-using Options = std::vector<Option>;        // all the options in an IN clause
+using OptionList = std::vector<Option>;     // all the options in an IN/EQ clause
 
 // DocDB variant of QL scanspec.
 class DocQLScanSpec : public QLScanSpec {
@@ -68,9 +68,7 @@ class DocQLScanSpec : public QLScanSpec {
     return query_id_;
   }
 
-  const std::shared_ptr<std::vector<Options>>& range_options() const {
-    return range_options_;
-  }
+  const std::shared_ptr<std::vector<OptionList>>& range_options() const { return range_options_; }
 
   bool include_static_columns() const {
     return include_static_columns_;
@@ -134,7 +132,7 @@ class DocQLScanSpec : public QLScanSpec {
   const std::vector<KeyEntryValue>* hashed_components_;
 
   // The range value options if set. (possibly more than one due to IN conditions).
-  std::shared_ptr<std::vector<Options>> range_options_;
+  std::shared_ptr<std::vector<OptionList>> range_options_;
 
   // Ids of columns that have range option filters such as c2 IN (1, 5, 6, 9).
   std::vector<ColumnId> range_options_indexes_;
