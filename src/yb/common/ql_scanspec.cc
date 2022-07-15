@@ -272,7 +272,6 @@ void QLScanRange::Init(const Cond& condition) {
           // - <column> IN (<value>) --> min/max bounds = <value>
           // IN arguments should have already been de-duplicated and ordered by the executor.
           auto in_size = column_value.value->list_value().elems().size();
-          // TODO: (discuss with Tanuj) if in_size == 0, shouldn't we set lower=+Inf &  upper=-inf
           if (in_size > 0) {
             ColumnId col_id = column_value.column_id;
             if (col_id != ColumnId(0)) {
