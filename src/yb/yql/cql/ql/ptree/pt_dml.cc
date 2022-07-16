@@ -546,28 +546,37 @@ Status WhereExprState::AnalyzeMultiColumnOp(
 
   if (!value->has_no_column_ref()) {
     return sem_context->Error(
-        expr,
+        value,
         "Argument of this opreator cannot reference a column",
         ErrorCode::CQL_STATEMENT_INVALID);
   }
 
   if (value->expr_op() != ExprOperator::kCollection) {
+    if (value->expr_op() == ExprOperator::kBindVar) {
+      return sem_context->Error(
+          value, "Bind format not supported", ErrorCode::FEATURE_NOT_SUPPORTED);
+    }
     return sem_context->Error(
-        expr, "Invalid operand for IN clause", ErrorCode::CQL_STATEMENT_INVALID);
+        value, "Invalid operand for IN clause", ErrorCode::CQL_STATEMENT_INVALID);
   }
+
   const auto options = static_cast<const PTCollectionExpr*>(value.get());
 
   for (const auto& option : options->values()) {
     if (option->expr_op() != ExprOperator::kCollection) {
+      if (option->expr_op() == ExprOperator::kBindVar) {
+        return sem_context->Error(
+            option, "Bind format not supported", ErrorCode::FEATURE_NOT_SUPPORTED);
+      }
       return sem_context->Error(
-          expr, "Invalid operand for IN clause", ErrorCode::CQL_STATEMENT_INVALID);
+          option, "Invalid operand for IN clause", ErrorCode::CQL_STATEMENT_INVALID);
     }
 
     const auto option_as_collection = static_cast<const PTCollectionExpr*>(option.get());
-
     if (option_as_collection->values().size() != col_descs.size()) {
       return sem_context->Error(
-          expr, "Columns and value size mismatch for IN clause", ErrorCode::CQL_STATEMENT_INVALID);
+          option, "Columns and value size mismatch for IN clause",
+          ErrorCode::CQL_STATEMENT_INVALID);
     }
   }
 
