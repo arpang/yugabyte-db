@@ -2381,6 +2381,8 @@ public class TestBindVariable extends BaseCQLTest {
     LOG.info("End test");
   }
 
+  // yb-cql-4x/src/test/java/org/yb/loadtest/TestTupleOperators.java contains
+  // the tests for the unsupported multi-column IN bind formats.
   @Test
   public void testMultiColumnInWithBind() throws Exception {
     LOG.info("TEST IN KEYWORD - Start");
