@@ -4909,10 +4909,8 @@ Result<std::unordered_map<string, uint32_t>> CatalogManager::GetPgAttNameTypidMa
       Format("Expected YSQL table, got: $0", table_info->GetTableType()));
   const uint32_t database_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(table_info->namespace_id()));
   uint32_t table_oid = VERIFY_RESULT(GetPgsqlTableOid(table_info->id()));
-  {
-    if (matview_pg_table_ids_map_.find(table_info->id()) != matview_pg_table_ids_map_.end()) {
-      table_oid = VERIFY_RESULT(GetPgsqlTableOid(matview_pg_table_ids_map_[table_info->id()]));
-    }
+  if (!table_info->matview_pg_table_id().empty()) {
+    table_oid = VERIFY_RESULT(GetPgsqlTableOid(table_info->matview_pg_table_id()));
   }
   return sys_catalog_->ReadPgAttributeInfo(database_oid, table_oid);
 }
@@ -6189,9 +6187,6 @@ Status CatalogManager::GetTableSchemaInternal(const GetTableSchemaRequestPB* req
       !table->is_system() &&
       !IsSequencesSystemTable(*table) &&
       !table->IsColocationParentTable()) {
-    SharedLock lock(mutex_);
-    TRACE("Acquired catalog manager lock for schema name lookup");
-
     auto pgschema_name = GetPgSchemaName(table);
     if (!pgschema_name.ok() || pgschema_name->empty()) {
       LOG(WARNING) << Format(

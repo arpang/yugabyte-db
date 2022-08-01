@@ -341,7 +341,7 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
   // Helper function for ImportTableEntry.
   Result<bool> CheckTableForImport(
       scoped_refptr<TableInfo> table,
-      ExternalTableSnapshotData* snapshot_data) REQUIRES_SHARED(mutex_);
+      ExternalTableSnapshotData* snapshot_data);
 
   Status ImportNamespaceEntry(const SysRowEntry& entry,
                                       NamespaceMap* namespace_map);
