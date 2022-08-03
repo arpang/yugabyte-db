@@ -1,43 +1,46 @@
 ---
-title: Install Yugabyte Platform
-headerTitle: Select Installation Type
+title: Install YugabyteDB Anywhere
+headerTitle: Select installation type
 linkTitle: Install
-description: Installing Yugabyte Platform on Private Cloud
+description: Installing YugabyteDB Anywhere on private cloud
 image: /images/section_icons/deploy/enterprise.png
-headcontent: Installing Yugabyte Platform on Private Cloud
+headcontent: Installing YugabyteDB Anywhere on private cloud
 menu:
-  stable:
+  stable_yugabyte-platform:
     identifier: install-3-private-cloud
     parent: overview-yp
     weight: 20
-isTocNested: true
-showAsideToc: false
+type: docs
 ---
 
-Select your installation type to see the installation flow. Click on the elements to see detailed steps.
+For installation overview, select one of the following installation types:
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
   <li >
-    <a href="/preview/yugabyte-platform/overview/install/public-cloud" class="nav-link">
+    <a href="../public-cloud/" class="nav-link">
       <i class="fas fa-cloud"></i>
       Public Cloud
     </a>
   </li>
 
   <li>
-    <a href="/preview/yugabyte-platform/overview/install/kubernetes" class="nav-link">
+    <a href="../kubernetes/" class="nav-link">
       <i class="fas fa-cubes" aria-hidden="true"></i>
       Kubernetes
     </a>
   </li>
 
   <li >
-    <a href="/preview/yugabyte-platform/overview/install/private-cloud" class="nav-link active">
+    <a href="../private-cloud/" class="nav-link active">
       <i class="fas fa-unlink"></i>
       Private Cloud
     </a>
   </li>
 </ul>
+
+<br>
+
+Click elements of the following chart to access detailed steps:
 
 <img src="/images/ee/flowchart/yb-install-private-cloud.png" usemap="#image-map">
 
@@ -50,5 +53,3 @@ Select your installation type to see the installation flow. Click on the element
     <area target="_blank" alt="Airgapped installation - pre reqs" title="Airgapped installation - pre reqs" href="/preview/yugabyte-platform/install-yugabyte-platform/install-software/airgapped/" coords="482,1008,688,1141" shape="rect">
     <area target="_blank" alt="Online installation - pre reqs" title="Online installation - pre reqs" href="/preview/yugabyte-platform/install-yugabyte-platform/install-software/default/" coords="" shape="rect">
 </map>
-
-

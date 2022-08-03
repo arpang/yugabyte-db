@@ -10,8 +10,7 @@ menu:
     identifier: ref-postgres-npgsql-driver
     parent: drivers
     weight: 600
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
@@ -29,7 +28,7 @@ Npgsql is an open source ADO.NET Data Provider for PostgreSQL; it allows program
 
 ## Quick start
 
-Learn how to establish a connection to YugabyteDB database and begin CRUD operations using the steps from [Build a C# application](../../../../quick-start/build-apps/csharp/ysql).
+Learn how to establish a connection to YugabyteDB database and begin CRUD operations using the steps from [Build a C# application](../../../../develop/build-apps/csharp/ysql).
 
 ## Download the driver dependency
 
@@ -191,4 +190,4 @@ var connStringBuilder = new NpgsqlConnectionStringBuilder();
 
 ## Other usage examples
 
-[Sample C# application with SSL](/preview/quick-start/build-apps/csharp/ysql/#create-a-sample-c-application-with-ssl)
+[Sample C# application with SSL](/preview/develop/build-apps/csharp/ysql/#create-a-sample-c-application-with-ssl)

@@ -75,7 +75,7 @@ struct TabletCheckpoint {
   CoarseTimePoint last_active_time;
 
   bool ExpiredAt(std::chrono::milliseconds duration, std::chrono::time_point<CoarseMonoClock> now) {
-    return (now - last_update_time) >= duration;
+    return !IsInitialized(last_update_time) || (now - last_update_time) >= duration;
   }
 };
 
@@ -146,6 +146,10 @@ class CDCServiceImpl : public CDCServiceIf {
   void IsBootstrapRequired(const IsBootstrapRequiredRequestPB* req,
                            IsBootstrapRequiredResponsePB* resp,
                            rpc::RpcContext rpc) override;
+
+  void CheckReplicationDrain(const CheckReplicationDrainRequestPB* req,
+                             CheckReplicationDrainResponsePB* resp,
+                             rpc::RpcContext context) override;
 
   void Shutdown() override;
 
@@ -332,8 +336,7 @@ class CDCServiceImpl : public CDCServiceIf {
       const std::shared_ptr<tablet::TabletPeer>& tablet_peer);
 
   Status UpdateChildrenTabletsOnSplitOp(
-      const std::string& stream_id,
-      const std::string& tablet_id,
+      const ProducerTabletInfo& producer_tablet,
       std::shared_ptr<yb::consensus::ReplicateMsg> split_op_msg,
       const client::YBSessionPtr& session);
 
@@ -344,7 +347,8 @@ class CDCServiceImpl : public CDCServiceIf {
   Result<EnumOidLabelMap> UpdateCacheAndGetEnumMap(const NamespaceName& ns_name);
 
   // Update enum map in cache.
-  Status UpdateEnumMapInCacheUnlocked(const NamespaceName& ns_name) REQUIRES(mutex_);
+  Result<EnumOidLabelMap> UpdateEnumMapInCacheUnlocked(const NamespaceName& ns_name)
+      REQUIRES(mutex_);
 
   rpc::Rpcs rpcs_;
 

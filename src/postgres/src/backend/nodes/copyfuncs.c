@@ -454,6 +454,25 @@ _copySeqScan(const SeqScan *from)
 }
 
 /*
+ * _copyYbSeqScan
+ */
+static YbSeqScan *
+_copyYbSeqScan(const YbSeqScan *from)
+{
+	YbSeqScan    *newnode = makeNode(YbSeqScan);
+
+	/*
+	 * copy node superclass fields
+	 */
+	CopyScanFields((const Scan *) from, (Scan *) newnode);
+
+	COPY_NODE_FIELD(remote.qual);
+	COPY_NODE_FIELD(remote.colrefs);
+
+	return newnode;
+}
+
+/*
  * _copySampleScan
  */
 static SampleScan *
@@ -496,7 +515,12 @@ _copyIndexScan(const IndexScan *from)
 	COPY_NODE_FIELD(indexorderby);
 	COPY_NODE_FIELD(indexorderbyorig);
 	COPY_NODE_FIELD(indexorderbyops);
+	COPY_NODE_FIELD(indextlist);
 	COPY_SCALAR_FIELD(indexorderdir);
+	COPY_NODE_FIELD(index_remote.qual);
+	COPY_NODE_FIELD(index_remote.colrefs);
+	COPY_NODE_FIELD(rel_remote.qual);
+	COPY_NODE_FIELD(rel_remote.colrefs);
 
 	return newnode;
 }
@@ -522,6 +546,8 @@ _copyIndexOnlyScan(const IndexOnlyScan *from)
 	COPY_NODE_FIELD(indexorderby);
 	COPY_NODE_FIELD(indextlist);
 	COPY_SCALAR_FIELD(indexorderdir);
+	COPY_NODE_FIELD(remote.qual);
+	COPY_NODE_FIELD(remote.colrefs);
 
 	return newnode;
 }
@@ -3345,18 +3371,6 @@ _copyOptSplit(const OptSplit *from)
 	return newnode;
 }
 
-static OptTableGroup *
-_copyOptTableGroup(const OptTableGroup *from)
-{
-	OptTableGroup *newnode = makeNode(OptTableGroup);
-
-	COPY_SCALAR_FIELD(has_tablegroup);
-	COPY_STRING_FIELD(tablegroup_name);
-
-	return newnode;
-}
-
-
 /*
  * CopyCreateStmtFields
  *
@@ -3376,7 +3390,7 @@ CopyCreateStmtFields(const CreateStmt *from, CreateStmt *newnode)
 	COPY_NODE_FIELD(options);
 	COPY_SCALAR_FIELD(oncommit);
 	COPY_STRING_FIELD(tablespacename);
-	COPY_NODE_FIELD(tablegroup);
+	COPY_STRING_FIELD(tablegroupname);
 	COPY_SCALAR_FIELD(if_not_exists);
 	COPY_NODE_FIELD(split_options);
 }
@@ -4928,6 +4942,9 @@ copyObjectImpl(const void *from)
 		case T_SeqScan:
 			retval = _copySeqScan(from);
 			break;
+		case T_YbSeqScan:
+			retval = _copyYbSeqScan(from);
+			break;
 		case T_SampleScan:
 			retval = _copySampleScan(from);
 			break;
@@ -5753,9 +5770,6 @@ copyObjectImpl(const void *from)
 			break;
 		case T_OptSplit:
 			retval = _copyOptSplit(from);
-			break;
-		case T_OptTableGroup:
-			retval = _copyOptTableGroup(from);
 			break;
 
 			/*

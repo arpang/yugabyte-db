@@ -7,8 +7,7 @@ menu:
   stable:
     identifier: txn_rollback
     parent: statements
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 ## Synopsis
@@ -59,5 +58,5 @@ Add optional keyword — has no effect.
 
 ## See also
 
-- [`BEGIN`](../txn_begin)
+- [`BEGIN`](../txn_begin/)
 - [`COMMIT`](../txn_commit)

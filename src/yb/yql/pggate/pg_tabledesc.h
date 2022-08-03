@@ -23,7 +23,7 @@
 #include "yb/common/pgsql_protocol.messages.h"
 #include "yb/common/schema.h"
 
-#include "yb/client/yb_op.h"
+#include "yb/client/table.h"
 #include "yb/client/yb_table_name.h"
 
 #include "yb/master/master_ddl.pb.h"
@@ -52,6 +52,7 @@ class PgTableDesc : public RefCountedThreadSafe<PgTableDesc> {
 
   const PartitionSchema& partition_schema() const;
 
+  size_t num_range_key_columns() const;
   size_t num_hash_key_columns() const;
   size_t num_key_columns() const;
   size_t num_columns() const;
@@ -91,7 +92,11 @@ class PgTableDesc : public RefCountedThreadSafe<PgTableDesc> {
 
   YBCPgOid GetColocationId() const;
 
+  YBCPgOid GetTablegroupOid() const;
+
   uint32_t schema_version() const;
+
+  bool IsIndex() const;
 
  private:
   PgObjectId id_;
@@ -104,6 +109,7 @@ class PgTableDesc : public RefCountedThreadSafe<PgTableDesc> {
 
   // Attr number to column index map.
   std::unordered_map<int, size_t> attr_num_map_;
+  YBCPgOid tablegroup_oid_{kInvalidOid};
 };
 
 }  // namespace pggate

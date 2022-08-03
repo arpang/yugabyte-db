@@ -4,7 +4,9 @@ package com.yugabyte.yw.commissioner.tasks;
 
 import com.google.common.collect.ImmutableSet;
 import com.yugabyte.yw.commissioner.BaseTaskDependencies;
+import com.yugabyte.yw.commissioner.HookInserter;
 import com.yugabyte.yw.commissioner.Common.CloudType;
+import com.yugabyte.yw.commissioner.TaskExecutor;
 import com.yugabyte.yw.commissioner.TaskExecutor.SubTaskGroup;
 import com.yugabyte.yw.commissioner.UserTaskDetails.SubTaskGroupType;
 import com.yugabyte.yw.commissioner.tasks.params.NodeTaskParams;
@@ -17,6 +19,7 @@ import com.yugabyte.yw.commissioner.tasks.subtasks.DeleteClusterFromUniverse;
 import com.yugabyte.yw.commissioner.tasks.subtasks.InstanceActions;
 import com.yugabyte.yw.commissioner.tasks.subtasks.PrecheckNode;
 import com.yugabyte.yw.commissioner.tasks.subtasks.PreflightNodeCheck;
+import com.yugabyte.yw.commissioner.tasks.subtasks.UpdateUniverseTags;
 import com.yugabyte.yw.commissioner.tasks.subtasks.WaitForMasterLeader;
 import com.yugabyte.yw.common.NodeManager;
 import com.yugabyte.yw.common.PlacementInfoUtil;
@@ -33,6 +36,7 @@ import com.yugabyte.yw.forms.UpgradeTaskParams;
 import com.yugabyte.yw.forms.UpgradeTaskParams.UpgradeTaskSubType;
 import com.yugabyte.yw.forms.UpgradeTaskParams.UpgradeTaskType;
 import com.yugabyte.yw.forms.VMImageUpgradeParams.VmUpgradeTaskType;
+import com.yugabyte.yw.models.HookScope.TriggerType;
 import com.yugabyte.yw.models.Customer;
 import com.yugabyte.yw.models.NodeInstance;
 import com.yugabyte.yw.models.TaskInfo;
@@ -643,7 +647,8 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
    * @param nodes : a collection of nodes that need to be updated.
    * @param deleteTags : csv version of keys of tags to be deleted, if any.
    */
-  public void createUpdateInstanceTagsTasks(Collection<NodeDetails> nodes, String deleteTags) {
+  public void createUpdateInstanceTagsTasks(
+      Collection<NodeDetails> nodes, Map<String, String> tagsToSet, String deleteTags) {
     SubTaskGroup subTaskGroup = getTaskExecutor().createSubTaskGroup("InstanceActions", executor);
     for (NodeDetails node : nodes) {
       InstanceActions.Params params = new InstanceActions.Params();
@@ -656,6 +661,8 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
       params.azUuid = node.azUuid;
       // Add delete tags info.
       params.deleteTags = deleteTags;
+      // Add needed tags.
+      params.tags = tagsToSet;
       // Create and add a task for this node.
       InstanceActions task = createTask(InstanceActions.class);
       task.initialize(params);
@@ -725,6 +732,41 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
       params.azUuid = node.azUuid;
       // The service and the command we want to run.
       params.process = "tserver";
+      params.command = "start";
+      params.placementUuid = node.placementUuid;
+      // Set the InstanceType
+      params.instanceType = node.cloudInfo.instance_type;
+      params.useSystemd = userIntent.useSystemd;
+      // Create the Ansible task to get the server info.
+      AnsibleClusterServerCtl task = createTask(AnsibleClusterServerCtl.class);
+      task.initialize(params);
+      // Add it to the task list.
+      subTaskGroup.addSubTask(task);
+    }
+    getRunnableTask().addSubTaskGroup(subTaskGroup);
+    return subTaskGroup;
+  }
+
+  /**
+   * Creates a task list to start the yb-controller on the set of passed in nodes and adds it to the
+   * task queue.
+   *
+   * @param nodes : a collection of nodes that need to be created
+   */
+  public SubTaskGroup createStartYbcTasks(Collection<NodeDetails> nodes) {
+    SubTaskGroup subTaskGroup =
+        getTaskExecutor().createSubTaskGroup("AnsibleClusterServerCtl", executor);
+    for (NodeDetails node : nodes) {
+      AnsibleClusterServerCtl.Params params = new AnsibleClusterServerCtl.Params();
+      UserIntent userIntent = taskParams().getClusterByUuid(node.placementUuid).userIntent;
+      // Add the node name.
+      params.nodeName = node.nodeName;
+      // Add the universe uuid.
+      params.universeUUID = taskParams().universeUUID;
+      // Add the az uuid.
+      params.azUuid = node.azUuid;
+      // The service and the command we want to run.
+      params.process = "controller";
       params.command = "start";
       params.placementUuid = node.placementUuid;
       // Set the InstanceType
@@ -843,6 +885,9 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
    */
   public SubTaskGroup createSetupServerTasks(
       Collection<NodeDetails> nodes, Consumer<AnsibleSetupServer.Params> paramsCustomizer) {
+    // Create preprovision hooks
+    HookInserter.addHookTrigger(TriggerType.PreNodeProvision, this, taskParams(), nodes);
+
     SubTaskGroup subTaskGroup =
         getTaskExecutor().createSubTaskGroup("AnsibleSetupServer", executor);
     for (NodeDetails node : nodes) {
@@ -859,6 +904,10 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
       subTaskGroup.addSubTask(ansibleSetupServer);
     }
     getRunnableTask().addSubTaskGroup(subTaskGroup);
+
+    // Create postprovision hooks
+    HookInserter.addHookTrigger(TriggerType.PostNodeProvision, this, taskParams(), nodes);
+
     return subTaskGroup;
   }
 
@@ -1489,6 +1538,21 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
   }
 
   /**
+   * Creates subtasks to start yb-controller processes on the nodes.
+   *
+   * @param nodesToBeStarted nodes on which yb-controller processes are to be started.
+   */
+  public void createStartYbcProcessTasks(Set<NodeDetails> nodesToBeStarted) {
+    // Create Start yb-controller tasks for non-systemd only
+    if (!taskParams().getPrimaryCluster().userIntent.useSystemd) {
+      createStartYbcTasks(nodesToBeStarted).setSubTaskGroupType(SubTaskGroupType.ConfigureUniverse);
+    }
+
+    // Wait for yb-controller to be responsive on each node.
+    createWaitForYbcServerTask().setSubTaskGroupType(SubTaskGroupType.ConfigureUniverse);
+  }
+
+  /**
    * Updates a master node with master addresses. It can happen before the master process is started
    * or later.
    *
@@ -1552,9 +1616,13 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
    * @param processType type of a processes for the installation - MASTER or TSERVER
    * @param softwareVersion software version to install, if null - takes version from the universe
    *     userIntent
+   * @param subTaskGroupType subtask group type for progress display
    */
   public void createSoftwareInstallTasks(
-      List<NodeDetails> nodes, ServerType processType, String softwareVersion) {
+      List<NodeDetails> nodes,
+      ServerType processType,
+      String softwareVersion,
+      SubTaskGroupType subTaskGroupType) {
     // If the node list is empty, we don't need to do anything.
     if (nodes.isEmpty()) {
       return;
@@ -1570,7 +1638,7 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
           getAnsibleConfigureServerTask(
               node, processType, UpgradeTaskSubType.Install, softwareVersion));
     }
-    subTaskGroup.setSubTaskGroupType(SubTaskGroupType.InstallingSoftware);
+    subTaskGroup.setSubTaskGroupType(subTaskGroupType);
     getRunnableTask().addSubTaskGroup(subTaskGroup);
   }
 
@@ -1581,7 +1649,9 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
       String softwareVersion) {
     AnsibleConfigureServers.Params params =
         getAnsibleConfigureServerParams(node, processType, UpgradeTaskType.Software, taskSubType);
-    if (softwareVersion == null) {
+    if (taskSubType == UpgradeTaskSubType.PackageReInstall) {
+      params.updatePackages = true;
+    } else if (softwareVersion == null) {
       UserIntent userIntent =
           getUniverse(true).getUniverseDetails().getClusterByUuid(node.placementUuid).userIntent;
       params.ybSoftwareVersion = userIntent.ybSoftwareVersion;
@@ -1663,5 +1733,21 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
     }
 
     return params;
+  }
+
+  protected TaskExecutor.SubTaskGroup createUpdateUniverseTagsTask(
+      Cluster cluster, Map<String, String> instanceTags) {
+    TaskExecutor.SubTaskGroup subTaskGroup =
+        getTaskExecutor().createSubTaskGroup("InstanceActions", executor);
+    UpdateUniverseTags.Params params = new UpdateUniverseTags.Params();
+    params.universeUUID = taskParams().universeUUID;
+    params.clusterUUID = cluster.uuid;
+    params.instanceTags = instanceTags;
+    UpdateUniverseTags task = createTask(UpdateUniverseTags.class);
+    task.initialize(params);
+    task.setUserTaskUUID(userTaskUUID);
+    subTaskGroup.addSubTask(task);
+    getRunnableTask().addSubTaskGroup(subTaskGroup);
+    return subTaskGroup;
   }
 }

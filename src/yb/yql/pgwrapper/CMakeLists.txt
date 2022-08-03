@@ -85,7 +85,7 @@ ADD_YB_LIBRARY(ysql_upgrade
                SRCS ${YSQL_UPGRADE_SRCS}
                DEPS ${YSQL_UPGRADE_DEPS})
 
-set(YB_TEST_LINK_LIBS yb_pgwrapper yb_client ql-dml-test-base pg_wrapper_test_base tools_test_utils
+set(YB_TEST_LINK_LIBS yb_pgwrapper ql-dml-test-base pg_wrapper_test_base tools_test_utils
     geo_transactions_test_base ${YB_MIN_TEST_LIBS})
 ADD_YB_TEST(pg_catalog_perf-test)
 ADD_YB_TEST(pg_ddl_concurrency-test)
@@ -99,6 +99,7 @@ ADD_YB_TEST(pg_mini-test)
 ADD_YB_TEST(pg_on_conflict-test)
 ADD_YB_TEST(pg_op_buffering-test)
 ADD_YB_TEST(pg_packed_row-test)
+ADD_YB_TEST(pg_pessimistic_locking-test)
 ADD_YB_TEST(pg_tablet_split-test)
 ADD_YB_TEST(pg_txn-test)
 ADD_YB_TEST(pg_wrapper-test)
@@ -131,7 +132,7 @@ endif()
 
 add_dependencies(
   initial_sys_catalog_snapshot
-  ${CREATE_INITIAL_SYS_CATALOG_SNAPSHOT_TARGET_NAME} yb-master yb-tserver postgres)
+  ${CREATE_INITIAL_SYS_CATALOG_SNAPSHOT_TARGET_NAME} yb-master yb-tserver gen_auto_flags_json postgres)
 
 add_custom_target(
   update_ysql_migrations ALL

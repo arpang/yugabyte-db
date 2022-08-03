@@ -22,10 +22,9 @@
 
 #include <boost/container/small_vector.hpp>
 
-#include "yb/client/client.h"
-#include "yb/client/client_fwd.h"
+#include <ev++.h>
+
 #include "yb/client/client_utils.h"
-#include "yb/client/tablet_server.h"
 
 #include "yb/common/partition.h"
 #include "yb/common/pg_system_attr.h"
@@ -45,7 +44,6 @@
 #include "yb/server/secure.h"
 
 #include "yb/tserver/pg_client.pb.h"
-#include "yb/tserver/tserver_forward_service.proxy.h"
 #include "yb/tserver/tserver_shared_mem.h"
 
 #include "yb/util/enums.h"
@@ -53,6 +51,7 @@
 #include "yb/util/range.h"
 #include "yb/util/shared_mem.h"
 #include "yb/util/status_format.h"
+#include "yb/util/thread.h"
 
 #include "yb/yql/pggate/pg_column.h"
 #include "yb/yql/pggate/pg_ddl.h"
@@ -78,20 +77,13 @@
 
 using namespace std::literals;
 
-DECLARE_string(rpc_bind_addresses);
 DECLARE_bool(use_node_to_node_encryption);
 DECLARE_string(certs_dir);
 DECLARE_bool(node_to_node_encryption_use_client_certificates);
-DECLARE_bool(ysql_forward_rpcs_to_local_tserver);
-DECLARE_bool(use_node_hostname_for_local_tserver);
 DECLARE_int32(backfill_index_client_rpc_timeout_ms);
 
 namespace yb {
 namespace pggate {
-
-using docdb::PrimitiveValue;
-using docdb::KeyEntryType;
-
 namespace {
 
 struct TableHolder {
@@ -187,21 +179,21 @@ class PrecastRequestSender {
  public:
   Result<PgDocResponse> Send(
       PgSession* session, const PgsqlOpPtr* ops, size_t ops_count, const PgTableDesc& table,
-      uint64_t read_time, bool force_non_bufferable) {
+      uint64_t in_txn_limit, bool force_non_bufferable) {
     if (!collecting_mode_) {
       auto future = VERIFY_RESULT(session->RunAsync(
-          ops, ops_count, table, &read_time, force_non_bufferable));
-      return PgDocResponse(std::move(future), read_time);
+          ops, ops_count, table, &in_txn_limit, force_non_bufferable));
+      return PgDocResponse(std::move(future), in_txn_limit);
     }
-    // For now PrecastRequestSender can work with zero read time only.
-    // Zero read time means that current time should be used as read time.
-    RSTATUS_DCHECK(!read_time, IllegalState, "Only zero read time is expected");
+    // For now PrecastRequestSender can work with zero in txn limit only.
+    // Zero read time means that current time should be used as in txn limit.
+    RSTATUS_DCHECK(!in_txn_limit, IllegalState, "Only zero read time is expected");
     for (auto end = ops + ops_count; ops != end; ++ops) {
       ops_.emplace_back(*ops, table);
     }
     if (!provider_state_) {
       provider_state_ = std::make_shared<ResponseProvider::State>(
-          rpc::CallResponsePtr(), 0 /* used_read_time */);
+          rpc::CallResponsePtr(), 0 /* in_txn_limit */);
     }
     return PgDocResponse(std::make_unique<ResponseProvider>(provider_state_));
   }
@@ -228,7 +220,7 @@ class PrecastRequestSender {
           }
           auto& info = *i++;
           return PgSession::TableOperation{.operation = &info.operation, .table = info.table};
-        }), &provider_state_->used_read_time, false /* force_non_bufferable */));
+        }), &provider_state_->in_txn_limit, false /* force_non_bufferable */));
     provider_state_->response = VERIFY_RESULT(perform_future.Get());
     return Status::OK();
   }
@@ -244,13 +236,7 @@ Status FetchExistingYbctids(PgSession::ScopedRefPtr session,
                             const std::unordered_set<PgOid>& region_local_tables) {
   // Group the items by the table ID.
   std::sort(ybctids->begin(), ybctids->end(), [](const auto& a, const auto& b) {
-    // TODO(dmitry): By design it is only necessary to group ybctids by table, sorting of ybctids
-    // itself is not required. But due to problem described in #12648 unsorted ybctids may produce
-    // incomplete result. Remove ybctid comparision once #12648 is fixed.
-    if (a.table_id != b.table_id) {
-      return a.table_id < b.table_id;
-    }
-    return a.ybctid < b.ybctid;
+    return a.table_id < b.table_id;
   });
 
   auto arena = std::make_shared<Arena>();
@@ -259,8 +245,8 @@ Status FetchExistingYbctids(PgSession::ScopedRefPtr session,
   boost::container::small_vector<std::unique_ptr<PgDocReadOp>, 16> doc_ops;
   auto request_sender = [&precast_sender](
       PgSession* session, const PgsqlOpPtr* ops, size_t ops_count, const PgTableDesc& table,
-      uint64_t read_time, bool force_non_bufferable) {
-    return precast_sender.Send(session, ops, ops_count, table, read_time, force_non_bufferable);
+      uint64_t in_txn_limit, bool force_non_bufferable) {
+    return precast_sender.Send(session, ops, ops_count, table, in_txn_limit, force_non_bufferable);
   };
   // Start all the doc_ops to read from docdb in parallel, one doc_op per table ID.
   // Each doc_op will use request_sender to send all the requests with single perform RPC.
@@ -314,7 +300,6 @@ Status FetchExistingYbctids(PgSession::ScopedRefPtr session,
 } // namespace
 
 using std::make_shared;
-using client::YBSession;
 
 //--------------------------------------------------------------------------------------------------
 
@@ -359,6 +344,53 @@ PgApiContext::~PgApiContext() = default;
 
 //--------------------------------------------------------------------------------------------------
 
+// Helper class to shutdown RPC messenger in async-signal-safe manner.
+// On interrupt request class resumes separate thread is async-signal-safe manner to perform
+// non-async-signal-safe messenger shutdown.
+class PgApiImpl::Interrupter {
+ public:
+  explicit Interrupter(rpc::Messenger* messenger)
+      : messenger_(*messenger) {
+  }
+
+  ~Interrupter() {
+    if (thread_) {
+      Interrupt();
+      CHECK_OK(ThreadJoiner(thread_.get()).Join());
+      thread_.reset();
+    }
+  }
+
+  Status Start() {
+    async_.set(loop_);
+    async_.set<Interrupter, &Interrupter::AsyncHandler>(this);
+    async_.start();
+    return yb::Thread::Create(
+        "pgapi interrupter", "pgapi interrupter", &Interrupter::RunThread, this, &thread_);
+  }
+
+  void Interrupt() {
+    async_.send();
+  }
+
+ private:
+  void AsyncHandler(ev::async& async, int events) { // NOLINT
+    messenger_.Shutdown();
+    loop_.break_loop();
+  }
+
+  void RunThread() {
+    loop_.run();
+  }
+
+  rpc::Messenger& messenger_;
+  ev::dynamic_loop loop_;
+  ev::async async_;
+  scoped_refptr<yb::Thread> thread_;
+};
+
+//--------------------------------------------------------------------------------------------------
+
 PgApiImpl::PgApiImpl(
     PgApiContext context, const YBCPgTypeEntity *YBCDataTypeArray, int count,
     YBCPgCallbacks callbacks)
@@ -366,6 +398,7 @@ PgApiImpl::PgApiImpl(
       metric_entity_(std::move(context.metric_entity)),
       mem_tracker_(std::move(context.mem_tracker)),
       messenger_holder_(std::move(context.messenger_holder)),
+      interrupter_(new Interrupter(messenger_holder_.messenger.get())),
       proxy_cache_(std::move(context.proxy_cache)),
       clock_(new server::HybridClock()),
       tserver_shared_object_(InitTServerSharedObject()),
@@ -373,10 +406,7 @@ PgApiImpl::PgApiImpl(
       pg_txn_manager_(
           new PgTxnManager(
               &pg_client_, clock_, tserver_shared_object_.get(), pg_callbacks_)) {
-  if (pg_callbacks_.YbPgMemUpdateMax) {
-    mem_tracker_->AssignUpdateMaxMemFunctor(pg_callbacks_.YbPgMemUpdateMax);
-  }
-
+  CHECK_OK(interrupter_->Start());
   CHECK_OK(clock_->Init());
 
   // Setup type mapping.
@@ -393,9 +423,13 @@ PgApiImpl::PgApiImpl(
 PgApiImpl::~PgApiImpl() {
   mem_contexts_.clear();
   pg_session_.reset();
-  messenger_holder_.messenger->Shutdown();
+  interrupter_.reset();
   pg_txn_manager_.reset();
   pg_client_.Shutdown();
+}
+
+void PgApiImpl::Interrupt() {
+  interrupter_->Interrupt();
 }
 
 const YBCPgTypeEntity *PgApiImpl::FindTypeEntity(int type_oid) {
@@ -408,20 +442,7 @@ const YBCPgTypeEntity *PgApiImpl::FindTypeEntity(int type_oid) {
 
 //--------------------------------------------------------------------------------------------------
 
-Status PgApiImpl::CreateEnv(PgEnv **pg_env) {
-  *pg_env = pg_env_.get();
-  return Status::OK();
-}
-
-Status PgApiImpl::DestroyEnv(PgEnv *pg_env) {
-  pg_env_ = nullptr;
-  return Status::OK();
-}
-
-//--------------------------------------------------------------------------------------------------
-
-Status PgApiImpl::InitSession(const PgEnv *pg_env,
-                              const string& database_name) {
+Status PgApiImpl::InitSession(const string& database_name) {
   CHECK(!pg_session_);
   auto session = make_scoped_refptr<PgSession>(&pg_client_,
                                                database_name,
@@ -1042,21 +1063,28 @@ Status PgApiImpl::DmlAppendTarget(PgStatement *handle, PgExpr *target) {
   return down_cast<PgDml*>(handle)->AppendTarget(target);
 }
 
-Status PgApiImpl::DmlAppendQual(PgStatement *handle, PgExpr *qual) {
-  return down_cast<PgDml*>(handle)->AppendQual(qual);
+Status PgApiImpl::DmlAppendQual(PgStatement *handle, PgExpr *qual, bool is_primary) {
+  return down_cast<PgDml*>(handle)->AppendQual(qual, is_primary);
 }
 
-Status PgApiImpl::DmlAppendColumnRef(PgStatement *handle, PgExpr *colref) {
-  return down_cast<PgDml*>(handle)->AppendColumnRef(colref);
+Status PgApiImpl::DmlAppendColumnRef(PgStatement *handle, PgExpr *colref, bool is_primary) {
+  return down_cast<PgDml*>(handle)->AppendColumnRef(colref, is_primary);
 }
 
 Status PgApiImpl::DmlBindColumn(PgStatement *handle, int attr_num, PgExpr *attr_value) {
   return down_cast<PgDml*>(handle)->BindColumn(attr_num, attr_value);
 }
 
-Status PgApiImpl::DmlBindColumnCondBetween(PgStatement *handle, int attr_num, PgExpr *attr_value,
-    PgExpr *attr_value_end) {
-  return down_cast<PgDmlRead*>(handle)->BindColumnCondBetween(attr_num, attr_value, attr_value_end);
+Status PgApiImpl::DmlBindColumnCondBetween(PgStatement *handle, int attr_num,
+                                           PgExpr *attr_value,
+                                           bool start_inclusive,
+                                           PgExpr *attr_value_end,
+                                           bool end_inclusive) {
+  return down_cast<PgDmlRead*>(handle)->BindColumnCondBetween(attr_num,
+                                                              attr_value,
+                                                              start_inclusive,
+                                                              attr_value_end,
+                                                              end_inclusive);
 }
 
 Status PgApiImpl::DmlBindColumnCondIn(PgStatement *handle, int attr_num, int n_attr_values,
@@ -1141,7 +1169,7 @@ Status PgApiImpl::ProcessYBTupleId(const YBCPgYBTupleIdDescriptor& descr,
         }
 
         if (attr->is_null) {
-          values->emplace_back(KeyEntryType::kNullLow);
+          values->emplace_back(docdb::KeyEntryType::kNullLow);
         } else {
           if (attr->attr_num == to_underlying(PgSystemAttrNum::kYBRowId)) {
             expr_pb->mutable_value()->set_binary_value(pg_session_->GenerateNewRowid());

@@ -10,8 +10,7 @@ menu:
     identifier: ref-postgres-jdbc-driver
     parent: drivers
     weight: 600
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
@@ -36,7 +35,7 @@ The [PostgreSQL JDBC driver](https://jdbc.postgresql.org/) is the official JDBC 
 
 ## Quick Start
 
-Learn how to establish a connection to YugabyteDB database and begin simple CRUD operations using the steps in [Build an Application](/preview/quick-start/build-apps/java/ysql-jdbc) in the Quick Start section.
+Learn how to establish a connection to YugabyteDB database and begin basic CRUD operations using the steps in [Build an Application](/preview/develop/build-apps/java/ysql-jdbc) in the Quick Start section.
 
 ## Download the Driver Dependency
 
@@ -87,7 +86,7 @@ Example JDBC URL for connecting to YugabyteDB can be seen below.
 Connection conn = DriverManager.getConnection("jdbc:postgresql://localhost:5433/yugabyte","yugabyte", "yugabyte");
 ```
 
-| JDBC Params | Description | Default |
+| JDBC Parameters | Description | Default |
 | :---------- | :---------- | :------ |
 | hostname  | hostname of the YugabyteDB instance | localhost
 | port |  Listen port for YSQL | 5433
@@ -199,7 +198,7 @@ Example JDBC URL for connecting to a secure YugabyteDB cluster can be seen below
 Connection conn = DriverManager.getConnection(jdbc:postgresql://localhost:5433/yugabyte?ssl=true&sslmode=verify-full&sslrootcert=~/.postgresql/root.crt", "yugabyte", "yugabyte");
 ```
 
-| JDBC Params | Description | Default |
+| JDBC Parameters | Description | Default |
 | :---------- | :---------- | :------ |
 | ssl  | Enable SSL JDBC Connection | false
 | ssl-mode |  SSL mode used for JDBC Connection | require
@@ -256,7 +255,7 @@ Example JDBC URL for connecting to Secure YugabyteDB cluster can be seen below.
 Connection conn = DriverManager.getConnection(jdbc:postgresql://localhost:5433/yugabyte?ssl=true&sslmode=verify-full&sslcert=src/main/resources/ssl/yugabytedb.crt.der&sslkey=src/main/resources/ssl/yugabytedb.key.pk8", "yugabyte", "yugabyte");
 ```
 
-| JDBC Params | Description | Default |
+| JDBC Parameters | Description | Default |
 | :---------- | :---------- | :------ |
 | ssl  | Enable SSL JDBC Connection | false
 | ssl-mode |  SSL mode used for JDBC Connection | require
@@ -276,7 +275,7 @@ Connection conn = DriverManager.getConnection("jdbc:postgresql://localhost:5433/
 conn.setAutoCommit(false);
 Statement stmt = conn.createStatement();
 try {
-  
+
   PreparedStatement pstmt = connection.prepareStatement("INSERT INTO employees (id, name, age, language) VALUES (?, ?, ?, ?)");
   pstmt.setInt(1, 1);
   pstmt.setString(2, "John");

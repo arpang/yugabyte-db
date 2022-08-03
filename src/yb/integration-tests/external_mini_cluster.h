@@ -29,8 +29,8 @@
 // or implied.  See the License for the specific language governing permissions and limitations
 // under the License.
 //
-#ifndef YB_INTEGRATION_TESTS_EXTERNAL_MINI_CLUSTER_H_
-#define YB_INTEGRATION_TESTS_EXTERNAL_MINI_CLUSTER_H_
+
+#pragma once
 
 #include <string.h>
 #include <sys/types.h>
@@ -305,6 +305,12 @@ class ExternalMiniCluster : public MiniClusterBase {
   // This API waits for the commit indices of all the master peers to reach the target index.
   Status WaitForMastersToCommitUpTo(int64_t target_index);
 
+  Status WaitForAllIntentsApplied(const MonoDelta& timeout);
+
+  Status WaitForAllIntentsApplied(ExternalTabletServer* ts, const MonoDelta& timeout);
+
+  Status WaitForAllIntentsApplied(ExternalTabletServer* ts, const MonoTime& deadline);
+
   // If this cluster is configured for a single non-distributed master, return the single master or
   // NULL if the master is not started. Exits with a CHECK failure if there are multiple masters.
   ExternalMaster* master() const;
@@ -463,6 +469,14 @@ class ExternalMiniCluster : public MiniClusterBase {
 
   Status WaitForMasterToMarkTSDead(
       int ts_idx, MonoDelta deadline = MonoDelta::FromSeconds(120) * kTimeMultiplier);
+
+  // Return a pointer to the flags used for master.  Modifying these flags will only
+  // take effect on new master creation.
+  std::vector<std::string>* mutable_extra_master_flags() { return &opts_.extra_master_flags; }
+
+  // Return a pointer to the flags used for tserver.  Modifying these flags will only
+  // take effect on new tserver creation.
+  std::vector<std::string>* mutable_extra_tserver_flags() { return &opts_.extra_tserver_flags; }
 
  protected:
   FRIEND_TEST(MasterFailoverTest, TestKillAnyMaster);
@@ -854,5 +868,6 @@ T ExternalMiniCluster::GetProxy(ExternalDaemon* daemon) {
 
 Status RestartAllMasters(ExternalMiniCluster* cluster);
 
+Status CompactTablets(ExternalMiniCluster* cluster);
+
 }  // namespace yb
-#endif  // YB_INTEGRATION_TESTS_EXTERNAL_MINI_CLUSTER_H_

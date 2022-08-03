@@ -16,6 +16,7 @@ import com.yugabyte.yw.models.Customer;
 import com.yugabyte.yw.models.Universe;
 import com.yugabyte.yw.models.helpers.NodeDetails;
 import io.swagger.annotations.ApiModel;
+import java.io.File;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.InetAddress;
@@ -24,6 +25,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -50,6 +52,7 @@ public class Util {
   public static final Logger LOG = LoggerFactory.getLogger(Util.class);
   private static final Map<UUID, Process> processMap = new ConcurrentHashMap<>();
 
+  public static final String YSQL_PASSWORD_KEYWORD = "PASSWORD";
   public static final String DEFAULT_YSQL_USERNAME = "yugabyte";
   public static final String DEFAULT_YSQL_PASSWORD = "yugabyte";
   public static final String DEFAULT_YSQL_ADMIN_ROLE_NAME = "yb_superuser";
@@ -99,6 +102,11 @@ public class Util {
     String regex = "(.)" + "{" + length + "}";
     String output = input.replaceAll(regex, REDACT);
     return output;
+  }
+
+  public static String redactYsqlQuery(String input) {
+    return input.replaceAll(
+        YSQL_PASSWORD_KEYWORD + " (.+?)';", String.format("%s %s;", YSQL_PASSWORD_KEYWORD, REDACT));
   }
 
   /**
@@ -373,10 +381,17 @@ public class Util {
     return details;
   }
 
+  // Wrapper on the existing compareYbVersions() method (to specify if format error
+  // should be suppressed)
+  public static int compareYbVersions(String v1, String v2) {
+
+    return compareYbVersions(v1, v2, false);
+  }
+
   // Compare v1 and v2 Strings. Returns 0 if the versions are equal, a
   // positive integer if v1 is newer than v2, a negative integer if v1
   // is older than v2.
-  public static int compareYbVersions(String v1, String v2) {
+  public static int compareYbVersions(String v1, String v2, boolean suppressFormatError) {
     Pattern versionPattern = Pattern.compile("^(\\d+.\\d+.\\d+.\\d+)(-(b(\\d+)|(\\w+)))?$");
     Matcher v1Matcher = versionPattern.matcher(v1);
     Matcher v2Matcher = versionPattern.matcher(v2);
@@ -403,6 +418,25 @@ public class Util {
         int b = Integer.parseInt(v2BuildNumber);
         return a - b;
       }
+
+      return 0;
+    }
+
+    if (suppressFormatError) {
+
+      // If suppressFormat Error is true and the YB version strings
+      // are unable to be parsed, we output the log for debugging purposes
+      // and simply consider the versions as equal (similar to the custom
+      // build logic above).
+
+      String msg =
+          String.format(
+              "At least one YB version string out of %s and %s is unable to be parsed."
+                  + " The two versions are treated as equal because"
+                  + " suppressFormatError is set to true.",
+              v1, v2);
+
+      LOG.info(msg);
 
       return 0;
     }
@@ -568,5 +602,14 @@ public class Util {
   public static boolean isTimeExpired(Date date) {
     Date currentTime = new Date();
     return currentTime.compareTo(date) >= 0 ? true : false;
+  }
+
+  public static synchronized Path getOrCreateDir(Path dirPath) {
+    // Parent of path ending with a path component separator is the path itself.
+    File dir = dirPath.toFile();
+    if (!dir.exists() && !dir.mkdirs() && !dir.exists()) {
+      throw new RuntimeException("Failed to create " + dirPath);
+    }
+    return dirPath;
   }
 }

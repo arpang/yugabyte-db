@@ -305,13 +305,13 @@ public class Backup extends Model {
       for (BackupTableParams childBackup : params.backupList) {
         childBackup.backupUuid = backup.backupUUID;
         if (childBackup.storageLocation == null) {
-          BackupUtil.updateDefaultStorageLocation(childBackup, customerUUID);
+          BackupUtil.updateDefaultStorageLocation(childBackup, customerUUID, backup.category);
         }
       }
     } else if (params.storageLocation == null) {
       params.backupUuid = backup.backupUUID;
       // We would derive the storage location based on the parameters
-      BackupUtil.updateDefaultStorageLocation(params, customerUUID);
+      BackupUtil.updateDefaultStorageLocation(params, customerUUID, backup.category);
     }
     CustomerConfig storageConfig = CustomerConfig.get(customerUUID, params.storageConfigUUID);
     if (storageConfig != null) {
@@ -397,6 +397,18 @@ public class Backup extends Model {
 
   public static List<Backup> fetchAllBackupsByTaskUUID(UUID taskUUID) {
     return Backup.find.query().where().eq("task_uuid", taskUUID).findList();
+  }
+
+  public static Optional<Backup> fetchLatestByState(UUID customerUuid, BackupState state) {
+    return Backup.find
+        .query()
+        .where()
+        .eq("customer_uuid", customerUuid)
+        .eq("state", state)
+        .orderBy("create_time DESC")
+        .findList()
+        .stream()
+        .findFirst();
   }
 
   public static Map<Customer, List<Backup>> getExpiredBackups() {

@@ -13,6 +13,7 @@ import com.yugabyte.yw.commissioner.SetUniverseKey;
 import com.yugabyte.yw.commissioner.SupportBundleCleanup;
 import com.yugabyte.yw.commissioner.TaskExecutor;
 import com.yugabyte.yw.commissioner.TaskGarbageCollector;
+import com.yugabyte.yw.common.AccessKeyRotationUtil;
 import com.yugabyte.yw.common.AccessManager;
 import com.yugabyte.yw.common.AlertManager;
 import com.yugabyte.yw.common.ConfigHelper;
@@ -42,6 +43,7 @@ import com.yugabyte.yw.common.ha.PlatformReplicationHelper;
 import com.yugabyte.yw.common.ha.PlatformReplicationManager;
 import com.yugabyte.yw.common.kms.EncryptionAtRestManager;
 import com.yugabyte.yw.common.kms.util.EncryptionAtRestUniverseKeyCache;
+import com.yugabyte.yw.common.kms.util.GcpEARServiceUtil;
 import com.yugabyte.yw.common.metrics.PlatformMetricsProcessor;
 import com.yugabyte.yw.common.services.LocalYBClientService;
 import com.yugabyte.yw.common.services.YBClientService;
@@ -140,6 +142,8 @@ public class Module extends AbstractModule {
       bind(SupportBundleUtil.class).asEagerSingleton();
       bind(MetricGrafanaController.class).asEagerSingleton();
       bind(PlatformScheduler.class).asEagerSingleton();
+      bind(AccessKeyRotationUtil.class).asEagerSingleton();
+      bind(GcpEARServiceUtil.class).asEagerSingleton();
     }
   }
 

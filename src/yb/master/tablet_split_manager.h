@@ -39,7 +39,7 @@ class TabletSplitManager {
   // not running (to ensure that no splits are started immediately after returning).
   // This function should eventually return true if called repeatedly after temporarily disabling
   // splitting for the table.
-  bool IsTabletSplittingComplete(const TableInfo& table);
+  bool IsTabletSplittingComplete(const TableInfo& table, bool wait_for_parent_deletion);
 
   // Perform one round of tablet splitting. This method is not thread-safe.
   void MaybeDoSplitting(const TableInfoMap& table_info_map, const TabletInfoMap& tablet_info_map);
@@ -58,6 +58,7 @@ class TabletSplitManager {
   // ineligible by default.
   Status ValidateSplitCandidateTablet(
       const TabletInfo& tablet,
+      const TabletInfoPtr parent,
       IgnoreTtlValidation ignore_ttl_validation = IgnoreTtlValidation::kFalse,
       IgnoreDisabledList ignore_disabled_list = IgnoreDisabledList::kFalse);
 
@@ -79,9 +80,9 @@ class TabletSplitManager {
 
   void DoSplitting(const TableInfoMap& table_info_map, const TabletInfoMap& tablet_info_map);
 
-  Status ValidateIndexTablePartitioning(const TableInfo& table);
   Status ValidateTableAgainstDisabledLists(const TableId& table_id);
   Status ValidateTabletAgainstDisabledList(const TabletId& tablet_id);
+  Status ValidatePartitioningVersion(const TableInfo& table);
 
   TabletSplitCandidateFilterIf* filter_;
   TabletSplitDriverIf* driver_;

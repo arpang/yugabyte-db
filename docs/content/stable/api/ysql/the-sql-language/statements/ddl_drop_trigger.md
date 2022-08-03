@@ -7,8 +7,7 @@ menu:
   stable:
     identifier: ddl_drop_trigger
     parent: statements
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 ## Synopsis
@@ -57,5 +56,5 @@ DROP TRIGGER update_moddatetime ON posts;
 
 - [`CREATE TRIGGER`](../ddl_create_trigger)
 - [`INSERT`](../dml_insert)
-- [`UPDATE`](../dml_update)
-- [`DELETE`](../dml_delete)
+- [`UPDATE`](../dml_update/)
+- [`DELETE`](../dml_delete/)

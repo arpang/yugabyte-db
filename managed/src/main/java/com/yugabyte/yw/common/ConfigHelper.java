@@ -7,7 +7,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
-import com.typesafe.config.Config;
 import com.yugabyte.yw.commissioner.Common;
 import com.yugabyte.yw.common.config.RuntimeConfigFactory;
 import com.yugabyte.yw.models.YugawareProperty;
@@ -66,6 +65,7 @@ public class ConfigHelper {
     DockerRegionMetadata("Docker Region Metadata", "configs/docker-region-metadata.yml"),
     DockerInstanceTypeMetadata(null, "configs/docker-instance-type-metadata.yml"),
     SoftwareReleases("Software Releases"),
+    YbcSoftwareReleases("Ybc Software Releases"),
     SoftwareVersion("Software Version"),
     YugawareMetadata("Yugaware Metadata"),
     Security("Security Level");
@@ -104,7 +104,8 @@ public class ConfigHelper {
     return type.getRegionMetadataConfigType().map(this::getConfig).orElse(Collections.emptyMap());
   }
 
-  public void loadSoftwareVersiontoDB(Application app) {
+  public static String getCurrentVersion(Application app) {
+
     String configFile = "version_metadata.json";
     InputStream inputStream = app.resourceAsStream(configFile);
     if (inputStream == null) { // version_metadata.json not found
@@ -113,8 +114,7 @@ public class ConfigHelper {
           FilenameUtils.getName(configFile));
       Yaml yaml = new Yaml(new CustomClassLoaderConstructor(app.classloader()));
       String version = yaml.load(app.resourceAsStream("version.txt"));
-      loadConfigToDB(ConfigType.SoftwareVersion, ImmutableMap.of("version", version));
-      return;
+      return version;
     }
     JsonNode jsonNode = Json.parse(inputStream);
     String buildNumber = jsonNode.get("build_number").asText();
@@ -123,6 +123,12 @@ public class ConfigHelper {
             + "-"
             + (NumberUtils.isDigits(buildNumber) ? "b" : "")
             + buildNumber;
+
+    return version;
+  }
+
+  public void loadSoftwareVersiontoDB(Application app) {
+    String version = getCurrentVersion(app);
     loadConfigToDB(ConfigType.SoftwareVersion, ImmutableMap.of("version", version));
 
     // TODO: Version added to Yugaware metadata, now slowly decomission SoftwareVersion property

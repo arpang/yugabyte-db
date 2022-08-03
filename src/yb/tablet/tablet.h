@@ -46,6 +46,7 @@
 #include "yb/docdb/docdb_types.h"
 #include "yb/docdb/key_bounds.h"
 #include "yb/docdb/shared_lock_manager.h"
+#include "yb/docdb/wait_queue.h"
 
 #include "yb/gutil/ref_counted.h"
 
@@ -427,6 +428,8 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
   // Apply replicated add table operation.
   Status AddTable(const TableInfoPB& table_info);
 
+  Status AddMultipleTables(const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos);
+
   // Apply replicated remove table operation.
   Status RemoveTable(const std::string& table_id);
 
@@ -448,6 +451,8 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
   MvccManager* mvcc_manager() { return &mvcc_; }
 
   docdb::SharedLockManager* shared_lock_manager() { return &shared_lock_manager_; }
+
+  docdb::WaitQueue* wait_queue() { return wait_queue_.get(); }
 
   std::atomic<int64_t>* monotonic_counter() { return &monotonic_counter_; }
 
@@ -827,6 +832,8 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
 
   const docdb::SchemaPackingStorage& PrimarySchemaPackingStorage();
 
+  Status AddTableInMemory(const TableInfoPB& table_info);
+
   std::unique_ptr<const Schema> key_schema_;
 
   RaftGroupMetadataPtr metadata_;
@@ -1006,6 +1013,8 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
       GUARDED_BY(num_sst_files_changed_listener_mutex_);
 
   std::shared_ptr<TabletRetentionPolicy> retention_policy_;
+
+  std::unique_ptr<docdb::WaitQueue> wait_queue_;
 
   // Thread pool token for manually triggering compactions for tablets created from a split. This
   // member is set when a post-split compaction is triggered on this tablet as the result of a call

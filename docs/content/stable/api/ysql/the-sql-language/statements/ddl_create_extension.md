@@ -8,8 +8,7 @@ menu:
   stable:
     identifier: ddl_create_extension
     parent: statements
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 ## Synopsis
@@ -53,7 +52,7 @@ CREATE SCHEMA myschema;
 CREATE EXTENSION pgcrypto WITH SCHEMA myschema VERSION '1.3';
 ```
 
-```
+```output
 CREATE EXTENSION
 ```
 
@@ -61,12 +60,12 @@ CREATE EXTENSION
 CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE;
 ```
 
-```
+```output
 NOTICE:  installing required extension "cube"
 CREATE EXTENSION
 ```
 
 ## See also
 
-- [Extensions page](../../../extensions)
-- [`DROP EXTENSION`](../ddl_drop_extension)
+- [PostgreSQL Extensions](../../../../../explore/ysql-language-features/pg-extensions/)
+- [DROP EXTENSION](../ddl_drop_extension)

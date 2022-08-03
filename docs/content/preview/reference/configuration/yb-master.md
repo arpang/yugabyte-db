@@ -11,8 +11,7 @@ menu:
 aliases:
   - /preview/admin/yb-master
   - /preview/deploy/reference/configuration/yb-master
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 Use the `yb-master` binary and its flags to configure the [YB-Master](../../../architecture/concepts/yb-master/) server. The `yb-master` executable file is located in the `bin` directory of YugabyteDB home.
@@ -184,11 +183,11 @@ Default: `""`
 
 {{< note title="Note" >}}
 
-Ensure that `enable_ysql` in `yb-master` configurations match the values in `yb-tserver` configurations.
+Ensure that `enable_ysql` values in `yb-master` configurations match the values in `yb-tserver` configurations.
 
 {{< /note >}}
 
-Enables the YSQL API when value is `true`. Replaces the deprecated `--start_pgsql_proxy` flag.
+Enables the YSQL API when value is `true`.
 
 Default: `true`
 

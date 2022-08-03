@@ -4,14 +4,12 @@ headerTitle: Find the right page or section
 linkTitle: Docs layout
 description: Find the right location in the YugabyteDB docs
 image: /images/section_icons/index/quick_start.png
-type: page
 menu:
   preview:
     identifier: docs-layout
     parent: docs
     weight: 2912
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 The YugabyteDB docs are divided into several sections:
@@ -39,8 +37,8 @@ Reference docs should be comprehensive and, above all, accurate. This applies to
 
 Here are some examples of reference docs in our documentation:
 
-* [Replication in DocDB](https://docs.yugabyte.com/preview/architecture/docdb-replication/replication/)
-* SQL reference sample: [CREATE TABLE [YSQL]](https://docs.yugabyte.com/preview/api/ysql/the-sql-language/statements/ddl_create_table/)
+* [Replication in DocDB](/preview/architecture/docdb-replication/replication/)
+* SQL reference sample: [CREATE TABLE [YSQL]](/preview/api/ysql/the-sql-language/statements/ddl_create_table/)
 
 ### Design docs on GitHub
 

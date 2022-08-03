@@ -24,9 +24,11 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +70,21 @@ public class AccessKeyController extends AuthenticatedController {
   }
 
   @ApiOperation(
+      value = "List access keys for all providers of a customer",
+      response = AccessKey.class,
+      responseContainer = "List")
+  public Result listAllForProviders(UUID customerUUID) {
+    Customer.getOrBadRequest(customerUUID);
+    List<UUID> providerUUIDs =
+        Provider.getAll(customerUUID)
+            .stream()
+            .map(provider -> provider.uuid)
+            .collect(Collectors.toList());
+    List<AccessKey> accessKeys = AccessKey.getByProviderUuids(providerUUIDs);
+    return PlatformResults.withData(accessKeys);
+  }
+
+  @ApiOperation(
       nickname = "create_accesskey",
       value = "Create an access key",
       response = AccessKey.class)
@@ -91,6 +108,7 @@ public class AccessKeyController extends AuthenticatedController {
     boolean installNodeExporter = formData.installNodeExporter;
     Integer nodeExporterPort = formData.nodeExporterPort;
     String nodeExporterUser = formData.nodeExporterUser;
+    Integer expirationThresholdDays = formData.expirationThresholdDays;
     AccessKey accessKey;
 
     LOG.info(
@@ -183,6 +201,11 @@ public class AccessKeyController extends AuthenticatedController {
           setUpChrony,
           ntpServers);
     }
+
+    if (expirationThresholdDays != null) {
+      accessKey.updateExpirationDate(expirationThresholdDays);
+    }
+
     auditService()
         .createAuditEntryWithReqBody(
             ctx(),

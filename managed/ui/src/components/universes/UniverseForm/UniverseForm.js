@@ -245,6 +245,8 @@ class UniverseForm extends Component {
       });
     }
     universeTaskParams.clusterOperation = isEdit ? 'EDIT' : 'CREATE';
+    universeTaskParams.enableYbc = this.props.featureFlags.test['enableYbc'] || this.props.featureFlags.released['enableYbc']
+    universeTaskParams.ybcSoftwareVersion = ""
   };
 
   createUniverse = () => {
@@ -322,23 +324,28 @@ class UniverseForm extends Component {
   // For Async clusters, we need to fetch the universe name from the
   // primary cluster metadata
   getUniverseName = () => {
-    const { formValues, universe } = this.props;
-
-    if (isNonEmptyObject(formValues['primary'])) {
-      return formValues['primary'].universeName;
-    }
-
     const {
-      currentUniverse: {
-        data: { universeDetails }
+      formValues,
+      universe: {
+        currentUniverse: {
+          data: { universeDetails }
+        }
       }
-    } = universe;
-    if (isNonEmptyObject(universeDetails)) {
-      const primaryCluster = getPrimaryCluster(universeDetails.clusters);
-      return primaryCluster.userIntent.universeName;
-    }
-    // We shouldn't get here!!!
-    return null;
+    } = this.props;
+
+    const primaryCluster = getPrimaryCluster(universeDetails?.clusters);
+    const readOnlyCluster = getReadOnlyCluster(universeDetails?.clusters);
+
+    // Universe name should be the same between primary and read only.
+    // Read only cluster fields being used as a fallback in case
+    // primary cluster doesn't have universeName.
+    return (
+      formValues['primary']?.universeName ||
+      formValues['async']?.universeName ||
+      primaryCluster?.userIntent?.universeName ||
+      readOnlyCluster?.userIntent?.universeName ||
+      ''
+    );
   };
 
   getYSQLstate = (clusterType) => {
@@ -380,6 +387,46 @@ class UniverseForm extends Component {
     // We shouldn't get here!!!
     return null;
   };
+
+  getCurrentCluster = () => {
+    const {
+      universe
+    } = this.props;
+    return this.state.currentView === 'Primary'
+      ? getPrimaryCluster(universe.currentUniverse.data.universeDetails.clusters)
+      : getReadOnlyCluster(universe.currentUniverse.data.universeDetails.clusters);
+  }
+
+  getNewCluster = () => {
+    const {
+      universe: { universeConfigTemplate },
+    } = this.props;
+    return this.state.currentView === 'Primary'
+           ? getPrimaryCluster(universeConfigTemplate.data.clusters)
+           : getReadOnlyCluster(universeConfigTemplate.data.clusters);
+  }
+
+  isResizePossible = () => {
+    const {
+      universe: { universeConfigTemplate },
+    } = this.props;
+    if (getPromiseState(universeConfigTemplate).isSuccess() &&
+        this.state.currentView === 'Primary' &&
+        universeConfigTemplate.data.nodesResizeAvailable) {
+      const currentCluster = this.getCurrentCluster();
+      const newCluster = this.getNewCluster();
+      if (currentCluster && newCluster) {
+        const oldVolumeSize = currentCluster.userIntent.deviceInfo.volumeSize;
+        const newVolumeSize = newCluster.userIntent.deviceInfo.volumeSize;
+        const instanceChanged = newCluster.userIntent.instanceType !== currentCluster.userIntent
+            .instanceType;
+        return newVolumeSize > oldVolumeSize
+               || (instanceChanged && oldVolumeSize === newVolumeSize);
+      }
+      return false;
+    }
+    return false;
+  }
 
   getYEDISstate = (clusterType) => {
     const { formValues, universe } = this.props;
@@ -707,17 +754,7 @@ class UniverseForm extends Component {
       );
     }
 
-    const selectedProviderUUID = this.props?.formValues?.primary?.provider;
-    const selectedProvider = this.props?.cloud?.providers?.data?.find(
-      (provider) => provider.uuid === selectedProviderUUID
-    );
-
-    if (
-      this.state.currentView === 'Primary' &&
-      type !== 'Edit' &&
-      type !== 'Async' &&
-      (selectedProvider === undefined || selectedProvider?.code !== 'kubernetes')
-    ) {
+    if (this.state.currentView === 'Primary' && type !== 'Edit' && type !== 'Async') {
       asyncReplicaBtn = (
         <YBButton
           btnClass="btn btn-default universe-form-submit-btn"
@@ -776,10 +813,7 @@ class UniverseForm extends Component {
         )
       : [];
 
-    const resizePossible =
-      getPromiseState(universeConfigTemplate).isSuccess() &&
-      this.state.currentView === 'Primary' &&
-      universeConfigTemplate.data.nodesResizeAvailable;
+    const resizePossible = this.isResizePossible();
 
     const existingNodeRemains =
       existingPrimaryNodes.length &&

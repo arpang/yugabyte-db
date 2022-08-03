@@ -8,8 +8,7 @@ menu:
     identifier: yb-tserver
     parent: configuration
     weight: 2440
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 Use the `yb-tserver` binary and its flags to configure the [YB-TServer](../../../architecture/concepts/yb-tserver/) server. The `yb-tserver` executable file is located in the `bin` directory of YugabyteDB home.
@@ -26,7 +25,7 @@ yb-tserver [ flags ]
 $ ./bin/yb-tserver \
 --tserver_master_addrs 172.151.17.130:7100,172.151.17.220:7100,172.151.17.140:7100 \
 --rpc_bind_addresses 172.151.17.130 \
---start_pgsql_proxy \
+--enable_ysql \
 --fs_data_dirs "/home/centos/disk1,/home/centos/disk2" &
 ```
 
@@ -403,7 +402,7 @@ The following flags support the use of the [YSQL API](../../../api/ysql/).
 
 ##### --enable_ysql
 
-Enables the YSQL API. Replaces the deprecated `--start_pgsql_proxy` flag.
+Enables the YSQL API.
 
 Default: `true`
 

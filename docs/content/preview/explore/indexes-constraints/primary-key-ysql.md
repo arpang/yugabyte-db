@@ -8,12 +8,11 @@ menu:
     identifier: primary-key-ysql
     parent: explore-indexes-constraints
     weight: 200
-isTocNested: true
-showAsideToc: true
 aliases:
-   - /preview/explore/ysql-language-features/constraints/
-   - /preview/explore/indexes-constraints/constraints/
-   - /preview/explore/indexes-constraints/indexes-1/
+  - /preview/explore/ysql-language-features/constraints/
+  - /preview/explore/indexes-constraints/constraints/
+  - /preview/explore/indexes-constraints/indexes-1/
+type: docs
 ---
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
@@ -36,11 +35,7 @@ The Primary Key constraint is a means to uniquely identify a specific row in a t
 
 ## Syntax and examples
 
-To run the examples, do the following:
-
-- For local clusters, follow the steps in [Quick Start](../../../quick-start/) to install YugabyteDB, and use the [YSQL shell](../../../admin/ysqlsh/).
-
-- For YugabyteDB Managed, create a cluster and [connect using cloud shell](../../../yugabyte-cloud/cloud-connect/connect-cloud-shell/).
+Create a cluster [locally](../../../quick-start/) or in [YugabyteDB Managed](../../../yugabyte-cloud/cloud-basics/create-clusters-free/) and connect to the cluster using [ysqlsh](../../../admin/ysqlsh/) for local clusters, or [using cloud shell](../../../yugabyte-cloud/cloud-connect/connect-cloud-shell/) for YugabyteDB Managed.
 
 ### Primary key for a single column
 

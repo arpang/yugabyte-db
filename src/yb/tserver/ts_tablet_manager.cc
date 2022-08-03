@@ -167,8 +167,16 @@ DEFINE_test_flag(uint64, crash_if_remote_bootstrap_sessions_per_table_greater_th
                  "If greater than zero, this process will crash if for any table we exceed the "
                  "specified number of remote bootstrap sessions");
 
+DEFINE_test_flag(bool, crash_after_tablet_split_completed, false,
+                 "Crash inside TSTabletManager::ApplyTabletSplit after tablet "
+                 "being marked as TABLET_DATA_SPLIT_COMPLETED.");
+
 DEFINE_test_flag(bool, crash_before_apply_tablet_split_op, false,
-                 "Crash inside TSTabletManager::ApplyTabletSplit before doing anything");
+                 "Crash inside TSTabletManager::ApplyTabletSplit before doing anything.");
+
+DEFINE_test_flag(bool, crash_before_source_tablet_mark_split_done, false,
+                 "Crash inside TSTabletManager::ApplyTabletSplit before tablet "
+                 "being marked TABLET_DATA_SPLIT_COMPLETED.");
 
 DEFINE_test_flag(bool, force_single_tablet_failure, false,
                  "Force exactly one tablet to a failed state.");
@@ -860,9 +868,14 @@ Status TSTabletManager::ApplyTabletSplit(
   MAYBE_FAULT(FLAGS_TEST_fault_crash_in_split_before_log_flushed);
   TEST_PAUSE_IF_FLAG(TEST_pause_apply_tablet_split);
 
-  RETURN_NOT_OK(raft_log->FlushIndex());
-
   auto& meta = *CHECK_NOTNULL(tablet->metadata());
+
+  if (meta.tablet_data_state() == TABLET_DATA_SPLIT_COMPLETED) {
+    LOG_WITH_PREFIX(INFO) << "Tablet " << tablet_id
+                          << " split operation has been trivially applied, "
+                          << "because tablet is already in TABLET_DATA_SPLIT_COMPLETED state";
+    return Status::OK();
+  }
 
   // TODO(tsplit): We can later implement better per-disk distribution during compaction of split
   // tablets.
@@ -934,10 +947,18 @@ Status TSTabletManager::ApplyTabletSplit(
     RETURN_NOT_OK(tcmeta.raft_group_metadata->Flush());
   }
 
+  if (PREDICT_FALSE(FLAGS_TEST_crash_before_source_tablet_mark_split_done)) {
+    LOG(FATAL) << "Crashing due to FLAGS_TEST_crash_before_source_tablet_mark_split_done";
+  }
+
   meta.SetSplitDone(split_op_id, request->new_tablet1_id(), request->new_tablet2_id());
   RETURN_NOT_OK(meta.Flush());
 
   tablet->SplitDone();
+
+  if (PREDICT_FALSE(FLAGS_TEST_crash_after_tablet_split_completed)) {
+    LOG(FATAL) << "Crashing due to FLAGS_TEST_crash_after_tablet_split_completed";
+  }
 
   for (auto& tcmeta : tcmetas) {
     // Call CreatePeerAndOpenTablet asynchronously to avoid write-locking TSTabletManager::mutex_

@@ -1072,6 +1072,35 @@ Status ExternalMiniCluster::WaitForMastersToCommitUpTo(int64_t target_index) {
   }
 }
 
+Status ExternalMiniCluster::WaitForAllIntentsApplied(const MonoDelta& timeout) {
+  auto deadline = MonoTime::Now() + timeout;
+  for (const auto& ts : tablet_servers_) {
+    RETURN_NOT_OK(WaitForAllIntentsApplied(ts.get(), deadline));
+  }
+  return Status::OK();
+}
+
+Status ExternalMiniCluster::WaitForAllIntentsApplied(
+    ExternalTabletServer* ts, const MonoDelta& timeout) {
+  return WaitForAllIntentsApplied(ts, MonoTime::Now() + timeout);
+}
+
+
+Status ExternalMiniCluster::WaitForAllIntentsApplied(
+    ExternalTabletServer* ts, const MonoTime& deadline) {
+  auto proxy = GetProxy<tserver::TabletServerAdminServiceProxy>(ts);
+  return Wait(
+      [proxy, &deadline]() -> Result<bool> {
+        tserver::CountIntentsRequestPB req;
+        tserver::CountIntentsResponsePB resp;
+        rpc::RpcController rpc;
+        rpc.set_deadline(deadline);
+        RETURN_NOT_OK(proxy.CountIntents(req, &resp, &rpc));
+        return resp.num_intents() == 0;
+      },
+      deadline, Format("Waiting for all intents to be applied at tserver $0", ts->uuid()));
+}
+
 Status ExternalMiniCluster::GetIsMasterLeaderServiceReady(ExternalMaster* master) {
   IsMasterLeaderReadyRequestPB req;
   IsMasterLeaderReadyResponsePB resp;
@@ -2706,6 +2735,34 @@ Status RestartAllMasters(ExternalMiniCluster* cluster) {
   }
   for (size_t i = 0; i != cluster->num_masters(); ++i) {
     RETURN_NOT_OK(cluster->master(i)->Restart());
+  }
+
+  return Status::OK();
+}
+
+Status CompactTablets(ExternalMiniCluster* cluster) {
+  for (auto* daemon : cluster->master_daemons()) {
+    master::CompactSysCatalogRequestPB req;
+    master::CompactSysCatalogResponsePB resp;
+    rpc::RpcController controller;
+    controller.set_timeout(60s * kTimeMultiplier);
+
+    auto proxy = cluster->GetProxy<master::MasterAdminProxy>(daemon);
+    RETURN_NOT_OK(proxy.CompactSysCatalog(req, &resp, &controller));
+  }
+
+  for (auto* daemon : cluster->tserver_daemons()) {
+    tserver::FlushTabletsRequestPB req;
+    tserver::FlushTabletsResponsePB resp;
+    rpc::RpcController controller;
+    controller.set_timeout(10s * kTimeMultiplier);
+
+    req.set_dest_uuid(daemon->uuid());
+    req.set_operation(tserver::FlushTabletsRequestPB::COMPACT);
+    req.set_all_tablets(true);
+
+    auto proxy = cluster->GetProxy<tserver::TabletServerAdminServiceProxy>(daemon);
+    RETURN_NOT_OK(proxy.FlushTablets(req, &resp, &controller));
   }
 
   return Status::OK();

@@ -2,13 +2,12 @@
 title: Django REST framework
 linkTitle: Django REST framework
 description: Django REST framework
-section: INTEGRATIONS
 menu:
   preview:
     identifier: django-rest-framework
+    parent: integrations
     weight: 571
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 This document describes how to use [Django REST framework](https://www.django-rest-framework.org/), an ORM library in Python, with YugabyteDB.
@@ -17,8 +16,7 @@ This document describes how to use [Django REST framework](https://www.django-re
 
 Before you can start using Django, ensure that you have the following installed and configured:
 
-- YugabyteDB version 2.7 or later. (See [YugabyteDB Quick Start Guide](../../quick-start/))
-- YugabyteDB single node cluster. (See [Create a local cluster](../../quick-start/create-local-cluster/))
+- YugabyteDB version 2.7 or later. (See [Quick Start](../../quick-start/))
 - [Python3](https://www.python.org/downloads/).
 - [Django backend for YugabyteDB](https://github.com/yugabyte/yb-django).
 - Django REST framework by executing the following command:

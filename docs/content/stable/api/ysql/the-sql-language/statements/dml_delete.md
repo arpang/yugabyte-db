@@ -7,8 +7,7 @@ menu:
   stable:
     identifier: dml_delete
     parent: statements
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 ## Synopsis
@@ -125,5 +124,5 @@ DELETE 1
 ## See also
 
 - [`INSERT`](../dml_insert)
-- [`SELECT`](../dml_select)
-- [`UPDATE`](../dml_update)
+- [`SELECT`](../dml_select/)
+- [`UPDATE`](../dml_update/)

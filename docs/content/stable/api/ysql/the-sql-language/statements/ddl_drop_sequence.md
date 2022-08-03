@@ -7,8 +7,7 @@ menu:
   stable:
     identifier: ddl_drop_sequence
     parent: statements
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 ## Synopsis
@@ -124,3 +123,4 @@ DROP SEQUENCE
 - [`lastval()`](../../../exprs/func_lastval)
 - [`nextval()`](../../../exprs/func_nextval)
 - [`setval()`](../../../exprs/func_setval)
+-

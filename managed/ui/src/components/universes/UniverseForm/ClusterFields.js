@@ -112,6 +112,7 @@ const initialState = {
   instanceTypeSelected: '',
   azCheckState: true,
   providerSelected: '',
+  primaryClusterProvider: '',
   regionList: [],
   numNodes: 3,
   nodeSetViaAZList: false,
@@ -120,6 +121,7 @@ const initialState = {
   deviceInfo: {},
   placementInfo: {},
   ybSoftwareVersion: '',
+  ybcSoftwareVersion: '',
   gflags: {},
   storageType: DEFAULT_STORAGE_TYPES['AWS'],
   accessKeyCode: '',
@@ -346,7 +348,9 @@ export default class ClusterFields extends Component {
 
     if (isNonEmptyObject(formValues['primary']) && clusterType !== 'primary') {
       this.setState({ universeName: formValues['primary'].universeName });
+      this.setState({ ybcSoftwareVersion: formValues['primary'].ybcSoftwareVersion });
       updateFormField(`${clusterType}.universeName`, formValues['primary'].universeName);
+      updateFormField(`${clusterType}.ybcSoftwareVersion`, formValues['primary'].ybcSoftwareVersion);
     }
 
     // This flag will prevent configure from being fired on component load
@@ -363,11 +367,13 @@ export default class ClusterFields extends Component {
           ? readOnlyCluster
             ? readOnlyCluster && {
                 ...readOnlyCluster.userIntent,
-                universeName: primaryCluster.userIntent.universeName
+                universeName: primaryCluster.userIntent.universeName,
+                ybcSoftwareVersion: primaryCluster.userIntent.ybcSoftwareVersion
               }
             : primaryCluster && {
                 ...primaryCluster.userIntent,
-                universeName: primaryCluster.userIntent.universeName
+                universeName: primaryCluster.userIntent.universeName,
+                ybcSoftwareVersion: primaryCluster.userIntent.ybcSoftwareVersion
               }
           : primaryCluster && primaryCluster.userIntent;
       const providerUUID = userIntent && userIntent.provider;
@@ -398,10 +404,12 @@ export default class ClusterFields extends Component {
         this.setState({
           isKubernetesUniverse: isKubernetesUniverse(this.props.universe.currentUniverse.data),
           providerSelected: providerUUID,
+          primaryClusterProvider: primaryCluster?.userIntent?.provider,
           instanceTypeSelected: userIntent.instanceType,
           numNodes: userIntent.numNodes,
           replicationFactor: userIntent.replicationFactor,
           ybSoftwareVersion: userIntent.ybSoftwareVersion,
+          ybcSoftwareVersion: userIntent.ybcSoftwareVersion,
           assignPublicIP: userIntent.assignPublicIP,
           useTimeSync: userIntent.useTimeSync,
           enableYSQL: userIntent.enableYSQL,
@@ -669,13 +677,14 @@ export default class ClusterFields extends Component {
           type === 'Edit'
             ? getPrimaryCluster(currentUniverse.data.universeDetails.clusters)
             : getReadOnlyCluster(currentUniverse.data.universeDetails.clusters);
+        const isEdit = isDefinedNotNull(currentCluster);
         if (!currentCluster)
           //init primary cluster as current cluster (creation of first read replica) -
           currentCluster = getPrimaryCluster(currentUniverse.data.universeDetails.clusters);
 
         const currentProviderUuid = currentCluster.userIntent.provider;
         updateFormField(`${clusterType}.provider`, currentProviderUuid);
-        if (type === 'Async') this.providerChanged(currentProviderUuid);
+        if (type === 'Async' && !isEdit) this.providerChanged(currentProviderUuid);
       } else {
         const firstProviderUuid = cloud.providers.data[0]?.uuid;
         updateFormField(`${clusterType}.provider`, firstProviderUuid);
@@ -986,7 +995,7 @@ export default class ClusterFields extends Component {
     const {
       deviceInfo: { diskIops }
     } = this.state;
-    var actualVal = this.getThroughputByIops(Number(diskIops), val);
+    const actualVal = this.getThroughputByIops(Number(diskIops), val);
 
     updateFormField(`${clusterType}.throughput`, actualVal);
     this.setState({ deviceInfo: { ...this.state.deviceInfo, throughput: actualVal } });
@@ -1532,7 +1541,7 @@ export default class ClusterFields extends Component {
     });
   }
 
-  regionListChanged(value) {
+  regionListChanged(value = []) {
     const {
       formValues,
       clusterType,
@@ -1540,10 +1549,14 @@ export default class ClusterFields extends Component {
       cloud: { providers }
     } = this.props;
 
-    updateFormField(`${clusterType}.regionList`, value || []);
-    this.setState({ nodeSetViaAZList: false, regionList: value || [] });
-
+    //filter out regions that are not from current provider
     const currentProvider = providers.data.find((a) => a.uuid === formValues[clusterType].provider);
+    const providerRegions = currentProvider.regions.map((regions) => regions.uuid);
+    const regionItems = value ?? [].filter((region) => providerRegions.includes(region.value));
+
+    updateFormField(`${clusterType}.regionList`, regionItems);
+    this.setState({ nodeSetViaAZList: false, regionList: regionItems });
+
     if (!isNonEmptyString(formValues[clusterType].instanceType)) {
       updateFormField(
         `${clusterType}.instanceType`,
@@ -1635,7 +1648,8 @@ export default class ClusterFields extends Component {
     let currentProviderUUID = self.state.providerSelected;
     let currentAccessKey = self.state.accessKeyCode;
 
-    const primaryProviderUUID = formValues['primary']?.provider ?? '';
+    const primaryProviderUUID =
+      formValues['primary']?.provider ?? self.state.primaryClusterProvider;
     let primaryProviderCode = '';
 
     if (formValues[clusterType]) {
@@ -1659,7 +1673,6 @@ export default class ClusterFields extends Component {
         if (
           clusterType === 'primary' ||
           (clusterType === 'async' &&
-            provider.code !== 'kubernetes' &&
             primaryProviderCode !== '' &&
             provider.code === primaryProviderCode)
         ) {
@@ -1824,7 +1837,7 @@ export default class ClusterFields extends Component {
             <Field
               name={`${clusterType}.throughput`}
               component={YBNumericInputWithLabel}
-              label="Provisioned Throughput (MiB/sec)"
+              label="Provisioned Throughput"
               onInputChanged={self.throughputChanged}
               readOnly={isFieldReadOnly}
             />
@@ -1863,7 +1876,7 @@ export default class ClusterFields extends Component {
         deviceDetail = (
           <span className="volume-info">
             {numVolumes}
-            &times;
+            &nbsp;&times;&nbsp;
             {volumeSize}
           </span>
         );
@@ -1884,27 +1897,17 @@ export default class ClusterFields extends Component {
           );
         } else if (isInGcp) {
           storageTypeSelector = (
-            <>
-              <span className="volume-info form-group-shrinked">
-                <Field
-                  name={`${clusterType}.storageType`}
-                  component={YBSelectWithLabel}
-                  options={gcpTypesList}
-                  label="Storage Type (SSD)"
-                  defaultValue={DEFAULT_STORAGE_TYPES['GCP']}
-                  onInputChanged={self.storageTypeChanged}
-                  readOnlySelect={isFieldReadOnly}
-                />
-              </span>
-              {this.state.gcpInstanceWithEphemeralStorage &&
-                (featureFlags.test['pausedUniverse'] ||
-                  featureFlags.released['pausedUniverse']) && (
-                  <span className="gcp-ephemeral-storage-warning">
-                    ! Selected instance type is with ephemeral storage, If you will pause this
-                    universe your data will get lost.
-                  </span>
-                )}
-            </>
+            <span className="volume-info form-group-shrinked">
+              <Field
+                name={`${clusterType}.storageType`}
+                component={YBSelectWithLabel}
+                options={gcpTypesList}
+                label="Storage Type (SSD)"
+                defaultValue={DEFAULT_STORAGE_TYPES['GCP']}
+                onInputChanged={self.storageTypeChanged}
+                readOnlySelect={isFieldReadOnly}
+              />
+            </span>
           );
         } else if (isInAzu) {
           storageTypeSelector = (
@@ -2614,6 +2617,7 @@ export default class ClusterFields extends Component {
               <h4>Instance Configuration</h4>
             </Col>
           </Row>
+
           <Row>
             <Col sm={12} md={12} lg={6}>
               <div className="form-right-aligned-labels">
@@ -2635,47 +2639,76 @@ export default class ClusterFields extends Component {
                   </span>
                 )}
             </Col>
-            <Col sm={12} md={12} lg={6}>
-              {deviceDetail && (
-                <div className="form-right-aligned-labels">
-                  <div className="form-inline-controls">
-                    <div
-                      className="form-group universe-form-instance-info"
-                      data-yb-field="volumn-info"
-                    >
-                      <label className="form-item-label form-item-label-shrink">Volume Info</label>
-                      {deviceDetail}
-                    </div>
-                  </div>
-                  <div className="form-inline-controls">
-                    <div className="form-group universe-form-instance-info">
-                      {storageTypeSelector}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {!this.checkVolumeSizeRestrictions() && (
-                <div className="has-error">
-                  <div className="help-block standard-error">
-                    Forbidden change. To perform smart resize only increase volume size
-                  </div>
-                </div>
-              )}
-            </Col>
           </Row>
+
+          <Row className="form-sub-field volume-info-c">
+            <Row>
+              <Col sm={12} md={12} lg={6} className="volume-type-row">
+                {deviceDetail && (
+                  <>
+                    <Col sm={6} className="noPaddingLeft">
+                      <div className="form-right-aligned-labels">
+                        <label className="form-item-label form-item-label-shrink">
+                          Volume Info
+                        </label>
+                        {deviceDetail}
+                      </div>
+                    </Col>
+
+                    <Col sm={5} className="noPaddingLeft">
+                      <span className="volume-info">{storageTypeSelector}</span>
+                    </Col>
+                  </>
+                )}
+              </Col>
+            </Row>
+            <Row>
+              <Col sm={12} md={12} lg={6}>
+                {isDefinedNotNull(currentProvider) &&
+                  currentProvider.code === 'gcp' &&
+                  this.state.gcpInstanceWithEphemeralStorage &&
+                  (featureFlags.test['pausedUniverse'] ||
+                    featureFlags.released['pausedUniverse']) && (
+                    <span className="gcp-ephemeral-storage-warning">
+                      ! Selected instance type is with ephemeral storage, If you will pause this
+                      universe your data will get lost.
+                    </span>
+                  )}
+              </Col>
+            </Row>
+            <Row>
+              <Col sm={12} md={12} lg={6}>
+                {!this.checkVolumeSizeRestrictions() && (
+                  <div className="has-error">
+                    <div className="help-block standard-error">
+                      Forbidden change. To perform smart resize only increase volume size
+                    </div>
+                  </div>
+                )}
+              </Col>
+            </Row>
+
+            <Row>
+              <Col sm={12} md={12} lg={6}>
+                <Col sm={6} className="noPaddingLeft">
+                  <div className="form-right-aligned-labels right-side-form-field">{iopsField}</div>
+                </Col>
+
+                <Col sm={5} className="noPaddingLeft">
+                  <div className="form-right-aligned-labels right-side-form-field throughput-field">
+                    {throughputField}
+                  </div>
+                </Col>
+              </Col>
+            </Row>
+          </Row>
+
           <Row>
             <Col sm={12} md={12} lg={6}>
               <div className="form-right-aligned-labels">
                 {selectTlsCert}
                 {assignPublicIP}
                 {useTimeSync}
-              </div>
-            </Col>
-            <Col sm={12} md={6} lg={4}>
-              <div className="form-right-aligned-labels right-side-form-field">
-                {iopsField}
-                {throughputField}
-                {selectEncryptionAtRestConfig}
               </div>
             </Col>
           </Row>
@@ -2714,8 +2747,18 @@ export default class ClusterFields extends Component {
                 {enableYEDIS}
                 {enableNodeToNodeEncrypt}
                 {enableClientToNodeEncrypt}
-                {enableEncryptionAtRest}
                 <Field name={`${clusterType}.mountPoints`} component={YBTextInput} type="hidden" />
+              </div>
+            </Col>
+          </Row>
+
+          <Row>
+            <Col sm={12} md={12} lg={6}>
+              <div className="form-right-aligned-labels">{enableEncryptionAtRest}</div>
+            </Col>
+            <Col sm={12} md={6} lg={4}>
+              <div className="form-right-aligned-labels right-side-form-field">
+                {selectEncryptionAtRestConfig}
               </div>
             </Col>
           </Row>
@@ -2736,6 +2779,16 @@ export default class ClusterFields extends Component {
                     onInputChanged={this.softwareVersionChanged}
                     readOnlySelect={isSWVersionReadOnly}
                   />
+
+                  {(featureFlags.test['enableYbc'] || featureFlags.released['enableYbc']) && (
+                    <Field
+                      name={`${clusterType}.ybcSoftwareVersion`}
+                      type="text"
+                      component={YBTextInputWithLabel}
+                      label="YBC Software version"
+                      isReadOnly={isFieldReadOnly}
+                    />
+                  )}
                 </div>
               </Col>
               {!this.state.isKubernetesUniverse && (

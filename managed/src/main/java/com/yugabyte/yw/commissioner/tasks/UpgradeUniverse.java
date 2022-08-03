@@ -834,9 +834,11 @@ public class UpgradeUniverse extends UniverseDefinitionTaskBase {
 
   private void createPostUpgradeTasks() {
     if (taskParams().taskType == UpgradeTaskType.Software) {
-      // Run YSQL upgrade on the universe
-      createRunYsqlUpgradeTask(taskParams().ybSoftwareVersion)
-          .setSubTaskGroupType(getTaskSubGroupType());
+      if (taskParams().upgradeSystemCatalog) {
+        // Run YSQL upgrade on the universe
+        createRunYsqlUpgradeTask(taskParams().ybSoftwareVersion)
+            .setSubTaskGroupType(getTaskSubGroupType());
+      }
       // Update the software version on success.
       createUpdateSoftwareVersionTask(taskParams().ybSoftwareVersion)
           .setSubTaskGroupType(getTaskSubGroupType());
@@ -922,7 +924,10 @@ public class UpgradeUniverse extends UniverseDefinitionTaskBase {
     if (taskParams().taskType == UpgradeTaskType.Software) {
       createServerControlTask(node, processType, "stop").setSubTaskGroupType(subGroupType);
       createSoftwareInstallTasks(
-          Collections.singletonList(node), processType, taskParams().ybSoftwareVersion);
+          Collections.singletonList(node),
+          processType,
+          taskParams().ybSoftwareVersion,
+          subGroupType);
     } else if (taskParams().taskType == UpgradeTaskType.GFlags) {
       createServerConfFileUpdateTasks(Collections.singletonList(node), processType);
       // Stop is done after conf file update to reduce unavailability.
@@ -1018,7 +1023,7 @@ public class UpgradeUniverse extends UniverseDefinitionTaskBase {
     createServerControlTasks(nodes, processType, "stop").setSubTaskGroupType(subGroupType);
 
     if (taskParams().taskType == UpgradeTaskType.Software) {
-      createSoftwareInstallTasks(nodes, processType, taskParams().ybSoftwareVersion);
+      createSoftwareInstallTasks(nodes, processType, taskParams().ybSoftwareVersion, subGroupType);
     }
 
     if (isActiveProcess) {

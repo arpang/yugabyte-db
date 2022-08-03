@@ -25,7 +25,6 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyObject;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -48,6 +47,7 @@ import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.net.HostAndPort;
 import com.google.protobuf.ByteString;
 import com.typesafe.config.Config;
 import com.yugabyte.yw.commissioner.Commissioner;
@@ -82,6 +82,7 @@ import com.yugabyte.yw.models.Users;
 import com.yugabyte.yw.models.configs.CustomerConfig;
 import com.yugabyte.yw.models.extended.UserWithFeatures;
 import com.yugabyte.yw.models.helpers.ColumnDetails;
+import com.yugabyte.yw.models.helpers.NodeDetails;
 import com.yugabyte.yw.models.helpers.TaskType;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -133,7 +134,6 @@ public class TablesControllerTest extends FakeDBApplication {
 
   @Rule public MockitoRule rule = MockitoJUnit.rule();
 
-  private YBClientService mockService;
   private TablesController tablesController;
   private YBClient mockClient;
   private AuditService auditService;
@@ -160,7 +160,6 @@ public class TablesControllerTest extends FakeDBApplication {
   public void setUp() {
     mockClient = mock(YBClient.class);
     mockConfig = mock(Config.class);
-    mockService = mock(YBClientService.class);
     mockListTablesResponse = mock(ListTablesResponse.class);
     mockSchemaResponse = mock(GetTableSchemaResponse.class);
     mockNodeUniverseManager = mock(NodeUniverseManager.class);
@@ -234,8 +233,6 @@ public class TablesControllerTest extends FakeDBApplication {
     when(mockClient.getTablesList()).thenReturn(mockListTablesResponse);
     Universe u1 = createUniverse(customer.getCustomerId());
     u1 = Universe.saveDetails(u1.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(u1.universeUUID);
-    customer.save();
 
     LOG.info("Created customer " + customer.uuid + " with universe " + u1.universeUUID);
     Result r = tablesController.listTables(customer.uuid, u1.universeUUID, false);
@@ -276,9 +273,6 @@ public class TablesControllerTest extends FakeDBApplication {
   @Test
   public void testUniverseListMastersNotQueryable() {
     Universe u1 = createUniverse("Universe-1", customer.getCustomerId());
-    customer.addUniverseUUID(u1.universeUUID);
-    customer.save();
-
     Result r =
         assertThrows(
                 PlatformServiceException.class,
@@ -295,8 +289,6 @@ public class TablesControllerTest extends FakeDBApplication {
   public void testListTablesFromYbClientLeaderMasterNotAvailable() throws Exception {
     Universe u1 = createUniverse("Universe-1", customer.getCustomerId());
     u1 = Universe.saveDetails(u1.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(u1.universeUUID);
-    customer.save();
     final Universe u2 = u1;
     doThrow(new RuntimeException("Timed out waiting for Master Leader after 10000 ms"))
         .when(mockClient)
@@ -337,8 +329,6 @@ public class TablesControllerTest extends FakeDBApplication {
     String authToken = user.createAuthToken();
     Universe universe = createUniverse(customer.getCustomerId());
     universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(universe.universeUUID);
-    customer.save();
 
     String method = "POST";
     String url =
@@ -363,8 +353,6 @@ public class TablesControllerTest extends FakeDBApplication {
     String authToken = user.createAuthToken();
     Universe universe = createUniverse(customer.getCustomerId());
     universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(universe.universeUUID);
-    customer.save();
 
     String method = "POST";
     String url =
@@ -448,8 +436,6 @@ public class TablesControllerTest extends FakeDBApplication {
     // Creating fake authentication
     Universe universe = createUniverse(customer.getCustomerId());
     universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(universe.universeUUID);
-    customer.save();
 
     Result result = tablesController.describe(customer.uuid, universe.universeUUID, tableUUID);
     assertEquals(OK, result.status());
@@ -474,8 +460,6 @@ public class TablesControllerTest extends FakeDBApplication {
     // Creating fake authentication
     Universe universe = createUniverse(customer.getCustomerId());
     final Universe u = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(u.universeUUID);
-    customer.save();
 
     Result result =
         assertPlatformException(
@@ -549,8 +533,6 @@ public class TablesControllerTest extends FakeDBApplication {
     String authToken = user.createAuthToken();
     Universe universe = createUniverse(customer.getCustomerId());
     universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater(aws));
-    customer.addUniverseUUID(universe.universeUUID);
-    customer.save();
 
     String method = "PUT";
     String url =
@@ -581,8 +563,6 @@ public class TablesControllerTest extends FakeDBApplication {
     String authToken = user.createAuthToken();
     Universe universe = createUniverse(customer.getCustomerId());
     universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater(aws));
-    customer.addUniverseUUID(universe.universeUUID);
-    customer.save();
 
     String method = "PUT";
     String url =
@@ -763,8 +743,6 @@ public class TablesControllerTest extends FakeDBApplication {
   public void testCreateBackupOnDisabledTableFails() {
     Universe universe = createUniverse(customer.getCustomerId());
     final Universe u = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(u.universeUUID);
-    customer.save();
 
     TablesController mockTablesController = spy(tablesController);
 
@@ -787,8 +765,6 @@ public class TablesControllerTest extends FakeDBApplication {
     universe =
         Universe.saveDetails(
             universe.universeUUID, ApiUtils.mockUniverseUpdater("host", null, true));
-    customer.addUniverseUUID(universe.universeUUID);
-    customer.save();
     String url =
         "/api/customers/"
             + customer.uuid
@@ -888,8 +864,6 @@ public class TablesControllerTest extends FakeDBApplication {
     universe =
         Universe.saveDetails(
             universe.universeUUID, ApiUtils.mockUniverseUpdater("host", null, true));
-    customer.addUniverseUUID(universe.universeUUID);
-    customer.save();
     String url =
         "/api/customers/"
             + customer.uuid
@@ -991,8 +965,6 @@ public class TablesControllerTest extends FakeDBApplication {
 
     Universe universe = createUniverse(customer.getCustomerId());
     universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(universe.universeUUID);
-    customer.save();
 
     Result result = tablesController.drop(customer.uuid, universe.universeUUID, tableUUID);
     assertEquals(OK, result.status());
@@ -1003,8 +975,6 @@ public class TablesControllerTest extends FakeDBApplication {
   public void testDeleteTableWithInvalidparams() {
     Universe universe = createUniverse(customer.getCustomerId());
     final Universe u = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(u.universeUUID);
-    customer.save();
 
     UUID badTableUUID = UUID.randomUUID();
     String errorString = "No table for UUID: " + badTableUUID;
@@ -1085,17 +1055,17 @@ public class TablesControllerTest extends FakeDBApplication {
 
   @Test
   public void testListTableSpaces() throws Exception {
-    Universe u1 = createUniverse(customer.getCustomerId());
-    u1 = Universe.saveDetails(u1.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(u1.universeUUID);
-    customer.save();
-    LOG.info("new code");
+    Provider provider = ModelFactory.awsProvider(customer);
+    Universe u1 = createFromConfig(provider, "Existing", "r1-az1-4-1;r1-az2-3-1;r1-az3-4-1");
+
     final String shellResponseString =
         TestUtils.readResource("com/yugabyte/yw/controllers/tablespaces_shell_response.txt");
 
+    when(mockClient.getLeaderMasterHostAndPort())
+        .thenReturn(HostAndPort.fromParts("1.1.1.1", 7000));
     ShellResponse shellResponse1 =
         ShellResponse.create(ShellResponse.ERROR_CODE_SUCCESS, shellResponseString);
-    when(mockNodeUniverseManager.runYsqlCommand(anyObject(), anyObject(), anyString(), anyObject()))
+    when(mockNodeUniverseManager.runYsqlCommand(any(), any(), anyString(), any()))
         .thenReturn(shellResponse1);
 
     Result r = tablesController.listTableSpaces(customer.uuid, u1.universeUUID);
@@ -1289,8 +1259,6 @@ public class TablesControllerTest extends FakeDBApplication {
     Customer customer = ModelFactory.testCustomer();
     Universe u1 = createUniverse(customer.getCustomerId());
     u1 = Universe.saveDetails(u1.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(u1.universeUUID);
-    customer.save();
 
     ShellResponse shellResponse =
         ShellResponse.create(
@@ -1430,8 +1398,6 @@ public class TablesControllerTest extends FakeDBApplication {
     Customer customer = ModelFactory.testCustomer();
     Universe u1 = createUniverse(customer.getCustomerId());
     u1 = Universe.saveDetails(u1.universeUUID, ApiUtils.mockUniverseUpdater());
-    customer.addUniverseUUID(u1.universeUUID);
-    customer.save();
 
     ShellResponse shellResponse1 =
         ShellResponse.create(

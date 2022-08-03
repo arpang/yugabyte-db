@@ -7,8 +7,7 @@ menu:
   stable:
     identifier: txn_commit
     parent: statements
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 ## Synopsis
@@ -154,5 +153,5 @@ yugabyte=# SELECT * FROM sample; -- run in second shell.
 
 ## See also
 
-- [`BEGIN`](../txn_begin)
+- [`BEGIN`](../txn_begin/)
 - [`ROLLBACK`](../txn_rollback)

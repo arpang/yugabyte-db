@@ -10,26 +10,6 @@
 
 package com.yugabyte.yw.common;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
-import java.util.TreeMap;
-import java.util.UUID;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.annotations.VisibleForTesting;
@@ -39,6 +19,7 @@ import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.typesafe.config.Config;
 import com.yugabyte.yw.commissioner.Common;
+import com.yugabyte.yw.commissioner.tasks.UniverseDefinitionTaskBase;
 import com.yugabyte.yw.commissioner.tasks.UniverseDefinitionTaskBase.ServerType;
 import com.yugabyte.yw.commissioner.tasks.params.DetachedNodeTaskParams;
 import com.yugabyte.yw.commissioner.tasks.params.INodeTaskParams;
@@ -53,8 +34,10 @@ import com.yugabyte.yw.commissioner.tasks.subtasks.ChangeInstanceType;
 import com.yugabyte.yw.commissioner.tasks.subtasks.CreateRootVolumes;
 import com.yugabyte.yw.commissioner.tasks.subtasks.InstanceActions;
 import com.yugabyte.yw.commissioner.tasks.subtasks.PauseServer;
+import com.yugabyte.yw.commissioner.tasks.subtasks.RebootServer;
 import com.yugabyte.yw.commissioner.tasks.subtasks.ReplaceRootVolume;
 import com.yugabyte.yw.commissioner.tasks.subtasks.ResumeServer;
+import com.yugabyte.yw.commissioner.tasks.subtasks.RunHooks;
 import com.yugabyte.yw.commissioner.tasks.subtasks.TransferXClusterCerts;
 import com.yugabyte.yw.commissioner.tasks.subtasks.UpdateMountedDisks;
 import com.yugabyte.yw.common.certmgmt.CertConfigType;
@@ -78,17 +61,37 @@ import com.yugabyte.yw.models.NodeInstance;
 import com.yugabyte.yw.models.Provider;
 import com.yugabyte.yw.models.Region;
 import com.yugabyte.yw.models.Universe;
+import com.yugabyte.yw.models.helpers.CommonUtils;
 import com.yugabyte.yw.models.helpers.DeviceInfo;
 import com.yugabyte.yw.models.helpers.NodeDetails;
-
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import lombok.extern.slf4j.Slf4j;
 import play.libs.Json;
 
 @Singleton
@@ -106,6 +109,9 @@ public class NodeManager extends DevopsBase {
   static final String VERIFY_SERVER_ENDPOINT_GFLAG = "verify_server_endpoint";
   static final String SKIP_CERT_VALIDATION = "yb.tls.skip_cert_validation";
   public static final String POSTGRES_MAX_MEM_MB = "yb.dbmem.postgres.max_mem_mb";
+  public static final String YBC_DEFAULT_VERSION = "ybc.releases.stable_version";
+  private static final String YBC_PACKAGE_REGEX = ".+ybc(.*).tar.gz";
+  private static final Pattern YBC_PACKAGE_PATTERN = Pattern.compile(YBC_PACKAGE_REGEX);
 
   @Inject ReleaseManager releaseManager;
 
@@ -137,7 +143,9 @@ public class NodeManager extends DevopsBase {
     Transfer_XCluster_Certs,
     Verify_Node_SSH_Access,
     Add_Authorized_Key,
-    Remove_Authorized_Key
+    Remove_Authorized_Key,
+    Reboot,
+    RunHooks
   }
 
   public enum CertRotateAction {
@@ -279,9 +287,17 @@ public class NodeManager extends DevopsBase {
             || type == NodeCommandType.Disk_Update
             || type == NodeCommandType.Update_Mounted_Disks
             || type == NodeCommandType.Transfer_XCluster_Certs
+            || type == NodeCommandType.Reboot
             || type == NodeCommandType.Change_Instance_Type)
         && keyInfo.sshUser != null) {
       subCommand.add("--ssh_user");
+      subCommand.add(keyInfo.sshUser);
+    }
+
+    if ((type == NodeCommandType.Configure) && keyInfo.sshUser != null) {
+      // Pass the sudo user on different key, so as to
+      // force reinstall the packages as part of configure.
+      subCommand.add("--ssh_user_update_packages");
       subCommand.add(keyInfo.sshUser);
     }
 
@@ -457,6 +473,7 @@ public class NodeManager extends DevopsBase {
                         .toAbsolutePath();
               }
               CertificateHelper.createServerCertificate(
+                  config,
                   taskParam.rootCA,
                   tempStorageDirectory.toString(),
                   commonName,
@@ -560,6 +577,7 @@ public class NodeManager extends DevopsBase {
                         .toAbsolutePath();
               }
               CertificateHelper.createServerCertificate(
+                  config,
                   taskParam.clientRootCA,
                   tempStorageDirectory.toString(),
                   commonName,
@@ -642,7 +660,9 @@ public class NodeManager extends DevopsBase {
       subcommand.add(masterAddresses);
     }
 
-    String ybServerPackage = null;
+    NodeDetails node = universe.getNode(taskParam.nodeName);
+    String ybServerPackage = null, ybcPackage = null, ybcDir = null;
+    Map<String, String> ybcFlags = new HashMap<>();
     if (taskParam.ybSoftwareVersion != null) {
       ReleaseManager.ReleaseMetadata releaseMetadata =
           releaseManager.getReleaseByVersion(taskParam.ybSoftwareVersion);
@@ -664,13 +684,36 @@ public class NodeManager extends DevopsBase {
       }
     }
 
+    if (universe.isYbcEnabled()) {
+      ReleaseManager.ReleaseMetadata releaseMetadata;
+      if (StringUtils.isEmpty(taskParam.ybcSoftwareVersion)) {
+        releaseMetadata =
+            releaseManager.getYbcReleaseByVersion(
+                runtimeConfigFactory.globalRuntimeConf().getString(YBC_DEFAULT_VERSION));
+      } else {
+        releaseMetadata = releaseManager.getYbcReleaseByVersion(taskParam.ybcSoftwareVersion);
+      }
+      ybcPackage = releaseMetadata.getFilePath(taskParam.getRegion());
+      if (StringUtils.isBlank(ybcPackage)) {
+        throw new RuntimeException("Ybc package cannot be empty with ybc enabled");
+      }
+      Matcher matcher = YBC_PACKAGE_PATTERN.matcher(ybcPackage);
+      boolean matches = matcher.matches();
+      if (!matches) {
+        throw new RuntimeException(
+            String.format(
+                "Ybc package: %s does not follow the format required: %s",
+                ybcPackage, YBC_PACKAGE_REGEX));
+      }
+      ybcDir = "ybc" + matcher.group(1);
+      ybcFlags = GFlagsUtil.getYbcFlags(taskParam);
+    }
+
     if (!taskParam.itestS3PackagePath.isEmpty()
         && userIntent.providerType.equals(Common.CloudType.aws)) {
       subcommand.add("--itest_s3_package_path");
       subcommand.add(taskParam.itestS3PackagePath);
     }
-
-    NodeDetails node = universe.getNode(taskParam.nodeName);
 
     // Pass in communication ports
     subcommand.add("--master_http_port");
@@ -687,24 +730,13 @@ public class NodeManager extends DevopsBase {
     subcommand.add(Integer.toString(node.redisServerRpcPort));
 
     // Custom cluster creation flow with prebuilt AMI for cloud
-    if (config.getBoolean("yb.cloud.enabled")
-        && taskParam.type != UpgradeTaskParams.UpgradeTaskType.Software) {
-      if ((userIntent.providerType.equals(Common.CloudType.aws)
-          || userIntent.providerType.equals(Common.CloudType.gcp))) {
-        if (taskParam.vmUpgradeTaskType != VmUpgradeTaskType.None) {
-          if (taskParam.vmUpgradeTaskType == VmUpgradeTaskType.VmUpgradeWithCustomImages) {
-            subcommand.add("--skip_tags");
-            subcommand.add("yb-prebuilt-ami");
-          }
-        } else if (universe
-                .getConfig()
-                .getOrDefault(Universe.USE_CUSTOM_IMAGE, "false")
-                .equals("true")
-            && !taskParam.ignoreUseCustomImageConfig) {
-          subcommand.add("--skip_tags");
-          subcommand.add("yb-prebuilt-ami");
-        }
-      }
+    if (taskParam.type != UpgradeTaskParams.UpgradeTaskType.Software) {
+      maybeAddVMImageCommandArgs(
+          universe,
+          userIntent.providerType,
+          taskParam.vmUpgradeTaskType,
+          !taskParam.ignoreUseCustomImageConfig,
+          subcommand);
     }
 
     boolean useHostname =
@@ -740,6 +772,12 @@ public class NodeManager extends DevopsBase {
               runtimeConfigFactory
                   .forUniverse(universe)
                   .getString("yb.releases.num_releases_to_keep_default"));
+        }
+        if (universe.isYbcEnabled()) {
+          subcommand.add("--ybc_package");
+          subcommand.add(ybcPackage);
+          subcommand.add("--ybc_dir");
+          subcommand.add(ybcDir);
         }
         if ((taskParam.enableNodeToNodeEncrypt || taskParam.enableClientToNodeEncrypt)) {
           subcommand.addAll(
@@ -905,7 +943,7 @@ public class NodeManager extends DevopsBase {
               break;
             case UPDATE_CERT_DIRS:
               {
-                Map<String, String> gflags = new HashMap<>();
+                Map<String, String> gflags = new HashMap<>(taskParam.gflags);
                 if (EncryptionInTransitUtil.isRootCARequired(taskParam)) {
                   gflags.put("certs_dir", certsNodeDir);
                 }
@@ -936,7 +974,6 @@ public class NodeManager extends DevopsBase {
           String nodeToNodeString = String.valueOf(taskParam.enableNodeToNodeEncrypt);
           String clientToNodeString = String.valueOf(taskParam.enableClientToNodeEncrypt);
           String allowInsecureString = String.valueOf(taskParam.allowInsecure);
-
           String ybHomeDir =
               Provider.getOrBadRequest(
                       UUID.fromString(
@@ -1017,6 +1054,11 @@ public class NodeManager extends DevopsBase {
         break;
     }
 
+    if (universe.isYbcEnabled()) {
+      subcommand.add("--ybc_flags");
+      subcommand.add(Json.stringify(Json.toJson(ybcFlags)));
+      subcommand.add("--configure_ybc");
+    }
     // extra_gflags is the base set of gflags that is common to all tasks.
     // These can be overriden by  gflags which contain task-specific overrides.
     // User set flags are added to gflags, so if user specifies any of the gflags set here, they
@@ -1189,16 +1231,37 @@ public class NodeManager extends DevopsBase {
       NodeTaskParams nodeTaskParam,
       List<String> commandArgs) {
     if (Provider.InstanceTagsEnabledProviders.contains(userIntent.providerType)) {
-      // Create an ordered shallow copy of the tags.
-      Map<String, String> useTags =
-          MapUtils.isEmpty(userIntent.instanceTags)
-              ? new TreeMap<>()
-              : new TreeMap<>(userIntent.getInstanceTagsForInstanceOps());
-      addAdditionalInstanceTags(universe, nodeTaskParam, useTags);
-      if (!useTags.isEmpty()) {
-        commandArgs.add("--instance_tags");
-        commandArgs.add(Json.stringify(Json.toJson(useTags)));
-      }
+      addInstanceTags(
+          universe, userIntent.instanceTags, userIntent.providerType, nodeTaskParam, commandArgs);
+    }
+  }
+
+  private void addInstanceTags(
+      Universe universe,
+      Map<String, String> instanceTags,
+      Common.CloudType providerType,
+      NodeTaskParams nodeTaskParam,
+      List<String> commandArgs) {
+    // Create an ordered shallow copy of the tags.
+    Map<String, String> useTags = new TreeMap<>(instanceTags);
+    filterInstanceTags(useTags, providerType);
+    addAdditionalInstanceTags(universe, nodeTaskParam, useTags);
+    if (!useTags.isEmpty()) {
+      commandArgs.add("--instance_tags");
+      commandArgs.add(Json.stringify(Json.toJson(useTags)));
+    }
+  }
+
+  /**
+   * Remove tags that are restricted by provider.
+   *
+   * @param instanceTags
+   * @param providerType
+   */
+  private void filterInstanceTags(Map<String, String> instanceTags, Common.CloudType providerType) {
+    if (providerType.equals(Common.CloudType.aws)) {
+      // Do not allow users to overwrite the node name. Only AWS uses tags to set it.
+      instanceTags.remove(UniverseDefinitionTaskBase.NODE_NAME_KEY);
     }
   }
 
@@ -1358,25 +1421,12 @@ public class NodeManager extends DevopsBase {
             }
           }
 
-          // Custom cluster creation flow with prebuilt AMI for cloud
-          if (runtimeConfigFactory.forUniverse(universe).getBoolean("yb.cloud.enabled")) {
-            if ((cloudType.equals(Common.CloudType.aws)
-                || cloudType.equals(Common.CloudType.gcp))) {
-              if (taskParam.vmUpgradeTaskType != VmUpgradeTaskType.None) {
-                if (taskParam.vmUpgradeTaskType == VmUpgradeTaskType.VmUpgradeWithCustomImages) {
-                  commandArgs.add("--skip_tags");
-                  commandArgs.add("yb-prebuilt-ami");
-                }
-              } else if (universe
-                      .getConfig()
-                      .getOrDefault(Universe.USE_CUSTOM_IMAGE, "false")
-                      .equals("true")
-                  && !taskParam.ignoreUseCustomImageConfig) {
-                commandArgs.add("--skip_tags");
-                commandArgs.add("yb-prebuilt-ami");
-              }
-            }
-          }
+          maybeAddVMImageCommandArgs(
+              universe,
+              cloudType,
+              taskParam.vmUpgradeTaskType,
+              !taskParam.ignoreUseCustomImageConfig,
+              commandArgs);
 
           if (taskParam.isSystemdUpgrade) {
             // Cron to Systemd Upgrade
@@ -1446,6 +1496,8 @@ public class NodeManager extends DevopsBase {
           } else if (taskParam.useSystemd) {
             // Systemd for new universes
             commandArgs.add("--systemd_services");
+          } else if (taskParam.updatePackages) {
+            commandArgs.add("--update_packages");
           }
           commandArgs.addAll(getAccessKeySpecificCommand(taskParam, type));
           if (nodeTaskParam.deviceInfo != null) {
@@ -1546,10 +1598,12 @@ public class NodeManager extends DevopsBase {
           }
           InstanceActions.Params taskParam = (InstanceActions.Params) nodeTaskParam;
           if (Provider.InstanceTagsEnabledProviders.contains(userIntent.providerType)) {
-            if (MapUtils.isEmpty(userIntent.instanceTags)) {
-              throw new RuntimeException("Invalid instance tags");
+            Map<String, String> tags =
+                taskParam.tags != null ? taskParam.tags : userIntent.instanceTags;
+            if (MapUtils.isEmpty(tags) && taskParam.deleteTags.isEmpty()) {
+              throw new RuntimeException("Invalid params: no tags to add or remove");
             }
-            addInstanceTags(universe, userIntent, nodeTaskParam, commandArgs);
+            addInstanceTags(universe, tags, userIntent.providerType, nodeTaskParam, commandArgs);
             if (!taskParam.deleteTags.isEmpty()) {
               commandArgs.add("--remove_tags");
               commandArgs.add(taskParam.deleteTags);
@@ -1558,6 +1612,9 @@ public class NodeManager extends DevopsBase {
               commandArgs.addAll(getDeviceArgs(taskParam));
               commandArgs.addAll(getAccessKeySpecificCommand(taskParam, type));
             }
+          } else {
+            throw new IllegalArgumentException(
+                "Tags are unsupported for " + userIntent.providerType);
           }
           break;
         }
@@ -1734,6 +1791,38 @@ public class NodeManager extends DevopsBase {
           sensitiveData.put("--old_private_key_file", oldPrivateKeyFilePath);
           break;
         }
+      case Reboot:
+        {
+          if (!(nodeTaskParam instanceof RebootServer.Params)) {
+            throw new RuntimeException("NodeTaskParams is not RebootServer.Params");
+          }
+          RebootServer.Params taskParam = (RebootServer.Params) nodeTaskParam;
+          commandArgs.addAll(getAccessKeySpecificCommand(taskParam, type));
+          break;
+        }
+      case RunHooks:
+        {
+          if (!(nodeTaskParam instanceof RunHooks.Params)) {
+            throw new RuntimeException("NodeTaskParams is not RunHooks.Params");
+          }
+          RunHooks.Params taskParam = (RunHooks.Params) nodeTaskParam;
+          commandArgs.add("--execution_lang");
+          commandArgs.add(taskParam.hook.executionLang.name());
+          commandArgs.add("--trigger");
+          commandArgs.add(taskParam.trigger.name());
+          commandArgs.add("--hook_path");
+          commandArgs.add(taskParam.hookPath);
+          commandArgs.add("--parent_task");
+          commandArgs.add(taskParam.parentTask);
+          if (taskParam.hook.useSudo) commandArgs.add("--use_sudo");
+          Map<String, String> runtimeArgs = taskParam.hook.runtimeArgs;
+          if (runtimeArgs != null && runtimeArgs.size() != 0) {
+            commandArgs.add("--runtime_args");
+            commandArgs.add(Json.stringify(Json.toJson(runtimeArgs)));
+          }
+          commandArgs.addAll(getAccessKeySpecificCommand(nodeTaskParam, type));
+          break;
+        }
     }
     commandArgs.add(nodeTaskParam.nodeName);
     try {
@@ -1880,6 +1969,32 @@ public class NodeManager extends DevopsBase {
       }
     }
     return data;
+  }
+
+  private void maybeAddVMImageCommandArgs(
+      Universe universe,
+      Common.CloudType cloudType,
+      VmUpgradeTaskType vmUpgradeTaskType,
+      boolean useCustomImageByDefault,
+      List<String> commandArgs) {
+    if (!cloudType.equals(Common.CloudType.aws) && !cloudType.equals(Common.CloudType.gcp)) {
+      return;
+    }
+    boolean skipTags = false;
+    if (vmUpgradeTaskType == VmUpgradeTaskType.None
+        && useCustomImageByDefault
+        && universe.getConfig().getOrDefault(Universe.USE_CUSTOM_IMAGE, "false").equals("true")) {
+      // Default image is custom image.
+      skipTags = true;
+    } else if (vmUpgradeTaskType == VmUpgradeTaskType.VmUpgradeWithCustomImages) {
+      // This is set only if VMUpgrade is invoked.
+      // This can also happen for platform only if yb.upgrade.vmImage is true.
+      skipTags = true;
+    }
+    if (skipTags) {
+      commandArgs.add("--skip_tags");
+      commandArgs.add("yb-prebuilt-ami");
+    }
   }
 
   public List<String> getNodeSSHCommand(NodeAccessTaskParams params) {

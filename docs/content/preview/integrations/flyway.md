@@ -3,13 +3,12 @@ title: Flyway
 linkTitle: Flyway
 description: Using Flyway with YugabyteDB
 aliases:
-section: INTEGRATIONS
 menu:
   preview:
     identifier: flyway
+    parent: integrations
     weight: 571
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 [Flyway](https://flywaydb.org/) provides the means to manage schema changes to a YugabyteDB database, among others.
@@ -20,9 +19,7 @@ The YugabyteDB-specific implementation of the Flyway APIs has been added to the 
 
 Before you can start using Flyway, ensure that you have the following installed and configured:
 
-- YugabyteDB version 2.4 or later (see [YugabyteDB Quick Start Guide](/preview/quick-start/)).
-
-- Yugabyte cluster (see [Create a local cluster](/preview/quick-start/create-local-cluster/macos/)).
+- YugabyteDB version 2.4 or later (see [Quick Start](../../quick-start/)).
 
 - Flyway community edition version 7.11.2 or later (see [Download Flyway](https://flywaydb.org/download)).
 
@@ -40,7 +37,7 @@ Flyway allows you to specify migrations using either SQL or Java.
 
 {{< note title="Note" >}}
 
-By default, Flyway runs migrations inside a transaction. In case of failures, the transaction is rolled back (see [Flyway Transactions](https://flywaydb.org/documentation/concepts/migrations.html#transactions)). Since YugabyteDB does not currently support DDLs inside a user-initiated transaction (instead, it runs a DDL inside an implicit transaction), you may need to manually revert the DDL changes when you see a message about failed migrations “Please restore backups and roll back database and code”.
+By default, Flyway runs migrations inside a transaction. In case of failures, the transaction is rolled back (see [Flyway Transactions](https://flywaydb.org/documentation/concepts/migrations.html#transactions)). Because YugabyteDB does not currently support DDLs inside a user-initiated transaction (instead, it runs a DDL inside an implicit transaction), you may need to manually revert the DDL changes when you see a message about failed migrations "Please restore backups and roll back database and code".
 
 {{< /note >}}
 
@@ -113,8 +110,3 @@ To check the state of the database and run the migration, execute the following 
 ```shell
  ./flyway migrate
 ```
-
-
-
-
-

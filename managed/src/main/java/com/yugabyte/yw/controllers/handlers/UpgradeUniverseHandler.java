@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import play.mvc.Http.Status;
+import com.yugabyte.yw.common.Util;
 
 @Slf4j
 public class UpgradeUniverseHandler {
@@ -69,6 +70,41 @@ public class UpgradeUniverseHandler {
   public UUID upgradeSoftware(
       SoftwareUpgradeParams requestParams, Customer customer, Universe universe) {
     UserIntent userIntent = universe.getUniverseDetails().getPrimaryCluster().userIntent;
+
+    // Defaults to false, but we need to extract the variable in case the user wishes to perform
+    // a downgrade with a runtime configuration override. We perform this check before verifying the
+    // general
+    // SoftwareUpgradeParams to avoid introducing an API parameter.
+    boolean isUniverseDowngradeAllowed =
+        runtimeConfigFactory.forUniverse(universe).getBoolean("yb.upgrade.allow_downgrades");
+
+    String currentVersion = userIntent.ybSoftwareVersion;
+
+    String desiredUpgradeVersion = requestParams.ybSoftwareVersion;
+
+    if (currentVersion != null) {
+
+      if (Util.compareYbVersions(currentVersion, desiredUpgradeVersion, true) > 0) {
+
+        if (!isUniverseDowngradeAllowed) {
+
+          String msg =
+              String.format(
+                  "DB version downgrades are not recommended,"
+                      + " %s"
+                      + " would downgrade from"
+                      + " %s"
+                      + ". Aborting."
+                      + " To override this check and force a downgrade, please set the runtime"
+                      + " config yb.upgrade.allow_downgrades"
+                      + " to true"
+                      + " (using the script set-runtime-config.sh if necessary).",
+                  desiredUpgradeVersion, currentVersion);
+
+          throw new PlatformServiceException(Status.BAD_REQUEST, msg);
+        }
+      }
+    }
 
     // Verify request params
     requestParams.verifyParams(universe);
@@ -147,15 +183,7 @@ public class UpgradeUniverseHandler {
       if (rootCert.certType == CertConfigType.SelfSigned
           || rootCert.certType == CertConfigType.HashicorpVault) {
         CertificateHelper.createClientCertificate(
-            requestParams.rootCA,
-            String.format(
-                CertificateHelper.CERT_PATH,
-                runtimeConfigFactory.staticApplicationConf().getString("yb.storage.path"),
-                customer.uuid.toString(),
-                requestParams.rootCA.toString()),
-            CertificateHelper.DEFAULT_CLIENT,
-            null,
-            null);
+            runtimeConfigFactory.staticApplicationConf(), customer.uuid, requestParams.rootCA);
       }
     }
 
@@ -247,9 +275,9 @@ public class UpgradeUniverseHandler {
         if (requestParams.rootCA == null) {
           requestParams.rootCA =
               CertificateHelper.createRootCA(
+                  runtimeConfigFactory.staticApplicationConf(),
                   universeDetails.nodePrefix,
-                  customer.uuid,
-                  runtimeConfigFactory.staticApplicationConf().getString("yb.storage.path"));
+                  customer.uuid);
         }
       } else {
         // If certificate already present then use the same as upgrade cannot rotate certs
@@ -271,9 +299,9 @@ public class UpgradeUniverseHandler {
             // and rootCA and clientRootCA needs to be different
             requestParams.clientRootCA =
                 CertificateHelper.createClientRootCA(
+                    runtimeConfigFactory.staticApplicationConf(),
                     universeDetails.nodePrefix,
-                    customer.uuid,
-                    runtimeConfigFactory.staticApplicationConf().getString("yb.storage.path"));
+                    customer.uuid);
           }
         }
       } else {
@@ -294,15 +322,7 @@ public class UpgradeUniverseHandler {
         if (cert.certType == CertConfigType.SelfSigned
             || cert.certType == CertConfigType.HashicorpVault) {
           CertificateHelper.createClientCertificate(
-              requestParams.rootCA,
-              String.format(
-                  CertificateHelper.CERT_PATH,
-                  runtimeConfigFactory.staticApplicationConf().getString("yb.storage.path"),
-                  customer.uuid.toString(),
-                  requestParams.rootCA.toString()),
-              CertificateHelper.DEFAULT_CLIENT,
-              null,
-              null);
+              runtimeConfigFactory.staticApplicationConf(), customer.uuid, requestParams.rootCA);
         }
       }
     }
@@ -345,6 +365,20 @@ public class UpgradeUniverseHandler {
     return submitUpgradeTask(
         TaskType.SystemdUpgrade,
         CustomerTask.TaskType.SystemdUpgrade,
+        requestParams,
+        customer,
+        universe);
+  }
+
+  public UUID rebootUniverse(
+      UpgradeTaskParams requestParams, Customer customer, Universe universe) {
+    requestParams.verifyParams(universe);
+    requestParams.universeUUID = universe.universeUUID;
+    requestParams.expectedUniverseVersion = universe.version;
+
+    return submitUpgradeTask(
+        TaskType.RebootUniverse,
+        CustomerTask.TaskType.RebootUniverse,
         requestParams,
         customer,
         universe);

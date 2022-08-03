@@ -115,7 +115,8 @@ class ClusterAdminClient : public yb::tools::ClusterAdminClient {
       const std::vector<TableId>& add_tables,
       const std::vector<TableId>& remove_tables,
       const std::vector<std::string>& producer_bootstrap_ids_to_add,
-      const std::string& new_producer_universe_id);
+      const std::string& new_producer_universe_id,
+      bool remove_table_ignore_errors = false);
 
   Status RenameUniverseReplication(const std::string& old_universe_name,
                                            const std::string& new_universe_name);
@@ -126,6 +127,9 @@ class ClusterAdminClient : public yb::tools::ClusterAdminClient {
                                                bool is_enabled);
 
   Status BootstrapProducer(const std::vector<TableId>& table_id);
+
+  Status WaitForReplicationDrain(const std::vector<CDCStreamId>& stream_ids,
+                                 const string& target_time);
 
  private:
   Result<TxnSnapshotId> SuitableSnapshotId(
@@ -139,6 +143,12 @@ class ClusterAdminClient : public yb::tools::ClusterAdminClient {
     const std::string& producer_uuid, const Status& failure_status);
 
   Status DisableTabletSplitsDuringRestore(CoarseTimePoint deadline);
+
+  std::string GetDBTypeName(const master::SysNamespaceEntryPB& pb);
+  // Map: Old name -> New name.
+  typedef std::unordered_map<NamespaceName, NamespaceName> NSNameToNameMap;
+  Status UpdateUDTypes(
+      QLTypePB* pb_type, bool* update_meta, const NSNameToNameMap& ns_name_to_name);
 
   DISALLOW_COPY_AND_ASSIGN(ClusterAdminClient);
 };

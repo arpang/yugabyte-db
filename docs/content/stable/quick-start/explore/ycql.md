@@ -10,9 +10,7 @@ menu:
     name: 3. Explore distributed SQL
     identifier: explore-dsql-2-ycql
     weight: 130
-type: page
-isTocNested: false
-showAsideToc: true
+type: docs
 ---
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
@@ -153,8 +151,6 @@ ycqlsh> SELECT * FROM myapp.stock_market WHERE stock_symbol in ('FB', 'GOOG');
 (4 rows)
 ```
 
-{{<tip title="Next step" >}}
+## Next step
 
 [Build an application](../../build-apps/)
-
-{{< /tip >}}

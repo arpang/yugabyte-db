@@ -3,13 +3,12 @@ title: Using GORM with YugabyteDB
 linkTitle: GORM
 description: Using GORM with YugabyteDB
 aliases:
-section: INTEGRATIONS
 menu:
   preview:
     identifier: gorm
+    parent: integrations
     weight: 571
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 This document describes how to use [GORM](https://gorm.io/index.html), an object-relational mapping library for Golang, with YugabyteDB.
@@ -18,8 +17,7 @@ This document describes how to use [GORM](https://gorm.io/index.html), an object
 
 Before you can start using GORM, ensure that you have the following available:
 
-- YugabyteDB version 2.6 or later (see [YugabyteDB Quick Start Guide](/preview/quick-start/)).
-- Yugabyte cluster (see [Create a local cluster](/preview/quick-start/create-local-cluster/macos/)).
+- YugabyteDB version 2.6 or later (see [Quick Start](../../quick-start/)).
 - Python version 2.7 or later.
 - Go version 1.8 or later.
 
@@ -143,6 +141,3 @@ id  | name  | age | language
 1   | John  | 35  | Golang-GORM
 (2 rows)
 ```
-
-
-

@@ -6,12 +6,11 @@ description: Configure the Kubernetes cloud provider
 aliases:
   - /preview/deploy/enterprise-edition/configure-cloud-providers/kubernetes
 menu:
-  preview:
+  preview_yugabyte-platform:
     identifier: set-up-cloud-provider-5-kubernetes
     parent: configure-yugabyte-platform
     weight: 20
-isTocNested: false
-showAsideToc: true
+type: docs
 ---
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
@@ -121,7 +120,7 @@ The following command can be used to validate the service account:
 ```sh
 kubectl auth can-i \
 --as system:serviceaccount:<namespace>:yugabyte-platform-universe-management \
-{get|create|delete|list} \ 
+{get|create|delete|list} \
 {namespaces|poddisruptionbudgets|services|statefulsets|secrets|pods|pvc}
 ```
 
@@ -138,9 +137,9 @@ If you have multiple target namespaces, then you have to apply the YAML in all o
 The following command can be used to validate the service account:
 
 ```sh
-kubectl auth can-i \ 
---as system:serviceaccount:<namespace>:yugabyte-platform-universe-management \ 
-{get|create|delete|list|patch} \ 
+kubectl auth can-i \
+--as system:serviceaccount:<namespace>:yugabyte-platform-universe-management \
+{get|create|delete|list|patch} \
 {namespaces|poddisruptionbudgets|services|statefulsets|secrets|pods|pvc}
 ```
 
@@ -164,7 +163,7 @@ kubectl auth can-i \
 {namespaces|poddisruptionbudgets|services|statefulsets|secrets|pods|pvc}
 ```
 
-### `kubeconfig` file
+### kubeconfig file
 
 You can create a `kubeconfig` file for the previously created `yugabyte-platform-universe-management` service account as follows:
 
@@ -180,7 +179,7 @@ You can create a `kubeconfig` file for the previously created `yugabyte-platform
     python generate_kubeconfig.py -s yugabyte-platform-universe-management -n <namespace>
     ```
 
-    <br>Expect the following output:
+    Expect the following output:
 
     ```output
     Generated the kubeconfig file: /tmp/yugabyte-platform-universe-management.conf
@@ -203,7 +202,7 @@ Continue configuring your Kubernetes provider as follows:
   - Specify at **provider level** in the provider form. If specified, this configuration file is used for all availability zones in all regions.
   - Specify at **zone level** in the region form. This is required for **multi-az** or **multi-region** deployments.
 - In the **Service Account** field, provide the name of the service account which has necessary access to manage the cluster (see [Create cluster](../../../../deploy/kubernetes/single-zone/oss/helm-chart/#create-cluster)).
-- In the **Image Registry** field, specify from where to pull the YugabyteDB image. Accept the default setting, unless you are hosting the registry.
+- In the **Image Registry** field, specify from where to pull the YugabyteDB image. Accept the default setting, unless you are hosting the registry, in which case refer to steps described in [Pull and push YugabyteDB Docker images to private container registry](../../../install-yugabyte-platform/prerequisites#pull-and-push-yugabytedb-docker-images-to-private-container-registry).
 - Use **Pull Secret File** to upload the pull secret to download the image of the Enterprise YugabyteDB that is in a private repository. Your Yugabyte sales representative should have provided this secret.
 
 ## Configure region and zones
@@ -342,9 +341,9 @@ Continue configuring your Kubernetes provider by clicking **Add region** and com
           tcp-yedis-port: "6379"
           tcp-ysql-port: "5433"
     ```
-    
+
   - Overrides to run YugabyteDB as a non-root user:
-  
+
     ```yml
     podSecurityContext:
       enabled: true
@@ -354,7 +353,7 @@ Continue configuring your Kubernetes provider by clicking **Add region** and com
       runAsUser: 10001
       runAsGroup: 10001
     ```
-  
+
     <br>Note that you cannot change users during the Helm upgrades.
 
 Continue configuring your Kubernetes provider by clicking **Add Zone**, as per the following illustration:

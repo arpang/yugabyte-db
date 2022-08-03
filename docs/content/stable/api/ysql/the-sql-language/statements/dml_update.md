@@ -7,8 +7,7 @@ menu:
   stable:
     identifier: dml_update
     parent: statements
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 ## Synopsis
@@ -129,6 +128,6 @@ yugabyte=# SELECT * FROM sample ORDER BY k1;
 
 ## See also
 
-- [`DELETE`](../dml_delete)
+- [`DELETE`](../dml_delete/)
 - [`INSERT`](../dml_insert)
-- [`SELECT`](../dml_select)
+- [`SELECT`](../dml_select/)

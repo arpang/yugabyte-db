@@ -11,8 +11,7 @@ menu:
 aliases:
   - /preview/admin/yb-tserver
   - /preview/deploy/reference/configuration/yb-tserver
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 Use the `yb-tserver` binary and its flags to configure the [YB-TServer](../../../architecture/concepts/yb-tserver/) server. The `yb-tserver` executable file is located in the `bin` directory of YugabyteDB home.
@@ -29,7 +28,7 @@ yb-tserver [ flags ]
 $ ./bin/yb-tserver \
 --tserver_master_addrs 172.151.17.130:7100,172.151.17.220:7100,172.151.17.140:7100 \
 --rpc_bind_addresses 172.151.17.130 \
---start_pgsql_proxy \
+--enable_ysql \
 --fs_data_dirs "/home/centos/disk1,/home/centos/disk2" &
 ```
 
@@ -434,11 +433,11 @@ The following flags support the use of the [YSQL API](../../../api/ysql/).
 
 {{< note title="Note" >}}
 
-Ensure that `enable_ysql` in `yb-tserver` configurations match the values in `yb-master` configurations.
+Ensure that `enable_ysql` values in `yb-tserver` configurations match the values in `yb-master` configurations.
 
 {{< /note >}}
 
-Enables the YSQL API. Replaces the deprecated `--start_pgsql_proxy` flag.
+Enables the YSQL API.
 
 Default: `true`
 
@@ -534,7 +533,7 @@ Default: Uses the YSQL display format.
 
 Specifies the maximum number of concurrent YSQL connections.
 
-Default: `300`
+Default: 300 for superusers. Non-superuser roles see only the connections available for use, while superusers see all connections, including those reserved for superusers.
 
 ##### --ysql_default_transaction_isolation
 
@@ -544,7 +543,7 @@ Valid values: `SERIALIZABLE`, `REPEATABLE READ`, `READ COMMITTED`, and `READ UNC
 
 Default: `READ COMMITTED`<sup>$</sup>
 
-<sup>$</sup> Read Committed Isolation is supported only if the tserver gflag `yb_enable_read_committed_isolation` is set to `true`. By default this gflag is `false` and in this case the Read Committed isolation level of Yugabyte's transactional layer falls back to the stricter Snapshot Isolation (in which case `READ COMMITTED` and `READ UNCOMMITTED` of YSQL also in turn use Snapshot Isolation).
+<sup>$</sup> Read Committed Isolation is supported only if the tserver gflag `yb_enable_read_committed_isolation` is set to `true`. By default this gflag is `false` and in this case the Read Committed isolation level of Yugabyte's transactional layer falls back to the stricter Snapshot Isolation (in which case `READ COMMITTED` and `READ UNCOMMITTED` of YSQL also in turn use Snapshot Isolation). Read Committed support is currently in [Beta](/preview/faq/general/#what-is-the-definition-of-the-beta-feature-tag).
 
 ##### --ysql_disable_index_backfill
 

@@ -149,9 +149,6 @@ DEFINE_int32(compaction_priority_step_size, 5,
 DEFINE_int32(small_compaction_extra_priority, 1,
              "Small compaction will get small_compaction_extra_priority extra priority.");
 
-DEFINE_bool(task_ignore_disk_priority, false,
-            "Ignore disk priority when considering compaction and flush priorities.");
-
 DEFINE_int32(automatic_compaction_extra_priority, 50,
              "Assigns automatic compactions extra priority when automatic tablet splits are "
              "enabled. This deprioritizes manual compactions including those induced by the "
@@ -405,9 +402,6 @@ class DBImpl::CompactionTask : public ThreadPoolTask {
   }
 
   int CalculateGroupNoPriority(int active_tasks) const override {
-    if (FLAGS_task_ignore_disk_priority) {
-      return kNoDiskPriority;
-    }
     return kTopDiskCompactionPriority - active_tasks;
   }
 
@@ -516,9 +510,6 @@ class DBImpl::FlushTask : public ThreadPoolTask {
   }
 
   int CalculateGroupNoPriority(int active_tasks) const override {
-    if (FLAGS_task_ignore_disk_priority) {
-      return kNoDiskPriority;
-    }
     return kTopDiskFlushPriority - active_tasks;
   }
 
@@ -1903,7 +1894,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                        paranoid_file_checks,
                        cfd->internal_stats(),
                        db_options_.boundary_extractor.get(),
-                       Env::IO_HIGH,
+                       yb::IOPriority::kHigh,
                        &info.table_properties);
         LogFlush(db_options_.info_log);
         RLOG(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,

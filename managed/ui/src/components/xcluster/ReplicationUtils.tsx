@@ -8,8 +8,8 @@ import {
   queryLagMetricsForTable,
   queryLagMetricsForUniverse
 } from '../../actions/xClusterReplication';
-import { formatDuration } from '../../utils/Formatters';
-import {IReplication, IReplicationStatus} from './IClusterReplication';
+import { formatLagMetric } from '../../utils/Formatters';
+import { IReplication, IReplicationStatus } from './IClusterReplication';
 
 import './ReplicationUtils.scss';
 
@@ -25,17 +25,15 @@ export const getReplicationStatus = (replication: IReplication) => {
         </span>
       );
     case IReplicationStatus.RUNNING:
-      return (
-        <span className="replication-status-text success">
-          <i className="fa fa-check" />
-          Enabled
-        </span>
-      );
-    case IReplicationStatus.PAUSED:
-      return (
+      return replication.paused ? (
         <span className="replication-status-text paused">
           <i className="fa fa-pause-circle-o" />
           Paused
+        </span>
+      ) : (
+        <span className="replication-status-text success">
+          <i className="fa fa-check" />
+          Enabled
         </span>
       );
     case IReplicationStatus.INIT:
@@ -63,9 +61,11 @@ export const getReplicationStatus = (replication: IReplication) => {
       return (
         <span className="replication-status-text failed">
           <i className="fa fa-close" />
-          {replication.sourceUniverseUUID === undefined ?
-            "Source universe is deleted" : replication.targetUniverseUUID === undefined ?
-              "Target universe is deleted" : "One participating universe was tried to be destroyed"}
+          {replication.sourceUniverseUUID === undefined
+            ? 'Source universe is deleted'
+            : replication.targetUniverseUUID === undefined
+            ? 'Target universe is deleted'
+            : 'One participating universe was tried to be destroyed'}
         </span>
       );
     default:
@@ -101,7 +101,7 @@ export const GetConfiguredThreshold = ({
     return <span>0</span>;
   }
   const maxAcceptableLag = metricsData?.[0]?.thresholds?.SEVERE.threshold;
-  return <span>{formatDuration(maxAcceptableLag)}</span>;
+  return <span>{formatLagMetric(maxAcceptableLag)}</span>;
 };
 
 export const GetCurrentLag = ({
@@ -155,7 +155,7 @@ export const GetCurrentLag = ({
         return a.y.slice(-1);
       })
   );
-  const formattedLag = formatDuration(latestLag);
+  const formattedLag = formatLagMetric(latestLag);
 
   return (
     <span
@@ -221,7 +221,7 @@ export const GetCurrentLagForTable = ({
         return a.y.slice(-1);
       })
   );
-  const formattedLag = formatDuration(latestLag);
+  const formattedLag = formatLagMetric(latestLag);
 
   return (
     <span

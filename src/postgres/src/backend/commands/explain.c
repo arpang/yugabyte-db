@@ -942,6 +942,7 @@ ExplainPreScanNode(PlanState *planstate, Bitmapset **rels_used)
 	switch (nodeTag(plan))
 	{
 		case T_SeqScan:
+		case T_YbSeqScan:
 		case T_SampleScan:
 		case T_IndexScan:
 		case T_IndexOnlyScan:
@@ -1069,6 +1070,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_SeqScan:
 			pname = sname = "Seq Scan";
 			break;
+		case T_YbSeqScan:
+			pname = sname = "YB Seq Scan";
+			break;
 		case T_SampleScan:
 			pname = sname = "Sample Scan";
 			break;
@@ -1194,7 +1198,8 @@ ExplainNode(PlanState *planstate, List *ancestors,
 					partialmode = "Partial";
 					pname = psprintf("%s %s", partialmode, pname);
 				}
-				else if (DO_AGGSPLIT_COMBINE(agg->aggsplit))
+				else if (DO_AGGSPLIT_COMBINE(agg->aggsplit) ||
+						 ((AggState*) planstate)->yb_pushdown_supported)
 				{
 					partialmode = "Finalize";
 					pname = psprintf("%s %s", partialmode, pname);
@@ -1285,6 +1290,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 	switch (nodeTag(plan))
 	{
 		case T_SeqScan:
+		case T_YbSeqScan:
 		case T_SampleScan:
 		case T_BitmapHeapScan:
 		case T_TidScan:
@@ -1529,8 +1535,16 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (((IndexScan *) plan)->indexqualorig)
 				show_instrumentation_count("Rows Removed by Index Recheck", 2,
 										   planstate, es);
+			/*
+			 * Quals are shown in the order they are applied: index pushdown,
+			 * relation pushdown, local clauses.
+			 */
 			show_scan_qual(((IndexScan *) plan)->indexorderbyorig,
 						   "Order By", planstate, ancestors, es);
+			show_scan_qual(((IndexScan *) plan)->index_remote.qual,
+						   "Remote Index Filter", planstate, ancestors, es);
+			show_scan_qual(((IndexScan *) plan)->rel_remote.qual,
+						   "Remote Filter", planstate, ancestors, es);
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
@@ -1544,6 +1558,11 @@ ExplainNode(PlanState *planstate, List *ancestors,
 										   planstate, es);
 			show_scan_qual(((IndexOnlyScan *) plan)->indexorderby,
 						   "Order By", planstate, ancestors, es);
+			/*
+			 * Remote filter is applied first, so it is output first.
+			 */
+			show_scan_qual(((IndexOnlyScan *) plan)->remote.qual,
+						   "Remote Filter", planstate, ancestors, es);
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
@@ -1580,6 +1599,17 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_NamedTuplestoreScan:
 		case T_WorkTableScan:
 		case T_SubqueryScan:
+			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
+			if (plan->qual)
+				show_instrumentation_count("Rows Removed by Filter", 1,
+										   planstate, es);
+			break;
+		case T_YbSeqScan:
+			/*
+			 * Remote filter is applied first, so it is output first.
+			 */
+			show_scan_qual(((YbSeqScan *) plan)->remote.qual, "Remote Filter",
+						   planstate, ancestors, es);
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
@@ -2991,6 +3021,7 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 	switch (nodeTag(plan))
 	{
 		case T_SeqScan:
+		case T_YbSeqScan:
 		case T_SampleScan:
 		case T_IndexScan:
 		case T_IndexOnlyScan:

@@ -265,7 +265,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	PartitionBoundSpec	*partboundspec;
 	RoleSpec			*rolespec;
 	OptSplit			*splitopt;
-	OptTableGroup		*grpopt;
+	char				*grpopt;
 	RowBounds			*rowbounds;
 }
 
@@ -973,6 +973,7 @@ stmt :
 			| AlterFdwStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
 			| AlterForeignServerStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
 			| AlterForeignTableStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
+			| AlterTSConfigurationStmt { parser_ybc_beta_feature(@1, "alter text search configuration", false); }
 			| AlterUserMappingStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
 			| AnalyzeStmt { parser_ybc_beta_feature(@1, "analyze", false); }
 			| CheckPointStmt { parser_ybc_beta_feature(@1, "checkpoint", false); }
@@ -997,7 +998,6 @@ stmt :
 			| AlterCompositeTypeStmt { parser_ybc_not_support(@1, "This statement"); }
 			| AlterPublicationStmt { parser_ybc_not_support(@1, "This statement"); }
 			| AlterSubscriptionStmt { parser_ybc_not_support(@1, "This statement"); }
-			| AlterTSConfigurationStmt { parser_ybc_not_support(@1, "This statement"); }
 			| AlterTSDictionaryStmt { parser_ybc_not_support(@1, "This statement"); }
 			| ClusterStmt { parser_ybc_not_support(@1, "This statement"); }
 			| CreateAmStmt { parser_ybc_not_support(@1, "This statement"); }
@@ -3337,7 +3337,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->tablespacename = $12;
 					n->if_not_exists = false;
 					n->split_options = $13;
-					n->tablegroup = $14;
+					n->tablegroupname = $14;
 					if ($13 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(WARNING, (errmsg("Split options on TEMP table will be ignored")));
@@ -3377,7 +3377,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->tablespacename = $15;
 					n->if_not_exists = true;
 					n->split_options = $16;
-					n->tablegroup = $17;
+					n->tablegroupname = $17;
 					if ($16 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(WARNING, (errmsg("Split options on TEMP table will be ignored")));
@@ -3418,7 +3418,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->tablespacename = $11;
 					n->if_not_exists = false;
 					n->split_options = $12;
-					n->tablegroup = $13;
+					n->tablegroupname = $13;
 					if ($12 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(WARNING, (errmsg("Split options on TEMP table will be ignored")));
@@ -3459,7 +3459,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->tablespacename = $14;
 					n->if_not_exists = true;
 					n->split_options = $15;
-					n->tablegroup = $16;
+					n->tablegroupname = $16;
 					if ($15 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(WARNING, (errmsg("Split options on TEMP table will be ignored")));
@@ -3500,7 +3500,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->tablespacename = $13;
 					n->if_not_exists = false;
 					n->split_options = $14;
-					n->tablegroup = $15;
+					n->tablegroupname = $15;
 					if ($14 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(WARNING, (errmsg("Split options on TEMP table will be ignored")));
@@ -3541,7 +3541,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->tablespacename = $16;
 					n->if_not_exists = true;
 					n->split_options = $17;
-					n->tablegroup = $18;
+					n->tablegroupname = $18;
 					if ($17 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(WARNING, (errmsg("Split options on TEMP table will be ignored")));
@@ -4303,13 +4303,11 @@ OptTableGroup:
 			TABLEGROUP name
 				{
 					parser_ybc_beta_feature(@1, "tablegroup", true);
-					$$ = makeNode(OptTableGroup);
-					$$->has_tablegroup = true;
-					$$->tablegroup_name = $2;
+					$$ = $2;
 				}
 			| /*EMPTY*/
 				{
-					$$ = (OptTableGroup*) NULL;
+					$$ = NULL;
 				}
 		;
 
@@ -11339,7 +11337,6 @@ AlterTSDictionaryStmt:
 AlterTSConfigurationStmt:
 			ALTER TEXT_P SEARCH CONFIGURATION any_name ADD_P MAPPING FOR name_list any_with any_name_list
 				{
-					parser_ybc_not_support(@1, "ALTER TEXT SEARCH CONFIGURATION");
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
 					n->kind = ALTER_TSCONFIG_ADD_MAPPING;
 					n->cfgname = $5;
@@ -11351,7 +11348,6 @@ AlterTSConfigurationStmt:
 				}
 			| ALTER TEXT_P SEARCH CONFIGURATION any_name ALTER MAPPING FOR name_list any_with any_name_list
 				{
-					parser_ybc_not_support(@1, "ALTER TEXT SEARCH CONFIGURATION");
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
 					n->kind = ALTER_TSCONFIG_ALTER_MAPPING_FOR_TOKEN;
 					n->cfgname = $5;
@@ -11363,7 +11359,6 @@ AlterTSConfigurationStmt:
 				}
 			| ALTER TEXT_P SEARCH CONFIGURATION any_name ALTER MAPPING REPLACE any_name any_with any_name
 				{
-					parser_ybc_not_support(@1, "ALTER TEXT SEARCH CONFIGURATION");
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
 					n->kind = ALTER_TSCONFIG_REPLACE_DICT;
 					n->cfgname = $5;
@@ -11375,7 +11370,6 @@ AlterTSConfigurationStmt:
 				}
 			| ALTER TEXT_P SEARCH CONFIGURATION any_name ALTER MAPPING FOR name_list REPLACE any_name any_with any_name
 				{
-					parser_ybc_not_support(@1, "ALTER TEXT SEARCH CONFIGURATION");
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
 					n->kind = ALTER_TSCONFIG_REPLACE_DICT_FOR_TOKEN;
 					n->cfgname = $5;
@@ -11387,7 +11381,6 @@ AlterTSConfigurationStmt:
 				}
 			| ALTER TEXT_P SEARCH CONFIGURATION any_name DROP MAPPING FOR name_list
 				{
-					parser_ybc_not_support(@1, "ALTER TEXT SEARCH CONFIGURATION");
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
 					n->kind = ALTER_TSCONFIG_DROP_MAPPING;
 					n->cfgname = $5;
@@ -11397,7 +11390,6 @@ AlterTSConfigurationStmt:
 				}
 			| ALTER TEXT_P SEARCH CONFIGURATION any_name DROP MAPPING IF_P EXISTS FOR name_list
 				{
-					parser_ybc_not_support(@1, "ALTER TEXT SEARCH CONFIGURATION");
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
 					n->kind = ALTER_TSCONFIG_DROP_MAPPING;
 					n->cfgname = $5;

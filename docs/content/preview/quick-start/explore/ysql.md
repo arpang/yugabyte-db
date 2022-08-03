@@ -1,7 +1,7 @@
 ---
 title: Explore YSQL, the Yugabyte SQL API
-headerTitle: 3. Explore Yugabyte SQL
-linkTitle: 3. Explore distributed SQL APIs
+headerTitle: Explore Yugabyte SQL
+linkTitle: Explore distributed SQL APIs
 description: Explore Yugabyte SQL (YSQL), a PostgreSQL-compatible fully-relational distributed SQL API
 image: /images/section_icons/quick_start/explore_ysql.png
 aliases:
@@ -17,12 +17,10 @@ aliases:
 menu:
   preview:
     parent: quick-start
-    name: 3. Explore distributed SQL
+    name: Explore distributed SQL
     identifier: explore-dsql-1-ysql
     weight: 130
-type: page
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
@@ -43,7 +41,7 @@ showAsideToc: true
 
 </ul>
 
-After [creating a local cluster](../../create-local-cluster/macos/), you can start exploring YugabyteDB's PostgreSQL-compatible, fully-relational [Yugabyte SQL API](../../../api/ysql/).
+After [creating a local cluster](../../../quick-start/), you can start exploring YugabyteDB's PostgreSQL-compatible, fully-relational [Yugabyte SQL API](../../../api/ysql/).
 
 ## Set up the sample database
 
@@ -859,7 +857,3 @@ To get fast on-demand reports, create a [materialized view](../../../explore/ysq
     Execution Time: 1.917 ms
     (4 rows)
     ```
-
-## Next step
-
-[Build an application](../../build-apps/)

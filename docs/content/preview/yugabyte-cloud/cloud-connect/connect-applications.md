@@ -5,19 +5,18 @@ description: Connect applications to YugabyteDB Managed clusters
 headcontent:
 image: /images/section_icons/deploy/enterprise.png
 menu:
-  preview:
+  preview_yugabyte-cloud:
     identifier: connect-applications
     parent: cloud-connect
     weight: 30
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 Applications connect to and interact with YugabyteDB using API client libraries (also known as client drivers). Before you can connect an application, you need to install the correct driver.
 
 YugabyteDB Managed clusters have SSL (encryption in-transit) enabled so make sure your driver details include SSL parameters.
 
-For examples of applications that connect to YugabyteDB Managed using common drivers, refer to [Build an application](../../cloud-quickstart/cloud-build-apps/).
+For examples of applications that connect to YugabyteDB Managed using common drivers, refer to [Build an application](../../../develop/build-apps/).
 
 For examples of connecting applications to YugabyteDB Managed, refer to [Example applications](../../cloud-examples/).
 
@@ -111,4 +110,4 @@ To run the sample application:
 ## Learn more
 
 - [Add database users](../../cloud-secure-clusters/add-users/)
-- [Build an application](../../cloud-quickstart/cloud-build-apps/)
+- [Build an application](../../../develop/build-apps/)

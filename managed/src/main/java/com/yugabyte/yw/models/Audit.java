@@ -131,7 +131,10 @@ public class Audit extends Model {
     Hook,
 
     @EnumValue("Hook Scope")
-    HookScope
+    HookScope,
+
+    @EnumValue("NodeAgent")
+    NodeAgent
   }
 
   public enum ActionType {
@@ -213,6 +216,9 @@ public class Audit extends Model {
     @EnumValue("Configure")
     Configure,
 
+    @EnumValue("Update Options")
+    UpdateOptions,
+
     @EnumValue("Refresh Pricing")
     RefreshPricing,
 
@@ -233,6 +239,9 @@ public class Audit extends Model {
 
     @EnumValue("Upgrade Systemd")
     UpgradeSystemd,
+
+    @EnumValue("Reboot Universe")
+    RebootUniverse,
 
     @EnumValue("Resize Node")
     ResizeNode,
@@ -415,7 +424,28 @@ public class Audit extends Model {
     AddHook,
 
     @EnumValue("Remove Hook from Hook Scope")
-    RemoveHook
+    RemoveHook,
+
+    @EnumValue("Rotate AccessKey")
+    RotateAccessKey,
+
+    @EnumValue("Create And Rotate Access Key")
+    CreateAndRotateAccessKey,
+
+    @EnumValue("Run Hook")
+    RunHook,
+
+    @EnumValue("Run API Triggered Tasks")
+    RunApiTriggeredHooks,
+
+    @EnumValue("Add Node Agent")
+    AddNodeAgent,
+
+    @EnumValue("Update Node Agent")
+    UpdateNodeAgent,
+
+    @EnumValue("Delete Node Agent")
+    DeleteNodeAgent
   }
 
   // An auto incrementing, user-friendly ID for the audit entry.

@@ -4,14 +4,12 @@ headerTitle: Docs style guide
 linkTitle: Style guide
 description: YugabyteDB documentation style guide
 image: /images/section_icons/index/quick_start.png
-type: page
 menu:
   preview:
     identifier: docs-style
     parent: docs
     weight: 2950
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 The YugabyteDB documentation style is based on the [Microsoft style guide](https://docs.microsoft.com/en-us/style-guide/welcome/), with some input from [Apple's style guide](https://help.apple.com/applestyleguide/#/). We aim to automate as much as possible through Vale.
@@ -32,7 +30,7 @@ Yugabyte's documentation voice should be informal and authoritative. Speak (or r
 
 ### Headings
 
-**Sentence case.** For example, "Provision your cluster", not "Provision Your Cluster". Obvious exceptions include proper nouns, product names, and more.
+**Sentence case.** "Provision your cluster", not "Provision Your Cluster". Obvious exceptions include proper nouns, product names, and more.
 
 **Avoid numbered headings.** Occasionally, it might make sense to add numbers to headings, but in general, avoid it. It's a common error to delete a section and forget to re-number the ones that follow; and even if you do remember, manual re-numbering is just a nuisance. (This is the main reason for auto-numbering ordered lists, too!)
 
@@ -42,7 +40,7 @@ Yugabyte's documentation voice should be informal and authoritative. Speak (or r
 
 ### Links
 
-Prefer markdown-style `[link text](link-target)` links over HTML tags. Markdown's endnote-style links are also fine to use. Hugo has its own curly-brace link syntax, but it's less friendly and doesn't seem to have any advantages in normal use.
+Prefer markdown-style `[link text](link-target)` links over HTML tags. Markdown's endnote-style links are also fine to use. Hugo has its own curly-brace link syntax, but it's less friendly and doesn't seem to have many advantages in normal use.
 
 ### Code blocks
 
@@ -54,6 +52,12 @@ Prefer markdown-style `[link text](link-target)` links over HTML tags. Markdown'
 
 Tag YSQL code blocks as `sql`, and YCQL code blocks as `cql`. The source highlighting differs slightly between the two.
 
+### Admonitions
+
+Use admonitions sparingly. They lose their effectiveness if they appear too often. Avoid multiple admonitions in a row, and in most cases don't place them immediately after a heading.
+
+To insert an admonition (a tip, note, or warning box), see [Widgets and shortcodes](../widgets-and-shortcodes/#admonition-boxes).
+
 ## Markdown linting
 
 Use `markdownlint` to find and fix Markdown problems locally before you push a commit. There's a command-line utility available through Homebrew, and there are also extensions available for several editors, including Visual Studio Code. Markdownlint's [rules are well-documented](https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md).
@@ -62,7 +66,7 @@ Use `markdownlint` to find and fix Markdown problems locally before you push a c
 
 We aim to use [Vale](https://docs.errata.ai) to reinforce as many of the style-guide conventions as possible.
 
-You can run Vale locally in two ways: in a supported editor, and from the command line. Either way you run it, it'll pick up the configuration from [`/docs/.vale.ini`](https://github.com/polarweasel/yugabyte-db/blob/master/docs/.vale.ini) in the main repository.
+You can run Vale locally in two ways: in a supported editor, and from the command line. Either way you run it, it'll pick up the configuration from [`/docs/.vale.ini`](https://github.com/yugabyte/yugabyte-db/blob/master/docs/.vale.ini) in the main repository.
 
 **To run Vale from the command line** (there are more options than this!):
 

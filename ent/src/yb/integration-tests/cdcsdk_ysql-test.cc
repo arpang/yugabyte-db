@@ -83,6 +83,10 @@ DECLARE_bool(stream_truncate_record);
 DECLARE_int32(cdc_state_checkpoint_update_interval_ms);
 DECLARE_int32(update_metrics_interval_ms);
 DECLARE_uint64(log_segment_size_bytes);
+DECLARE_uint64(consensus_max_batch_size_bytes);
+DECLARE_uint64(aborted_intent_cleanup_ms);
+DECLARE_int32(cdc_min_replicated_index_considered_stale_secs);
+DECLARE_int32(log_min_seconds_to_retain);
 
 namespace yb {
 
@@ -281,15 +285,18 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
   }
 
   Status WriteEnumsRows(
-      uint32_t start, uint32_t end, Cluster* cluster, const string& enum_suffix = "") {
-    auto conn = VERIFY_RESULT(cluster->ConnectToDB(kNamespaceName));
+      uint32_t start, uint32_t end, Cluster* cluster, const string& enum_suffix = "",
+      string database_name = kNamespaceName, string table_name = kTableName,
+      string schema_name = "public") {
+    auto conn = VERIFY_RESULT(cluster->ConnectToDB(database_name));
     LOG(INFO) << "Writing " << end - start << " row(s) within transaction";
 
     RETURN_NOT_OK(conn.Execute("BEGIN"));
     for (uint32_t i = start; i < end; ++i) {
       RETURN_NOT_OK(conn.ExecuteFormat(
-          "INSERT INTO $0($1, $2) VALUES ($3, '$4')", kTableName + enum_suffix, kKeyColumnName,
-          kValueColumnName, i, std::string(i % 2 ? "FIXED" : "PERCENTAGE") + enum_suffix));
+          "INSERT INTO $0.$1($2, $3) VALUES ($4, '$5')", schema_name, table_name + enum_suffix,
+          kKeyColumnName, kValueColumnName, i,
+          std::string(i % 2 ? "FIXED" : "PERCENTAGE") + enum_suffix));
     }
     RETURN_NOT_OK(conn.Execute("COMMIT"));
     return Status::OK();
@@ -327,7 +334,7 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
     GetChangesRequestPB change_req2;
     GetChangesResponsePB change_resp2;
     PrepareChangeRequest(
-        &change_req2, stream_id, tablets, change_resp->cdc_sdk_checkpoint().index(),
+        &change_req2, stream_id, tablets, 0, change_resp->cdc_sdk_checkpoint().index(),
         change_resp->cdc_sdk_checkpoint().term(), change_resp->cdc_sdk_checkpoint().key(),
         change_resp->cdc_sdk_checkpoint().write_id(),
         change_resp->cdc_sdk_checkpoint().snapshot_time());
@@ -361,10 +368,11 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
 
   void PrepareChangeRequest(
       GetChangesRequestPB* change_req, const CDCStreamId& stream_id,
-      const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets, int64 index = 0,
-      int64 term = 0, std::string key = "", int32_t write_id = 0, int64 snapshot_time = 0) {
+      const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
+      const int tablet_idx = 0, int64 index = 0, int64 term = 0, std::string key = "",
+      int32_t write_id = 0, int64 snapshot_time = 0) {
     change_req->set_stream_id(stream_id);
-    change_req->set_tablet_id(tablets.Get(0).tablet_id());
+    change_req->set_tablet_id(tablets.Get(tablet_idx).tablet_id());
     change_req->mutable_from_cdc_sdk_checkpoint()->set_index(index);
     change_req->mutable_from_cdc_sdk_checkpoint()->set_term(term);
     change_req->mutable_from_cdc_sdk_checkpoint()->set_key(key);
@@ -375,9 +383,9 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
   void PrepareChangeRequest(
       GetChangesRequestPB* change_req, const CDCStreamId& stream_id,
       const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
-      const CDCSDKCheckpointPB& cp) {
+      const CDCSDKCheckpointPB& cp, const int tablet_idx = 0) {
     change_req->set_stream_id(stream_id);
-    change_req->set_tablet_id(tablets.Get(0).tablet_id());
+    change_req->set_tablet_id(tablets.Get(tablet_idx).tablet_id());
     change_req->mutable_from_cdc_sdk_checkpoint()->set_term(cp.term());
     change_req->mutable_from_cdc_sdk_checkpoint()->set_index(cp.index());
     change_req->mutable_from_cdc_sdk_checkpoint()->set_key(cp.key());
@@ -387,13 +395,13 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
   void PrepareSetCheckpointRequest(
       SetCDCCheckpointRequestPB* set_checkpoint_req,
       const CDCStreamId stream_id,
-      google::protobuf::RepeatedPtrField<master::TabletLocationsPB>
-          tablets,
+      google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets,
+      const int tablet_idx,
       const OpId& op_id,
       bool initial_checkpoint) {
     set_checkpoint_req->set_stream_id(stream_id);
     set_checkpoint_req->set_initial_checkpoint(initial_checkpoint);
-    set_checkpoint_req->set_tablet_id(tablets.Get(0).tablet_id());
+    set_checkpoint_req->set_tablet_id(tablets.Get(tablet_idx).tablet_id());
     set_checkpoint_req->mutable_checkpoint()->mutable_op_id()->set_term(op_id.term);
     set_checkpoint_req->mutable_checkpoint()->mutable_op_id()->set_index(op_id.index);
   }
@@ -401,14 +409,14 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
   Result<SetCDCCheckpointResponsePB> SetCDCCheckpoint(
       const CDCStreamId& stream_id,
       const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
-      const OpId& op_id = OpId::Min(),
-      bool initial_checkpoint = true) {
+      const OpId& op_id = OpId::Min(), bool initial_checkpoint = true, const int tablet_idx = 0) {
     RpcController set_checkpoint_rpc;
     SetCDCCheckpointRequestPB set_checkpoint_req;
     SetCDCCheckpointResponsePB set_checkpoint_resp;
     auto deadline = CoarseMonoClock::now() + test_client()->default_rpc_timeout();
     set_checkpoint_rpc.set_deadline(deadline);
-    PrepareSetCheckpointRequest(&set_checkpoint_req, stream_id, tablets, op_id, initial_checkpoint);
+    PrepareSetCheckpointRequest(
+        &set_checkpoint_req, stream_id, tablets, tablet_idx, op_id, initial_checkpoint);
     Status st =
         cdc_proxy_->SetCDCCheckpoint(set_checkpoint_req, &set_checkpoint_resp, &set_checkpoint_rpc);
 
@@ -497,14 +505,15 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
   Result<GetChangesResponsePB> GetChangesFromCDC(
       const CDCStreamId& stream_id,
       const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
-      const CDCSDKCheckpointPB* cp = nullptr) {
+      const CDCSDKCheckpointPB* cp = nullptr,
+      int tablet_idx = 0) {
     GetChangesRequestPB change_req;
     GetChangesResponsePB change_resp;
 
     if (cp == nullptr) {
-      PrepareChangeRequest(&change_req, stream_id, tablets);
+      PrepareChangeRequest(&change_req, stream_id, tablets, tablet_idx);
     } else {
-      PrepareChangeRequest(&change_req, stream_id, tablets, *cp);
+      PrepareChangeRequest(&change_req, stream_id, tablets, *cp, tablet_idx);
     }
 
     RpcController get_changes_rpc;
@@ -535,7 +544,7 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
       const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets) {
     GetChangesRequestPB change_req;
     GetChangesResponsePB change_resp;
-    PrepareChangeRequest(&change_req, stream_id, tablets, -1, -1, "", -1, 0);
+    PrepareChangeRequest(&change_req, stream_id, tablets, 0, -1, -1, "", -1);
     RpcController get_changes_rpc;
     RETURN_NOT_OK(cdc_proxy_->GetChanges(change_req, &change_resp, &get_changes_rpc));
 
@@ -739,9 +748,9 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
     GetChangesResponsePB resp;
 
     if (cp == nullptr) {
-      PrepareChangeRequest(&req, stream_id, tablets);
+      PrepareChangeRequest(&req, stream_id, tablets, 0);
     } else {
-      PrepareChangeRequest(&req, stream_id, tablets, *cp);
+      PrepareChangeRequest(&req, stream_id, tablets, *cp, 0);
     }
 
     // The default value for need_schema_info is false.
@@ -2429,6 +2438,364 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestEnumMultipleStreams)) {
   }
 
   ASSERT_EQ(insert_count, expected_key_value);
+}
+
+// Test GetChanges() can return records of a transaction with size was greater than
+// 'consensus_max_batch_size_bytes'.
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestTransactionWithLargeBatchSize)) {
+  FLAGS_update_min_cdc_indices_interval_secs = 1;
+  FLAGS_cdc_state_checkpoint_update_interval_ms = 0;
+  FLAGS_consensus_max_batch_size_bytes = 1000;
+  ASSERT_OK(SetUpWithParams(1, 1, false));
+
+  const uint32_t num_tablets = 1;
+  auto table = ASSERT_RESULT(CreateTable(&test_cluster_, kNamespaceName, kTableName, num_tablets));
+  TableId table_id = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, kTableName));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version=*/nullptr));
+  ASSERT_EQ(tablets.size(), num_tablets);
+  CDCStreamId stream_id = ASSERT_RESULT(CreateDBStream(IMPLICIT));
+
+  auto resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets));
+  ASSERT_FALSE(resp.has_error());
+
+  // Insert some records in transaction.
+  ASSERT_OK(WriteRowsHelper(0 /* start */, 100 /* end */, &test_cluster_, true));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
+      /* is_compaction = */ false));
+  GetChangesResponsePB change_resp_1 = ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets));
+  change_resp_1 =
+      ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets, &change_resp_1.cdc_sdk_checkpoint()));
+  LOG(INFO) << "Number of records after first transaction: " << change_resp_1.records().size();
+
+  // Insert some records in transaction.
+  ASSERT_OK(WriteRowsHelper(100, 500, &test_cluster_, true));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
+      /* is_compaction = */ false));
+
+  int64 initial_num_intents;
+  PollForIntentCount(400, 0, IntentCountCompareOption::GreaterThan, &initial_num_intents);
+  LOG(INFO) << "Number of intents: " << initial_num_intents;
+
+  GetChangesResponsePB change_resp_2 =
+      ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets, &change_resp_1.cdc_sdk_checkpoint()));
+  uint32_t record_size = change_resp_2.cdc_sdk_proto_records_size();
+  // We have run 1 transactions after the last call to "GetChangesFromCDC", thus we expect
+  // atleast 400 records if we call "GetChangesFromCDC" now.
+  LOG(INFO) << "Number of records after second transaction: " << record_size;
+  ASSERT_GE(record_size, 400);
+  ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets, &change_resp_2.cdc_sdk_checkpoint()));
+
+  int64 final_num_intents;
+  PollForIntentCount(0, 0, IntentCountCompareOption::EqualTo, &final_num_intents);
+  ASSERT_EQ(0, final_num_intents);
+  LOG(INFO) << "Final number of intents: " << final_num_intents;
+}
+
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestIntentCountPersistencyAfterCompaction)) {
+  FLAGS_update_min_cdc_indices_interval_secs = 1;
+  // We want to force every GetChanges to update the cdc_state table.
+  FLAGS_cdc_state_checkpoint_update_interval_ms = 0;
+  FLAGS_aborted_intent_cleanup_ms = 1000;  // 1 sec
+
+  ASSERT_OK(SetUpWithParams(1, 1, false));
+  const uint32_t num_tablets = 1;
+  auto table = ASSERT_RESULT(CreateTable(&test_cluster_, kNamespaceName, kTableName, num_tablets));
+
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
+  ASSERT_EQ(tablets.size(), num_tablets);
+
+  TableId table_id = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, kTableName));
+
+  CDCStreamId stream_id = ASSERT_RESULT(CreateDBStream(IMPLICIT));
+
+  auto resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets));
+  ASSERT_FALSE(resp.has_error());
+
+  // Insert some records in transaction.
+  ASSERT_OK(WriteRowsHelper(0 /* start */, 100 /* end */, &test_cluster_, true));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
+      /* is_compaction = */ false));
+  GetChangesResponsePB change_resp_1 = ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets));
+  LOG(INFO) << "Number of records after first transaction: " << change_resp_1.records().size();
+  change_resp_1 =
+      ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets, &change_resp_1.cdc_sdk_checkpoint()));
+
+  ASSERT_OK(WriteRowsHelper(100 /* start */, 200 /* end */, &test_cluster_, true));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
+      /* is_compaction = */ false));
+
+  ASSERT_OK(WriteRowsHelper(200 /* start */, 300 /* end */, &test_cluster_, true));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
+      /* is_compaction = */ false));
+  SleepFor(MonoDelta::FromSeconds(10));
+
+  int64 initial_num_intents;
+  PollForIntentCount(1, 0, IntentCountCompareOption::GreaterThan, &initial_num_intents);
+
+  SleepFor(MonoDelta::FromSeconds(60));
+  LOG(INFO) << "All nodes will be restarted";
+  for (size_t i = 0; i < test_cluster()->num_tablet_servers(); ++i) {
+    test_cluster()->mini_tablet_server(i)->Shutdown();
+    ASSERT_OK(test_cluster()->mini_tablet_server(i)->Start());
+    ASSERT_OK(test_cluster()->mini_tablet_server(i)->WaitStarted());
+  }
+  LOG(INFO) << "All nodes restarted";
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_aborted_intent_cleanup_ms));
+  ASSERT_OK(test_cluster_.mini_cluster_->CompactTablets());
+  std::this_thread::sleep_for(std::chrono::seconds(10));
+
+  int64 num_intents_after_compaction;
+  PollForIntentCount(
+      initial_num_intents, 0, IntentCountCompareOption::EqualTo, &num_intents_after_compaction);
+  LOG(INFO) << "Number of intents after compaction: " << num_intents_after_compaction;
+  ASSERT_EQ(num_intents_after_compaction, initial_num_intents);
+
+  GetChangesResponsePB change_resp_2 =
+      ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets, &change_resp_1.cdc_sdk_checkpoint()));
+  uint32_t record_size = change_resp_2.cdc_sdk_proto_records_size();
+
+  // We have run 2 transactions after the last call to "GetChangesFromCDC", thus we expect
+  // atleast 200 records if we call "GetChangesFromCDC" now.
+  LOG(INFO) << "Number of records after compaction: " << record_size;
+  ASSERT_GE(record_size, 200);
+
+  // Now that there are no more transaction, and we have called "GetChangesFromCDC" already, there
+  // must be no more records or intents remaining.
+  GetChangesResponsePB change_resp_3 =
+      ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets, &change_resp_2.cdc_sdk_checkpoint()));
+  uint32_t final_record_size = change_resp_3.cdc_sdk_proto_records_size();
+  LOG(INFO) << "Number of recrods after no new transactions: " << final_record_size;
+  ASSERT_EQ(final_record_size, 0);
+
+  int64 final_num_intents;
+  PollForIntentCount(0, 0, IntentCountCompareOption::EqualTo, &final_num_intents);
+  ASSERT_EQ(0, final_num_intents);
+}
+
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestLogGCedWithTabletBootStrap)) {
+  FLAGS_update_min_cdc_indices_interval_secs = 100000;
+  FLAGS_cdc_state_checkpoint_update_interval_ms = 0;
+  FLAGS_log_segment_size_bytes = 100;
+  FLAGS_log_min_seconds_to_retain = 10;
+  ASSERT_OK(SetUpWithParams(1, 1, false));
+  const uint32_t num_tablets = 1;
+
+  auto table = ASSERT_RESULT(CreateTable(&test_cluster_, kNamespaceName, kTableName, num_tablets));
+  TableId table_id = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, kTableName));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version=*/nullptr));
+  ASSERT_EQ(tablets.size(), num_tablets);
+
+  CDCStreamId stream_id = ASSERT_RESULT(CreateDBStream(IMPLICIT));
+  auto resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets));
+  ASSERT_FALSE(resp.has_error());
+
+  // Insert some records.
+  ASSERT_OK(WriteRows(0 /* start */, 100 /* end */, &test_cluster_));
+
+  GetChangesResponsePB change_resp_1 = ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets));
+  LOG(INFO) << "Number of records after first transaction: "
+            << change_resp_1.cdc_sdk_proto_records_size();
+  ASSERT_GE(change_resp_1.cdc_sdk_proto_records_size(), 100);
+
+  ASSERT_OK(WriteRows(100 /* start */, 200 /* end */, &test_cluster_));
+  // SleepFor(MonoDelta::FromSeconds(FLAGS_cdc_min_replicated_index_considered_stale_secs * 2));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 100,
+      /* is_compaction = */ false));
+
+  // Restart of the tsever will make Tablet Bootstrap.
+  test_cluster()->mini_tablet_server(0)->Shutdown();
+  ASSERT_OK(test_cluster()->mini_tablet_server(0)->Start());
+  ASSERT_OK(test_cluster()->mini_tablet_server(0)->WaitStarted());
+
+  SleepFor(MonoDelta::FromSeconds(FLAGS_log_min_seconds_to_retain));
+  // Here testcase behave like a WAL cleaner thread.
+  for (size_t i = 0; i < test_cluster()->num_tablet_servers(); ++i) {
+    for (const auto& tablet_peer : test_cluster()->GetTabletPeers(i)) {
+      if (tablet_peer->tablet_id() == tablets[0].tablet_id()) {
+        // Here setting FLAGS_cdc_min_replicated_index_considered_stale_secs to 1, so that CDC
+        // replication index will be set to max value, which will create a scenario to clean stale
+        // WAL logs, even if CDCSDK no consumed those Logs.
+        FLAGS_cdc_min_replicated_index_considered_stale_secs = 1;
+        ASSERT_OK(tablet_peer->RunLogGC());
+      }
+    }
+  }
+
+  GetChangesResponsePB change_resp_2 =
+      ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets, &change_resp_1.cdc_sdk_checkpoint()));
+  LOG(INFO) << "Number of records after second transaction: "
+            << change_resp_2.cdc_sdk_proto_records_size();
+  ASSERT_GE(change_resp_2.cdc_sdk_proto_records_size(), 100);
+}
+
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestXClusterLogGCedWithTabletBootStrap)) {
+  FLAGS_update_min_cdc_indices_interval_secs = 100000;
+  FLAGS_cdc_state_checkpoint_update_interval_ms = 0;
+  FLAGS_log_segment_size_bytes = 100;
+  FLAGS_log_min_seconds_to_retain = 10;
+  ASSERT_OK(SetUpWithParams(1, 1, false));
+  const uint32_t num_tablets = 1;
+
+  auto table = ASSERT_RESULT(CreateTable(&test_cluster_, kNamespaceName, kTableName, num_tablets));
+  TableId table_id = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, kTableName));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version=*/nullptr));
+  ASSERT_EQ(tablets.size(), num_tablets);
+
+
+  RpcController rpc;
+  CreateCDCStreamRequestPB create_req;
+  CreateCDCStreamResponsePB create_resp;
+  create_req.set_table_id(table_id);
+  create_req.set_source_type(XCLUSTER);
+  ASSERT_OK(cdc_proxy_->CreateCDCStream(create_req, &create_resp, &rpc));
+
+  // Insert some records.
+  ASSERT_OK(WriteRows(0 /* start */, 100 /* end */, &test_cluster_));
+  rpc.Reset();
+
+  GetChangesRequestPB change_req;
+  GetChangesResponsePB change_resp_1;
+  change_req.set_stream_id(create_resp.stream_id());
+  change_req.set_tablet_id(tablets[0].tablet_id());
+  change_req.mutable_from_checkpoint()->mutable_op_id()->set_index(0);
+  change_req.mutable_from_checkpoint()->mutable_op_id()->set_term(0);
+  change_req.set_serve_as_proxy(true);
+  rpc.set_timeout(MonoDelta::FromSeconds(kRpcTimeout));
+  ASSERT_OK(cdc_proxy_->GetChanges(change_req, &change_resp_1, &rpc));
+  ASSERT_FALSE(change_resp_1.has_error());
+
+  ASSERT_OK(WriteRows(100 /* start */, 200 /* end */, &test_cluster_));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 100,
+      /* is_compaction = */ false));
+
+  // Restart of the tsever will make Tablet Bootstrap.
+  test_cluster()->mini_tablet_server(0)->Shutdown();
+  ASSERT_OK(test_cluster()->mini_tablet_server(0)->Start());
+  ASSERT_OK(test_cluster()->mini_tablet_server(0)->WaitStarted());
+
+  SleepFor(MonoDelta::FromSeconds(FLAGS_log_min_seconds_to_retain));
+  // Here testcase behave like a WAL cleaner thread.
+  for (size_t i = 0; i < test_cluster()->num_tablet_servers(); ++i) {
+    for (const auto& tablet_peer : test_cluster()->GetTabletPeers(i)) {
+      if (tablet_peer->tablet_id() == tablets[0].tablet_id()) {
+        // Here setting FLAGS_cdc_min_replicated_index_considered_stale_secs to 1, so that CDC
+        // replication index will be set to max value, which will create a scenario to clean stale
+        // WAL logs, even if CDCSDK no consumed those Logs.
+        FLAGS_cdc_min_replicated_index_considered_stale_secs = 1;
+        ASSERT_OK(tablet_peer->RunLogGC());
+      }
+    }
+  }
+
+  GetChangesResponsePB change_resp_2;
+  rpc.Reset();
+  change_req.set_stream_id(create_resp.stream_id());
+  change_req.set_tablet_id(tablets[0].tablet_id());
+  change_req.mutable_from_checkpoint()->mutable_op_id()->set_index(
+      change_resp_1.checkpoint().op_id().index());
+  change_req.mutable_from_checkpoint()->mutable_op_id()->set_term(
+      change_resp_1.checkpoint().op_id().term());
+  change_req.set_serve_as_proxy(true);
+  rpc.set_timeout(MonoDelta::FromSeconds(kRpcTimeout));
+
+  ASSERT_OK(cdc_proxy_->GetChanges(change_req, &change_resp_2, &rpc));
+  ASSERT_FALSE(change_resp_2.has_error());
+}
+
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestEnumWithMultipleTablets)) {
+  FLAGS_enable_update_local_peer_min_index = false;
+  FLAGS_update_min_cdc_indices_interval_secs = 1;
+  FLAGS_cdc_state_checkpoint_update_interval_ms = 1;
+
+  const uint32_t num_tablets = 3;
+  vector<TabletId> table_id(2);
+  vector<CDCStreamId> stream_id(2);
+  vector<const char*> listTablesName{"test_table_01", "test_table_02"};
+  vector<std::string> tablePrefix{"_01", "_02"};
+  const int total_stream_count = 2;
+
+  ASSERT_OK(SetUpWithParams(3, 1, false));
+
+  // Here we are verifying Enum Cache for a tablespace that needs to be re-updated // if there is a
+  // cache miss in any of the tsever. This can happen when enum cache entry is created for the
+  // all the tservers as part of CreateCDCStream or GetChanges call and later stage client
+  // created one more enum type on the same tablespace and a new table, then GetChanges call on
+  // the newtable should not fail,(precondition:- create new stream in same namespace).
+  for (int idx = 0; idx < total_stream_count; idx++) {
+    auto table = ASSERT_RESULT(CreateTable(
+        &test_cluster_, kNamespaceName, kTableName, num_tablets, true, false, 0, true,
+        tablePrefix[idx]));
+    google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+    ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
+    ASSERT_EQ(tablets.size(), num_tablets);
+
+    table_id[idx] = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, listTablesName[idx]));
+    stream_id[idx] = ASSERT_RESULT(CreateDBStream(IMPLICIT));
+
+    for (uint32_t jdx = 0; jdx < num_tablets; jdx++) {
+      auto resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id[idx], tablets, OpId::Min(), true, jdx));
+      ASSERT_FALSE(resp.has_error());
+    }
+
+    ASSERT_OK(WriteEnumsRows(0, 100, &test_cluster_, tablePrefix[idx], kNamespaceName, kTableName));
+    ASSERT_OK(test_client()->FlushTables(
+        {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
+        /* is_compaction = */ false));
+
+    int total_count = 0;
+    for (uint32_t kdx = 0; kdx < num_tablets; kdx++) {
+      GetChangesResponsePB change_resp =
+          ASSERT_RESULT(GetChangesFromCDC(stream_id[idx], tablets, nullptr, kdx));
+      uint32_t record_size = change_resp.cdc_sdk_proto_records_size();
+      for (uint32_t i = 0; i < record_size; ++i) {
+        if (change_resp.cdc_sdk_proto_records(i).row_message().op() == RowMessage::INSERT) {
+          const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
+          total_count += 1;
+        }
+      }
+    }
+    LOG(INFO) << "Total GetChanges record counts: " << total_count;
+    ASSERT_EQ(total_count, 100);
+  }
+}
+
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestSetCDCCheckpointWithHigherTserverThanTablet)) {
+  // Create a cluster where the number of tservers are 5 (tserver-1, tserver-2, tserver-3,
+  // tserver-4, tserver-5). Create table with tablet split 3(tablet-1, tablet-2, tablet-3).
+  // Consider the tablet-1 LEADER is in tserver-3, tablet-2 LEADER in tserver-4 and tablet-3 LEADER
+  // is in tserver-5. Consider cdc proxy connection is created with tserver-1. calling
+  // setCDCCheckpoint from tserver-1 should PASS.
+  // Since number of tablets is lesser than the number of tservers, there must be atleast 2 tservers
+  // which do not host any of the tablet. But still, calling setCDCCheckpoint any of the
+  // tserver, even the ones not hosting tablet, should PASS.
+  ASSERT_OK(SetUpWithParams(5, 1, false));
+
+  const uint32_t num_tablets = 3;
+  auto table = ASSERT_RESULT(CreateTable(&test_cluster_, kNamespaceName, kTableName, num_tablets));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
+  ASSERT_EQ(tablets.size(), num_tablets);
+  std::string table_id = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, kTableName));
+  CDCStreamId stream_id = ASSERT_RESULT(CreateDBStream());
+
+  for (uint32_t idx = 0; idx < num_tablets; idx++) {
+    auto resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets, OpId::Min(), true, idx));
+    ASSERT_FALSE(resp.has_error());
+  }
 }
 
 }  // namespace enterprise

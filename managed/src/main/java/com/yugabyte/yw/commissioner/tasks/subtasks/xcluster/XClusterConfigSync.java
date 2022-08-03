@@ -37,25 +37,14 @@ public class XClusterConfigSync extends XClusterConfigTaskBase {
     Universe targetUniverse = Universe.getOrBadRequest(taskParams().universeUUID);
     String targetUniverseMasterAddresses = targetUniverse.getMasterAddresses();
     String targetUniverseCertificate = targetUniverse.getCertificateNodetoNode();
-    YBClient client = ybService.getClient(targetUniverseMasterAddresses, targetUniverseCertificate);
-    try {
-      GetMasterClusterConfigResponse resp = client.getMasterClusterConfig();
-      if (resp.hasError()) {
-        String errMsg =
-            String.format(
-                "Failed to sync XClusterConfigs for Universe(%s): "
-                    + "Failed to get cluster config: %s",
-                targetUniverse.universeUUID, resp.errorMessage());
-        throw new RuntimeException(errMsg);
-      }
-
-      syncXClusterConfigs(resp.getConfig(), targetUniverse.universeUUID);
-
+    try (YBClient client =
+        ybService.getClient(targetUniverseMasterAddresses, targetUniverseCertificate)) {
+      CatalogEntityInfo.SysClusterConfigEntryPB clusterConfig =
+          getClusterConfig(client, targetUniverse.universeUUID);
+      syncXClusterConfigs(clusterConfig, targetUniverse.universeUUID);
     } catch (Exception e) {
       log.error("{} hit error : {}", getName(), e.getMessage());
       throw new RuntimeException(e);
-    } finally {
-      ybService.closeClient(client, targetUniverseMasterAddresses);
     }
 
     log.info("Completed {}", getName());
@@ -91,17 +80,13 @@ public class XClusterConfigSync extends XClusterConfigTaskBase {
                   .stream()
                   .map(CdcConsumer.StreamEntryPB::getProducerTableId)
                   .collect(Collectors.toSet());
-          // Get the status of this replication group.
-          XClusterConfigStatusType xClusterConfigStatus =
-              value.getDisableStream()
-                  ? XClusterConfigStatusType.Paused
-                  : XClusterConfigStatusType.Running;
           log.info(
-              "Found XClusterConfig({}) between source({}) and target({}): status({}), tables({})",
+              "Found XClusterConfig({}) between source({}) and target({}): disabled({}), "
+                  + "tables({})",
               xClusterConfigName,
               sourceUniverseUUID,
               targetUniverseUUID,
-              xClusterConfigStatus,
+              value.getDisableStream(),
               xClusterConfigTables);
 
           // Create or update a row in the Platform database for this replication group.
@@ -110,24 +95,17 @@ public class XClusterConfigSync extends XClusterConfigTaskBase {
                   xClusterConfigName, sourceUniverseUUID, targetUniverseUUID);
           if (xClusterConfig == null) {
             xClusterConfig =
-                XClusterConfig.create(
-                    xClusterConfigName,
-                    sourceUniverseUUID,
-                    targetUniverseUUID,
-                    xClusterConfigStatus);
-            xClusterConfig.setTables(xClusterConfigTables);
-            xClusterConfig.setReplicationSetupDone(xClusterConfigTables);
-            updateStreamIdsFromTargetUniverseClusterConfig(
-                config, xClusterConfig, xClusterConfigTables);
-            log.info("Created new XClusterConfig({})", xClusterConfig.uuid);
+                XClusterConfig.create(xClusterConfigName, sourceUniverseUUID, targetUniverseUUID);
+            log.info("Creating new XClusterConfig({})", xClusterConfig.uuid);
           } else {
-            xClusterConfig.status = xClusterConfigStatus;
-            xClusterConfig.setTables(xClusterConfigTables);
-            xClusterConfig.setReplicationSetupDone(xClusterConfigTables);
-            updateStreamIdsFromTargetUniverseClusterConfig(
-                config, xClusterConfig, xClusterConfigTables);
-            log.info("Updated existing XClusterConfig({})", xClusterConfig.uuid);
+            log.info("Updating existing XClusterConfig({})", xClusterConfig.uuid);
           }
+          xClusterConfig.setStatus(XClusterConfigStatusType.Running);
+          xClusterConfig.setPaused(value.getDisableStream());
+          xClusterConfig.setTables(xClusterConfigTables);
+          xClusterConfig.setReplicationSetupDone(xClusterConfigTables);
+          updateStreamIdsFromTargetUniverseClusterConfig(
+              config, xClusterConfig, xClusterConfigTables);
         });
 
     List<XClusterConfig> currentXClusterConfigsForTarget =

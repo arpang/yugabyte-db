@@ -1,58 +1,59 @@
 ---
-title: Configure Yugabyte Platform
-headerTitle: Select Cloud Provider
+title: Configure YugabyteDB Anywhere
+headerTitle: Select cloud provider
 linkTitle: Configure
-description: Configuring Yugabyte Platform on On-Premises
+description: Configuring YugabyteDB Anywhere on-premises
 image: /images/section_icons/deploy/enterprise.png
 menu:
-  stable:
+  stable_yugabyte-platform:
     identifier: configure-1-aws
     parent: overview-yp
     weight: 40
-isTocNested: true
-showAsideToc: false
+type: docs
 ---
 
-Select your cloud provider to see the steps for configuration of database nodes. Click on the elements to see detailed steps.
+For overview of how to configure database nodes, select one of the following cloud providers:
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
 
   <li>
-    <a href="/preview/yugabyte-platform/overview/configure/aws" class="nav-link active">
+    <a href="../aws/" class="nav-link active">
       <i class="fab fa-aws"></i>
       AWS
     </a>
   </li>
 
   <li>
-    <a href="/preview/yugabyte-platform/overview/configure/gcp" class="nav-link">
+    <a href="../gcp/" class="nav-link">
       <i class="fab fa-google" aria-hidden="true"></i>
       GCP
     </a>
   </li>
 
   <li>
-    <a href="/preview/yugabyte-platform/overview/configure/azure" class="nav-link">
+    <a href="../azure/" class="nav-link">
       <i class="fab fa-windows" aria-hidden="true"></i>
       Azure
     </a>
   </li>
 
   <li>
-    <a href="/preview/yugabyte-platform/overview/configure/kubernetes" class="nav-link">
+    <a href="../kubernetes/" class="nav-link">
       <i class="fas fa-cubes" aria-hidden="true"></i>
       Kubernetes
     </a>
   </li>
 
   <li>
-    <a href="/preview/yugabyte-platform/overview/configure/onprem" class="nav-link">
+    <a href="../onprem/" class="nav-link">
       <i class="fas fa-building"></i>
       On-premises
     </a>
   </li>
 
 </ul>
+
+<br>Click elements of the following chart to access detailed steps:
 
 <img src="/images/ee/flowchart/yb-configure-aws.png" usemap="#image-map">
 
@@ -63,4 +64,3 @@ Select your cloud provider to see the steps for configuration of database nodes.
     <area target="_blank" alt="AWS provider - pre reqs" title="AWS provider - pre reqs" href="/preview/yugabyte-platform/configure-yugabyte-platform/set-up-cloud-provider/aws/#prerequisites" coords="224,474,674,649" shape="rect">
     <area target="_blank" alt="AWS provider - configure cloud provider" title="AWS provider - configure cloud provider" href="/preview/yugabyte-platform/configure-yugabyte-platform/set-up-cloud-provider/aws/#configure-aws" coords="302,703,602,793" shape="rect">
 </map>
-

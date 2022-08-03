@@ -11,10 +11,8 @@ import static org.junit.Assert.assertTrue;
 
 import com.yugabyte.yw.common.ApiUtils;
 import com.yugabyte.yw.common.NodeActionType;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -33,11 +31,11 @@ public class NodeDetailsTest {
         allOf(
             notNullValue(),
             equalTo(
-                "name: host-n1, cloudInfo: az-1.test-region.aws, type: "
+                "{name: host-n1, cloudInfo: az-1.test-region.aws, type: "
                     + ApiUtils.UTIL_INST_TYPE
                     + ", ip: 10.0.0.1, "
                     + "isMaster: false, isTserver: true, state: Live, "
-                    + "azUuid: null, placementUuid: null")));
+                    + "azUuid: null, placementUuid: null}")));
   }
 
   @Test
@@ -57,6 +55,7 @@ public class NodeDetailsTest {
     activeStates.add(NodeDetails.NodeState.Stopping);
     activeStates.add(NodeDetails.NodeState.Resizing);
     activeStates.add(NodeDetails.NodeState.Reprovisioning);
+    activeStates.add(NodeDetails.NodeState.Rebooting);
     for (NodeDetails.NodeState state : NodeDetails.NodeState.values()) {
       nd.state = state;
       if (activeStates.contains(state)) {

@@ -56,6 +56,8 @@ public enum TaskType {
 
   ImportIntoTable("ImportIntoTable"),
 
+  RunApiTriggeredHooks("RunApiTriggeredHooks"),
+
   // TODO: Mark it as deprecated once UpgradeUniverse related APIs are removed
   UpgradeUniverse("UpgradeUniverse"),
 
@@ -78,6 +80,8 @@ public enum TaskType {
   VMImageUpgrade("upgrade.VMImageUpgrade"),
 
   SystemdUpgrade("upgrade.SystemdUpgrade"),
+
+  RebootUniverse("upgrade.RebootUniverse"),
 
   CreateRootVolumes("subtasks.CreateRootVolumes"),
 
@@ -108,6 +112,8 @@ public enum TaskType {
   RotateAccessKey("RotateAccessKey"),
 
   SetUniverseKey("SetUniverseKey"),
+
+  CreateAndRotateAccessKey("CreateAndRotateAccessKey"),
 
   @Deprecated
   SetKubernetesUniverseKey("SetKubernetesUniverseKey"),
@@ -215,6 +221,8 @@ public enum TaskType {
 
   WaitForServer("subtasks.WaitForServer"),
 
+  WaitForYbcServer("subtasks.WaitForYbcServer"),
+
   WaitForTServerHeartBeats("subtasks.WaitForTServerHeartBeats"),
 
   DeleteClusterFromUniverse("subtasks.DeleteClusterFromUniverse"),
@@ -238,7 +246,9 @@ public enum TaskType {
 
   DeleteReplication("subtasks.xcluster.DeleteReplication"),
 
-  DeleteXClusterConfigFromDb("subtasks.xcluster.DeleteXClusterConfigFromDb"),
+  DeleteXClusterConfigEntry("subtasks.xcluster.DeleteXClusterConfigEntry"),
+
+  SetReplicationPaused("subtasks.xcluster.SetReplicationPaused"),
 
   SetRestoreTime("subtasks.xcluster.SetRestoreTime"),
 
@@ -273,9 +283,13 @@ public enum TaskType {
 
   BackupTableYb("subtasks.BackupTableYb"),
 
+  BackupTableYbc("subtasks.BackupTableYbc"),
+
   BackupUniverseKeys("subtasks.BackupUniverseKeys"),
 
   RestoreBackupYb("subtasks.RestoreBackupYb"),
+
+  RestoreBackupYbc("subtasks.RestoreBackupYbc"),
 
   RestoreUniverseKeys("subtasks.RestoreUniverseKeys"),
 
@@ -346,7 +360,13 @@ public enum TaskType {
 
   ThirdpartySoftwareUpgrade("upgrade.ThirdpartySoftwareUpgrade"),
 
-  MarkUniverseForHealthScriptReUpload("subtasks.MarkUniverseForHealthScriptReUpload");
+  MarkUniverseForHealthScriptReUpload("subtasks.MarkUniverseForHealthScriptReUpload"),
+
+  RebootServer("subtasks.RebootServer"),
+
+  RunHooks("subtasks.RunHooks"),
+
+  UpdateUniverseTags("subtasks.UpdateUniverseTags");
 
   private String relativeClassPath;
 

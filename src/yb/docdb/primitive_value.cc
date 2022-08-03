@@ -657,6 +657,7 @@ void DoAppendEncodedValue(const QLValuePB& value, Buffer* out) {
 
     case QLValuePB::kMapValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kSetValue: FALLTHROUGH_INTENDED;
+    case QLValuePB::kTupleValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kListValue:
       break;
 
@@ -1088,10 +1089,8 @@ Status KeyEntryValue::DecodeKey(Slice* slice, KeyEntryValue* out) {
 }
 
 Status PrimitiveValue::DecodeFromValue(const Slice& rocksdb_slice) {
-  if (rocksdb_slice.empty()) {
-    return STATUS(Corruption, "Cannot decode a value from an empty slice");
-  }
-  rocksdb::Slice slice(rocksdb_slice);
+  RSTATUS_DCHECK(!rocksdb_slice.empty(), Corruption, "Cannot decode a value from an empty slice");
+  Slice slice(rocksdb_slice);
   this->~PrimitiveValue();
   // Ensure we are not leaving the object in an invalid state in case e.g. an exception is thrown
   // due to inability to allocate memory.
@@ -1266,8 +1265,8 @@ Status PrimitiveValue::DecodeFromValue(const Slice& rocksdb_slice) {
     case ValueEntryType::kMaxByte:
       return STATUS_FORMAT(Corruption, "$0 is not allowed in a RocksDB PrimitiveValue", value_type);
   }
-  return STATUS_FORMAT(
-      Corruption, "Wrong value type $0 in $1", value_type, rocksdb_slice.ToDebugHexString());
+  RSTATUS_DCHECK(
+      false, Corruption, "Wrong value type $0 in $1", value_type, rocksdb_slice.ToDebugHexString());
 }
 
 POD_FACTORY(Double, double);
@@ -1794,6 +1793,7 @@ PrimitiveValue PrimitiveValue::DoFromQLValuePB(const PB& value) {
 
     case QLValuePB::kMapValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kSetValue: FALLTHROUGH_INTENDED;
+    case QLValuePB::kTupleValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kListValue:
       break;
 
@@ -2264,7 +2264,7 @@ KeyEntryValue KeyEntryValue::DoFromQLValuePB(const PB& value, SortingType sortin
     }
 
     case QLValuePB::kVirtualValue:
-      return KeyEntryValue(VirtualValueToKeyEntryType(value.virtual_value()));
+      return FromQLVirtualValue(value.virtual_value());
     case QLValuePB::kGinNullValue:
       return KeyEntryValue::GinNull(value.gin_null_value());
 
@@ -2272,6 +2272,7 @@ KeyEntryValue KeyEntryValue::DoFromQLValuePB(const PB& value, SortingType sortin
     case QLValuePB::kMapValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kSetValue: FALLTHROUGH_INTENDED;
     case QLValuePB::kListValue: FALLTHROUGH_INTENDED;
+    case QLValuePB::kTupleValue: FALLTHROUGH_INTENDED;
     case QLValuePB::VALUE_NOT_SET:
       break;
     // default: fall through
@@ -2302,6 +2303,10 @@ KeyEntryValue KeyEntryValue::FromQLValuePBForKey(
     return KeyEntryValue::NullValue(sorting_type);
   }
   return DoFromQLValuePB(value, sorting_type);
+}
+
+KeyEntryValue KeyEntryValue::FromQLVirtualValue(QLVirtualValuePB value) {
+  return KeyEntryValue(VirtualValueToKeyEntryType(value));
 }
 
 std::string KeyEntryValue::ToString(AutoDecodeKeys auto_decode_keys) const {

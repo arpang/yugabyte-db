@@ -288,7 +288,6 @@ static void binary_upgrade_extension_member(PQExpBuffer upgrade_buffer,
 static const char *getAttrName(int attrnum, TableInfo *tblInfo);
 static const char *fmtCopyColumnList(const TableInfo *ti, PQExpBuffer buffer);
 static bool nonemptyReloptions(const char *reloptions);
-static bool YbHasReloptionsToInclude(const char *reloptions);
 static void YbAppendReloptions2(PQExpBuffer buffer, bool newline_before,
 						const char *reloptions1, const char *reloptions1_prefix,
 						const char *reloptions2, const char *reloptions2_prefix,
@@ -309,6 +308,7 @@ static void getYbTablePropertiesAndReloptions(Archive *fout,
 						YbTableProperties properties,
 						PQExpBuffer reloptions_buf, Oid reloid, const char* relname);
 static bool isDatabaseColocated(Archive *fout);
+static char *getYbSplitClause(Archive *fout, TableInfo *tbinfo);
 
 int
 main(int argc, char **argv)
@@ -626,7 +626,7 @@ main(int argc, char **argv)
 	 * mode.  This is not exposed as a separate option, but kept separate
 	 * internally for clarity.
 	 */
-	if (dopt.binary_upgrade)
+	if (dopt.binary_upgrade || dopt.include_yb_metadata)
 		dopt.sequence_data = 1;
 
 	if (dopt.dataOnly && dopt.schemaOnly)
@@ -16205,10 +16205,8 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 			else if (yb_properties->num_tablets > 1)
 			{
 				/* For range-table. */
-				write_msg(NULL, "WARNING: exporting SPLIT clause for range-split relations is not "
-								"yet supported. Table '%s' will be created with default (1) "
-								"tablets instead of %" PRIu64 ".\n",
-						  qualrelname, yb_properties->num_tablets);
+				char *range_split_clause = getYbSplitClause(fout, tbinfo);
+				appendPQExpBuffer(q, "\n%s", range_split_clause);
 			}
 			/* else - single shard table - supported, no need to add anything */
 
@@ -18832,56 +18830,6 @@ nonemptyReloptions(const char *reloptions)
 	return (reloptions != NULL && strlen(reloptions) > 2);
 }
 
-/*
- * Check if a reloptions array is nonempty and has any options
- * except for the excluded ones.
- */
-static bool
-YbHasReloptionsToInclude(const char *reloptions)
-{
-	if (!nonemptyReloptions(reloptions))
-		return false;
-
-	char	  **options;
-	int			noptions;
-
-	if (!parsePGArray(reloptions, &options, &noptions))
-	{
-		if (options)
-			free(options);
-		return false;
-	}
-
-	bool has_included_values = false;
-
-	for (int i = 0; i < noptions && !has_included_values; i++)
-	{
-		char	   *option = options[i];
-
-		/*
-		 * Each array element should have the form name=value.  If the "=" is
-		 * missing for some reason, treat it like an empty value.
-		 */
-		char	   *name = option;
-		char	   *separator = strchr(option, '=');
-		if (separator)
-			*separator = '\0';
-
-		/*
-		 * We ignore the reloption for tablegroup_oid.
-		 * It is appended seperately as a TABLEGROUP clause.
-		 */
-		if (strcmp(name, "tablegroup_oid") != 0)
-			has_included_values = true;
-	}
-
-	if (options)
-		free(options);
-
-	return has_included_values;
-}
-
-
 static void
 YbAppendReloptions2(PQExpBuffer buffer, bool newline_before,
 				   const char *reloptions1, const char *reloptions1_prefix,
@@ -18907,14 +18855,14 @@ YbAppendReloptions3(PQExpBuffer buffer, bool newline_before,
 
 	const char *with = newline_before ? "\nWITH (" : " WITH (";
 
-	if (YbHasReloptionsToInclude(reloptions1))
+	if (nonemptyReloptions(reloptions1))
 	{
 		appendPQExpBufferStr(buffer, with);
 		appendReloptionsArrayAH(buffer, reloptions1, reloptions1_prefix, fout);
 		addwith = false;
 		addcomma = true;
 	}
-	if (YbHasReloptionsToInclude(reloptions2))
+	if (nonemptyReloptions(reloptions2))
 	{
 		if (addwith)
 			appendPQExpBufferStr(buffer, with);
@@ -18924,7 +18872,7 @@ YbAppendReloptions3(PQExpBuffer buffer, bool newline_before,
 		addwith = false;
 		addcomma = true;
 	}
-	if (YbHasReloptionsToInclude(reloptions3))
+	if (nonemptyReloptions(reloptions3))
 	{
 		if (addwith)
 			appendPQExpBufferStr(buffer, with);
@@ -19048,4 +18996,27 @@ isDatabaseColocated(Archive *fout)
 	PQclear(res);
 	destroyPQExpBuffer(query);
 	return is_colocated;
+}
+
+/*
+ * Load the YB range-partitioned table SPLIT AT Clause from the YB server.
+ * The table is identified by the Relation OID.
+ */
+static char *
+getYbSplitClause(Archive *fout, TableInfo *tbinfo)
+{
+	PQExpBuffer query = createPQExpBuffer();
+
+	/* Retrieve the range split SPLIT AT clause from the YB server. */
+	appendPQExpBuffer(query,
+					  "SELECT * FROM yb_get_range_split_clause(%u)",
+					  tbinfo->dobj.catId.oid);
+	PGresult* res = ExecuteSqlQueryForSingleRow(fout, query->data);
+	int i_range_split_clause = PQfnumber(res, "range_split_clause");
+
+	char *range_split_clause = PQgetvalue(res, 0, i_range_split_clause);
+
+	PQclear(res);
+	destroyPQExpBuffer(query);
+	return range_split_clause;
 }

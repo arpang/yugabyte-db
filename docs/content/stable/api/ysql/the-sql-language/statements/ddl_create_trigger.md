@@ -7,8 +7,7 @@ menu:
   stable:
     identifier: ddl_create_trigger
     parent: statements
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 ## Synopsis
@@ -129,5 +128,5 @@ Use the `CREATE TRIGGER` statement to create a trigger.
 
 - [`DROP TRIGGER`](../ddl_drop_trigger)
 - [`INSERT`](../dml_insert)
-- [`UPDATE`](../dml_update)
-- [`DELETE`](../dml_delete)
+- [`UPDATE`](../dml_update/)
+- [`DELETE`](../dml_delete/)

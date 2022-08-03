@@ -7,8 +7,7 @@ menu:
   stable:
     identifier: ddl_create_view
     parent: statements
-isTocNested: true
-showAsideToc: true
+type: docs
 ---
 
 ## Synopsis
@@ -97,4 +96,4 @@ yugabyte=# SELECT * FROM sample_view;
 
 ## See also
 
-- [`SELECT`](../dml_select)
+- [`SELECT`](../dml_select/)

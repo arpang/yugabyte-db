@@ -72,7 +72,11 @@ DEFINE_bool(enable_tablet_split_of_xcluster_replicated_tables, false,
             "When set, it enables automatic tablet splitting for tables that are part of an "
             "xCluster replication setup");
 TAG_FLAG(enable_tablet_split_of_xcluster_replicated_tables, runtime);
-TAG_FLAG(enable_tablet_split_of_xcluster_replicated_tables, hidden);
+
+DEFINE_bool(enable_tablet_split_of_xcluster_bootstrapping_tables, false,
+            "When set, it enables automatic tablet splitting for tables that are part of an "
+            "xCluster replication setup and are currently being bootstrapped for xCluster.");
+TAG_FLAG(enable_tablet_split_of_xcluster_bootstrapping_tables, runtime);
 
 DEFINE_uint64(tablet_split_limit_per_table, 256,
               "Limit of the number of tablets per table for tablet splitting. Limitation is "
@@ -89,6 +93,9 @@ DEFINE_uint64(prevent_split_for_small_key_range_tablets_for_seconds, 300,
 DEFINE_bool(sort_automatic_tablet_splitting_candidates, true,
             "Whether we should sort candidates for new automatic tablet splits, so the largest "
             "candidates are picked first.");
+
+DEFINE_test_flag(bool, skip_partitioning_version_validation, false,
+                 "When set, skips partitioning_version checks to prevent tablet splitting.");
 
 namespace yb {
 namespace master {
@@ -152,7 +159,11 @@ Status TabletSplitManager::ValidateTabletAgainstDisabledList(const TabletId& tab
                                      &disable_splitting_for_small_key_range_tablet_until_);
 }
 
-Status TabletSplitManager::ValidateIndexTablePartitioning(const TableInfo& table) {
+Status TabletSplitManager::ValidatePartitioningVersion(const TableInfo& table) {
+  if (PREDICT_FALSE(FLAGS_TEST_skip_partitioning_version_validation)) {
+    return Status::OK();
+  }
+
   if (!table.is_index()) {
     return Status::OK();
   }
@@ -169,15 +180,21 @@ Status TabletSplitManager::ValidateIndexTablePartitioning(const TableInfo& table
 
   // Check partition key version is valid for tablet splitting
   const auto& table_properties = table_locked->schema().table_properties();
-  if (table_properties.has_partition_key_version() &&
-      table_properties.partition_key_version() > 0) {
+  if (table_properties.has_partitioning_version() &&
+      table_properties.partitioning_version() > 0) {
     return Status::OK();
   }
 
-  return STATUS_FORMAT(NotSupported,
-                       "Tablet splitting is not supported for the index table"
-                       " \"$0\" with table_id \"$1\". Please, rebuild the index!",
-                       table.name(), table.id());
+  // TODO(tsplit): the message won't appear within automatic tablet splitting loop without vlog is
+  // enabled for this module. It might be a good point to spawn this message once (or periodically)
+  // to the logs to understand why the automatic splitting is not happen (this might be useful
+  // for other types of messages as well).
+  const auto msg = Format(
+      "Tablet splitting is not supported for the index table"
+      " \"$0\" with table_id \"$1\". Please, rebuild the index!",
+      table.name(), table.id());
+  VLOG(1) << msg;
+  return STATUS(NotSupported, msg);
 }
 
 Status TabletSplitManager::ValidateSplitCandidateTable(
@@ -219,6 +236,17 @@ Status TabletSplitManager::ValidateSplitCandidateTable(
         "Tablet splitting is not supported for tables that are a part of"
         " a CDC stream, tablet_id: $0", table.id());
   }
+  // Check if the table is in the bootstrapping phase of xCluster.
+  if (PREDICT_TRUE(!FLAGS_enable_tablet_split_of_xcluster_bootstrapping_tables) &&
+      filter_->IsTablePartOfBootstrappingCdcStream(table)) {
+    VLOG(1) << Format("Tablet splitting is not supported for tables that are a part of"
+                      " a bootstrapping CDC stream, table_id: $0", table.id());
+    return STATUS_FORMAT(
+        NotSupported,
+        "Tablet splitting is not supported for tables that are a part of"
+        " a bootstrapping CDC stream, tablet_id: $0", table.id());
+  }
+
   if (table.GetTableType() == TableType::TRANSACTION_STATUS_TABLE_TYPE) {
     VLOG(1) << Format("Tablet splitting is not supported for transaction status tables, "
                       "table_id: $0", table.id());
@@ -258,15 +286,28 @@ Status TabletSplitManager::ValidateSplitCandidateTable(
                             "Backfill operation in progress, table_id: $0", table.id());
   }
 
-  return ValidateIndexTablePartitioning(table);
+  return ValidatePartitioningVersion(table);
 }
 
 Status TabletSplitManager::ValidateSplitCandidateTablet(
     const TabletInfo& tablet,
+    const TabletInfoPtr parent,
     const IgnoreTtlValidation ignore_ttl_validation,
     const IgnoreDisabledList ignore_disabled_list) {
   if (PREDICT_FALSE(FLAGS_TEST_validate_all_tablet_candidates)) {
     return Status::OK();
+  }
+
+  // Wait for a tablet's parent to be deleted / hidden before trying to split it. This
+  // simplifies the algorithm required for PITR, and is unlikely to delay scheduling new
+  // splits too much because we wait for post-split compaction to complete anyways (which is
+  // probably much slower than parent deletion).
+  if (parent != nullptr) {
+    auto parent_lock = parent->LockForRead();
+    if (!parent_lock->is_hidden() && !parent_lock->is_deleted()) {
+      return STATUS_FORMAT(IllegalState, "Cannot split tablet whose parent is not yet deleted. "
+          "Child tablet id: $0, parent tablet id: $1.", tablet.tablet_id(), parent->tablet_id());
+    }
   }
 
   Schema schema;
@@ -392,6 +433,9 @@ class OutstandingSplitState {
   }
 
   bool CanSplitMoreOnReplicas(const TabletReplicaMap& replicas) const {
+    if (FLAGS_outstanding_tablet_split_limit_per_tserver == 0) {
+      return true;
+    }
     for (const auto& location : replicas) {
       auto it = ts_to_ongoing_splits_.find(location.first);
       if (it != ts_to_ongoing_splits_.end() &&
@@ -578,8 +622,9 @@ void TabletSplitManager::DoSplitting(
       }
 
       auto tablet_lock = tablet->LockForRead();
-      if (tablet_lock->pb.has_split_parent_tablet_id()) {
-        const TabletId& parent_id = tablet_lock->pb.split_parent_tablet_id();
+      TabletId parent_id;
+      if (!tablet_lock->pb.split_parent_tablet_id().empty()) {
+        parent_id = tablet_lock->pb.split_parent_tablet_id();
         if (state.HasSplitWithTask(parent_id)) {
           continue;
         }
@@ -603,13 +648,17 @@ void TabletSplitManager::DoSplitting(
         }
       }
 
-      // Check if this tablet is a valid candidate for splitting, and if so, add it to the list of
-      // split candidates.
       auto drive_info_opt = tablet->GetLeaderReplicaDriveInfo();
       if (!drive_info_opt.ok()) {
         continue;
       }
-      if (ValidateSplitCandidateTablet(*tablet).ok() &&
+      scoped_refptr<TabletInfo> parent = nullptr;
+      if (!parent_id.empty()) {
+        parent = FindPtrOrNull(tablet_info_map, parent_id);
+      }
+      // Check if this tablet is a valid candidate for splitting, and if so, add it to the list of
+      // split candidates.
+      if (ValidateSplitCandidateTablet(*tablet, parent).ok() &&
           filter_->ShouldSplitValidCandidate(*tablet, drive_info_opt.get())) {
         const auto replicas = replica_cache.GetOrAdd(*tablet);
         if (AllReplicasHaveFinishedCompaction(*replicas) &&
@@ -634,7 +683,8 @@ bool TabletSplitManager::IsRunning() {
   return is_running_;
 }
 
-bool TabletSplitManager::IsTabletSplittingComplete(const TableInfo& table) {
+bool TabletSplitManager::IsTabletSplittingComplete(
+    const TableInfo& table, bool wait_for_parent_deletion) {
   // It is important to check that is_running_ is false BEFORE checking for outstanding splits.
   // Otherwise, we could have the following order of events:
   // 1. Thread A: Tablet split manager enqueues a split for table T.
@@ -663,7 +713,7 @@ bool TabletSplitManager::IsTabletSplittingComplete(const TableInfo& table) {
     }
   }
 
-  return !table.HasOutstandingSplits();
+  return !table.HasOutstandingSplits(wait_for_parent_deletion);
 }
 
 void TabletSplitManager::DisableSplittingFor(

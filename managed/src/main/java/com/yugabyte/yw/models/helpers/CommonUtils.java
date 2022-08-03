@@ -20,6 +20,8 @@ import com.yugabyte.yw.common.ShellResponse;
 import com.yugabyte.yw.common.utils.Pair;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams;
 import com.yugabyte.yw.models.Universe;
+import com.yugabyte.yw.models.Users;
+import com.yugabyte.yw.models.extended.UserWithFeatures;
 import com.yugabyte.yw.models.helpers.NodeDetails.NodeState;
 import com.yugabyte.yw.models.paging.PagedQuery;
 import com.yugabyte.yw.models.paging.PagedResponse;
@@ -60,6 +62,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.security.crypto.encrypt.Encryptors;
 import org.springframework.security.crypto.encrypt.TextEncryptor;
 import play.libs.Json;
+import play.mvc.Http;
 
 @Slf4j
 public class CommonUtils {
@@ -261,7 +264,7 @@ public class CommonUtils {
     for (Iterator<Entry<String, JsonNode>> it = result.fields(); it.hasNext(); ) {
       Entry<String, JsonNode> entry = it.next();
       if (entry.getValue().isObject()) {
-        result.put(
+        result.set(
             entry.getKey(),
             processData(path + "." + entry.getKey(), entry.getValue(), selector, getter));
       }
@@ -655,6 +658,16 @@ public class CommonUtils {
     return tserverLiveNodes.get(new Random().nextInt(tserverLiveNodes.size()));
   }
 
+  public static NodeDetails getServerToRunYsqlQuery(Universe universe) {
+    // Prefer the master leader since that will result in a faster query.
+    // If the leader does not have a tserver process though, select any random tserver.
+    NodeDetails nodeToUse = universe.getMasterLeaderNode();
+    if (nodeToUse == null || !nodeToUse.isTserver) {
+      nodeToUse = getARandomLiveTServer(universe);
+    }
+    return nodeToUse;
+  }
+
   /**
    * This method extracts the json from shell response where the shell executes a SQL Query that
    * aggregates the response as JSON e.g. select jsonb_agg() The resultant shell output has json
@@ -704,5 +717,10 @@ public class CommonUtils {
             universe.getUniverseDetails().updateInProgress,
             universe.getUniverseDetails().universePaused);
     return stateLogMsg;
+  }
+
+  /** Get the user sending the API request from the HTTP context. */
+  public static Users getUserFromContext(Http.Context ctx) {
+    return ((UserWithFeatures) ctx.args.get("user")).getUser();
   }
 }
