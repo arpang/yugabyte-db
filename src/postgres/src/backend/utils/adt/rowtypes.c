@@ -301,27 +301,6 @@ record_out(PG_FUNCTION_ARGS)
 	tupTypmod = HeapTupleHeaderGetTypMod(rec);
 
 	YBC_LOG_INFO("Arpan tupType %u tupTypmod %d\n", tupType, tupTypmod);
-	// elog(LOG, "Arpan tupType %u tupTypmod %d\n", tupType, tupTypmod);
-
-	// Form_pg_attribute attrs =
-	// 	(Form_pg_attribute) palloc(2 * sizeof(FormData_pg_attribute));
-
-	// Form_pg_attribute attrs[2];
-
-	// FormData_pg_attribute a1 = {16384, {"first"}, TEXTOID, -1,	  -1,
-	// 							1,	   0,		  -1,	   -1,	  false,
-	// 							'x',   'i',		  false,   false, false,
-	// 							'\0',  false,	  true,	   0};
-
-	// FormData_pg_attribute a2 = {16384, {"last"}, TEXTOID, -1,	 -1,
-	// 							1,	   0,		 -1,	  -1,	 false,
-	// 							'x',   'i',		 false,	  false, false,
-	// 							'\0',  false,	 true,	  0};
-	// attrs[0] = &a1;
-	// attrs[1] = &a2;
-	// tupdesc = CreateTupleDesc(2, true, attrs);
-
-	// tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
 	if (PG_NARGS() >= 2)
 	{
 		YBC_LOG_INFO("Arpan PG_NARGS >=2");
@@ -354,9 +333,10 @@ record_out(PG_FUNCTION_ARGS)
 		my_extra->ncolumns != ncolumns)
 	{
 		YBC_LOG_INFO("Inside null or col count mismatch");
-		fcinfo->flinfo->fn_extra = MemoryContextAlloc(
-			fcinfo->flinfo->fn_mcxt,
-			offsetof(RecordIOData, columns) + ncolumns * sizeof(ColumnIOData));
+		fcinfo->flinfo->fn_extra =
+			MemoryContextAlloc(fcinfo->flinfo->fn_mcxt,
+							   offsetof(RecordIOData, columns) +
+							   ncolumns * sizeof(ColumnIOData));
 		my_extra = (RecordIOData *) fcinfo->flinfo->fn_extra;
 		my_extra->record_type = InvalidOid;
 		my_extra->record_typmod = 0;
@@ -419,7 +399,8 @@ record_out(PG_FUNCTION_ARGS)
 						 "mismatch");
 			YBC_LOG_INFO("Arpan column_info->column_type %u column_type %u\n",
 						 column_info->column_type, column_type);
-			getTypeOutputInfo(column_type, &column_info->typiofunc,
+			getTypeOutputInfo(column_type,
+							  &column_info->typiofunc,
 							  &column_info->typisvarlena);
 			// column_info->typiofunc = fmgr_internal_function("textout");
 			// fmgr_info(column_info->typiofunc, &column_info->proc);
