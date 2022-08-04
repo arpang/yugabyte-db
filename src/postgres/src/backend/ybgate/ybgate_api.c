@@ -35,6 +35,8 @@
 #include "utils/lsyscache.h"
 #include "funcapi.h"
 
+// #include "postgres/src/backend/utils/adt/rowtypes.c"
+
 //-----------------------------------------------------------------------------
 // Memory Context
 //-----------------------------------------------------------------------------
@@ -794,9 +796,26 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum)
 	finfo = palloc0(sizeof(FmgrInfo));
 	Oid id = fmgr_internal_function(fn_name);
 	fmgr_info(id, finfo);
+	// finfo->fn_extra = MemoryContextAlloc(
+	// 	GetCurrentMemoryContext(),
+	// 	offsetof(RecordIOData, columns) + 2 * sizeof(ColumnIOData));
 	char* tmp = OutputFunctionCall(finfo, (uintptr_t)datum);
 	return tmp;
 }
+
+// char *
+// DecodeRecordDatum(char const *fn_name, uintptr_t datum)
+// {
+// 	FmgrInfo *finfo;
+// 	finfo = palloc0(sizeof(FmgrInfo));
+// 	Oid id = fmgr_internal_function(fn_name);
+// 	fmgr_info(id, finfo);
+// 	FunctionCallInfoData fcinfo;
+// 	// fmgr_info(funcid, flinfo);
+// 	InitFunctionCallInfoData(fcinfo, finfo, list_length(args), inputcollid,
+// NULL, NULL); 	char *tmp = OutputFunctionCall(finfo, (uintptr_t) datum);
+// return tmp;
+// }
 
 char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB)
 {

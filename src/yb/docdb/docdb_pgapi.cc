@@ -1136,6 +1136,10 @@ Status SetValueFromQLBinaryHelper(
       val = const_cast<char *>(record_val.c_str());
       uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
 
+      LOG_WITH_FUNC(INFO) << "record_val " << record_val;
+      LOG_WITH_FUNC(INFO) << "size " << size;
+      LOG_WITH_FUNC(INFO) << "val " << val;
+      LOG_WITH_FUNC(INFO) << "datum " << datum;
       // if (!is_proto_record) {
       //   set_decoded_string_value(datum, func_name, is_proto_record);
       // } else {
