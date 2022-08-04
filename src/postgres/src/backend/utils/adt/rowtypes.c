@@ -280,8 +280,7 @@ record_in(PG_FUNCTION_ARGS)
 Datum
 record_out(PG_FUNCTION_ARGS)
 {
-	YBC_LOG_INFO("Inside record_out");
-	// elog(LOG, "Inside record_out\n");
+	YBC_LOG_INFO("Arpan inside record_out");
 	HeapTupleHeader rec = PG_GETARG_HEAPTUPLEHEADER(0);
 	Oid			tupType;
 	int32		tupTypmod;
@@ -307,22 +306,33 @@ record_out(PG_FUNCTION_ARGS)
 	// Form_pg_attribute attrs =
 	// 	(Form_pg_attribute) palloc(2 * sizeof(FormData_pg_attribute));
 
-	Form_pg_attribute attrs[2];
+	// Form_pg_attribute attrs[2];
 
-	FormData_pg_attribute a1 = {16384, {"first"}, TEXTOID, -1,	  -1,
-								1,	   0,		  -1,	   -1,	  false,
-								'x',   'i',		  false,   false, false,
-								'\0',  false,	  true,	   0};
+	// FormData_pg_attribute a1 = {16384, {"first"}, TEXTOID, -1,	  -1,
+	// 							1,	   0,		  -1,	   -1,	  false,
+	// 							'x',   'i',		  false,   false, false,
+	// 							'\0',  false,	  true,	   0};
 
-	FormData_pg_attribute a2 = {16384, {"last"}, TEXTOID, -1,	 -1,
-								1,	   0,		 -1,	  -1,	 false,
-								'x',   'i',		 false,	  false, false,
-								'\0',  false,	 true,	  0};
-	attrs[0] = &a1;
-	attrs[1] = &a2;
-	tupdesc = CreateTupleDesc(2, true, attrs);
+	// FormData_pg_attribute a2 = {16384, {"last"}, TEXTOID, -1,	 -1,
+	// 							1,	   0,		 -1,	  -1,	 false,
+	// 							'x',   'i',		 false,	  false, false,
+	// 							'\0',  false,	 true,	  0};
+	// attrs[0] = &a1;
+	// attrs[1] = &a2;
+	// tupdesc = CreateTupleDesc(2, true, attrs);
 
 	// tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
+	if (PG_NARGS() >= 2)
+	{
+		YBC_LOG_INFO("Arpan PG_NARGS >=2");
+		TupleDesc *tupdesc_ptr = (TupleDesc *) PG_GETARG_POINTER(1);
+		tupdesc = *tupdesc_ptr;
+	}
+	else
+	{
+		YBC_LOG_INFO("Arpan PG_NARGS < 2");
+		tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
+	}
 	ncolumns = tupdesc->natts;
 
 	/* Build a temporary HeapTuple control structure */
@@ -338,11 +348,14 @@ record_out(PG_FUNCTION_ARGS)
 	my_extra = (RecordIOData *) fcinfo->flinfo->fn_extra;
 	YBC_LOG_INFO("Arpan my_extra %p my_extra == null: %d", my_extra,
 				 my_extra == NULL);
+	YBC_LOG_INFO("Arpan my_extra->ncolumns %d ncolumns: %d", my_extra->ncolumns,
+				 ncolumns);
 	if (my_extra == NULL ||
 		my_extra->ncolumns != ncolumns)
 	{
+		YBC_LOG_INFO("Inside null or col count mismatch");
 		fcinfo->flinfo->fn_extra = MemoryContextAlloc(
-			GetCurrentMemoryContext(),
+			fcinfo->flinfo->fn_mcxt,
 			offsetof(RecordIOData, columns) + ncolumns * sizeof(ColumnIOData));
 		my_extra = (RecordIOData *) fcinfo->flinfo->fn_extra;
 		my_extra->record_type = InvalidOid;
@@ -352,6 +365,7 @@ record_out(PG_FUNCTION_ARGS)
 	if (my_extra->record_type != tupType ||
 		my_extra->record_typmod != tupTypmod)
 	{
+		YBC_LOG_INFO("Inside tupType/tupTypmod mismatch");
 		MemSet(my_extra, 0,
 			   offsetof(RecordIOData, columns) +
 			   ncolumns * sizeof(ColumnIOData));
@@ -401,15 +415,16 @@ record_out(PG_FUNCTION_ARGS)
 		 */
 		if (column_info->column_type != column_type)
 		{
+			YBC_LOG_INFO("Inside column_info->column_type/ column_type "
+						 "mismatch");
 			YBC_LOG_INFO("Arpan column_info->column_type %u column_type %u\n",
 						 column_info->column_type, column_type);
-			// getTypeOutputInfo(column_type,
-			// 				  &column_info->typiofunc,
-			// 				  &column_info->typisvarlena);
-			column_info->typiofunc = fmgr_internal_function("textout");
-			fmgr_info(column_info->typiofunc, &column_info->proc);
-			// fmgr_info_cxt(column_info->typiofunc, &column_info->proc,
-			// 			  fcinfo->flinfo->fn_mcxt);
+			getTypeOutputInfo(column_type, &column_info->typiofunc,
+							  &column_info->typisvarlena);
+			// column_info->typiofunc = fmgr_internal_function("textout");
+			// fmgr_info(column_info->typiofunc, &column_info->proc);
+			fmgr_info_cxt(column_info->typiofunc, &column_info->proc,
+						  fcinfo->flinfo->fn_mcxt);
 			column_info->column_type = column_type;
 		}
 

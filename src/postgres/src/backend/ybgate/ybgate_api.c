@@ -849,7 +849,10 @@ DecodeRecordDatum(char const *fn_name, uintptr_t datum)
 		fmgr_info(column_info->typiofunc, &column_info->proc);
 		column_info->column_type = att->atttypid;
 	}
-	return OutputFunctionCall(finfo, datum);
+	YBC_LOG_INFO("Making function call");
+	// finfo->fn_nargs
+	// OutputFunctionCall(finfo, datum, tupdesc);
+	return DatumGetCString(FunctionCall2Coll(finfo, InvalidOid, datum, (uintptr_t)&tupdesc));
 }
 
 char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB)
