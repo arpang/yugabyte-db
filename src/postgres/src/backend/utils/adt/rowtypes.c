@@ -24,28 +24,8 @@
 #include "miscadmin.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
+#include "utils/rowtypes.h"
 #include "utils/typcache.h"
-
-
-/*
- * structure to cache metadata needed for record I/O
- */
-typedef struct ColumnIOData
-{
-	Oid			column_type;
-	Oid			typiofunc;
-	Oid			typioparam;
-	bool		typisvarlena;
-	FmgrInfo	proc;
-} ColumnIOData;
-
-typedef struct RecordIOData
-{
-	Oid			record_type;
-	int32		record_typmod;
-	int			ncolumns;
-	ColumnIOData columns[FLEXIBLE_ARRAY_MEMBER];
-} RecordIOData;
 
 /*
  * structure to cache metadata needed for record comparison

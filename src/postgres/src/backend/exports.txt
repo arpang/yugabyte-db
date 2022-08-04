@@ -35,3 +35,4 @@ DecodeTZDatum
 DecodeArrayDatum
 DecodeRangeDatum
 DecodeRangeArrayDatum
+DecodeRecordDatum

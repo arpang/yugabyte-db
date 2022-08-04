@@ -207,6 +207,8 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum);
 
 char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB);
 
+char *DecodeRecordDatum(char const *fn_name, uintptr_t datum);
+
 char* DecodeArrayDatum(char const* arr_fn_name, uintptr_t datum,
 		int16_t elem_len, bool elem_by_val, char elem_align, char elem_delim, bool from_YB,
 		char const* fn_name, const char *timezone, char option);

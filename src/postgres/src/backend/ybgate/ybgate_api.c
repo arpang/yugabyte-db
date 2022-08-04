@@ -35,7 +35,8 @@
 #include "utils/lsyscache.h"
 #include "funcapi.h"
 
-// #include "postgres/src/backend/utils/adt/rowtypes.c"
+#include "access/htup_details.h"
+#include "utils/rowtypes.h"
 
 //-----------------------------------------------------------------------------
 // Memory Context
@@ -796,26 +797,60 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum)
 	finfo = palloc0(sizeof(FmgrInfo));
 	Oid id = fmgr_internal_function(fn_name);
 	fmgr_info(id, finfo);
-	// finfo->fn_extra = MemoryContextAlloc(
-	// 	GetCurrentMemoryContext(),
-	// 	offsetof(RecordIOData, columns) + 2 * sizeof(ColumnIOData));
 	char* tmp = OutputFunctionCall(finfo, (uintptr_t)datum);
 	return tmp;
 }
 
-// char *
-// DecodeRecordDatum(char const *fn_name, uintptr_t datum)
-// {
-// 	FmgrInfo *finfo;
-// 	finfo = palloc0(sizeof(FmgrInfo));
-// 	Oid id = fmgr_internal_function(fn_name);
-// 	fmgr_info(id, finfo);
-// 	FunctionCallInfoData fcinfo;
-// 	// fmgr_info(funcid, flinfo);
-// 	InitFunctionCallInfoData(fcinfo, finfo, list_length(args), inputcollid,
-// NULL, NULL); 	char *tmp = OutputFunctionCall(finfo, (uintptr_t) datum);
-// return tmp;
-// }
+char *
+DecodeRecordDatum(char const *fn_name, uintptr_t datum)
+{
+	FmgrInfo *finfo;
+	finfo = palloc0(sizeof(FmgrInfo));
+	Oid id = fmgr_internal_function(fn_name);
+	fmgr_info(id, finfo);
+
+	HeapTupleHeader rec = DatumGetHeapTupleHeader(datum);
+	Oid				tupType = HeapTupleHeaderGetTypeId(rec);
+	int32			tupTypmod = HeapTupleHeaderGetTypMod(rec);
+
+	// from tupType get typerelid from pg_type table
+	// use typerelid to get the attributes from pg_attributes table
+
+	Form_pg_attribute attrs[2];
+
+	FormData_pg_attribute a1 = {16384, {"first"}, TEXTOID, -1,	  -1,
+								1,	   0,		  -1,	   -1,	  false,
+								'x',   'i',		  false,   false, false,
+								'\0',  false,	  true,	   0};
+
+	FormData_pg_attribute a2 = {16384, {"last"}, TEXTOID, -1,	 -1,
+								1,	   0,		 -1,	  -1,	 false,
+								'x',   'i',		 false,	  false, false,
+								'\0',  false,	 true,	  0};
+	attrs[0] = &a1;
+	attrs[1] = &a2;
+	TupleDesc tupdesc = CreateTupleDesc(2, true, attrs);
+	int		  ncolumns = tupdesc->natts;
+
+	YBC_LOG_INFO("Arpan tupType %u tupTypmod %d\n", tupType, tupTypmod);
+
+	finfo->fn_extra = MemoryContextAlloc(GetCurrentMemoryContext(),
+										 offsetof(RecordIOData, columns) +
+											 ncolumns * sizeof(ColumnIOData));
+	RecordIOData *my_extra = (RecordIOData *) finfo->fn_extra;
+	my_extra->record_type = tupType;
+	my_extra->record_typmod = tupTypmod;
+	my_extra->ncolumns = ncolumns;
+	for (int i = 0; i < ncolumns; i++)
+	{
+		ColumnIOData	 *column_info = &my_extra->columns[i];
+		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+		column_info->typiofunc = fmgr_internal_function("textout"); // how to get this?
+		fmgr_info(column_info->typiofunc, &column_info->proc);
+		column_info->column_type = att->atttypid;
+	}
+	return OutputFunctionCall(finfo, datum);
+}
 
 char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB)
 {

@@ -261,9 +261,9 @@ Result<std::vector<std::string>> ExtractTextArrayFromQLBinaryValue(const QLValue
 
 void set_decoded_string_value(
     uint64_t datum,
-    const char* func_name,
-    DatumMessagePB* cdc_datum_message = nullptr,
-    const char* timezone = nullptr) {
+    const char *func_name,
+    DatumMessagePB *cdc_datum_message,
+    const char *timezone = nullptr) {
   char *decoded_str = nullptr;
 
   if (func_name == nullptr) {
@@ -275,6 +275,15 @@ void set_decoded_string_value(
   else
     decoded_str = DecodeTZDatum(func_name, (uintptr_t)datum, timezone, true);
 
+  cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
+}
+
+void set_decoded_string_record(
+    uint64_t datum, const char *func_name, DatumMessagePB *cdc_datum_message) {
+  if (func_name == nullptr) {
+    return;
+  }
+  char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum);
   cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
 }
 
@@ -1147,8 +1156,7 @@ Status SetValueFromQLBinaryHelper(
       //                              cdc_datum_message);
       // }
 
-      set_decoded_string_value(datum, func_name,
-                                   cdc_datum_message);
+      set_decoded_string_record(datum, func_name, cdc_datum_message);
 
       // cdc_datum_message->set_datum_string("");
       break;
