@@ -142,6 +142,8 @@ message GetUDTypeMetadataRequestPB {
   // The table namespace (if empty - uses default namespace).
  optional NamespaceIdentifierPB namespace = 1;
  optional bool pg_enum_info = 2 [default = false];
+ optional bool pg_composite_info = 3 [default = false];
+ optional uint32 pg_type_oid = 4; // if set, metadata only of the this type will be fetched.
 }
 
 message PgEnumInfoPB {
@@ -151,10 +153,42 @@ message PgEnumInfoPB {
  required string label = 2;
 }
 
+message PgAttributePB {
+  required uint32 attrelid = 1;
+  required string attname = 2;
+  required uint32 atttypeid = 3;
+  required int32 attstattarget = 4;
+  required int32 attlen = 5;
+  required int32 attnum = 6;
+  required int32 attndims = 7;
+  required int32 attcacheoff = 8;
+  required int32 atttypmod = 9;
+  required bool attbyval = 10;
+  required bytes attstorage = 11;
+  required bytes attalign = 12;
+  required bool attnotnull = 13;
+  required bool atthasdef = 14;
+  required bool atthasmissing = 15;
+  required bytes attidentity = 16;
+  required bool attisdropped = 17;
+  required bool attislocal = 18;
+  required int32 attinhcount = 19;
+  required uint32 attcollation = 20;
+}
+
+message PgCompositeInfoPB {
+  // PG composite type oid.
+ required uint32 oid = 1;
+ // Attributes of composite type.
+ repeated PgAttributePB attributes = 2;
+}
+ 
+
 message GetUDTypeMetadataResponsePB {
  // The error, if an error occurred with this request.
  optional MasterErrorPB error = 1;
  repeated PgEnumInfoPB enums = 2;
+ repeated PgCompositeInfoPB composites = 3;
 }
 
 message SetupUniverseReplicationRequestPB {

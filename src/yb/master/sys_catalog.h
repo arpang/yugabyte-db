@@ -194,7 +194,8 @@ class SysCatalogTable {
       uint32_t database_oid, uint32_t table_oid);
 
   // Read enumtypid and enumlabel from pg_enum catalog table.
-  Result<std::unordered_map<uint32_t, string>> ReadPgEnum(uint32_t database_oid);
+  Result<std::unordered_map<uint32_t, string>> ReadPgEnum(
+      uint32_t database_oid, uint32_t type_oid = 0);
 
   // Read oid, typtype and typbasetype from pg_type catalog table.
   Result<std::unordered_map<uint32_t, PgTypeInfo>> ReadPgTypeInfo(
@@ -203,6 +204,12 @@ class SysCatalogTable {
   // Read the pg_tablespace catalog table and return a map with all the tablespaces and their
   // respective placement information.
   Result<std::shared_ptr<TablespaceIdToReplicationInfoMap>> ReadPgTablespaceInfo();
+
+  Result<RelIdToAttributesMap> ReadPgAttributeInfo2(
+      uint32_t database_oid, std::vector<uint32_t> table_oids);
+
+  Result<RelIdRelTypeVector> ReadCompositeTypeFromPgClass(
+      uint32_t database_oid, uint32_t table_oid = 0);
 
   // Copy the content of co-located tables in sys catalog as a batch.
   Status CopyPgsqlTables(const std::vector<TableId>& source_table_ids,
