@@ -4258,16 +4258,28 @@ Status CatalogManager::GetUDTypeMetadata(
       pg_enum_info_pb->set_label(label);
     }
   } else if (req->pg_composite_info()) {
-    RelIdRelTypeVector oid_reltype_vector;
+    RelTypeOIDMap reltype_oid_map;
     if (req->has_pg_type_oid()) {
-      oid_reltype_vector = VERIFY_RESULT(
+      reltype_oid_map = VERIFY_RESULT(
           sys_catalog_->ReadCompositeTypeFromPgClass(database_oid, req->pg_type_oid()));
     } else {
-      oid_reltype_vector = VERIFY_RESULT(sys_catalog_->ReadCompositeTypeFromPgClass(database_oid));
+      reltype_oid_map = VERIFY_RESULT(sys_catalog_->ReadCompositeTypeFromPgClass(database_oid));
     }
-    for(const auto& entry: oid_reltype_vector) {
-      const auto oid = entry.first;
-      const auto reltype = entry.second;
+
+    std::vector<uint32_t> table_oids;
+    for (const auto& [reltype, oid] : reltype_oid_map) {
+      table_oids.push_back(oid);
+    }
+
+    RelIdToAttributesMap attributes_map =
+        VERIFY_RESULT(sys_catalog_->ReadPgAttributeInfo2(database_oid, table_oids));
+
+    for (const auto& [reltype, oid] : reltype_oid_map) {
+      if (attributes_map.find(oid) != attributes_map.end()) {
+        PgCompositeInfoPB* pg_composite_info_pb = resp->add_composites();
+        pg_composite_info_pb->set_oid(reltype);
+        pg_composite_info_pb->set_label(label);
+      }
     }
   }
   return Status::OK();

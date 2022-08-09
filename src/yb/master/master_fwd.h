@@ -131,7 +131,7 @@ using RetryingTSRpcTaskPtr = std::shared_ptr<RetryingTSRpcTask>;
 // Use ordered map to make computing fingerprint of the map easier.
 using DbOidToCatalogVersionMap = std::map<uint32_t, std::pair<uint64_t, uint64_t>>;
 using RelIdToAttributesMap = std::unordered_map<uint32_t, std::vector<PgAttributePB>>;
-using RelIdRelTypeVector = std::vector<std::pair<uint32_t, uint32_t>>;
+using RelTypeOIDMap = std::unordered_map<uint32_t, uint32_t>;
 namespace enterprise {
 
 class CatalogManager;

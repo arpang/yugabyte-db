@@ -1775,7 +1775,7 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
   return relid_attribute_map;
 }
 
-Result<RelIdRelTypeVector> SysCatalogTable::ReadCompositeTypeFromPgClass(
+Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
     uint32_t database_oid, uint32_t table_oid) {
   TRACE_EVENT0("master", "ReadCompositeTypeFromPgClass");
 
@@ -1820,7 +1820,7 @@ Result<RelIdRelTypeVector> SysCatalogTable::ReadCompositeTypeFromPgClass(
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
 
-  RelIdRelTypeVector oid_reltype_vector;
+  RelTypeOIDMap reltype_oid_map;
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
@@ -1836,10 +1836,9 @@ Result<RelIdRelTypeVector> SysCatalogTable::ReadCompositeTypeFromPgClass(
     }
     uint32_t oid = oid_col->uint32_value();
     uint32_t reltype = reltype_col->uint32_value();
-
-    oid_reltype_vector.push_back({oid, reltype});
+    reltype_oid_map[reltype] = oid;
   }
-  return oid_reltype_vector;
+  return reltype_oid_map;
 }
 
 } // namespace master

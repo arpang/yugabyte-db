@@ -209,7 +209,7 @@ class SysCatalogTable {
   Result<RelIdToAttributesMap> ReadPgAttributeInfo2(
       uint32_t database_oid, std::vector<uint32_t> table_oids);
 
-  Result<RelIdRelTypeVector> ReadCompositeTypeFromPgClass(
+  Result<RelTypeOIDMap> ReadCompositeTypeFromPgClass(
       uint32_t database_oid, uint32_t table_oid = 0);
 
   // Copy the content of co-located tables in sys catalog as a batch.
