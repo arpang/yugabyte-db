@@ -135,7 +135,7 @@ public class TestTupleOperators extends BaseMiniClusterTest {
         List<TupleValue> choices = new ArrayList<>();
         choices.add(tupleType.newValue(101, "r101"));
         choices.add(tupleType.newValue(102, "r102"));
-        rs = session.execute(preparedSelect.bind(choices.toArray(TupleValue[]::new)));
+        rs = session.execute(preparedSelect.bind(choices.toArray()));
         select_row_count = 0;
         iter = rs.iterator();
         counter = 1;
@@ -155,7 +155,7 @@ public class TestTupleOperators extends BaseMiniClusterTest {
         invalid_choices.add(tupleType.newValue(102, "r102"));
         invalid_choices.add(tupleType.newValue(103, "r103"));
         try {
-            rs = session.execute(preparedSelect.bind(invalid_choices.toArray(TupleValue[]::new)));
+            rs = session.execute(preparedSelect.bind(invalid_choices.toArray()));
         } catch (java.lang.IllegalArgumentException e) {
             assertTrue(e.getMessage().contains("Too many variables (expected 2, got 3)"));
             logger.info("Expected exception", e);
@@ -167,7 +167,7 @@ public class TestTupleOperators extends BaseMiniClusterTest {
         invalid_choices.add(invalidTupleType.newValue(101, 101));
         invalid_choices.add(invalidTupleType.newValue(102, 102));
         try {
-            rs = session.execute(preparedSelect.bind(invalid_choices.toArray(TupleValue[]::new)));
+            rs = session.execute(preparedSelect.bind(invalid_choices.toArray()));
         } catch (java.lang.IllegalArgumentException e) {
             assertTrue(e.getMessage()
                     .contains("Invalid tuple type, expected Tuple(INT, TEXT) but got " +
