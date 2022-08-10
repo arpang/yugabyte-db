@@ -850,10 +850,10 @@ Result<EnumOidLabelMap> CDCServiceImpl::GetEnumMapFromCache(const NamespaceName&
       return enumlabel_cache_.at(ns_name);
     }
   }
-  return UpdateCacheAndGetEnumMap(ns_name);
+  return UpdateEnumCacheAndGetMap(ns_name);
 }
 
-Result<EnumOidLabelMap> CDCServiceImpl::UpdateCacheAndGetEnumMap(const NamespaceName& ns_name) {
+Result<EnumOidLabelMap> CDCServiceImpl::UpdateEnumCacheAndGetMap(const NamespaceName& ns_name) {
   std::lock_guard<decltype(mutex_)> l(mutex_);
   if (enumlabel_cache_.find(ns_name) == enumlabel_cache_.end()) {
     return UpdateEnumMapInCacheUnlocked(ns_name);
@@ -865,6 +865,33 @@ Result<EnumOidLabelMap> CDCServiceImpl::UpdateEnumMapInCacheUnlocked(const Names
   EnumOidLabelMap enum_oid_label_map = VERIFY_RESULT(client()->GetPgEnumOidLabelMap(ns_name));
   enumlabel_cache_[ns_name] = enum_oid_label_map;
   return enumlabel_cache_[ns_name];
+}
+
+Result<CompositeAttsMap> CDCServiceImpl::GetCompositeAtrributesMapFromCache(
+    const NamespaceName& ns_name) {
+  {
+    yb::SharedLock<decltype(mutex_)> l(mutex_);
+    if (composite_type_cache_.find(ns_name) != composite_type_cache_.end()) {
+      return composite_type_cache_.at(ns_name);
+    }
+  }
+  return UpdateCompositeCacheAndGetMap(ns_name);
+}
+
+Result<CompositeAttsMap> CDCServiceImpl::UpdateCompositeCacheAndGetMap(
+    const NamespaceName& ns_name) {
+  std::lock_guard<decltype(mutex_)> l(mutex_);
+  if (composite_type_cache_.find(ns_name) == composite_type_cache_.end()) {
+    return UpdateCompositeMapInCacheUnlocked(ns_name);
+  }
+  return composite_type_cache_.at(ns_name);
+}
+
+Result<CompositeAttsMap> CDCServiceImpl::UpdateCompositeMapInCacheUnlocked(
+    const NamespaceName& ns_name) {
+  CompositeAttsMap enum_oid_label_map = VERIFY_RESULT(client()->GetPgCompositeAttsMap(ns_name));
+  composite_type_cache_[ns_name] = enum_oid_label_map;
+  return composite_type_cache_[ns_name];
 }
 
 Status CDCServiceImpl::CreateCDCStreamForNamespace(
@@ -1359,21 +1386,31 @@ void CDCServiceImpl::GetChanges(const GetChangesRequestPB* req,
     auto namespace_name = tablet_peer->tablet()->metadata()->namespace_name();
 
     auto enum_map_result = GetEnumMapFromCache(namespace_name);
+    auto composite_atts_map = GetCompositeAtrributesMapFromCache(namespace_name);
+
     RPC_CHECK_AND_RETURN_ERROR(
         enum_map_result.ok(), enum_map_result.status(), resp->mutable_error(),
         CDCErrorPB::INTERNAL_ERROR, context);
 
     s = cdc::GetChangesForCDCSDK(
         req->stream_id(), req->tablet_id(), cdc_sdk_op_id, record, tablet_peer, mem_tracker,
-        *enum_map_result, &msgs_holder, resp, &commit_timestamp, &cached_schema,
-        &last_streamed_op_id, &last_readable_index, get_changes_deadline);
+        *enum_map_result, *composite_atts_map, &msgs_holder, resp, &commit_timestamp,
+        &cached_schema, &last_streamed_op_id, &last_readable_index, get_changes_deadline);
     // This specific error from the docdb_pgapi layer is used to identify enum cache entry is out of
     // date, hence we need to repopulate.
     if (s.IsCacheMissError()) {
       {
-        // Recreate the enum cache entry for the corresponding namespace.
-        std::lock_guard<decltype(mutex_)> l(mutex_);
-        enum_map_result = UpdateEnumMapInCacheUnlocked(namespace_name);
+        string message = s.ToUserMessage(false);
+        LOG_WITH_FUNC(INFO) << "Cache miss message " << message;
+        if (message == "enum") {
+          // Recreate the enum cache entry for the corresponding namespace.
+          std::lock_guard<decltype(mutex_)> l(mutex_);
+          enum_map_result = UpdateEnumMapInCacheUnlocked(namespace_name);
+        } else if (message == "composite") {
+          std::lock_guard<decltype(mutex_)> l(mutex_);
+          composite_atts_map = UpdateCompositeMapInCacheUnlocked(namespace_name);
+        }
+
         RPC_CHECK_AND_RETURN_ERROR(
             enum_map_result.ok(), enum_map_result.status(), resp->mutable_error(),
             CDCErrorPB::INTERNAL_ERROR, context);
@@ -1383,8 +1420,8 @@ void CDCServiceImpl::GetChanges(const GetChangesRequestPB* req,
       resp->clear_cdc_sdk_proto_records();
       s = cdc::GetChangesForCDCSDK(
           req->stream_id(), req->tablet_id(), cdc_sdk_op_id, record, tablet_peer, mem_tracker,
-          *enum_map_result, &msgs_holder, resp, &commit_timestamp, &cached_schema,
-          &last_streamed_op_id, &last_readable_index, get_changes_deadline);
+          *enum_map_result, *composite_atts_map, &msgs_holder, resp, &commit_timestamp,
+          &cached_schema, &last_streamed_op_id, &last_readable_index, get_changes_deadline);
     }
 
     impl_->UpdateCDCStateMetadata(

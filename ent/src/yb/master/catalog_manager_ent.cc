@@ -4278,7 +4278,9 @@ Status CatalogManager::GetUDTypeMetadata(
       if (attributes_map.find(oid) != attributes_map.end()) {
         PgCompositeInfoPB* pg_composite_info_pb = resp->add_composites();
         pg_composite_info_pb->set_oid(reltype);
-        pg_composite_info_pb->set_label(label);
+        for (auto const& attribute : attributes_map[oid]) {
+          *(pg_composite_info_pb->add_attributes()) = attribute;
+        }
       }
     }
   }

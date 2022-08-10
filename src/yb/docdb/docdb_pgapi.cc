@@ -23,7 +23,6 @@
 #include "yb/yql/pggate/pg_expr.h"
 #include "yb/yql/pggate/ybc_pggate.h"
 
-
 #include "yb/util/result.h"
 #include "yb/util/logging.h"
 
@@ -202,11 +201,12 @@ Status DocPgEvalExpr(YbgPreparedExpr expr,
 Status SetValueFromQLBinary(
     const QLValuePB ql_value, const int pg_data_type,
     const std::unordered_map<uint32_t, string> &enum_oid_label_map,
+    const std::unordered_map<std::uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
     DatumMessagePB *cdc_datum_message) {
   PG_RETURN_NOT_OK(YbgPrepareMemoryContext());
 
-  RETURN_NOT_OK(
-      SetValueFromQLBinaryHelper(ql_value, pg_data_type, enum_oid_label_map, cdc_datum_message));
+  RETURN_NOT_OK(SetValueFromQLBinaryHelper(
+      ql_value, pg_data_type, enum_oid_label_map, composite_atts_map, cdc_datum_message));
   PG_RETURN_NOT_OK(YbgResetMemoryContext());
   return Status::OK();
 }
@@ -609,6 +609,7 @@ void set_range_array_string_value(
 Status SetValueFromQLBinaryHelper(
     const QLValuePB ql_value, const int pg_data_type,
     const std::unordered_map<uint32_t, string> &enum_oid_label_map,
+    const std::unordered_map<std::uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
     DatumMessagePB *cdc_datum_message) {
   uint64_t size;
   char* val;
@@ -1261,8 +1262,8 @@ Status SetValueFromQLBinaryHelper(
         label = enum_oid_label_map.at((uint32_t)enum_oid);
         VLOG(1) << "For enum oid: " << enum_oid << " found label" << label;
       } else {
-        return STATUS_SUBSTITUTE(
-            CacheMissError, "For enum oid: $0 no label found in cache", enum_oid);
+        LOG(INFO) << "For enum oid: " << enum_oid << " no label found in cache";
+        return STATUS_SUBSTITUTE(CacheMissError, "enum");
       }
       cdc_datum_message->set_datum_string(label.c_str(), strlen(label.c_str()));
       break;
