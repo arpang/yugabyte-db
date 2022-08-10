@@ -14,6 +14,7 @@
 
 #include "yb/docdb/docdb_pgapi.h"
 
+// #include "postgres/src/include/fmgr.h"
 #include "yb/common/ql_expr.h"
 #include "yb/common/schema.h"
 
@@ -259,7 +260,7 @@ Result<std::vector<std::string>> ExtractTextArrayFromQLBinaryValue(const QLValue
   return result;
 }
 
-void set_decoded_string_value(
+void set_string_value(
     uint64_t datum,
     const char *func_name,
     DatumMessagePB *cdc_datum_message,
@@ -278,14 +279,14 @@ void set_decoded_string_value(
   cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
 }
 
-void set_decoded_string_record(
-    uint64_t datum, const char *func_name, DatumMessagePB *cdc_datum_message) {
-  if (func_name == nullptr) {
-    return;
-  }
-  char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum);
-  cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
-}
+// void set_decoded_string_record(
+//     uint64_t datum, const char *func_name, DatumMessagePB *cdc_datum_message) {
+//   if (func_name == nullptr) {
+//     return;
+//   }
+//   char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum);
+//   cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
+// }
 
 void set_decoded_string_range(
     const QLValuePB ql_value,
@@ -573,9 +574,9 @@ void set_decoded_string_range_array(
   }
 }
 
-void set_string_value(uint64_t datum, char const *func_name, DatumMessagePB *cdc_datum_message) {
-  set_decoded_string_value(datum, func_name, cdc_datum_message);
-}
+// void set_string_value(uint64_t datum, char const *func_name, DatumMessagePB *cdc_datum_message) {
+//   set_decoded_string_value(datum, func_name, cdc_datum_message);
+// }
 
 void set_range_string_value(
     const QLValuePB ql_value,
@@ -961,7 +962,7 @@ Status SetValueFromQLBinaryHelper(
       uint64_t datum =
           arg_type->yb_to_datum(reinterpret_cast<int64 *>(&timestamptz_val), size, &type_attrs);
 
-      set_decoded_string_value(datum, func_name, cdc_datum_message, timezone);
+      set_string_value(datum, func_name, cdc_datum_message, timezone);
       break;
     }
     case INTERVALOID: {
@@ -1145,19 +1146,21 @@ Status SetValueFromQLBinaryHelper(
       size = record_val.size();
       val = const_cast<char *>(record_val.c_str());
       uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
+      // Form_pg_attribute attrs[2];
 
-      LOG_WITH_FUNC(INFO) << "record_val " << record_val;
-      LOG_WITH_FUNC(INFO) << "size " << size;
-      LOG_WITH_FUNC(INFO) << "val " << val;
-      LOG_WITH_FUNC(INFO) << "datum " << datum;
-      // if (!is_proto_record) {
-      //   set_decoded_string_value(datum, func_name, is_proto_record);
-      // } else {
-      //     set_decoded_string_value(datum, func_name,
-      //                              cdc_datum_message);
-      // }
+      // FormData_pg_attribute a1 = {16384, {"first"}, TEXTOID, -1,   -1,  1,     0,
+      //                             -1,    -1,        false,   'x',  'i', false, false,
+      //                             false, '\0',      false,   true, 0};
 
-      set_decoded_string_record(datum, func_name, cdc_datum_message);
+      // FormData_pg_attribute a2 = {16384, {"last"}, TEXTOID, -1,   -1,  1,     0,
+      //                             -1,    -1,       false,   'x',  'i', false, false,
+      //                             false, '\0',     false,   true, 0};
+      // attrs[0] = &a1;
+      // attrs[1] = &a2;
+      char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum);
+      cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
+
+      // set_decoded_string_record(datum, func_name, cdc_datum_message);
 
       // cdc_datum_message->set_datum_string("");
       break;

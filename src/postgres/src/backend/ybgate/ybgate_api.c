@@ -803,6 +803,7 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum)
 
 char *
 DecodeRecordDatum(char const *fn_name, uintptr_t datum)
+//, Form_pg_attribute attrs[])
 {
 	FmgrInfo *finfo;
 	finfo = palloc0(sizeof(FmgrInfo));
@@ -815,7 +816,6 @@ DecodeRecordDatum(char const *fn_name, uintptr_t datum)
 
 	// from tupType get typerelid from pg_type table
 	// use typerelid to get the attributes from pg_attributes table
-
 	Form_pg_attribute attrs[2];
 
 	FormData_pg_attribute a1 = {16384, {"first"}, TEXTOID, -1,	  -1,
