@@ -21,7 +21,7 @@
 #ifndef PG_YBGATE_YBGATE_API_H
 #define PG_YBGATE_YBGATE_API_H
 
-#include "catalog/pg_attribute.h"
+// #include "catalog/pg_attribute.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -208,7 +208,7 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum);
 
 char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB);
 
-char *DecodeRecordDatum(char const *fn_name, uintptr_t datum, Form_pg_attribute* attrs);
+char *DecodeRecordDatum(char const *fn_name, uintptr_t datum, void* attrs);
 
 char* DecodeArrayDatum(char const* arr_fn_name, uintptr_t datum,
 		int16_t elem_len, bool elem_by_val, char elem_align, char elem_delim, bool from_YB,

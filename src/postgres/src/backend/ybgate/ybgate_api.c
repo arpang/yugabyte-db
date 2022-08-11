@@ -802,7 +802,7 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum)
 }
 
 char *
-DecodeRecordDatum(char const *fn_name, uintptr_t datum, Form_pg_attribute* attrs)
+DecodeRecordDatum(char const *fn_name, uintptr_t datum, void *attrs)
 {
 	FmgrInfo *finfo;
 	finfo = palloc0(sizeof(FmgrInfo));

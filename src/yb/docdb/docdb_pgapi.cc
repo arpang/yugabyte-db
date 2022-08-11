@@ -14,7 +14,6 @@
 
 #include "yb/docdb/docdb_pgapi.h"
 
-// #include "postgres/src/include/fmgr.h"
 #include "yb/common/ql_expr.h"
 #include "yb/common/schema.h"
 
@@ -1157,7 +1156,7 @@ Status SetValueFromQLBinaryHelper(
       //                             false, '\0',     false,   true, 0};
       // attrs[0] = &a1;
       // attrs[1] = &a2;
-      char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum);
+      char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum, nullptr);
       cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
 
       // set_decoded_string_record(datum, func_name, cdc_datum_message);
