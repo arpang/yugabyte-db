@@ -139,6 +139,7 @@ class CDCSDKTestBase : public YBTest {
       bool colocated = false,
       const int table_oid = 0,
       bool enum_value = false,
+      bool composite_type = false,
       const std::string& enum_suffix = "",
       const std::string& schema_name = "public");
 

@@ -4261,6 +4261,7 @@ Status CatalogManager::IsBootstrapRequired(const IsBootstrapRequiredRequestPB* r
 Status CatalogManager::GetUDTypeMetadata(
     const GetUDTypeMetadataRequestPB* req, GetUDTypeMetadataResponsePB* resp,
     rpc::RpcContext* rpc) {
+  LOG_WITH_FUNC(INFO) << "GetUDTypeMetadata " << req->ShortDebugString();
   auto namespace_info = VERIFY_NAMESPACE_FOUND(FindNamespace(req->namespace_()), resp);
   uint32_t database_oid;
   {
@@ -4286,19 +4287,24 @@ Status CatalogManager::GetUDTypeMetadata(
   } else if (req->pg_composite_info()) {
     RelTypeOIDMap reltype_oid_map;
     if (req->has_pg_type_oid()) {
+      LOG_WITH_FUNC(INFO) << "Fetching composite info for pg_type_oid " << req->pg_type_oid();
       reltype_oid_map = VERIFY_RESULT(
           sys_catalog_->ReadCompositeTypeFromPgClass(database_oid, req->pg_type_oid()));
     } else {
+      LOG_WITH_FUNC(INFO) << "Fetching composite info without pg_type_oid";
       reltype_oid_map = VERIFY_RESULT(sys_catalog_->ReadCompositeTypeFromPgClass(database_oid));
     }
 
     std::vector<uint32_t> table_oids;
     for (const auto& [reltype, oid] : reltype_oid_map) {
+      LOG_WITH_FUNC(INFO) << "Found compsite types - oid: " << oid << " reltype: " << reltype;
       table_oids.push_back(oid);
     }
 
+    LOG_WITH_FUNC(INFO) << "Fetching ReadPgAttributeInfo2 ";
     RelIdToAttributesMap attributes_map =
         VERIFY_RESULT(sys_catalog_->ReadPgAttributeInfo2(database_oid, table_oids));
+    LOG_WITH_FUNC(INFO) << "Fetched ReadPgAttributeInfo";
 
     for (const auto& [reltype, oid] : reltype_oid_map) {
       if (attributes_map.find(oid) != attributes_map.end()) {
@@ -4310,6 +4316,7 @@ Status CatalogManager::GetUDTypeMetadata(
       }
     }
   }
+  LOG_WITH_FUNC(INFO) << "Returning ";
   return Status::OK();
 }
 

@@ -302,6 +302,23 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
     return Status::OK();
   }
 
+  Status WriteCompositeRows(
+      uint32_t start, uint32_t end, Cluster* cluster, const string& enum_suffix = "",
+      string database_name = kNamespaceName, string table_name = kTableName,
+      string schema_name = "public") {
+    auto conn = VERIFY_RESULT(cluster->ConnectToDB(database_name));
+    LOG(INFO) << "Writing " << end - start << " row(s) within transaction";
+
+    RETURN_NOT_OK(conn.Execute("BEGIN"));
+    for (uint32_t i = start; i < end; ++i) {
+      RETURN_NOT_OK(conn.ExecuteFormat(
+          "INSERT INTO $0.$1($2, $3) VALUES ($4, ('Arpan', 'Agrawal'))", schema_name,
+          table_name + enum_suffix, kKeyColumnName, kValueColumnName, i));
+    }
+    RETURN_NOT_OK(conn.Execute("COMMIT"));
+    return Status::OK();
+  }
+
   Status UpdateRows(uint32_t key, uint32_t value, Cluster* cluster) {
     auto conn = VERIFY_RESULT(cluster->ConnectToDB(kNamespaceName));
     LOG(INFO) << "Updating row for key " << key << " with value " << value;
@@ -2466,6 +2483,50 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestEnumMultipleStreams)) {
   ASSERT_EQ(insert_count, expected_key_value);
 }
 
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCompositeType)) {
+  FLAGS_enable_update_local_peer_min_index = false;
+  FLAGS_update_min_cdc_indices_interval_secs = 1;
+  FLAGS_cdc_state_checkpoint_update_interval_ms = 1;
+  ASSERT_OK(SetUpWithParams(3, 1, false));
+
+  const uint32_t num_tablets = 1;
+  auto table = ASSERT_RESULT(
+      CreateTable(&test_cluster_, kNamespaceName, kTableName, num_tablets, true, false, 0, false, true));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
+  ASSERT_EQ(tablets.size(), num_tablets);
+
+  std::string table_id = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, kTableName));
+  CDCStreamId stream_id = ASSERT_RESULT(CreateDBStream(IMPLICIT));
+
+  auto resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets));
+  ASSERT_FALSE(resp.has_error());
+
+  int insert_count = 10;
+  // Insert some records in transaction.
+  ASSERT_OK(WriteCompositeRows(0, insert_count, &test_cluster_));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
+      /* is_compaction = */ false));
+
+  // Call get changes.
+  GetChangesResponsePB change_resp = ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets));
+  uint32_t record_size = change_resp.cdc_sdk_proto_records_size();
+  ASSERT_GT(record_size, insert_count);
+
+  int expected_key_value = 0;
+  for (uint32_t i = 0; i < record_size; ++i) {
+    if (change_resp.cdc_sdk_proto_records(i).row_message().op() == RowMessage::INSERT) {
+      const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
+      ASSERT_EQ(expected_key_value, record.row_message().new_tuple(0).datum_int32());
+      ASSERT_EQ("Arpan Agrawal", record.row_message().new_tuple(1).datum_string());
+      expected_key_value++;
+    }
+  }
+
+  ASSERT_EQ(insert_count, expected_key_value);
+}
+
 // Test GetChanges() can return records of a transaction with size was greater than
 // 'consensus_max_batch_size_bytes'.
 TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestTransactionWithLargeBatchSize)) {
@@ -2763,7 +2824,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestEnumWithMultipleTablets)) {
   // the newtable should not fail,(precondition:- create new stream in same namespace).
   for (int idx = 0; idx < total_stream_count; idx++) {
     auto table = ASSERT_RESULT(CreateTable(
-        &test_cluster_, kNamespaceName, kTableName, num_tablets, true, false, 0, true,
+        &test_cluster_, kNamespaceName, kTableName, num_tablets, true, false, 0, true, false,
         tablePrefix[idx]));
     google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
     ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
@@ -2869,7 +2930,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestStreamMetaDataCleanupMultiTab
 
   for (auto table_suffix : table_list_suffix) {
     table[idx] = ASSERT_RESULT(CreateTable(
-        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true, table_suffix));
+        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true, false, table_suffix));
     ASSERT_OK(test_client()->GetTablets(
         table[idx], 0, &tablets[idx], /* partition_list_version = */ nullptr));
     TableId table_id =
@@ -2969,7 +3030,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestMultiStreamOnSameTableAndDrop
 
   for (int idx = 0; idx < 2; idx++) {
     table[idx] = ASSERT_RESULT(CreateTable(
-        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true,
+        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true, false,
         table_list_suffix[idx]));
     ASSERT_OK(test_client()->GetTablets(
         table[idx], 0, &tablets[idx], /* partition_list_version = */ nullptr));
@@ -3024,7 +3085,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestMultiStreamOnSameTableAndDele
 
   for (int idx = 0; idx < 2; idx++) {
     table[idx] = ASSERT_RESULT(CreateTable(
-        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true,
+        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true, false,
         table_list_suffix[idx]));
     ASSERT_OK(test_client()->GetTablets(
         table[idx], 0, &tablets[idx], /* partition_list_version = */ nullptr));

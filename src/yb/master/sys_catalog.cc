@@ -1401,14 +1401,16 @@ Result<std::unordered_map<uint32_t, string>> SysCatalogTable::ReadPgEnum(
     const uint32_t database_oid, uint32_t type_oid) {
   TRACE_EVENT0("master", "ReadPgEnum");
 
+  LOG_WITH_FUNC(INFO) << "Inside ReadPgEnum";
+
   const tablet::TabletPtr tablet = tablet_peer()->shared_tablet();
   const auto& pg_table_id = GetPgsqlTableId(database_oid, kPgEnumTableOid);
   const auto& table_info = VERIFY_RESULT(tablet->metadata()->GetTableInfo(pg_table_id));
   const Schema& schema = table_info->schema();
 
   Schema projection;
-  RETURN_NOT_OK(
-      schema.CreateProjectionByNames({"oid", "enumlabel"}, &projection, schema.num_key_columns()));
+  RETURN_NOT_OK(schema.CreateProjectionByNames(
+      {"oid", "enumtypid", "enumlabel"}, &projection, schema.num_key_columns()));
   const auto oid_col_id = VERIFY_RESULT(projection.ColumnIdByName("oid")).rep();
   const auto enumtypid_col_id = VERIFY_RESULT(projection.ColumnIdByName("enumtypid")).rep();
   const auto enumlabel_col_id = VERIFY_RESULT(projection.ColumnIdByName("enumlabel")).rep();
@@ -1631,7 +1633,9 @@ std::string SysCatalogTable::tablet_id() const {
 
 Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
     uint32_t database_oid, std::vector<uint32_t> table_oids) {
-  TRACE_EVENT0("master", "ReadPgAttributeInfo");
+  TRACE_EVENT0("master", "ReadPgAttributeInfo2");
+
+  LOG_WITH_FUNC(INFO) << "Inside ReadPgAttributeInfo2";
 
   const tablet::TabletPtr tablet = tablet_peer()->shared_tablet();
 
@@ -1773,6 +1777,7 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
 Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
     uint32_t database_oid, uint32_t table_oid) {
   TRACE_EVENT0("master", "ReadCompositeTypeFromPgClass");
+  LOG_WITH_FUNC(INFO) << "ReadCompositeTypeFromPgClass";
 
   const tablet::TabletPtr tablet = tablet_peer()->shared_tablet();
 
@@ -1808,6 +1813,7 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
       cond2->set_op(QL_OP_EQUAL);
       cond2->add_operands()->mutable_value()->set_uint32_value(table_oid);
     }
+    LOG_WITH_FUNC(INFO) << "Condition " << cond.ShortDebugString();
     const std::vector<docdb::KeyEntryValue> empty_key_components;
     docdb::DocPgsqlScanSpec spec(
         projection, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components, &cond,
@@ -1831,6 +1837,8 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
     }
     uint32_t oid = oid_col->uint32_value();
     uint32_t reltype = reltype_col->uint32_value();
+
+    LOG_WITH_FUNC(INFO) << "Found oid " << oid << " for reltype " << reltype;
     reltype_oid_map[reltype] = oid;
   }
   return reltype_oid_map;
