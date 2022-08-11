@@ -1800,13 +1800,13 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
     if (table_oid == 0) {
       cond.add_operands()->set_column_id(relkind_col_id);
       cond.set_op(QL_OP_EQUAL);
-      cond.add_operands()->mutable_value()->set_string_value("c");
+      cond.add_operands()->mutable_value()->set_int8_value('c');
     } else {
       cond.set_op(QL_OP_AND);
       auto cond1 = cond.add_operands()->mutable_condition();
       cond1->add_operands()->set_column_id(relkind_col_id);
       cond1->set_op(QL_OP_EQUAL);
-      cond1->add_operands()->mutable_value()->set_string_value("c");
+      cond1->add_operands()->mutable_value()->set_int8_value('c');
 
       auto cond2 = cond.add_operands()->mutable_condition();
       cond2->add_operands()->set_column_id(reltype_col_id);
@@ -1825,9 +1825,18 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
-
+    LOG_WITH_FUNC(INFO) << "row  " << row.ToString();
     const auto& oid_col = row.GetValue(oid_col_id);
     const auto& reltype_col = row.GetValue(reltype_col_id);
+
+    const auto& relkind_col = row.GetValue(relkind_col_id);
+
+    if (!relkind_col) {
+      return STATUS_FORMAT(
+          Corruption, "Could not read relkind_col column from pg_class for database_oid: $0",
+          database_oid);
+    }
+    LOG_WITH_FUNC(INFO) << "relkind_col  " << relkind_col->ShortDebugString();
 
     if (!oid_col || !reltype_col) {
       std::string corrupted_col = !oid_col ? "oid" : "reltype";
