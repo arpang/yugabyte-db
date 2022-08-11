@@ -577,6 +577,33 @@ void set_decoded_string_range_array(
 //   set_decoded_string_value(datum, func_name, cdc_datum_message);
 // }
 
+struct PgAttributeRow {
+  uint32_t attrelid;
+  std::vector<string> attname;
+  uint32_t atttypid;
+  int32_t attstattarget;
+  int16_t attlen;
+  int16_t attnum;
+  int32_t attndims;
+  int32_t attcacheoff;
+  int32_t atttypmod;
+  bool attbyval;
+  char attstorage;
+  char attalign;
+  bool attnotnull;
+  bool atthasdef;
+  bool atthasmissing;
+  char attidentity;
+  bool attisdropped;
+  bool attislocal;
+  int32_t attinhcount;
+  uint32_t attcollation;
+};
+
+// FormData_pg_attribute a1 = {16384, {"first"}, TEXTOID, -1,   -1,  1,     0,
+//                             -1,    -1,        false,   'x',  'i', false, false,
+//                             false, '\0',      false,   true, 0};
+
 void set_range_string_value(
     const QLValuePB ql_value,
     const YBCPgTypeEntity* arg_type,
@@ -1145,18 +1172,16 @@ Status SetValueFromQLBinaryHelper(
       size = record_val.size();
       val = const_cast<char *>(record_val.c_str());
       uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
-      // Form_pg_attribute attrs[2];
+      void *attrs[2];
 
-      // FormData_pg_attribute a1 = {16384, {"first"}, TEXTOID, -1,   -1,  1,     0,
-      //                             -1,    -1,        false,   'x',  'i', false, false,
-      //                             false, '\0',      false,   true, 0};
+      PgAttributeRow a1 = {16384, {"first"}, TEXTOID, -1,    -1,    1,    0,     -1,   -1, false,
+                           'x',   'i',       false,   false, false, '\0', false, true, 0,  100};
 
-      // FormData_pg_attribute a2 = {16384, {"last"}, TEXTOID, -1,   -1,  1,     0,
-      //                             -1,    -1,       false,   'x',  'i', false, false,
-      //                             false, '\0',     false,   true, 0};
-      // attrs[0] = &a1;
-      // attrs[1] = &a2;
-      char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum, nullptr);
+      PgAttributeRow a2 = {16384, {"last"}, TEXTOID, -1,    -1,    1,    0,     -1,   -1, false,
+                           'x',   'i',      false,   false, false, '\0', false, true, 0,  100};
+      attrs[0] = &a1;
+      attrs[1] = &a2;
+      char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum, attrs);
       cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
 
       // set_decoded_string_record(datum, func_name, cdc_datum_message);
