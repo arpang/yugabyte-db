@@ -4301,18 +4301,22 @@ Status CatalogManager::GetUDTypeMetadata(
       table_oids.push_back(oid);
     }
 
-    LOG_WITH_FUNC(INFO) << "Fetching ReadPgAttributeInfo2 ";
+    LOG_WITH_FUNC(INFO) << "Fetching ReadPgAttributeInfo2";
     RelIdToAttributesMap attributes_map =
         VERIFY_RESULT(sys_catalog_->ReadPgAttributeInfo2(database_oid, table_oids));
-    LOG_WITH_FUNC(INFO) << "Fetched ReadPgAttributeInfo";
+    LOG_WITH_FUNC(INFO) << "Fetched ReadPgAttributeInfo2";
 
     for (const auto& [reltype, oid] : reltype_oid_map) {
+      LOG_WITH_FUNC(INFO) << "For compsite types - oid: " << oid << " reltype: " << reltype;
       if (attributes_map.find(oid) != attributes_map.end()) {
         PgCompositeInfoPB* pg_composite_info_pb = resp->add_composites();
         pg_composite_info_pb->set_oid(reltype);
         for (auto const& attribute : attributes_map[oid]) {
+          LOG_WITH_FUNC(INFO) << "Attribute : " << attribute.ShortDebugString();
           *(pg_composite_info_pb->add_attributes()) = attribute;
         }
+      } else {
+        LOG_WITH_FUNC(INFO) << "attributes_map has no entry for oid: " << oid;
       }
     }
   }

@@ -208,6 +208,8 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum);
 
 char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB);
 
+uint32_t GetRecordTypeId(uintptr_t datum);
+
 char *DecodeRecordDatum(char const *fn_name, uintptr_t datum, void* attrs);
 
 char* DecodeArrayDatum(char const* arr_fn_name, uintptr_t datum,

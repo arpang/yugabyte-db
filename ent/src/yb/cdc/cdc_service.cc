@@ -890,6 +890,12 @@ Result<CompositeAttsMap> CDCServiceImpl::UpdateCompositeCacheAndGetMap(
 Result<CompositeAttsMap> CDCServiceImpl::UpdateCompositeMapInCacheUnlocked(
     const NamespaceName& ns_name) {
   CompositeAttsMap enum_oid_label_map = VERIFY_RESULT(client()->GetPgCompositeAttsMap(ns_name));
+  for (const auto& [oid, attributes] : enum_oid_label_map) {
+    LOG_WITH_FUNC(INFO) << "For oid " << oid << " found attributes " << attributes.size();
+    for (const auto& attribute : attributes) {
+      LOG_WITH_FUNC(INFO) << "Attribute: " << attribute.ShortDebugString();
+    }
+  }
   composite_type_cache_[ns_name] = enum_oid_label_map;
   return composite_type_cache_[ns_name];
 }
@@ -1386,18 +1392,25 @@ void CDCServiceImpl::GetChanges(const GetChangesRequestPB* req,
     auto namespace_name = tablet_peer->tablet()->metadata()->namespace_name();
 
     auto enum_map_result = GetEnumMapFromCache(namespace_name);
-    auto composite_atts_map = GetCompositeAtrributesMapFromCache(namespace_name);
-
     RPC_CHECK_AND_RETURN_ERROR(
         enum_map_result.ok(), enum_map_result.status(), resp->mutable_error(),
         CDCErrorPB::INTERNAL_ERROR, context);
+
+    LOG_WITH_FUNC(INFO) << "Before GetCompositeAtrributesMapFromCache";
+    auto composite_atts_map = GetCompositeAtrributesMapFromCache(namespace_name);
+    LOG_WITH_FUNC(INFO) << "After GetCompositeAtrributesMapFromCache";
+    RPC_CHECK_AND_RETURN_ERROR(
+        composite_atts_map.ok(), composite_atts_map.status(), resp->mutable_error(),
+        CDCErrorPB::INTERNAL_ERROR, context);
+
+    LOG_WITH_FUNC(INFO) << "After check for GetCompositeAtrributesMapFromCache";
 
     s = cdc::GetChangesForCDCSDK(
         req->stream_id(), req->tablet_id(), cdc_sdk_op_id, record, tablet_peer, mem_tracker,
         *enum_map_result, *composite_atts_map, &msgs_holder, resp, &commit_timestamp,
         &cached_schema, &last_streamed_op_id, &last_readable_index, get_changes_deadline);
-    // This specific error from the docdb_pgapi layer is used to identify enum cache entry is out of
-    // date, hence we need to repopulate.
+    // This specific error from the docdb_pgapi layer is used to identify enum cache entry is
+    // out of date, hence we need to repopulate.
     if (s.IsCacheMissError()) {
       {
         string message = s.ToUserMessage(false);
@@ -1406,14 +1419,16 @@ void CDCServiceImpl::GetChanges(const GetChangesRequestPB* req,
           // Recreate the enum cache entry for the corresponding namespace.
           std::lock_guard<decltype(mutex_)> l(mutex_);
           enum_map_result = UpdateEnumMapInCacheUnlocked(namespace_name);
+          RPC_CHECK_AND_RETURN_ERROR(
+              enum_map_result.ok(), enum_map_result.status(), resp->mutable_error(),
+              CDCErrorPB::INTERNAL_ERROR, context);
         } else if (message == "composite") {
           std::lock_guard<decltype(mutex_)> l(mutex_);
           composite_atts_map = UpdateCompositeMapInCacheUnlocked(namespace_name);
+          RPC_CHECK_AND_RETURN_ERROR(
+              composite_atts_map.ok(), composite_atts_map.status(), resp->mutable_error(),
+              CDCErrorPB::INTERNAL_ERROR, context);
         }
-
-        RPC_CHECK_AND_RETURN_ERROR(
-            enum_map_result.ok(), enum_map_result.status(), resp->mutable_error(),
-            CDCErrorPB::INTERNAL_ERROR, context);
       }
       // Clean all the records which got added in the resp, till the enum cache miss failure is
       // encountered.

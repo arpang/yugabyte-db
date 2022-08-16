@@ -1172,21 +1172,39 @@ Status SetValueFromQLBinaryHelper(
       size = record_val.size();
       val = const_cast<char *>(record_val.c_str());
       uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
-      void *attrs[2];
+      uint32_t type_id = GetRecordTypeId((uintptr_t)datum);
 
-      PgAttributeRow a1 = {16384, {"first"}, TEXTOID, -1,    -1,    1,    0,     -1,   -1, false,
-                           'x',   'i',       false,   false, false, '\0', false, true, 0,  100};
+      LOG_WITH_FUNC(INFO) << "Found type_id " << type_id;
+      // void *attrs[2];
 
-      PgAttributeRow a2 = {16384, {"last"}, TEXTOID, -1,    -1,    1,    0,     -1,   -1, false,
-                           'x',   'i',      false,   false, false, '\0', false, true, 0,  100};
-      attrs[0] = &a1;
-      attrs[1] = &a2;
-      char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum, attrs);
-      cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
+      // PgAttributeRow a1 = {16384, {"first"}, TEXTOID, -1,    -1,    1,    0,     -1,   -1, false,
+      //                      'x',   'i',       false,   false, false, '\0', false, true, 0,  100};
 
-      // set_decoded_string_record(datum, func_name, cdc_datum_message);
+      // PgAttributeRow a2 = {16384, {"last"}, TEXTOID, -1,    -1,    1,    0,     -1,   -1, false,
+      //                      'x',   'i',      false,   false, false, '\0', false, true, 0,  100};
+      // attrs[0] = &a1;
+      // attrs[1] = &a2;
 
-      // cdc_datum_message->set_datum_string("");
+      if (composite_atts_map.find(type_id) != composite_atts_map.end()) {
+        const auto &att_pbs = composite_atts_map.at(type_id);
+        void *attrs[att_pbs.size()];
+        int i = 0;
+        for (auto const &a : att_pbs) {
+          PgAttributeRow row = {
+              a.attrelid(),        {a.attname()},       a.atttypeid(),     a.attstattarget(),
+              (int16_t)a.attlen(), (int16_t)a.attnum(), a.attndims(),      a.attcacheoff(),
+              a.atttypmod(),       a.attbyval(),        a.attstorage()[0], a.attalign()[0],
+              a.attnotnull(),      a.atthasdef(),       a.atthasmissing(), a.attidentity()[0],
+              a.attisdropped(),    a.attislocal(),      a.attinhcount(),   a.attcollation()};
+          attrs[i] = &row;
+          ++i;
+        }
+        char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum, attrs);
+        cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
+      } else {
+        LOG(INFO) << "For record of type : " << type_id << " no entry found in cache";
+        return STATUS_SUBSTITUTE(CacheMissError, "composite");
+      }
       break;
     }
     case CSTRINGOID: {

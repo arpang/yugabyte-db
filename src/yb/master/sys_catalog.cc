@@ -1667,7 +1667,8 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
   const auto attinhcount_col_id = VERIFY_RESULT(schema.ColumnIdByName("attinhcount")).rep();
   const auto attcollation_col_id = VERIFY_RESULT(schema.ColumnIdByName("attcollation")).rep();
 
-  auto iter = VERIFY_RESULT(tablet->NewRowIterator(schema, {} /* read_hybrid_time */, pg_table_id));
+  auto iter = VERIFY_RESULT(tablet->NewRowIterator(
+      schema.CopyWithoutColumnIds(), {} /* read_hybrid_time */, pg_table_id));
   {
     auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
     PgsqlConditionPB cond;
@@ -1796,27 +1797,29 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
       projection.CopyWithoutColumnIds(), {} /* read_hybrid_time */, pg_table_id));
   {
     auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
-    PgsqlConditionPB cond;
-    if (table_oid == 0) {
-      cond.add_operands()->set_column_id(relkind_col_id);
-      cond.set_op(QL_OP_EQUAL);
-      cond.add_operands()->mutable_value()->set_int8_value('c');
-    } else {
-      cond.set_op(QL_OP_AND);
-      auto cond1 = cond.add_operands()->mutable_condition();
-      cond1->add_operands()->set_column_id(relkind_col_id);
-      cond1->set_op(QL_OP_EQUAL);
-      cond1->add_operands()->mutable_value()->set_int8_value('c');
+    // PgsqlExpressionPB expr;
+    // PgsqlConditionPB* cond = expr.mutable_condition();
+    // if (table_oid == 0) {
+    //   cond->add_operands()->set_column_id(relkind_col_id);
+    //   cond->set_op(QL_OP_EQUAL);
+    //   cond->add_operands()->mutable_value()->set_int8_value('c');
+    // } else {
+    //   cond->set_op(QL_OP_AND);
+    //   auto cond1 = cond->add_operands()->mutable_condition();
+    //   cond1->add_operands()->set_column_id(relkind_col_id);
+    //   cond1->set_op(QL_OP_EQUAL);
+    //   cond1->add_operands()->mutable_value()->set_int8_value('c');
 
-      auto cond2 = cond.add_operands()->mutable_condition();
-      cond2->add_operands()->set_column_id(reltype_col_id);
-      cond2->set_op(QL_OP_EQUAL);
-      cond2->add_operands()->mutable_value()->set_uint32_value(table_oid);
-    }
-    LOG_WITH_FUNC(INFO) << "Condition " << cond.ShortDebugString();
+    //   auto cond2 = cond->add_operands()->mutable_condition();
+    //   cond2->add_operands()->set_column_id(reltype_col_id);
+    //   cond2->set_op(QL_OP_EQUAL);
+    //   cond2->add_operands()->mutable_value()->set_uint32_value(table_oid);
+    // }
+
+    // LOG_WITH_FUNC(INFO) << "Condition " << expr.ShortDebugString();
     const std::vector<docdb::KeyEntryValue> empty_key_components;
     docdb::DocPgsqlScanSpec spec(
-        projection, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components, &cond,
+        projection, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components, nullptr,
         boost::none /* hash_code */, boost::none /* max_hash_code */, nullptr /* where */);
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
@@ -1825,29 +1828,45 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
-    LOG_WITH_FUNC(INFO) << "row  " << row.ToString();
+    LOG_WITH_FUNC(INFO) << "row " << row.ToString();
     const auto& oid_col = row.GetValue(oid_col_id);
     const auto& reltype_col = row.GetValue(reltype_col_id);
-
     const auto& relkind_col = row.GetValue(relkind_col_id);
 
-    if (!relkind_col) {
-      return STATUS_FORMAT(
-          Corruption, "Could not read relkind_col column from pg_class for database_oid: $0",
-          database_oid);
-    }
-    LOG_WITH_FUNC(INFO) << "relkind_col  " << relkind_col->ShortDebugString();
+    // if (!relkind_col) {
+    //   return STATUS_FORMAT(
+    //       Corruption, "Could not read relkind_col column from pg_class for database_oid: $0",
+    //       database_oid);
+    // }
+    // LOG_WITH_FUNC(INFO) << "relkind_col  " << relkind_col->ShortDebugString();
 
-    if (!oid_col || !reltype_col) {
-      std::string corrupted_col = !oid_col ? "oid" : "reltype";
+    if (!oid_col || !reltype_col || !relkind_col) {
+      std::string corrupted_col;
+      if (!oid_col) {
+        corrupted_col = "oid";
+      } else if (!reltype_col) {
+        corrupted_col = "reltype";
+      } else {
+        corrupted_col = "relkind";
+      }
       return STATUS_FORMAT(
           Corruption, "Could not read $0 column from pg_class for database_oid: $1", corrupted_col,
           database_oid);
     }
     uint32_t oid = oid_col->uint32_value();
     uint32_t reltype = reltype_col->uint32_value();
+    int8_t relkind = relkind_col->int8_value();
 
-    LOG_WITH_FUNC(INFO) << "Found oid " << oid << " for reltype " << reltype;
+    if (relkind != 'c') {
+      continue;
+    }
+
+    if (table_oid != 0 && reltype != table_oid) {
+      continue;
+    }
+
+    LOG_WITH_FUNC(INFO) << "Found oid " << oid << " for reltype " << reltype << " of relkind "
+                        << relkind;
     reltype_oid_map[reltype] = oid;
   }
   return reltype_oid_map;

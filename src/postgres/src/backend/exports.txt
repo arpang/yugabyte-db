@@ -36,3 +36,4 @@ DecodeArrayDatum
 DecodeRangeDatum
 DecodeRangeArrayDatum
 DecodeRecordDatum
+GetRecordTypeId

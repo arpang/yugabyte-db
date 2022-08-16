@@ -327,8 +327,11 @@ record_out(PG_FUNCTION_ARGS)
 	my_extra = (RecordIOData *) fcinfo->flinfo->fn_extra;
 	YBC_LOG_INFO("Arpan my_extra %p my_extra == null: %d", my_extra,
 				 my_extra == NULL);
-	YBC_LOG_INFO("Arpan my_extra->ncolumns %d ncolumns: %d", my_extra->ncolumns,
-				 ncolumns);
+	if (my_extra != NULL)
+	{
+		YBC_LOG_INFO("Arpan my_extra->ncolumns %d ncolumns: %d",
+					 my_extra->ncolumns, ncolumns);
+	}
 	if (my_extra == NULL ||
 		my_extra->ncolumns != ncolumns)
 	{

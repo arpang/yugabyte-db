@@ -801,6 +801,13 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum)
 	return tmp;
 }
 
+uint32_t
+GetRecordTypeId(uintptr_t datum)
+{
+	HeapTupleHeader rec = DatumGetHeapTupleHeader(datum);
+	return HeapTupleHeaderGetTypeId(rec);
+}
+
 char *
 DecodeRecordDatum(char const *fn_name, uintptr_t datum, void *attrs)
 {
