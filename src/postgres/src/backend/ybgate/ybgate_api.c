@@ -820,21 +820,6 @@ DecodeRecordDatum(char const *fn_name, uintptr_t datum, void *attrs)
 	Oid				tupType = HeapTupleHeaderGetTypeId(rec);
 	int32			tupTypmod = HeapTupleHeaderGetTypMod(rec);
 
-	// from tupType get typerelid from pg_type table
-	// use typerelid to get the attributes from pg_attributes table
-	// Form_pg_attribute attrs[2];
-
-	// FormData_pg_attribute a1 = {16384, {"first"}, TEXTOID, -1,	  -1,
-	// 							1,	   0,		  -1,	   -1,	  false,
-	// 							'x',   'i',		  false,   false, false,
-	// 							'\0',  false,	  true,	   0};
-
-	// FormData_pg_attribute a2 = {16384, {"last"}, TEXTOID, -1,	 -1,
-	// 							1,	   0,		 -1,	  -1,	 false,
-	// 							'x',   'i',		 false,	  false, false,
-	// 							'\0',  false,	 true,	  0};
-	// attrs[0] = &a1;
-	// attrs[1] = &a2;
 	TupleDesc tupdesc = CreateTupleDesc(2, true, attrs);
 	int		  ncolumns = tupdesc->natts;
 

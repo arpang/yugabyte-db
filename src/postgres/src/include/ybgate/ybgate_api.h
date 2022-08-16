@@ -23,6 +23,7 @@
 
 // #include "catalog/pg_attribute.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -102,6 +103,34 @@ YbgStatus YbgDeleteMemoryContext();
 //-----------------------------------------------------------------------------
 // Types
 //-----------------------------------------------------------------------------
+
+struct PgAttributeRow
+{
+	uint32_t attrelid;
+	char	 attname[64];
+	uint32_t atttypid;
+	int32_t	 attstattarget;
+	int16_t	 attlen;
+	int16_t	 attnum;
+	int32_t	 attndims;
+	int32_t	 attcacheoff;
+	int32_t	 atttypmod;
+	bool	 attbyval;
+	char	 attstorage;
+	char	 attalign;
+	bool	 attnotnull;
+	bool	 atthasdef;
+	bool	 atthasmissing;
+	char	 attidentity;
+	bool	 attisdropped;
+	bool	 attislocal;
+	int32_t	 attinhcount;
+	uint32_t attcollation;
+};
+
+#ifndef __cplusplus
+typedef struct PgAttributeRow PgAttributeRow;
+#endif
 
 struct YbgTypeDesc {
 	int32_t type_id; /* type identifier */

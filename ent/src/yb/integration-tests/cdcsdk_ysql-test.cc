@@ -2518,8 +2518,9 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCompositeType)) {
   for (uint32_t i = 0; i < record_size; ++i) {
     if (change_resp.cdc_sdk_proto_records(i).row_message().op() == RowMessage::INSERT) {
       const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
+      LOG(INFO) << "record " << record.ShortDebugString();
       ASSERT_EQ(expected_key_value, record.row_message().new_tuple(0).datum_int32());
-      ASSERT_EQ("Arpan Agrawal", record.row_message().new_tuple(1).datum_string());
+      ASSERT_EQ("(Arpan,Agrawal)", record.row_message().new_tuple(1).datum_string());
       expected_key_value++;
     }
   }
