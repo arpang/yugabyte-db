@@ -1144,86 +1144,53 @@ Status SetValueFromQLBinaryHelper(
       uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
       uint32_t type_id = GetRecordTypeId((uintptr_t)datum);
 
-      LOG_WITH_FUNC(INFO) << "Found type_id " << type_id;
-      void *attrs[2];
+      // LOG_WITH_FUNC(INFO) << "Found type_id " << type_id;
 
-      string first = "first";
-      string last = "last";
+      if (composite_atts_map.find(type_id) != composite_atts_map.end()) {
+        const auto &att_pbs = composite_atts_map.at(type_id);
+        size_t natts = att_pbs.size();
+        void *attrs[natts];
+        for (size_t i = 0; i < natts; i++) {
+          const auto &att_pb = att_pbs[i];
+          PgAttributeRow *pg_att = (PgAttributeRow *)malloc(sizeof(struct PgAttributeRow));
+          *pg_att = {att_pb.attrelid(),           "",
+                     att_pb.atttypid(),           att_pb.attstattarget(),
+                     (int16_t)att_pb.attlen(),    (int16_t)att_pb.attnum(),
+                     att_pb.attndims(),           att_pb.attcacheoff(),
+                     att_pb.atttypmod(),          att_pb.attbyval(),
+                     (int8_t)att_pb.attstorage(), (int8_t)att_pb.attalign(),
+                     att_pb.attnotnull(),         att_pb.atthasdef(),
+                     att_pb.atthasmissing(),      (int8_t)att_pb.attidentity(),
+                     att_pb.attisdropped(),       att_pb.attislocal(),
+                     att_pb.attinhcount(),        att_pb.attcollation()};
+          strncpy(pg_att->attname, att_pb.attname().c_str(), sizeof(pg_att->attname));
+          pg_att->attname[sizeof(pg_att->attname) - 1] = 0;
+          // reference:
+          // https://stackoverflow.com/questions/13294067/how-to-convert-string-to-char-array-in-c
 
-      // const char last_a[64];
-      // strncpy(last_a, last.c_str(), sizeof(last_a));
-      // last_a[sizeof(last_a) - 1] = 0;
+          // LOG_WITH_FUNC(INFO) << "att_pb " << att_pb.ShortDebugString();
 
-      // string first = "first";
-      // const char *array = tmp.c_str();
-      // char buf[64] = "";
-      PgAttributeRow a1 = {16385, "",  TEXTOID, -1,    -1,    1,    0,     -1,   -1, false,
-                           'x',   'i', false,   false, false, '\0', false, true, 0,  100};
-
-      strncpy(a1.attname, first.c_str(), sizeof(a1.attname));
-      a1.attname[sizeof(a1.attname) - 1] = 0;
-
-      PgAttributeRow a2 = {16385, "",  TEXTOID, -1,    -1,    1,    0,     -1,   -1, false,
-                           'x',   'i', false,   false, false, '\0', false, true, 0,  100};
-
-      strncpy(a2.attname, last.c_str(), sizeof(a2.attname));
-      a2.attname[sizeof(a2.attname) - 1] = 0;
-      attrs[0] = &a1;
-      attrs[1] = &a2;
-
-      // Form_pg_attribute attrs[2];
-
-      // FormData_pg_attribute a1 = {16385, {"first"}, TEXTOID, -1,   -1,  1,     0,
-      //                             -1,    -1,        false,   'x',  'i', false, false,
-      //                             false, '\0',      false,   true, 0,   100};
-
-      // FormData_pg_attribute a2 = {16385, {"last"}, TEXTOID, -1,   -1,  1,     0,
-      //                             -1,    -1,       false,   'x',  'i', false, false,
-      //                             false, '\0',     false,   true, 0,   100};
-      // attrs[0] = &a1;
-      // attrs[1] = &a2;
-
-      char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum, attrs);
-      // LOG_WITH_FUNC(INFO) << "decoded part " << decoded_str;
-      cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
-
-      // if (composite_atts_map.find(type_id) != composite_atts_map.end()) {
-      //   const auto &att_pbs = composite_atts_map.at(type_id);
-      //   void *attrs[att_pbs.size()];
-      //   int i = 0;
-      //   for (auto const &a : att_pbs) {
-      //     PgAttributeRow *struct1 = (PgAttributeRow *)malloc(sizeof(struct PgAttributeRow));
-      //     *struct1 = {
-      //         a.attrelid(),        a.attname(),       a.atttypeid(),     a.attstattarget(),
-      //         (int16_t)a.attlen(), (int16_t)a.attnum(), a.attndims(),      a.attcacheoff(),
-      //         a.atttypmod(),       a.attbyval(),        a.attstorage()[0], a.attalign()[0],
-      //         a.attnotnull(),      a.atthasdef(),       a.atthasmissing(), a.attidentity()[0],
-      //         a.attisdropped(),    a.attislocal(),      a.attinhcount(),   a.attcollation()};
-      //     LOG_WITH_FUNC(INFO) << "att_pb " << a.ShortDebugString();
-
-      //     LOG_WITH_FUNC(INFO) << struct1->attrelid << " " << struct1->attname[0] << " "
-      //                         << struct1->atttypid << " " << struct1->attstattarget << " "
-      //                         << struct1->attlen << " " << struct1->attnum << " "
-      //                         << struct1->attndims << " " << struct1->attcacheoff << " "
-      //                         << struct1->atttypmod << " " << struct1->attbyval << " "
-      //                         << struct1->attstorage << " " << struct1->attalign << " "
-      //                         << struct1->attnotnull << " " << struct1->atthasdef << " "
-      //                         << struct1->atthasmissing << " " << struct1->attidentity << " "
-      //                         << struct1->attisdropped << " " << struct1->attislocal << " "
-      //                         << struct1->attinhcount << " " << struct1->attcollation;
-      //     attrs[i] = struct1;
-      //     LOG_WITH_FUNC(INFO) << "Attlen: pb - " << a.attlen() << " struct - " <<
-      //     struct1->attlen;
-      //     ++i;
-      //   }
-      //   char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum, attrs);
-      //   // LOG_WITH_FUNC(INFO) << "decoded part " << decoded_str;
-      //   cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
-      // }
-      // else {
-      //   LOG(INFO) << "For record of type : " << type_id << " no entry found in cache";
-      //   return STATUS_SUBSTITUTE(CacheMissError, "composite");
-      // }
+          // LOG_WITH_FUNC(INFO) << pg_att->attrelid << " " << pg_att->attname[0] << " "
+          //                     << pg_att->atttypid << " " << pg_att->attstattarget << " "
+          //                     << pg_att->attlen << " " << pg_att->attnum << " " <<
+          //                     pg_att->attndims
+          //                     << " " << pg_att->attcacheoff << " " << pg_att->atttypmod << " "
+          //                     << pg_att->attbyval << " " << pg_att->attstorage << " "
+          //                     << pg_att->attalign << " " << pg_att->attnotnull << " "
+          //                     << pg_att->atthasdef << " " << pg_att->atthasmissing << " "
+          //                     << pg_att->attidentity << " " << pg_att->attisdropped << " "
+          //                     << pg_att->attislocal << " " << pg_att->attinhcount << " "
+          //                     << pg_att->attcollation;
+          attrs[i] = pg_att;
+          // LOG_WITH_FUNC(INFO) << "Attlen: pb - " << att_pb.attlen() << " struct - "
+          //                     << pg_att->attlen;
+        }
+        char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum, attrs, natts);
+        cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
+      } else {
+        LOG(INFO) << "For record of type : " << type_id << " no entry found in cache";
+        return STATUS_SUBSTITUTE(CacheMissError, "composite");
+      }
       break;
     }
     case CSTRINGOID: {

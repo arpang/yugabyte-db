@@ -809,7 +809,8 @@ GetRecordTypeId(uintptr_t datum)
 }
 
 char *
-DecodeRecordDatum(char const *fn_name, uintptr_t datum, void *attrs)
+DecodeRecordDatum(char const *fn_name, uintptr_t datum, void *attrs,
+				  size_t natts)
 {
 	FmgrInfo *finfo;
 	finfo = palloc0(sizeof(FmgrInfo));
@@ -820,19 +821,19 @@ DecodeRecordDatum(char const *fn_name, uintptr_t datum, void *attrs)
 	Oid				tupType = HeapTupleHeaderGetTypeId(rec);
 	int32			tupTypmod = HeapTupleHeaderGetTypMod(rec);
 
-	TupleDesc tupdesc = CreateTupleDesc(2, true, attrs);
-	int		  ncolumns = tupdesc->natts;
+	TupleDesc tupdesc = CreateTupleDesc(natts, true, attrs);
+	// int		  ncolumns = tupdesc->natts;
 
 	YBC_LOG_INFO("Arpan tupType %u tupTypmod %d\n", tupType, tupTypmod);
 
 	finfo->fn_extra = MemoryContextAlloc(GetCurrentMemoryContext(),
 										 offsetof(RecordIOData, columns) +
-											 ncolumns * sizeof(ColumnIOData));
+											 natts * sizeof(ColumnIOData));
 	RecordIOData *my_extra = (RecordIOData *) finfo->fn_extra;
 	my_extra->record_type = tupType;
 	my_extra->record_typmod = tupTypmod;
-	my_extra->ncolumns = ncolumns;
-	for (int i = 0; i < ncolumns; i++)
+	my_extra->ncolumns = natts;
+	for (size_t i = 0; i < natts; i++)
 	{
 		ColumnIOData	 *column_info = &my_extra->columns[i];
 		Form_pg_attribute att = TupleDescAttr(tupdesc, i);

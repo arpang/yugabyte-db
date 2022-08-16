@@ -1690,6 +1690,8 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
 
+    LOG_WITH_FUNC(INFO) << "Attribute row " << row.ToString();
+
     const auto& attrelid_col = row.GetValue(attrelid_col_id);
     const auto& attname_col = row.GetValue(attname_col_id);
     const auto& atttypid_col = row.GetValue(atttypid_col_id);
@@ -1710,6 +1712,8 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
     const auto& attislocal_col = row.GetValue(attislocal_col_id);
     const auto& attinhcount_col = row.GetValue(attinhcount_col_id);
     const auto& attcollation_col = row.GetValue(attcollation_col_id);
+
+    LOG_WITH_FUNC(INFO) << "Attribute attalign_col " << attalign_col->ShortDebugString();
 
     if (!attrelid_col) {
       return STATUS_FORMAT(
@@ -1752,19 +1756,19 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
     attribute.set_attrelid(attrelid);
     attribute.set_attnum(attnum);
     attribute.set_attname(attname);
-    attribute.set_atttypeid(atttypid);
+    attribute.set_atttypid(atttypid);
     attribute.set_attstattarget(attstattarget_col->int32_value());
     attribute.set_attlen(attlen_col->int16_value());
     attribute.set_attndims(attndims_col->int32_value());
     attribute.set_attcacheoff(attcacheoff_col->int32_value());
     attribute.set_atttypmod(atttypmod_col->int32_value());
     attribute.set_attbyval(attbyval_col->bool_value());
-    attribute.set_attstorage(attstorage_col->string_value());
-    attribute.set_attalign(attalign_col->string_value());
+    attribute.set_attstorage(attstorage_col->int8_value());
+    attribute.set_attalign(attalign_col->int8_value());
     attribute.set_attnotnull(attnotnull_col->bool_value());
     attribute.set_atthasdef(atthasdef_col->bool_value());
     attribute.set_atthasmissing(atthasmissing_col->bool_value());
-    attribute.set_attidentity(attidentity_col->string_value());
+    attribute.set_attidentity(attidentity_col->int8_value());
     attribute.set_attisdropped(attisdropped_col->bool_value());
     attribute.set_attislocal(attislocal_col->bool_value());
     attribute.set_attinhcount(attinhcount_col->int32_value());

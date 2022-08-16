@@ -156,7 +156,7 @@ message PgEnumInfoPB {
 message PgAttributePB {
   required uint32 attrelid = 1;
   required string attname = 2;
-  required uint32 atttypeid = 3;
+  required uint32 atttypid = 3;
   required int32 attstattarget = 4;
   required int32 attlen = 5;
   required int32 attnum = 6;
@@ -164,12 +164,12 @@ message PgAttributePB {
   required int32 attcacheoff = 8;
   required int32 atttypmod = 9;
   required bool attbyval = 10;
-  required bytes attstorage = 11;
-  required bytes attalign = 12;
+  required int32 attstorage = 11;
+  required int32 attalign = 12;
   required bool attnotnull = 13;
   required bool atthasdef = 14;
   required bool atthasmissing = 15;
-  required bytes attidentity = 16;
+  required int32 attidentity = 16;
   required bool attisdropped = 17;
   required bool attislocal = 18;
   required int32 attinhcount = 19;
