@@ -1289,13 +1289,27 @@ GetRecordTypeId(uintptr_t datum)
 	return HeapTupleHeaderGetTypeId(rec);
 }
 
+void
+HeapDeformTuple(uintptr_t datum, void *attrs, size_t natts, uintptr_t *values,
+				bool *nulls)
+{
+	HeapTupleHeader rec = DatumGetHeapTupleHeader(datum);
+	HeapTupleData	tuple;
+	tuple.t_len = HeapTupleHeaderGetDatumLength(rec);
+	ItemPointerSetInvalid(&(tuple.t_self));
+	tuple.t_tableOid = InvalidOid;
+	tuple.t_data = rec;
+	TupleDesc tupdesc = CreateTupleDesc(natts, true, attrs);
+	/* Break down the tuple into fields */
+	heap_deform_tuple(&tuple, tupdesc, values, nulls);
+}
+
 char *
-DecodeRecordDatum(char const *fn_name, uintptr_t datum, void *attrs,
-				  size_t natts)
+DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
 {
 	FmgrInfo *finfo;
 	finfo = palloc0(sizeof(FmgrInfo));
-	Oid id = fmgr_internal_function(fn_name);
+	Oid id = fmgr_internal_function("record_out");
 	fmgr_info(id, finfo);
 
 	HeapTupleHeader rec = DatumGetHeapTupleHeader(datum);
@@ -1303,7 +1317,6 @@ DecodeRecordDatum(char const *fn_name, uintptr_t datum, void *attrs,
 	int32			tupTypmod = HeapTupleHeaderGetTypMod(rec);
 
 	TupleDesc tupdesc = CreateTupleDesc(natts, true, attrs);
-	// int		  ncolumns = tupdesc->natts;
 
 	YBC_LOG_INFO("Arpan tupType %u tupTypmod %d\n", tupType, tupTypmod);
 

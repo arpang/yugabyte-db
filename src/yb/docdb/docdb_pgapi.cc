@@ -601,6 +601,41 @@ void set_range_array_string_value(
   set_decoded_string_range_array(ql_value, arg_type, type_oid, func_name, cdc_datum_message);
 }
 
+char *RecordDecoder(
+    const std::unordered_map<std::uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
+    uint32_t type_id, uintptr_t datum) {
+  const auto &att_pbs = composite_atts_map.at(type_id);
+  size_t natts = att_pbs.size();
+  PgAttributeRow *attrs[natts];
+  for (size_t i = 0; i < natts; i++) {
+    const auto &att_pb = att_pbs[i];
+    PgAttributeRow *pg_att = (PgAttributeRow *)malloc(sizeof(struct PgAttributeRow));
+    uint32_t att_typid = att_pb.atttypid();
+    if (composite_atts_map.find(att_typid) != composite_atts_map.end()) {
+    }
+    *pg_att = {att_pb.attrelid(),           "",
+               att_pb.atttypid(),           att_pb.attstattarget(),
+               (int16_t)att_pb.attlen(),    (int16_t)att_pb.attnum(),
+               att_pb.attndims(),           att_pb.attcacheoff(),
+               att_pb.atttypmod(),          att_pb.attbyval(),
+               (int8_t)att_pb.attstorage(), (int8_t)att_pb.attalign(),
+               att_pb.attnotnull(),         att_pb.atthasdef(),
+               att_pb.atthasmissing(),      (int8_t)att_pb.attidentity(),
+               att_pb.attisdropped(),       att_pb.attislocal(),
+               att_pb.attinhcount(),        att_pb.attcollation()};
+    strncpy(pg_att->attname, att_pb.attname().c_str(), sizeof(pg_att->attname));
+    pg_att->attname[sizeof(pg_att->attname) - 1] = 0;
+    // reference:
+    // https://stackoverflow.com/questions/13294067/how-to-convert-string-to-char-array-in-c
+    attrs[i] = pg_att;
+  }
+  // uintptr_t *values;
+  // bool *nulls;
+  // values = (uintptr_t *)malloc(natts * sizeof(uintptr_t));
+  // nulls = (bool *)malloc(natts * sizeof(bool));
+  return DecodeRecordDatum((uintptr_t)datum, attrs, natts);
+}
+
 // This function expects that YbgPrepareMemoryContext was called
 // by the caller of this function.
 Status SetValueFromQLBinaryHelper(
@@ -1137,55 +1172,38 @@ Status SetValueFromQLBinaryHelper(
       break;
     }
     case RECORDOID: {
-      func_name = "record_out";
+      // func_name = "record_out";
       string record_val = ql_value.binary_value();
       size = record_val.size();
       val = const_cast<char *>(record_val.c_str());
       uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
       uint32_t type_id = GetRecordTypeId((uintptr_t)datum);
 
-      // LOG_WITH_FUNC(INFO) << "Found type_id " << type_id;
-
       if (composite_atts_map.find(type_id) != composite_atts_map.end()) {
-        const auto &att_pbs = composite_atts_map.at(type_id);
-        size_t natts = att_pbs.size();
-        void *attrs[natts];
-        for (size_t i = 0; i < natts; i++) {
-          const auto &att_pb = att_pbs[i];
-          PgAttributeRow *pg_att = (PgAttributeRow *)malloc(sizeof(struct PgAttributeRow));
-          *pg_att = {att_pb.attrelid(),           "",
-                     att_pb.atttypid(),           att_pb.attstattarget(),
-                     (int16_t)att_pb.attlen(),    (int16_t)att_pb.attnum(),
-                     att_pb.attndims(),           att_pb.attcacheoff(),
-                     att_pb.atttypmod(),          att_pb.attbyval(),
-                     (int8_t)att_pb.attstorage(), (int8_t)att_pb.attalign(),
-                     att_pb.attnotnull(),         att_pb.atthasdef(),
-                     att_pb.atthasmissing(),      (int8_t)att_pb.attidentity(),
-                     att_pb.attisdropped(),       att_pb.attislocal(),
-                     att_pb.attinhcount(),        att_pb.attcollation()};
-          strncpy(pg_att->attname, att_pb.attname().c_str(), sizeof(pg_att->attname));
-          pg_att->attname[sizeof(pg_att->attname) - 1] = 0;
-          // reference:
-          // https://stackoverflow.com/questions/13294067/how-to-convert-string-to-char-array-in-c
-
-          // LOG_WITH_FUNC(INFO) << "att_pb " << att_pb.ShortDebugString();
-
-          // LOG_WITH_FUNC(INFO) << pg_att->attrelid << " " << pg_att->attname[0] << " "
-          //                     << pg_att->atttypid << " " << pg_att->attstattarget << " "
-          //                     << pg_att->attlen << " " << pg_att->attnum << " " <<
-          //                     pg_att->attndims
-          //                     << " " << pg_att->attcacheoff << " " << pg_att->atttypmod << " "
-          //                     << pg_att->attbyval << " " << pg_att->attstorage << " "
-          //                     << pg_att->attalign << " " << pg_att->attnotnull << " "
-          //                     << pg_att->atthasdef << " " << pg_att->atthasmissing << " "
-          //                     << pg_att->attidentity << " " << pg_att->attisdropped << " "
-          //                     << pg_att->attislocal << " " << pg_att->attinhcount << " "
-          //                     << pg_att->attcollation;
-          attrs[i] = pg_att;
-          // LOG_WITH_FUNC(INFO) << "Attlen: pb - " << att_pb.attlen() << " struct - "
-          //                     << pg_att->attlen;
-        }
-        char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum, attrs, natts);
+        // const auto &att_pbs = composite_atts_map.at(type_id);
+        // size_t natts = att_pbs.size();
+        // void *attrs[natts];
+        // for (size_t i = 0; i < natts; i++) {
+        //   const auto &att_pb = att_pbs[i];
+        //   PgAttributeRow *pg_att = (PgAttributeRow *)malloc(sizeof(struct PgAttributeRow));
+        //   *pg_att = {att_pb.attrelid(),           "",
+        //              att_pb.atttypid(),           att_pb.attstattarget(),
+        //              (int16_t)att_pb.attlen(),    (int16_t)att_pb.attnum(),
+        //              att_pb.attndims(),           att_pb.attcacheoff(),
+        //              att_pb.atttypmod(),          att_pb.attbyval(),
+        //              (int8_t)att_pb.attstorage(), (int8_t)att_pb.attalign(),
+        //              att_pb.attnotnull(),         att_pb.atthasdef(),
+        //              att_pb.atthasmissing(),      (int8_t)att_pb.attidentity(),
+        //              att_pb.attisdropped(),       att_pb.attislocal(),
+        //              att_pb.attinhcount(),        att_pb.attcollation()};
+        //   strncpy(pg_att->attname, att_pb.attname().c_str(), sizeof(pg_att->attname));
+        //   pg_att->attname[sizeof(pg_att->attname) - 1] = 0;
+        //   // reference:
+        //   //
+        //   https://stackoverflow.com/questions/13294067/how-to-convert-string-to-char-array-in-c
+        //   attrs[i] = pg_att;
+        // }
+        char *decoded_str = RecordDecoder(composite_atts_map, type_id, (uintptr_t)datum);
         cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
       } else {
         LOG(INFO) << "For record of type : " << type_id << " no entry found in cache";
