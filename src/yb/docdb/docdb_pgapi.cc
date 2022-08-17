@@ -601,7 +601,7 @@ void set_range_array_string_value(
   set_decoded_string_range_array(ql_value, arg_type, type_oid, func_name, cdc_datum_message);
 }
 
-char *RecordDecoder(
+uintptr_t RecordDecoder(
     const std::unordered_map<std::uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
     uint32_t type_id, uintptr_t datum) {
   const auto &att_pbs = composite_atts_map.at(type_id);
@@ -1203,7 +1203,9 @@ Status SetValueFromQLBinaryHelper(
         //   https://stackoverflow.com/questions/13294067/how-to-convert-string-to-char-array-in-c
         //   attrs[i] = pg_att;
         // }
-        char *decoded_str = RecordDecoder(composite_atts_map, type_id, (uintptr_t)datum);
+
+        // Does the below thing work?
+        char *decoded_str = (char *)RecordDecoder(composite_atts_map, type_id, (uintptr_t)datum);
         cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
       } else {
         LOG(INFO) << "For record of type : " << type_id << " no entry found in cache";

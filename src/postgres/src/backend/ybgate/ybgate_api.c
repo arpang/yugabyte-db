@@ -1304,7 +1304,7 @@ HeapDeformTuple(uintptr_t datum, void *attrs, size_t natts, uintptr_t *values,
 	heap_deform_tuple(&tuple, tupdesc, values, nulls);
 }
 
-char *
+uintptr_t
 DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
 {
 	FmgrInfo *finfo;
@@ -1339,7 +1339,7 @@ DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
 	YBC_LOG_INFO("Making function call");
 	// finfo->fn_nargs
 	// OutputFunctionCall(finfo, datum, tupdesc);
-	return DatumGetCString(FunctionCall2Coll(finfo, InvalidOid, datum, (uintptr_t)&tupdesc));
+	return FunctionCall2Coll(finfo, InvalidOid, datum, (uintptr_t)&tupdesc);
 }
 
 char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB)
