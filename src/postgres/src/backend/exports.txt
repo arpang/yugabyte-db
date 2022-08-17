@@ -37,3 +37,4 @@ DecodeRangeDatum
 DecodeRangeArrayDatum
 DecodeRecordDatum
 GetRecordTypeId
+GetOutFuncName
