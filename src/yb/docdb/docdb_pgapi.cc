@@ -604,6 +604,7 @@ void set_range_array_string_value(
 uintptr_t RecordDecoder(
     const std::unordered_map<std::uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
     uint32_t type_id, uintptr_t datum) {
+  LOG_WITH_FUNC(INFO) << "Record decoder for type_id " << type_id;
   const auto &att_pbs = composite_atts_map.at(type_id);
   size_t natts = att_pbs.size();
   PgAttributeRow *attrs[natts];
@@ -629,11 +630,41 @@ uintptr_t RecordDecoder(
     // https://stackoverflow.com/questions/13294067/how-to-convert-string-to-char-array-in-c
     attrs[i] = pg_att;
   }
-  // uintptr_t *values;
-  // bool *nulls;
-  // values = (uintptr_t *)malloc(natts * sizeof(uintptr_t));
-  // nulls = (bool *)malloc(natts * sizeof(bool));
-  return DecodeRecordDatum((uintptr_t)datum, attrs, natts);
+  uintptr_t *values;
+  bool *nulls;
+  values = (uintptr_t *)malloc(natts * sizeof(uintptr_t));
+  nulls = (bool *)malloc(natts * sizeof(bool));
+
+  HeapDeformTuple(datum, attrs, natts, values, nulls);
+
+  bool changed = false;
+  for (size_t i = 0; i < natts; i++) {
+    const auto &att = attrs[i];
+    if (composite_atts_map.find(att->atttypid) != composite_atts_map.end()) {
+      LOG_WITH_FUNC(INFO) << "Nested composite: att->atttypid " << att->atttypid;
+      changed = true;
+      values[i] = RecordDecoder(composite_atts_map, att->atttypid, values[i]);
+      att->atttypid = CSTRINGOID;
+      att->attalign = 'c';
+      att->attstorage = 'p';
+      att->attcollation = 0;
+      att->attlen = -2;
+
+      string str = (char *)values[i];
+
+      LOG_WITH_FUNC(INFO) << "Decoded partial string " << str;
+      LOG_WITH_FUNC(INFO) << "atttypid match " << attrs[i]->atttypid << " " << TEXTOID;
+      LOG_WITH_FUNC(INFO) << "attalign match " << attrs[i]->attalign << " " << 'i';
+      LOG_WITH_FUNC(INFO) << "attcollation match " << attrs[i]->attcollation << " " << 100;
+    }
+  }
+
+  LOG_WITH_FUNC(INFO) << "Back to processing for type_id " << type_id;
+  if (changed) {
+    datum = HeapFormTuple(attrs, natts, values, nulls);
+  }
+
+  return DecodeRecordDatum(datum, attrs, natts);
 }
 
 // This function expects that YbgPrepareMemoryContext was called

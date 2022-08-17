@@ -370,7 +370,7 @@ heap_fill_tuple(TupleDesc tupleDesc,
 	for (i = 0; i < numberOfAttributes; i++)
 	{
 		Form_pg_attribute attr = TupleDescAttr(tupleDesc, i);
-
+		// YBC_LOG_INFO("Processing attribute %s", attr->attname.data);
 		fill_val(attr,
 				 bitP ? &bitP : NULL,
 				 &bitmask,

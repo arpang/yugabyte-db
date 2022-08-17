@@ -4301,6 +4301,8 @@ Status CatalogManager::GetUDTypeMetadata(
       table_oids.push_back(oid);
     }
 
+    sort(table_oids.begin(), table_oids.end());
+
     LOG_WITH_FUNC(INFO) << "Fetching ReadPgAttributeInfo2";
     RelIdToAttributesMap attributes_map =
         VERIFY_RESULT(sys_catalog_->ReadPgAttributeInfo2(database_oid, table_oids));

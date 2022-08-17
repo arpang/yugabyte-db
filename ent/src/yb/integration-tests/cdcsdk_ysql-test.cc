@@ -302,18 +302,58 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
     return Status::OK();
   }
 
-  Status WriteCompositeRows(
-      uint32_t start, uint32_t end, Cluster* cluster, const string& enum_suffix = "",
-      string database_name = kNamespaceName, string table_name = kTableName,
-      string schema_name = "public") {
-    auto conn = VERIFY_RESULT(cluster->ConnectToDB(database_name));
+  Result<YBTableName> CreateCompositeTable(
+      Cluster* cluster, const uint32_t num_tablets, const std::string& type_suffix = "") {
+    auto conn = VERIFY_RESULT(cluster->ConnectToDB(kNamespaceName));
+
+    RETURN_NOT_OK(conn.ExecuteFormat(
+        "CREATE TYPE composite_name$0 AS (first text, last text);", type_suffix));
+
+    RETURN_NOT_OK(conn.ExecuteFormat(
+        "CREATE TABLE emp(id int primary key, name composite_name) "
+        "SPLIT INTO $0 TABLETS",
+        num_tablets));
+    return GetTable(cluster, kNamespaceName, "emp");
+  }
+
+  Result<YBTableName> CreateComplexCompositeTable(
+      Cluster* cluster, const uint32_t num_tablets, const std::string& type_suffix = "") {
+    auto conn = VERIFY_RESULT(cluster->ConnectToDB(kNamespaceName));
+
+    RETURN_NOT_OK(
+        conn.ExecuteFormat("CREATE TYPE part_name$0 AS (first text, middle text);", type_suffix));
+
+    RETURN_NOT_OK(
+        conn.ExecuteFormat("CREATE TYPE full_name$0 AS (part part_name, last text);", type_suffix));
+
+    RETURN_NOT_OK(conn.ExecuteFormat(
+        "CREATE TABLE emp_complex(id int primary key, name full_name) "
+        "SPLIT INTO $0 TABLETS",
+        num_tablets));
+    return GetTable(cluster, kNamespaceName, "emp_complex");
+  }
+
+  Status WriteCompositeRows(uint32_t start, uint32_t end, Cluster* cluster) {
+    auto conn = VERIFY_RESULT(cluster->ConnectToDB(kNamespaceName));
+    LOG(INFO) << "Writing " << end - start << " row(s) within transaction";
+
+    RETURN_NOT_OK(conn.Execute("BEGIN"));
+    for (uint32_t i = start; i < end; ++i) {
+      RETURN_NOT_OK(
+          conn.ExecuteFormat("INSERT INTO emp(id, name) VALUES ($0, ('John', 'Doe'))", i));
+    }
+    RETURN_NOT_OK(conn.Execute("COMMIT"));
+    return Status::OK();
+  }
+
+  Status WriteComplexCompositeRows(uint32_t start, uint32_t end, Cluster* cluster) {
+    auto conn = VERIFY_RESULT(cluster->ConnectToDB(kNamespaceName));
     LOG(INFO) << "Writing " << end - start << " row(s) within transaction";
 
     RETURN_NOT_OK(conn.Execute("BEGIN"));
     for (uint32_t i = start; i < end; ++i) {
       RETURN_NOT_OK(conn.ExecuteFormat(
-          "INSERT INTO $0.$1($2, $3) VALUES ($4, ('Arpan', 'Agrawal'))", schema_name,
-          table_name + enum_suffix, kKeyColumnName, kValueColumnName, i));
+          "INSERT INTO emp_complex(id, name) VALUES ($0, (('John', 'Middle'), 'Doe'))", i));
     }
     RETURN_NOT_OK(conn.Execute("COMMIT"));
     return Status::OK();
@@ -2490,13 +2530,12 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCompositeType)) {
   ASSERT_OK(SetUpWithParams(3, 1, false));
 
   const uint32_t num_tablets = 1;
-  auto table = ASSERT_RESULT(
-      CreateTable(&test_cluster_, kNamespaceName, kTableName, num_tablets, true, false, 0, false, true));
+  auto table = ASSERT_RESULT(CreateCompositeTable(&test_cluster_, num_tablets));
   google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
   ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
   ASSERT_EQ(tablets.size(), num_tablets);
 
-  std::string table_id = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, kTableName));
+  std::string table_id = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, "emp"));
   CDCStreamId stream_id = ASSERT_RESULT(CreateDBStream(IMPLICIT));
 
   auto resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets));
@@ -2520,11 +2559,53 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCompositeType)) {
       const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
       LOG(INFO) << "record " << record.ShortDebugString();
       ASSERT_EQ(expected_key_value, record.row_message().new_tuple(0).datum_int32());
-      ASSERT_EQ("(Arpan,Agrawal)", record.row_message().new_tuple(1).datum_string());
+      ASSERT_EQ("(John,Doe)", record.row_message().new_tuple(1).datum_string());
       expected_key_value++;
     }
   }
+  ASSERT_EQ(insert_count, expected_key_value);
+}
 
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestComplexCompositeType)) {
+  FLAGS_enable_update_local_peer_min_index = false;
+  FLAGS_update_min_cdc_indices_interval_secs = 1;
+  FLAGS_cdc_state_checkpoint_update_interval_ms = 1;
+  ASSERT_OK(SetUpWithParams(3, 1, false));
+
+  const uint32_t num_tablets = 1;
+  auto table = ASSERT_RESULT(CreateComplexCompositeTable(&test_cluster_, num_tablets));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
+  ASSERT_EQ(tablets.size(), num_tablets);
+
+  std::string table_id = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, "emp_complex"));
+  CDCStreamId stream_id = ASSERT_RESULT(CreateDBStream(IMPLICIT));
+
+  auto resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets));
+  ASSERT_FALSE(resp.has_error());
+
+  int insert_count = 10;
+  // Insert some records in transaction.
+  ASSERT_OK(WriteComplexCompositeRows(0, insert_count, &test_cluster_));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
+      /* is_compaction = */ false));
+
+  // Call get changes.
+  GetChangesResponsePB change_resp = ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets));
+  uint32_t record_size = change_resp.cdc_sdk_proto_records_size();
+  ASSERT_GT(record_size, insert_count);
+
+  int expected_key_value = 0;
+  for (uint32_t i = 0; i < record_size; ++i) {
+    if (change_resp.cdc_sdk_proto_records(i).row_message().op() == RowMessage::INSERT) {
+      const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
+      LOG(INFO) << "record " << record.ShortDebugString();
+      ASSERT_EQ(expected_key_value, record.row_message().new_tuple(0).datum_int32());
+      ASSERT_EQ("(\"(John,Middle)\",Doe)", record.row_message().new_tuple(1).datum_string());
+      expected_key_value++;
+    }
+  }
   ASSERT_EQ(insert_count, expected_key_value);
 }
 

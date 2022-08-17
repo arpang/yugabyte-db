@@ -1289,6 +1289,13 @@ GetRecordTypeId(uintptr_t datum)
 	return HeapTupleHeaderGetTypeId(rec);
 }
 
+uintptr_t
+HeapFormTuple(void *attrs, size_t natts, uintptr_t *values, bool *nulls)
+{
+	TupleDesc tupdesc = CreateTupleDesc(natts, true, attrs);
+	PG_RETURN_HEAPTUPLEHEADER(heap_form_tuple(tupdesc, values, nulls)->t_data);
+}
+
 void
 HeapDeformTuple(uintptr_t datum, void *attrs, size_t natts, uintptr_t *values,
 				bool *nulls)

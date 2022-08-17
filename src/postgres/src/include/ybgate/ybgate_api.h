@@ -237,6 +237,9 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum);
 
 char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB);
 
+uintptr_t HeapFormTuple(void *attrs, size_t natts, uintptr_t *values,
+						bool *nulls);
+
 void  HeapDeformTuple(uintptr_t datum, void *attrs, size_t natts,
 					  uintptr_t *values, bool *nulls);
 char *GetOutFuncName(const int pg_data_type);
