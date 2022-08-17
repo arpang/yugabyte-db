@@ -1318,7 +1318,8 @@ DecodeRecordDatum(char const *fn_name, uintptr_t datum, void *attrs,
 	{
 		ColumnIOData	 *column_info = &my_extra->columns[i];
 		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
-		column_info->typiofunc = fmgr_internal_function("textout"); // how to get this?
+		column_info->typiofunc =
+			fmgr_internal_function(GetOutFuncName(att->atttypid));
 		fmgr_info(column_info->typiofunc, &column_info->proc);
 		column_info->column_type = att->atttypid;
 	}
