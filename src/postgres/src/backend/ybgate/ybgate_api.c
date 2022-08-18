@@ -802,7 +802,7 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum)
 }
 
 const int
-GetElementType(const int pg_data_type)
+GetArrayElementType(const int pg_data_type)
 {
 	switch (pg_data_type)
 	{
@@ -948,6 +948,28 @@ GetElementType(const int pg_data_type)
 			return INT8RANGEOID;
 		case CSTRINGARRAYOID:
 			return CSTRINGOID;
+		default:
+			return InvalidOid;
+	}
+}
+
+const int
+GetRangeElementType(const int pg_data_type)
+{
+	switch (pg_data_type)
+	{
+		case INT4RANGEOID:
+			return INT4OID;
+		case NUMRANGEOID:
+			return NUMERICOID;
+		case TSRANGEOID:
+			return TIMESTAMPOID;
+		case TSTZRANGEOID:
+			return TIMESTAMPTZOID;
+		case DATERANGEOID:
+			return DATEOID;
+		case INT8RANGEOID:
+			return INT8OID;
 		default:
 			return InvalidOid;
 	}

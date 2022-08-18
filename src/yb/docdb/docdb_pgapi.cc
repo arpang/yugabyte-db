@@ -282,30 +282,10 @@ void set_string_value(
   cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
 }
 
-// void set_decoded_string_record(
-//     uint64_t datum, const char *func_name, DatumMessagePB *cdc_datum_message) {
-//   if (func_name == nullptr) {
-//     return;
-//   }
-//   char *decoded_str = DecodeRecordDatum(func_name, (uintptr_t)datum);
-//   cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
-// }
-
-void set_decoded_string_range(
-    const QLValuePB ql_value,
-    const YBCPgTypeEntity* arg_type,
-    const int elem_type,
-    const char* func_name,
-    DatumMessagePB* cdc_datum_message = nullptr,
-    const char* timezone = nullptr) {
-  YBCPgTypeAttrs type_attrs{-1 /* typmod */};
-
-  char* decoded_str = nullptr;
-  string range_val = ql_value.binary_value();
-  uint64_t size = range_val.size();
-  char* val = const_cast<char *>(range_val.c_str());
-  uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
-
+char *get_range_string_value(
+    uint64_t datum, const int elem_type, const char *func_name, const char *timezone,
+    const int type) {
+  char *decoded_str = nullptr;
   int16 elmlen;
   bool elmbyval;
   char elmalign;
@@ -341,11 +321,10 @@ void set_decoded_string_range(
 
   if (func_name != nullptr) {
     decoded_str = DecodeRangeDatum(
-        "range_out", (uintptr_t)datum, elmlen, elmbyval, elmalign, option, from_YB, func_name,
-        arg_type->type_oid, timezone);
-
-    cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
+        "range_out", (uintptr_t)datum, elmlen, elmbyval, elmalign, option, from_YB, func_name, type,
+        timezone);
   }
+  return decoded_str;
 }
 
 char *get_array_string_value(
@@ -567,11 +546,20 @@ void set_decoded_string_range_array(
 
 void set_range_string_value(
     const QLValuePB ql_value,
-    const YBCPgTypeEntity* arg_type,
+    const YBCPgTypeEntity *arg_type,
     const int type_oid,
-    char const* func_name,
-    DatumMessagePB* cdc_datum_message) {
-  set_decoded_string_range(ql_value, arg_type, type_oid, func_name, cdc_datum_message);
+    char const *func_name,
+    DatumMessagePB *cdc_datum_message,
+    const char *timezone = nullptr) {
+  YBCPgTypeAttrs type_attrs{-1 /* typmod */};
+  string range_val = ql_value.binary_value();
+  uint64_t size = range_val.size();
+  char *val = const_cast<char *>(range_val.c_str());
+  uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
+
+  char *decoded_str =
+      get_range_string_value(datum, type_oid, func_name, timezone, arg_type->type_oid);
+  cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
 }
 
 void set_array_string_value(
@@ -654,13 +642,31 @@ char* RecordDecoder(
       LOG_WITH_FUNC(INFO) << "atttypid match " << attrs[i]->atttypid << " " << TEXTOID;
       LOG_WITH_FUNC(INFO) << "attalign match " << attrs[i]->attalign << " " << 'i';
       LOG_WITH_FUNC(INFO) << "attcollation match " << attrs[i]->attcollation << " " << 100;
-    } else if (GetElementType(att->atttypid) != kPgInvalidOid) {
-      if (GetElementType(att->atttypid) == TIMESTAMPTZOID) {
+    } else if (GetArrayElementType(att->atttypid) != kPgInvalidOid) {
+      auto elem_type = GetArrayElementType(att->atttypid);
+      if (elem_type == TIMESTAMPTZOID) {
         values[i] = (uintptr_t)get_array_string_value(
-            values[i], GetElementType(att->atttypid), GetOutFuncName(att->atttypid), tz);
+            values[i], elem_type, GetOutFuncName(att->atttypid), tz);
       } else {
         values[i] = (uintptr_t)get_array_string_value(
-            values[i], GetElementType(att->atttypid), GetOutFuncName(att->atttypid), nullptr);
+            values[i], elem_type, GetOutFuncName(att->atttypid), nullptr);
+      }
+      att->atttypid = CSTRINGOID;
+      att->attalign = 'c';
+      att->attstorage = 'p';
+      att->attcollation = 0;
+      att->attlen = -2;
+      changed = true;
+    } else if (GetRangeElementType(att->atttypid) != kPgInvalidOid) {
+      LOG_WITH_FUNC(INFO) << "Processing range element with att->atttypid " << att->atttypid;
+      auto elem_type = GetRangeElementType(att->atttypid);
+      LOG_WITH_FUNC(INFO) << "elem_type " << elem_type;
+      if (elem_type == TIMESTAMPTZOID) {
+        values[i] = (uintptr_t)get_range_string_value(
+            values[i], elem_type, GetOutFuncName(att->atttypid), tz, att->atttypid);
+      } else {
+        values[i] = (uintptr_t)get_range_string_value(
+            values[i], elem_type, GetOutFuncName(att->atttypid), nullptr, att->atttypid);
       }
       att->atttypid = CSTRINGOID;
       att->attalign = 'c';
@@ -1469,8 +1475,7 @@ Status SetValueFromQLBinaryHelper(
 
     case TSTZRANGEOID: {
       func_name = "timestamptz_out";
-      set_decoded_string_range(
-          ql_value, arg_type, TIMESTAMPTZOID, func_name, cdc_datum_message, tz);
+      set_range_string_value(ql_value, arg_type, TIMESTAMPTZOID, func_name, cdc_datum_message, tz);
       break;
     }
 
