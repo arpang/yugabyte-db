@@ -15,6 +15,7 @@
 #include "yb/docdb/docdb_pgapi.h"
 
 #include "postgres/src/include/ybgate/ybgate_api.h"
+#include "yb/common/pg_types.h"
 #include "yb/common/ql_expr.h"
 #include "yb/common/schema.h"
 
@@ -252,6 +253,8 @@ Result<std::vector<std::string>> ExtractVectorFromQLBinaryValueHelper(
 
 } // namespace
 
+const char *tz = "GMT";
+
 Result<std::vector<std::string>> ExtractTextArrayFromQLBinaryValue(const QLValuePB& ql_value) {
   PG_RETURN_NOT_OK(YbgPrepareMemoryContext());
 
@@ -345,20 +348,9 @@ void set_decoded_string_range(
   }
 }
 
-void set_decoded_string_array(const QLValuePB ql_value,
-                              const YBCPgTypeEntity* arg_type,
-                              const int elem_type,
-                              const char* func_name,
-                              DatumMessagePB* cdc_datum_message = nullptr,
-                              const char* timezone = nullptr) {
-  YBCPgTypeAttrs type_attrs{-1 /* typmod */};
-
-  char* decoded_str = nullptr;
-  string vector_val = ql_value.binary_value();
-  uint64_t size = vector_val.size();
-  char* val = const_cast<char *>(vector_val.c_str());
-  uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
-
+char *get_array_string_value(
+    uint64_t datum, const int elem_type, const char *func_name, const char *timezone) {
+  char *decoded_str = nullptr;
   int16 elmlen;
   bool elmbyval;
   char elmalign;
@@ -511,9 +503,8 @@ void set_decoded_string_array(const QLValuePB ql_value,
     decoded_str = DecodeArrayDatum(
         "array_out", (uintptr_t)datum, elmlen, elmbyval, elmalign, elmdelim, from_YB, func_name,
         timezone, option);
-
-    cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
   }
+  return decoded_str;
 }
 
 void set_decoded_string_range_array(
@@ -585,11 +576,18 @@ void set_range_string_value(
 
 void set_array_string_value(
     const QLValuePB ql_value,
-    const YBCPgTypeEntity* arg_type,
+    const YBCPgTypeEntity *arg_type,
     const int type_oid,
-    char const* func_name,
-    DatumMessagePB* cdc_datum_message) {
-  set_decoded_string_array(ql_value, arg_type, type_oid, func_name, cdc_datum_message);
+    char const *func_name,
+    DatumMessagePB *cdc_datum_message,
+    const char *timezone = nullptr) {
+  YBCPgTypeAttrs type_attrs{-1 /* typmod */};
+  string vector_val = ql_value.binary_value();
+  uint64_t size = vector_val.size();
+  char *val = const_cast<char *>(vector_val.c_str());
+  uint64_t datum = arg_type->yb_to_datum(reinterpret_cast<uint8 *>(val), size, &type_attrs);
+  char *decoded_str = get_array_string_value(datum, type_oid, func_name, timezone);
+  cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
 }
 
 void set_range_array_string_value(
@@ -656,6 +654,20 @@ char* RecordDecoder(
       LOG_WITH_FUNC(INFO) << "atttypid match " << attrs[i]->atttypid << " " << TEXTOID;
       LOG_WITH_FUNC(INFO) << "attalign match " << attrs[i]->attalign << " " << 'i';
       LOG_WITH_FUNC(INFO) << "attcollation match " << attrs[i]->attcollation << " " << 100;
+    } else if (GetElementType(att->atttypid) != kPgInvalidOid) {
+      if (GetElementType(att->atttypid) == TIMESTAMPTZOID) {
+        values[i] = (uintptr_t)get_array_string_value(
+            values[i], GetElementType(att->atttypid), GetOutFuncName(att->atttypid), tz);
+      } else {
+        values[i] = (uintptr_t)get_array_string_value(
+            values[i], GetElementType(att->atttypid), GetOutFuncName(att->atttypid), nullptr);
+      }
+      att->atttypid = CSTRINGOID;
+      att->attalign = 'c';
+      att->attstorage = 'p';
+      att->attcollation = 0;
+      att->attlen = -2;
+      changed = true;
     }
   }
 
@@ -675,8 +687,7 @@ Status SetValueFromQLBinaryHelper(
     const std::unordered_map<std::uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
     DatumMessagePB *cdc_datum_message) {
   uint64_t size;
-  char* val;
-  const char* timezone = "GMT";
+  char *val;
   char const* func_name = nullptr;
 
   YbgTypeDesc pg_arg_type{pg_data_type, -1 /* typmod */};
@@ -1024,7 +1035,7 @@ Status SetValueFromQLBinaryHelper(
       uint64_t datum =
           arg_type->yb_to_datum(reinterpret_cast<int64 *>(&timestamptz_val), size, &type_attrs);
 
-      set_string_value(datum, func_name, cdc_datum_message, timezone);
+      set_string_value(datum, func_name, cdc_datum_message, tz);
       break;
     }
     case INTERVALOID: {
@@ -1459,7 +1470,7 @@ Status SetValueFromQLBinaryHelper(
     case TSTZRANGEOID: {
       func_name = "timestamptz_out";
       set_decoded_string_range(
-          ql_value, arg_type, TIMESTAMPTZOID, func_name, cdc_datum_message, timezone);
+          ql_value, arg_type, TIMESTAMPTZOID, func_name, cdc_datum_message, tz);
       break;
     }
 
@@ -1712,8 +1723,7 @@ Status SetValueFromQLBinaryHelper(
 
     case TIMESTAMPTZARRAYOID: {
       func_name = "timestamptz_out";
-      set_decoded_string_array(
-          ql_value, arg_type, TIMESTAMPTZOID, func_name, cdc_datum_message, timezone);
+      set_array_string_value(ql_value, arg_type, TIMESTAMPTZOID, func_name, cdc_datum_message, tz);
       break;
     }
 
@@ -1887,7 +1897,7 @@ Status SetValueFromQLBinaryHelper(
     case TSTZRANGEARRAYOID: {
       func_name = "timestamptz_out";
       set_decoded_string_range_array(
-          ql_value, arg_type, TSTZRANGEOID, func_name, cdc_datum_message, timezone);
+          ql_value, arg_type, TSTZRANGEOID, func_name, cdc_datum_message, tz);
       break;
     }
 

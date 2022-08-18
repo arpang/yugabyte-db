@@ -40,3 +40,4 @@ GetRecordTypeId
 GetOutFuncName
 HeapFormTuple
 HeapDeformTuple
+GetElementType
