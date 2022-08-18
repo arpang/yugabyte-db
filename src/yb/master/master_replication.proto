@@ -182,7 +182,7 @@ message PgCompositeInfoPB {
  // Attributes of composite type.
  repeated PgAttributePB attributes = 2;
 }
- 
+
 
 message GetUDTypeMetadataResponsePB {
  // The error, if an error occurred with this request.

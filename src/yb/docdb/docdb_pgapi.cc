@@ -597,9 +597,6 @@ char* RecordDecoder(
   for (size_t i = 0; i < natts; i++) {
     const auto &att_pb = att_pbs[i];
     PgAttributeRow *pg_att = (PgAttributeRow *)malloc(sizeof(struct PgAttributeRow));
-    uint32_t att_typid = att_pb.atttypid();
-    if (composite_atts_map.find(att_typid) != composite_atts_map.end()) {
-    }
     *pg_att = {att_pb.attrelid(),           "",
                att_pb.atttypid(),           att_pb.attstattarget(),
                (int16_t)att_pb.attlen(),    (int16_t)att_pb.attnum(),
