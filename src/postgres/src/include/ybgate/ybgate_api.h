@@ -246,7 +246,7 @@ char *GetOutFuncName(const int pg_data_type);
 
 uint32_t GetRecordTypeId(uintptr_t datum);
 
-uintptr_t DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts);
+char *DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts);
 
 char* DecodeArrayDatum(char const* arr_fn_name, uintptr_t datum,
 		int16_t elem_len, bool elem_by_val, char elem_align, char elem_delim, bool from_YB,
