@@ -1496,11 +1496,7 @@ DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
 	HeapTupleHeader rec = DatumGetHeapTupleHeader(datum);
 	Oid				tupType = HeapTupleHeaderGetTypeId(rec);
 	int32			tupTypmod = HeapTupleHeaderGetTypMod(rec);
-
-	TupleDesc tupdesc = CreateTupleDesc(natts, true, attrs);
-
-	YBC_LOG_INFO("Arpan tupType %u tupTypmod %d\n", tupType, tupTypmod);
-
+	TupleDesc		tupdesc = CreateTupleDesc(natts, true, attrs);
 	finfo->fn_extra = MemoryContextAlloc(GetCurrentMemoryContext(),
 										 offsetof(RecordIOData, columns) +
 											 natts * sizeof(ColumnIOData));
@@ -1517,9 +1513,6 @@ DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
 		fmgr_info(column_info->typiofunc, &column_info->proc);
 		column_info->column_type = att->atttypid;
 	}
-	YBC_LOG_INFO("Making function call");
-	// finfo->fn_nargs
-	// OutputFunctionCall(finfo, datum, tupdesc);
 	return DatumGetCString(FunctionCall2Coll(finfo, InvalidOid, datum, (uintptr_t)&tupdesc));
 }
 

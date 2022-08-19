@@ -218,8 +218,7 @@ Result<YBTableName> CDCSDKTestBase::CreateTable(
     bool colocated,
     const int table_oid,
     const bool enum_value,
-    const bool composite_type,
-    const std::string& type_suffix,
+    const std::string& enum_suffix,
     const std::string& schema_name) {
   auto conn = VERIFY_RESULT(cluster->ConnectToDB(namespace_name));
 
@@ -229,13 +228,7 @@ Result<YBTableName> CDCSDKTestBase::CreateTable(
     }
     RETURN_NOT_OK(conn.ExecuteFormat(
         "CREATE TYPE $0.coupon_discount_type$1 AS ENUM ('FIXED$2','PERCENTAGE$3');", schema_name,
-        type_suffix, type_suffix, type_suffix));
-  } else if (composite_type) {
-    if (schema_name != "public") {
-      RETURN_NOT_OK(conn.ExecuteFormat("create schema $0;", schema_name));
-    }
-    RETURN_NOT_OK(conn.ExecuteFormat(
-        "CREATE TYPE $0.my_name$1 AS (first text, last text);", schema_name, type_suffix));
+        enum_suffix, enum_suffix, enum_suffix));
   }
 
   std::string table_oid_string = "";
@@ -244,20 +237,15 @@ Result<YBTableName> CDCSDKTestBase::CreateTable(
     RETURN_NOT_OK(conn.Execute("set yb_enable_create_with_table_oid=true"));
     table_oid_string = Format("table_oid = $0,", table_oid);
   }
-  string valueType = "int";
-  if (enum_value) {
-    valueType = schema_name + "." + "coupon_discount_type" + type_suffix;
-  } else if (composite_type) {
-    valueType = schema_name + "." + "my_name";
-  }
+
   RETURN_NOT_OK(conn.ExecuteFormat(
       "CREATE TABLE $0.$1($2 int $3, $4 $5) WITH ($6colocated = $7) "
       "SPLIT INTO $8 TABLETS",
-      schema_name, table_name + type_suffix, kKeyColumnName, (add_primary_key) ? "PRIMARY KEY" : "",
+      schema_name, table_name + enum_suffix, kKeyColumnName, (add_primary_key) ? "PRIMARY KEY" : "",
       kValueColumnName,
-      // enum_value ? (schema_name + "." + "coupon_discount_type" + type_suffix) : "int",
-      valueType, table_oid_string, colocated, num_tablets));
-  return GetTable(cluster, namespace_name, table_name + type_suffix);
+      enum_value ? (schema_name + "." + "coupon_discount_type" + enum_suffix) : "int",
+      table_oid_string, colocated, num_tablets));
+  return GetTable(cluster, namespace_name, table_name + enum_suffix);
 }
 
 Result<std::string> CDCSDKTestBase::GetNamespaceId(const std::string& namespace_name) {

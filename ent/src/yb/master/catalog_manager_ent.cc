@@ -4261,7 +4261,6 @@ Status CatalogManager::IsBootstrapRequired(const IsBootstrapRequiredRequestPB* r
 Status CatalogManager::GetUDTypeMetadata(
     const GetUDTypeMetadataRequestPB* req, GetUDTypeMetadataResponsePB* resp,
     rpc::RpcContext* rpc) {
-  LOG_WITH_FUNC(INFO) << "GetUDTypeMetadata " << req->ShortDebugString();
   auto namespace_info = VERIFY_NAMESPACE_FOUND(FindNamespace(req->namespace_()), resp);
   uint32_t database_oid;
   {
@@ -4287,11 +4286,9 @@ Status CatalogManager::GetUDTypeMetadata(
   } else if (req->pg_composite_info()) {
     RelTypeOIDMap reltype_oid_map;
     if (req->has_pg_type_oid()) {
-      LOG_WITH_FUNC(INFO) << "Fetching composite info for pg_type_oid " << req->pg_type_oid();
       reltype_oid_map = VERIFY_RESULT(
           sys_catalog_->ReadCompositeTypeFromPgClass(database_oid, req->pg_type_oid()));
     } else {
-      LOG_WITH_FUNC(INFO) << "Fetching composite info without pg_type_oid";
       reltype_oid_map = VERIFY_RESULT(sys_catalog_->ReadCompositeTypeFromPgClass(database_oid));
     }
 
@@ -4303,26 +4300,22 @@ Status CatalogManager::GetUDTypeMetadata(
 
     sort(table_oids.begin(), table_oids.end());
 
-    LOG_WITH_FUNC(INFO) << "Fetching ReadPgAttributeInfo2";
     RelIdToAttributesMap attributes_map =
         VERIFY_RESULT(sys_catalog_->ReadPgAttributeInfo2(database_oid, table_oids));
-    LOG_WITH_FUNC(INFO) << "Fetched ReadPgAttributeInfo2";
 
     for (const auto& [reltype, oid] : reltype_oid_map) {
-      LOG_WITH_FUNC(INFO) << "For compsite types - oid: " << oid << " reltype: " << reltype;
       if (attributes_map.find(oid) != attributes_map.end()) {
         PgCompositeInfoPB* pg_composite_info_pb = resp->add_composites();
         pg_composite_info_pb->set_oid(reltype);
         for (auto const& attribute : attributes_map[oid]) {
-          LOG_WITH_FUNC(INFO) << "Attribute : " << attribute.ShortDebugString();
           *(pg_composite_info_pb->add_attributes()) = attribute;
         }
       } else {
-        LOG_WITH_FUNC(INFO) << "attributes_map has no entry for oid: " << oid;
+        LOG_WITH_FUNC(INFO) << "No attributes found for attrelid: " << oid
+                            << " corresponding to composite type of id: " << reltype;
       }
     }
   }
-  LOG_WITH_FUNC(INFO) << "Returning ";
   return Status::OK();
 }
 

@@ -1252,7 +1252,6 @@ Status SetValueFromQLBinaryHelper(
       break;
     }
     case RECORDOID: {
-      // func_name = "record_out";
       string record_val = ql_value.binary_value();
       size = record_val.size();
       val = const_cast<char *>(record_val.c_str());
@@ -1260,35 +1259,10 @@ Status SetValueFromQLBinaryHelper(
       uint32_t type_id = GetRecordTypeId((uintptr_t)datum);
 
       if (composite_atts_map.find(type_id) != composite_atts_map.end()) {
-        // const auto &att_pbs = composite_atts_map.at(type_id);
-        // size_t natts = att_pbs.size();
-        // void *attrs[natts];
-        // for (size_t i = 0; i < natts; i++) {
-        //   const auto &att_pb = att_pbs[i];
-        //   PgAttributeRow *pg_att = (PgAttributeRow *)malloc(sizeof(struct PgAttributeRow));
-        //   *pg_att = {att_pb.attrelid(),           "",
-        //              att_pb.atttypid(),           att_pb.attstattarget(),
-        //              (int16_t)att_pb.attlen(),    (int16_t)att_pb.attnum(),
-        //              att_pb.attndims(),           att_pb.attcacheoff(),
-        //              att_pb.atttypmod(),          att_pb.attbyval(),
-        //              (int8_t)att_pb.attstorage(), (int8_t)att_pb.attalign(),
-        //              att_pb.attnotnull(),         att_pb.atthasdef(),
-        //              att_pb.atthasmissing(),      (int8_t)att_pb.attidentity(),
-        //              att_pb.attisdropped(),       att_pb.attislocal(),
-        //              att_pb.attinhcount(),        att_pb.attcollation()};
-        //   strncpy(pg_att->attname, att_pb.attname().c_str(), sizeof(pg_att->attname));
-        //   pg_att->attname[sizeof(pg_att->attname) - 1] = 0;
-        //   // reference:
-        //   //
-        //   https://stackoverflow.com/questions/13294067/how-to-convert-string-to-char-array-in-c
-        //   attrs[i] = pg_att;
-        // }
-
-        // Does the below thing work?
         char *decoded_str = RecordDecoder(composite_atts_map, type_id, (uintptr_t)datum);
         cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
       } else {
-        LOG(INFO) << "For record of type : " << type_id << " no entry found in cache";
+        LOG(INFO) << "For record of type : " << type_id << " no attributes found in the cache";
         return STATUS_SUBSTITUTE(CacheMissError, "composite");
       }
       break;

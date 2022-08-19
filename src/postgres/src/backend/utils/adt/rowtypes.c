@@ -300,16 +300,13 @@ record_out(PG_FUNCTION_ARGS)
 	tupType = HeapTupleHeaderGetTypeId(rec);
 	tupTypmod = HeapTupleHeaderGetTypMod(rec);
 
-	YBC_LOG_INFO("Arpan tupType %u tupTypmod %d\n", tupType, tupTypmod);
 	if (PG_NARGS() >= 2)
 	{
-		YBC_LOG_INFO("Arpan PG_NARGS >=2");
 		TupleDesc *tupdesc_ptr = (TupleDesc *) PG_GETARG_POINTER(1);
 		tupdesc = *tupdesc_ptr;
 	}
 	else
 	{
-		YBC_LOG_INFO("Arpan PG_NARGS < 2");
 		tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
 	}
 	ncolumns = tupdesc->natts;
@@ -325,17 +322,9 @@ record_out(PG_FUNCTION_ARGS)
 	 * calls, assuming the record type doesn't change underneath us.
 	 */
 	my_extra = (RecordIOData *) fcinfo->flinfo->fn_extra;
-	YBC_LOG_INFO("Arpan my_extra %p my_extra == null: %d", my_extra,
-				 my_extra == NULL);
-	if (my_extra != NULL)
-	{
-		YBC_LOG_INFO("Arpan my_extra->ncolumns %d ncolumns: %d",
-					 my_extra->ncolumns, ncolumns);
-	}
 	if (my_extra == NULL ||
 		my_extra->ncolumns != ncolumns)
 	{
-		YBC_LOG_INFO("Inside null or col count mismatch");
 		fcinfo->flinfo->fn_extra =
 			MemoryContextAlloc(fcinfo->flinfo->fn_mcxt,
 							   offsetof(RecordIOData, columns) +
@@ -348,7 +337,6 @@ record_out(PG_FUNCTION_ARGS)
 	if (my_extra->record_type != tupType ||
 		my_extra->record_typmod != tupTypmod)
 	{
-		YBC_LOG_INFO("Inside tupType/tupTypmod mismatch");
 		MemSet(my_extra, 0,
 			   offsetof(RecordIOData, columns) +
 			   ncolumns * sizeof(ColumnIOData));
@@ -371,7 +359,6 @@ record_out(PG_FUNCTION_ARGS)
 	for (i = 0; i < ncolumns; i++)
 	{
 		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
-		YBC_LOG_INFO("Arpan processing attribute %s", att->attname.data);
 		ColumnIOData *column_info = &my_extra->columns[i];
 		Oid			column_type = att->atttypid;
 		Datum		attr;
@@ -398,24 +385,14 @@ record_out(PG_FUNCTION_ARGS)
 		 */
 		if (column_info->column_type != column_type)
 		{
-			YBC_LOG_INFO("Inside column_info->column_type/ column_type "
-						 "mismatch");
-			YBC_LOG_INFO("Arpan column_info->column_type %u column_type %u\n",
-						 column_info->column_type, column_type);
-			getTypeOutputInfo(column_type,
-							  &column_info->typiofunc,
+			getTypeOutputInfo(column_type, &column_info->typiofunc,
 							  &column_info->typisvarlena);
-			// column_info->typiofunc = fmgr_internal_function("textout");
-			// fmgr_info(column_info->typiofunc, &column_info->proc);
 			fmgr_info_cxt(column_info->typiofunc, &column_info->proc,
 						  fcinfo->flinfo->fn_mcxt);
 			column_info->column_type = column_type;
 		}
 
 		attr = values[i];
-		YBC_LOG_INFO("Arpan column_info->column_type %u column_info->typiofunc "
-					 "%u\n",
-					 column_info->column_type, column_info->typiofunc);
 		value = OutputFunctionCall(&column_info->proc, attr);
 
 		/* Detect whether we need double quotes for this value */

@@ -867,7 +867,7 @@ Result<EnumOidLabelMap> CDCServiceImpl::UpdateEnumMapInCacheUnlocked(const Names
   return enumlabel_cache_[ns_name];
 }
 
-Result<CompositeAttsMap> CDCServiceImpl::GetCompositeAtrributesMapFromCache(
+Result<CompositeAttsMap> CDCServiceImpl::GetCompositeAttsMapFromCache(
     const NamespaceName& ns_name) {
   {
     yb::SharedLock<decltype(mutex_)> l(mutex_);
@@ -1396,14 +1396,10 @@ void CDCServiceImpl::GetChanges(const GetChangesRequestPB* req,
         enum_map_result.ok(), enum_map_result.status(), resp->mutable_error(),
         CDCErrorPB::INTERNAL_ERROR, context);
 
-    LOG_WITH_FUNC(INFO) << "Before GetCompositeAtrributesMapFromCache";
-    auto composite_atts_map = GetCompositeAtrributesMapFromCache(namespace_name);
-    LOG_WITH_FUNC(INFO) << "After GetCompositeAtrributesMapFromCache";
+    auto composite_atts_map = GetCompositeAttsMapFromCache(namespace_name);
     RPC_CHECK_AND_RETURN_ERROR(
         composite_atts_map.ok(), composite_atts_map.status(), resp->mutable_error(),
         CDCErrorPB::INTERNAL_ERROR, context);
-
-    LOG_WITH_FUNC(INFO) << "After check for GetCompositeAtrributesMapFromCache";
 
     s = cdc::GetChangesForCDCSDK(
         req->stream_id(), req->tablet_id(), cdc_sdk_op_id, record, tablet_peer, mem_tracker,
@@ -1414,7 +1410,6 @@ void CDCServiceImpl::GetChanges(const GetChangesRequestPB* req,
     if (s.IsCacheMissError()) {
       {
         string message = s.ToUserMessage(false);
-        LOG_WITH_FUNC(INFO) << "Cache miss message " << message;
         if (message == "enum") {
           // Recreate the enum cache entry for the corresponding namespace.
           std::lock_guard<decltype(mutex_)> l(mutex_);

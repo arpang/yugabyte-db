@@ -3056,7 +3056,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestEnumWithMultipleTablets)) {
   // the newtable should not fail,(precondition:- create new stream in same namespace).
   for (int idx = 0; idx < total_stream_count; idx++) {
     auto table = ASSERT_RESULT(CreateTable(
-        &test_cluster_, kNamespaceName, kTableName, num_tablets, true, false, 0, true, false,
+        &test_cluster_, kNamespaceName, kTableName, num_tablets, true, false, 0, true,
         tablePrefix[idx]));
     google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
     ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
@@ -3162,7 +3162,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestStreamMetaDataCleanupMultiTab
 
   for (auto table_suffix : table_list_suffix) {
     table[idx] = ASSERT_RESULT(CreateTable(
-        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true, false, table_suffix));
+        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true, table_suffix));
     ASSERT_OK(test_client()->GetTablets(
         table[idx], 0, &tablets[idx], /* partition_list_version = */ nullptr));
     TableId table_id =
@@ -3262,7 +3262,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestMultiStreamOnSameTableAndDrop
 
   for (int idx = 0; idx < 2; idx++) {
     table[idx] = ASSERT_RESULT(CreateTable(
-        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true, false,
+        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true,
         table_list_suffix[idx]));
     ASSERT_OK(test_client()->GetTablets(
         table[idx], 0, &tablets[idx], /* partition_list_version = */ nullptr));
@@ -3317,7 +3317,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestMultiStreamOnSameTableAndDele
 
   for (int idx = 0; idx < 2; idx++) {
     table[idx] = ASSERT_RESULT(CreateTable(
-        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true, false,
+        &test_cluster_, kNamespaceName, kTableName, 1, true, false, 0, true,
         table_list_suffix[idx]));
     ASSERT_OK(test_client()->GetTablets(
         table[idx], 0, &tablets[idx], /* partition_list_version = */ nullptr));

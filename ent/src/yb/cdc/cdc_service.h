@@ -351,7 +351,7 @@ class CDCServiceImpl : public CDCServiceIf {
       REQUIRES(mutex_);
 
   // Get composite attributes map from the cache.
-  Result<CompositeAttsMap> GetCompositeAtrributesMapFromCache(const NamespaceName& ns_name);
+  Result<CompositeAttsMap> GetCompositeAttsMapFromCache(const NamespaceName& ns_name);
 
   // Update composite attributes map in cache if required and get it.
   Result<CompositeAttsMap> UpdateCompositeCacheAndGetMap(const NamespaceName& ns_name);

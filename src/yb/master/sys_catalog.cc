@@ -1643,9 +1643,6 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
   const auto& table_info = VERIFY_RESULT(tablet->metadata()->GetTableInfo(pg_table_id));
   const Schema& schema = table_info->schema();
 
-  // Schema projection;
-  // RETURN_NOT_OK(schema.CreateProjectionByNames(
-  //     {"attrelid", "attnum", "attname", "atttypid"}, &projection, schema.num_key_columns()));
   const auto attrelid_col_id = VERIFY_RESULT(schema.ColumnIdByName("attrelid")).rep();
   const auto attname_col_id = VERIFY_RESULT(schema.ColumnIdByName("attname")).rep();
   const auto atttypid_col_id = VERIFY_RESULT(schema.ColumnIdByName("atttypid")).rep();
@@ -1801,26 +1798,6 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
       projection.CopyWithoutColumnIds(), {} /* read_hybrid_time */, pg_table_id));
   {
     auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
-    // PgsqlExpressionPB expr;
-    // PgsqlConditionPB* cond = expr.mutable_condition();
-    // if (table_oid == 0) {
-    //   cond->add_operands()->set_column_id(relkind_col_id);
-    //   cond->set_op(QL_OP_EQUAL);
-    //   cond->add_operands()->mutable_value()->set_int8_value('c');
-    // } else {
-    //   cond->set_op(QL_OP_AND);
-    //   auto cond1 = cond->add_operands()->mutable_condition();
-    //   cond1->add_operands()->set_column_id(relkind_col_id);
-    //   cond1->set_op(QL_OP_EQUAL);
-    //   cond1->add_operands()->mutable_value()->set_int8_value('c');
-
-    //   auto cond2 = cond->add_operands()->mutable_condition();
-    //   cond2->add_operands()->set_column_id(reltype_col_id);
-    //   cond2->set_op(QL_OP_EQUAL);
-    //   cond2->add_operands()->mutable_value()->set_uint32_value(table_oid);
-    // }
-
-    // LOG_WITH_FUNC(INFO) << "Condition " << expr.ShortDebugString();
     const std::vector<docdb::KeyEntryValue> empty_key_components;
     docdb::DocPgsqlScanSpec spec(
         projection, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components, nullptr,
@@ -1836,13 +1813,6 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
     const auto& oid_col = row.GetValue(oid_col_id);
     const auto& reltype_col = row.GetValue(reltype_col_id);
     const auto& relkind_col = row.GetValue(relkind_col_id);
-
-    // if (!relkind_col) {
-    //   return STATUS_FORMAT(
-    //       Corruption, "Could not read relkind_col column from pg_class for database_oid: $0",
-    //       database_oid);
-    // }
-    // LOG_WITH_FUNC(INFO) << "relkind_col  " << relkind_col->ShortDebugString();
 
     if (!oid_col || !reltype_col || !relkind_col) {
       std::string corrupted_col;

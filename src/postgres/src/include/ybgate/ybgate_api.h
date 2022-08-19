@@ -21,7 +21,6 @@
 #ifndef PG_YBGATE_YBGATE_API_H
 #define PG_YBGATE_YBGATE_API_H
 
-// #include "catalog/pg_attribute.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 #include <stdbool.h>
 #include <stddef.h>
