@@ -1401,8 +1401,6 @@ Result<std::unordered_map<uint32_t, string>> SysCatalogTable::ReadPgEnum(
     const uint32_t database_oid, uint32_t type_oid) {
   TRACE_EVENT0("master", "ReadPgEnum");
 
-  LOG_WITH_FUNC(INFO) << "Inside ReadPgEnum";
-
   const tablet::TabletPtr tablet = tablet_peer()->shared_tablet();
   const auto& pg_table_id = GetPgsqlTableId(database_oid, kPgEnumTableOid);
   const auto& table_info = VERIFY_RESULT(tablet->metadata()->GetTableInfo(pg_table_id));
@@ -1635,8 +1633,6 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
     uint32_t database_oid, std::vector<uint32_t> table_oids) {
   TRACE_EVENT0("master", "ReadPgAttributeInfo2");
 
-  LOG_WITH_FUNC(INFO) << "Inside ReadPgAttributeInfo2";
-
   const tablet::TabletPtr tablet = tablet_peer()->shared_tablet();
 
   const auto& pg_table_id = GetPgsqlTableId(database_oid, kPgAttributeTableOid);
@@ -1687,8 +1683,6 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
 
-    LOG_WITH_FUNC(INFO) << "Attribute row " << row.ToString();
-
     const auto& attrelid_col = row.GetValue(attrelid_col_id);
     const auto& attname_col = row.GetValue(attname_col_id);
     const auto& atttypid_col = row.GetValue(atttypid_col_id);
@@ -1709,8 +1703,6 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
     const auto& attislocal_col = row.GetValue(attislocal_col_id);
     const auto& attinhcount_col = row.GetValue(attinhcount_col_id);
     const auto& attcollation_col = row.GetValue(attcollation_col_id);
-
-    LOG_WITH_FUNC(INFO) << "Attribute attalign_col " << attalign_col->ShortDebugString();
 
     if (!attrelid_col) {
       return STATUS_FORMAT(
@@ -1779,7 +1771,6 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
 Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
     uint32_t database_oid, uint32_t table_oid) {
   TRACE_EVENT0("master", "ReadCompositeTypeFromPgClass");
-  LOG_WITH_FUNC(INFO) << "ReadCompositeTypeFromPgClass";
 
   const tablet::TabletPtr tablet = tablet_peer()->shared_tablet();
 
@@ -1809,7 +1800,6 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
-    LOG_WITH_FUNC(INFO) << "row " << row.ToString();
     const auto& oid_col = row.GetValue(oid_col_id);
     const auto& reltype_col = row.GetValue(reltype_col_id);
     const auto& relkind_col = row.GetValue(relkind_col_id);
@@ -1839,8 +1829,7 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
       continue;
     }
 
-    LOG_WITH_FUNC(INFO) << "Found oid " << oid << " for reltype " << reltype << " of relkind "
-                        << relkind;
+    VLOG(1) << "Found composite tpye oid " << oid << " for reltype " << reltype << " in pg_class";
     reltype_oid_map[reltype] = oid;
   }
   return reltype_oid_map;

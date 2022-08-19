@@ -890,12 +890,6 @@ Result<CompositeAttsMap> CDCServiceImpl::UpdateCompositeCacheAndGetMap(
 Result<CompositeAttsMap> CDCServiceImpl::UpdateCompositeMapInCacheUnlocked(
     const NamespaceName& ns_name) {
   CompositeAttsMap enum_oid_label_map = VERIFY_RESULT(client()->GetPgCompositeAttsMap(ns_name));
-  for (const auto& [oid, attributes] : enum_oid_label_map) {
-    LOG_WITH_FUNC(INFO) << "For oid " << oid << " found attributes " << attributes.size();
-    for (const auto& attribute : attributes) {
-      LOG_WITH_FUNC(INFO) << "Attribute: " << attribute.ShortDebugString();
-    }
-  }
   composite_type_cache_[ns_name] = enum_oid_label_map;
   return composite_type_cache_[ns_name];
 }

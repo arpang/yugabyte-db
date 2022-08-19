@@ -4294,7 +4294,6 @@ Status CatalogManager::GetUDTypeMetadata(
 
     std::vector<uint32_t> table_oids;
     for (const auto& [reltype, oid] : reltype_oid_map) {
-      LOG_WITH_FUNC(INFO) << "Found compsite types - oid: " << oid << " reltype: " << reltype;
       table_oids.push_back(oid);
     }
 
