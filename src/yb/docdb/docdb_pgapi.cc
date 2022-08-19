@@ -615,7 +615,9 @@ char* RecordDecoder(
   PgAttributeRow *attrs[natts];
   for (size_t i = 0; i < natts; i++) {
     const auto &att_pb = att_pbs[i];
-    PgAttributeRow *pg_att = (PgAttributeRow *)malloc(sizeof(struct PgAttributeRow));
+    // TODO: free malloc
+    PgAttributeRow *pg_att =
+        reinterpret_cast<PgAttributeRow *>(malloc(sizeof(struct PgAttributeRow)));
     *pg_att = {att_pb.attrelid(),           "",
                att_pb.atttypid(),           att_pb.attstattarget(),
                (int16_t)att_pb.attlen(),    (int16_t)att_pb.attnum(),
@@ -634,8 +636,8 @@ char* RecordDecoder(
   }
   uintptr_t *values;
   bool *nulls;
-  values = (uintptr_t *)malloc(natts * sizeof(uintptr_t));
-  nulls = (bool *)malloc(natts * sizeof(bool));
+  values = reinterpret_cast<uintptr_t *>(malloc(natts * sizeof(uintptr_t)));
+  nulls = reinterpret_cast<bool *>(malloc(natts * sizeof(bool)));
 
   HeapDeformTuple(datum, attrs, natts, values, nulls);
 
@@ -651,13 +653,6 @@ char* RecordDecoder(
       att->attstorage = 'p';
       att->attcollation = 0;
       att->attlen = -2;
-
-      string str = (char *)values[i];
-
-      LOG_WITH_FUNC(INFO) << "Decoded partial string " << str;
-      LOG_WITH_FUNC(INFO) << "atttypid match " << attrs[i]->atttypid << " " << TEXTOID;
-      LOG_WITH_FUNC(INFO) << "attalign match " << attrs[i]->attalign << " " << 'i';
-      LOG_WITH_FUNC(INFO) << "attcollation match " << attrs[i]->attcollation << " " << 100;
     } else if (get_range_array_element_type(att->atttypid) != kPgInvalidOid) {
       auto elem_type = get_range_array_element_type(att->atttypid);
       LOG_WITH_FUNC(INFO) << "Inside range arrays " << att->atttypid << " " << elem_type;
