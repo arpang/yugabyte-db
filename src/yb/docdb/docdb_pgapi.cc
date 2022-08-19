@@ -524,16 +524,11 @@ char *get_range_array_string_value(
   }
 
   if (func_name != nullptr) {
-    LOG_WITH_FUNC(INFO) << "Calling DecodeRangeArrayDatum for fun " << func_name;
     decoded_str = DecodeRangeArrayDatum(
         "array_out", (uintptr_t)datum, elmlen, range_elmlen, elmbyval, range_elmbyval, elmalign,
         range_elmalign, elmdelim, option, range_option, from_YB, "range_out", func_name, elem_type,
         timezone);
-  } else {
-    LOG_WITH_FUNC(INFO) << "Not calling DecodeRangeDatum as func is null ";
   }
-  string decoded_str_cpp = decoded_str;
-  LOG_WITH_FUNC(INFO) << "decoded_str_cpp " << decoded_str_cpp;
   return decoded_str;
 }
 
@@ -587,6 +582,174 @@ void set_range_array_string_value(
   cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
 }
 
+uint32_t GetArrayElementType(uint32_t pg_data_type) {
+  switch (pg_data_type) {
+    case RECORDARRAYOID:
+      return RECORDOID;
+    case ANYARRAYOID:
+      return ANYOID;
+    case BOOLARRAYOID:
+      return BOOLOID;
+    case BYTEAARRAYOID:
+      return BYTEAOID;
+    case CHARARRAYOID:
+      return CHAROID;
+    case NAMEARRAYOID:
+      return NAMEOID;
+    case INT8ARRAYOID:
+      return INT8OID;
+    case INT2ARRAYOID:
+      return INT2OID;
+    case INT2VECTORARRAYOID:
+      return INT2VECTOROID;
+    case INT4ARRAYOID:
+      return INT4OID;
+    case REGPROCARRAYOID:
+      return REGPROCOID;
+    case TEXTARRAYOID:
+      return TEXTOID;
+    case OIDARRAYOID:
+      return TEXTOID;
+    case TIDARRAYOID:
+      return TIDOID;
+    case XIDARRAYOID:
+      return XIDOID;
+    case CIDARRAYOID:
+      return CIDOID;
+    case OIDVECTORARRAYOID:
+      return OIDVECTOROID;
+    case JSONARRAYOID:
+      return JSONOID;
+    case XMLARRAYOID:
+      return XMLOID;
+    case POINTARRAYOID:
+      return POINTOID;
+    case LSEGARRAYOID:
+      return LSEGOID;
+    case PATHARRAYOID:
+      return PATHOID;
+    case BOXARRAYOID:
+      return BOXOID;
+    case POLYGONARRAYOID:
+      return POLYGONOID;
+    case LINEARRAYOID:
+      return LINEOID;
+    case FLOAT4ARRAYOID:
+      return FLOAT4OID;
+    case FLOAT8ARRAYOID:
+      return FLOAT8OID;
+    case ABSTIMEARRAYOID:
+      return ABSTIMEOID;
+    case RELTIMEARRAYOID:
+      return RELTIMEOID;
+    case TINTERVALARRAYOID:
+      return TINTERVALOID;
+    case CIRCLEARRAYOID:
+      return CIRCLEOID;
+    case MACADDRARRAYOID:
+      return MACADDROID;
+    case INETARRAYOID:
+      return INETOID;
+    case CIDRARRAYOID:
+      return CIDROID;
+    case MACADDR8ARRAYOID:
+      return MACADDR8OID;
+    case ACLITEMARRAYOID:
+      return ACLITEMOID;
+    case BPCHARARRAYOID:
+      return BPCHAROID;
+    case VARCHARARRAYOID:
+      return VARCHAROID;
+    case DATEARRAYOID:
+      return DATEOID;
+    case TIMEARRAYOID:
+      return TIMEOID;
+    case TIMESTAMPARRAYOID:
+      return TIMESTAMPOID;
+    case TIMESTAMPTZARRAYOID:
+      return TIMESTAMPTZOID;
+    case INTERVALARRAYOID:
+      return INTERVALOID;
+    case TIMETZARRAYOID:
+      return TIMETZOID;
+    case BITARRAYOID:
+      return BITOID;
+    case VARBITARRAYOID:
+      return VARBITOID;
+    case NUMERICARRAYOID:
+      return NUMERICOID;
+    case REFCURSORARRAYOID:
+      return REFCURSOROID;
+    case REGPROCEDUREARRAYOID:
+      return REGPROCEDUREOID;
+    case REGOPERARRAYOID:
+      return REGOPEROID;
+    case REGOPERATORARRAYOID:
+      return REGOPERATOROID;
+    case REGCLASSARRAYOID:
+      return REGCLASSOID;
+    case REGTYPEARRAYOID:
+      return REGTYPEOID;
+    case REGROLEARRAYOID:
+      return REGROLEOID;
+    case REGNAMESPACEARRAYOID:
+      return REGNAMESPACEOID;
+    case UUIDARRAYOID:
+      return UUIDOID;
+    case TSVECTORARRAYOID:
+      return TSVECTOROID;
+    case GTSVECTORARRAYOID:
+      return GTSVECTOROID;
+    case TSQUERYARRAYOID:
+      return TSQUERYOID;
+    case REGCONFIGARRAYOID:
+      return REGCONFIGOID;
+    case REGDICTIONARYARRAYOID:
+      return REGDICTIONARYOID;
+    case JSONBARRAYOID:
+      return JSONBOID;
+    case JSONPATHARRAYOID:
+      return JSONPATHOID;
+    case TXID_SNAPSHOTARRAYOID:
+      return TXID_SNAPSHOTOID;
+    case INT4RANGEARRAYOID:
+      return INT4RANGEOID;
+    case NUMRANGEARRAYOID:
+      return NUMRANGEOID;
+    case TSRANGEARRAYOID:
+      return TSRANGEOID;
+    case TSTZRANGEARRAYOID:
+      return TSTZRANGEOID;
+    case DATERANGEARRAYOID:
+      return TSTZRANGEOID;
+    case INT8RANGEARRAYOID:
+      return INT8RANGEOID;
+    case CSTRINGARRAYOID:
+      return CSTRINGOID;
+    default:
+      return kPgInvalidOid;
+  }
+}
+
+uint32_t GetRangeElementType(uint32_t pg_data_type) {
+  switch (pg_data_type) {
+    case INT4RANGEOID:
+      return INT4OID;
+    case NUMRANGEOID:
+      return NUMERICOID;
+    case TSRANGEOID:
+      return TIMESTAMPOID;
+    case TSTZRANGEOID:
+      return TIMESTAMPTZOID;
+    case DATERANGEOID:
+      return DATEOID;
+    case INT8RANGEOID:
+      return INT8OID;
+    default:
+      return kPgInvalidOid;
+  }
+}
+
 uint32_t get_range_array_element_type(uint32_t pg_data_type) {
   switch (pg_data_type) {
     case INT4RANGEARRAYOID:
@@ -606,10 +769,9 @@ uint32_t get_range_array_element_type(uint32_t pg_data_type) {
   }
 }
 
-char* RecordDecoder(
+char *get_record_string_value(
     const std::unordered_map<std::uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
     uint32_t type_id, uintptr_t datum) {
-  LOG_WITH_FUNC(INFO) << "Record decoder for type_id " << type_id;
   const auto &att_pbs = composite_atts_map.at(type_id);
   size_t natts = att_pbs.size();
   PgAttributeRow *attrs[natts];
@@ -641,21 +803,16 @@ char* RecordDecoder(
 
   HeapDeformTuple(datum, attrs, natts, values, nulls);
 
-  bool changed = false;
+  bool curr_att_modified = false;
+  bool atts_modified = false;
   for (size_t i = 0; i < natts; i++) {
+    curr_att_modified = false;
     const auto &att = attrs[i];
     if (composite_atts_map.find(att->atttypid) != composite_atts_map.end()) {
-      LOG_WITH_FUNC(INFO) << "Nested composite: att->atttypid " << att->atttypid;
-      changed = true;
-      values[i] = (uintptr_t) RecordDecoder(composite_atts_map, att->atttypid, values[i]);
-      att->atttypid = CSTRINGOID;
-      att->attalign = 'c';
-      att->attstorage = 'p';
-      att->attcollation = 0;
-      att->attlen = -2;
+      values[i] = (uintptr_t)get_record_string_value(composite_atts_map, att->atttypid, values[i]);
+      curr_att_modified = true;
     } else if (get_range_array_element_type(att->atttypid) != kPgInvalidOid) {
       auto elem_type = get_range_array_element_type(att->atttypid);
-      LOG_WITH_FUNC(INFO) << "Inside range arrays " << att->atttypid << " " << elem_type;
       if (elem_type == TSTZRANGEOID) {
         values[i] = (uintptr_t)get_range_array_string_value(
             values[i], elem_type, GetOutFuncName(att->atttypid), tz);
@@ -663,12 +820,7 @@ char* RecordDecoder(
         values[i] = (uintptr_t)get_range_array_string_value(
             values[i], elem_type, GetOutFuncName(att->atttypid), nullptr);
       }
-      att->atttypid = CSTRINGOID;
-      att->attalign = 'c';
-      att->attstorage = 'p';
-      att->attcollation = 0;
-      att->attlen = -2;
-      changed = true;
+      curr_att_modified = true;
     } else if (GetArrayElementType(att->atttypid) != kPgInvalidOid) {
       auto elem_type = GetArrayElementType(att->atttypid);
       if (elem_type == TIMESTAMPTZOID) {
@@ -678,16 +830,9 @@ char* RecordDecoder(
         values[i] = (uintptr_t)get_array_string_value(
             values[i], elem_type, GetOutFuncName(att->atttypid), nullptr);
       }
-      att->atttypid = CSTRINGOID;
-      att->attalign = 'c';
-      att->attstorage = 'p';
-      att->attcollation = 0;
-      att->attlen = -2;
-      changed = true;
+      curr_att_modified = true;
     } else if (GetRangeElementType(att->atttypid) != kPgInvalidOid) {
-      LOG_WITH_FUNC(INFO) << "Processing range element with att->atttypid " << att->atttypid;
       auto elem_type = GetRangeElementType(att->atttypid);
-      LOG_WITH_FUNC(INFO) << "elem_type " << elem_type;
       if (elem_type == TIMESTAMPTZOID) {
         values[i] = (uintptr_t)get_range_string_value(
             values[i], elem_type, GetOutFuncName(att->atttypid), tz, att->atttypid);
@@ -695,17 +840,19 @@ char* RecordDecoder(
         values[i] = (uintptr_t)get_range_string_value(
             values[i], elem_type, GetOutFuncName(att->atttypid), nullptr, att->atttypid);
       }
+      curr_att_modified = true;
+    }
+
+    if (curr_att_modified) {
       att->atttypid = CSTRINGOID;
       att->attalign = 'c';
       att->attstorage = 'p';
       att->attcollation = 0;
       att->attlen = -2;
-      changed = true;
+      atts_modified = true;
     }
   }
-
-  LOG_WITH_FUNC(INFO) << "Back to processing for type_id " << type_id;
-  if (changed) {
+  if (atts_modified) {
     datum = HeapFormTuple(attrs, natts, values, nulls);
   }
 
@@ -1254,7 +1401,7 @@ Status SetValueFromQLBinaryHelper(
       uint32_t type_id = GetRecordTypeId((uintptr_t)datum);
 
       if (composite_atts_map.find(type_id) != composite_atts_map.end()) {
-        char *decoded_str = RecordDecoder(composite_atts_map, type_id, (uintptr_t)datum);
+        char *decoded_str = get_record_string_value(composite_atts_map, type_id, (uintptr_t)datum);
         cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
       } else {
         LOG(INFO) << "For record of type : " << type_id << " no attributes found in the cache";

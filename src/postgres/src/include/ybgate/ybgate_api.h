@@ -242,10 +242,6 @@ uintptr_t HeapFormTuple(void *attrs, size_t natts, uintptr_t *values,
 void  HeapDeformTuple(uintptr_t datum, void *attrs, size_t natts,
 					  uintptr_t *values, bool *nulls);
 
-const int GetArrayElementType(const int pg_data_type);
-
-const int GetRangeElementType(const int pg_data_type);
-
 char *GetOutFuncName(const int pg_data_type);
 
 uint32_t GetRecordTypeId(uintptr_t datum);

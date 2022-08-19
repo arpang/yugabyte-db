@@ -37,8 +37,6 @@ DecodeRangeDatum
 DecodeRangeArrayDatum
 DecodeRecordDatum
 GetRecordTypeId
-GetOutFuncName
 HeapFormTuple
 HeapDeformTuple
-GetArrayElementType
-GetRangeElementType
+GetOutFuncName

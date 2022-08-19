@@ -801,178 +801,164 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum)
 	return tmp;
 }
 
-const int
-GetArrayElementType(const int pg_data_type)
+char*
+DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
 {
-	switch (pg_data_type)
+	FmgrInfo *finfo;
+	finfo = palloc0(sizeof(FmgrInfo));
+	Oid id = fmgr_internal_function("record_out");
+	fmgr_info(id, finfo);
+
+	HeapTupleHeader rec = DatumGetHeapTupleHeader(datum);
+	Oid				tupType = HeapTupleHeaderGetTypeId(rec);
+	int32			tupTypmod = HeapTupleHeaderGetTypMod(rec);
+	TupleDesc		tupdesc = CreateTupleDesc(natts, true, attrs);
+	finfo->fn_extra = MemoryContextAlloc(GetCurrentMemoryContext(),
+										 offsetof(RecordIOData, columns) +
+											 natts * sizeof(ColumnIOData));
+	RecordIOData *my_extra = (RecordIOData *) finfo->fn_extra;
+	my_extra->record_type = tupType;
+	my_extra->record_typmod = tupTypmod;
+	my_extra->ncolumns = natts;
+	for (size_t i = 0; i < natts; i++)
 	{
-		case RECORDARRAYOID:
-			return RECORDOID;
-		case ANYARRAYOID:
-			return ANYOID;
-		case BOOLARRAYOID:
-			return BOOLOID;
-		case BYTEAARRAYOID:
-			return BYTEAOID;
-		case CHARARRAYOID:
-			return CHAROID;
-		case NAMEARRAYOID:
-			return NAMEOID;
-		case INT8ARRAYOID:
-			return INT8OID;
-		case INT2ARRAYOID:
-			return INT2OID;
-		case INT2VECTORARRAYOID:
-			return INT2VECTOROID;
-		case INT4ARRAYOID:
-			return INT4OID;
-		case REGPROCARRAYOID:
-			return REGPROCOID;
-		case TEXTARRAYOID:
-			return TEXTOID;
-		case OIDARRAYOID:
-			return TEXTOID;
-		case TIDARRAYOID:
-			return TIDOID;
-		case XIDARRAYOID:
-			return XIDOID;
-		case CIDARRAYOID:
-			return CIDOID;
-		case OIDVECTORARRAYOID:
-			return OIDVECTOROID;
-		case JSONARRAYOID:
-			return JSONOID;
-		case XMLARRAYOID:
-			return XMLOID;
-		case POINTARRAYOID:
-			return POINTOID;
-		case LSEGARRAYOID:
-			return LSEGOID;
-		case PATHARRAYOID:
-			return PATHOID;
-		case BOXARRAYOID:
-			return BOXOID;
-		case POLYGONARRAYOID:
-			return POLYGONOID;
-		case LINEARRAYOID:
-			return LINEOID;
-		case FLOAT4ARRAYOID:
-			return FLOAT4OID;
-		case FLOAT8ARRAYOID:
-			return FLOAT8OID;
-		case ABSTIMEARRAYOID:
-			return ABSTIMEOID;
-		case RELTIMEARRAYOID:
-			return RELTIMEOID;
-		case TINTERVALARRAYOID:
-			return TINTERVALOID;
-		case CIRCLEARRAYOID:
-			return CIRCLEOID;
-		case MACADDRARRAYOID:
-			return MACADDROID;
-		case INETARRAYOID:
-			return INETOID;
-		case CIDRARRAYOID:
-			return CIDROID;
-		case MACADDR8ARRAYOID:
-			return MACADDR8OID;
-		case ACLITEMARRAYOID:
-			return ACLITEMOID;
-		case BPCHARARRAYOID:
-			return BPCHAROID;
-		case VARCHARARRAYOID:
-			return VARCHAROID;
-		case DATEARRAYOID:
-			return DATEOID;
-		case TIMEARRAYOID:
-			return TIMEOID;
-		case TIMESTAMPARRAYOID:
-			return TIMESTAMPOID;
-		case TIMESTAMPTZARRAYOID:
-			return TIMESTAMPTZOID;
-		case INTERVALARRAYOID:
-			return INTERVALOID;
-		case TIMETZARRAYOID:
-			return TIMETZOID;
-		case BITARRAYOID:
-			return BITOID;
-		case VARBITARRAYOID:
-			return VARBITOID;
-		case NUMERICARRAYOID:
-			return NUMERICOID;
-		case REFCURSORARRAYOID:
-			return REFCURSOROID;
-		case REGPROCEDUREARRAYOID:
-			return REGPROCEDUREOID;
-		case REGOPERARRAYOID:
-			return REGOPEROID;
-		case REGOPERATORARRAYOID:
-			return REGOPERATOROID;
-		case REGCLASSARRAYOID:
-			return REGCLASSOID;
-		case REGTYPEARRAYOID:
-			return REGTYPEOID;
-		case REGROLEARRAYOID:
-			return REGROLEOID;
-		case REGNAMESPACEARRAYOID:
-			return REGNAMESPACEOID;
-		case UUIDARRAYOID:
-			return UUIDOID;
-		case TSVECTORARRAYOID:
-			return TSVECTOROID;
-		case GTSVECTORARRAYOID:
-			return GTSVECTOROID;
-		case TSQUERYARRAYOID:
-			return TSQUERYOID;
-		case REGCONFIGARRAYOID:
-			return REGCONFIGOID;
-		case REGDICTIONARYARRAYOID:
-			return REGDICTIONARYOID;
-		case JSONBARRAYOID:
-			return JSONBOID;
-		case JSONPATHARRAYOID:
-			return JSONPATHOID;
-		case TXID_SNAPSHOTARRAYOID:
-			return TXID_SNAPSHOTOID;
-		case INT4RANGEARRAYOID:
-			return INT4RANGEOID;
-		case NUMRANGEARRAYOID:
-			return NUMRANGEOID;
-		case TSRANGEARRAYOID:
-			return TSRANGEOID;
-		case TSTZRANGEARRAYOID:
-			return TSTZRANGEOID;
-		case DATERANGEARRAYOID:
-			return TSTZRANGEOID;
-		case INT8RANGEARRAYOID:
-			return INT8RANGEOID;
-		case CSTRINGARRAYOID:
-			return CSTRINGOID;
-		default:
-			return InvalidOid;
+		ColumnIOData	 *column_info = &my_extra->columns[i];
+		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+		column_info->typiofunc =
+			fmgr_internal_function(GetOutFuncName(att->atttypid));
+		fmgr_info(column_info->typiofunc, &column_info->proc);
+		column_info->column_type = att->atttypid;
 	}
+	return DatumGetCString(FunctionCall2Coll(finfo, InvalidOid, datum, (uintptr_t)&tupdesc));
 }
 
-const int
-GetRangeElementType(const int pg_data_type)
+char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB)
 {
-	switch (pg_data_type)
-	{
-		case INT4RANGEOID:
-			return INT4OID;
-		case NUMRANGEOID:
-			return NUMERICOID;
-		case TSRANGEOID:
-			return TIMESTAMPOID;
-		case TSTZRANGEOID:
-			return TIMESTAMPTZOID;
-		case DATERANGEOID:
-			return DATEOID;
-		case INT8RANGEOID:
-			return INT8OID;
-		default:
-			return InvalidOid;
-	}
+	FmgrInfo   *finfo;
+	finfo = palloc0(sizeof(FmgrInfo));
+	Oid id = fmgr_internal_function(fn_name);
+	fmgr_info(id, finfo);
+
+	DatumDecodeOptions decodeOptions;
+	decodeOptions.timezone = timezone;
+	decodeOptions.from_YB = from_YB;
+	decodeOptions.range_datum_decode_options = NULL;
+	return DatumGetCString(FunctionCall2(finfo, (uintptr_t)datum,
+				PointerGetDatum(&decodeOptions)));
+}
+
+char* DecodeArrayDatum(char const* arr_fn_name, uintptr_t datum,
+		int16_t elem_len, bool elem_by_val, char elem_align, char elem_delim, bool from_YB,
+		char const* fn_name, const char *timezone, char option)
+{
+	FmgrInfo   *arr_finfo;
+	arr_finfo = palloc0(sizeof(FmgrInfo));
+	Oid arr_id = fmgr_internal_function(arr_fn_name);
+	fmgr_info(arr_id, arr_finfo);
+
+	FmgrInfo   *elem_finfo;
+	elem_finfo = palloc0(sizeof(FmgrInfo));
+	Oid elem_id = fmgr_internal_function(fn_name);
+	fmgr_info(elem_id, elem_finfo);
+
+	DatumDecodeOptions decodeOptions;
+	decodeOptions.is_array = true;
+	decodeOptions.elem_by_val = elem_by_val;
+	decodeOptions.from_YB = from_YB;
+	decodeOptions.elem_align = elem_align;
+	decodeOptions.elem_delim = elem_delim;
+	decodeOptions.option = option;
+	decodeOptions.elem_len = elem_len;
+	//decodeOptions.datum = datum;
+	decodeOptions.elem_finfo = elem_finfo;
+	decodeOptions.timezone = timezone;
+	decodeOptions.range_datum_decode_options = NULL;
+
+	char* tmp = DatumGetCString(FunctionCall2(arr_finfo, (uintptr_t)datum,
+				PointerGetDatum(&decodeOptions)));
+	return tmp;
+}
+
+char* DecodeRangeDatum(char const* range_fn_name, uintptr_t datum,
+		int16_t elem_len, bool elem_by_val, char elem_align, char option, bool from_YB,
+		char const* elem_fn_name, int range_type, const char *timezone)
+{
+	FmgrInfo   *range_finfo;
+	range_finfo = palloc0(sizeof(FmgrInfo));
+	Oid range_id = fmgr_internal_function(range_fn_name);
+	fmgr_info(range_id, range_finfo);
+
+	FmgrInfo   *elem_finfo;
+	elem_finfo = palloc0(sizeof(FmgrInfo));
+	Oid elem_id = fmgr_internal_function(elem_fn_name);
+	fmgr_info(elem_id, elem_finfo);
+
+	DatumDecodeOptions decodeOptions;
+	decodeOptions.is_array = false;
+	decodeOptions.elem_by_val = elem_by_val;
+	decodeOptions.from_YB = from_YB;
+	decodeOptions.elem_align = elem_align;
+	decodeOptions.option = option;
+	decodeOptions.elem_len = elem_len;
+	decodeOptions.range_type = range_type;
+	//decodeOptions.datum = datum;
+	decodeOptions.elem_finfo = elem_finfo;
+	decodeOptions.timezone = timezone;
+	decodeOptions.range_datum_decode_options = NULL;
+
+	char* tmp = DatumGetCString(FunctionCall2(range_finfo, (uintptr_t)datum,
+				PointerGetDatum(&decodeOptions)));
+	return tmp;
+}
+
+char* DecodeRangeArrayDatum(char const* arr_fn_name, uintptr_t datum,
+		int16_t elem_len, int16_t range_len, bool elem_by_val, bool range_by_val,
+		char elem_align, char range_align, char elem_delim, char option, char range_option,
+		bool from_YB, char const* elem_fn_name, char const* range_fn_name, int range_type,
+		const char *timezone)
+{
+	FmgrInfo   *arr_finfo;
+	arr_finfo = palloc0(sizeof(FmgrInfo));
+	Oid arr_id = fmgr_internal_function(arr_fn_name);
+	fmgr_info(arr_id, arr_finfo);
+
+	FmgrInfo   *range_finfo;
+	range_finfo = palloc0(sizeof(FmgrInfo));
+	Oid range_id = fmgr_internal_function(range_fn_name);
+	fmgr_info(range_id, range_finfo);
+
+	FmgrInfo   *elem_finfo;
+	elem_finfo = palloc0(sizeof(FmgrInfo));
+	Oid elem_id = fmgr_internal_function(elem_fn_name);
+	fmgr_info(elem_id, elem_finfo);
+
+	DatumDecodeOptions range_decodeOptions;
+	range_decodeOptions.is_array = false;
+	range_decodeOptions.elem_by_val = range_by_val;
+	range_decodeOptions.from_YB = from_YB;
+	range_decodeOptions.elem_align = range_align;
+	range_decodeOptions.option = range_option;
+	range_decodeOptions.elem_len = range_len;
+	range_decodeOptions.range_type = range_type;
+	range_decodeOptions.elem_finfo = range_finfo;
+	range_decodeOptions.timezone = timezone;
+	range_decodeOptions.range_datum_decode_options = NULL;
+
+	DatumDecodeOptions arr_decodeOptions;
+	arr_decodeOptions.is_array = true;
+	arr_decodeOptions.elem_by_val = elem_by_val;
+	arr_decodeOptions.from_YB = from_YB;
+	arr_decodeOptions.elem_align = elem_align;
+	arr_decodeOptions.elem_delim = elem_delim;
+	arr_decodeOptions.option = option;
+	arr_decodeOptions.elem_len = elem_len;
+	arr_decodeOptions.elem_finfo = elem_finfo;
+	arr_decodeOptions.timezone = timezone;
+	arr_decodeOptions.range_datum_decode_options = &range_decodeOptions;
+
+	char* tmp = DatumGetCString(FunctionCall2(arr_finfo, (uintptr_t)datum,
+				PointerGetDatum(&arr_decodeOptions)));
+	return tmp;
 }
 
 char *
@@ -1483,164 +1469,4 @@ HeapDeformTuple(uintptr_t datum, void *attrs, size_t natts, uintptr_t *values,
 	TupleDesc tupdesc = CreateTupleDesc(natts, true, attrs);
 	/* Break down the tuple into fields */
 	heap_deform_tuple(&tuple, tupdesc, values, nulls);
-}
-
-char*
-DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
-{
-	FmgrInfo *finfo;
-	finfo = palloc0(sizeof(FmgrInfo));
-	Oid id = fmgr_internal_function("record_out");
-	fmgr_info(id, finfo);
-
-	HeapTupleHeader rec = DatumGetHeapTupleHeader(datum);
-	Oid				tupType = HeapTupleHeaderGetTypeId(rec);
-	int32			tupTypmod = HeapTupleHeaderGetTypMod(rec);
-	TupleDesc		tupdesc = CreateTupleDesc(natts, true, attrs);
-	finfo->fn_extra = MemoryContextAlloc(GetCurrentMemoryContext(),
-										 offsetof(RecordIOData, columns) +
-											 natts * sizeof(ColumnIOData));
-	RecordIOData *my_extra = (RecordIOData *) finfo->fn_extra;
-	my_extra->record_type = tupType;
-	my_extra->record_typmod = tupTypmod;
-	my_extra->ncolumns = natts;
-	for (size_t i = 0; i < natts; i++)
-	{
-		ColumnIOData	 *column_info = &my_extra->columns[i];
-		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
-		column_info->typiofunc =
-			fmgr_internal_function(GetOutFuncName(att->atttypid));
-		fmgr_info(column_info->typiofunc, &column_info->proc);
-		column_info->column_type = att->atttypid;
-	}
-	return DatumGetCString(FunctionCall2Coll(finfo, InvalidOid, datum, (uintptr_t)&tupdesc));
-}
-
-char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB)
-{
-	FmgrInfo   *finfo;
-	finfo = palloc0(sizeof(FmgrInfo));
-	Oid id = fmgr_internal_function(fn_name);
-	fmgr_info(id, finfo);
-
-	DatumDecodeOptions decodeOptions;
-	decodeOptions.timezone = timezone;
-	decodeOptions.from_YB = from_YB;
-	decodeOptions.range_datum_decode_options = NULL;
-	return DatumGetCString(FunctionCall2(finfo, (uintptr_t)datum,
-				PointerGetDatum(&decodeOptions)));
-}
-
-char* DecodeArrayDatum(char const* arr_fn_name, uintptr_t datum,
-		int16_t elem_len, bool elem_by_val, char elem_align, char elem_delim, bool from_YB,
-		char const* fn_name, const char *timezone, char option)
-{
-	FmgrInfo   *arr_finfo;
-	arr_finfo = palloc0(sizeof(FmgrInfo));
-	Oid arr_id = fmgr_internal_function(arr_fn_name);
-	fmgr_info(arr_id, arr_finfo);
-
-	FmgrInfo   *elem_finfo;
-	elem_finfo = palloc0(sizeof(FmgrInfo));
-	Oid elem_id = fmgr_internal_function(fn_name);
-	fmgr_info(elem_id, elem_finfo);
-
-	DatumDecodeOptions decodeOptions;
-	decodeOptions.is_array = true;
-	decodeOptions.elem_by_val = elem_by_val;
-	decodeOptions.from_YB = from_YB;
-	decodeOptions.elem_align = elem_align;
-	decodeOptions.elem_delim = elem_delim;
-	decodeOptions.option = option;
-	decodeOptions.elem_len = elem_len;
-	//decodeOptions.datum = datum;
-	decodeOptions.elem_finfo = elem_finfo;
-	decodeOptions.timezone = timezone;
-	decodeOptions.range_datum_decode_options = NULL;
-
-	char* tmp = DatumGetCString(FunctionCall2(arr_finfo, (uintptr_t)datum,
-				PointerGetDatum(&decodeOptions)));
-	return tmp;
-}
-
-char* DecodeRangeDatum(char const* range_fn_name, uintptr_t datum,
-		int16_t elem_len, bool elem_by_val, char elem_align, char option, bool from_YB,
-		char const* elem_fn_name, int range_type, const char *timezone)
-{
-	FmgrInfo   *range_finfo;
-	range_finfo = palloc0(sizeof(FmgrInfo));
-	Oid range_id = fmgr_internal_function(range_fn_name);
-	fmgr_info(range_id, range_finfo);
-
-	FmgrInfo   *elem_finfo;
-	elem_finfo = palloc0(sizeof(FmgrInfo));
-	Oid elem_id = fmgr_internal_function(elem_fn_name);
-	fmgr_info(elem_id, elem_finfo);
-
-	DatumDecodeOptions decodeOptions;
-	decodeOptions.is_array = false;
-	decodeOptions.elem_by_val = elem_by_val;
-	decodeOptions.from_YB = from_YB;
-	decodeOptions.elem_align = elem_align;
-	decodeOptions.option = option;
-	decodeOptions.elem_len = elem_len;
-	decodeOptions.range_type = range_type;
-	//decodeOptions.datum = datum;
-	decodeOptions.elem_finfo = elem_finfo;
-	decodeOptions.timezone = timezone;
-	decodeOptions.range_datum_decode_options = NULL;
-
-	char* tmp = DatumGetCString(FunctionCall2(range_finfo, (uintptr_t)datum,
-				PointerGetDatum(&decodeOptions)));
-	return tmp;
-}
-
-char* DecodeRangeArrayDatum(char const* arr_fn_name, uintptr_t datum,
-		int16_t elem_len, int16_t range_len, bool elem_by_val, bool range_by_val,
-		char elem_align, char range_align, char elem_delim, char option, char range_option,
-		bool from_YB, char const* elem_fn_name, char const* range_fn_name, int range_type,
-		const char *timezone)
-{
-	FmgrInfo   *arr_finfo;
-	arr_finfo = palloc0(sizeof(FmgrInfo));
-	Oid arr_id = fmgr_internal_function(arr_fn_name);
-	fmgr_info(arr_id, arr_finfo);
-
-	FmgrInfo   *range_finfo;
-	range_finfo = palloc0(sizeof(FmgrInfo));
-	Oid range_id = fmgr_internal_function(range_fn_name);
-	fmgr_info(range_id, range_finfo);
-
-	FmgrInfo   *elem_finfo;
-	elem_finfo = palloc0(sizeof(FmgrInfo));
-	Oid elem_id = fmgr_internal_function(elem_fn_name);
-	fmgr_info(elem_id, elem_finfo);
-
-	DatumDecodeOptions range_decodeOptions;
-	range_decodeOptions.is_array = false;
-	range_decodeOptions.elem_by_val = range_by_val;
-	range_decodeOptions.from_YB = from_YB;
-	range_decodeOptions.elem_align = range_align;
-	range_decodeOptions.option = range_option;
-	range_decodeOptions.elem_len = range_len;
-	range_decodeOptions.range_type = range_type;
-	range_decodeOptions.elem_finfo = range_finfo;
-	range_decodeOptions.timezone = timezone;
-	range_decodeOptions.range_datum_decode_options = NULL;
-
-	DatumDecodeOptions arr_decodeOptions;
-	arr_decodeOptions.is_array = true;
-	arr_decodeOptions.elem_by_val = elem_by_val;
-	arr_decodeOptions.from_YB = from_YB;
-	arr_decodeOptions.elem_align = elem_align;
-	arr_decodeOptions.elem_delim = elem_delim;
-	arr_decodeOptions.option = option;
-	arr_decodeOptions.elem_len = elem_len;
-	arr_decodeOptions.elem_finfo = elem_finfo;
-	arr_decodeOptions.timezone = timezone;
-	arr_decodeOptions.range_datum_decode_options = &range_decodeOptions;
-
-	char* tmp = DatumGetCString(FunctionCall2(arr_finfo, (uintptr_t)datum,
-				PointerGetDatum(&arr_decodeOptions)));
-	return tmp;
 }
