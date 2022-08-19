@@ -582,7 +582,7 @@ void set_range_array_string_value(
   cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
 }
 
-uint32_t GetArrayElementType(uint32_t pg_data_type) {
+uint32_t get_array_element_type(uint32_t pg_data_type) {
   switch (pg_data_type) {
     case RECORDARRAYOID:
       return RECORDOID;
@@ -731,7 +731,7 @@ uint32_t GetArrayElementType(uint32_t pg_data_type) {
   }
 }
 
-uint32_t GetRangeElementType(uint32_t pg_data_type) {
+uint32_t get_range_element_type(uint32_t pg_data_type) {
   switch (pg_data_type) {
     case INT4RANGEOID:
       return INT4OID;
@@ -792,8 +792,6 @@ char *get_record_string_value(
                att_pb.attinhcount(),        att_pb.attcollation()};
     strncpy(pg_att->attname, att_pb.attname().c_str(), sizeof(pg_att->attname));
     pg_att->attname[sizeof(pg_att->attname) - 1] = 0;
-    // reference:
-    // https://stackoverflow.com/questions/13294067/how-to-convert-string-to-char-array-in-c
     attrs[i] = pg_att;
   }
   uintptr_t *values;
@@ -821,8 +819,8 @@ char *get_record_string_value(
             values[i], elem_type, GetOutFuncName(att->atttypid), nullptr);
       }
       curr_att_modified = true;
-    } else if (GetArrayElementType(att->atttypid) != kPgInvalidOid) {
-      auto elem_type = GetArrayElementType(att->atttypid);
+    } else if (get_array_element_type(att->atttypid) != kPgInvalidOid) {
+      auto elem_type = get_array_element_type(att->atttypid);
       if (elem_type == TIMESTAMPTZOID) {
         values[i] = (uintptr_t)get_array_string_value(
             values[i], elem_type, GetOutFuncName(att->atttypid), tz);
@@ -831,8 +829,8 @@ char *get_record_string_value(
             values[i], elem_type, GetOutFuncName(att->atttypid), nullptr);
       }
       curr_att_modified = true;
-    } else if (GetRangeElementType(att->atttypid) != kPgInvalidOid) {
-      auto elem_type = GetRangeElementType(att->atttypid);
+    } else if (get_range_element_type(att->atttypid) != kPgInvalidOid) {
+      auto elem_type = get_range_element_type(att->atttypid);
       if (elem_type == TIMESTAMPTZOID) {
         values[i] = (uintptr_t)get_range_string_value(
             values[i], elem_type, GetOutFuncName(att->atttypid), tz, att->atttypid);
@@ -856,7 +854,13 @@ char *get_record_string_value(
     datum = HeapFormTuple(attrs, natts, values, nulls);
   }
 
-  return DecodeRecordDatum(datum, attrs, natts);
+  auto decoded_string = DecodeRecordDatum(datum, attrs, natts);
+  free(values);
+  free(nulls);
+  for (size_t i = 0; i < natts; i++) {
+    free(attrs[i]);
+  }
+  return decoded_string;
 }
 
 // This function expects that YbgPrepareMemoryContext was called
