@@ -21,10 +21,10 @@
 #ifndef PG_YBGATE_YBGATE_API_H
 #define PG_YBGATE_YBGATE_API_H
 
-#include "yb/yql/pggate/ybc_pg_typedefs.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "yb/yql/pggate/ybc_pg_typedefs.h"
 
 #ifdef __cplusplus
 extern "C" {

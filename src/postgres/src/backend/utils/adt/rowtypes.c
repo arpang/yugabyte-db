@@ -280,7 +280,6 @@ record_in(PG_FUNCTION_ARGS)
 Datum
 record_out(PG_FUNCTION_ARGS)
 {
-	YBC_LOG_INFO("Arpan inside record_out");
 	HeapTupleHeader rec = PG_GETARG_HEAPTUPLEHEADER(0);
 	Oid			tupType;
 	int32		tupTypmod;
@@ -385,7 +384,8 @@ record_out(PG_FUNCTION_ARGS)
 		 */
 		if (column_info->column_type != column_type)
 		{
-			getTypeOutputInfo(column_type, &column_info->typiofunc,
+			getTypeOutputInfo(column_type,
+							  &column_info->typiofunc,
 							  &column_info->typisvarlena);
 			fmgr_info_cxt(column_info->typiofunc, &column_info->proc,
 						  fcinfo->flinfo->fn_mcxt);

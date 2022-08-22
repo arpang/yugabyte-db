@@ -363,7 +363,6 @@ lookup_type_cache(Oid type_id, int flags)
 		HeapTuple	tp;
 		Form_pg_type typtup;
 
-		// here
 		tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(type_id));
 		if (!HeapTupleIsValid(tp))
 			ereport(ERROR,
