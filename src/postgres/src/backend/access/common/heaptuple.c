@@ -370,6 +370,7 @@ heap_fill_tuple(TupleDesc tupleDesc,
 	for (i = 0; i < numberOfAttributes; i++)
 	{
 		Form_pg_attribute attr = TupleDescAttr(tupleDesc, i);
+
 		fill_val(attr,
 				 bitP ? &bitP : NULL,
 				 &bitmask,
