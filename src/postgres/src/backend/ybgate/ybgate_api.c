@@ -801,37 +801,6 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum)
 	return tmp;
 }
 
-char*
-DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
-{
-	FmgrInfo *finfo;
-	finfo = palloc0(sizeof(FmgrInfo));
-	Oid id = fmgr_internal_function("record_out");
-	fmgr_info(id, finfo);
-
-	HeapTupleHeader rec = DatumGetHeapTupleHeader(datum);
-	Oid				tupType = HeapTupleHeaderGetTypeId(rec);
-	int32			tupTypmod = HeapTupleHeaderGetTypMod(rec);
-	TupleDesc		tupdesc = CreateTupleDesc(natts, true, attrs);
-	finfo->fn_extra = MemoryContextAlloc(GetCurrentMemoryContext(),
-										 offsetof(RecordIOData, columns) +
-											 natts * sizeof(ColumnIOData));
-	RecordIOData *my_extra = (RecordIOData *) finfo->fn_extra;
-	my_extra->record_type = tupType;
-	my_extra->record_typmod = tupTypmod;
-	my_extra->ncolumns = natts;
-	for (size_t i = 0; i < natts; i++)
-	{
-		ColumnIOData	 *column_info = &my_extra->columns[i];
-		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
-		column_info->typiofunc =
-			fmgr_internal_function(GetOutFuncName(att->atttypid));
-		fmgr_info(column_info->typiofunc, &column_info->proc);
-		column_info->column_type = att->atttypid;
-	}
-	return DatumGetCString(FunctionCall2Coll(finfo, InvalidOid, datum, (uintptr_t)&tupdesc));
-}
-
 char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB)
 {
 	FmgrInfo   *finfo;
@@ -959,6 +928,38 @@ char* DecodeRangeArrayDatum(char const* arr_fn_name, uintptr_t datum,
 	char* tmp = DatumGetCString(FunctionCall2(arr_finfo, (uintptr_t)datum,
 				PointerGetDatum(&arr_decodeOptions)));
 	return tmp;
+}
+
+char *
+DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
+{
+	FmgrInfo *finfo;
+	finfo = palloc0(sizeof(FmgrInfo));
+	Oid id = fmgr_internal_function("record_out");
+	fmgr_info(id, finfo);
+
+	HeapTupleHeader rec = DatumGetHeapTupleHeader(datum);
+	Oid				tupType = HeapTupleHeaderGetTypeId(rec);
+	int32			tupTypmod = HeapTupleHeaderGetTypMod(rec);
+	TupleDesc		tupdesc = CreateTupleDesc(natts, true, attrs);
+	finfo->fn_extra = MemoryContextAlloc(GetCurrentMemoryContext(),
+										 offsetof(RecordIOData, columns) +
+											 natts * sizeof(ColumnIOData));
+	RecordIOData *my_extra = (RecordIOData *) finfo->fn_extra;
+	my_extra->record_type = tupType;
+	my_extra->record_typmod = tupTypmod;
+	my_extra->ncolumns = natts;
+	for (size_t i = 0; i < natts; i++)
+	{
+		ColumnIOData	 *column_info = &my_extra->columns[i];
+		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+		column_info->typiofunc =
+			fmgr_internal_function(GetOutFuncName(att->atttypid));
+		fmgr_info(column_info->typiofunc, &column_info->proc);
+		column_info->column_type = att->atttypid;
+	}
+	return DatumGetCString(
+		FunctionCall2Coll(finfo, InvalidOid, datum, (uintptr_t) &tupdesc));
 }
 
 char *

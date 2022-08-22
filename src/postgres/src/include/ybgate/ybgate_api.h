@@ -236,18 +236,6 @@ char* DecodeDatum(char const* fn_name, uintptr_t datum);
 
 char* DecodeTZDatum(char const* fn_name, uintptr_t datum, const char *timezone, bool from_YB);
 
-uintptr_t HeapFormTuple(void *attrs, size_t natts, uintptr_t *values,
-						bool *nulls);
-
-void  HeapDeformTuple(uintptr_t datum, void *attrs, size_t natts,
-					  uintptr_t *values, bool *nulls);
-
-char *GetOutFuncName(const int pg_data_type);
-
-uint32_t GetRecordTypeId(uintptr_t datum);
-
-char *DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts);
-
 char* DecodeArrayDatum(char const* arr_fn_name, uintptr_t datum,
 		int16_t elem_len, bool elem_by_val, char elem_align, char elem_delim, bool from_YB,
 		char const* fn_name, const char *timezone, char option);
@@ -261,6 +249,18 @@ char* DecodeRangeArrayDatum(char const* arr_fn_name, uintptr_t datum,
 		char elem_align, char range_align, char elem_delim, char option, char range_option,
 		bool from_YB, char const* elem_fn_name, char const* range_fn_name, int range_type,
 		const char *timezone);
+
+char *DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts);
+
+char *GetOutFuncName(const int pg_data_type);
+
+uint32_t GetRecordTypeId(uintptr_t datum);
+
+uintptr_t HeapFormTuple(void *attrs, size_t natts, uintptr_t *values,
+						bool *nulls);
+
+void HeapDeformTuple(uintptr_t datum, void *attrs, size_t natts,
+					 uintptr_t *values, bool *nulls);
 
 #ifdef __cplusplus
 }
