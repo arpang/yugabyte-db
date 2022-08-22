@@ -227,8 +227,8 @@ Result<YBTableName> CDCSDKTestBase::CreateTable(
       RETURN_NOT_OK(conn.ExecuteFormat("create schema $0;", schema_name));
     }
     RETURN_NOT_OK(conn.ExecuteFormat(
-        "CREATE TYPE $0.coupon_discount_type$1 AS ENUM ('FIXED$2','PERCENTAGE$3');", schema_name,
-        enum_suffix, enum_suffix, enum_suffix));
+        "CREATE TYPE $0.coupon_discount_type$1 AS ENUM ('FIXED$1','PERCENTAGE$1');",
+         schema_name, enum_suffix));
   }
 
   std::string table_oid_string = "";
@@ -237,7 +237,6 @@ Result<YBTableName> CDCSDKTestBase::CreateTable(
     RETURN_NOT_OK(conn.Execute("set yb_enable_create_with_table_oid=true"));
     table_oid_string = Format("table_oid = $0,", table_oid);
   }
-
   RETURN_NOT_OK(conn.ExecuteFormat(
       "CREATE TABLE $0.$1($2 int $3, $4 $5) WITH ($6colocated = $7) "
       "SPLIT INTO $8 TABLETS",
