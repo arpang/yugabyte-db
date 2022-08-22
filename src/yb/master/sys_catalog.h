@@ -36,6 +36,7 @@
 #include <vector>
 #include <unordered_map>
 
+#include "yb/common/pg_types.h"
 #include "yb/common/ql_protocol.pb.h"
 
 #include "yb/consensus/consensus_fwd.h"
@@ -196,7 +197,7 @@ class SysCatalogTable {
 
   // Read enumtypid and enumlabel from pg_enum catalog table.
   Result<std::unordered_map<uint32_t, string>> ReadPgEnum(
-      uint32_t database_oid, uint32_t type_oid = 0);
+      uint32_t database_oid, uint32_t type_oid = kPgInvalidOid);
 
   // Read oid, typtype and typbasetype from pg_type catalog table.
   Result<std::unordered_map<uint32_t, PgTypeInfo>> ReadPgTypeInfo(
@@ -210,7 +211,7 @@ class SysCatalogTable {
       uint32_t database_oid, std::vector<uint32_t> table_oids);
 
   Result<RelTypeOIDMap> ReadCompositeTypeFromPgClass(
-      uint32_t database_oid, uint32_t table_oid = 0);
+      uint32_t database_oid, uint32_t table_oid = kPgInvalidOid);
 
   // Copy the content of co-located tables in sys catalog as a batch.
   Status CopyPgsqlTables(const std::vector<TableId>& source_table_ids,

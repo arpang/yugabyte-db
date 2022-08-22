@@ -1384,7 +1384,7 @@ Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgAttributeInf
     string attname = attname_col->string_value();
     uint32_t atttypid = atttypid_col->uint32_value();
 
-    if (atttypid == 0) {
+    if (atttypid == kPgInvalidOid) {
       // Ignore dropped columns.
       VLOG(1) << "Ignoring dropped column " << attname << " (atttypid = 0)"
               << " for attrelid $0:" << table_oid;
@@ -1417,17 +1417,11 @@ Result<std::unordered_map<uint32_t, string>> SysCatalogTable::ReadPgEnum(
       projection.CopyWithoutColumnIds(), {} /* read_hybrid_time */, pg_table_id));
   {
     auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
-    PgsqlConditionPB cond;
-    if (type_oid != 0) {
-      cond.add_operands()->set_column_id(enumtypid_col_id);
-      cond.set_op(QL_OP_EQUAL);
-      cond.add_operands()->mutable_value()->set_uint32_value(type_oid);
-    }
     const std::vector<docdb::KeyEntryValue> empty_key_components;
     docdb::DocPgsqlScanSpec spec(
         projection, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components,
-        type_oid == 0 ? nullptr : &cond /* cond */, boost::none /* hash_code */,
-        boost::none /* max_hash_code */, nullptr /* where */);
+        nullptr /* cond */, boost::none /* hash_code */, boost::none /* max_hash_code */,
+        nullptr /* where */);
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
 
@@ -1435,19 +1429,21 @@ Result<std::unordered_map<uint32_t, string>> SysCatalogTable::ReadPgEnum(
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
-
     const auto& oid_col = row.GetValue(oid_col_id);
+    const auto& enumtypid_col = row.GetValue(enumtypid_col_id);
     const auto& enumlabel_col = row.GetValue(enumlabel_col_id);
 
-    if (!oid_col || !enumlabel_col) {
-      std::string corrupted_col = !oid_col ? "oid" : "enumlabel";
+    if (!oid_col || !enumlabel_col || !enumtypid_col) {
       return STATUS_FORMAT(
-          Corruption, "Could not read $0 column from pg_enum for database id $1:", corrupted_col,
-          database_oid);
+          Corruption, "Could not read a column from pg_enum for database id $0:", database_oid);
     }
     uint32_t oid = oid_col->uint32_value();
+    uint32_t enumtypid = enumtypid_col->uint32_value();
     string enumlabel = enumlabel_col->string_value();
 
+    if (type_oid != kPgInvalidOid && type_oid != enumtypid) {
+      continue;
+    }
     enumlabel_map[oid] = enumlabel;
     VLOG(1) << "Database oid: " << database_oid << " enum oid: " << oid
             << " enumlabel: " << enumlabel;
@@ -1733,7 +1729,7 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
 
     string attname = attname_col->string_value();
     uint32_t atttypid = atttypid_col->uint32_value();
-    if (atttypid == 0) {
+    if (atttypid == kPgInvalidOid) {
       // Ignore dropped columns.
       VLOG(1) << "Ignoring dropped column " << attname << " (atttypid = 0)"
               << " for attrelid $0:" << attrelid;
@@ -1825,7 +1821,7 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
       continue;
     }
 
-    if (table_oid != 0 && reltype != table_oid) {
+    if (table_oid != kPgInvalidOid && reltype != table_oid) {
       continue;
     }
 
