@@ -2652,6 +2652,60 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCompositeType)) {
   ASSERT_EQ(insert_count, expected_key);
 }
 
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCompositeTypeWithRestart)) {
+  FLAGS_enable_update_local_peer_min_index = false;
+  FLAGS_update_min_cdc_indices_interval_secs = 1;
+  FLAGS_cdc_state_checkpoint_update_interval_ms = 1;
+  ASSERT_OK(SetUpWithParams(3, 1, false));
+
+  const uint32_t num_tablets = 1;
+  auto table = ASSERT_RESULT(CreateCompositeTable(&test_cluster_, num_tablets));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
+  ASSERT_EQ(tablets.size(), num_tablets);
+
+  std::string table_id = ASSERT_RESULT(GetTableId(&test_cluster_, kNamespaceName, "emp"));
+  CDCStreamId stream_id = ASSERT_RESULT(CreateDBStream(IMPLICIT));
+
+  auto resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets));
+  ASSERT_FALSE(resp.has_error());
+
+  int insert_count = 20;
+  // Insert some records in transaction.
+  ASSERT_OK(WriteCompositeRows(0, insert_count / 2, &test_cluster_));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
+      /* is_compaction = */ false));
+
+  // Restart one of the node.
+  SleepFor(MonoDelta::FromSeconds(1));
+  test_cluster()->mini_tablet_server(0)->Shutdown();
+  ASSERT_OK(test_cluster()->mini_tablet_server(0)->Start());
+  ASSERT_OK(test_cluster()->mini_tablet_server(0)->WaitStarted());
+
+  // Insert some more records in transaction.
+  ASSERT_OK(WriteCompositeRows(insert_count / 2, insert_count, &test_cluster_));
+  ASSERT_OK(test_client()->FlushTables(
+      {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
+      /* is_compaction = */ false));
+
+  // Call get changes.
+  GetChangesResponsePB change_resp = ASSERT_RESULT(GetChangesFromCDC(stream_id, tablets));
+  uint32_t record_size = change_resp.cdc_sdk_proto_records_size();
+  ASSERT_GT(record_size, insert_count);
+
+  int expected_key = 0;
+  for (uint32_t i = 0; i < record_size; ++i) {
+    if (change_resp.cdc_sdk_proto_records(i).row_message().op() == RowMessage::INSERT) {
+      const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
+      ASSERT_EQ(expected_key, record.row_message().new_tuple(0).datum_int32());
+      ASSERT_EQ("(John,Doe)", record.row_message().new_tuple(1).datum_string());
+      expected_key++;
+    }
+  }
+  ASSERT_EQ(insert_count, expected_key);
+}
+
 TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestNestedCompositeType)) {
   FLAGS_enable_update_local_peer_min_index = false;
   FLAGS_update_min_cdc_indices_interval_secs = 1;
