@@ -1414,7 +1414,11 @@ PTSubscriptedColumn::~PTSubscriptedColumn() {
 }
 
 std::string PTSubscriptedColumn::QLName(QLNameOption option) const {
-  return name_->QLName() + "['" + args_->node_list().front()->QLName() + "']";
+  std::string ql_name = name_->QLName();
+  if (!args_->node_list().empty()) {
+    ql_name += "['" + args_->node_list().front()->QLName() + "']";
+  }
+  return ql_name;
 }
 
 Status PTSubscriptedColumn::AnalyzeOperator(SemContext *sem_context) {
