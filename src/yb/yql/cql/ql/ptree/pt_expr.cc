@@ -1413,6 +1413,10 @@ PTSubscriptedColumn::PTSubscriptedColumn(MemoryContext *memctx,
 PTSubscriptedColumn::~PTSubscriptedColumn() {
 }
 
+std::string PTSubscriptedColumn::QLName(QLNameOption option) const {
+  return name_->QLName() + "['" + args_->node_list().front()->QLName() + "']";
+}
+
 Status PTSubscriptedColumn::AnalyzeOperator(SemContext *sem_context) {
 
   // Check if this refers to the whole table (SELECT *).
