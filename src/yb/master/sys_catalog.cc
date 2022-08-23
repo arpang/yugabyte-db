@@ -1319,9 +1319,9 @@ Result<string> SysCatalogTable::ReadPgNamespaceNspname(const uint32_t database_o
   return name;
 }
 
-Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgAttributeInfo(
+Result<std::unordered_map<string, uint32_t>> SysCatalogTable::ReadPgAttNameTypidMap(
     const uint32_t database_oid, const uint32_t table_oid) {
-  TRACE_EVENT0("master", "ReadPgAttributeInfo");
+  TRACE_EVENT0("master", "ReadPgAttNameTypidMap");
 
   const tablet::TabletPtr tablet = tablet_peer()->shared_tablet();
 
@@ -1625,9 +1625,9 @@ std::string SysCatalogTable::tablet_id() const {
   return tablet_peer()->tablet_id();
 }
 
-Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo2(
+Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo(
     uint32_t database_oid, std::vector<uint32_t> table_oids) {
-  TRACE_EVENT0("master", "ReadPgAttributeInfo2");
+  TRACE_EVENT0("master", "ReadPgAttributeInfo");
 
   const tablet::TabletPtr tablet = tablet_peer()->shared_tablet();
 

@@ -192,7 +192,7 @@ class SysCatalogTable {
                                              const uint32_t relnamespace_oid);
 
   // Read attname and atttypid from pg_attribute catalog table.
-  Result<std::unordered_map<string, uint32_t>> ReadPgAttributeInfo(
+  Result<std::unordered_map<string, uint32_t>> ReadPgAttNameTypidMap(
       uint32_t database_oid, uint32_t table_oid);
 
   // Read enumtypid and enumlabel from pg_enum catalog table.
@@ -207,7 +207,7 @@ class SysCatalogTable {
   // respective placement information.
   Result<std::shared_ptr<TablespaceIdToReplicationInfoMap>> ReadPgTablespaceInfo();
 
-  Result<RelIdToAttributesMap> ReadPgAttributeInfo2(
+  Result<RelIdToAttributesMap> ReadPgAttributeInfo(
       uint32_t database_oid, std::vector<uint32_t> table_oids);
 
   Result<RelTypeOIDMap> ReadCompositeTypeFromPgClass(

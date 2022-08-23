@@ -4300,7 +4300,7 @@ Status CatalogManager::GetUDTypeMetadata(
     sort(table_oids.begin(), table_oids.end());
 
     RelIdToAttributesMap attributes_map =
-        VERIFY_RESULT(sys_catalog_->ReadPgAttributeInfo2(database_oid, table_oids));
+        VERIFY_RESULT(sys_catalog_->ReadPgAttributeInfo(database_oid, table_oids));
 
     for (const auto& [reltype, oid] : reltype_oid_map) {
       if (attributes_map.find(oid) != attributes_map.end()) {

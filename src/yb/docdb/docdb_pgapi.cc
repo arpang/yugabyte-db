@@ -1409,7 +1409,7 @@ Status SetValueFromQLBinaryHelper(
         cdc_datum_message->set_datum_string(decoded_str, strlen(decoded_str));
       } else {
         LOG(INFO) << "For record of type : " << type_id << " no attributes found in the cache";
-        return STATUS_SUBSTITUTE(CacheMissError, "composite");
+        return STATUS_SUBSTITUTE(CacheMissError, "composite");  // Do not change the message.
       }
       break;
     }
@@ -1514,7 +1514,7 @@ Status SetValueFromQLBinaryHelper(
         VLOG(1) << "For enum oid: " << enum_oid << " found label" << label;
       } else {
         LOG(INFO) << "For enum oid: " << enum_oid << " no label found in cache";
-        return STATUS_SUBSTITUTE(CacheMissError, "enum");
+        return STATUS_SUBSTITUTE(CacheMissError, "enum");  // Do not change the message.
       }
       cdc_datum_message->set_datum_string(label.c_str(), strlen(label.c_str()));
       break;
