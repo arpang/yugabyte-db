@@ -518,6 +518,10 @@ YBCCreateTable(CreateStmt *stmt, char relkind, TupleDesc desc,
 		Oid	parentOid = RangeVarGetRelid(rv, NoLock, false);
 
 		Relation parentRel = heap_open(parentOid, NoLock);
+		YbGetTableProperties(parentRel);
+		Oid parentTableGroupOid =
+			parentRel->yb_table_properties->tablegroup_oid;
+		tablegroupId = parentTableGroupOid;
 		List *idxlist = RelationGetIndexList(parentRel);
 		ListCell *cell;
 		foreach(cell, idxlist)
