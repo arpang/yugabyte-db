@@ -1,0 +1,13 @@
+CREATE TABLEGROUP tg1;
+CREATE TABLE prt (id int PRIMARY KEY, v int) PARTITION BY RANGE (id) TABLEGROUP tg1;
+CREATE TABLE prt_p1 PARTITION OF prt FOR VALUES FROM (1) TO (4);
+\dgrt
+              List of tablegroup tables
+ Group Name | Group Owner |  Name  | Type  |  Owner   
+------------+-------------+--------+-------+----------
+ tg1        | yugabyte    | prt    | table | yugabyte
+ tg1        | yugabyte    | prt_p1 | table | yugabyte
+(2 rows)
+CREATE TABLE prt_p2 PARTITION OF prt FOR VALUES FROM (5) TO (9) TABLEGROUP tg1;
+ERROR:  syntax error at or near "TABLEGROUP"
+LINE 1: ...rt_p2 PARTITION OF prt FOR VALUES FROM (5) TO (9) TABLEGROUP...
