@@ -519,9 +519,7 @@ YBCCreateTable(CreateStmt *stmt, char relkind, TupleDesc desc,
 
 		Relation parentRel = heap_open(parentOid, NoLock);
 		YbGetTableProperties(parentRel);
-		Oid parentTableGroupOid =
-			parentRel->yb_table_properties->tablegroup_oid;
-		tablegroupId = parentTableGroupOid;
+		tablegroupId = parentRel->yb_table_properties->tablegroup_oid;
 		List *idxlist = RelationGetIndexList(parentRel);
 		ListCell *cell;
 		foreach(cell, idxlist)
