@@ -518,9 +518,8 @@ YBCCreateTable(CreateStmt *stmt, char relkind, TupleDesc desc,
 		Oid	parentOid = RangeVarGetRelid(rv, NoLock, false);
 
 		Relation parentRel = heap_open(parentOid, NoLock);
-		YbGetTableProperties(parentRel);
-		Assert(tablegroupId == InvalidOid);
-		tablegroupId = parentRel->yb_table_properties->tablegroup_oid;
+		Assert(!OidIsValid(tablegroupId));
+		tablegroupId = YbGetTableProperties(parentRel)->tablegroup_oid;
 		List *idxlist = RelationGetIndexList(parentRel);
 		ListCell *cell;
 		foreach(cell, idxlist)
