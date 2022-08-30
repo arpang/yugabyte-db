@@ -2732,6 +2732,90 @@ TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(ColocatedCompaction)) {
   ASSERT_GE(new_files_size * 3, files_size);
 }
 
+TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(TablegroupCompaction)) {
+  FLAGS_timestamp_history_retention_interval_sec = 0;
+  FLAGS_history_cutoff_propagation_interval_ms = 1;
+
+  const std::string kDatabaseName = "testdb";
+  const std::string kTablegroupName = "testgroup";
+  // const auto kNumTables = 1;
+  constexpr int kKeys = 5;
+
+  PGConn conn = ASSERT_RESULT(Connect());
+  ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0", kDatabaseName));
+
+  conn = ASSERT_RESULT(ConnectToDB(kDatabaseName));
+
+  ASSERT_OK(conn.ExecuteFormat("CREATE TABLEGROUP $0", kTablegroupName));
+
+  // for (int i = 0; i < kNumTables; ++i) {
+  ASSERT_OK(conn.ExecuteFormat("CREATE TABLE test (key int) TABLEGROUP $0", kTablegroupName));
+  for (int j = 0; j < kKeys; ++j) {
+    ASSERT_OK(conn.ExecuteFormat("INSERT INTO test(key) VALUES($0)", j));
+  }
+  //}
+
+  ASSERT_OK(cluster_->FlushTablets());
+  // uint64_t files_size = 0;
+  // for (const auto& peer : ListTabletPeers(cluster_.get(), ListPeersFilter::kAll)) {
+  //   files_size += peer->tablet()->GetCurrentVersionSstFilesUncompressedSize();
+  // }
+
+  //   test_cluster()->mini_tablet_server(0)->Shutdown();
+  // ASSERT_OK(test_cluster()->mini_tablet_server(0)->Start());
+  // ASSERT_OK(test_cluster()->mini_tablet_server(0)->WaitStarted());
+
+  // cluster_->Shutdown();
+  // ASSERT_OK(cluster_->Start());
+  // ASSERT_OK(cluster_->WaitForAllTabletServers());
+  ASSERT_OK(cluster_->RestartSync());
+
+  ASSERT_OK(cluster_->CompactTablets());
+
+  conn = ASSERT_RESULT(ConnectToDB(kDatabaseName));
+
+  auto res = ASSERT_RESULT(conn.template FetchValue<int64_t>("SELECT COUNT(*) FROM test"));
+  ASSERT_EQ(res, kKeys);
+
+  // uint64_t new_files_size = 0;
+  // for (const auto& peer : ListTabletPeers(cluster_.get(), ListPeersFilter::kAll)) {
+  //   new_files_size += peer->tablet()->GetCurrentVersionSstFilesUncompressedSize();
+  // }
+
+  // LOG(INFO) << "Old files size: " << files_size << ", new files size: " << new_files_size;
+  // ASSERT_LE(new_files_size * 2, files_size);
+  // ASSERT_GE(new_files_size * 3, files_size);
+}
+
+TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(NormalTableCompaction)) {
+  FLAGS_timestamp_history_retention_interval_sec = 0;
+  FLAGS_history_cutoff_propagation_interval_ms = 1;
+
+  const std::string kDatabaseName = "testdb";
+  constexpr int kKeys = 5;
+
+  PGConn conn = ASSERT_RESULT(Connect());
+  ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0", kDatabaseName));
+
+  conn = ASSERT_RESULT(ConnectToDB(kDatabaseName));
+
+  ASSERT_OK(conn.ExecuteFormat("CREATE TABLE test (key int)"));
+  for (int j = 0; j < kKeys; ++j) {
+    ASSERT_OK(conn.ExecuteFormat("INSERT INTO test(key) VALUES($0)", j));
+  }
+
+  ASSERT_OK(cluster_->FlushTablets());
+
+  ASSERT_OK(cluster_->RestartSync());
+
+  ASSERT_OK(cluster_->CompactTablets());
+
+  conn = ASSERT_RESULT(ConnectToDB(kDatabaseName));
+
+  auto res = ASSERT_RESULT(conn.template FetchValue<int64_t>("SELECT COUNT(*) FROM test"));
+  ASSERT_EQ(res, kKeys);
+}
+
 TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(CompactionAfterDBDrop)) {
   const std::string kDatabaseName = "testdb";
   auto& catalog_manager = ASSERT_RESULT(cluster_->GetLeaderMiniMaster())->catalog_manager();

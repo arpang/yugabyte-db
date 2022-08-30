@@ -142,6 +142,7 @@ struct CompactionJob::SubcompactionState : public CompactionFeed {
   }
 
   Status Feed(const Slice& key, const Slice& value) override {
+    LOG_WITH_FUNC(INFO) << "Inside feed";
     // Open output file if necessary
     if (builder == nullptr) {
       RETURN_NOT_OK(open_compaction_output_file());
@@ -152,6 +153,7 @@ struct CompactionJob::SubcompactionState : public CompactionFeed {
 
     builder->Add(key, value);
     current_output()->meta.UpdateBoundarySeqNo(GetInternalKeySeqno(key));
+    LOG_WITH_FUNC(INFO) << "Increasing num_output_records";
     num_output_records++;
     return Status::OK();
   }
@@ -298,6 +300,7 @@ void CompactionJob::Prepare() {
   bottommost_level_ = c->bottommost_level();
 
   if (c->ShouldFormSubcompactions()) {
+    LOG_WITH_FUNC(INFO) << "ShouldFormSubcompactions: TRUE";
     const uint64_t start_micros = env_->NowMicros();
     GenSubcompactionBoundaries();
     assert(sizes_.size() == boundaries_.size() + 1);
@@ -309,6 +312,7 @@ void CompactionJob::Prepare() {
           c, db_options_.boundary_extractor.get(), start, end, sizes_[i]);
     }
   } else {
+    LOG_WITH_FUNC(INFO) << "ShouldFormSubcompactions: FALSE";
     compact_->sub_compact_states.emplace_back(
         c, db_options_.boundary_extractor.get(), /* start= */ nullptr, /* end= */ nullptr);
   }
@@ -633,8 +637,11 @@ void CompactionJob::ProcessKeyValueCompaction(
       .boundary_extractor = sub_compact->boundary_extractor,
     };
     sub_compact->context = (*db_options_.compaction_context_factory)(sub_compact, context);
+    LOG_WITH_FUNC(INFO) << "db_options_.compaction_context_factory is NOT NULL, calling feed";
+    // this is some other feed
     sub_compact->feed = sub_compact->context->Feed();
   } else {
+    LOG_WITH_FUNC(INFO) << "db_options_.compaction_context_factory is NULL";
     sub_compact->feed = sub_compact;
   }
 
@@ -659,6 +666,7 @@ void CompactionJob::ProcessKeyValueCompaction(
   // only occasionally (see diff D42687)
   while (status.ok() && !shutting_down_->load(std::memory_order_acquire) &&
          !cfd->IsDropped() && c_iter->Valid()) {
+    LOG_WITH_FUNC(INFO) << "Inside while loop";
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
     const Slice& key = c_iter->key();
@@ -684,6 +692,7 @@ void CompactionJob::ProcessKeyValueCompaction(
       RecordCompactionIOStats();
     }
 
+    LOG_WITH_FUNC(INFO) << "calling feed";
     status = sub_compact->feed->Feed(key, value);
     if (!status.ok()) {
       break;

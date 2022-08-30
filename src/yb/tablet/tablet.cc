@@ -3227,15 +3227,22 @@ Status Tablet::ForceFullRocksDBCompact(docdb::SkipFlush skip_flush) {
   RETURN_NOT_OK(scoped_operation);
 
   if (regular_db_) {
+    LOG_WITH_FUNC(INFO) << "Compacting regulr db";
     RETURN_NOT_OK(docdb::ForceRocksDBCompact(regular_db_.get(), skip_flush));
+  } else {
+    LOG_WITH_FUNC(INFO) << "Regular DB not found for compaction";
   }
-  if (intents_db_) {
-    if (!skip_flush) {
-      RETURN_NOT_OK_PREPEND(
-          intents_db_->Flush(rocksdb::FlushOptions()), "Pre-compaction flush of intents db failed");
-    }
-    RETURN_NOT_OK(docdb::ForceRocksDBCompact(intents_db_.get(), skip_flush));
-  }
+
+  // if (intents_db_) {
+  //   LOG_WITH_FUNC(INFO) << "Compacting intents db";
+  //   if (!skip_flush) {
+  //     RETURN_NOT_OK_PREPEND(
+  //         intents_db_->Flush(rocksdb::FlushOptions()), "Pre-compaction flush of intents db failed");
+  //   }
+  //   RETURN_NOT_OK(docdb::ForceRocksDBCompact(intents_db_.get(), skip_flush));
+  // } else {
+  //   LOG_WITH_FUNC(INFO) << "Intent DB not found for compaction";
+  // }
   return Status::OK();
 }
 

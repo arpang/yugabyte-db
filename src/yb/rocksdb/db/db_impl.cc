@@ -2154,17 +2154,23 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     }
   }
 
+  LOG_WITH_FUNC(INFO) << "max_level_with_files: " << max_level_with_files;
+
   Status s;
   int final_output_level = 0;
+
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
+    // LOG_WITH_FUNC(INFO) << "If branch";
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             cfd->NumberLevels() - 1, options.target_path_id,
                             begin, end, exclusive);
     final_output_level = cfd->NumberLevels() - 1;
   } else {
+    // LOG_WITH_FUNC(INFO) << "Else branch";
     for (int level = 0; level <= max_level_with_files; level++) {
+      LOG_WITH_FUNC(INFO) << "Inside for loop " << level;
       int output_level;
       // in case the compaction is universal or if we're compacting the
       // bottom-most level, the output level will be the same as input one.
@@ -2172,8 +2178,10 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       // level 0, we will compact to level 1)
       if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
           cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+        // LOG_WITH_FUNC(INFO) << "If branch";
         output_level = level;
       } else if (level == max_level_with_files && level > 0) {
+        // LOG_WITH_FUNC(INFO) << "Else if branch";
         if (options.bottommost_level_compaction ==
             BottommostLevelCompaction::kSkip) {
           // Skip bottommost level compaction
@@ -2188,6 +2196,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         }
         output_level = level;
       } else {
+        // LOG_WITH_FUNC(INFO) << "Else branch";
         output_level = level + 1;
         if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
             cfd->ioptions()->level_compaction_dynamic_level_bytes &&
@@ -2195,6 +2204,11 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
           output_level = ColumnFamilyData::kCompactToBaseLevel;
         }
       }
+      LOG_WITH_FUNC(INFO) << "output_level " << output_level << " level " << level
+                          << " options.target_path_id " << options.target_path_id << " exclusive "
+                          << exclusive;
+
+      // this is problematic
       s = RunManualCompaction(cfd, level, output_level, options.target_path_id,
                               begin, end, exclusive);
       if (!s.ok()) {
@@ -2209,6 +2223,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
     }
   }
+
   if (!s.ok()) {
     LogFlush(db_options_.info_log);
     return s;
@@ -2941,6 +2956,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                   &manual_compaction.manual_end, &manual_conflict)) ==
              nullptr) &&
          manual_conflict)) {
+      LOG_WITH_FUNC(INFO) << "If branch";
       DCHECK(!exclusive || !manual_conflict)
           << "exclusive manual compactions should not see a conflict during CompactRange";
       if (manual_conflict) {
@@ -2949,9 +2965,12 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       // Running either this or some other manual compaction
       bg_cv_.Wait();
       if (IsShuttingDown()) {
+        LOG_WITH_FUNC(INFO) << "shutting down";
         if (!scheduled) {
+          LOG_WITH_FUNC(INFO) << "returning";
           return STATUS(ShutdownInProgress, "");
         }
+        LOG_WITH_FUNC(INFO) << "not returning";
         // If manual compaction is already scheduled, we increase its priority and will wait for it
         // to be aborted. We can't just exit, because compaction task can access manual_compaction
         // by raw pointer.
@@ -2969,7 +2988,9 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
         manual_compaction.incomplete = false;
       }
     } else if (!scheduled) {
+      LOG_WITH_FUNC(INFO) << "Else if branch";
       if (manual_compaction.compaction == nullptr) {
+        LOG_WITH_FUNC(INFO) << "Setting manual_compaction.done to true";
         manual_compaction.done = true;
         bg_cv_.SignalAll();
         continue;
@@ -3505,6 +3526,7 @@ void DBImpl::BackgroundCallCompaction(ManualCompaction* m, std::unique_ptr<Compa
 Result<FileNumbersHolder> DBImpl::BackgroundCompaction(
     bool* made_progress, JobContext* job_context, LogBuffer* log_buffer,
     ManualCompaction* manual_compaction, std::unique_ptr<Compaction> compaction) {
+  LOG_WITH_FUNC(INFO) << "Starting BackgroundCompaction";
   *made_progress = false;
   mutex_.AssertHeld();
 
@@ -3723,6 +3745,7 @@ Result<FileNumbersHolder> DBImpl::BackgroundCompaction(
         snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
     assert(is_snapshot_supported_ || snapshots_.empty());
+    // from here
     CompactionJob compaction_job(
         job_context->job_id, c.get(), db_options_, env_options_,
         versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
@@ -3740,9 +3763,13 @@ Result<FileNumbersHolder> DBImpl::BackgroundCompaction(
     mutex_.Lock();
 
     status = compaction_job.Install(*c->mutable_cf_options());
+    // to here
     if (status.ok()) {
+      LOG_WITH_FUNC(INFO) << "Status is ok, calling InstallSuperVersionAndScheduleWorkWrapper";
       InstallSuperVersionAndScheduleWorkWrapper(
           c->column_family_data(), job_context, *c->mutable_cf_options());
+    } else {
+      LOG_WITH_FUNC(INFO) << "Status is not OK";
     }
     *made_progress = true;
   }

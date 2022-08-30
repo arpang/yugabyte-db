@@ -416,9 +416,12 @@ class DocDBCompactionFeed : public rocksdb::CompactionFeed, public PackedRowFeed
   }
 
   Status ForwardToNextFeed(const Slice& key, const Slice& value) {
+    LOG_WITH_FUNC(INFO) << " Starting ForwardToNextFeed";
     if (!packed_row_.active()) {
       return PassToNextFeed(key, value, doc_key_serial_);
     }
+
+    LOG_WITH_FUNC(INFO) << "Packed row is active, not passing to next feed";
 
     auto* pending_row = static_cast<PendingEntry*>(pending_rows_arena_.AllocateBytesAligned(
         sizeof(PendingEntry) + key.size() + value.size(), alignof(PendingEntry)));
@@ -472,12 +475,14 @@ class DocDBCompactionFeed : public rocksdb::CompactionFeed, public PackedRowFeed
   void AssignPrevSubDocKey(const char* data, size_t same_bytes);
 
   Status PassToNextFeed(const Slice& key, const Slice& value, size_t doc_key_serial) {
+    LOG_WITH_FUNC(INFO) << " Starting PassToNextFeed";
     if (last_passed_doc_key_serial_ != doc_key_serial) {
       RSTATUS_DCHECK_GT(doc_key_serial, last_passed_doc_key_serial_, InternalError,
                         Format("Doc key serial stream failure for key $0", key.ToDebugHexString()));
       RETURN_NOT_OK(UpdateBoundaryValues(key));
       last_passed_doc_key_serial_ = doc_key_serial;
     }
+    LOG_WITH_FUNC(INFO) << "Passing on to next feed";
     return next_feed_.Feed(key, value);
   }
 
@@ -586,7 +591,12 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
     feed_usage_logged_ = true;
   }
 
+  LOG_WITH_FUNC(INFO) << DocKey::DebugSliceToString(internal_key);
+
   auto key = internal_key.WithoutSuffix(rocksdb::kLastInternalComponentSize);
+
+  LOG_WITH_FUNC(INFO) << "Feed: " << internal_key.ToDebugHexString() << "/"
+                      << SubDocKey::DebugSliceToString(key) << " => " << value.ToDebugHexString();
 
   VLOG(4) << "Feed: " << internal_key.ToDebugHexString() << "/"
           << SubDocKey::DebugSliceToString(key) << " => " << value.ToDebugHexString();
@@ -627,6 +637,9 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
     }
   }
 
+  LOG_WITH_FUNC(INFO) << "num_shared_components: " << num_shared_components
+                      << ", overwrite: " << AsString(overwrite_);
+
   VLOG_WITH_FUNC(4) << "num_shared_components: " << num_shared_components << ", overwrite: "
                     << AsString(overwrite_);
   // First component is cotable and second component doc_key, so num_shared_components <= 1 means
@@ -642,9 +655,10 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
   RETURN_NOT_OK(SubDocKey::DecodeDocKeyAndSubKeyEnds(key, &sub_key_ends_));
   RETURN_NOT_OK(packed_row_.UpdateCoprefix(key.Prefix(sub_key_ends_[0])));
 
-  if (packed_row_.active_coprefix_dropped()) {
-    return Status::OK();
-  }
+  // if (packed_row_.active_coprefix_dropped()) {
+  //   LOG_WITH_FUNC(INFO) << "Return from packed_row_.active_coprefix_dropped()";
+  //   return Status::OK();
+  // }
 
   const size_t new_stack_size = sub_key_ends_.size();
 
@@ -678,6 +692,7 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
   const Expiration prev_exp =
       overwrite_.empty() ? Expiration() : overwrite_.back().expiration;
 
+  LOG_WITH_FUNC(INFO) << "Reaching 1";
   // We only keep entries with hybrid_time equal to or later than the latest time the subdocument
   // was fully overwritten or deleted prior to or at the history cutoff time. The intuition is that
   // key/value pairs that were overwritten at or before history cutoff time will not be visible at
@@ -696,6 +711,7 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
   bool is_ttl_row = IsMergeRecord(value);
   VLOG_WITH_FUNC(4) << "Ht: " << ht << ", prev_overwrite_ht: " << prev_overwrite_ht;
   if (ht < prev_overwrite_ht && !is_ttl_row) {
+    LOG_WITH_FUNC(INFO) << "Returning because ht < prev_overwrite_ht && !is_ttl_row";
     return Status::OK();
   }
 
@@ -712,6 +728,8 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
   if (overwrite_.size() == new_stack_size) {
     overwrite_.pop_back();
   }
+
+  LOG_WITH_FUNC(INFO) << "Reaching 2";
 
   // Check whether current key is the same as the previous key, except for the timestamp.
   if (same_bytes != sub_key_ends_.back()) {
@@ -734,6 +752,7 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
       // Check packed row version for rows left untouched.
       RETURN_NOT_OK(packed_row_.ProcessForwardedPackedRow(value_slice));
     }
+    LOG_WITH_FUNC(INFO) << "Inside ht.hybrid_time() > history_cutoff, calling ForwardToNextFeed";
     return ForwardToNextFeed(internal_key, value);
   }
 
@@ -747,6 +766,7 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
   //       and we end up removing some data that the client expects to see?
   VLOG(4) << "Sub key ends: " << AsString(sub_key_ends_);
   if (sub_key_ends_.size() > 1) {
+    LOG_WITH_FUNC(INFO) << "Inside sub_key_ends_.size()";
     // 0 - end of cotable id section.
     // 1 - end of doc key section.
     // Column ID is the first subkey in every row.
@@ -754,12 +774,14 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
     auto key_type = DecodeKeyEntryType(key[doc_key_size]);
     VLOG(4) << "First subkey type: " << key_type;
     if (key_type == KeyEntryType::kColumnId || key_type == KeyEntryType::kSystemColumnId) {
+      LOG_WITH_FUNC(INFO) << "key_type " << key_type;
       Slice column_id_slice = key.WithoutPrefix(doc_key_size + 1);
       auto column_id_as_int64 = VERIFY_RESULT(util::FastDecodeSignedVarIntUnsafe(&column_id_slice));
       ColumnId column_id;
       RETURN_NOT_OK(ColumnId::FromInt64(column_id_as_int64, &column_id));
 
       if (packed_row_.ColumnDeleted(column_id)) {
+        LOG_WITH_FUNC(INFO) << "Return 1";
         return Status::OK();
       }
 
@@ -773,15 +795,19 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
       if (packed_row_.active()) {
         if (key_type == KeyEntryType::kSystemColumnId &&
             column_id == KeyEntryValue::kLivenessColumn.GetColumnId()) {
+          LOG_WITH_FUNC(INFO) << "Return 2";
           return Status::OK();
         }
         // Return if column was processed by packed row.
         if (VERIFY_RESULT(packed_row_.ProcessColumn(column_id, value, ht))) {
+          LOG_WITH_FUNC(INFO) << "Return 3";
           return Status::OK();
         }
       }
     }
   }
+
+  LOG_WITH_FUNC(INFO) << "Before overwrite_ht";
 
   auto overwrite_ht = is_ttl_row ? prev_overwrite_ht : std::max(prev_overwrite_ht, ht);
 
