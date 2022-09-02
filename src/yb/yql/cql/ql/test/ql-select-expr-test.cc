@@ -2545,7 +2545,7 @@ TEST_F(QLTestSelectedExpr, TestPreparedStatementWithEmbeddedNull) {
   LOG(INFO) << "Done.";
 }
 
-TEST_F(QLTestSelectedExpr, MapMultiFieldQuery) {
+TEST_F(QLTestSelectedExpr, MapMultiFieldQueryTest) {
   // Init the simulated cluster.
   ASSERT_NO_FATALS(CreateSimulatedCluster());
 
@@ -2560,9 +2560,21 @@ TEST_F(QLTestSelectedExpr, MapMultiFieldQuery) {
       "'000-0000', 'work':'222-222'});");
 
   // Checking Row
-  CHECK_VALID_STMT("SELECT username, phones['work'],phones['home'] from users;");
+  CHECK_VALID_STMT("SELECT username, phones['work'], phones['home'] from users;");
 
   std::shared_ptr<QLRowBlock> row_block = processor->row_block();
+  CHECK_EQ(row_block->row_count(), 1);
+  {
+    const QLRow& row = row_block->row(0);
+    CHECK_EQ(row.column(0).string_value(), "foo");
+    CHECK_EQ(row.column(1).string_value(), "222-222");
+    CHECK_EQ(row.column(2).string_value(), "999-9999");
+  }
+
+  // With alias
+  CHECK_VALID_STMT("SELECT username, phones['work'] as work, phones['home'] as home from users;");
+
+  row_block = processor->row_block();
   CHECK_EQ(row_block->row_count(), 1);
   {
     const QLRow& row = row_block->row(0);
