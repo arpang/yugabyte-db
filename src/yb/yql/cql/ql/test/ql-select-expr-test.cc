@@ -2545,5 +2545,33 @@ TEST_F(QLTestSelectedExpr, TestPreparedStatementWithEmbeddedNull) {
   LOG(INFO) << "Done.";
 }
 
+TEST_F(QLTestSelectedExpr, DemoTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  LOG(INFO) << "Running simple query test.";
+  // Create the table 1.
+  const char* create_stmt = "CREATE TABLE demo(key int PRIMARY KEY, v1 int, v2 text);";
+  CHECK_VALID_STMT(create_stmt);
+
+  for (int key = 0; key < 5; key++) {
+    CHECK_VALID_STMT(strings::Substitute(
+        "INSERT INTO demo (key, v1, v2) VALUES($0, $1, 'val$0');", key, 2 * key));
+  }
+
+  // Checking Row
+  CHECK_VALID_STMT("SELECT key, v1, v2 FROM demo LIMIT 1");
+  std::shared_ptr<QLRowBlock> row_block = processor->row_block();
+  CHECK_EQ(row_block->row_count(), 1);
+  {
+    const QLRow& row = row_block->row(0);
+    CHECK_EQ(row.column(0).int32_value(), 4);
+    CHECK_EQ(row.column(1).int32_value(), 8);
+    CHECK_EQ(row.column(2).string_value(), "val4");
+  }
+}
+
 } // namespace ql
 } // namespace yb

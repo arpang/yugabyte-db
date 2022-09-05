@@ -69,6 +69,9 @@ DocQLScanSpec::DocQLScanSpec(
       upper_doc_key_(bound_key(false)),
       query_id_(query_id) {
 
+    auto cond_string = condition->ShortDebugString();
+    LOG(INFO) << cond_string;
+
     if (range_bounds_) {
         range_bounds_indexes_ = range_bounds_->GetColIds();
     }
