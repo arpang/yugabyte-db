@@ -949,6 +949,7 @@ Status CDCServiceImpl::CreateCDCStreamForNamespace(
     }
     stream_ids.push_back(std::move(stream_id));
     table_ids.push_back(table_iter.table_id());
+    LOG_WITH_FUNC(INFO) << "Processing table id " << table_iter.table_id();
   }
 
   // Add stream to cache.
@@ -976,6 +977,8 @@ void CDCServiceImpl::CreateCDCStream(const CreateCDCStreamRequestPB* req,
                                      CreateCDCStreamResponsePB* resp,
                                      RpcContext context) {
   CDCStreamId streamId;
+
+  LOG_WITH_FUNC(INFO) << "Request: " << req->ShortDebugString();
 
   if (!CheckOnline(req, resp, &context)) {
     return;
@@ -1222,6 +1225,8 @@ Result<TabletCheckpoint> CDCServiceImpl::TEST_GetTabletInfoFromCache(
 void CDCServiceImpl::GetChanges(const GetChangesRequestPB* req,
                                 GetChangesResponsePB* resp,
                                 RpcContext context) {
+  LOG_WITH_FUNC(INFO) << "Request " << req->ShortDebugString();
+
   if (!get_changes_rpc_sem_.TryAcquire()) {
     SetupErrorAndRespond(resp->mutable_error(), STATUS(LeaderNotReadyToServe, "Not ready to serve"),
                          CDCErrorPB::LEADER_NOT_READY, &context);
