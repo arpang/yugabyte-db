@@ -1419,7 +1419,7 @@ void CDCServiceImpl::GetChanges(const GetChangesRequestPB* req,
     // out of date, hence we need to repopulate.
     if (status.IsCacheMissError()) {
       {
-        string message = s.ToUserMessage(false);
+        string message = status.ToUserMessage(false);
         if (message == "enum") {
           // Recreate the enum cache entry for the corresponding namespace.
           std::lock_guard<decltype(mutex_)> l(mutex_);
