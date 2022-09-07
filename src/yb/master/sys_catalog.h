@@ -211,7 +211,7 @@ class SysCatalogTable {
       uint32_t database_oid, std::vector<uint32_t> table_oids);
 
   Result<RelTypeOIDMap> ReadCompositeTypeFromPgClass(
-      uint32_t database_oid, uint32_t table_oid = kPgInvalidOid);
+      uint32_t database_oid, uint32_t type_oid = kPgInvalidOid);
 
   // Copy the content of co-located tables in sys catalog as a batch.
   Status CopyPgsqlTables(const std::vector<TableId>& source_table_ids,

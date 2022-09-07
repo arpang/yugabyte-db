@@ -143,7 +143,8 @@ message GetUDTypeMetadataRequestPB {
  optional NamespaceIdentifierPB namespace = 1;
  optional bool pg_enum_info = 2 [default = false];
  optional bool pg_composite_info = 3 [default = false];
- optional uint32 pg_type_oid = 4; // if set, metadata only of the this type will be fetched.
+ optional uint32 pg_type_oid = 4; // if set, metadata only of this type will be fetched.
+                                  // To be used to update cache after a DDL on type.
 }
 
 message PgEnumInfoPB {

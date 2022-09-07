@@ -1765,7 +1765,7 @@ Result<RelIdToAttributesMap> SysCatalogTable::ReadPgAttributeInfo(
 }
 
 Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
-    uint32_t database_oid, uint32_t table_oid) {
+    uint32_t database_oid, uint32_t type_oid) {
   TRACE_EVENT0("master", "ReadCompositeTypeFromPgClass");
 
   const tablet::TabletPtr tablet = tablet_peer()->shared_tablet();
@@ -1821,7 +1821,7 @@ Result<RelTypeOIDMap> SysCatalogTable::ReadCompositeTypeFromPgClass(
       continue;
     }
 
-    if (table_oid != kPgInvalidOid && reltype != table_oid) {
+    if (type_oid != kPgInvalidOid && reltype != type_oid) {
       continue;
     }
 
