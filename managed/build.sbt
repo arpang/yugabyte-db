@@ -144,8 +144,13 @@ libraryDependencies ++= Seq(
   "com.amazonaws" % "aws-java-sdk-sts" % "1.12.129",
   "com.amazonaws" % "aws-java-sdk-s3" % "1.12.129",
   "com.cronutils" % "cron-utils" % "9.1.6",
+  // Be careful when changing azure library versions.
+  // Make sure all itests and existing functionality works as expected.
+  "com.azure" % "azure-core" % "1.13.0",
+  "com.azure" % "azure-identity" % "1.2.3",
+  "com.azure" % "azure-security-keyvault-keys" % "4.2.5",
   "com.azure" % "azure-storage-blob" % "12.7.0",
-  "com.azure" % "azure-core" % "1.1.0",
+  "javax.mail" % "mail" % "1.4.7",
   "io.prometheus" % "simpleclient" % "0.11.0",
   "io.prometheus" % "simpleclient_hotspot" % "0.11.0",
   "io.prometheus" % "simpleclient_servlet" % "0.11.0",
@@ -299,6 +304,7 @@ versionGenerate := {
     (Compile / resourceDirectory).value / "version_metadata.json").!
   ybLog("version_metadata.json Generated")
   Process("rm -f " + (Compile / resourceDirectory).value / "gen_version_info.log").!
+  Process("./download_ybc.sh -c " + (Compile / resourceDirectory).value / "reference.conf", baseDirectory.value).!
   status
 }
 
@@ -400,7 +406,7 @@ runPlatform := {
 }
 
 libraryDependencies += "org.yb" % "yb-client" % "0.8.21-SNAPSHOT"
-libraryDependencies += "org.yb" % "ybc-client" % "0.0.6"
+libraryDependencies += "org.yb" % "ybc-client" % "1.0.0-b2"
 
 libraryDependencies ++= Seq(
   // Overrides mainly to address transitive deps in cassandra-driver-core and pac4j-oidc/oauth
@@ -425,6 +431,11 @@ dependencyOverrides += "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr3
 dependencyOverrides += "com.fasterxml.jackson.core" % "jackson-databind" % "2.9.10.8"
 
 concurrentRestrictions in Global := Seq(Tags.limitAll(16))
+
+javaOptions in Universal ++= Seq(
+  "-Djdk.tls.client.protocols=TLSv1.2",
+  "-Dhttps.protocols=TLSv1.2"
+)
 
 val testParallelForks = SettingKey[Int]("testParallelForks",
   "Number of parallel forked JVMs, running tests")

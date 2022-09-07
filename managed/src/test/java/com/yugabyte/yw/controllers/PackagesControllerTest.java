@@ -15,12 +15,12 @@ import static play.test.Helpers.contentAsBytes;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.typesafe.config.Config;
+import com.yugabyte.yw.cloud.PublicCloudConstants.OsType;
 import com.yugabyte.yw.commissioner.Commissioner;
 import com.yugabyte.yw.commissioner.HealthChecker;
 import com.yugabyte.yw.common.FakeApiHelper;
 import com.yugabyte.yw.common.ModelFactory;
 import com.yugabyte.yw.forms.PackagesRequestParams;
-import com.yugabyte.yw.forms.PackagesRequestParams.OsType;
 import com.yugabyte.yw.forms.PackagesRequestParams.ArchitectureType;
 import com.yugabyte.yw.models.Customer;
 import com.yugabyte.yw.models.Users;
@@ -49,8 +49,6 @@ public class PackagesControllerTest extends WithApplication {
 
   @Mock Config mockConfig;
   @Mock Commissioner mockCommissioner;
-  private Customer customer;
-  private Users user;
   private static String fakeYbcReleasesPath = "/tmp/yugaware_tests/ybc/releases";
 
   @Override
@@ -66,12 +64,6 @@ public class PackagesControllerTest extends WithApplication {
         .build();
   }
 
-  @Before
-  public void setUp() {
-    customer = ModelFactory.testCustomer();
-    user = ModelFactory.testUser(customer);
-  }
-
   @After
   public void tearDown() throws IOException {
     FileUtils.deleteDirectory(new File(fakeYbcReleasesPath));
@@ -79,7 +71,7 @@ public class PackagesControllerTest extends WithApplication {
 
   private Result fetchPackage(ObjectNode body) {
     String uri = "/api/fetch_package";
-    return FakeApiHelper.doRequestWithAuthTokenAndBody("POST", uri, user.createAuthToken(), body);
+    return FakeApiHelper.doRequestWithBodyAndWithoutAuthToken("POST", uri, body);
   }
 
   @Test

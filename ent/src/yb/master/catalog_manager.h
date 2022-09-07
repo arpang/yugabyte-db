@@ -75,8 +75,13 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
                                         DeleteSnapshotScheduleResponsePB* resp,
                                         rpc::RpcContext* rpc);
 
+  Status EditSnapshotSchedule(
+      const EditSnapshotScheduleRequestPB* req,
+      EditSnapshotScheduleResponsePB* resp,
+      rpc::RpcContext* rpc);
+
   Status ChangeEncryptionInfo(const ChangeEncryptionInfoRequestPB* req,
-                                      ChangeEncryptionInfoResponsePB* resp) override;
+                              ChangeEncryptionInfoResponsePB* resp) override;
 
   Status UpdateXClusterConsumerOnTabletSplit(
       const TableId& consumer_table_id, const SplitTabletIds& split_tablet_ids) override;
@@ -196,12 +201,22 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
                                                UpdateConsumerOnProducerSplitResponsePB* resp,
                                                rpc::RpcContext* rpc);
 
+  // On a producer side metadata change, halts replication until Consumer applies the Meta change.
+  Status UpdateConsumerOnProducerMetadata(const UpdateConsumerOnProducerMetadataRequestPB* req,
+                                          UpdateConsumerOnProducerMetadataResponsePB* resp,
+                                          rpc::RpcContext* rpc);
+  //
   // Wait for replication to drain on CDC streams.
   typedef std::pair<CDCStreamId, TabletId> StreamTabletIdPair;
   typedef boost::hash<StreamTabletIdPair> StreamTabletIdHash;
   Status WaitForReplicationDrain(const WaitForReplicationDrainRequestPB* req,
                                          WaitForReplicationDrainResponsePB* resp,
                                          rpc::RpcContext* rpc);
+
+  // Setup Universe Replication for an entire producer namespace.
+  Status SetupNSUniverseReplication(const SetupNSUniverseReplicationRequestPB* req,
+                                    SetupNSUniverseReplicationResponsePB* resp,
+                                    rpc::RpcContext* rpc);
 
   // Find all the CDC streams that have been marked as DELETED.
   Status FindCDCStreamsMarkedAsDeleting(std::vector<scoped_refptr<CDCStreamInfo>>* streams);
@@ -239,6 +254,11 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
 
   bool IsTablePartOfBootstrappingCdcStream(const TableInfo& table_info) const override;
 
+  Status ValidateNewSchemaWithCdc(const TableInfo& table_info, const Schema& new_schema)
+      const override;
+
+  Status ResumeCdcAfterNewSchema(const TableInfo& table_info) override;
+
   tablet::SnapshotCoordinator& snapshot_coordinator() override {
     return snapshot_coordinator_;
   }
@@ -256,6 +276,14 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
   void StartXClusterParentTabletDeletionTaskIfStopped();
 
   void ScheduleXClusterParentTabletDeletionTask();
+
+  void ScheduleXClusterNSReplicationAddTableTask();
+  Result<scoped_refptr<TableInfo>> GetTableById(const TableId& table_id) const override;
+
+  void AddPendingBackFill(const TableId& id) override {
+    std::lock_guard<MutexType> lock(backfill_mutex_);
+    pending_backfill_tables_.emplace(id);
+  }
 
  private:
   friend class SnapshotLoader;
@@ -414,6 +442,8 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
 
   int64_t LeaderTerm() override;
 
+  Result<bool> IsTableUndergoingPitrRestore(const TableInfo& table_info) override;
+
   Result<bool> IsTablePartOfSomeSnapshotSchedule(const TableInfo& table_info) override;
 
   Result<SnapshotSchedulesToObjectIdsMap> MakeSnapshotSchedulesToObjectIdsMap(
@@ -515,7 +545,7 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
   bool IsTableCdcProducer(const TableInfo& table_info) const override REQUIRES_SHARED(mutex_);
 
   // Checks if the table is a consumer in an xCluster replication universe.
-  bool IsTableCdcConsumer(const TableInfo& table_info) const REQUIRES_SHARED(mutex_);
+  bool IsTableCdcConsumer(const TableInfo& table_info) const override REQUIRES_SHARED(mutex_);
 
   // Maps producer universe id to the corresponding cdc stream for that table.
   typedef std::unordered_map<std::string, CDCStreamId> XClusterConsumerTableStreamInfoMap;
@@ -531,6 +561,12 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
                                                const TableId& producer_table,
                                                const std::unordered_map<TableId, std::string>&
                                                  table_bootstrap_ids);
+
+  // Check if bootstrapping is required for a table.
+  Status IsTableBootstrapRequired(const TableId& table_id,
+                                  const CDCStreamId& stream_id,
+                                  CoarseTimePoint deadline,
+                                  bool* const bootstrap_required);
 
   // Get the set of CDC streams for a given table, or an empty set if this is not a producer.
   std::unordered_set<CDCStreamId> GetCdcStreamsForProducerTable(const TableId& table_id) const;
@@ -626,6 +662,35 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
 
   // True when the cluster is a producer of a valid replication stream.
   std::atomic<bool> cdc_enabled_{false};
+
+  // Metadata on namespace-level replication setup. Map producer ID -> metadata.
+  struct NSReplicationInfo {
+    // Until after this time, no additional add table task will be scheduled.
+    // Actively modified by the background thread.
+    CoarseTimePoint next_add_table_task_time = CoarseTimePoint::max();
+    int num_accumulated_errors;
+  };
+  std::unordered_map<std::string, NSReplicationInfo> namespace_replication_map_ GUARDED_BY(mutex_);
+
+  void XClusterAddTableToNSReplication(string universe_id, CoarseTimePoint deadline);
+
+  // Find the list of producer table IDs that can be added to the current NS-level replication.
+  Status XClusterNSReplicationSyncWithProducer(scoped_refptr<UniverseReplicationInfo> universe,
+                                               std::vector<TableId>* producer_tables_to_add,
+                                               bool* has_non_replicated_consumer_table);
+
+  // Compute the list of producer table IDs that have a name-matching consumer table.
+  Result<std::vector<TableId>> XClusterFindProducerConsumerOverlap(
+      std::shared_ptr<CDCRpcTasks> producer_cdc_rpc,
+      NamespaceIdentifierPB* producer_namespace,
+      NamespaceIdentifierPB* consumer_namespace,
+      size_t* num_non_matched_consumer_tables);
+
+  // True when the cluster is a consumer of a NS-level replication stream.
+  std::atomic<bool> namespace_replication_enabled_{false};
+
+  Status WaitForSetupUniverseReplicationToFinish(const string& producer_uuid,
+                                                 CoarseTimePoint deadline);
 
   DISALLOW_COPY_AND_ASSIGN(CatalogManager);
 };

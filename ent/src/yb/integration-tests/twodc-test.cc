@@ -58,12 +58,13 @@
 #include "yb/server/hybrid_clock.h"
 #include "yb/tablet/tablet.h"
 #include "yb/tablet/tablet_peer.h"
+#include "yb/tserver/cdc_consumer.h"
+#include "yb/tserver/cdc_poller.h"
 #include "yb/tserver/mini_tablet_server.h"
 #include "yb/tserver/tablet_server.h"
 #include "yb/tserver/ts_tablet_manager.h"
 #include "yb/tserver/tserver_service.pb.h"
 
-#include "yb/tserver/cdc_consumer.h"
 #include "yb/util/atomic.h"
 #include "yb/util/faststring.h"
 #include "yb/util/metrics.h"
@@ -95,6 +96,10 @@ DECLARE_int32(transaction_table_num_tablets);
 DECLARE_bool(enable_replicate_transaction_status_table);
 DECLARE_bool(TEST_block_get_changes);
 DECLARE_bool(TEST_hang_wait_replication_drain);
+DECLARE_int32(ns_replication_sync_retry_secs);
+DECLARE_int32(ns_replication_sync_backoff_secs);
+DECLARE_bool(xcluster_wait_on_ddl_alter);
+
 namespace yb {
 
 using client::YBClient;
@@ -861,6 +866,7 @@ TEST_P(TwoDCTest, BootstrapAndSetupLargeTableCount) {
 
   // Create a medium, then large number of tables to test the performance of our CLI commands.
   int amplification[2] = {1, 5};
+  MonoDelta is_bootstrap_required_latency[2];
   MonoDelta bootstrap_latency[2];
   MonoDelta setup_latency[2];
   std::string table_prefix = "stress_table_";
@@ -884,6 +890,35 @@ TEST_P(TwoDCTest, BootstrapAndSetupLargeTableCount) {
       // Add delays to all rpc calls to simulate live environment and ensure the test is IO bound.
       FLAGS_TEST_yb_inbound_big_calls_parse_delay_ms = rpc_delay_ms;
       FLAGS_rpc_throttle_threshold_bytes = 200;
+
+      // Performance test of IsBootstrapRequired.
+      {
+        auto start_time = CoarseMonoClock::Now();
+
+        auto master_proxy = std::make_shared<master::MasterReplicationProxy>(
+            &producer_client()->proxy_cache(),
+            ASSERT_RESULT(producer_cluster()->GetLeaderMiniMaster())->bound_rpc_addr());
+
+        master::IsBootstrapRequiredRequestPB req;
+        master::IsBootstrapRequiredResponsePB resp;
+        for (const auto& producer_table : producer_tables) {
+          req.add_table_ids(producer_table->id());
+        }
+        rpc::RpcController rpc;
+        rpc.set_timeout(MonoDelta::FromSeconds(kRpcTimeout));
+
+        ASSERT_OK(master_proxy->IsBootstrapRequired(req, &resp, &rpc));
+        SCOPED_TRACE(resp.DebugString());
+        ASSERT_FALSE(resp.has_error());
+        ASSERT_EQ(resp.results_size(), producer_tables.size());
+        for (const auto& result : resp.results()) {
+          ASSERT_TRUE(result.has_bootstrap_required() && !result.bootstrap_required());
+        }
+
+        is_bootstrap_required_latency[a] = CoarseMonoClock::Now() - start_time;
+        LOG(INFO) << "IsBootstrapRequired [" << a << "] took: "
+                  << is_bootstrap_required_latency[a].ToSeconds() << "s";
+      }
 
       // Performance test of BootstrapProducer.
       cdc::BootstrapProducerResponsePB boot_resp;
@@ -2051,6 +2086,236 @@ TEST_P(TwoDCTest, TestProducerUniverseExpansion) {
   ASSERT_OK(VerifyWrittenRecords(tables[0]->name(), tables[1]->name()));
 }
 
+TEST_P(TwoDCTest, TestAlterDDLBasic) {
+  FLAGS_xcluster_wait_on_ddl_alter = true;
+
+  uint32_t replication_factor = 1;
+  // Use just one tablet here to more easily catch lower-level write issues with this test.
+  auto tables = ASSERT_RESULT(SetUpWithParams({1}, {1}, replication_factor));
+
+  std::vector<std::shared_ptr<client::YBTable>> producer_tables;
+  // tables contains both producer and consumer universe tables (alternately).
+  // Pick out just the producer table from the list.
+  producer_tables.reserve(1);
+  producer_tables.push_back(tables[0]);
+  ASSERT_OK(SetupUniverseReplication(
+      producer_cluster(), consumer_cluster(), consumer_client(), kUniverseId, producer_tables));
+
+  // After creating the cluster, make sure all producer tablets are being polled for.
+  ASSERT_OK(CorrectlyPollingAllTablets(consumer_cluster(), 1));
+
+  WriteWorkload(0, 5, producer_client(), tables[0]->name());
+
+  // Verify that both clusters have the same records.
+  ASSERT_OK(VerifyWrittenRecords(tables[0]->name(), tables[1]->name()));
+
+  // Alter the CQL Table on the Producer to Add a New Column.
+  LOG(INFO) << "Alter the Producer.";
+  {
+    std::unique_ptr<YBTableAlterer> table_alterer(producer_client()->
+                                                  NewTableAlterer(tables[0]->name()));
+    table_alterer->AddColumn("contact_name")->Type(STRING);
+    ASSERT_OK(table_alterer->Alter());
+  }
+
+  // Write some data with the New Schema on the Producer.
+  {
+    auto session = producer_client()->NewSession();
+    client::TableHandle table_handle;
+    ASSERT_OK(table_handle.Open(tables[0]->name(), producer_client()));
+    std::vector<std::shared_ptr<client::YBqlOp>> ops;
+    uint32_t start = 5, end = 10;
+
+    LOG(INFO) << "Writing " << end - start << " inserts";
+    for (uint32_t i = start; i < end; i++) {
+      auto op = table_handle.NewInsertOp();
+      auto req = op->mutable_request();
+      QLAddInt32HashValue(req, i);
+      table_handle.AddStringColumnValue(req, "contact_name", "YugaByte");
+      ASSERT_OK(session->TEST_ApplyAndFlush(op));
+    }
+  }
+
+  // Verify that the Consumer doesn't have new data even though it has the pending_schema/ALTER.
+  LOG(INFO) << "Verify that Consumer doesn't have inserts.";
+  {
+    ASSERT_OK(WaitFor([&]() -> Result<bool> {
+      master::SysClusterConfigEntryPB cluster_info;
+      auto& cm = VERIFY_RESULT(consumer_cluster()->GetLeaderMiniMaster())->catalog_manager();
+      RETURN_NOT_OK(cm.GetClusterConfig(&cluster_info));
+      auto& producer_map = cluster_info.consumer_registry().producer_map();
+      auto producer_entry = FindOrNull(producer_map, kUniverseId);
+      if (producer_entry) {
+        CHECK_EQ(producer_entry->stream_map().size(), 1);
+        auto& stream_entry = producer_entry->stream_map().begin()->second;
+        return (stream_entry.has_producer_schema() &&
+            stream_entry.producer_schema().has_pending_schema());
+      }
+      return false;
+    }, MonoDelta::FromSeconds(20), "IsConsumerHaltedOnDDL"));
+
+    auto producer_results = ScanToStrings(tables[0]->name(), producer_client());
+    auto consumer_results = ScanToStrings(tables[1]->name(), consumer_client());
+    ASSERT_EQ(producer_results.size(), 10);
+    ASSERT_EQ(consumer_results.size(), 5);
+  }
+
+  // Alter the CQL Table on the Consumer next to match.
+  LOG(INFO) << "Alter the Consumer.";
+  {
+    std::unique_ptr<YBTableAlterer> table_alterer(consumer_client()->
+                                                  NewTableAlterer(tables[1]->name()));
+    table_alterer->AddColumn("contact_name")->Type(STRING);
+    ASSERT_OK(table_alterer->Alter());
+  }
+
+  // Verify that the Producer data is now sent over.
+  LOG(INFO) << "Verify matching records.";
+  ASSERT_OK(VerifyWrittenRecords(tables[0]->name(), tables[1]->name()));
+
+  // Stop replication on the Consumer.
+  ASSERT_OK(DeleteUniverseReplication(kUniverseId));
+}
+
+TEST_P(TwoDCTest, TestAlterDDLWithRestarts) {
+  FLAGS_xcluster_wait_on_ddl_alter = true;
+
+  uint32_t replication_factor = 3;
+  auto tables = ASSERT_RESULT(SetUpWithParams({1}, {1}, replication_factor, 2, 3));
+
+  std::vector<std::shared_ptr<client::YBTable>> producer_tables = {tables[0]};
+  ASSERT_OK(SetupUniverseReplication(
+      producer_cluster(), consumer_cluster(), consumer_client(), kUniverseId, producer_tables));
+
+  // After creating the cluster, make sure all producer tablets are being polled for.
+  ASSERT_OK(CorrectlyPollingAllTablets(consumer_cluster(), 1));
+
+  WriteWorkload(0, 5, producer_client(), tables[0]->name());
+
+  // Check that all tablets continue to be polled for.
+  ASSERT_OK(CorrectlyPollingAllTablets(consumer_cluster(), 1));
+
+  // Verify that both clusters have the same records.
+  ASSERT_OK(VerifyWrittenRecords(tables[0]->name(), tables[1]->name()));
+
+  // Alter the CQL Table on the Producer to Add a New Column.
+  LOG(INFO) << "Alter the Producer.";
+  {
+    std::unique_ptr<YBTableAlterer> table_alterer(
+        producer_client()->NewTableAlterer(tables[0]->name()));
+    table_alterer->AddColumn("contact_name")->Type(STRING);
+    ASSERT_OK(table_alterer->Alter());
+  }
+
+  // Write some data with the New Schema on the Producer.
+  {
+    auto session = producer_client()->NewSession();
+    client::TableHandle table_handle;
+    ASSERT_OK(table_handle.Open(tables[0]->name(), producer_client()));
+    std::vector<std::shared_ptr<client::YBqlOp>> ops;
+    uint32_t start = 5, end = 10;
+
+    LOG(INFO) << "Writing " << end - start << " inserts";
+    for (uint32_t i = start; i < end; i++) {
+      auto op = table_handle.NewInsertOp();
+      auto req = op->mutable_request();
+      QLAddInt32HashValue(req, i);
+      table_handle.AddStringColumnValue(req, "contact_name", "YugaByte");
+      ASSERT_OK(session->TEST_ApplyAndFlush(op));
+    }
+  }
+
+  // Verify that the Consumer doesn't have new data even though it has the pending_schema/ALTER.
+  LOG(INFO) << "Verify that Consumer doesn't have inserts (before restart).";
+  {
+    ASSERT_OK(WaitFor([&]() -> Result<bool> {
+      master::SysClusterConfigEntryPB cluster_info;
+      auto& cm = VERIFY_RESULT(consumer_cluster()->GetLeaderMiniMaster())->catalog_manager();
+      RETURN_NOT_OK(cm.GetClusterConfig(&cluster_info));
+      auto& producer_map = cluster_info.consumer_registry().producer_map();
+      auto producer_entry = FindOrNull(producer_map, kUniverseId);
+      if (producer_entry) {
+        CHECK_EQ(producer_entry->stream_map().size(), 1);
+        auto& stream_entry = producer_entry->stream_map().begin()->second;
+        return (stream_entry.has_producer_schema() &&
+            stream_entry.producer_schema().has_pending_schema());
+      }
+      return false;
+    }, MonoDelta::FromSeconds(20), "IsConsumerHaltedOnDDL"));
+
+    auto producer_results = ScanToStrings(tables[0]->name(), producer_client());
+    auto consumer_results = ScanToStrings(tables[1]->name(), consumer_client());
+    ASSERT_EQ(producer_results.size(), 10);
+    ASSERT_EQ(consumer_results.size(), 5);
+  }
+
+  // Shutdown the Consumer TServer that contains the tablet leader.  Verify balance to new server.
+  {
+    auto tablet_ids = ListTabletIdsForTable(consumer_cluster(), tables[1]->id());
+    ASSERT_EQ(tablet_ids.size(), 1);
+    auto old_ts = FindTabletLeader(consumer_cluster(), *tablet_ids.begin());
+    old_ts->Shutdown();
+    const MonoTime deadline = MonoTime::Now() + 10s * kTimeMultiplier;
+    ASSERT_OK(WaitUntilTabletHasLeader(consumer_cluster(), *tablet_ids.begin(), deadline));
+    decltype(old_ts) new_ts = nullptr;
+    ASSERT_OK(WaitFor([&]() -> Result<bool> {
+      new_ts = FindTabletLeader(consumer_cluster(), *tablet_ids.begin());
+      return new_ts != nullptr;
+    }, MonoDelta::FromSeconds(10), "FindTabletLeader"));
+    ASSERT_NE(old_ts, new_ts);
+
+    // Verify that the new Consumer poller had read the ALTER DDL and stopped polling.
+    auto* tserver = dynamic_cast<tserver::enterprise::TabletServer*>(new_ts->server());
+    CDCConsumer* cdc_consumer;
+    ASSERT_TRUE(tserver && (cdc_consumer = tserver->GetCDCConsumer()));
+    ASSERT_OK(LoggedWaitFor([&]() -> Result<bool> {
+      auto pollers = tserver->GetCDCConsumer()->TEST_ListPollers();
+      return pollers.size() == 1 && !pollers[0]->IsPolling();
+    }, MonoDelta::FromSeconds(10), "ConsumerNotPolling"));
+  }
+
+  // Verify that the new Consumer TServer is in the same state as before.
+  LOG(INFO) << "Verify that Consumer doesn't have inserts (after restart).";
+  {
+    ASSERT_OK(WaitFor([&]() -> Result<bool> {
+      master::SysClusterConfigEntryPB cluster_info;
+      auto& cm = VERIFY_RESULT(consumer_cluster()->GetLeaderMiniMaster())->catalog_manager();
+      RETURN_NOT_OK(cm.GetClusterConfig(&cluster_info));
+      auto& producer_map = cluster_info.consumer_registry().producer_map();
+      auto producer_entry = FindOrNull(producer_map, kUniverseId);
+      if (producer_entry) {
+        CHECK_EQ(producer_entry->stream_map().size(), 1);
+        auto& stream_entry = producer_entry->stream_map().begin()->second;
+        return stream_entry.has_producer_schema() &&
+               stream_entry.producer_schema().has_pending_schema();
+      }
+      return false;
+    }, MonoDelta::FromSeconds(20), "IsConsumerHaltedOnDDL"));
+
+    auto producer_results = ScanToStrings(tables[0]->name(), producer_client());
+    auto consumer_results = ScanToStrings(tables[1]->name(), consumer_client());
+    ASSERT_EQ(producer_results.size(), 10);
+    ASSERT_EQ(consumer_results.size(), 5);
+  }
+
+  // Alter the CQL Table on the Consumer next to match.
+  LOG(INFO) << "Alter the Consumer.";
+  {
+    std::unique_ptr<YBTableAlterer> table_alterer(consumer_client()->
+        NewTableAlterer(tables[1]->name()));
+    table_alterer->AddColumn("contact_name")->Type(STRING);
+    ASSERT_OK(table_alterer->Alter());
+  }
+
+  // Verify that the Producer data is now sent over.
+  LOG(INFO) << "Verify matching records.";
+  ASSERT_OK(VerifyWrittenRecords(tables[0]->name(), tables[1]->name()));
+
+  // Stop replication on the Consumer.
+  ASSERT_OK(DeleteUniverseReplication(kUniverseId));
+}
+
+
 TEST_P(TwoDCTest, ApplyOperationsRandomFailures) {
   SetAtomicFlag(0.25, &FLAGS_TEST_respond_write_failed_probability);
 
@@ -2623,6 +2888,164 @@ TEST_P(TwoDCTest, DeleteTableChecksCQL) {
     ASSERT_OK(producer_client()->DeleteTable(producer_table_id));
     ASSERT_OK(consumer_client()->DeleteTable(consumer_table_id));
   }
+}
+
+TEST_P(TwoDCTest, SetupNSUniverseReplicationExtraConsumerTables) {
+  // Initial setup: create 2 tables on each side.
+  constexpr int kNTabletsPerTable = 3;
+  std::vector<uint32_t> table_vector = {kNTabletsPerTable, kNTabletsPerTable};
+  auto tables = ASSERT_RESULT(SetUpWithParams(table_vector, table_vector, 1));
+  std::vector<std::shared_ptr<client::YBTable>> producer_tables;
+  std::vector<std::shared_ptr<client::YBTable>> consumer_tables;
+  producer_tables.reserve(4);
+  consumer_tables.reserve(4);
+  for (size_t i = 0; i < tables.size(); i++) {
+    if (i % 2 == 0) {
+      producer_tables.push_back(tables[i]);
+    } else {
+      consumer_tables.push_back(tables[i]);
+    }
+  }
+
+  // Create 2 more consumer tables.
+  for (int i = 2; i < 4; i++) {
+    auto t = ASSERT_RESULT(CreateTable(
+        consumer_client(), kNamespaceName, Format("test_table_$0", i), kNTabletsPerTable));
+    consumer_tables.push_back({});
+    ASSERT_OK(consumer_client()->OpenTable(t, &consumer_tables.back()));
+  }
+
+  // Setup NS universe replication. Only the first 2 consumer tables will be replicated.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ns_replication_sync_retry_secs) = 1;
+  ASSERT_OK(SetupNSUniverseReplication(
+      producer_cluster(), consumer_cluster(), consumer_client(),
+      kUniverseId, kNamespaceName, YQLDatabase::YQL_DATABASE_CQL));
+  ASSERT_OK(VerifyNSUniverseReplication(
+      consumer_cluster(), consumer_client(),
+      kUniverseId, narrow_cast<int>(producer_tables.size())));
+
+  // Create the additional 2 tables on producer. Verify that they are added automatically.
+  for (int i = 2; i < 4; i++) {
+    auto t = ASSERT_RESULT(CreateTable(
+        producer_client(), kNamespaceName, Format("test_table_$0", i), kNTabletsPerTable));
+    producer_tables.push_back({});
+    ASSERT_OK(producer_client()->OpenTable(t, &producer_tables.back()));
+  }
+  ASSERT_OK(VerifyNSUniverseReplication(
+      consumer_cluster(), consumer_client(),
+      kUniverseId, narrow_cast<int>(consumer_tables.size())));
+
+  // Write some data and verify replication.
+  for (size_t i = 0; i < producer_tables.size(); i++) {
+    const auto& producer_table = producer_tables[i];
+    const auto& consumer_table = consumer_tables[i];
+    LOG(INFO) << "Writing records for table " << producer_table->name().ToString();
+    WriteWorkload(0, narrow_cast<int>(10 * (i + 1)), producer_client(), producer_table->name());
+    ASSERT_OK(VerifyWrittenRecords(producer_table->name(), consumer_table->name()));
+  }
+  ASSERT_OK(DeleteUniverseReplication(kUniverseId));
+}
+
+TEST_P(TwoDCTest, SetupNSUniverseReplicationExtraProducerTables) {
+  // Initial setup: create 2 tables on each side.
+  constexpr int kNTabletsPerTable = 3;
+  std::vector<uint32_t> table_vector = {kNTabletsPerTable, kNTabletsPerTable};
+  auto tables = ASSERT_RESULT(SetUpWithParams(table_vector, table_vector, 1));
+  std::vector<std::shared_ptr<client::YBTable>> producer_tables;
+  std::vector<std::shared_ptr<client::YBTable>> consumer_tables;
+  producer_tables.reserve(4);
+  consumer_tables.reserve(4);
+  for (size_t i = 0; i < tables.size(); i++) {
+    if (i % 2 == 0) {
+      producer_tables.push_back(tables[i]);
+    } else {
+      consumer_tables.push_back(tables[i]);
+    }
+  }
+
+  // Create 2 more producer tables.
+  for (int i = 2; i < 4; i++) {
+    auto t = ASSERT_RESULT(CreateTable(
+        producer_client(), kNamespaceName, Format("test_table_$0", i), kNTabletsPerTable));
+    producer_tables.push_back({});
+    ASSERT_OK(producer_client()->OpenTable(t, &producer_tables.back()));
+  }
+
+  // Setup NS universe replication. Only the first 2 producer tables will be replicated.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ns_replication_sync_backoff_secs) = 1;
+  ASSERT_OK(SetupNSUniverseReplication(
+      producer_cluster(), consumer_cluster(), consumer_client(),
+      kUniverseId, kNamespaceName, YQLDatabase::YQL_DATABASE_CQL));
+  ASSERT_OK(VerifyNSUniverseReplication(
+      consumer_cluster(), consumer_client(),
+      kUniverseId, narrow_cast<int>(consumer_tables.size())));
+
+  // Create the additional 2 tables on consumer. Verify that they are added automatically.
+  for (int i = 2; i < 4; i++) {
+    auto t = ASSERT_RESULT(CreateTable(
+        consumer_client(), kNamespaceName, Format("test_table_$0", i), kNTabletsPerTable));
+    consumer_tables.push_back({});
+    ASSERT_OK(consumer_client()->OpenTable(t, &consumer_tables.back()));
+  }
+  ASSERT_OK(VerifyNSUniverseReplication(
+      consumer_cluster(), consumer_client(),
+      kUniverseId, narrow_cast<int>(producer_tables.size())));
+
+  // Write some data and verify replication.
+  for (size_t i = 0; i < producer_tables.size(); i++) {
+    const auto& producer_table = producer_tables[i];
+    const auto& consumer_table = consumer_tables[i];
+    LOG(INFO) << "Writing records for table " << producer_table->name().ToString();
+    WriteWorkload(0, narrow_cast<int>(10 * (i + 1)), producer_client(), producer_table->name());
+    ASSERT_OK(VerifyWrittenRecords(producer_table->name(), consumer_table->name()));
+  }
+  ASSERT_OK(DeleteUniverseReplication(kUniverseId));
+}
+
+TEST_P(TwoDCTest, SetupNSUniverseReplicationTwoNamespace) {
+  // Create 2 tables in one namespace.
+  constexpr int kNTabletsPerTable = 1;
+  std::vector<uint32_t> table_vector = {kNTabletsPerTable, kNTabletsPerTable};
+  auto tables = ASSERT_RESULT(SetUpWithParams(table_vector, table_vector, 1));
+
+  // Create 2 tables in another namespace.
+  string kNamespaceName2 = "test_namespace_2";
+  std::vector<std::shared_ptr<client::YBTable>> producer_tables;
+  std::vector<std::shared_ptr<client::YBTable>> consumer_tables;
+  producer_tables.reserve(2);
+  consumer_tables.reserve(2);
+  for (int i = 0; i < 2; i++) {
+    auto ptable = ASSERT_RESULT(CreateTable(
+        producer_client(), kNamespaceName2, Format("test_table_$0", i), kNTabletsPerTable));
+    producer_tables.push_back({});
+    ASSERT_OK(producer_client()->OpenTable(ptable, &producer_tables.back()));
+
+    auto ctable = ASSERT_RESULT(CreateTable(
+        consumer_client(), kNamespaceName2, Format("test_table_$0", i), kNTabletsPerTable));
+    consumer_tables.push_back({});
+    ASSERT_OK(consumer_client()->OpenTable(ctable, &consumer_tables.back()));
+  }
+
+  // Setup NS universe replication for the second namespace. Verify that the tables under the
+  // first namespace will not be added to the replication.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ns_replication_sync_backoff_secs) = 1;
+  ASSERT_OK(SetupNSUniverseReplication(
+      producer_cluster(), consumer_cluster(), consumer_client(),
+      kUniverseId, kNamespaceName2, YQLDatabase::YQL_DATABASE_CQL));
+  SleepFor(MonoDelta::FromSeconds(5)); // Let the bg thread run a few times.
+  ASSERT_OK(VerifyNSUniverseReplication(
+      consumer_cluster(), consumer_client(),
+      kUniverseId, narrow_cast<int>(producer_tables.size())));
+
+  // Write some data and verify replication.
+  for (size_t i = 0; i < producer_tables.size(); i++) {
+    const auto& producer_table = producer_tables[i];
+    const auto& consumer_table = consumer_tables[i];
+    LOG(INFO) << "Writing records for table " << producer_table->name().ToString();
+    WriteWorkload(0, narrow_cast<int>(10 * (i + 1)), producer_client(), producer_table->name());
+    ASSERT_OK(VerifyWrittenRecords(producer_table->name(), consumer_table->name()));
+  }
+  ASSERT_OK(DeleteUniverseReplication(kUniverseId));
 }
 
 class TwoDCTestWaitForReplicationDrain : public TwoDCTest {

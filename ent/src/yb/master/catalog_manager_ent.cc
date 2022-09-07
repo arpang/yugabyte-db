@@ -133,8 +133,10 @@ TAG_FLAG(enable_transaction_snapshots, runtime);
 DEFINE_test_flag(bool, disable_cdc_state_insert_on_setup, false,
                  "Disable inserting new entries into cdc state as part of the setup flow.");
 
+DECLARE_bool(xcluster_wait_on_ddl_alter);
+
 DEFINE_bool(allow_consecutive_restore, true,
-            "Is it allowed to restore to a time before the last restoration was done.");
+            "DEPRECATED. Has no effect, use ForwardRestoreCheck to disallow any forward restores.");
 TAG_FLAG(allow_consecutive_restore, runtime);
 
 DEFINE_bool(check_bootstrap_required, false,
@@ -167,6 +169,15 @@ DEFINE_test_flag(bool, hang_wait_replication_drain, false,
                  "Used in tests to temporarily block WaitForReplicationDrain.");
 DEFINE_test_flag(bool, import_snapshot_failed, false,
                  "Return a error from ImportSnapshotMeta RPC for testing the RPC failure.");
+DEFINE_int32(ns_replication_sync_retry_secs, 5,
+             "Frequency at which the bg task will try to sync with producer and add tables to "
+             "the current NS-level replication, when there are non-replicated consumer tables.");
+DEFINE_int32(ns_replication_sync_backoff_secs, 60,
+             "Frequency of the add table task for a NS-level replication, when there are no "
+             "non-replicated consumer tables.");
+DEFINE_int32(ns_replication_sync_error_backoff_secs, 300,
+             "Frequency of the add table task for a NS-level replication, when there are too "
+             "many consecutive errors happening for the replication.");
 
 DEFINE_uint64(import_snapshot_max_concurrent_create_table_requests, 20,
              "Maximum number of create table requests to the master that can be outstanding "
@@ -397,6 +408,17 @@ class UniverseReplicationLoader : public Visitor<PersistentUniverseReplicationIn
           l->pb.state() == SysUniverseReplicationEntryPB::DELETING ||
           cdc::IsAlterReplicationUniverseId(l->pb.producer_id())) {
         catalog_manager_->universes_to_clear_.push_back(ri->id());
+      }
+
+      // Check if this is a namespace-level replication.
+      if (l->pb.has_is_ns_replication() && l->pb.is_ns_replication()) {
+        DCHECK(!ContainsKey(catalog_manager_->namespace_replication_map_, producer_id))
+            << "Duplicated namespace-level replication producer universe:" << producer_id;
+        catalog_manager_->namespace_replication_enabled_.store(true, std::memory_order_release);
+
+        // Force the consumer to sync with producer immediately.
+        auto& metadata = catalog_manager_->namespace_replication_map_[producer_id];
+        metadata.next_add_table_task_time = CoarseMonoClock::Now();
       }
 
       l.Commit();
@@ -815,10 +837,8 @@ Status CatalogManager::ListSnapshots(const ListSnapshotsRequestPB* req,
         InvalidArgument, "Request must have correct snapshot_id", (req->has_snapshot_id() ?
         req->snapshot_id() : "None"), MasterError(MasterErrorPB::SNAPSHOT_FAILED));
   }
-
   RETURN_NOT_OK(snapshot_coordinator_.ListSnapshots(
-      txn_snapshot_id, req->list_deleted_snapshots(), resp));
-
+      txn_snapshot_id, req->list_deleted_snapshots(), req->detail_options(), resp));
   if (req->prepare_for_backup()) {
     RETURN_NOT_OK(RepackSnapshotsForBackup(resp));
   }
@@ -3057,6 +3077,16 @@ Status CatalogManager::DeleteSnapshotSchedule(const DeleteSnapshotScheduleReques
       snapshot_schedule_id, leader_ready_term(), rpc->GetClientDeadline());
 }
 
+Status CatalogManager::EditSnapshotSchedule(
+    const EditSnapshotScheduleRequestPB* req,
+    EditSnapshotScheduleResponsePB* resp,
+    rpc::RpcContext* rpc) {
+  auto id = TryFullyDecodeSnapshotScheduleId(req->snapshot_schedule_id());
+  *resp->mutable_schedule() = VERIFY_RESULT(snapshot_coordinator_.EditSnapshotSchedule(
+      id, *req, leader_ready_term(), rpc->GetClientDeadline()));
+  return Status::OK();
+}
+
 void CatalogManager::DumpState(std::ostream* out, bool on_disk_dump) const {
   super::DumpState(out, on_disk_dump);
 
@@ -3272,7 +3302,8 @@ std::vector<scoped_refptr<CDCStreamInfo>> CatalogManager::FindCDCStreamsForTable
     auto ltm = entry.second->LockForRead();
     uint32_t table_list_size = ltm->table_id().size();
     for (uint32_t i = 0; i < table_list_size; i++) {
-      if (ltm->table_id().Get(i) == table_id && !ltm->is_deleting_metadata()) {
+      if (ltm->table_id().Get(i) == table_id && !ltm->is_deleting_metadata() &&
+          !ltm->namespace_id().empty()) {
         streams.push_back(entry.second);
       }
     }
@@ -3477,6 +3508,14 @@ Status CatalogManager::CreateCDCStream(const CreateCDCStreamRequestPB* req,
         cdc_table.AddStringColumnValue(req, master::kCdcCheckpoint, OpId().ToString());
         cdc_table.AddTimestampColumnValue(
             req, master::kCdcLastReplicationTime, GetCurrentTimeMicros());
+
+        if (id_type_option_value == cdc::kNamespaceId) {
+          // For cdcsdk cases, we also need to persist last_active_time in the 'cdc_state' table. We
+          // will store this info in the map in the 'kCdcData' column.
+          auto column_id = cdc_table.ColumnId(master::kCdcData);
+          cdc_table.AddMapColumnValue(req, column_id, "active_time", "0");
+        }
+
         session->Apply(op);
       }
       // TODO(async_flush): https://github.com/yugabyte/yugabyte-db/issues/12173
@@ -3821,72 +3860,76 @@ Status CatalogManager::CleanUpDeletedCDCStreams(
 
   // First. For each deleted stream, delete the cdc state rows.
   // Delete all the entries in cdc_state table that contain all the deleted cdc streams.
-  client::TableHandle cdc_table;
-  const client::YBTableName cdc_state_table_name(
-      YQL_DATABASE_CQL, master::kSystemNamespaceName, master::kCdcStateTableName);
-  Status s = cdc_table.Open(cdc_state_table_name, ybclient);
-  if (!s.ok()) {
-    LOG(WARNING) << "Unable to open table " << master::kCdcStateTableName
-                 << " to delete stream ids entries: " << s;
-    return s.CloneAndPrepend("Unable to open cdc_state table");
+
+  // We only want to iterate through cdc_state once, so create a map here to efficiently check if
+  // a row belongs to a stream that should be deleted.
+  std::unordered_map<CDCStreamId, CDCStreamInfo*> stream_id_to_stream_info_map;
+  for (const auto& stream : streams) {
+    stream_id_to_stream_info_map.emplace(stream->id(), stream.get());
   }
+
+  std::shared_ptr<yb::client::TableHandle> cdc_table = VERIFY_RESULT(GetCDCStateTable());
+  client::TableIteratorOptions options;
+  Status failure_status;
+  options.error_handler = [&failure_status](const Status& status) {
+    LOG(WARNING) << "Scan of table failed: " << status;
+    failure_status = status;
+  };
+  options.columns = std::vector<std::string>{master::kCdcTabletId, master::kCdcStreamId};
 
   std::shared_ptr<client::YBSession> session = ybclient->NewSession();
   std::vector<std::pair<CDCStreamId, std::shared_ptr<client::YBqlWriteOp>>> stream_ops;
   std::set<CDCStreamId> failed_streams;
-  std::string stream_type;
-  for (const auto& stream : streams) {
-    LOG(INFO) << "Deleting rows for stream " << stream->id();
-    for (const auto& table_id : stream->table_id()) {
-      TabletInfos tablets;
-      scoped_refptr<TableInfo> table;
-      {
-        TRACE("Acquired catalog manager lock");
-        SharedLock lock(mutex_);
-        table = FindPtrOrNull(*table_ids_map_, table_id);
-      }
-      // GetTablets locks lock_ in shared mode.
-      if (table) {
-        tablets = table->GetTablets();
-      }
+  cdc::CDCRequestSource streams_type = cdc::XCLUSTER;
 
-      for (const auto& tablet : tablets) {
-        if (!stream->namespace_id().empty()) {
-          // CDCSDK stream.
-          stream_type = "CDCSDK";
-          const auto update_op = cdc_table.NewUpdateOp();
-          auto* const update_req = update_op->mutable_request();
-          QLAddStringHashValue(update_req, tablet->tablet_id());
-          QLAddStringRangeValue(update_req, stream->id());
-          cdc_table.AddStringColumnValue(
-              update_req, master::kCdcCheckpoint, OpId::Max().ToString());
-          auto* condition = update_req->mutable_if_expr()->mutable_condition();
-          condition->set_op(QL_OP_EXISTS);
-          session->Apply(update_op);
-          LOG(INFO) << "Setting checkpoint to OpId::Max() for stream " << stream->id()
-                    << " and tablet " << tablet->tablet_id() << " with request "
-                    << update_req->ShortDebugString();
-        } else {
-          // XCluster stream.
-          const auto delete_op = cdc_table.NewDeleteOp();
-          auto* delete_req = delete_op->mutable_request();
+  // Remove all entries from cdc_state with the given stream ids.
+  for (const auto& row : client::TableRange(*cdc_table, options)) {
+    auto stream_id = row.column(master::kCdcStreamIdIdx).string_value();
+    auto tablet_id = row.column(master::kCdcTabletIdIdx).string_value();
 
-          QLAddStringHashValue(delete_req, tablet->tablet_id());
-          QLAddStringRangeValue(delete_req, stream->id());
-          session->Apply(delete_op);
-          stream_ops.push_back(std::make_pair(stream->id(), delete_op));
-          LOG(INFO) << "Deleting stream " << stream->id() << " for tablet " << tablet->tablet_id()
-                    << " with request " << delete_req->ShortDebugString();
-        }
+    const auto stream = FindPtrOrNull(stream_id_to_stream_info_map, stream_id);
+    if (stream) {
+      if (!stream->namespace_id().empty()) {
+        // CDCSDK stream.
+        streams_type = cdc::CDCSDK;
+        const auto update_op = cdc_table->NewUpdateOp();
+        auto* const update_req = update_op->mutable_request();
+        QLAddStringHashValue(update_req, tablet_id);
+        QLAddStringRangeValue(update_req, stream->id());
+        cdc_table->AddStringColumnValue(
+            update_req, master::kCdcCheckpoint, OpId::Max().ToString());
+        auto* condition = update_req->mutable_if_expr()->mutable_condition();
+        condition->set_op(QL_OP_EXISTS);
+        session->Apply(update_op);
+        LOG(INFO) << "Setting checkpoint to OpId::Max() for stream " << stream->id()
+                  << " and tablet " << tablet_id << " with request "
+                  << update_req->ShortDebugString();
+      } else {
+        // XCluster stream.
+        const auto delete_op = cdc_table->NewDeleteOp();
+        auto* delete_req = delete_op->mutable_request();
+
+        QLAddStringHashValue(delete_req, tablet_id);
+        QLAddStringRangeValue(delete_req, stream->id());
+        session->Apply(delete_op);
+        stream_ops.push_back(std::make_pair(stream->id(), delete_op));
+        LOG(INFO) << "Deleting stream " << stream->id() << " for tablet " << tablet_id
+                  << " with request " << delete_req->ShortDebugString();
       }
     }
   }
+
+  if (!failure_status.ok()) {
+    return STATUS_FORMAT(
+        IllegalState, "Failed to scan table $0: $1", kCdcStateTableName, failure_status);
+  }
+
   // Flush all the delete operations.
   // TODO(async_flush): https://github.com/yugabyte/yugabyte-db/issues/12173
-  s = session->TEST_Flush();
+  Status s = session->TEST_Flush();
   if (!s.ok()) {
     LOG(ERROR) << "Unable to flush operations to delete cdc streams: " << s;
-    if (stream_type == "CDCSDK") {
+    if (streams_type == cdc::CDCSDK) {
       return s.CloneAndPrepend("Error setting checkpoint to OpId::Max() in cdc_state table");
     } else {
       return s.CloneAndPrepend("Error deleting cdc stream rows from cdc_state table");
@@ -3904,15 +3947,12 @@ Status CatalogManager::CleanUpDeletedCDCStreams(
     }
   }
 
-  // TODO: Read cdc_state table and verify that there are not rows with the specified cdc stream
-  // and keep those in the map in the DELETED state to retry later.
-
   std::vector<CDCStreamInfo::WriteLock> locks;
   locks.reserve(streams.size() - failed_streams.size());
   std::vector<CDCStreamInfo*> streams_to_delete;
   streams_to_delete.reserve(streams.size() - failed_streams.size());
 
-  // Delete from sys catalog only those streams that were successfully delete from cdc_state.
+  // Delete from sys catalog only those streams that were successfully deleted from cdc_state.
   for (auto& stream : streams) {
     if (failed_streams.find(stream->id()) == failed_streams.end()) {
       locks.push_back(stream->LockForWrite());
@@ -4206,55 +4246,56 @@ Status CatalogManager::IsBootstrapRequired(const IsBootstrapRequiredRequestPB* r
   RSTATUS_DCHECK(req->stream_ids_size() == 0 || req->stream_ids_size() == req->table_ids_size(),
                  InvalidArgument, "Stream ID optional, but must match table IDs if specified");
   bool streams_given = req->stream_ids_size() > 0;
+  CoarseTimePoint deadline = rpc->GetClientDeadline();
 
-  std::map<std::shared_ptr<cdc::CDCServiceProxy>, std::list<std::string>> proxy_to_tablet;
+  // To be updated by asynchronous callbacks. All these variables are allocated on the heap
+  // because we could short-circuit and go out of scope while callbacks are still on the fly.
+  auto data_lock = std::make_shared<std::mutex>();
+  auto table_bootstrap_required = std::make_shared<std::unordered_map<TableId, bool>>();
 
-  for (int t = 0; t < req->table_ids_size(); ++t) {
-    // Find out the server : tablet mapping of the given table.
+  // For thread joining. See XClusterAsyncPromiseCallback.
+  auto promise = std::make_shared<std::promise<Status>>();
+  auto future = promise->get_future();
+  auto task_completed = std::make_shared<bool>(false); // Protected by data_lock.
+  auto finished_tasks = std::make_shared<size_t>(0); // Protected by data_lock.
+  size_t total_tasks = req->table_ids_size();
+
+  for (int t = 0; t < req->table_ids_size(); t++) {
     auto table_id = req->table_ids(t);
     auto stream_id = streams_given ? req->stream_ids(t) : "";
-    bool bootstrap_required = false;
-    scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(table_id));
-    RSTATUS_DCHECK(table != nullptr, NotFound, "Table ID not found: " + table_id);
 
-    for (const auto& tablet : table->GetTablets()) {
-      auto ts = VERIFY_RESULT(tablet->GetLeader());
-      std::shared_ptr<cdc::CDCServiceProxy> proxy;
-      RETURN_NOT_OK(ts->GetProxy(&proxy));
-      proxy_to_tablet[proxy].push_back(tablet->id());
-    }
-
-    // Make a batch call for IsBootstrapRequired on every relevant TServer.
-    for (auto& pair : proxy_to_tablet) {
-      cdc::IsBootstrapRequiredRequestPB tablet_req;
-      cdc::IsBootstrapRequiredResponsePB tablet_resp;
-      rpc::RpcController tablet_rpc;
-
-      for (auto& tablet_id : pair.second) {
-        tablet_req.add_tablet_ids(tablet_id);
+    // TODO: Submit the task to a thread pool.
+    // Capture everything by value to increase their refcounts.
+    std::thread async_task([this, table_id, stream_id, deadline, data_lock, task_completed,
+                            table_bootstrap_required, finished_tasks, total_tasks, promise] {
+      bool bootstrap_required = false;
+      auto status = IsTableBootstrapRequired(
+          table_id, stream_id, deadline, &bootstrap_required);
+      std::lock_guard<std::mutex> lock(*data_lock);
+      if (*task_completed) {
+        return; // Prevent calling set_value below twice.
       }
-      if (!stream_id.empty()) {
-        tablet_req.set_stream_id(stream_id);
+      (*table_bootstrap_required)[table_id] = bootstrap_required;
+      if (!status.ok() || ++(*finished_tasks) == total_tasks) {
+        // Short-circuit if error already encountered.
+        *task_completed = true;
+        promise->set_value(status);
       }
-
-      // TODO: Make this call Async to allow for parallelization and perf speedup.
-      auto& cdc_service = pair.first;
-      RETURN_NOT_OK(cdc_service->IsBootstrapRequired(tablet_req, &tablet_resp, &tablet_rpc));
-      if (tablet_resp.has_error()) {
-        RETURN_NOT_OK(StatusFromPB(tablet_resp.error().status()));
-      }
-      if (tablet_resp.bootstrap_required()) {
-        // Short circuit.  We don't need to continue if we we missing data on just one tablet.
-        bootstrap_required = true;
-        break;
-      }
-    }
-
-    auto new_result = resp->add_results();
-    new_result->set_table_id(table_id);
-    new_result->set_bootstrap_required(bootstrap_required);
+    });
+    async_task.detach();
   }
 
+  // Wait until the first promise is raised, and prepare response.
+  if (future.wait_until(deadline) == std::future_status::timeout) {
+    return SetupError(resp->mutable_error(),
+        STATUS(TimedOut, "Timed out waiting for IsTableBootstrapRequired to finish"));
+  }
+  RETURN_NOT_OK(future.get());
+  for (const auto& table_bool : *table_bootstrap_required) {
+    auto new_result = resp->add_results();
+    new_result->set_table_id(table_bool.first);
+    new_result->set_bootstrap_required(table_bool.second);
+  }
   return Status::OK();
 }
 
@@ -4554,9 +4595,8 @@ Status CatalogManager::ValidateTableSchema(
 
   list_req.set_name_filter(info->table_name.table_name());
   Status status = ListTables(&list_req, &list_resp);
-  if (!status.ok() || list_resp.has_error()) {
-    return STATUS(NotFound, Substitute("Error while listing table: $0", status.ToString()));
-  }
+  SCHECK(status.ok() && !list_resp.has_error(), NotFound,
+         Substitute("Error while listing table: $0", status.ToString()));
 
   const auto& source_schema = client::internal::GetSchema(info->schema);
   bool is_ysql_table = info->table_type == client::YBTableType::PGSQL_TABLE_TYPE;
@@ -4577,10 +4617,8 @@ Status CatalogManager::ValidateTableSchema(
     // Get the table schema.
     table->set_table_id(t.id());
     status = GetTableSchema(&req, resp);
-    if (!status.ok() || resp->has_error()) {
-      return STATUS(NotFound,
-          Substitute("Error while getting table schema: $0", status.ToString()));
-    }
+    SCHECK(status.ok() && !resp->has_error(), NotFound,
+           Substitute("Error while getting table schema: $0", status.ToString()));
 
     // Double-check schema name here if the previous check was skipped.
     if (is_ysql_table && !t.has_pgschema_name()) {
@@ -4593,22 +4631,27 @@ Status CatalogManager::ValidateTableSchema(
       }
     }
 
-    // We now have a table match. Validate the schema.
-    auto result = info->schema.EquivalentForDataCopy(resp->schema());
-    if (!result.ok() || !*result) {
-      return STATUS(IllegalState,
-          Substitute("Source and target schemas don't match: "
-                     "Source: $0, Target: $1, Source schema: $2, Target schema: $3",
-                     info->table_id, resp->identifier().table_id(),
-                     info->schema.ToString(), resp->schema().DebugString()));
+    // Verify that the table on the target side supports replication.
+    if (is_ysql_table && t.has_relation_type() && t.relation_type() == MATVIEW_TABLE_RELATION) {
+      return STATUS_FORMAT(NotSupported,
+          "Replication is not supported for materialized view: $0",
+          info->table_name.ToString());
     }
+
+    Schema consumer_schema;
+    auto result = SchemaFromPB(resp->schema(), &consumer_schema);
+
+    // We now have a table match. Validate the schema.
+    SCHECK(result.ok() && consumer_schema.EquivalentForDataCopy(source_schema), IllegalState,
+           Substitute("Source and target schemas don't match: "
+                      "Source: $0, Target: $1, Source schema: $2, Target schema: $3",
+               info->table_id, resp->identifier().table_id(),
+               info->schema.ToString(), resp->schema().DebugString()));
     break;
   }
 
-  if (!table->has_table_id()) {
-    return STATUS(NotFound,
-        Substitute("Could not find matching table for $0", info->table_name.ToString()));
-  }
+  SCHECK(table->has_table_id(), NotFound,
+         Substitute("Could not find matching table for $0", info->table_name.ToString()));
 
   // Still need to make map of table id to resp table id (to add to validated map)
   // For colocated tables, only add the parent table since we only added the parent table to the
@@ -4624,12 +4667,10 @@ Status CatalogManager::ValidateTableSchema(
                           resp->schema().colocated_table_id().has_colocation_id())
         ? resp->schema().colocated_table_id().colocation_id()
         : CHECK_RESULT(GetPgsqlTableOid(resp->identifier().table_id()));
-    if (source_clc_id != target_clc_id) {
-      return STATUS(IllegalState,
-          Substitute("Source and target colocation IDs don't match for colocated table: "
-                     "Source: $0, Target: $1, Source colocation ID: $2, Target colocation ID: $3",
-                     info->table_id, resp->identifier().table_id(), source_clc_id, target_clc_id));
-    }
+    SCHECK(source_clc_id == target_clc_id, IllegalState,
+           Substitute("Source and target colocation IDs don't match for colocated table: "
+                      "Source: $0, Target: $1, Source colocation ID: $2, Target colocation ID: $3",
+                      info->table_id, resp->identifier().table_id(), source_clc_id, target_clc_id));
   }
 
   return Status::OK();
@@ -4657,10 +4698,53 @@ Status CatalogManager::IsBootstrapRequiredOnProducer(
   }
 
   auto cdc_rpc = VERIFY_RESULT(universe->GetOrCreateCDCRpcTasks(master_addresses));
-  if (VERIFY_RESULT(cdc_rpc->client()->IsBootstrapRequired(producer_table, bootstrap_id))) {
+  if (VERIFY_RESULT(cdc_rpc->client()->IsBootstrapRequired({producer_table}, bootstrap_id))) {
     return STATUS(IllegalState, Substitute(
       "Error Missing Data in Logs. Bootstrap is required for producer $0", universe->id()));
   }
+  return Status::OK();
+}
+
+Status CatalogManager::IsTableBootstrapRequired(
+    const TableId& table_id,
+    const CDCStreamId& stream_id,
+    CoarseTimePoint deadline,
+    bool* const bootstrap_required) {
+  scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(table_id));
+  RSTATUS_DCHECK(table != nullptr, NotFound, "Table ID not found: " + table_id);
+
+  // Make a batch call for IsBootstrapRequired on every relevant TServer.
+  std::map<std::shared_ptr<cdc::CDCServiceProxy>, cdc::IsBootstrapRequiredRequestPB>
+      proxy_to_request;
+  for (const auto& tablet : table->GetTablets()) {
+    auto ts = VERIFY_RESULT(tablet->GetLeader());
+    std::shared_ptr<cdc::CDCServiceProxy> proxy;
+    RETURN_NOT_OK(ts->GetProxy(&proxy));
+    proxy_to_request[proxy].add_tablet_ids(tablet->id());
+  }
+
+  // TODO: Make the RPCs async and parallel.
+  *bootstrap_required = false;
+  for (auto& proxy_request : proxy_to_request) {
+    auto& tablet_req = proxy_request.second;
+    cdc::IsBootstrapRequiredResponsePB tablet_resp;
+    rpc::RpcController rpc;
+    rpc.set_deadline(deadline);
+    if (!stream_id.empty()) {
+      tablet_req.set_stream_id(stream_id);
+    }
+    auto& cdc_service = proxy_request.first;
+
+    RETURN_NOT_OK(cdc_service->IsBootstrapRequired(tablet_req, &tablet_resp, &rpc));
+    if (tablet_resp.has_error()) {
+      RETURN_NOT_OK(StatusFromPB(tablet_resp.error().status()));
+    } else if (tablet_resp.has_bootstrap_required() &&
+               tablet_resp.bootstrap_required()) {
+      *bootstrap_required = true;
+      break;
+    }
+  }
+
   return Status::OK();
 }
 
@@ -5604,6 +5688,8 @@ Status CatalogManager::DeleteUniverseReplicationUnlocked(
   if (universe_replication_map_.erase(universe->id()) < 1) {
     LOG(WARNING) << "Failed to remove replication info from map: universe_id: " << universe->id();
   }
+  // If replication is at namespace-level, also remove from the namespace-level map.
+  namespace_replication_map_.erase(universe->id());
   // Also update the mapping of consumer tables.
   for (const auto& table : universe->metadata().state().pb.validated_tables()) {
     if (xcluster_consumer_tables_to_stream_map_[table.second].erase(universe->id()) < 1) {
@@ -6106,7 +6192,7 @@ Status CatalogManager::GetUniverseReplication(const GetUniverseReplicationReques
  * Checks if the universe replication setup has completed.
  * Returns Status::OK() if this call succeeds, and uses resp->done() to determine if the setup has
  * completed (either failed or succeeded). If the setup has failed, then resp->replication_error()
- * is also set.
+ * is also set. If it succeeds, replication_error() gets set to OK.
  */
 Status CatalogManager::IsSetupUniverseReplicationDone(
     const IsSetupUniverseReplicationDoneRequestPB* req,
@@ -6129,7 +6215,11 @@ Status CatalogManager::IsSetupUniverseReplicationDone(
   // If the universe was deleted, we're done.  This is normal with ALTER tmp files.
   if (s.IsNotFound()) {
     resp->set_done(true);
-    return isAlterRequest ? Status::OK() : s;
+    if (isAlterRequest) {
+      s = Status::OK();
+      StatusToPB(s, resp->mutable_replication_error());
+    }
+    return s;
   }
   RETURN_NOT_OK(s);
   if (universe_resp.has_error()) {
@@ -6261,6 +6351,105 @@ Status CatalogManager::UpdateConsumerOnProducerSplit(
   RETURN_NOT_OK(CheckStatus(sys_catalog_->Upsert(leader_ready_term(), cluster_config.get()),
                             "Updating cluster config in sys-catalog"));
   l.Commit();
+
+  return Status::OK();
+}
+
+// Related function: PlayChangeMetadataRequest() in tablet_bootstrap.cc.
+Status CatalogManager::UpdateConsumerOnProducerMetadata(
+    const UpdateConsumerOnProducerMetadataRequestPB* req,
+    UpdateConsumerOnProducerMetadataResponsePB* resp,
+    rpc::RpcContext* rpc) {
+  LOG_WITH_FUNC(INFO) << " from " << RequestorString(rpc) << ": " << req->DebugString();
+
+  if (!FLAGS_xcluster_wait_on_ddl_alter) {
+    resp->set_should_wait(false);
+    return Status::OK();
+  }
+
+  auto& producer_meta_pb = req->producer_change_metadata_request();
+  auto& producer_schema_pb = producer_meta_pb.schema();
+  auto u_id = req->producer_id();
+  auto stream_id = req->stream_id();
+
+  // Get corresponding local data for this stream.
+  std::string consumer_table_id;
+  scoped_refptr<TableInfo> table;
+  {
+    SharedLock lock(mutex_);
+    auto producer_stream_id = req->stream_id();
+    auto iter = std::find_if(xcluster_consumer_tables_to_stream_map_.begin(),
+        xcluster_consumer_tables_to_stream_map_.end(),
+        [&u_id, &producer_stream_id](auto& id_map){
+          auto consumer_stream_id = id_map.second.find(u_id);
+          return (consumer_stream_id != id_map.second.end() &&
+                 (*consumer_stream_id).second == producer_stream_id);
+        });
+    SCHECK(iter != xcluster_consumer_tables_to_stream_map_.end(),
+           NotFound, Substitute("Unable to find the stream id $0", stream_id));
+    consumer_table_id = iter->first;
+
+    // The destination table should be found or created by now.
+    table = FindPtrOrNull(*table_ids_map_, consumer_table_id);
+  }
+  SCHECK(table, NotFound, Substitute("Missing table id $0", consumer_table_id));
+
+  {
+    // Use the stream ID to find ClusterConfig entry.
+    auto cluster_config = ClusterConfig();
+    auto l = cluster_config->LockForWrite();
+    auto producer_map = l.mutable_data()->pb.mutable_consumer_registry()->mutable_producer_map();
+    auto producer_entry = FindOrNull(*producer_map, u_id);
+    SCHECK(producer_entry, NotFound, Substitute("Missing universe $0", u_id));
+    auto stream_entry = FindOrNull(*producer_entry->mutable_stream_map(), stream_id);
+    SCHECK(stream_entry, NotFound, Substitute("Missing universe $0, stream $1", u_id, stream_id));
+
+    auto schema_cached = stream_entry->mutable_producer_schema();
+    auto version_validated = schema_cached->validated_schema_version();
+
+    // Grab the local Consumer schema and compare it to the Producer's schema.
+    Schema consumer_schema, producer_schema;
+    RETURN_NOT_OK(SchemaFromPB(producer_schema_pb, &producer_schema));
+    auto version_received =  producer_meta_pb.schema_version();
+
+    if (version_validated > 0 && version_received <= version_validated) {
+      LOG(INFO) << "Received known schema (v" << version_received << "). Continuing Replication.";
+      resp->set_should_wait(false);
+      return Status::OK();
+    }
+    RETURN_NOT_OK(table->GetSchema(&consumer_schema));
+
+    if (consumer_schema.EquivalentForDataCopy(producer_schema)) {
+      resp->set_should_wait(false);
+      LOG(INFO) << "Received Compatible Producer schema version: " << version_received;
+      // Update the schema version if we're functionally equivalent.
+      if (version_received > version_validated) {
+        DCHECK(!schema_cached->has_pending_schema());
+        schema_cached->set_validated_schema_version(version_received);
+      } else {
+        // Nothing to modify.  Don't write to sys catalog.
+        return Status::OK();
+      }
+    } else {
+      LOG(WARNING) << Format("XCluster Schema mismatch $0 \n Consumer={$1} \n Producer={$2}",
+          consumer_table_id, consumer_schema.ToString(), producer_schema.ToString());
+
+      // Incompatible schema: store, wait for all tablet reports, then make the DDL change.
+      auto producer_schema = stream_entry->mutable_producer_schema();
+      if (!producer_schema->has_pending_schema()) {
+        // Copy the schema.
+        producer_schema->mutable_pending_schema()->CopyFrom(producer_schema_pb);
+        producer_schema->set_pending_schema_version(version_received);
+      } else {
+        // Why would we be getting different schema versions across tablets? Partial apply?
+        DCHECK_EQ(version_received, producer_schema->pending_schema_version());
+      }
+    }
+
+    RETURN_NOT_OK(CheckStatus(sys_catalog_->Upsert(leader_ready_term(), cluster_config.get()),
+        "Updating cluster config in sys-catalog"));
+    l.Commit();
+  }
 
   return Status::OK();
 }
@@ -6411,6 +6600,129 @@ Status CatalogManager::WaitForReplicationDrain(const WaitForReplicationDrainRequ
     }
     SleepFor(timeout);
   }
+
+  return Status::OK();
+}
+
+Status CatalogManager::SetupNSUniverseReplication(const SetupNSUniverseReplicationRequestPB* req,
+                                                  SetupNSUniverseReplicationResponsePB* resp,
+                                                  rpc::RpcContext* rpc) {
+  LOG(INFO) << "SetupNSUniverseReplication from " << RequestorString(rpc)
+            << ": " << req->DebugString();
+
+  SCHECK(req->has_producer_id() && !req->producer_id().empty(), InvalidArgument,
+         "Producer universe ID must be provided");
+  SCHECK(req->has_producer_ns_name() && !req->producer_ns_name().empty(), InvalidArgument,
+         "Producer universe namespace name must be provided");
+  SCHECK(req->has_producer_ns_type(), InvalidArgument,
+         "Producer universe namespace type must be provided");
+  SCHECK(req->producer_master_addresses_size() > 0, InvalidArgument,
+         "Producer master address must be provided");
+
+  std::string ns_name = req->producer_ns_name();
+  YQLDatabase ns_type = req->producer_ns_type();
+  switch (ns_type) {
+    case YQLDatabase::YQL_DATABASE_CQL:
+      break;
+    case YQLDatabase::YQL_DATABASE_PGSQL:
+      return STATUS(InvalidArgument,
+          "YSQL not currently supported for namespace-level replication setup");
+    default:
+      return STATUS(InvalidArgument, Format("Unrecognized namespace type: $0", ns_type));
+  }
+
+  // 1. Find all producer tables with a name-matching consumer table. Ensure that no
+  //    bootstrapping is required for these producer tables.
+  std::vector<TableId> producer_tables;
+  NamespaceIdentifierPB producer_namespace;
+  NamespaceIdentifierPB consumer_namespace;
+  // namespace_id will be filled in XClusterFindProducerConsumerOverlap.
+  producer_namespace.set_name(ns_name);
+  producer_namespace.set_database_type(ns_type);
+  consumer_namespace.set_name(ns_name);
+  consumer_namespace.set_database_type(ns_type);
+  size_t num_non_matched_consumer_tables = 0;
+  {
+    std::vector<HostPort> hp;
+    HostPortsFromPBs(req->producer_master_addresses(), &hp);
+    std::string producer_addrs = HostPort::ToCommaSeparatedString(hp);
+    auto cdc_rpc = VERIFY_RESULT(CDCRpcTasks::CreateWithMasterAddrs(
+        req->producer_id(), producer_addrs));
+    producer_tables = VERIFY_RESULT(XClusterFindProducerConsumerOverlap(
+        cdc_rpc, &producer_namespace, &consumer_namespace,
+        &num_non_matched_consumer_tables));
+
+    // TODO: Remove this check after NS-level bootstrap is implemented.
+    auto bootstrap_required = VERIFY_RESULT(
+        cdc_rpc->client()->IsBootstrapRequired(producer_tables));
+    SCHECK(!bootstrap_required, IllegalState,
+           Format("Producer tables under namespace $0 require bootstrapping.", ns_name));
+  }
+  SCHECK(!producer_tables.empty(), NotFound, Format(
+      "No producer tables under namespace $0 can be set up for replication. Please make "
+      "sure that there are at least one pair of (producer, consumer) table with matching "
+      "name and schema in order to initialize the namespace-level replication.", ns_name));
+
+  // 2. Setup universe replication for these producer tables.
+  {
+    SetupUniverseReplicationRequestPB setup_req;
+    SetupUniverseReplicationResponsePB setup_resp;
+    setup_req.set_producer_id(req->producer_id());
+    setup_req.mutable_producer_master_addresses()->CopyFrom(req->producer_master_addresses());
+    for (const auto& tid : producer_tables) {
+      setup_req.add_producer_table_ids(tid);
+    }
+    auto s = SetupUniverseReplication(&setup_req, &setup_resp, rpc);
+    if (!s.ok()) {
+      if (setup_resp.has_error()) {
+        resp->mutable_error()->Swap(setup_resp.mutable_error());
+        return s;
+      }
+      return SetupError(resp->mutable_error(), s);
+    }
+  }
+
+  // 3. Wait for the universe replication setup to finish.
+  // TODO: Put all the following code in an async task to avoid this expensive wait.
+  CoarseTimePoint deadline = rpc->GetClientDeadline();
+  auto s = WaitForSetupUniverseReplicationToFinish(req->producer_id(), deadline);
+  if (!s.ok()) {
+    return SetupError(resp->mutable_error(), s);
+  }
+
+  // 4. Update the persisted data.
+  scoped_refptr<UniverseReplicationInfo> universe;
+  {
+    SharedLock lock(mutex_);
+    TRACE("Acquired catalog manager lock");
+    universe = FindPtrOrNull(universe_replication_map_, req->producer_id());
+    if (universe == nullptr) {
+      return STATUS(NotFound, "Could not find universe after SetupUniverseReplication",
+                    req->ShortDebugString(), MasterError(MasterErrorPB::UNKNOWN_ERROR));
+    }
+  }
+  auto l = universe->LockForWrite();
+  l.mutable_data()->pb.set_is_ns_replication(true);
+  l.mutable_data()->pb.mutable_producer_namespace()->CopyFrom(producer_namespace);
+  l.mutable_data()->pb.mutable_consumer_namespace()->CopyFrom(consumer_namespace);
+  l.Commit();
+
+  // 5. Initialize in-memory entry and start the periodic task.
+  {
+    LockGuard lock(mutex_);
+    auto& metadata = namespace_replication_map_[req->producer_id()];
+    if (num_non_matched_consumer_tables > 0) {
+      // Start the periodic sync immediately.
+      metadata.next_add_table_task_time = CoarseMonoClock::Now() +
+          MonoDelta::FromSeconds(GetAtomicFlag(&FLAGS_ns_replication_sync_retry_secs));
+    } else {
+      // Delay the sync since there are currently no non-replicated consumer tables.
+      metadata.next_add_table_task_time = CoarseMonoClock::Now() +
+          MonoDelta::FromSeconds(GetAtomicFlag(&FLAGS_ns_replication_sync_backoff_secs));
+    }
+  }
+  namespace_replication_enabled_.store(true, std::memory_order_release);
+
   return Status::OK();
 }
 
@@ -6489,6 +6801,112 @@ bool CatalogManager::IsTablePartOfBootstrappingCdcStream(const TableInfo& table_
   return false;
 }
 
+Status CatalogManager::ValidateNewSchemaWithCdc(const TableInfo& table_info,
+                                                const Schema& consumer_schema) const {
+  // Check if this table is consuming a stream.
+  XClusterConsumerTableStreamInfoMap stream_infos =
+      GetXClusterStreamInfoForConsumerTable(table_info.id());
+  if (stream_infos.empty()) {
+    return Status::OK();
+  }
+
+  auto cluster_config = ClusterConfig();
+  auto l = cluster_config->LockForRead();
+  for (const auto& stream_info : stream_infos) {
+    std::string universe_id = stream_info.first;
+    CDCStreamId stream_id = stream_info.second;
+    // Fetch the stream entry to get Schema information.
+    auto& producer_map = l.data().pb.consumer_registry().producer_map();
+    auto producer_entry = FindOrNull(producer_map, universe_id);
+    SCHECK(producer_entry, NotFound, Substitute("Missing universe $0", universe_id));
+    auto stream_entry = FindOrNull(producer_entry->stream_map(), stream_id);
+    SCHECK(stream_entry, NotFound, Substitute("Missing stream $0:$1", universe_id, stream_id));
+
+    auto& producer_schema_pb = stream_entry->producer_schema();
+    if (producer_schema_pb.has_pending_schema()) {
+      // Compare the local Consumer schema to the Producer's schema.
+      Schema producer_schema;
+      RETURN_NOT_OK(SchemaFromPB(producer_schema_pb.pending_schema(), &producer_schema));
+
+      // This new schema update should either make the data source copy equivalent
+      // OR be copy equivalent to the data source (meaning it's a subset of the changes we need).
+      bool can_apply = consumer_schema.EquivalentForDataCopy(producer_schema) ||
+                       producer_schema.EquivalentForDataCopy(consumer_schema);
+      SCHECK(can_apply, IllegalState, Substitute(
+             "New Schema not compatible with XCluster Producer Schema:\n new={$0}\n producer={$1}",
+             consumer_schema.ToString(), producer_schema.ToString()));
+    }
+  }
+
+  return Status::OK();
+}
+
+Status CatalogManager::ResumeCdcAfterNewSchema(const TableInfo& table_info) {
+  if (PREDICT_FALSE(!FLAGS_xcluster_wait_on_ddl_alter)) {
+    return Status::OK();
+  }
+
+  // Verify that this table is consuming a stream.
+  XClusterConsumerTableStreamInfoMap stream_infos =
+      GetXClusterStreamInfoForConsumerTable(table_info.id());
+  if (stream_infos.empty()) {
+    return Status::OK();
+  }
+
+  bool found_schema = false, resuming_replication =  false;
+
+  // Now that we've applied the new schema: find pending replication, clear state, resume.
+  auto cluster_config = ClusterConfig();
+  auto l = cluster_config->LockForWrite();
+  for (const auto& stream_info : stream_infos) {
+    std::string u_id = stream_info.first;
+    CDCStreamId stream_id = stream_info.second;
+    // Fetch the stream entry to get Schema information.
+    auto producer_map = l.mutable_data()->pb.mutable_consumer_registry()->mutable_producer_map();
+    auto producer_entry = FindOrNull(*producer_map, u_id);
+    if (!producer_entry) {
+      continue;
+    }
+    auto stream_entry = FindOrNull(*producer_entry->mutable_stream_map(), stream_id);
+    if (!stream_entry) {
+      continue;
+    }
+
+    auto producer_schema_pb = stream_entry->mutable_producer_schema();
+    if (producer_schema_pb->has_pending_schema()) {
+      found_schema = true;
+      Schema consumer_schema, producer_schema;
+      RETURN_NOT_OK(table_info.GetSchema(&consumer_schema));
+      RETURN_NOT_OK(SchemaFromPB(producer_schema_pb->pending_schema(), &producer_schema));
+      if (consumer_schema.EquivalentForDataCopy(producer_schema)) {
+        resuming_replication = true;
+        auto pending_version = producer_schema_pb->pending_schema_version();
+        LOG(INFO) << "Consumer schema now data copy compatible with Producer: "
+                  << stream_id << " @ schema version " << pending_version;
+        // Clear meta we use to track progress on receiving all WAL entries with old schema.
+        producer_schema_pb->set_validated_schema_version(
+            std::max(producer_schema_pb->validated_schema_version(), pending_version));
+        producer_schema_pb->clear_pending_schema();
+        // Bump the ClusterConfig version so we'll broadcast new schema version & resume operation.
+        l.mutable_data()->pb.set_version(l.mutable_data()->pb.version() + 1);
+      }  else  {
+        LOG(INFO) << "Consumer schema not compatible for data copy of next Producer schema.";
+      }
+    }
+  }
+
+  if (resuming_replication) {
+    RETURN_NOT_OK(CheckStatus(sys_catalog_->Upsert(leader_ready_term(), cluster_config.get()),
+                              "updating cluster config after Schema for CDC"));
+    l.Commit();
+    LOG(INFO) << "Resuming Replication on " << table_info.id() << " after Consumer ALTER.";
+  } else if (!found_schema) {
+    LOG(INFO) << "Schema changed on Consumer without receiving a Producer change.";
+  }
+
+  return Status::OK();
+}
+
 void CatalogManager::Started() {
   snapshot_coordinator_.Start();
 }
@@ -6496,6 +6914,10 @@ void CatalogManager::Started() {
 Result<SnapshotSchedulesToObjectIdsMap> CatalogManager::MakeSnapshotSchedulesToObjectIdsMap(
     SysRowEntryType type) {
   return snapshot_coordinator_.MakeSnapshotSchedulesToObjectIdsMap(type);
+}
+
+Result<bool> CatalogManager::IsTableUndergoingPitrRestore(const TableInfo& table_info) {
+  return snapshot_coordinator_.IsTableUndergoingPitrRestore(table_info);
 }
 
 Result<bool> CatalogManager::IsTablePartOfSomeSnapshotSchedule(const TableInfo& table_info) {
@@ -6742,6 +7164,268 @@ void CatalogManager::PrepareRestore() {
 
 void CatalogManager::EnableTabletSplitting(const std::string& feature) {
   DisableTabletSplittingInternal(MonoDelta::FromMilliseconds(0), feature);
+}
+
+void CatalogManager::ScheduleXClusterNSReplicationAddTableTask() {
+  if (!namespace_replication_enabled_.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  LockGuard lock(mutex_);
+  for (auto& map_entry : namespace_replication_map_) {
+    auto& metadata = map_entry.second;
+    if (CoarseMonoClock::Now() <= metadata.next_add_table_task_time) {
+      continue;
+    }
+    // Enqueue the async add table task, which involves syncing with producer and adding
+    // tables to the existing replication.
+    const auto& universe_id = map_entry.first;
+    CoarseTimePoint deadline = CoarseMonoClock::Now() + MonoDelta::FromSeconds(60);
+    auto s = background_tasks_thread_pool_->SubmitFunc(
+        std::bind(&CatalogManager::XClusterAddTableToNSReplication, this, universe_id, deadline));
+    if (!s.ok()) {
+      // By not setting next_add_table_task_time, this enforces the task to be resheduled the
+      // next time the background thread runs.
+      LOG(WARNING) << "Failed to schedule: XClusterAddTableToNSReplication";
+    } else {
+      // Prevent new tasks from being scheduled when the current task is running.
+      metadata.next_add_table_task_time = deadline;
+    }
+  }
+}
+
+void CatalogManager::XClusterAddTableToNSReplication(string universe_id,
+                                                    CoarseTimePoint deadline) {
+  // TODO: In ScopeExit, find a way to report non-OK task_status to user.
+  bool has_non_replicated_consumer_table = true;
+  Status task_status = Status::OK();
+  auto scope_exit = ScopeExit([&, this] {
+    LockGuard lock(mutex_);
+    auto metadata_iter = namespace_replication_map_.find(universe_id);
+
+    // Only update metadata if we are the most recent task for this universe.
+    if (metadata_iter != namespace_replication_map_.end() &&
+        metadata_iter->second.next_add_table_task_time == deadline) {
+      auto& metadata = metadata_iter->second;
+      // a. If there are error, emit to prometheus (TODO) and force another round of syncing.
+      //    When there are too many consecutive errors, stop the task for a long period.
+      // b. Else if there is non-replicated consumer table, force another round of syncing.
+      // c. Else, stop the task temporarily.
+      if (!task_status.ok()) {
+        metadata.num_accumulated_errors++;
+        if (metadata.num_accumulated_errors == 5) {
+          metadata.num_accumulated_errors = 0;
+          metadata.next_add_table_task_time = CoarseMonoClock::now() +
+              MonoDelta::FromSeconds(GetAtomicFlag(&FLAGS_ns_replication_sync_error_backoff_secs));
+        } else {
+          metadata.next_add_table_task_time = CoarseMonoClock::now() +
+              MonoDelta::FromSeconds(GetAtomicFlag(&FLAGS_ns_replication_sync_retry_secs));
+        }
+      } else {
+        metadata.num_accumulated_errors = 0;
+        metadata.next_add_table_task_time = CoarseMonoClock::now() +
+            MonoDelta::FromSeconds(has_non_replicated_consumer_table
+                ? GetAtomicFlag(&FLAGS_ns_replication_sync_retry_secs)
+                : GetAtomicFlag(&FLAGS_ns_replication_sync_backoff_secs));
+      }
+    }
+  });
+
+  if (deadline - CoarseMonoClock::Now() <= 1ms || !CheckIsLeaderAndReady().ok()) {
+    return;
+  }
+
+  // 1. Sync with producer to find new producer tables that can be added to the current
+  //    replication, and verify that these tables do not require bootstrapping.
+  scoped_refptr<UniverseReplicationInfo> universe;
+  {
+    SharedLock lock(mutex_);
+    universe = FindPtrOrNull(universe_replication_map_, universe_id);
+    if (universe == nullptr) {
+      task_status = STATUS(NotFound, "Universe not found: " + universe_id);
+      LOG_WITH_FUNC(WARNING) << task_status;
+      return;
+    }
+  }
+  std::vector<TableId> tables_to_add;
+  task_status = XClusterNSReplicationSyncWithProducer(
+      universe, &tables_to_add, &has_non_replicated_consumer_table);
+  if (!task_status.ok()) {
+    LOG_WITH_FUNC(WARNING) << "Error finding producer tables to add to universe "
+                           << universe->id() << " : " << task_status;
+    return;
+  }
+  if (tables_to_add.empty()) {
+    return;
+  }
+
+  // 2. Run AlterUniverseReplication to add the new tables to the current replication.
+  AlterUniverseReplicationRequestPB alter_req;
+  AlterUniverseReplicationResponsePB alter_resp;
+  alter_req.set_producer_id(universe_id);
+  for (const auto& table : tables_to_add) {
+    alter_req.add_producer_table_ids_to_add(table);
+  }
+
+  task_status = AlterUniverseReplication(&alter_req, &alter_resp, /* RpcContext */ nullptr);
+  if (task_status.ok() && alter_resp.has_error()) {
+    task_status = StatusFromPB(alter_resp.error().status());
+  }
+  if (!task_status.ok()) {
+    LOG_WITH_FUNC(WARNING) << "Unable to add producer tables to namespace-level replication: "
+                           << task_status;
+    return;
+  }
+
+  // 3. Wait for AlterUniverseReplication to finish.
+  task_status = WaitForSetupUniverseReplicationToFinish(universe_id + ".ALTER", deadline);
+  if (!task_status.ok()) {
+    LOG_WITH_FUNC(WARNING) << "Error while waiting for AlterUniverseReplication on "
+                           << universe_id << " to complete: " << task_status;
+    return;
+  }
+  LOG_WITH_FUNC(INFO) << "Tables added to namespace-level replication " << universe->id()
+                      << " : " << alter_req.ShortDebugString();
+}
+
+Status CatalogManager::XClusterNSReplicationSyncWithProducer(
+    scoped_refptr<UniverseReplicationInfo> universe,
+    std::vector<TableId>* producer_tables_to_add,
+    bool* has_non_replicated_consumer_table) {
+  auto l = universe->LockForRead();
+  size_t num_non_matched_consumer_tables = 0;
+
+  // 1. Find producer tables with a name-matching consumer table.
+  auto cdc_rpc = VERIFY_RESULT(
+      universe->GetOrCreateCDCRpcTasks(l->pb.producer_master_addresses()));
+  auto producer_namespace = l->pb.producer_namespace();
+  auto consumer_namespace = l->pb.consumer_namespace();
+
+  auto producer_tables = VERIFY_RESULT(XClusterFindProducerConsumerOverlap(
+      cdc_rpc, &producer_namespace, &consumer_namespace, &num_non_matched_consumer_tables));
+
+  // 2. Filter out producer tables that are already in the replication.
+  for (const auto& tid : producer_tables) {
+    if (ContainsKey(l->pb.validated_tables(), tid)) {
+      continue;
+    }
+    producer_tables_to_add->push_back(tid);
+  }
+
+  // 3. If all consumer tables have a name-matching producer tables, and there is no additional
+  //    producer table to add to the replication, this means that all consumer tables are
+  //    currently replicated and we can stop the periodic sync temporarily.
+  *has_non_replicated_consumer_table =
+      num_non_matched_consumer_tables > 0 || !producer_tables_to_add->empty();
+
+  // 4. Finally, verify that all producer tables to be added do not require bootstrapping.
+  // TODO: Remove this check after NS-level bootstrap is implemented.
+  if (!producer_tables_to_add->empty()) {
+    auto bootstrap_required = VERIFY_RESULT(
+        cdc_rpc->client()->IsBootstrapRequired(*producer_tables_to_add));
+    if (bootstrap_required) {
+      std::ostringstream ptable_stream;
+      for (const auto& ptable : *producer_tables_to_add) {
+        ptable_stream << ptable << ",";
+      }
+      std::string ptable_str = ptable_stream.str();
+      ptable_str.pop_back(); // Remove the last comma.
+      return STATUS(IllegalState,
+          Format("Producer tables [$0] require bootstrapping, which is not currently "
+                 "supported by the namespace-level replication setup.", ptable_str));
+    }
+  }
+  return Status::OK();
+}
+
+Result<std::vector<TableId>> CatalogManager::XClusterFindProducerConsumerOverlap(
+    std::shared_ptr<CDCRpcTasks> producer_cdc_rpc,
+    NamespaceIdentifierPB* producer_namespace,
+    NamespaceIdentifierPB* consumer_namespace,
+    size_t* num_non_matched_consumer_tables) {
+  // TODO: Add support for colocated (parent) tables. Currently they are not supported because
+  // parent colocated tables are system tables and are therefore excluded by ListUserTables.
+  SCHECK(producer_cdc_rpc != nullptr, InternalError, "Producer CDC RPC is null");
+
+  // 1. Find all producer tables. Also record the producer namespace ID.
+  auto producer_tables = VERIFY_RESULT(
+      producer_cdc_rpc->client()->ListUserTables(*producer_namespace, true /* include_indexes */));
+  SCHECK(!producer_tables.empty(), NotFound,
+         "No producer table found under namespace " + producer_namespace->ShortDebugString());
+
+  if (!producer_tables.empty()) {
+    producer_namespace->set_id(producer_tables[0].namespace_id());
+  }
+
+  // 2. Find all consumer tables. Only collect the table names as we are doing name matching.
+  //    Also record the consumer namespace ID.
+  std::unordered_set<std::string> consumer_tables;
+  {
+    ListTablesRequestPB list_req;
+    ListTablesResponsePB list_resp;
+    list_req.add_relation_type_filter(USER_TABLE_RELATION);
+    list_req.add_relation_type_filter(INDEX_TABLE_RELATION);
+    list_req.mutable_namespace_()->CopyFrom(*consumer_namespace);
+
+    auto s = ListTables(&list_req, &list_resp);
+    std::ostringstream error_stream;
+    if (!s.ok() || list_resp.has_error()) {
+      error_stream << (!s.ok() ? s.ToString() : list_resp.error().status().message());
+    }
+    SCHECK(list_resp.tables_size() > 0, NotFound,
+           Format("No consumer table found under namespace $0. Error: $1",
+                  consumer_namespace->ShortDebugString(), error_stream.str()));
+    for (const auto& table : list_resp.tables()) {
+      auto table_name = Format("$0.$1.$2",
+          table.namespace_().name(),
+          table.pgschema_name(), // Empty for YCQL tables.
+          table.name());
+      consumer_tables.insert(table_name);
+    }
+    consumer_namespace->set_id(list_resp.tables(0).namespace_().id());
+  }
+
+  // 3. Find producer tables with a name-matching consumer table.
+  std::vector<TableId> overlap_tables;
+  for (const auto& table : producer_tables) {
+    auto table_name = Format("$0.$1.$2",
+        table.namespace_name(),
+        table.pgschema_name(), // Empty for YCQL tables.
+        table.table_name());
+    if (consumer_tables.find(table_name) != consumer_tables.end()) {
+      overlap_tables.push_back(table.table_id());
+      consumer_tables.erase(table_name);
+    }
+  }
+
+  // 4. Count the number of consumer tables without a name-matching producer table.
+  *num_non_matched_consumer_tables = consumer_tables.size();
+
+  return overlap_tables;
+}
+
+Status CatalogManager::WaitForSetupUniverseReplicationToFinish(const string& producer_uuid,
+                                                               CoarseTimePoint deadline) {
+  while (true) {
+    if (deadline - CoarseMonoClock::Now() <= 1ms) {
+      return STATUS(TimedOut, "Timed out while waiting for SetupUniverseReplication to finish");
+    }
+    IsSetupUniverseReplicationDoneRequestPB check_req;
+    IsSetupUniverseReplicationDoneResponsePB check_resp;
+    check_req.set_producer_id(producer_uuid);
+    auto s = IsSetupUniverseReplicationDone(&check_req, &check_resp, /* RpcContext */ nullptr);
+    if (!s.ok() || check_resp.has_error()) {
+      return !s.ok() ? s : StatusFromPB(check_resp.error().status());
+    }
+    if (check_resp.has_done() && check_resp.done()) {
+      return StatusFromPB(check_resp.replication_error());
+    }
+    SleepFor(MonoDelta::FromMilliseconds(200));
+  }
+}
+
+Result<scoped_refptr<TableInfo>> CatalogManager::GetTableById(const TableId& table_id) const {
+  return FindTableById(table_id);
 }
 
 }  // namespace enterprise

@@ -26,6 +26,7 @@ import com.yugabyte.yw.common.KubernetesManagerFactory;
 import com.yugabyte.yw.common.PlacementInfoUtil;
 import com.yugabyte.yw.common.PlatformServiceException;
 import com.yugabyte.yw.common.Util;
+import com.yugabyte.yw.common.YbcManager;
 import com.yugabyte.yw.common.certmgmt.CertConfigType;
 import com.yugabyte.yw.common.certmgmt.CertificateHelper;
 import com.yugabyte.yw.common.certmgmt.EncryptionInTransitUtil;
@@ -59,6 +60,7 @@ import com.yugabyte.yw.models.helpers.CommonUtils;
 import com.yugabyte.yw.models.helpers.NodeDetails;
 import com.yugabyte.yw.models.helpers.NodeDetails.NodeState;
 import com.yugabyte.yw.models.helpers.TaskType;
+import io.ebean.Ebean;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -99,7 +101,7 @@ public class UniverseCRUDHandler {
 
   @Inject UpgradeUniverseHandler upgradeUniverseHandler;
 
-  public static final String YBC_DEFAULT_VERSION = "ybc.releases.stable_version";
+  @Inject YbcManager ybcManager;
 
   private enum OpType {
     CONFIGURE,
@@ -250,11 +252,19 @@ public class UniverseCRUDHandler {
                     .filter(n -> n.isActive() && defaultRegion.code.equals(n.cloudInfo.region))
                     .count();
         if (nodesInDefRegion < intent.replicationFactor) {
-          throw new PlatformServiceException(
-              BAD_REQUEST,
-              String.format(
-                  "Could not pick %d masters, only %d nodes available in default region %s.",
-                  intent.replicationFactor, nodesInDefRegion, defaultRegion.name));
+          if (taskParams.mastersInDefaultRegion) {
+            throw new PlatformServiceException(
+                BAD_REQUEST,
+                String.format(
+                    "Could not pick %d masters, only %d nodes available in default region %s.",
+                    intent.replicationFactor, nodesInDefRegion, defaultRegion.name));
+          } else {
+            throw new PlatformServiceException(
+                BAD_REQUEST,
+                String.format(
+                    "Could not pick %d nodes in default region %s to place enough data replicas.",
+                    intent.replicationFactor, defaultRegion.name));
+          }
         }
       }
     }
@@ -490,95 +500,108 @@ public class UniverseCRUDHandler {
       taskParams.ybcSoftwareVersion =
           StringUtils.isNotBlank(taskParams.ybcSoftwareVersion)
               ? taskParams.ybcSoftwareVersion
-              : runtimeConfigFactory.globalRuntimeConf().getString(YBC_DEFAULT_VERSION);
+              : ybcManager.getStableYbcVersion();
     }
 
-    Universe universe = Universe.create(taskParams, customer.getCustomerId());
-    LOG.info("Created universe {} : {}.", universe.universeUUID, universe.name);
-
-    if (taskParams.runtimeFlags != null) {
-      // iterate through the flags and set via runtime config
-      for (Map.Entry<String, String> entry : taskParams.runtimeFlags.entrySet()) {
-        if (entry.getValue() != null) {
-          settableRuntimeConfigFactory
-              .forUniverse(universe)
-              .setValue(entry.getKey(), entry.getValue());
-        }
-      }
-    }
-
+    Universe universe = null;
     TaskType taskType = TaskType.CreateUniverse;
-    Cluster primaryCluster = taskParams.getPrimaryCluster();
 
-    if (primaryCluster != null) {
-      UniverseDefinitionTaskParams.UserIntent primaryIntent = primaryCluster.userIntent;
-      primaryIntent.masterGFlags = trimFlags(primaryIntent.masterGFlags);
-      primaryIntent.tserverGFlags = trimFlags(primaryIntent.tserverGFlags);
-      if (primaryCluster.userIntent.providerType.equals(Common.CloudType.kubernetes)) {
-        taskType = TaskType.CreateKubernetesUniverse;
-        universe.updateConfig(
-            ImmutableMap.of(Universe.HELM2_LEGACY, Universe.HelmLegacy.V3.toString()));
-        // TODO(bhavin192): remove the flag once the new naming style
-        // is stable enough.
-        if (runtimeConfigFactory.globalRuntimeConf().getBoolean("yb.use_new_helm_naming")) {
-          if (Util.compareYbVersions(primaryIntent.ybSoftwareVersion, "2.8.0.0") >= 0) {
-            taskParams.useNewHelmNamingStyle = true;
+    Ebean.beginTransaction();
+    try {
+      universe = Universe.create(taskParams, customer.getCustomerId());
+      LOG.info("Created universe {} : {}.", universe.universeUUID, universe.name);
+
+      if (taskParams.runtimeFlags != null) {
+        // iterate through the flags and set via runtime config
+        for (Map.Entry<String, String> entry : taskParams.runtimeFlags.entrySet()) {
+          if (entry.getValue() != null) {
+            settableRuntimeConfigFactory
+                .forUniverse(universe)
+                .setValue(entry.getKey(), entry.getValue());
           }
-          // TODO(bhavin192): check if
-          // taskParams.useNewHelmNamingStyle is set to true for
-          // ybSoftwareVersion < 2.8.0.0? If so, respond with error.
-        }
-      } else {
-        if (primaryCluster.userIntent.enableIPV6) {
-          throw new PlatformServiceException(
-              BAD_REQUEST, "IPV6 not supported for platform deployed VMs.");
         }
       }
 
-      setUpXClusterSettings(taskParams);
+      Cluster primaryCluster = taskParams.getPrimaryCluster();
 
-      checkForCertificates(customer, taskParams);
-
-      if (primaryCluster.userIntent.enableNodeToNodeEncrypt
-          || primaryCluster.userIntent.enableClientToNodeEncrypt) {
-        // Set the flag to mark the universe as using TLS enabled and therefore not allowing
-        // insecure connections.
-        taskParams.allowInsecure = false;
-      }
-
-      // TODO: (Daniel) - Move this out to an async task
-      if (primaryCluster.userIntent.enableVolumeEncryption
-          && primaryCluster.userIntent.providerType.equals(Common.CloudType.aws)) {
-        byte[] cmkArnBytes =
-            keyManager.generateUniverseKey(
-                taskParams.encryptionAtRestConfig.kmsConfigUUID,
-                universe.universeUUID,
-                taskParams.encryptionAtRestConfig);
-        if (cmkArnBytes == null || cmkArnBytes.length == 0) {
-          primaryCluster.userIntent.enableVolumeEncryption = false;
+      if (primaryCluster != null) {
+        UniverseDefinitionTaskParams.UserIntent primaryIntent = primaryCluster.userIntent;
+        primaryIntent.masterGFlags = trimFlags(primaryIntent.masterGFlags);
+        primaryIntent.tserverGFlags = trimFlags(primaryIntent.tserverGFlags);
+        if (primaryCluster.userIntent.providerType.equals(Common.CloudType.kubernetes)) {
+          taskType = TaskType.CreateKubernetesUniverse;
+          universe.updateConfig(
+              ImmutableMap.of(Universe.HELM2_LEGACY, Universe.HelmLegacy.V3.toString()));
+          // TODO(bhavin192): remove the flag once the new naming style
+          // is stable enough.
+          if (runtimeConfigFactory.globalRuntimeConf().getBoolean("yb.use_new_helm_naming")) {
+            if (Util.compareYbVersions(primaryIntent.ybSoftwareVersion, "2.8.0.0") >= 0) {
+              taskParams.useNewHelmNamingStyle = true;
+            }
+            // TODO(bhavin192): check if
+            // taskParams.useNewHelmNamingStyle is set to true for
+            // ybSoftwareVersion < 2.8.0.0? If so, respond with error.
+          }
         } else {
-          // TODO: (Daniel) - Update this to be inside of encryptionAtRestConfig
-          taskParams.cmkArn = new String(cmkArnBytes);
+          if (primaryCluster.userIntent.enableIPV6) {
+            throw new PlatformServiceException(
+                BAD_REQUEST, "IPV6 not supported for platform deployed VMs.");
+          }
+        }
+
+        setUpXClusterSettings(taskParams);
+
+        checkForCertificates(customer, taskParams);
+
+        if (primaryCluster.userIntent.enableNodeToNodeEncrypt
+            || primaryCluster.userIntent.enableClientToNodeEncrypt) {
+          // Set the flag to mark the universe as using TLS enabled and therefore not
+          // allowing insecure connections.
+          taskParams.allowInsecure = false;
+        }
+
+        // TODO: (Daniel) - Move this out to an async task
+        if (primaryCluster.userIntent.enableVolumeEncryption
+            && primaryCluster.userIntent.providerType.equals(Common.CloudType.aws)) {
+          byte[] cmkArnBytes =
+              keyManager.generateUniverseKey(
+                  taskParams.encryptionAtRestConfig.kmsConfigUUID,
+                  universe.universeUUID,
+                  taskParams.encryptionAtRestConfig);
+          if (cmkArnBytes == null || cmkArnBytes.length == 0) {
+            primaryCluster.userIntent.enableVolumeEncryption = false;
+          } else {
+            // TODO: (Daniel) - Update this to be inside of encryptionAtRestConfig
+            taskParams.cmkArn = new String(cmkArnBytes);
+          }
         }
       }
-    }
 
-    universe.updateConfig(ImmutableMap.of(Universe.TAKE_BACKUPS, "true"));
-    // If cloud enabled and deployment AZs have two subnets, mark the cluster as a
-    // non legacy cluster for proper operations.
-    if (cloudEnabled) {
-      Provider provider =
-          Provider.getOrBadRequest(UUID.fromString(primaryCluster.userIntent.provider));
-      AvailabilityZone zone = provider.regions.get(0).zones.get(0);
-      if (zone.secondarySubnet != null) {
-        universe.updateConfig(ImmutableMap.of(Universe.DUAL_NET_LEGACY, "false"));
+      universe.updateConfig(ImmutableMap.of(Universe.TAKE_BACKUPS, "true"));
+      // If cloud enabled and deployment AZs have two subnets, mark the cluster as a
+      // non legacy cluster for proper operations.
+      if (cloudEnabled) {
+        Provider provider =
+            Provider.getOrBadRequest(UUID.fromString(primaryCluster.userIntent.provider));
+        AvailabilityZone zone = provider.regions.get(0).zones.get(0);
+        if (zone.secondarySubnet != null) {
+          universe.updateConfig(ImmutableMap.of(Universe.DUAL_NET_LEGACY, "false"));
+        }
       }
-    }
 
-    universe.updateConfig(
-        ImmutableMap.of(
-            Universe.USE_CUSTOM_IMAGE,
-            Boolean.toString(taskParams.nodeDetailsSet.stream().allMatch(n -> n.ybPrebuiltAmi))));
+      universe.updateConfig(
+          ImmutableMap.of(
+              Universe.USE_CUSTOM_IMAGE,
+              Boolean.toString(taskParams.nodeDetailsSet.stream().allMatch(n -> n.ybPrebuiltAmi))));
+
+      Ebean.commitTransaction();
+
+    } catch (Exception e) {
+      LOG.info("Universe wasn't created because of the error: {}", e.getMessage());
+      throw e;
+    } finally {
+      Ebean.endTransaction();
+    }
 
     // Submit the task to create the universe.
     UUID taskUUID = commissioner.submit(taskType, taskParams);
@@ -615,6 +638,13 @@ public class UniverseCRUDHandler {
   public UUID update(Customer customer, Universe u, UniverseDefinitionTaskParams taskParams) {
     checkCanEdit(customer, u);
     checkTaskParamsForUpdate(u, taskParams);
+    if (u.isYbcEnabled()) {
+      taskParams.installYbc = true;
+      taskParams.enableYbc = true;
+      taskParams.ybcSoftwareVersion = u.getUniverseDetails().ybcSoftwareVersion;
+      taskParams.ybcInstalled = true;
+    }
+
     if (taskParams.getPrimaryCluster() == null) {
       // Update of a read only cluster.
       return updateCluster(customer, u, taskParams);

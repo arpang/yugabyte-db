@@ -32,9 +32,10 @@
 
 #include "yb/consensus/consensus_queue.h"
 
+#include <shared_mutex>
+
 #include <algorithm>
 #include <mutex>
-#include <shared_mutex>
 #include <string>
 #include <utility>
 
@@ -123,6 +124,17 @@ TAG_FLAG(cdc_intent_retention_ms, runtime);
 
 DEFINE_test_flag(bool, disallow_lmp_failures, false,
                  "Whether we disallow PRECEDING_ENTRY_DIDNT_MATCH failures for non new peers.");
+
+DEFINE_bool(
+    remote_bootstrap_from_leader_only, true,
+    "Whether to instruct the peer to attempt bootstrap from the closest peer instead of "
+    "the leader. The leader too could be the closest peer depending on the new peer's "
+    "geographic placement. Setting the flag to false will enable remote bootstrap from "
+    "the closest peer.");
+
+DEFINE_test_flag(
+    bool, assert_remote_bootstrap_happens_from_same_zone, false,
+    "Assert that remote bootstrap is served by a peer in the same zone as the new peer.");
 
 namespace {
 
@@ -230,7 +242,7 @@ void PeerMessageQueue::Init(const OpId& last_locally_replicated) {
   log_cache_.Init(last_locally_replicated.ToPB<OpIdPB>());
   queue_state_.last_appended = last_locally_replicated;
   queue_state_.state = State::kQueueOpen;
-  local_peer_ = TrackPeerUnlocked(local_peer_uuid_);
+  local_peer_ = TrackPeerUnlocked(local_peer_pb_);
 
   if (context_) {
     context_->ListenNumSSTFilesChanged(std::bind(&PeerMessageQueue::NumSSTFilesChanged, this));
@@ -281,12 +293,13 @@ void PeerMessageQueue::TrackPeer(const string& uuid) {
   TrackPeerUnlocked(uuid);
 }
 
-PeerMessageQueue::TrackedPeer* PeerMessageQueue::TrackPeerUnlocked(const string& uuid) {
-  CHECK(!uuid.empty()) << "Got request to track peer with empty UUID";
-  DCHECK_EQ(queue_state_.state, State::kQueueOpen);
+void PeerMessageQueue::TrackPeer(const RaftPeerPB& raft_peer_pb) {
+  LockGuard lock(queue_lock_);
+  TrackPeerUnlocked(raft_peer_pb);
+}
 
-  TrackedPeer* tracked_peer = new TrackedPeer(uuid);
-
+PeerMessageQueue::TrackedPeer* PeerMessageQueue::SetupNewTrackedPeerUnlocked(
+    std::unique_ptr<PeerMessageQueue::TrackedPeer> tracked_peer) {
   // We don't know the last operation received by the peer so, following the Raft protocol, we set
   // next_index to one past the end of our own log. This way, if calling this method is the result
   // of a successful leader election and the logs between the new leader and remote peer match, the
@@ -294,14 +307,31 @@ PeerMessageQueue::TrackedPeer* PeerMessageQueue::TrackPeerUnlocked(const string&
   // assert leadership. If we guessed wrong, and the peer does not have a log that matches ours, the
   // normal queue negotiation process will eventually find the right point to resume from.
   tracked_peer->next_index = queue_state_.last_appended.index + 1;
-  InsertOrDie(&peers_map_, uuid, tracked_peer);
+  PeerMessageQueue::TrackedPeer* tracked_peer_raw_ptr = tracked_peer.release();
+  InsertOrDie(&peers_map_, tracked_peer_raw_ptr->uuid, tracked_peer_raw_ptr);
 
   CheckPeersInActiveConfigIfLeaderUnlocked();
 
   // We don't know how far back this peer is, so set the all replicated watermark to
   // MinimumOpId. We'll advance it when we know how far along the peer is.
   queue_state_.all_replicated_op_id = OpId::Min();
-  return tracked_peer;
+  return tracked_peer_raw_ptr;
+}
+
+PeerMessageQueue::TrackedPeer* PeerMessageQueue::TrackPeerUnlocked(const string& uuid) {
+  CHECK(!uuid.empty()) << "Got request to track peer with empty UUID";
+  DCHECK_EQ(queue_state_.state, State::kQueueOpen);
+
+  std::unique_ptr<TrackedPeer> tracked_peer = std::make_unique<TrackedPeer>(uuid);
+  return SetupNewTrackedPeerUnlocked(std::move(tracked_peer));
+}
+
+PeerMessageQueue::TrackedPeer* PeerMessageQueue::TrackPeerUnlocked(const RaftPeerPB& raft_peer_pb) {
+  CHECK(!raft_peer_pb.permanent_uuid().empty()) << "Got request to track peer with empty UUID";
+  DCHECK_EQ(queue_state_.state, State::kQueueOpen);
+
+  std::unique_ptr<TrackedPeer> tracked_peer = std::make_unique<TrackedPeer>(raft_peer_pb);
+  return SetupNewTrackedPeerUnlocked(std::move(tracked_peer));
 }
 
 void PeerMessageQueue::UntrackPeer(const string& uuid) {
@@ -364,6 +394,9 @@ void PeerMessageQueue::LocalPeerAppendFinished(const OpId& id, const Status& sta
   if (context_) {
     fake_response.set_num_sst_files(context_->NumSSTFiles());
   }
+  PeerMessageQueueMetrics metrics_value;
+  int64_t evict_index = -1;
+  bool is_leader;
   {
     LockGuard lock(queue_lock_);
 
@@ -372,17 +405,24 @@ void PeerMessageQueue::LocalPeerAppendFinished(const OpId& id, const Status& sta
     if (queue_state_.last_appended.index < id.index) {
       queue_state_.last_appended = id;
     }
-    fake_response.mutable_status()->set_last_committed_idx(queue_state_.committed_op_id.index);
-    queue_state_.last_applied_op_id.ToPB(fake_response.mutable_status()->mutable_last_applied());
 
-    if (queue_state_.mode != Mode::LEADER) {
-      log_cache_.EvictThroughOp(id.index);
-
-      UpdateMetrics();
-      return;
+    is_leader = (queue_state_.mode == Mode::LEADER);
+    if (is_leader) {  // fake_response is only used in Leader case
+      fake_response.mutable_status()->set_last_committed_idx(queue_state_.committed_op_id.index);
+      queue_state_.last_applied_op_id.ToPB(fake_response.mutable_status()->mutable_last_applied());
+    } else {
+      evict_index = id.index;
+      metrics_value = ComputeMetricsUnderLock();
     }
   }
-  ResponseFromPeer(local_peer_uuid_, fake_response);
+
+  if (is_leader) {
+    ResponseFromPeer(local_peer_uuid_, fake_response);
+  } else {
+    log_cache_.EvictThroughOp(evict_index);
+
+    UpdateMetrics(metrics_value);
+  }
 }
 
 Status PeerMessageQueue::TEST_AppendOperation(const ReplicateMsgPtr& msg) {
@@ -396,9 +436,9 @@ Status PeerMessageQueue::AppendOperations(const ReplicateMsgs& msgs,
   DFAKE_SCOPED_LOCK(append_fake_lock_);
   OpId last_id;
   if (!msgs.empty()) {
-    std::unique_lock<simple_spinlock> lock(queue_lock_);
-
     last_id = OpId::FromPB(msgs.back()->id());
+
+    std::unique_lock<simple_spinlock> lock(queue_lock_);
 
     if (last_id.term > queue_state_.current_term) {
       queue_state_.current_term = last_id.term;
@@ -419,9 +459,13 @@ Status PeerMessageQueue::AppendOperations(const ReplicateMsgs& msgs,
       Bind(&PeerMessageQueue::LocalPeerAppendFinished, Unretained(this), last_id)));
 
   if (!msgs.empty()) {
-    std::unique_lock<simple_spinlock> lock(queue_lock_);
-    queue_state_.last_appended = last_id;
-    UpdateMetrics();
+    PeerMessageQueueMetrics metrics_value;
+    {
+      std::unique_lock<simple_spinlock> lock(queue_lock_);
+      queue_state_.last_appended = last_id;
+      metrics_value = ComputeMetricsUnderLock();
+    }
+    UpdateMetrics(metrics_value);
   }
 
   return Status::OK();
@@ -745,9 +789,46 @@ Result<ReadOpsResult> PeerMessageQueue::ReadReplicatedMessagesForCDC(
   return result;
 }
 
+const PeerMessageQueue::TrackedPeer* PeerMessageQueue::FindClosestPeerForBootstrap(
+    const TrackedPeer* remote_tracked_peer) {
+  const CloudInfoPB& src_cloud_info = remote_tracked_peer->cloud_info.value();
+  // initializing rbs_source as the leader itself.
+  LocalityLevel best_locality_level =
+      PlacementInfoConverter::GetLocalityLevel(src_cloud_info, local_peer_pb_.cloud_info());
+  PeerMessageQueue::TrackedPeer* rbs_source = local_peer_;
+  for (auto it = peers_map_.begin(); it != peers_map_.end(); it++) {
+    // don't consider locality of remote_tracked_peer with itself
+    if (!it->second->cloud_info.has_value() || remote_tracked_peer == it->second ||
+        it->second->needs_remote_bootstrap) {
+      continue;
+    }
+
+    // consider only those peers as rbs source which are in the same term as the leader
+    // and have last_applied_opid >= leader log's min available index
+    // TODO: Add a gflag that sets the max allowed difference between the leader's last
+    // applied log opid and that of the rbs source. Reject peer as an rbs source if
+    // leader->last_applied.index - remote_peer->last_applied.index > flag
+    OpId remote_last_applied_opid = it->second->last_applied;
+    if (remote_last_applied_opid.term != queue_state_.current_term ||
+        remote_last_applied_opid.index < log_cache_.earliest_op_index()) {
+      continue;
+    }
+
+    auto cur_locality_level =
+        PlacementInfoConverter::GetLocalityLevel(src_cloud_info, it->second->cloud_info.value());
+    if (cur_locality_level > best_locality_level) {
+      best_locality_level = cur_locality_level;
+      rbs_source = it->second;
+    }
+  }
+
+  return rbs_source;
+}
+
 Status PeerMessageQueue::GetRemoteBootstrapRequestForPeer(const string& uuid,
                                                           StartRemoteBootstrapRequestPB* req) {
   TrackedPeer* peer = nullptr;
+  const TrackedPeer* rbs_source = nullptr;
   {
     LockGuard lock(queue_lock_);
     DCHECK_EQ(queue_state_.state, State::kQueueOpen);
@@ -756,26 +837,64 @@ Status PeerMessageQueue::GetRemoteBootstrapRequestForPeer(const string& uuid,
     if (PREDICT_FALSE(peer == nullptr || queue_state_.mode == Mode::NON_LEADER)) {
       return STATUS(NotFound, "Peer not tracked or queue not in leader mode.");
     }
+
+    if (PREDICT_FALSE(!peer->needs_remote_bootstrap)) {
+      return STATUS(IllegalState, "Peer does not need to remotely bootstrap", uuid);
+    }
+
+    if (peer->member_type == PeerMemberType::VOTER ||
+        peer->member_type == PeerMemberType::OBSERVER) {
+      LOG(INFO) << "Remote bootstrapping peer " << uuid << " with type "
+                << PeerMemberType_Name(peer->member_type);
+    }
+
+    // try bootstrapping from the closest follower to the given tracked peer on the first attempt
+    // for remote bootstrap. If that fails, set the bootstrap source to the leader.
+    rbs_source = peer->cloud_info.has_value() && !FLAGS_remote_bootstrap_from_leader_only &&
+                         peer->bootstrap_attempts_from_non_leader < 5
+                     ? FindClosestPeerForBootstrap(peer)
+                     : local_peer_;
   }
 
-  if (PREDICT_FALSE(!peer->needs_remote_bootstrap)) {
-    return STATUS(IllegalState, "Peer does not need to remotely bootstrap", uuid);
-  }
-
-  if (peer->member_type == PeerMemberType::VOTER || peer->member_type == PeerMemberType::OBSERVER) {
-    LOG(INFO) << "Remote bootstrapping peer " << uuid << " with type "
-              << PeerMemberType_Name(peer->member_type);
-  }
+  LOG(INFO) << "Remote bootstrapping peer " << uuid << " from closest peer " << rbs_source->uuid;
 
   req->Clear();
   req->set_dest_uuid(uuid);
   req->set_tablet_id(tablet_id_);
-  req->set_bootstrap_peer_uuid(local_peer_uuid_);
-  *req->mutable_source_private_addr() = local_peer_pb_.last_known_private_addr();
-  *req->mutable_source_broadcast_addr() = local_peer_pb_.last_known_broadcast_addr();
-  *req->mutable_source_cloud_info() = local_peer_pb_.cloud_info();
+  // can use leader's current term as the bootstrap request is served by the leader or any other
+  // closest peer that is in the same term (when FLAGS_remote_bootstrap_from_leader_only is false).
   req->set_caller_term(queue_state_.current_term);
+  // populate req with the closest peer's info for remote bootstrapping the tracked peer
+  req->set_bootstrap_source_peer_uuid(rbs_source->uuid);
+  *req->mutable_bootstrap_source_private_addr() = {
+      rbs_source->last_known_private_addr.begin(), rbs_source->last_known_private_addr.end()};
+  *req->mutable_bootstrap_source_broadcast_addr() = {
+      rbs_source->last_known_broadcast_addr.begin(), rbs_source->last_known_broadcast_addr.end()};
+  if (rbs_source->cloud_info.has_value()) {
+    *req->mutable_bootstrap_source_cloud_info() = rbs_source->cloud_info.value();
+  }
   peer->needs_remote_bootstrap = false; // Now reset the flag.
+
+  if (rbs_source->uuid != local_peer_->uuid) {
+    // rbs source is not the leader, hence set the leader info.
+    req->set_is_served_by_tablet_leader(false);
+    req->set_tablet_leader_peer_uuid(uuid);
+    *req->mutable_tablet_leader_private_addr() = local_peer_pb_.last_known_private_addr();
+    *req->mutable_tablet_leader_broadcast_addr() = local_peer_pb_.last_known_broadcast_addr();
+    *req->mutable_tablet_leader_cloud_info() = local_peer_pb_.cloud_info();
+    peer->bootstrap_attempts_from_non_leader += 1;
+  } else {
+    req->set_is_served_by_tablet_leader(true);
+  }
+
+  if (FLAGS_TEST_assert_remote_bootstrap_happens_from_same_zone) {
+    CHECK_EQ(
+        PlacementInfoConverter::GetLocalityLevel(
+            *req->mutable_bootstrap_source_cloud_info(), peer->cloud_info.value()),
+        LocalityLevel::kZone)
+        << "Expected rbs source to be in same zone as new peer";
+  }
+
   return Status::OK();
 }
 
@@ -1089,6 +1208,8 @@ bool PeerMessageQueue::ResponseFromPeer(const std::string& peer_uuid,
   MajorityReplicatedData majority_replicated;
   Mode mode_copy;
   bool result = false;
+  int64_t evict_index = -1;
+  PeerMessageQueueMetrics metrics_value;
   {
     LockGuard scoped_lock(queue_lock_);
     DCHECK_NE(State::kQueueConstructed, queue_state_.state);
@@ -1260,7 +1381,7 @@ bool PeerMessageQueue::ResponseFromPeer(const std::string& peer_uuid,
     UpdateAllReplicatedOpId(&queue_state_.all_replicated_op_id);
     UpdateAllAppliedOpId(&queue_state_.all_applied_op_id);
 
-    auto evict_index = GetCDCConsumerOpIdToEvict().index;
+    evict_index = GetCDCConsumerOpIdToEvict().index;
 
     int32_t lagging_follower_threshold = FLAGS_consensus_lagging_follower_threshold;
     if (lagging_follower_threshold > 0) {
@@ -1270,9 +1391,13 @@ bool PeerMessageQueue::ResponseFromPeer(const std::string& peer_uuid,
       evict_index = std::min(evict_index, queue_state_.all_replicated_op_id.index);
     }
 
+    metrics_value = ComputeMetricsUnderLock();
+  }
+
+  if (evict_index != -1) {
     log_cache_.EvictThroughOp(evict_index);
 
-    UpdateMetrics();
+    UpdateMetrics(metrics_value);
   }
 
   if (mode_copy == Mode::LEADER) {
@@ -1318,12 +1443,19 @@ OpId PeerMessageQueue::TEST_GetLastAppliedOpId() const {
   return queue_state_.last_applied_op_id;
 }
 
-void PeerMessageQueue::UpdateMetrics() {
+PeerMessageQueue::PeerMessageQueueMetrics PeerMessageQueue::ComputeMetricsUnderLock() const {
+  return PeerMessageQueueMetrics {
+      .num_majority_done_ops = queue_state_.committed_op_id.index
+          - queue_state_.all_replicated_op_id.index,
+      .num_in_progress_ops = queue_state_.last_appended.index
+          - queue_state_.committed_op_id.index
+    };
+}
+
+void PeerMessageQueue::UpdateMetrics(const PeerMessageQueueMetrics& metrics_value) {
   // Since operations have consecutive indices we can update the metrics based on simple index math.
-  metrics_.num_majority_done_ops->set_value(
-      queue_state_.committed_op_id.index - queue_state_.all_replicated_op_id.index);
-  metrics_.num_in_progress_ops->set_value(
-      queue_state_.last_appended.index - queue_state_.committed_op_id.index);
+  metrics_.num_majority_done_ops->set_value(metrics_value.num_majority_done_ops);
+  metrics_.num_in_progress_ops->set_value(metrics_value.num_in_progress_ops);
 }
 
 void PeerMessageQueue::DumpToHtml(std::ostream& out) const {

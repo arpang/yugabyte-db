@@ -488,6 +488,7 @@ Status YBClientBuilder::DoBuild(rpc::Messenger* messenger, std::unique_ptr<YBCli
   // is clearer to see "mastercb" instead.
   ThreadPoolBuilder tpb(data_->client_name_ + "cb");
   tpb.set_max_threads(narrow_cast<int>(callback_threadpool_size));
+  tpb.set_min_threads(1);
   std::unique_ptr<ThreadPool> tp;
   RETURN_NOT_OK_PREPEND(
       tpb.Build(&tp),
@@ -1497,12 +1498,17 @@ Status YBClient::UpdateCDCStream(const std::vector<CDCStreamId>& stream_ids,
   return Status::OK();
 }
 
-Result<bool> YBClient::IsBootstrapRequired(const TableId& table_id,
+Result<bool> YBClient::IsBootstrapRequired(const std::vector<TableId>& table_ids,
                                            const boost::optional<CDCStreamId>& stream_id) {
+  if (table_ids.empty()) {
+    return STATUS(InvalidArgument, "At least one table ID is required.");
+  }
+
   IsBootstrapRequiredRequestPB req;
   IsBootstrapRequiredResponsePB resp;
-
-  req.add_table_ids(table_id);
+  for (const auto& table_id : table_ids) {
+    req.add_table_ids(table_id);
+  }
   if (stream_id) {
     req.add_stream_ids(*stream_id);
   }
@@ -1512,8 +1518,9 @@ Result<bool> YBClient::IsBootstrapRequired(const TableId& table_id,
     return StatusFromPB(resp.error().status());
   }
 
-  if (resp.results_size() != 1) {
-    return STATUS(IllegalState, Format("Expected 1 result, received: $0", resp.results_size()));
+  if (resp.results_size() != narrow_cast<int>(table_ids.size())) {
+    return STATUS(IllegalState, Format("Expected $0 results, received: $1",
+        table_ids.size(), resp.results_size()));
   }
 
   return resp.results(0).bootstrap_required();
@@ -1538,6 +1545,27 @@ Status YBClient::UpdateConsumerOnProducerSplit(
   UpdateConsumerOnProducerSplitResponsePB resp;
   CALL_SYNC_LEADER_MASTER_RPC_EX(Replication, req, resp, UpdateConsumerOnProducerSplit);
   return Status::OK();
+}
+
+Result<bool> YBClient::UpdateConsumerOnProducerMetadata(
+    const string& producer_id,
+    const CDCStreamId& stream_id,
+    const tablet::ChangeMetadataRequestPB& meta_info) {
+  if (producer_id.empty()) {
+    return STATUS(InvalidArgument, "Producer id is required.");
+  }
+  if (stream_id.empty()) {
+    return STATUS(InvalidArgument, "Stream id is required.");
+  }
+
+  master::UpdateConsumerOnProducerMetadataRequestPB req;
+  req.set_producer_id(producer_id);
+  req.set_stream_id(stream_id);
+  req.mutable_producer_change_metadata_request()->CopyFrom(meta_info);
+
+  master::UpdateConsumerOnProducerMetadataResponsePB resp;
+  CALL_SYNC_LEADER_MASTER_RPC_EX(Replication, req, resp, UpdateConsumerOnProducerMetadata);
+  return resp.should_wait();
 }
 
 void YBClient::DeleteNotServingTablet(const TabletId& tablet_id, StdStatusCallback callback) {
@@ -2000,6 +2028,11 @@ Status YBClient::ValidateReplicationInfo(const ReplicationInfoPB& replication_in
   return data_->ValidateReplicationInfo(replication_info, deadline);
 }
 
+Result<TableSizeInfo> YBClient::GetTableDiskSize(const TableId& table_id) {
+  auto deadline = CoarseMonoClock::Now() + default_rpc_timeout();
+  return data_->GetTableDiskSize(table_id, deadline);
+}
+
 Result<bool> YBClient::CheckIfPitrActive() {
   auto deadline = CoarseMonoClock::Now() + default_rpc_timeout();
   return data_->CheckIfPitrActive(deadline);
@@ -2037,17 +2070,17 @@ Result<std::vector<YBTableName>> YBClient::ListTables(const std::string& filter,
   return result;
 }
 
-Result<std::vector<YBTableName>> YBClient::ListUserTables(const NamespaceId& ns_id) {
+Result<std::vector<YBTableName>> YBClient::ListUserTables(
+    const master::NamespaceIdentifierPB& ns_identifier,
+    bool include_indexes) {
   ListTablesRequestPB req;
   ListTablesResponsePB resp;
-  bool exclude_ysql = false;
 
-  if (!ns_id.empty()) {
-    req.mutable_namespace_()->set_database_type(YQL_DATABASE_PGSQL);
-    req.mutable_namespace_()->set_id(ns_id);
-  }
-
+  req.mutable_namespace_()->CopyFrom(ns_identifier);
   req.add_relation_type_filter(master::USER_TABLE_RELATION);
+  if (include_indexes) {
+    req.add_relation_type_filter(master::INDEX_TABLE_RELATION);
+  }
   CALL_SYNC_LEADER_MASTER_RPC(req, resp, ListTables);
   std::vector<YBTableName> result;
   result.reserve(resp.tables_size());
@@ -2057,9 +2090,6 @@ Result<std::vector<YBTableName>> YBClient::ListUserTables(const NamespaceId& ns_
     DCHECK(table_info.has_namespace_());
     DCHECK(table_info.namespace_().has_name());
     DCHECK(table_info.namespace_().has_id());
-    if (exclude_ysql && table_info.table_type() == TableType::PGSQL_TABLE_TYPE) {
-      continue;
-    }
     result.emplace_back(master::GetDatabaseTypeForTable(table_info.table_type()),
                         table_info.namespace_().id(),
                         table_info.namespace_().name(),

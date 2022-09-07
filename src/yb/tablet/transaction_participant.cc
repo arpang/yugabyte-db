@@ -367,9 +367,33 @@ class TransactionParticipant::Impl
     CleanTransactionsUnlocked(&min_running_notifier);
   }
 
+  OpId GetLatestCheckPoint() REQUIRES(mutex_) {
+    return GetLatestCheckPointUnlocked();
+  }
+
+  OpId GetLatestCheckPointUnlocked() {
+    OpId min_checkpoint;
+    if (CoarseMonoClock::Now() < cdc_sdk_min_checkpoint_op_id_expiration_ &&
+        cdc_sdk_min_checkpoint_op_id_ != OpId::Invalid()) {
+      min_checkpoint = cdc_sdk_min_checkpoint_op_id_;
+    } else {
+      VLOG(1) << "Tablet peer checkpoint is expired with the current time: "
+              << ToSeconds(CoarseMonoClock::Now().time_since_epoch()) << " expiration time: "
+              << ToSeconds(cdc_sdk_min_checkpoint_op_id_expiration_.time_since_epoch())
+              << " checkpoint op_id: " << cdc_sdk_min_checkpoint_op_id_;
+      min_checkpoint = OpId::Max();
+    }
+    return min_checkpoint;
+  }
+
   OpId GetRetainOpId() {
     std::lock_guard<std::mutex> lock(mutex_);
     return cdc_sdk_min_checkpoint_op_id_;
+  }
+
+  CoarseTimePoint GetCheckpointExpirationTime() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return cdc_sdk_min_checkpoint_op_id_expiration_;
   }
 
   // Cleans transactions that are requested and now is safe to clean.
@@ -458,6 +482,22 @@ class TransactionParticipant::Impl
         pair.second = lock_and_iterator.transaction().metadata().priority;
       }
     }
+  }
+
+  void FillStatusTablets(std::vector<BlockingTransactionData>* inout) {
+    // TODO(pessimistic) optimize locking
+    std::vector<boost::optional<TabletId>> status_tablet_opts;
+    for (auto& blocker : *inout) {
+      blocker.status_tablet = GetStatusTablet(blocker.id).get_value_or("");
+    }
+  }
+
+  boost::optional<TabletId> GetStatusTablet(const TransactionId& id) {
+    auto lock_and_iterator = LockAndFind(id, "get status tablet"s, TransactionLoadFlags{});
+    if (!lock_and_iterator.found() || lock_and_iterator.transaction().WasAborted()) {
+      return boost::none;
+    }
+    return lock_and_iterator.transaction().status_tablet();
   }
 
   void Handle(std::unique_ptr<tablet::UpdateTxnOperation> operation, int64_t term) {
@@ -1245,7 +1285,6 @@ class TransactionParticipant::Impl
 
     std::unique_lock<std::mutex> lock;
     Transactions::const_iterator iterator = UninitializedIterator();
-    bool recently_removed = false;
 
     bool found() const {
       return lock.owns_lock();
@@ -1277,9 +1316,7 @@ class TransactionParticipant::Impl
     if (recently_removed) {
       VLOG_WITH_PREFIX(1)
           << "Attempt to load recently removed transaction: " << id << ", for: " << reason;
-      LockAndFindResult result;
-      result.recently_removed = true;
-      return result;
+      return LockAndFindResult{};
     }
     metric_transaction_not_found_->Increment();
     if (flags.Test(TransactionLoadFlag::kMustExist)) {
@@ -1541,13 +1578,6 @@ class TransactionParticipant::Impl
     }
   }
 
-  OpId GetLatestCheckPoint() REQUIRES(mutex_) {
-    return CoarseMonoClock::Now() < cdc_sdk_min_checkpoint_op_id_expiration_ &&
-                   cdc_sdk_min_checkpoint_op_id_ != OpId::Invalid()
-               ? cdc_sdk_min_checkpoint_op_id_
-               : OpId::Max();
-  }
-
   TransactionStatusResolver& AddStatusResolver() override EXCLUDES(status_resolvers_mutex_) {
     std::lock_guard<std::mutex> lock(status_resolvers_mutex_);
     status_resolvers_.emplace_back(
@@ -1741,6 +1771,15 @@ void TransactionParticipant::FillPriorities(
   return impl_->FillPriorities(inout);
 }
 
+void TransactionParticipant::FillStatusTablets(
+      std::vector<BlockingTransactionData>* inout) {
+  return impl_->FillStatusTablets(inout);
+}
+
+boost::optional<TabletId> TransactionParticipant::FindStatusTablet(const TransactionId& id) {
+  return impl_->GetStatusTablet(id);
+}
+
 void TransactionParticipant::SetDB(
     const docdb::DocDB& db, const docdb::KeyBounds* key_bounds,
     RWOperationCounter* pending_op_counter) {
@@ -1835,6 +1874,14 @@ void TransactionParticipant::SetIntentRetainOpIdAndTime(
 
 OpId TransactionParticipant::GetRetainOpId() const {
   return impl_->GetRetainOpId();
+}
+
+CoarseTimePoint TransactionParticipant::GetCheckpointExpirationTime() const {
+  return impl_->GetCheckpointExpirationTime();
+}
+
+OpId TransactionParticipant::GetLatestCheckPoint() const {
+  return impl_->GetLatestCheckPointUnlocked();
 }
 
 }  // namespace tablet

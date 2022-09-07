@@ -13,6 +13,7 @@ package com.yugabyte.yw.forms;
 import static play.mvc.Results.ok;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.annotations.VisibleForTesting;
 import com.yugabyte.yw.common.password.RedactingService;
@@ -21,6 +22,7 @@ import io.swagger.annotations.ApiModelProperty;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import lombok.AllArgsConstructor;
 import play.libs.Json;
 import play.mvc.Result;
 import play.mvc.Results;
@@ -49,9 +51,19 @@ public class PlatformResults {
   }
 
   @ApiModel(description = "Generic error response from the YugabyteDB Anywhere API")
+  @AllArgsConstructor
+  @JsonInclude(Include.NON_NULL)
   public static class YBPError {
     @ApiModelProperty(value = "Always set to false to indicate failure", example = "false")
-    public boolean success = false;
+    public final boolean success = false;
+
+    @ApiModelProperty(value = "Method for HTTP call that resulted in this error", example = "POST")
+    public String httpMethod;
+
+    @ApiModelProperty(
+        value = "URI for HTTP request that resulted in this error",
+        example = "/customers/8918921-af3782-633de/universe/8173ab-fd2453/create")
+    public String requestUri;
 
     @ApiModelProperty(
         value = "User-visible unstructured error message",
@@ -59,7 +71,7 @@ public class PlatformResults {
     public String error;
 
     @ApiModelProperty(
-        value = "User visible error message as json object",
+        value = "User visible structured error message as json object",
         dataType = "Object",
         example = "{ \"foo\" : \"bar\", \"baz\" : [1, 2, 3] }")
     public JsonNode errorJson;

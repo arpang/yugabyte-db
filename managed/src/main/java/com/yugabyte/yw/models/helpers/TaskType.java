@@ -107,6 +107,8 @@ public enum TaskType {
 
   RemoveNodeFromUniverse("RemoveNodeFromUniverse"),
 
+  RebootNodeInUniverse("RebootNodeInUniverse"),
+
   ReleaseInstanceFromUniverse("ReleaseInstanceFromUniverse"),
 
   RotateAccessKey("RotateAccessKey"),
@@ -206,6 +208,8 @@ public enum TaskType {
   UpdatePlacementInfo("subtasks.UpdatePlacementInfo"),
 
   UpdateSoftwareVersion("subtasks.UpdateSoftwareVersion"),
+
+  UpdateUniverseYbcDetails("subtasks.UpdateUniverseYbcDetails"),
 
   VerifyNodeSSHAccess("subtasks.VerifyNodeSSHAccess"),
 
@@ -370,7 +374,17 @@ public enum TaskType {
 
   RunHooks("subtasks.RunHooks"),
 
-  UpdateUniverseTags("subtasks.UpdateUniverseTags");
+  UpdateUniverseTags("subtasks.UpdateUniverseTags"),
+
+  UpgradeYbc("subtasks.UpgradeYbc"),
+
+  InstallYbcSoftware("InstallYbcSoftware"),
+
+  UpgradeUniverseYbc("UpgradeUniverseYbc"),
+
+  DisableYbc("DisableYbc"),
+
+  InstanceExistCheck("subtasks.InstanceExistCheck");
 
   private String relativeClassPath;
 

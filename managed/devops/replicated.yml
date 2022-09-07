@@ -142,7 +142,7 @@ components:
       - source: public
         name: prometheus
         image_name: prom/prometheus
-        version: v2.27.1
+        version: v2.37.0
         volumes:
           - host_path: '{{repl ConfigOption "storage_path"}}/prometheusv2'
             container_path: /prometheus
@@ -190,7 +190,9 @@ components:
                 - job_name: 'prometheus'
                   scrape_timeout:  {{repl ConfigOption "prometheus_scrape_timeout"}}
                   static_configs:
-                      - targets: ['{{repl HostPrivateIpAddress "prometheus" "prom/prometheus" }}:{{repl ConfigOption "prometheus_external_port"}}']
+                      - targets: [
+                        '{{repl HostPrivateIpAddress "prometheus" "prom/prometheus" }}:{{repl ConfigOption "prometheus_external_port"}}'
+                      ]
 
                 - job_name: 'platform'
                   scrape_timeout:  {{repl ConfigOption "prometheus_scrape_timeout"}}
@@ -287,23 +289,6 @@ components:
 
                 - job_name: "yugabyte"
                   metrics_path: "/prometheus-metrics"
-                  params:
-                    # Enable priority regex on all tables
-                    # URL encoding done by prometheus
-                    priority_regex:
-                      - "rocksdb_(number_db_(next|seek)\
-                      |block_cache_(add|single_touch_add|multi_touch_add)\
-                      |current_version_(sst_files_size|num_sst_files)\
-                      |db_([^_]+_micros_[^_]+|mutex_wait_micros)|block_cache_(hit|miss)\
-                      |bloom_filter_(checked|useful)|stall_micros|flush_write_bytes\
-                      |compact_[^_]+_bytes|compaction_times_micros_[^_]+\
-                      |numfiles_in_singlecompaction_[^_]+)\
-                      |async_replication_[^_]+_lag_micros|transaction_conflicts\
-                      |majority_sst_files_rejections|expired_transactions\
-                      |log_(sync_latency_[^_]+|group_commit_latency_[^_]+\
-                      |append_latency_[^_]+|bytes_logged|reader_bytes_read\
-                      |append_latency_count|sync_latency_count|cache_size|cache_num_ops)\
-                      |glog_[^_]+_messages|follower_lag_ms|[^_]+_memory_pressure_rejections"
                   file_sd_configs:
                     - files:
                       - '/opt/yugabyte/prometheus/targets/yugabyte.*.json'
@@ -346,6 +331,8 @@ components:
             container_path: /opt/yugabyte/yugaware/data
           - host_path: '{{repl ConfigOption "storage_path"}}/releases'
             container_path: /opt/yugabyte/releases
+          - host_path: '{{repl ConfigOption "storage_path"}}/ybc/releases'
+            container_path: /opt/yugabyte/ybc/releases
           - host_path: '{{repl ConfigOption "storage_path"}}/prometheusv2'
             container_path: /prometheus
           - host_path: '{{repl ConfigOption "storage_path"}}/prometheus_configs'
@@ -450,12 +437,17 @@ components:
                 security.ssh2_enabled = false
               }
 
+              ybc {
+                releases.path = "/opt/yugabyte/ybc/releases"
+                docker.release = "/opt/yugabyte/ybc/release"
+              }
+
   - name: nginx
     containers:
       - source: public
         image_name: nginx
         name: nginx
-        version: 1.13.1
+        version: 1.23.1
         cmd: ""
         publish_events:
           - name: Container nginx started
@@ -485,9 +477,12 @@ components:
 
                   proxy_http_version 1.1;
                   proxy_set_header X-Real-IP  $remote_addr;
-                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-For $remote_addr;
                   proxy_set_header X-Forwarded-Proto $scheme;
                   proxy_set_header Host $host;
+
+                  proxy_read_timeout 600;
+
 
                 location / {
                   proxy_pass http://{{repl HostPrivateIpAddress "app" "yugabyte/yugaware" }}:{{repl ContainerExposedPort "app" "yugabyte/yugaware" "9000" }};

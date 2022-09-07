@@ -548,6 +548,7 @@ _copyIndexOnlyScan(const IndexOnlyScan *from)
 	COPY_SCALAR_FIELD(indexorderdir);
 	COPY_NODE_FIELD(remote.qual);
 	COPY_NODE_FIELD(remote.colrefs);
+	COPY_NODE_FIELD(yb_indexqual_for_recheck);
 
 	return newnode;
 }
@@ -3203,6 +3204,7 @@ _copyAlterTableCmd(const AlterTableCmd *from)
 	COPY_NODE_FIELD(def);
 	COPY_SCALAR_FIELD(behavior);
 	COPY_SCALAR_FIELD(missing_ok);
+	COPY_SCALAR_FIELD(yb_is_add_primary_key);
 
 	return newnode;
 }

@@ -24,6 +24,8 @@
 
 #include "yb/consensus/log_fwd.h"
 
+#include "yb/docdb/local_waiting_txn_registry.h"
+
 #include "yb/server/server_fwd.h"
 
 #include "yb/tablet/tablet_fwd.h"
@@ -33,6 +35,8 @@ class Cache;
 class EventListener;
 class MemoryMonitor;
 class Env;
+
+struct RocksDBPriorityThreadPoolMetrics;
 }
 
 namespace yb {
@@ -51,6 +55,7 @@ struct TabletOptions {
   yb::Env* env = Env::Default();
   rocksdb::Env* rocksdb_env = rocksdb::Env::Default();
   std::shared_ptr<rocksdb::RateLimiter> rate_limiter;
+  std::shared_ptr<rocksdb::RocksDBPriorityThreadPoolMetrics> priority_thread_pool_metrics;
 };
 
 using TransactionManagerProvider = std::function<client::TransactionManager&()>;
@@ -74,6 +79,7 @@ struct TabletInitData {
   TabletSplitter* tablet_splitter = nullptr;
   std::function<HybridTime(RaftGroupMetadata*)> allowed_history_cutoff_provider;
   TransactionManagerProvider transaction_manager_provider;
+  LocalWaitingTxnRegistry* waiting_txn_registry = nullptr;
 };
 
 } // namespace tablet

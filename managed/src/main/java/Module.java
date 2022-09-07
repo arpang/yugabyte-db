@@ -2,6 +2,8 @@
 
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
+import com.google.inject.Singleton;
+import com.google.inject.name.Named;
 import com.yugabyte.yw.cloud.CloudModules;
 import com.yugabyte.yw.cloud.aws.AWSInitializer;
 import com.yugabyte.yw.commissioner.BackupGarbageCollector;
@@ -13,13 +15,13 @@ import com.yugabyte.yw.commissioner.SetUniverseKey;
 import com.yugabyte.yw.commissioner.SupportBundleCleanup;
 import com.yugabyte.yw.commissioner.TaskExecutor;
 import com.yugabyte.yw.commissioner.TaskGarbageCollector;
+import com.yugabyte.yw.commissioner.YbcUpgrade;
 import com.yugabyte.yw.common.AccessKeyRotationUtil;
 import com.yugabyte.yw.common.AccessManager;
 import com.yugabyte.yw.common.AlertManager;
 import com.yugabyte.yw.common.ConfigHelper;
 import com.yugabyte.yw.common.CustomerTaskManager;
 import com.yugabyte.yw.common.ExtraMigrationManager;
-import com.yugabyte.yw.common.gflags.GFlagsValidation;
 import com.yugabyte.yw.common.NativeKubernetesManager;
 import com.yugabyte.yw.common.NetworkManager;
 import com.yugabyte.yw.common.NodeManager;
@@ -30,6 +32,7 @@ import com.yugabyte.yw.common.ShellProcessHandler;
 import com.yugabyte.yw.common.SupportBundleUtil;
 import com.yugabyte.yw.common.SwamperHelper;
 import com.yugabyte.yw.common.TemplateManager;
+import com.yugabyte.yw.common.WSClientRefresher;
 import com.yugabyte.yw.common.YamlWrapper;
 import com.yugabyte.yw.common.YcqlQueryExecutor;
 import com.yugabyte.yw.common.YsqlQueryExecutor;
@@ -38,13 +41,15 @@ import com.yugabyte.yw.common.alerts.AlertsGarbageCollector;
 import com.yugabyte.yw.common.alerts.QueryAlerts;
 import com.yugabyte.yw.common.config.RuntimeConfigFactory;
 import com.yugabyte.yw.common.config.impl.SettableRuntimeConfigFactory;
-import com.yugabyte.yw.common.ha.PlatformInstanceClientFactory;
+import com.yugabyte.yw.common.gflags.GFlagsValidation;
+import com.yugabyte.yw.common.ha.PlatformInstanceClient;
 import com.yugabyte.yw.common.ha.PlatformReplicationHelper;
 import com.yugabyte.yw.common.ha.PlatformReplicationManager;
 import com.yugabyte.yw.common.kms.EncryptionAtRestManager;
 import com.yugabyte.yw.common.kms.util.EncryptionAtRestUniverseKeyCache;
 import com.yugabyte.yw.common.kms.util.GcpEARServiceUtil;
 import com.yugabyte.yw.common.metrics.PlatformMetricsProcessor;
+import com.yugabyte.yw.common.metrics.SwamperTargetsFileUpdater;
 import com.yugabyte.yw.common.services.LocalYBClientService;
 import com.yugabyte.yw.common.services.YBClientService;
 import com.yugabyte.yw.common.ybflyway.YBFlywayInit;
@@ -131,8 +136,8 @@ public class Module extends AbstractModule {
       bind(PlatformMetricsProcessor.class).asEagerSingleton();
       bind(AlertsGarbageCollector.class).asEagerSingleton();
       bind(AlertConfigurationWriter.class).asEagerSingleton();
+      bind(SwamperTargetsFileUpdater.class).asEagerSingleton();
       bind(PlatformReplicationManager.class).asEagerSingleton();
-      bind(PlatformInstanceClientFactory.class).asEagerSingleton();
       bind(PlatformReplicationHelper.class).asEagerSingleton();
       bind(GFlagsValidation.class).asEagerSingleton();
       bind(ExecutorServiceProvider.class).to(DefaultExecutorServiceProvider.class);
@@ -144,6 +149,7 @@ public class Module extends AbstractModule {
       bind(PlatformScheduler.class).asEagerSingleton();
       bind(AccessKeyRotationUtil.class).asEagerSingleton();
       bind(GcpEARServiceUtil.class).asEagerSingleton();
+      bind(YbcUpgrade.class).asEagerSingleton();
     }
   }
 
@@ -175,5 +181,12 @@ public class Module extends AbstractModule {
     final Config config = new Config(clients);
     config.setHttpActionAdapter(new PlatformHttpActionAdapter());
     return config;
+  }
+
+  @Provides
+  @Named(PlatformInstanceClient.YB_HA_WS_KEY)
+  @Singleton
+  protected WSClientRefresher provideWSClientForHA(WSClientRefresher refresher) {
+    return refresher;
   }
 }

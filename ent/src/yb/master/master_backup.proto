@@ -100,10 +100,19 @@ message RestorationInfoPB {
   optional SysRestorationEntryPB entry = 2;
 }
 
+message ListSnapshotsDetailOptionsPB {
+  // Defaults are set to true to support backwards compatibility.
+  optional bool show_namespace_details = 1 [default = true];
+  optional bool show_udtype_details = 2 [default = true];
+  optional bool show_table_details = 3 [default = true];
+  optional bool show_tablet_details = 4 [default = true];
+}
+
 message ListSnapshotsRequestPB {
   optional bytes snapshot_id = 2;
   optional bool list_deleted_snapshots = 3;
   optional bool prepare_for_backup = 4;
+  optional ListSnapshotsDetailOptionsPB detail_options = 5;
 }
 
 message ListSnapshotsResponsePB {
@@ -229,6 +238,17 @@ message DeleteSnapshotScheduleResponsePB {
   optional MasterErrorPB error = 1;
 }
 
+message EditSnapshotScheduleRequestPB {
+  optional bytes snapshot_schedule_id = 1;
+  optional uint64 interval_sec = 2;
+  optional uint64 retention_duration_sec = 3;
+}
+
+message EditSnapshotScheduleResponsePB {
+  optional MasterErrorPB error = 1;
+  optional SnapshotScheduleInfoPB schedule = 2;
+}
+
 service MasterBackup {
   // Client->Master RPCs
   rpc CreateSnapshot(CreateSnapshotRequestPB) returns (CreateSnapshotResponsePB);
@@ -244,4 +264,5 @@ service MasterBackup {
       returns (ListSnapshotSchedulesResponsePB);
   rpc DeleteSnapshotSchedule(DeleteSnapshotScheduleRequestPB)
       returns (DeleteSnapshotScheduleResponsePB);
+  rpc EditSnapshotSchedule(EditSnapshotScheduleRequestPB) returns (EditSnapshotScheduleResponsePB);
 }

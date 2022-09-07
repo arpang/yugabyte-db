@@ -68,6 +68,7 @@
 #include "yb/util/crc.h"
 #include "yb/util/debug/long_operation_tracker.h"
 #include "yb/util/debug/trace_event.h"
+#include "yb/util/debug-util.h"
 #include "yb/util/env_util.h"
 #include "yb/util/fault_injection.h"
 #include "yb/util/file_util.h"
@@ -179,6 +180,8 @@ DEFINE_test_flag(bool, log_consider_all_ops_safe, false,
 
 DEFINE_test_flag(bool, simulate_abrupt_server_restart, false,
                  "If true, don't properly close the log segment.");
+
+DEFINE_test_flag(bool, pause_before_wal_sync, false, "Pause before doing work in Log::Sync.");
 
 // TaskStream flags.
 // We have to make the queue length really long.
@@ -1006,7 +1009,8 @@ Status Log::DoSync() {
   Status status;
   periodic_sync_needed_.store(0, std::memory_order_release);
   periodic_sync_unsynced_bytes_.store(0, std::memory_order_release);
-  LOG_SLOW_EXECUTION(WARNING, 50, "Fsync log took a long time") {
+  LOG_SLOW_EXECUTION_EVERY_N_SECS(INFO, /* log at most one slow execution every 1 sec */ 1,
+                                  50, "Fsync log took a long time") {
     SCOPED_LATENCY_METRIC(metrics_, sync_latency);
     status = active_segment_->Sync();
   }
@@ -1104,6 +1108,8 @@ SyncType Log::FindSyncType() {
 //
 Status Log::Sync() {
   TRACE_EVENT0("log", "Sync");
+
+  TEST_PAUSE_IF_FLAG(TEST_pause_before_wal_sync);
 
   if (sync_disabled_) {
     return UpdateSegmentReadableOffset();

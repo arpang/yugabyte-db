@@ -355,6 +355,7 @@ Status PgDocOp::SendRequestImpl(bool force_non_bufferable) {
 
   // Send at most "parallelism_level_" number of requests at one time.
   size_t send_count = std::min(parallelism_level_, active_op_count_);
+  VLOG(1) << "Number of operations to send: " << send_count;
   response_ = VERIFY_RESULT(sender_(
       pg_session_.get(), pgsql_ops_.data(), send_count,
       *table_, GetInTxnLimit(), force_non_bufferable));
@@ -517,25 +518,40 @@ Result<bool> PgDocReadOp::DoCreateRequests() {
   // All information from the SQL request has been collected and setup. This code populates
   // Protobuf requests before sending them to DocDB. For performance reasons, requests are
   // constructed differently for different statements.
-  if (read_op_->read_request().has_sampling_state()) {
+  const auto& req = read_op_->read_request();
+  if (req.has_sampling_state()) {
     VLOG(1) << __PRETTY_FUNCTION__ << ": Preparing sampling requests ";
     return PopulateSamplingOps();
 
+  // Use partition column values to filter out partitions without possible matches.
+  // If there is a query with conditions on multiple partition columns, like
+  // - SELECT * FROM sql_table WHERE hash_c1 IN (1, 2, 3) AND hash_c2 IN (4, 5, 6);
+  // the function creates multiple requests for possible hash permutations / keys.
+  // The requests are also configured to run in parallel.
+  } else if (!req.partition_column_values().empty()) {
+    return PopulateNextHashPermutationOps();
+
+  // There is no key values to filter out partitions, send requests to all of them.
   // Requests pushing down aggregates and/or filter expression tend to do more work on DocDB side,
   // so it takes longer to return responses, and Postgres side has generally less work to do.
-  // Hence we optimize by sending multiple parallel requests to the nodes, allowing their
+  // Hence we optimize by sending multiple parallel requests to the tablets, allowing their
   // simultaneous processing.
   // Effect may be less than expected if the nodes are already heavily loaded and CPU consumption
   // is high, or selectivity of the filter is low.
-  } else if (read_op_->read_request().is_aggregate() ||
-             !read_op_->read_request().where_clauses().empty()) {
+  // Other concern than Postgres being a bottleneck, is an index scan over a range partitioned
+  // table. Such scan is able to return rows ordered, and that order may be relied upon by upper
+  // plan nodes, but parallel execution messes the order up. Here where we are preparing the
+  // requests, we do not know if the query relies on the row order, we even may not be able to tell,
+  // if we are doing sequential or primary key scan, hence we should not parallelize scans on range
+  // partitioned tables. In the past neither aggregates nor where clause pushdown was supported by
+  // the index scan, so the same criteria worked and only sequential scans over range tables were
+  // parallelized. As of today, IndexScan still does not support aggregate pushdown, so we allow
+  // parallel execution of requests with aggregates, but this implicit criteria is not reliable.
+  // TODO(GHI 13737): as explained above, explicitly indicate, if operation should return ordered
+  // results.
+  } else if (req.is_aggregate() ||
+             (!table_->IsRangePartitioned() && !req.where_clauses().empty())) {
     return PopulateParallelSelectOps();
-
-  } else if (!read_op_->read_request().partition_column_values().empty()) {
-    // Optimization for multiple hash keys.
-    // - SELECT * FROM sql_table WHERE hash_c1 IN (1, 2, 3) AND hash_c2 IN (4, 5, 6);
-    // - Multiple requests for differrent hash permutations / keys.
-    return PopulateNextHashPermutationOps();
 
   } else {
     // No optimization.
@@ -545,6 +561,12 @@ Result<bool> PgDocReadOp::DoCreateRequests() {
     pgsql_ops_.emplace_back(read_op_);
     pgsql_ops_.back()->set_active(true);
     active_op_count_ = 1;
+    if (req.has_ybctid_column_value()) {
+      const Slice& ybctid =
+        read_op_->read_request().mutable_ybctid_column_value()->mutable_value()->binary_value();
+      const size_t partition = VERIFY_RESULT(table_->FindPartitionIndex(ybctid));
+      return SetLowerUpperBound(&read_op_->read_request(), partition);
+    }
     return true;
   }
 }
@@ -567,7 +589,6 @@ Status PgDocReadOp::DoPopulateDmlByYbctidOps(const YbctidGenerator& generator) {
   //
   // 6- Repeat step 2 thru 5 for the next batch of 1024 ybctids till done.
   RETURN_NOT_OK(InitializeYbctidOperators());
-  const auto& partition_keys = table_->GetPartitions();
   // Begin a batch of ybctids.
   end_of_data_ = false;
   // Assign ybctid values.
@@ -591,7 +612,6 @@ Status PgDocReadOp::DoPopulateDmlByYbctidOps(const YbctidGenerator& generator) {
     batch_arg->set_order(batch_row_ordering_counter_);
     auto* arg_value = batch_arg->mutable_ybctid()->mutable_value();
     arg_value->dup_binary_value(ybctid);
-    const auto arena_ybctid = arg_value->binary_value();
 
     // Remember the order number for each request.
     batch_row_orders_[partition].push_back(batch_row_ordering_counter_);
@@ -599,32 +619,13 @@ Status PgDocReadOp::DoPopulateDmlByYbctidOps(const YbctidGenerator& generator) {
     // Increment counter for the next row.
     ++batch_row_ordering_counter_;
 
-    // We must set "ybctid_column_value" in the request for two reasons:
-    // - "client::yb_op" uses it to set the hash_code.
-    // - Rolling upgrade: Older server will read only "ybctid_column_value" as it doesn't know
-    //   of ybctid-batching operation.
-    // Note: lowest ybctid per partition must be used to correctly handle possible dynamic table
-    // splitting.
-    if (!read_req.has_ybctid_column_value()) {
-      pgsql_ops_[partition]->set_active(true);
-      read_req.set_is_forward_scan(true);
-      read_req.mutable_ybctid_column_value()->mutable_value()->ref_binary_value(arena_ybctid);
+    pgsql_ops_[partition]->set_active(true);
+    read_req.set_is_forward_scan(true);
 
-      // For every read operation set partition boundary. In case a tablet is split between
-      // preparing requests and executing them, DocDB will return a paging state for pggate to
-      // continue till the end of current tablet is reached.
-      const std::string default_upper_bound;
-      const auto& upper_bound = (partition < partition_keys.size() - 1)
-          ? partition_keys[partition + 1]
-          : default_upper_bound;
-      RETURN_NOT_OK(table_->SetScanBoundary(&read_req,
-                                            partition_keys[partition],
-                                            /* lower_bound_is_inclusive */ true,
-                                            upper_bound,
-                                            /* upper_bound_is_inclusive */ false));
-    } else if (arena_ybctid < read_req.ybctid_column_value().value().binary_value()) {
-      read_req.mutable_ybctid_column_value()->mutable_value()->ref_binary_value(arena_ybctid);
-    }
+    // For every read operation set partition boundary. In case a tablet is split between
+    // preparing requests and executing them, DocDB will return a paging state for pggate to
+    // continue till the end of current tablet is reached.
+    RETURN_NOT_OK(SetLowerUpperBound(&read_req, partition));
   }
 
   // Done creating request, but not all partition or operator has arguments (inactive).
@@ -744,6 +745,9 @@ Status PgDocReadOp::InitializeHashPermutationStates() {
 }
 
 Result<bool> PgDocReadOp::PopulateParallelSelectOps() {
+  SCHECK(read_op_->read_request().partition_column_values().empty(),
+         IllegalState,
+         "Request with non empty partition_column_values can't be parallelized");
   // Create batch operators, one per partition, to execute in parallel.
   // TODO(tsplit): what if table partition is changed during PgDocReadOp lifecycle before or after
   // the following line?
@@ -779,15 +783,7 @@ Result<bool> PgDocReadOp::PopulateParallelSelectOps() {
     // server uses this information to operate on correct tablet.
     // - Range partition uses range partition key to identify partition.
     // - Hash partition uses "next_partition_key" and "max_hash_code" to identify partition.
-    string upper_bound;
-    if (partition < partition_keys.size() - 1) {
-      upper_bound = partition_keys[partition + 1];
-    }
-    RETURN_NOT_OK(table_->SetScanBoundary(&GetReadReq(partition),
-                                          partition_keys[partition],
-                                          true /* lower_bound_is_inclusive */,
-                                          upper_bound,
-                                          false /* upper_bound_is_inclusive */));
+    RETURN_NOT_OK(SetLowerUpperBound(&GetReadReq(partition), partition));
   }
   active_op_count_ = partition_keys.size();
 
@@ -814,15 +810,7 @@ Result<bool> PgDocReadOp::PopulateSamplingOps() {
     // server uses this information to operate on correct tablet.
     // - Range partition uses range partition key to identify partition.
     // - Hash partition uses "next_partition_key" and "max_hash_code" to identify partition.
-    string upper_bound;
-    if (partition < partition_keys.size() - 1) {
-      upper_bound = partition_keys[partition + 1];
-    }
-    RETURN_NOT_OK(table_->SetScanBoundary(&GetReadReq(partition),
-                                          partition_keys[partition],
-                                          true /* lower_bound_is_inclusive */,
-                                          upper_bound,
-                                          false /* upper_bound_is_inclusive */));
+    RETURN_NOT_OK(SetLowerUpperBound(&GetReadReq(partition), partition));
   }
   active_op_count_ = partition_keys.size();
   VLOG(1) << "Number of partitions to sample: " << active_op_count_;
@@ -1087,6 +1075,20 @@ void PgDocReadOp::FormulateRequestForRollingUpgrade(LWPgsqlReadRequestPB *read_r
 
 LWPgsqlReadRequestPB& PgDocReadOp::GetReadReq(size_t op_index) {
   return down_cast<PgsqlReadOp&>(*pgsql_ops_[op_index]).read_request();
+}
+
+Result<bool> PgDocReadOp::SetLowerUpperBound(LWPgsqlReadRequestPB* request, size_t partition) {
+  const auto& partition_keys = table_->GetPartitions();
+  const std::string default_upper_bound;
+  const auto& upper_bound = (partition < partition_keys.size() - 1)
+      ? partition_keys[partition + 1]
+      : default_upper_bound;
+  RETURN_NOT_OK(table_->SetScanBoundary(request,
+                                        partition_keys[partition],
+                                        /* lower_bound_is_inclusive */ true,
+                                        upper_bound,
+                                        /* upper_bound_is_inclusive */ false));
+  return true;
 }
 
 //--------------------------------------------------------------------------------------------------

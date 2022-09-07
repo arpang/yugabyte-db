@@ -6,7 +6,6 @@ import com.google.common.collect.ImmutableSet;
 import com.yugabyte.yw.commissioner.BaseTaskDependencies;
 import com.yugabyte.yw.commissioner.Common.CloudType;
 import com.yugabyte.yw.commissioner.HookInserter;
-import com.yugabyte.yw.commissioner.TaskExecutor;
 import com.yugabyte.yw.commissioner.TaskExecutor.SubTaskGroup;
 import com.yugabyte.yw.commissioner.UserTaskDetails.SubTaskGroupType;
 import com.yugabyte.yw.commissioner.tasks.params.NodeTaskParams;
@@ -17,6 +16,7 @@ import com.yugabyte.yw.commissioner.tasks.subtasks.AnsibleSetupServer;
 import com.yugabyte.yw.commissioner.tasks.subtasks.AnsibleUpdateNodeInfo;
 import com.yugabyte.yw.commissioner.tasks.subtasks.DeleteClusterFromUniverse;
 import com.yugabyte.yw.commissioner.tasks.subtasks.InstanceActions;
+import com.yugabyte.yw.commissioner.tasks.subtasks.InstanceExistCheck;
 import com.yugabyte.yw.commissioner.tasks.subtasks.PrecheckNode;
 import com.yugabyte.yw.commissioner.tasks.subtasks.PreflightNodeCheck;
 import com.yugabyte.yw.commissioner.tasks.subtasks.UpdateUniverseTags;
@@ -26,6 +26,7 @@ import com.yugabyte.yw.common.PlacementInfoUtil;
 import com.yugabyte.yw.common.PlacementInfoUtil.SelectMastersResult;
 import com.yugabyte.yw.common.Util;
 import com.yugabyte.yw.common.certmgmt.EncryptionInTransitUtil;
+import com.yugabyte.yw.common.helm.HelmUtils;
 import com.yugabyte.yw.common.password.RedactingService;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.Cluster;
@@ -94,6 +95,7 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
   public enum ServerType {
     MASTER,
     TSERVER,
+    CONTROLLER,
     // TODO: Replace all YQLServer with YCQLserver
     YQLSERVER,
     YSQLSERVER,
@@ -495,7 +497,9 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
               masterLeader,
               primaryNodes,
               primaryCluster.userIntent.replicationFactor,
-              PlacementInfoUtil.getDefaultRegionCode(taskParams()),
+              taskParams().mastersInDefaultRegion
+                  ? PlacementInfoUtil.getDefaultRegionCode(taskParams())
+                  : null,
               applySelection);
       log.info(
           "Active masters count after balancing = "
@@ -605,6 +609,7 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
 
       // The software package to install for this cluster.
       params.ybSoftwareVersion = userIntent.ybSoftwareVersion;
+      params.enableYbc = taskParams().enableYbc;
       params.ybcSoftwareVersion = taskParams().ybcSoftwareVersion;
       // Set the InstanceType
       params.instanceType = node.cloudInfo.instance_type;
@@ -974,7 +979,9 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
       // Set if this node is a master in shell mode.
       // The software package to install for this cluster.
       params.ybSoftwareVersion = userIntent.ybSoftwareVersion;
+      params.enableYbc = taskParams().enableYbc;
       params.ybcSoftwareVersion = taskParams().ybcSoftwareVersion;
+      params.ybcInstalled = taskParams().ybcInstalled;
       // Set the InstanceType
       params.instanceType = node.cloudInfo.instance_type;
       params.enableNodeToNodeEncrypt = userIntent.enableNodeToNodeEncrypt;
@@ -1069,9 +1076,9 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
     Universe universe = Universe.getOrBadRequest(taskParams().universeUUID);
     UniverseDefinitionTaskParams universeDetails = universe.getUniverseDetails();
     for (Cluster cluster : taskParams().clusters) {
+      Cluster univCluster = universeDetails.getClusterByUuid(cluster.uuid);
       if (opType == UniverseOpType.EDIT
           && cluster.userIntent.instanceTags.containsKey(NODE_NAME_KEY)) {
-        Cluster univCluster = universeDetails.getClusterByUuid(cluster.uuid);
         if (univCluster == null) {
           throw new IllegalStateException(
               "No cluster " + cluster.uuid + " found in " + taskParams().universeUUID);
@@ -1086,6 +1093,42 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
       }
       PlacementInfoUtil.verifyNodesAndRF(
           cluster.clusterType, cluster.userIntent.numNodes, cluster.userIntent.replicationFactor);
+
+      // Verify k8s overrides.
+      if (cluster.userIntent.providerType == CloudType.kubernetes) {
+        if (cluster.clusterType == ClusterType.ASYNC) {
+          // Readonly cluster should not have k8s overrides.
+          if (StringUtils.isNotBlank(cluster.userIntent.universeOverrides)
+              || StringUtils.isNotBlank(cluster.userIntent.azOverrides)) {
+            throw new IllegalArgumentException("Readonly cluster can't have overrides defined");
+          }
+        } else { // During edit universe, overrides can't be changed.
+          if (opType == UniverseOpType.EDIT) {
+            Map<String, String> curUnivOverrides =
+                HelmUtils.flattenMap(
+                    HelmUtils.convertYamlToMap(univCluster.userIntent.universeOverrides));
+            Map<String, String> curAZOverrides =
+                HelmUtils.flattenMap(
+                    HelmUtils.convertYamlToMap(univCluster.userIntent.azOverrides));
+            Map<String, String> newUnivOverrides =
+                HelmUtils.flattenMap(
+                    HelmUtils.convertYamlToMap(cluster.userIntent.universeOverrides));
+            Map<String, String> newAZOverrides =
+                HelmUtils.flattenMap(HelmUtils.convertYamlToMap(cluster.userIntent.azOverrides));
+            if (!(curUnivOverrides.equals(newUnivOverrides)
+                && curAZOverrides.equals(newAZOverrides))) {
+              throw new IllegalArgumentException(
+                  "Universe overrides can't be modifed during the edit operation.");
+            }
+          }
+        }
+      } else {
+        // Non k8s universes should not have k8s overrides.
+        if (StringUtils.isNotBlank(cluster.userIntent.universeOverrides)
+            || StringUtils.isNotBlank(cluster.userIntent.azOverrides)) {
+          throw new IllegalArgumentException("Non k8s Universe can't have k8s overrides defined");
+        }
+      }
     }
   }
 
@@ -1552,7 +1595,7 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
     }
 
     // Wait for yb-controller to be responsive on each node.
-    createWaitForYbcServerTask().setSubTaskGroupType(SubTaskGroupType.ConfigureUniverse);
+    createWaitForYbcServerTask(null).setSubTaskGroupType(SubTaskGroupType.ConfigureUniverse);
   }
 
   /**
@@ -1645,11 +1688,61 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
     getRunnableTask().addSubTaskGroup(subTaskGroup);
   }
 
+  public void createYbcSoftwareInstallTasks(
+      List<NodeDetails> nodes, String softwareVersion, SubTaskGroupType subTaskGroupType) {
+
+    // If the node list is empty, we don't need to do anything.
+    if (nodes.isEmpty()) {
+      return;
+    }
+
+    String subGroupDescription =
+        String.format(
+            "AnsibleConfigureServers (%s) for: %s",
+            SubTaskGroupType.InstallingSoftware, taskParams().nodePrefix);
+    SubTaskGroup subTaskGroup = getTaskExecutor().createSubTaskGroup(subGroupDescription, executor);
+    for (NodeDetails node : nodes) {
+      subTaskGroup.addSubTask(
+          getAnsibleConfigureServerTask(
+              node,
+              ServerType.CONTROLLER,
+              UpgradeTaskSubType.YbcInstall,
+              softwareVersion,
+              taskParams().ybcSoftwareVersion));
+    }
+    subTaskGroup.setSubTaskGroupType(subTaskGroupType);
+    getRunnableTask().addSubTaskGroup(subTaskGroup);
+  }
+
+  public SubTaskGroup createInstanceExistsCheckTasks(
+      UUID universeUuid, Collection<NodeDetails> nodes) {
+    SubTaskGroup subTaskGroup =
+        getTaskExecutor().createSubTaskGroup("InstanceExistsCheck", executor);
+    for (NodeDetails node : nodes) {
+      if (node.placementUuid == null) {
+        String errMsg = String.format("Node %s does not have placement.", node.nodeName);
+        throw new RuntimeException(errMsg);
+      }
+      NodeTaskParams params = new NodeTaskParams();
+      params.universeUUID = universeUuid;
+      params.nodeName = node.nodeName;
+      params.nodeUuid = node.nodeUuid;
+      params.azUuid = node.azUuid;
+      params.placementUuid = node.placementUuid;
+      InstanceExistCheck task = createTask(InstanceExistCheck.class);
+      task.initialize(params);
+      subTaskGroup.addSubTask(task);
+    }
+    getRunnableTask().addSubTaskGroup(subTaskGroup);
+    return subTaskGroup;
+  }
+
   protected AnsibleConfigureServers getAnsibleConfigureServerTask(
       NodeDetails node,
       ServerType processType,
       UpgradeTaskSubType taskSubType,
-      String softwareVersion) {
+      String softwareVersion,
+      String ybcSoftwareVersion) {
     AnsibleConfigureServers.Params params =
         getAnsibleConfigureServerParams(node, processType, UpgradeTaskType.Software, taskSubType);
     if (taskSubType == UpgradeTaskSubType.PackageReInstall) {
@@ -1661,10 +1754,24 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
     } else {
       params.ybSoftwareVersion = softwareVersion;
     }
+    params.ybcSoftwareVersion = ybcSoftwareVersion;
+    if (!StringUtils.isEmpty(params.ybcSoftwareVersion)) {
+      params.enableYbc = true;
+    }
+
     AnsibleConfigureServers task = createTask(AnsibleConfigureServers.class);
     task.initialize(params);
     task.setUserTaskUUID(userTaskUUID);
     return task;
+  }
+
+  protected AnsibleConfigureServers getAnsibleConfigureServerTask(
+      NodeDetails node,
+      ServerType processType,
+      UpgradeTaskSubType taskSubType,
+      String softwareVersion) {
+    return getAnsibleConfigureServerTask(
+        node, processType, taskSubType, softwareVersion, taskParams().ybcSoftwareVersion);
   }
 
   public AnsibleConfigureServers.Params getAnsibleConfigureServerParams(
@@ -1707,7 +1814,12 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
 
     // The software package to install for this cluster.
     params.ybSoftwareVersion = userIntent.ybSoftwareVersion;
+
+    params.enableYbc = taskParams().enableYbc;
     params.ybcSoftwareVersion = taskParams().ybcSoftwareVersion;
+    params.installYbc = taskParams().installYbc;
+    params.ybcInstalled = taskParams().ybcInstalled;
+
     // Set the InstanceType
     params.instanceType = node.cloudInfo.instance_type;
     params.enableNodeToNodeEncrypt = userIntent.enableNodeToNodeEncrypt;
@@ -1739,10 +1851,9 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
     return params;
   }
 
-  protected TaskExecutor.SubTaskGroup createUpdateUniverseTagsTask(
+  protected SubTaskGroup createUpdateUniverseTagsTask(
       Cluster cluster, Map<String, String> instanceTags) {
-    TaskExecutor.SubTaskGroup subTaskGroup =
-        getTaskExecutor().createSubTaskGroup("InstanceActions", executor);
+    SubTaskGroup subTaskGroup = getTaskExecutor().createSubTaskGroup("InstanceActions", executor);
     UpdateUniverseTags.Params params = new UpdateUniverseTags.Params();
     params.universeUUID = taskParams().universeUUID;
     params.clusterUUID = cluster.uuid;

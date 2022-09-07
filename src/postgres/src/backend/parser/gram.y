@@ -920,6 +920,7 @@ stmt :
 			| CreatePolicyStmt
 			| CreateRoleStmt
 			| CreateSchemaStmt
+			| CreateStatsStmt
 			| CreateTableSpaceStmt
 			| CreateTrigStmt
 			| CreateUserStmt
@@ -970,20 +971,20 @@ stmt :
 			/* TODO(#10263): Fix individual beta flag feature bools */
 			| AlterExtensionContentsStmt { parser_ybc_beta_feature(@1, "extension", true); }
 			| AlterExtensionStmt { parser_ybc_beta_feature(@1, "extension", true); }
-			| AlterFdwStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
-			| AlterForeignServerStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
-			| AlterForeignTableStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
+			| AlterFdwStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", false); }
+			| AlterForeignServerStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", false); }
+			| AlterForeignTableStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", false); }
 			| AlterTSConfigurationStmt { parser_ybc_beta_feature(@1, "alter text search configuration", false); }
-			| AlterUserMappingStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
+			| AlterUserMappingStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", false); }
 			| AnalyzeStmt { parser_ybc_beta_feature(@1, "analyze", false); }
 			| CheckPointStmt { parser_ybc_beta_feature(@1, "checkpoint", false); }
-			| CreateFdwStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
-			| CreateForeignServerStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
-			| CreateForeignTableStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
+			| CreateFdwStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", false); }
+			| CreateForeignServerStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", false); }
+			| CreateForeignTableStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", false); }
 			| CreateTableGroupStmt { parser_ybc_beta_feature(@1, "tablegroup", true); }
-			| CreateUserMappingStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
-			| DropUserMappingStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
-			| ImportForeignSchemaStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", true); }
+			| CreateUserMappingStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", false); }
+			| DropUserMappingStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", false); }
+			| ImportForeignSchemaStmt { parser_ybc_beta_feature(@1, "foreign data wrapper", false); }
 			| VacuumStmt { parser_ybc_beta_feature(@1, "vacuum", false); }
 
 			/* Not supported in template0/template1 statements */
@@ -1005,7 +1006,6 @@ stmt :
 			| CreateConversionStmt { parser_ybc_not_support(@1, "This statement"); }
 			| CreatePublicationStmt { parser_ybc_not_support(@1, "This statement"); }
 			| CreateSubscriptionStmt { parser_ybc_not_support(@1, "This statement"); }
-			| CreateStatsStmt { parser_ybc_not_support(@1, "This statement"); }
 			| CreateTransformStmt { parser_ybc_not_support(@1, "This statement"); }
 			| DropAssertStmt { parser_ybc_not_support(@1, "This statement"); }
 			| DropSubscriptionStmt { parser_ybc_not_support(@1, "This statement"); }
@@ -2213,7 +2213,6 @@ alter_table_cmd:
 			/* ALTER TABLE <name> ALTER [COLUMN] <colname> SET STATISTICS <SignedIconst> */
 			| ALTER opt_column ColId SET STATISTICS SignedIconst
 				{
-					parser_ybc_signal_unsupported(@1, "ALTER TABLE ALTER column", 1124);
 					AlterTableCmd *n = makeNode(AlterTableCmd);
 					n->subtype = AT_SetStatistics;
 					n->name = $3;
@@ -3484,7 +3483,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 				}
 		| CREATE OptTemp TABLE qualified_name PARTITION OF qualified_name
 			OptTypedTableElementList PartitionBoundSpec OptPartitionSpec OptWith
-			OnCommitOption OptTableSpace OptSplit OptTableGroup
+			OnCommitOption OptTableSpace OptSplit
 				{
 					CreateStmt *n = makeNode(CreateStmt);
 					$4->relpersistence = $2;
@@ -3500,32 +3499,15 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->tablespacename = $13;
 					n->if_not_exists = false;
 					n->split_options = $14;
-					n->tablegroupname = $15;
 					if ($14 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(WARNING, (errmsg("Split options on TEMP table will be ignored")));
-					}
-					if ($15 && $2 == RELPERSISTENCE_TEMP)
-					{
-						ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-										errmsg("Cannot use TABLEGROUP with TEMP table.")));
-					}
-					if ($13 && $15)
-					{
-						ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-										errmsg("Cannot use TABLEGROUP with TABLESPACE."),
-										errdetail("The tablespace of the tablegroup will be used.")));
-					}
-					if ($14 && $15)
-					{
-						ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-										errmsg("Cannot use TABLEGROUP with SPLIT.")));
 					}
 					$$ = (Node *)n;
 				}
 		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name PARTITION OF
 			qualified_name OptTypedTableElementList PartitionBoundSpec OptPartitionSpec
-			OptWith OnCommitOption OptTableSpace OptSplit OptTableGroup
+			OptWith OnCommitOption OptTableSpace OptSplit
 				{
 					CreateStmt *n = makeNode(CreateStmt);
 					$7->relpersistence = $2;
@@ -3541,26 +3523,9 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->tablespacename = $16;
 					n->if_not_exists = true;
 					n->split_options = $17;
-					n->tablegroupname = $18;
 					if ($17 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(WARNING, (errmsg("Split options on TEMP table will be ignored")));
-					}
-					if ($18 && $2 == RELPERSISTENCE_TEMP)
-					{
-						ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-										errmsg("Cannot use TABLEGROUP with TEMP table.")));
-					}
-					if ($16 && $18)
-					{
-						ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-										errmsg("Cannot use TABLEGROUP with TABLESPACE."),
-										errdetail("The tablespace of the tablegroup will be used.")));
-					}
-					if ($17 && $18)
-					{
-						ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-										errmsg("Cannot use TABLEGROUP with SPLIT.")));
 					}
 					$$ = (Node *)n;
 				}
@@ -4386,7 +4351,6 @@ CreateStatsStmt:
 			CREATE STATISTICS any_name
 			opt_name_list ON expr_list FROM from_list
 				{
-					parser_ybc_not_support(@1, "CREATE STATISTICS");
 					CreateStatsStmt *n = makeNode(CreateStatsStmt);
 					n->defnames = $3;
 					n->stat_types = $4;
@@ -4399,7 +4363,6 @@ CreateStatsStmt:
 			| CREATE STATISTICS IF_P NOT EXISTS any_name
 			opt_name_list ON expr_list FROM from_list
 				{
-					parser_ybc_not_support(@1, "CREATE STATISTICS");
 					CreateStatsStmt *n = makeNode(CreateStatsStmt);
 					n->defnames = $6;
 					n->stat_types = $7;
@@ -6830,7 +6793,7 @@ drop_type_any_name:
 					$$ = OBJECT_COLLATION;
 				}
 			| CONVERSION_P { parser_ybc_not_support(@1, "DROP CONVERSION"); $$ = OBJECT_CONVERSION; }
-			| STATISTICS { parser_ybc_not_support(@1, "DROP STATISTICS"); $$ = OBJECT_STATISTIC_EXT; }
+			| STATISTICS { $$ = OBJECT_STATISTIC_EXT; }
 			| TEXT_P SEARCH PARSER
 				{
 					$$ = OBJECT_TSPARSER;
@@ -10922,7 +10885,6 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 		| CREATE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' opt_reloptions
 				AS SelectStmt opt_check_option
 				{
-					parser_ybc_not_support(@1, "CREATE RECURSIVE VIEW");
 					ViewStmt *n = makeNode(ViewStmt);
 					n->view = $5;
 					n->view->relpersistence = $2;
@@ -10941,7 +10903,6 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 		| CREATE OR REPLACE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' opt_reloptions
 				AS SelectStmt opt_check_option
 				{
-					parser_ybc_not_support(@1, "CREATE RECURSIVE VIEW");
 					ViewStmt *n = makeNode(ViewStmt);
 					n->view = $7;
 					n->view->relpersistence = $4;
@@ -17356,8 +17317,8 @@ raise_feature_not_supported_signal(int pos, core_yyscan_t yyscanner, const char 
 		ereport(signal_level,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("%s", msg),
-				 errhint("See https://github.com/YugaByte/yugabyte-db/issues/%d. "
-						 "Click '+' on the description to raise its priority", issue),
+				 errhint("See https://github.com/yugabyte/yugabyte-db/issues/%d. "
+						 "React with thumbs up to raise its priority", issue),
 				 parser_errposition(pos)));
 
 	}

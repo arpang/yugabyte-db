@@ -16,6 +16,7 @@ import com.yugabyte.yw.models.XClusterConfig;
 import com.yugabyte.yw.models.helpers.NodeDetails;
 import com.yugabyte.yw.models.helpers.NodeDetails.NodeState;
 import java.io.File;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -77,6 +78,18 @@ public class SoftwareUpgrade extends UpgradeTaskBase {
             createXClusterSourceRootCertDirPathGFlagTasks();
           }
 
+          boolean isUniverseOnPremManualProvisioned = Util.isOnPremManualProvisioning(universe);
+
+          // Re-provisioning the nodes if ybc needs to be installed and systemd is already enabled
+          // to register newly introduced ybc service if it is missing in case old universes.
+          // We would skip ybc installation in case of manually provisioned systemd enabled on-prem
+          // universes as we may not have sudo permissions.
+          if (taskParams().installYbc
+              && !isUniverseOnPremManualProvisioned
+              && universe.getUniverseDetails().getPrimaryCluster().userIntent.useSystemd) {
+            createSetupServerTasks(nodes.getRight(), param -> param.isSystemdUpgrade = true);
+          }
+
           String newVersion = taskParams().ybSoftwareVersion;
 
           createPackageInstallTasks(nodes.getRight());
@@ -88,7 +101,17 @@ public class SoftwareUpgrade extends UpgradeTaskBase {
                   createSoftwareInstallTasks(
                       nodes1, getSingle(processTypes), newVersion, getTaskSubGroupType()),
               nodes,
-              SOFTWARE_UPGRADE_CONTEXT);
+              SOFTWARE_UPGRADE_CONTEXT,
+              false);
+
+          if (taskParams().installYbc && !isUniverseOnPremManualProvisioned) {
+            createYbcSoftwareInstallTasks(nodes.getRight(), newVersion, getTaskSubGroupType());
+            // Start yb-controller process and wait for it to get responsive.
+            createStartYbcProcessTasks(new HashSet<>(nodes.getRight()));
+            createUpdateYbcTask(taskParams().ybcSoftwareVersion)
+                .setSubTaskGroupType(getTaskSubGroupType());
+          }
+
           if (taskParams().upgradeSystemCatalog) {
             // Run YSQL upgrade on the universe.
             createRunYsqlUpgradeTask(newVersion).setSubTaskGroupType(getTaskSubGroupType());

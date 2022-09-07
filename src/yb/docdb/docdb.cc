@@ -155,7 +155,7 @@ Result<DetermineKeysToLockResult> DetermineKeysToLock(
         return STATUS_FORMAT(Corruption, "Unable to decode key prefixes from: $0",
                              doc_path.as_slice().ToDebugHexString());
       }
-      // We will acquire strong lock on entire doc_path, so remove it from list of weak locks.
+      // We will acquire strong lock on the full doc_path, so remove it from list of weak locks.
       key_prefix_lengths.pop_back();
       auto partial_key = doc_path;
       // Acquire weak lock on empty key for transactional tables,
@@ -835,7 +835,8 @@ Result<ApplyTransactionState> GetIntentsBatch(
           intent_iter.Seek(reverse_index_value);
           if (!intent_iter.Valid() || intent_iter.key() != reverse_index_value) {
             LOG(WARNING) << "Unable to find intent: " << reverse_index_value.ToDebugHexString()
-                        << " for " << key_slice.ToDebugHexString();
+                         << " for " << key_slice.ToDebugHexString()
+                         << ", transactionId: " << transaction_id;
             return ApplyTransactionState{};
           }
 

@@ -89,6 +89,9 @@ Build options:
   --resolve-java-dependencies
     Force Maven to download all Java dependencies to the local repository
 
+  --build-yugabyted-ui
+    Build yugabyted-ui. If specified with --cmake-only, it won't be built.
+
   --target, --targets
     Pass the given target or set of targets to make or ninja.
   --rebuild-file <source_file_to_rebuild>
@@ -429,6 +432,11 @@ capture_sec_timestamp() {
   eval "${1}_time_sec=$current_timestamp"
 }
 
+run_yugabyted-ui_build() {
+  # This is a standalone build script.  It honors BUILD_ROOT from the env
+  "${YB_SRC_ROOT}/yugabyted-ui/build.sh"
+}
+
 run_cxx_build() {
   expect_vars_to_be_set make_file
 
@@ -700,6 +708,7 @@ make_opts=()
 force=false
 build_cxx=true
 build_java=true
+build_yugabyted_ui=false
 run_java_tests=false
 save_log=false
 make_targets=()
@@ -928,6 +937,9 @@ while [[ $# -gt 0 ]]; do
     --java-only|--jo)
       build_cxx=false
       java_only=true
+    ;;
+    --build-yugabyted-ui)
+      build_yugabyted_ui=true
     ;;
     --num-repetitions|--num-reps|-n)
       ensure_option_has_arg "$@"
@@ -1581,6 +1593,10 @@ if [[ ${build_cxx} == "true" ||
       ( "${YB_EXPORT_COMPILE_COMMANDS:-}" == "1" &&
         ! -f "${BUILD_ROOT}/compile_commands.json" ) ]]; then
   run_cxx_build
+fi
+
+if [[ ${build_yugabyted_ui} == "true" && ${cmake_only} != "true" ]]; then
+  run_yugabyted-ui_build
 fi
 
 export YB_JAVA_TEST_OFFLINE_MODE=0

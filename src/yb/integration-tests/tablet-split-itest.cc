@@ -341,7 +341,7 @@ TEST_F(TabletSplitITest, PostSplitCompactionDoesntBlockTabletCleanup) {
         first_child_tablet_peer_results.clear();
         for (auto mini_ts : cluster_->mini_tablet_servers()) {
           auto tablet_peer_result =
-              mini_ts->server()->tablet_manager()->LookupTablet(first_child_tablet->tablet_id());
+              mini_ts->server()->tablet_manager()->GetTablet(first_child_tablet->tablet_id());
           if (tablet_peer_result.ok() || !tablet_peer_result.status().IsNotFound()) {
             first_child_tablet_peer_results.push_back(tablet_peer_result);
           }
@@ -2444,7 +2444,7 @@ TEST_F(TabletSplitExternalMiniClusterITest, FaultedSplitNodeRejectsRemoteBootstr
   req.set_dest_uuid(faulted_follower->uuid());
   // We put some bogus values for these next two required fields.
   req.set_tablet_id("::std::string &&value");
-  req.set_bootstrap_peer_uuid("abcdefg");
+  req.set_bootstrap_source_peer_uuid("abcdefg");
   consensus::StartRemoteBootstrapResponsePB resp;
   rpc::RpcController rpc;
   rpc.set_timeout(kRpcTimeout);
@@ -2538,6 +2538,17 @@ TEST_P(TabletSplitExternalMiniClusterCrashITest, CrashLeaderTest) {
 
   ASSERT_OK(WaitForTabletsExcept(2, leader_idx, tablet_id));
 
+  // Wait for both child tablets have leaders elected.
+  auto ts_map = ASSERT_RESULT(itest::CreateTabletServerMap(
+      cluster_->GetLeaderMasterProxy<master::MasterClusterProxy>(), &cluster_->proxy_cache()));
+  auto tablet_ids = CHECK_RESULT(GetTestTableTabletIds());
+  for (const auto& id : tablet_ids) {
+    if (id != tablet_id) {
+      itest::TServerDetails *leader_ts = nullptr;
+      ASSERT_OK(itest::FindTabletLeader(ts_map, id, 20s * kTimeMultiplier, &leader_ts));
+    }
+  }
+
   // Check number of rows is correct after recovery.
   ASSERT_OK(CheckRowsCount(kDefaultNumRows));
 
@@ -2597,7 +2608,7 @@ TEST_F(TabletSplitRemoteBootstrapEnabledTest, TestSplitAfterFailedRbsCreatesDire
   const auto healthy_follower = cluster_->tablet_server(healthy_follower_idx);
   const auto faulted_follower_idx = (leader_idx + 2) % 3;
   const auto faulted_follower = cluster_->tablet_server(faulted_follower_idx);
-
+  // TODO: Wait for the tablet to be replicated before we send a split request.
   // Make one node fail on tablet split, and ensure the leader does not remote bootstrap to it at
   // first.
   ASSERT_OK(cluster_->SetFlag(
@@ -2923,7 +2934,7 @@ TEST_F(TabletSplitITest, ParentRemoteBootstrapAfterWritesToChildren) {
   // Trigger and wait for RBS to complete on the followers of split parent tablet.
   for (auto& ts : cluster_->mini_tablet_servers()) {
     const auto* tablet_manager = ts->server()->tablet_manager();
-    const auto peer = ASSERT_RESULT(tablet_manager->LookupTablet(source_tablet_id));
+    const auto peer = ASSERT_RESULT(tablet_manager->GetTablet(source_tablet_id));
     if (peer->consensus()->GetLeaderStatus() != consensus::LeaderStatus::NOT_LEADER) {
       continue;
     }
@@ -2938,7 +2949,7 @@ TEST_F(TabletSplitITest, ParentRemoteBootstrapAfterWritesToChildren) {
 
     ASSERT_OK(LoggedWaitFor(
         [&] {
-          const auto result = tablet_manager->LookupTablet(source_tablet_id);
+          const auto result = tablet_manager->GetTablet(source_tablet_id);
           if (!result.ok()) {
             return false;
           }

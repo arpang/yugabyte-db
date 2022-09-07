@@ -1273,6 +1273,38 @@ Status TabletServiceImpl::HandleUpdateTransactionStatusLocation(
   return Status::OK();
 }
 
+void TabletServiceImpl::UpdateTransactionWaitingForStatus(
+    const UpdateTransactionWaitingForStatusRequestPB* req,
+    UpdateTransactionWaitingForStatusResponsePB* resp,
+    rpc::RpcContext context) {
+  UpdateClock(*req, server_->Clock());
+
+  auto tablet = LookupLeaderTabletOrRespond(
+    server_->tablet_peer_lookup(), req->tablet_id(), resp, &context);
+  if (!tablet) {
+    return;
+  }
+
+  tablet.peer->tablet()->transaction_coordinator()->ProcessWaitForReport(
+      *req, resp, MakeRpcOperationCompletionCallback(std::move(context), resp, server_->Clock()));
+}
+
+void TabletServiceImpl::ProbeTransactionDeadlock(
+    const ProbeTransactionDeadlockRequestPB* req,
+    ProbeTransactionDeadlockResponsePB* resp,
+    rpc::RpcContext context) {
+  UpdateClock(*req, server_->Clock());
+
+  auto tablet = LookupLeaderTabletOrRespond(
+      server_->tablet_peer_lookup(), req->tablet_id(), resp, &context);
+  if (!tablet) {
+    return;
+  }
+
+  tablet.peer->tablet()->transaction_coordinator()->ProcessProbe(
+      *req, resp, MakeRpcOperationCompletionCallback(std::move(context), resp, server_->Clock()));
+}
+
 void TabletServiceImpl::Truncate(const TruncateRequestPB* req,
                                  TruncateResponsePB* resp,
                                  rpc::RpcContext context) {
@@ -2145,9 +2177,9 @@ void ConsensusServiceImpl::StartRemoteBootstrap(const StartRemoteBootstrapReques
     // split_parent_tablet_id. However, our local tablet manager should only know about the parent
     // if it was part of the raft group which committed the split to the parent, and if the parent
     // tablet has yet to be deleted across the cluster.
-    TabletPeerPtr tablet_peer;
-    if (tablet_manager_->GetTabletPeer(req->split_parent_tablet_id(), &tablet_peer).ok()) {
-      auto tablet = tablet_peer->shared_tablet();
+    auto tablet_peer = tablet_manager_->GetServingTablet(req->split_parent_tablet_id());
+    if (tablet_peer.ok()) {
+      auto tablet = (**tablet_peer).shared_tablet();
       // If local parent tablet replica has been already split or remote bootstrapped from remote
       // replica that has been already split - allow RBS of child tablets.
       // In this case we can't rely on local parent tablet replica split to create child tablet

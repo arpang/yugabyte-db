@@ -55,6 +55,7 @@
 
 #include "yb/common/index.h"
 #include "yb/common/redis_constants_common.h"
+#include "yb/common/placement_info.h"
 #include "yb/common/schema.h"
 #include "yb/common/wire_protocol.h"
 
@@ -310,6 +311,7 @@ YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, UpdateCDCStream);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, IsBootstrapRequired);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, GetUDTypeMetadata);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, UpdateConsumerOnProducerSplit);
+YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, UpdateConsumerOnProducerMetadata);
 
 YBClient::Data::Data()
     : leader_master_rpc_(rpcs_.InvalidHandle()),
@@ -371,7 +373,7 @@ RemoteTabletServer* YBClient::Data::SelectTServer(RemoteTablet* rt,
         }
       } else if (selection == CLOSEST_REPLICA) {
         // Choose the closest replica.
-        internal::LocalityLevel best_locality_level = internal::LocalityLevel::kNone;
+        LocalityLevel best_locality_level = LocalityLevel::kNone;
         for (RemoteTabletServer* rts : filtered) {
           if (IsTabletServerLocal(*rts)) {
             ret = rts;
@@ -2402,6 +2404,23 @@ Status YBClient::Data::ValidateReplicationInfo(
   }
 
   return Status::OK();
+}
+
+Result<TableSizeInfo> YBClient::Data::GetTableDiskSize(
+    const TableId& table_id, CoarseTimePoint deadline) {
+  master::GetTableDiskSizeRequestPB req;
+  master::GetTableDiskSizeResponsePB resp;
+
+  req.mutable_table()->set_table_id(table_id);
+
+  RETURN_NOT_OK(SyncLeaderMasterRpc(
+      deadline, req, &resp, "GetTableDiskSize",
+      &master::MasterDdlProxy::GetTableDiskSizeAsync));
+  if (resp.has_error()) {
+    return StatusFromPB(resp.error().status());
+  }
+
+  return TableSizeInfo{resp.size(), resp.num_missing_tablets()};
 }
 
 Result<bool> YBClient::Data::CheckIfPitrActive(CoarseTimePoint deadline) {

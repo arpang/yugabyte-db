@@ -10,6 +10,7 @@
 
 package com.yugabyte.yw.commissioner;
 
+import static com.yugabyte.yw.commissioner.HealthCheckMetrics.CLOCK_SYNC_CHECK;
 import static com.yugabyte.yw.commissioner.HealthCheckMetrics.CUSTOM_NODE_METRICS_COLLECTION_METRIC;
 import static com.yugabyte.yw.commissioner.HealthCheckMetrics.HEALTH_CHECK_METRICS;
 import static com.yugabyte.yw.commissioner.HealthCheckMetrics.HEALTH_CHECK_METRICS_WITHOUT_STATUS;
@@ -37,6 +38,7 @@ import com.yugabyte.yw.common.PlatformScheduler;
 import com.yugabyte.yw.common.PlatformServiceException;
 import com.yugabyte.yw.common.ShellProcessContext;
 import com.yugabyte.yw.common.ShellResponse;
+import com.yugabyte.yw.common.YbcManager;
 import com.yugabyte.yw.common.alerts.SmtpData;
 import com.yugabyte.yw.common.config.RuntimeConfigFactory;
 import com.yugabyte.yw.common.metrics.MetricService;
@@ -301,7 +303,9 @@ public class HealthChecker {
           int toAppend = checkResult ? 1 : 0;
           platformMetrics.compute(countMetric, (k, v) -> v != null ? v + toAppend : toAppend);
         }
-        if (shouldCollectNodeMetrics || checkName.equals(OPENED_FILE_DESCRIPTORS_CHECK)) {
+        if (shouldCollectNodeMetrics
+            || checkName.equals(OPENED_FILE_DESCRIPTORS_CHECK)
+            || checkName.equals(CLOCK_SYNC_CHECK)) {
           // Used FD count metric is always collected through health check as it's not
           // calculated properly from inside the collect_metrics service - it gets service limit
           // instead of user limit for file descriptors
@@ -608,7 +612,9 @@ public class HealthChecker {
   private static boolean isUniverseBusyByTask(UniverseDefinitionTaskParams details) {
     return details.updateInProgress
         && details.updatingTask != TaskType.BackupTable
-        && details.updatingTask != TaskType.MultiTableBackup;
+        && details.updatingTask != TaskType.MultiTableBackup
+        && details.updatingTask != TaskType.CreateBackup
+        && details.updatingTask != TaskType.RestoreBackup;
   }
 
   public void checkSingleUniverse(CheckSingleUniverseParams params) {
@@ -713,6 +719,12 @@ public class HealthChecker {
         if (!provider.code.equals(CloudType.onprem.toString())
             && !provider.code.equals(CloudType.kubernetes.toString())) {
           nodeInfo.setCheckClock(true);
+        }
+        if (params.universe.isYbcEnabled()) {
+          nodeInfo
+              .setEnableYbc(true)
+              .setYbcPort(
+                  params.universe.getUniverseDetails().communicationPorts.ybControllerrRpcPort);
         }
         nodeMetadata.add(nodeInfo);
       }
@@ -1006,6 +1018,8 @@ public class HealthChecker {
     private boolean checkClock = false;
     private Long nodeStartTime = null;
     private boolean testReadWrite = true;
+    private boolean enableYbc = false;
+    private int ybcPort = 18018;
     private UUID universeUuid;
     @JsonIgnore @EqualsAndHashCode.Exclude private NodeDetails nodeDetails;
   }

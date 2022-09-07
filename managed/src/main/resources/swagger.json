@@ -942,7 +942,7 @@
       "properties" : {
         "action" : {
           "description" : "Action",
-          "enum" : [ "Set", "Create", "Edit", "Update", "Delete", "Register", "Refresh", "Upload", "Upgrade", "Import", "Pause", "Resume", "Restart", "Abort", "Retry", "Restore", "Alter", "Drop", "Stop", "Validate", "Acknowledge", "SyncXClusterConfig", "Login", "Promote", "Bootstrap", "Configure", "UpdateOptions", "RefreshPricing", "UpgradeSoftware", "UpgradeGFlags", "UpgradeCerts", "UpgradeTLS", "UpgradeVmImage", "UpgradeSystemd", "RebootUniverse", "ResizeNode", "AddMetrics", "CreateKubernetes", "SetupDocker", "RetrieveKmsKey", "RemoveKmsKeyReferenceHistory", "UpsertCustomerFeatures", "CreateSelfSignedCert", "UpdateEmptyCustomerCertificate", "GetRootCertificate", "AddClientCertificate", "SetDBCredentials", "CreateUserInDB", "SetHelm3Compatible", "SetBackupFlag", "SetUniverseKey", "ResetUniverseVersion", "ConfigUniverseAlert", "ToggleTls", "TlsConfigUpdate", "UpdateDiskSize", "CreateCluster", "DeleteCluster", "CreateAllClusters", "UpdatePrimaryCluster", "UpdateReadOnlyCluster", "CreateReadOnlyCluster", "DeleteReadOnlyCluster", "RunYsqlQuery", "BulkImport", "CreateBackup", "RestoreBackup", "CreateSingleTableBackup", "CreateMultiTableBackup", "CreateBackupSchedule", "EditBackupSchedule", "StartPeriodicBackup", "StopPeriodicBackup", "DetachedNodeInstanceAction", "NodeInstanceAction", "DeleteBackupSchedule", "ChangeUserRole", "ChangeUserPassword", "SetSecurity", "GenerateApiToken", "ResetSlowQueries", "ExternalScriptSchedule", "StopScheduledScript", "UpdateScheduledScript", "CreateInstanceType", "DeleteInstanceType", "GetUniverseResources", "ThirdpartySoftwareUpgrade", "CreateTableSpaces", "CreateHook", "DeleteHook", "UpdateHook", "CreateHookScope", "DeleteHookScope", "AddHook", "RemoveHook", "RotateAccessKey", "CreateAndRotateAccessKey", "RunHook", "RunApiTriggeredHooks", "AddNodeAgent", "UpdateNodeAgent", "DeleteNodeAgent" ],
+          "enum" : [ "Set", "Create", "Edit", "Update", "Delete", "Register", "Refresh", "Upload", "Upgrade", "Import", "Pause", "Resume", "Restart", "Abort", "Retry", "Restore", "Alter", "Drop", "Stop", "Validate", "Acknowledge", "SyncXClusterConfig", "Login", "Promote", "Bootstrap", "Configure", "UpdateOptions", "RefreshPricing", "UpgradeSoftware", "UpgradeGFlags", "UpgradeCerts", "UpgradeTLS", "UpgradeVmImage", "UpgradeSystemd", "RebootUniverse", "ResizeNode", "AddMetrics", "CreateKubernetes", "SetupDocker", "RetrieveKmsKey", "RemoveKmsKeyReferenceHistory", "UpsertCustomerFeatures", "CreateSelfSignedCert", "UpdateEmptyCustomerCertificate", "GetRootCertificate", "AddClientCertificate", "SetDBCredentials", "CreateUserInDB", "SetHelm3Compatible", "SetBackupFlag", "SetUniverseKey", "ResetUniverseVersion", "ConfigUniverseAlert", "ToggleTls", "TlsConfigUpdate", "UpdateDiskSize", "CreateCluster", "DeleteCluster", "CreateAllClusters", "UpdatePrimaryCluster", "UpdateReadOnlyCluster", "CreateReadOnlyCluster", "DeleteReadOnlyCluster", "RunYsqlQuery", "BulkImport", "CreateBackup", "RestoreBackup", "CreateSingleTableBackup", "CreateMultiTableBackup", "CreateBackupSchedule", "EditBackupSchedule", "StartPeriodicBackup", "StopPeriodicBackup", "DetachedNodeInstanceAction", "NodeInstanceAction", "DeleteBackupSchedule", "ChangeUserRole", "ChangeUserPassword", "SetSecurity", "GenerateApiToken", "ResetSlowQueries", "ExternalScriptSchedule", "StopScheduledScript", "UpdateScheduledScript", "CreateInstanceType", "DeleteInstanceType", "GetUniverseResources", "ThirdpartySoftwareUpgrade", "CreateTableSpaces", "CreateHook", "DeleteHook", "UpdateHook", "CreateHookScope", "DeleteHookScope", "AddHook", "RemoveHook", "RotateAccessKey", "CreateAndRotateAccessKey", "RunHook", "RunApiTriggeredHooks", "AddNodeAgent", "UpdateNodeAgent", "DeleteNodeAgent", "DisableYbc", "UpgradeYbc", "InstallYbc", "SetThrottleParams" ],
           "example" : "Create User",
           "readOnly" : true,
           "type" : "string"
@@ -1376,6 +1376,9 @@
           "description" : "Is verbose logging enabled",
           "type" : "boolean"
         },
+        "enableYbc" : {
+          "type" : "boolean"
+        },
         "encryptionAtRestConfig" : {
           "$ref" : "#/definitions/EncryptionAtRestConfig",
           "description" : "Encryption at rest configation"
@@ -1409,6 +1412,9 @@
         },
         "ignoreErrors" : {
           "description" : "Should table backup errors be ignored",
+          "type" : "boolean"
+        },
+        "installYbc" : {
           "type" : "boolean"
         },
         "keyspaceTableList" : {
@@ -1446,7 +1452,7 @@
           "type" : "integer"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -1462,6 +1468,14 @@
         "schedulingFrequency" : {
           "description" : "Frequency to run the backup, in milliseconds",
           "format" : "int64",
+          "type" : "integer"
+        },
+        "sleepAfterMasterRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sleepAfterTServerRestartMillis" : {
+          "format" : "int32",
           "type" : "integer"
         },
         "sourceXClusterConfigs" : {
@@ -1508,9 +1522,15 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
+        },
+        "ybcSoftwareVersion" : {
+          "type" : "string"
         }
       },
-      "required" : [ "creatingUser", "storageConfigUUID", "universeUUID" ],
+      "required" : [ "creatingUser", "sleepAfterMasterRestartMillis", "sleepAfterTServerRestartMillis", "storageConfigUUID", "universeUUID" ],
       "type" : "object"
     },
     "BackupResp" : {
@@ -1708,6 +1728,9 @@
           "description" : "Is verbose logging enabled",
           "type" : "boolean"
         },
+        "enableYbc" : {
+          "type" : "boolean"
+        },
         "encryptionAtRestConfig" : {
           "$ref" : "#/definitions/EncryptionAtRestConfig",
           "description" : "Encryption at rest configation"
@@ -1736,6 +1759,9 @@
         },
         "ignoreErrors" : {
           "description" : "Should table backup errors be ignored",
+          "type" : "boolean"
+        },
+        "installYbc" : {
           "type" : "boolean"
         },
         "isFullBackup" : {
@@ -1782,7 +1808,7 @@
           "type" : "integer"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -1805,6 +1831,14 @@
         "schedulingFrequency" : {
           "description" : "Frequency to run the backup, in milliseconds",
           "format" : "int64",
+          "type" : "integer"
+        },
+        "sleepAfterMasterRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sleepAfterTServerRestartMillis" : {
+          "format" : "int32",
           "type" : "integer"
         },
         "sourceXClusterConfigs" : {
@@ -1888,9 +1922,15 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
+        },
+        "ybcSoftwareVersion" : {
+          "type" : "string"
         }
       },
-      "required" : [ "creatingUser", "storageConfigUUID" ],
+      "required" : [ "creatingUser", "sleepAfterMasterRestartMillis", "sleepAfterTServerRestartMillis", "storageConfigUUID" ],
       "type" : "object"
     },
     "BootstrapParams" : {
@@ -1931,6 +1971,9 @@
           "$ref" : "#/definitions/DeviceInfo",
           "description" : "Device information"
         },
+        "enableYbc" : {
+          "type" : "boolean"
+        },
         "encryptionAtRestConfig" : {
           "$ref" : "#/definitions/EncryptionAtRestConfig",
           "description" : "Encryption at rest configation"
@@ -1950,6 +1993,9 @@
         },
         "firstTry" : {
           "description" : "Whether this task has been tried before",
+          "type" : "boolean"
+        },
+        "installYbc" : {
           "type" : "boolean"
         },
         "instanceCount" : {
@@ -1974,13 +2020,21 @@
           "type" : "string"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
         "s3Bucket" : {
           "description" : "S3 bucket URL",
           "type" : "string"
+        },
+        "sleepAfterMasterRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sleepAfterTServerRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
         },
         "sourceXClusterConfigs" : {
           "description" : "The source universe's xcluster replication relationships",
@@ -2021,9 +2075,15 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
+        },
+        "ybcSoftwareVersion" : {
+          "type" : "string"
         }
       },
-      "required" : [ "creatingUser", "s3Bucket" ],
+      "required" : [ "creatingUser", "s3Bucket", "sleepAfterMasterRestartMillis", "sleepAfterTServerRestartMillis" ],
       "type" : "object"
     },
     "BundleDetails" : {
@@ -2182,6 +2242,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -2231,10 +2293,16 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
         },
         "kubernetesUpgradeSupported" : {
+          "type" : "boolean"
+        },
+        "mastersInDefaultRegion" : {
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -2260,7 +2328,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -2335,7 +2403,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -2359,6 +2427,9 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
         },
         "ybcSoftwareVersion" : {
           "type" : "string"
@@ -3197,6 +3268,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -3246,6 +3319,9 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
         },
@@ -3257,6 +3333,9 @@
             "type" : "string"
           },
           "type" : "object"
+        },
+        "mastersInDefaultRegion" : {
+          "type" : "boolean"
         },
         "nextClusterIndex" : {
           "format" : "int32",
@@ -3281,7 +3360,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -3356,7 +3435,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -3380,6 +3459,9 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
         },
         "ybcSoftwareVersion" : {
           "type" : "string"
@@ -3996,6 +4078,9 @@
           "description" : "Is verbose logging enabled",
           "type" : "boolean"
         },
+        "enableYbc" : {
+          "type" : "boolean"
+        },
         "encryptionAtRestConfig" : {
           "$ref" : "#/definitions/EncryptionAtRestConfig",
           "description" : "Encryption at rest configation"
@@ -4024,6 +4109,9 @@
         },
         "ignoreErrors" : {
           "description" : "Should table backup errors be ignored",
+          "type" : "boolean"
+        },
+        "installYbc" : {
           "type" : "boolean"
         },
         "isFullBackup" : {
@@ -4070,7 +4158,7 @@
           "type" : "integer"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -4093,6 +4181,14 @@
         "schedulingFrequency" : {
           "description" : "Frequency to run the backup, in milliseconds",
           "format" : "int64",
+          "type" : "integer"
+        },
+        "sleepAfterMasterRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sleepAfterTServerRestartMillis" : {
+          "format" : "int32",
           "type" : "integer"
         },
         "sourceXClusterConfigs" : {
@@ -4176,26 +4272,32 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
+        },
+        "ybcSoftwareVersion" : {
+          "type" : "string"
         }
       },
-      "required" : [ "creatingUser", "storageConfigUUID" ],
+      "required" : [ "creatingUser", "sleepAfterMasterRestartMillis", "sleepAfterTServerRestartMillis", "storageConfigUUID" ],
       "type" : "object"
     },
     "NodeActionFormData" : {
       "properties" : {
         "nodeAction" : {
-          "enum" : [ "ADD", "REMOVE", "START", "STOP", "DELETE", "QUERY", "RELEASE", "START_MASTER", "PRECHECK_DETACHED" ],
+          "enum" : [ "ADD", "REMOVE", "START", "STOP", "DELETE", "QUERY", "RELEASE", "REBOOT", "START_MASTER", "PRECHECK_DETACHED" ],
           "type" : "string"
         }
       },
       "required" : [ "nodeAction" ],
       "type" : "object"
     },
-    "NodeConfiguration" : {
+    "NodeConfig" : {
       "description" : "A node configuration.",
       "properties" : {
         "type" : {
-          "enum" : [ "NTP_SERVICE_STATUS", "PROMETHEUS_SPACE", "MOUNT_POINT", "PORT_AVAILABLE", "YUGABYTE_USER", "YUGABYTE_USER_GROUP", "HOME_DIR_SPACE", "RAM_SIZE", "INTERNET_CONNECTION", "CPU_CORES", "PROMETHEUS_NO_NODE_EXPORTER", "TMP_DIR_SPACE", "PAM_LIMITS", "PORTS", "PYTHON_VERSION" ],
+          "enum" : [ "NTP_SERVICE_STATUS", "PROMETHEUS_SPACE", "MOUNT_POINTS", "USER", "USER_GROUP", "HOME_DIR_SPACE", "RAM_SIZE", "INTERNET_CONNECTION", "CPU_CORES", "PROMETHEUS_NO_NODE_EXPORTER", "TMP_DIR_SPACE", "PAM_LIMITS_WRITABLE", "PORTS", "PYTHON_VERSION" ],
           "type" : "string"
         },
         "value" : {
@@ -4357,7 +4459,7 @@
       "properties" : {
         "allowedActions" : {
           "items" : {
-            "enum" : [ "ADD", "REMOVE", "START", "STOP", "DELETE", "QUERY", "RELEASE", "START_MASTER", "PRECHECK_DETACHED" ],
+            "enum" : [ "ADD", "REMOVE", "START", "STOP", "DELETE", "QUERY", "RELEASE", "REBOOT", "START_MASTER", "PRECHECK_DETACHED" ],
             "type" : "string"
           },
           "readOnly" : true,
@@ -4571,10 +4673,10 @@
           "example" : "1.1.1.1",
           "type" : "string"
         },
-        "nodeConfigurations" : {
+        "nodeConfigs" : {
           "description" : "Node configurations",
           "items" : {
-            "$ref" : "#/definitions/NodeConfiguration"
+            "$ref" : "#/definitions/NodeConfig"
           },
           "type" : "array",
           "uniqueItems" : true
@@ -4646,7 +4748,7 @@
     "Package" : {
       "properties" : {
         "arch" : {
-          "enum" : [ "x86_64", "arm64" ],
+          "enum" : [ "x86_64", "arm64", "aarch64" ],
           "type" : "string"
         },
         "path" : {
@@ -4978,7 +5080,7 @@
           "type" : "boolean"
         },
         "architecture" : {
-          "enum" : [ "x86_64", "arm64" ],
+          "enum" : [ "x86_64", "arm64", "aarch64" ],
           "type" : "string"
         },
         "code" : {
@@ -5175,6 +5277,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -5227,10 +5331,16 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
         },
         "kubernetesUpgradeSupported" : {
+          "type" : "boolean"
+        },
+        "mastersInDefaultRegion" : {
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -5256,7 +5366,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -5325,7 +5435,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -5349,6 +5459,9 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
         },
         "ybcSoftwareVersion" : {
           "type" : "string"
@@ -5408,6 +5521,9 @@
           "description" : "Is verbose logging enabled",
           "type" : "boolean"
         },
+        "enableYbc" : {
+          "type" : "boolean"
+        },
         "encryptionAtRestConfig" : {
           "$ref" : "#/definitions/EncryptionAtRestConfig",
           "description" : "Encryption at rest configation"
@@ -5427,6 +5543,9 @@
         },
         "firstTry" : {
           "description" : "Whether this task has been tried before",
+          "type" : "boolean"
+        },
+        "installYbc" : {
           "type" : "boolean"
         },
         "kmsConfigUUID" : {
@@ -5460,13 +5579,21 @@
           "type" : "integer"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
         "restoreTimeStamp" : {
           "description" : "Restore TimeStamp",
           "type" : "string"
+        },
+        "sleepAfterMasterRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sleepAfterTServerRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
         },
         "sourceXClusterConfigs" : {
           "description" : "The source universe's xcluster replication relationships",
@@ -5503,9 +5630,15 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
+        },
+        "ybcSoftwareVersion" : {
+          "type" : "string"
         }
       },
-      "required" : [ "creatingUser", "universeUUID" ],
+      "required" : [ "creatingUser", "sleepAfterMasterRestartMillis", "sleepAfterTServerRestartMillis", "universeUUID" ],
       "type" : "object"
     },
     "RunQueryFormData" : {
@@ -5615,7 +5748,7 @@
         },
         "taskType" : {
           "description" : "Type of task to be scheduled.",
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         }
       },
@@ -5633,7 +5766,7 @@
         },
         "taskTypes" : {
           "items" : {
-            "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+            "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
             "type" : "string"
           },
           "type" : "array",
@@ -5814,6 +5947,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -5863,10 +5998,16 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
         },
         "kubernetesUpgradeSupported" : {
+          "type" : "boolean"
+        },
+        "mastersInDefaultRegion" : {
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -5892,7 +6033,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -5961,7 +6102,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -5991,6 +6132,9 @@
         },
         "ybSoftwareVersion" : {
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
         },
         "ybcSoftwareVersion" : {
           "type" : "string"
@@ -6086,6 +6230,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -6135,10 +6281,16 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
         },
         "kubernetesUpgradeSupported" : {
+          "type" : "boolean"
+        },
+        "mastersInDefaultRegion" : {
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -6164,7 +6316,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -6233,7 +6385,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -6257,6 +6409,9 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
         },
         "ybcSoftwareVersion" : {
           "type" : "string"
@@ -6282,6 +6437,9 @@
           "$ref" : "#/definitions/DeviceInfo",
           "description" : "Device information"
         },
+        "enableYbc" : {
+          "type" : "boolean"
+        },
         "encryptionAtRestConfig" : {
           "$ref" : "#/definitions/EncryptionAtRestConfig",
           "description" : "Encryption at rest configation"
@@ -6303,6 +6461,9 @@
           "description" : "Whether this task has been tried before",
           "type" : "boolean"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "nodeDetailsSet" : {
           "description" : "Node details",
           "items" : {
@@ -6316,9 +6477,17 @@
           "type" : "string"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
+        },
+        "sleepAfterMasterRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sleepAfterTServerRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
         },
         "sourceXClusterConfigs" : {
           "description" : "The source universe's xcluster replication relationships",
@@ -6357,9 +6526,15 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
+        },
+        "ybcSoftwareVersion" : {
+          "type" : "string"
         }
       },
-      "required" : [ "creatingUser", "tableDetails", "tableType", "tableUUID" ],
+      "required" : [ "creatingUser", "sleepAfterMasterRestartMillis", "sleepAfterTServerRestartMillis", "tableDetails", "tableType", "tableUUID" ],
       "type" : "object"
     },
     "TableDetails" : {
@@ -6497,6 +6672,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -6549,10 +6726,16 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
         },
         "kubernetesUpgradeSupported" : {
+          "type" : "boolean"
+        },
+        "mastersInDefaultRegion" : {
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -6578,7 +6761,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -6647,7 +6830,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -6671,6 +6854,9 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
         },
         "ybcSoftwareVersion" : {
           "type" : "string"
@@ -6699,6 +6885,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -6754,10 +6942,16 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
         },
         "kubernetesUpgradeSupported" : {
+          "type" : "boolean"
+        },
+        "mastersInDefaultRegion" : {
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -6783,7 +6977,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -6852,7 +7046,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -6876,6 +7070,9 @@
         "ybPrevSoftwareVersion" : {
           "description" : "Previous software version",
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
         },
         "ybcSoftwareVersion" : {
           "type" : "string"
@@ -6922,6 +7119,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -6971,8 +7170,14 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
+        },
+        "mastersInDefaultRegion" : {
+          "type" : "boolean"
         },
         "nextClusterIndex" : {
           "format" : "int32",
@@ -6997,7 +7202,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -7020,6 +7225,14 @@
         "setTxnTableWaitCountFlag" : {
           "type" : "boolean"
         },
+        "sleepAfterMasterRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sleepAfterTServerRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
         "sourceXClusterConfigs" : {
           "description" : "The source universe's xcluster replication relationships",
           "items" : {
@@ -7061,7 +7274,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -7082,11 +7295,14 @@
           "description" : "Previous software version",
           "type" : "string"
         },
+        "ybcInstalled" : {
+          "type" : "boolean"
+        },
         "ybcSoftwareVersion" : {
           "type" : "string"
         }
       },
-      "required" : [ "clusters", "creatingUser" ],
+      "required" : [ "clusters", "creatingUser", "sleepAfterMasterRestartMillis", "sleepAfterTServerRestartMillis" ],
       "type" : "object"
     },
     "UniverseDefinitionTaskParams" : {
@@ -7109,6 +7325,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -7158,8 +7376,14 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
+        },
+        "mastersInDefaultRegion" : {
+          "type" : "boolean"
         },
         "nextClusterIndex" : {
           "format" : "int32",
@@ -7184,7 +7408,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -7203,6 +7427,14 @@
         },
         "setTxnTableWaitCountFlag" : {
           "type" : "boolean"
+        },
+        "sleepAfterMasterRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sleepAfterTServerRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
         },
         "sourceXClusterConfigs" : {
           "description" : "The source universe's xcluster replication relationships",
@@ -7245,7 +7477,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -7266,11 +7498,14 @@
           "description" : "Previous software version",
           "type" : "string"
         },
+        "ybcInstalled" : {
+          "type" : "boolean"
+        },
         "ybcSoftwareVersion" : {
           "type" : "string"
         }
       },
-      "required" : [ "clusters", "creatingUser" ],
+      "required" : [ "clusters", "creatingUser", "sleepAfterMasterRestartMillis", "sleepAfterTServerRestartMillis" ],
       "type" : "object"
     },
     "UniverseDefinitionTaskParamsResp" : {
@@ -7293,6 +7528,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -7342,8 +7579,14 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
+        },
+        "mastersInDefaultRegion" : {
+          "type" : "boolean"
         },
         "nextClusterIndex" : {
           "format" : "int32",
@@ -7368,7 +7611,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -7387,6 +7630,14 @@
         },
         "setTxnTableWaitCountFlag" : {
           "type" : "boolean"
+        },
+        "sleepAfterMasterRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sleepAfterTServerRestartMillis" : {
+          "format" : "int32",
+          "type" : "integer"
         },
         "sourceXClusterConfigs" : {
           "description" : "The source universe's xcluster replication relationships",
@@ -7429,7 +7680,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -7450,11 +7701,14 @@
           "description" : "Previous software version",
           "type" : "string"
         },
+        "ybcInstalled" : {
+          "type" : "boolean"
+        },
         "ybcSoftwareVersion" : {
           "type" : "string"
         }
       },
-      "required" : [ "clusters", "creatingUser" ],
+      "required" : [ "clusters", "creatingUser", "sleepAfterMasterRestartMillis", "sleepAfterTServerRestartMillis" ],
       "type" : "object"
     },
     "UniverseDetailSubset" : {
@@ -7643,6 +7897,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -7692,10 +7948,16 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
         },
         "kubernetesUpgradeSupported" : {
+          "type" : "boolean"
+        },
+        "mastersInDefaultRegion" : {
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -7721,7 +7983,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -7790,7 +8052,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -7815,6 +8077,9 @@
           "description" : "Previous software version",
           "type" : "string"
         },
+        "ybcInstalled" : {
+          "type" : "boolean"
+        },
         "ybcSoftwareVersion" : {
           "type" : "string"
         }
@@ -7835,6 +8100,9 @@
           "type" : "boolean"
         },
         "awsArnString" : {
+          "type" : "string"
+        },
+        "azOverrides" : {
           "type" : "string"
         },
         "deviceInfo" : {
@@ -7921,6 +8189,9 @@
         "universeName" : {
           "type" : "string"
         },
+        "universeOverrides" : {
+          "type" : "string"
+        },
         "useHostname" : {
           "type" : "boolean"
         },
@@ -7932,6 +8203,12 @@
         },
         "ybSoftwareVersion" : {
           "type" : "string"
+        },
+        "ybcFlags" : {
+          "additionalProperties" : {
+            "type" : "string"
+          },
+          "type" : "object"
         },
         "ycqlPassword" : {
           "type" : "string"
@@ -8150,6 +8427,8 @@
           "items" : {
             "$ref" : "#/definitions/Cluster"
           },
+          "maxItems" : 2147483647,
+          "minItems" : 1,
           "type" : "array"
         },
         "cmkArn" : {
@@ -8202,6 +8481,9 @@
           "enum" : [ "NONE", "STARTED", "MASTERS_ADDED", "TSERVERS_ADDED", "IMPORTED" ],
           "type" : "string"
         },
+        "installYbc" : {
+          "type" : "boolean"
+        },
         "itestS3PackagePath" : {
           "type" : "string"
         },
@@ -8213,6 +8495,9 @@
             "type" : "string"
           },
           "type" : "object"
+        },
+        "mastersInDefaultRegion" : {
+          "type" : "boolean"
         },
         "nextClusterIndex" : {
           "format" : "int32",
@@ -8237,7 +8522,7 @@
           "type" : "boolean"
         },
         "previousTaskUUID" : {
-          "description" : "Previous task UUID only if this task is a retry",
+          "description" : "Previous task UUID of a retry",
           "format" : "uuid",
           "type" : "string"
         },
@@ -8306,7 +8591,7 @@
           "type" : "boolean"
         },
         "updatingTask" : {
-          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags" ],
+          "enum" : [ "CloudBootstrap", "CloudCleanup", "CreateCassandraTable", "CreateUniverse", "ReadOnlyClusterCreate", "ReadOnlyKubernetesClusterDelete", "ReadOnlyClusterDelete", "CreateKubernetesUniverse", "ReadOnlyKubernetesClusterCreate", "DestroyUniverse", "PauseUniverse", "ResumeUniverse", "DestroyKubernetesUniverse", "DeleteTable", "BackupUniverse", "RestoreBackup", "MultiTableBackup", "CreateBackup", "EditUniverse", "EditKubernetesUniverse", "ExternalScript", "KubernetesProvision", "ImportIntoTable", "RunApiTriggeredHooks", "UpgradeUniverse", "RestartUniverse", "SoftwareUpgrade", "SoftwareKubernetesUpgrade", "GFlagsUpgrade", "GFlagsKubernetesUpgrade", "CertsRotate", "CertsRotateKubernetesUpgrade", "TlsToggle", "VMImageUpgrade", "SystemdUpgrade", "RebootUniverse", "CreateRootVolumes", "ReplaceRootVolume", "ChangeInstanceType", "PersistResizeNode", "PersistSystemdUpgrade", "UpdateNodeDetails", "UpgradeKubernetesUniverse", "DeleteNodeFromUniverse", "StopNodeInUniverse", "StartNodeInUniverse", "AddNodeToUniverse", "RemoveNodeFromUniverse", "RebootNodeInUniverse", "ReleaseInstanceFromUniverse", "RotateAccessKey", "SetUniverseKey", "CreateAndRotateAccessKey", "SetKubernetesUniverseKey", "CreateKMSConfig", "EditKMSConfig", "DeleteKMSConfig", "UpdateDiskSize", "StartMasterOnNode", "CreateXClusterConfig", "EditXClusterConfig", "DeleteXClusterConfig", "SyncXClusterConfig", "CreateSupportBundle", "AddAuthorizedKey", "AnsibleClusterServerCtl", "AnsibleConfigureServers", "AnsibleDestroyServer", "PauseServer", "ResumeServer", "AnsibleSetupServer", "AnsibleCreateServer", "PrecheckNode", "PrecheckNodeDetached", "AnsibleUpdateNodeInfo", "BulkImport", "ChangeMasterConfig", "ChangeAdminPassword", "CreateTable", "DeleteNode", "DeleteBackup", "DeleteBackupYb", "DeleteCustomerConfig", "DeleteCustomerStorageConfig", "UpdateNodeProcess", "DeleteTableFromUniverse", "DeleteTablesFromUniverse", "LoadBalancerStateChange", "ModifyBlackList", "ManipulateDnsRecordTask", "RemoveUniverseEntry", "SetFlagInMemory", "SetNodeState", "SwamperTargetsFileUpdate", "UniverseUpdateSucceeded", "UpdateAndPersistGFlags", "UpdatePlacementInfo", "UpdateSoftwareVersion", "UpdateUniverseYbcDetails", "VerifyNodeSSHAccess", "WaitForDataMove", "WaitForLeaderBlacklistCompletion", "WaitForFollowerLag", "WaitForLoadBalance", "WaitForMasterLeader", "WaitForServer", "WaitForYbcServer", "WaitForTServerHeartBeats", "DeleteClusterFromUniverse", "InstanceActions", "WaitForServerReady", "RunExternalScript", "RemoveAuthorizedKey", "UpdateUniverseAccessKey", "BootstrapProducer", "CheckBootstrapRequired", "DeleteBootstrapIds", "DeleteReplication", "DeleteXClusterConfigEntry", "SetReplicationPaused", "SetRestoreTime", "XClusterConfigSetup", "XClusterConfigSetStatus", "XClusterConfigModifyTables", "XClusterConfigRename", "XClusterConfigSync", "XClusterConfigUpdateMasterAddresses", "XClusterInfoPersist", "CloudAccessKeyCleanup", "CloudAccessKeySetup", "CloudInitializer", "CloudProviderCleanup", "CloudRegionCleanup", "CloudRegionSetup", "CloudSetup", "BackupTable", "BackupTableYb", "BackupTableYbc", "BackupUniverseKeys", "RestoreBackupYb", "RestoreBackupYbc", "RestoreUniverseKeys", "RestoreUniverseKeysYb", "RestoreUniverseKeysYbc", "WaitForLeadersOnPreferredOnly", "EnableEncryptionAtRest", "DisableEncryptionAtRest", "DestroyEncryptionAtRest", "KubernetesCommandExecutor", "KubernetesWaitForPod", "KubernetesCheckNumPod", "SetActiveUniverseKeys", "CopyEncryptionKeyFile", "WaitForEncryptionKeyInMemory", "UnivSetCertificate", "CreateAlertDefinitions", "ManageAlertDefinitions", "UniverseSetTlsParams", "UniverseUpdateRootCert", "ResetUniverseVersion", "DeleteCertificate", "SetNodeStatus", "CheckMasterLeader", "CheckMasters", "CheckTServers", "WaitForTServerHBs", "CreatePrometheusSwamperConfig", "PreflightNodeCheck", "RunYsqlUpgrade", "ResizeNode", "CheckMemory", "UpdateMountedDisks", "TransferXClusterCerts", "CreateTableSpacesInUniverse", "CreateTableSpaces", "ThirdpartySoftwareUpgrade", "MarkUniverseForHealthScriptReUpload", "RebootServer", "RunHooks", "UpdateUniverseTags", "UpgradeYbc", "InstallYbcSoftware", "UpgradeUniverseYbc", "DisableYbc", "InstanceExistCheck" ],
           "type" : "string"
         },
         "updatingTaskUUID" : {
@@ -8333,6 +8618,9 @@
         },
         "ybSoftwareVersion" : {
           "type" : "string"
+        },
+        "ybcInstalled" : {
+          "type" : "boolean"
         },
         "ybcSoftwareVersion" : {
           "type" : "string"
@@ -8624,9 +8912,19 @@
           "type" : "string"
         },
         "errorJson" : {
-          "description" : "User visible error message as json object",
+          "description" : "User visible structured error message as json object",
           "example" : "{ \"foo\" : \"bar\", \"baz\" : [1, 2, 3] }",
           "type" : "object"
+        },
+        "httpMethod" : {
+          "description" : "Method for HTTP call that resulted in this error",
+          "example" : "POST",
+          "type" : "string"
+        },
+        "requestUri" : {
+          "description" : "URI for HTTP request that resulted in this error",
+          "example" : "/customers/8918921-af3782-633de/universe/8173ab-fd2453/create",
+          "type" : "string"
         },
         "success" : {
           "description" : "Always set to false to indicate failure",
@@ -8669,6 +8967,36 @@
       "type" : "object"
     },
     "YBPTasks" : {
+      "type" : "object"
+    },
+    "YbcThrottleParameters" : {
+      "description" : "YB-Controller throttle parameters",
+      "properties" : {
+        "maxConcurrentDownloads" : {
+          "description" : "Max concurrent downloads per node",
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "maxConcurrentUploads" : {
+          "description" : "Max concurrent uploads per node",
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "perDownloadNumObjects" : {
+          "description" : "Max objects per download per node",
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "perUploadNumObjects" : {
+          "description" : "Max objects per upload per node",
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "resetDefaults" : {
+          "description" : "Unset Throttle parameters in YB-Controller",
+          "type" : "boolean"
+        }
+      },
       "type" : "object"
     }
   },
@@ -13189,6 +13517,84 @@
         "tags" : [ "Backups" ]
       }
     },
+    "/api/v1/customers/{cUUID}/universes/{uniUUID}/cdc_streams" : {
+      "get" : {
+        "description" : "List CDC Streams for a cluster",
+        "operationId" : "listCdcStreams",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "uniUUID",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "default" : {
+            "description" : "successful operation"
+          }
+        },
+        "summary" : "List CDC Streams for a cluster"
+      },
+      "post" : {
+        "description" : "Create CDC Stream for a cluster",
+        "operationId" : "createCdcStream",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "uniUUID",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "default" : {
+            "description" : "successful operation"
+          }
+        },
+        "summary" : "Create CDC Stream for a cluster"
+      }
+    },
+    "/api/v1/customers/{cUUID}/universes/{uniUUID}/cdc_streams/{streamId}" : {
+      "delete" : {
+        "description" : "Delete a CDC Stream for a cluster",
+        "operationId" : "deleteCdcStream",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "uniUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "in" : "path",
+          "name" : "streamId",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "default" : {
+            "description" : "successful operation"
+          }
+        },
+        "summary" : "Delete a CDC stream for a cluster"
+      }
+    },
     "/api/v1/customers/{cUUID}/universes/{uniUUID}/clusters/primary" : {
       "put" : {
         "description" : "This will update primary cluster of existing universe.Use API to GET current universe. Lookup universeDetails attribute of the universe resource returned. Update the necessary field (e.g. numNodes) Use this updated universeDetails as request body. See https://github.com/yugabyte/yugabyte-db/blob/master/managed/api-examples/python-simple/edit-universe.ipynb",
@@ -15355,6 +15761,170 @@
         "tags" : [ "Universe Upgrades Management" ]
       }
     },
+    "/api/v1/customers/{cUUID}/universes/{uniUUID}/ybc/disable" : {
+      "put" : {
+        "operationId" : "disable",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "uniUUID",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "default" : {
+            "description" : "successful operation"
+          }
+        },
+        "security" : [ {
+          "apiKeyAuth" : [ ]
+        } ],
+        "tags" : [ "Ybc Management" ]
+      }
+    },
+    "/api/v1/customers/{cUUID}/universes/{uniUUID}/ybc/install" : {
+      "put" : {
+        "operationId" : "install",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "uniUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "in" : "query",
+          "name" : "ybcVersion",
+          "required" : false,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "default" : {
+            "description" : "successful operation"
+          }
+        },
+        "security" : [ {
+          "apiKeyAuth" : [ ]
+        } ],
+        "tags" : [ "Ybc Management" ]
+      }
+    },
+    "/api/v1/customers/{cUUID}/universes/{uniUUID}/ybc/upgrade" : {
+      "put" : {
+        "operationId" : "upgrade",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "uniUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "in" : "query",
+          "name" : "ybcVersion",
+          "required" : false,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "default" : {
+            "description" : "successful operation"
+          }
+        },
+        "security" : [ {
+          "apiKeyAuth" : [ ]
+        } ],
+        "tags" : [ "Ybc Management" ]
+      }
+    },
+    "/api/v1/customers/{cUUID}/universes/{uniUUID}/ybc_throttle_params" : {
+      "get" : {
+        "description" : "",
+        "operationId" : "getThrottleparams",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "uniUUID",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "additionalProperties" : {
+                "type" : "object"
+              },
+              "type" : "object"
+            }
+          }
+        },
+        "security" : [ {
+          "apiKeyAuth" : [ ]
+        } ],
+        "summary" : "Get throttle params from YB-Controller",
+        "tags" : [ "Backups" ]
+      },
+      "post" : {
+        "description" : "",
+        "operationId" : "setThrottleParams",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "uniUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "description" : "Parameters for YB-Controller throttling",
+          "in" : "body",
+          "name" : "throttleParams",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/YbcThrottleParameters"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/YBPSuccess"
+            }
+          }
+        },
+        "security" : [ {
+          "apiKeyAuth" : [ ]
+        } ],
+        "summary" : "Set throttle params in YB-Controller",
+        "tags" : [ "Backups" ]
+      }
+    },
     "/api/v1/customers/{cUUID}/universes/{uniUUID}/yqlservers" : {
       "get" : {
         "description" : "",
@@ -16085,9 +16655,6 @@
             }
           }
         },
-        "security" : [ {
-          "apiKeyAuth" : [ ]
-        } ],
         "summary" : "Fetch a package",
         "tags" : [ "PackagesController" ]
       }
@@ -16511,5 +17078,7 @@
     "name" : "UniverseClusterMutations"
   }, {
     "name" : "User management"
+  }, {
+    "name" : "Ybc Management"
   } ]
 }

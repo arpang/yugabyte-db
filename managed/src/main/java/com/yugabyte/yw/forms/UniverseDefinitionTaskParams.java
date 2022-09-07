@@ -15,9 +15,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.yugabyte.yw.cloud.PublicCloudConstants;
-import com.yugabyte.yw.commissioner.Common;
 import com.yugabyte.yw.commissioner.Common.CloudType;
-import com.yugabyte.yw.commissioner.tasks.UniverseDefinitionTaskBase;
 import com.yugabyte.yw.commissioner.tasks.XClusterConfigTaskBase;
 import com.yugabyte.yw.common.PlatformServiceException;
 import com.yugabyte.yw.common.gflags.GFlagsUtil;
@@ -41,6 +39,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import javax.validation.constraints.Size;
 import lombok.ToString;
 import org.apache.commons.lang3.StringUtils;
 import play.data.validation.Constraints;
@@ -70,15 +69,11 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
       ImmutableSet.of("i3.", "c5d.", "c6gd.");
 
   @Constraints.Required()
-  @Constraints.MinLength(1)
+  @Size(min = 1)
   public List<Cluster> clusters = new LinkedList<>();
 
   // This is set during configure to figure out which cluster type is intended to be modified.
   @ApiModelProperty public ClusterType currentClusterType;
-
-  @ApiModelProperty public boolean enableYbc = false;
-
-  @ApiModelProperty public String ybcSoftwareVersion = null;
 
   public ClusterType getCurrentClusterType() {
     return currentClusterType == null ? ClusterType.PRIMARY : currentClusterType;
@@ -158,8 +153,11 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
   // This flag indicates whether the Kubernetes universe will use new
   // naming style of the Helm chart. The value cannot be changed once
   // set during universe creation. Default is set to false for
-  // backward compatability.
+  // backward compatibility.
   @ApiModelProperty public boolean useNewHelmNamingStyle = false;
+
+  // Place all masters into default region flag.
+  @ApiModelProperty public boolean mastersInDefaultRegion = true;
 
   /** Allowed states for an imported universe. */
   public enum ImportedState {
@@ -397,6 +395,12 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
     @ApiModelProperty
     public int numNodes;
 
+    // Universe level overrides for kubernetes universes.
+    @ApiModelProperty public String universeOverrides;
+
+    // AZ level overrides for kubernetes universes.
+    @ApiModelProperty public String azOverrides;
+
     // The software version of YB to install.
     @Constraints.Required() @ApiModelProperty public String ybSoftwareVersion;
 
@@ -460,6 +464,9 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
     @ApiModelProperty public Map<String, String> masterGFlags = new HashMap<>();
     @ApiModelProperty public Map<String, String> tserverGFlags = new HashMap<>();
 
+    // Flags for YB-Controller.
+    @ApiModelProperty public Map<String, String> ybcFlags = new HashMap<>();
+
     // Instance tags (used for AWS only).
     @ApiModelProperty public Map<String, String> instanceTags = new HashMap<>();
 
@@ -498,6 +505,7 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
           + instanceTags;
     }
 
+    @Override
     public UserIntent clone() {
       UserIntent newUserIntent = new UserIntent();
       newUserIntent.universeName = universeName;
