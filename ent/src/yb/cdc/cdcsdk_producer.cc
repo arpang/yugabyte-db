@@ -335,10 +335,10 @@ Status PopulateCDCSDKWriteRecord(
   // We'll use DocDB key hash to identify the records that belong to the same row.
   Slice prev_key;
   Schema schema = current_schema;
+  SchemaVersion schema_version = tablet_peer->tablet()->metadata()->schema_version();
   string table_name = tablet_peer->tablet()->metadata()->table_name();
-
   SchemaPackingStorage schema_packing_storage;
-  schema_packing_storage.AddSchema(tablet_peer->tablet()->metadata()->schema_version(), schema);
+  schema_packing_storage.AddSchema(schema_version, schema);
   // TODO: This function and PopulateCDCSDKIntentRecord have a lot of code in common. They should
   // be refactored to use some common row-column iterator.
   for (const auto& write_pair : batch.write_pairs()) {
@@ -359,15 +359,12 @@ Status PopulateCDCSDKWriteRecord(
       docdb::SubDocKey decoded_key;
       RETURN_NOT_OK(decoded_key.DecodeFrom(&sub_doc_key, docdb::HybridTimeRequired::kFalse));
       if (colocated) {
-        schema =
-            *tablet_peer->tablet()->metadata()->schema("", decoded_key.doc_key().colocation_id());
-        table_name = tablet_peer->tablet()->metadata()->table_name(
-            "", decoded_key.doc_key().colocation_id());
+        auto colocation_id = decoded_key.doc_key().colocation_id();
+        schema = *tablet_peer->tablet()->metadata()->schema("", colocation_id);
+        schema_version = tablet_peer->tablet()->metadata()->schema_version("", colocation_id);
+        table_name = tablet_peer->tablet()->metadata()->table_name("", colocation_id);
         schema_packing_storage = SchemaPackingStorage();
-        schema_packing_storage.AddSchema(
-            tablet_peer->tablet()->metadata()->schema_version(
-                "", decoded_key.doc_key().colocation_id()),
-            schema);
+        schema_packing_storage.AddSchema(schema_version, schema);
       }
 
       // Write pair contains record for different row. Create a new CDCRecord in this case.
