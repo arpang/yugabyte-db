@@ -212,9 +212,12 @@ Status PopulateCDCSDKIntentRecord(
     IntraTxnWriteId* write_id,
     std::string* reverse_index_key,
     Schema* old_schema) {
+  bool colocated = tablet_peer->tablet()->metadata()->colocated();
   Schema& schema = old_schema ? *old_schema : *tablet_peer->tablet()->schema();
+  SchemaVersion schema_version = tablet_peer->tablet()->metadata()->schema_version();
+  string table_name = tablet_peer->tablet()->metadata()->table_name();
   SchemaPackingStorage schema_packing_storage;
-  schema_packing_storage.AddSchema(tablet_peer->tablet()->metadata()->schema_version(), schema);
+  schema_packing_storage.AddSchema(schema_version, schema);
   Slice prev_key;
   CDCSDKProtoRecordPB proto_record;
   RowMessage* row_message = proto_record.mutable_row_message();
@@ -258,6 +261,15 @@ Status PopulateCDCSDKIntentRecord(
     if (prev_key != primary_key || col_count >= schema.num_columns()) {
       proto_record.Clear();
       row_message->Clear();
+
+      if (colocated) {
+        auto colocation_id = decoded_key.doc_key().colocation_id();
+        schema = *tablet_peer->tablet()->metadata()->schema("", colocation_id);
+        schema_version = tablet_peer->tablet()->metadata()->schema_version("", colocation_id);
+        table_name = tablet_peer->tablet()->metadata()->table_name("", colocation_id);
+        schema_packing_storage = SchemaPackingStorage();
+        schema_packing_storage.AddSchema(schema_version, schema);
+      }
 
       // Check whether operation is WRITE or DELETE.
       if (value_type == docdb::ValueEntryType::kTombstone && decoded_key.num_subkeys() == 0) {
@@ -309,7 +321,7 @@ Status PopulateCDCSDKIntentRecord(
         }
       }
     }
-    row_message->set_table(tablet_peer->tablet()->metadata()->table_name());
+    row_message->set_table(table_name);
     MakeNewProtoRecord(
         intent, op_id, *row_message, schema, col_count, &proto_record, resp, write_id,
         reverse_index_key);
