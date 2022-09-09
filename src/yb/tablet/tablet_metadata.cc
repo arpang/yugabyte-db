@@ -466,7 +466,7 @@ Result<TableInfoPtr> RaftGroupMetadata::GetTableInfoUnlocked(
     const auto& colocation_to_table = kv_store_.colocation_to_table;
     const auto iter = colocation_to_table.find(colocation_id);
     if (iter == colocation_to_table.end()) {
-      return MakeTableNotFound(table_id, raft_group_id_, tables);  // Improve the error
+      return MakeTableNotFound(table_id, raft_group_id_, tables);  // TODO: Improve the error
     }
     return iter->second;
   }

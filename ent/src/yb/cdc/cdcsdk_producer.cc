@@ -100,7 +100,6 @@ Status AddPrimaryKey(
     const std::shared_ptr<tablet::TabletPeer>& tablet_peer, const docdb::SubDocKey& decoded_key,
     const Schema& tablet_schema, const EnumOidLabelMap& enum_oid_label_map,
     RowMessage* row_message) {
-  LOG_WITH_FUNC(INFO) << "Schema: " << tablet_schema.ToString();
   size_t i = 0;
   for (const auto& col : decoded_key.doc_key().hashed_group()) {
     DatumMessagePB* tuple = AddTuple(row_message);
@@ -689,8 +688,6 @@ Status GetChangesForCDCSDK(
   CDCSDKCheckpointPB checkpoint;
   bool checkpoint_updated = false;
 
-  LOG_WITH_FUNC(INFO) << "from_op_id: " << from_op_id.ShortDebugString();
-
   // It is snapshot call.
   if (from_op_id.write_id() == -1) {
     auto txn_participant = tablet_peer->tablet()->transaction_participant();
@@ -748,8 +745,7 @@ Status GetChangesForCDCSDK(
       row_message->set_op(RowMessage_Op_DDL);
       row_message->set_table(tablet_peer->tablet()->metadata()->table_name());
 
-      FillDDLInfo(
-          row_message, schema_pb, tablet_peer->tablet()->metadata()->schema_version());
+      FillDDLInfo(row_message, schema_pb, tablet_peer->tablet()->metadata()->schema_version());
 
       while (VERIFY_RESULT(iter->HasNext()) && fetched < limit) {
         RETURN_NOT_OK(iter->NextRow(&row));
@@ -797,7 +793,6 @@ Status GetChangesForCDCSDK(
     }
     checkpoint_updated = true;
   } else {
-    LOG_WITH_FUNC(INFO) << "Processing regular entries";
     RequestScope request_scope;
     OpId last_seen_op_id = op_id;
 
@@ -885,6 +880,7 @@ Status GetChangesForCDCSDK(
 
           case consensus::OperationType::WRITE_OP: {
             const auto& batch = msg->write().write_batch();
+
             if (!batch.has_transaction()) {
               RETURN_NOT_OK(PopulateCDCSDKWriteRecord(
                   msg, stream_metadata, tablet_peer, enum_oid_label_map, resp, current_schema));
