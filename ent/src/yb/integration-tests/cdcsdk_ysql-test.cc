@@ -285,7 +285,7 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
     return Status::OK();
   }
 
-  Status CreateTablegroupObjects(Cluster* cluster) {
+  Status CreateColocatedObjects(Cluster* cluster) {
     auto conn = VERIFY_RESULT(cluster->ConnectToDB(kNamespaceName));
     RETURN_NOT_OK(conn.ExecuteFormat("CREATE TABLEGROUP tg1"));
     RETURN_NOT_OK(conn.ExecuteFormat("CREATE TABLE test1(id1 int primary key) TABLEGROUP tg1;"));
@@ -293,7 +293,7 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
     return Status::OK();
   }
 
-  Status PopulateTablegroupData(Cluster* cluster, int insert_count, bool transaction = false) {
+  Status PopulateColocatedData(Cluster* cluster, int insert_count, bool transaction = false) {
     auto conn = VERIFY_RESULT(cluster->ConnectToDB(kNamespaceName));
     if (transaction) {
       RETURN_NOT_OK(conn.Execute("BEGIN"));
@@ -3719,13 +3719,13 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCDCSDKCacheWhenAFollowerIsUna
   CompareExpirationTime(tablets[0].tablet_id(), first_expiry_time, first_leader_index, true);
 }
 
-TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestTablegroup)) {
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestColocation)) {
   FLAGS_enable_update_local_peer_min_index = false;
   FLAGS_update_min_cdc_indices_interval_secs = 1;
   FLAGS_cdc_state_checkpoint_update_interval_ms = 1;
   ASSERT_OK(SetUpWithParams(3, 1, false));
 
-  ASSERT_OK(CreateTablegroupObjects(&test_cluster_));
+  ASSERT_OK(CreateColocatedObjects(&test_cluster_));
   auto table = ASSERT_RESULT(GetTable(&test_cluster_, kNamespaceName, "test1"));
   google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
   ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
@@ -3737,7 +3737,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestTablegroup)) {
   ASSERT_FALSE(resp.has_error());
 
   int insert_count = 30;
-  ASSERT_OK(PopulateTablegroupData(&test_cluster_, insert_count));
+  ASSERT_OK(PopulateColocatedData(&test_cluster_, insert_count));
   ASSERT_OK(test_client()->FlushTables(
       {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
       /* is_compaction = */ false));
@@ -3767,13 +3767,13 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestTablegroup)) {
   ASSERT_EQ(insert_count, expected_key2);
 }
 
-TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestIntentsInTablegroup)) {
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestIntentsInColocation)) {
   FLAGS_enable_update_local_peer_min_index = false;
   FLAGS_update_min_cdc_indices_interval_secs = 1;
   FLAGS_cdc_state_checkpoint_update_interval_ms = 1;
   ASSERT_OK(SetUpWithParams(3, 1, false));
 
-  ASSERT_OK(CreateTablegroupObjects(&test_cluster_));
+  ASSERT_OK(CreateColocatedObjects(&test_cluster_));
   auto table = ASSERT_RESULT(GetTable(&test_cluster_, kNamespaceName, "test1"));
   google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
   ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
@@ -3785,7 +3785,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestIntentsInTablegroup)) {
   ASSERT_FALSE(resp.has_error());
 
   int insert_count = 30;
-  ASSERT_OK(PopulateTablegroupData(&test_cluster_, insert_count, true));
+  ASSERT_OK(PopulateColocatedData(&test_cluster_, insert_count, true));
   ASSERT_OK(test_client()->FlushTables(
       {table.table_id()}, /* add_indexes = */ false, /* timeout_secs = */ 30,
       /* is_compaction = */ false));

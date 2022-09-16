@@ -214,7 +214,7 @@ Status PopulateCDCSDKIntentRecord(
   bool colocated = tablet_peer->tablet()->metadata()->colocated();
   Schema& schema = old_schema ? *old_schema : *tablet_peer->tablet()->schema();
   SchemaVersion schema_version = tablet_peer->tablet()->metadata()->schema_version();
-  string table_name = tablet_peer->tablet()->metadata()->table_name();
+  std::string table_name = tablet_peer->tablet()->metadata()->table_name();
   SchemaPackingStorage schema_packing_storage;
   schema_packing_storage.AddSchema(schema_version, schema);
   Slice prev_key;
@@ -347,7 +347,7 @@ Status PopulateCDCSDKWriteRecord(
   Slice prev_key;
   Schema schema = current_schema;
   SchemaVersion schema_version = tablet_peer->tablet()->metadata()->schema_version();
-  string table_name = tablet_peer->tablet()->metadata()->table_name();
+  std::string table_name = tablet_peer->tablet()->metadata()->table_name();
   SchemaPackingStorage schema_packing_storage;
   schema_packing_storage.AddSchema(schema_version, schema);
   // TODO: This function and PopulateCDCSDKIntentRecord have a lot of code in common. They should
@@ -613,7 +613,7 @@ Status PopulateCDCSDKSnapshotRecord(
     const EnumOidLabelMap& enum_oid_label_map) {
   CDCSDKProtoRecordPB* proto_record = nullptr;
   RowMessage* row_message = nullptr;
-  string table_name = tablet_peer->tablet()->metadata()->table_name();
+  const std::string& table_name = tablet_peer->tablet()->metadata()->table_name();
 
   proto_record = resp->add_cdc_sdk_proto_records();
   row_message = proto_record->mutable_row_message();
@@ -831,7 +831,7 @@ Status GetChangesForCDCSDK(
 
         if (!schema_streamed && !(**cached_schema).initialized()) {
           current_schema.CopyFrom(*tablet_peer->tablet()->schema().get());
-          string table_name = tablet_peer->tablet()->metadata()->table_name();
+          const std::string& table_name = tablet_peer->tablet()->metadata()->table_name();
           schema_streamed = true;
 
           proto_record = resp->add_cdc_sdk_proto_records();
@@ -894,7 +894,7 @@ Status GetChangesForCDCSDK(
 
           case consensus::OperationType::CHANGE_METADATA_OP: {
             RETURN_NOT_OK(SchemaFromPB(msg->change_metadata_request().schema(), &current_schema));
-            string table_name = tablet_peer->tablet()->metadata()->table_name();
+            const std::string& table_name = tablet_peer->tablet()->metadata()->table_name();
             *cached_schema = std::make_shared<Schema>(std::move(current_schema));
             if ((resp->cdc_sdk_proto_records_size() > 0 &&
                  resp->cdc_sdk_proto_records(resp->cdc_sdk_proto_records_size() - 1)
