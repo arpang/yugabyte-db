@@ -2584,5 +2584,41 @@ TEST_F(QLTestSelectedExpr, MapMultiFieldQueryTest) {
   }
 }
 
+TEST_F(QLTestSelectedExpr, InsertTest) {
+  // Init the simulated cluster.
+  ASSERT_NO_FATALS(CreateSimulatedCluster());
+
+  // Get a processor.
+  TestQLProcessor* processor = GetQLProcessor();
+  LOG(INFO) << "Running simple query test.";
+  // Create the table 1.
+  const char* create_stmt =
+      "CREATE TABLE test_range(h int, r1 int, r2 int, payload int, PRIMARY KEY ((h), r1, r2));";
+  CHECK_VALID_STMT(create_stmt);
+
+  CHECK_VALID_STMT(
+      strings::Substitute("INSERT INTO test_range (h, r1, r2, payload) VALUES(1, 1, 1, 1);"));
+
+  // int h = 5;
+  // for (int r1 = 5; r1 < 8; r1++) {
+  //   for (int r2 = 4; r2 < 9; r2++) {
+  //     CHECK_VALID_STMT(strings::Substitute(
+  //         "INSERT INTO test_range (h, r1, r2, payload) VALUES($0, $1, $2, $2);", h, r1, r2));
+  //   }
+  // }
+
+  // // Checking Row
+  // CHECK_VALID_STMT("SELECT * FROM test_range WHERE h = 5 AND (r1, r2) in ((5, 6))");
+  // std::shared_ptr<QLRowBlock> row_block = processor->row_block();
+  // CHECK_EQ(row_block->row_count(), 1);
+  // {
+  //   const QLRow& row = row_block->row(0);
+  //   CHECK_EQ(row.column(0).int32_value(), 5);
+  //   CHECK_EQ(row.column(1).int32_value(), 5);
+  //   CHECK_EQ(row.column(2).int32_value(), 6);
+  //   CHECK_EQ(row.column(3).int32_value(), 6);
+  // }
+}
+
 } // namespace ql
 } // namespace yb

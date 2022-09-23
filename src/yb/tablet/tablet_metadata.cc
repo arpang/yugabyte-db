@@ -280,6 +280,7 @@ bool TableInfo::TEST_Equals(const TableInfo& lhs, const TableInfo& rhs) {
          lhs.partition_schema.Equals(rhs.partition_schema);
 }
 
+// Arpan: this usage will likely go away
 Status KvStoreInfo::LoadTablesFromPB(
     const google::protobuf::RepeatedPtrField<TableInfoPB>& pbs, const TableId& primary_table_id) {
   tables.clear();
@@ -319,7 +320,7 @@ Status KvStoreInfo::LoadFromPB(const KvStoreInfoPB& pb,
   for (const auto& schedule_id : pb.snapshot_schedules()) {
     snapshot_schedules.insert(VERIFY_RESULT(FullyDecodeSnapshotScheduleId(schedule_id)));
   }
-
+  // TODO: pb.tables won't be available; this usage will likely go way
   return LoadTablesFromPB(pb.tables(), primary_table_id);
 }
 
@@ -327,6 +328,7 @@ Status KvStoreInfo::MergeWithRestored(const KvStoreInfoPB& pb) {
   lower_bound_key = pb.lower_bound_key();
   upper_bound_key = pb.upper_bound_key();
   has_been_fully_compacted = pb.has_been_fully_compacted();
+  // TODO: pb.tables won't be available
   for (const auto& table_pb : pb.tables()) {
     const auto& table_id = table_pb.table_id();
     auto table_it = tables.find(table_id);
@@ -357,6 +359,7 @@ void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const
   }
   pb->set_has_been_fully_compacted(has_been_fully_compacted);
 
+  // Arpan: this usage will go away
   // Putting primary table first, then all other tables.
   pb->mutable_tables()->Reserve(narrow_cast<int>(tables.size() + 1));
   const auto& it = tables.find(primary_table_id);

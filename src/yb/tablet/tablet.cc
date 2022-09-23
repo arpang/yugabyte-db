@@ -1260,6 +1260,7 @@ Status Tablet::ApplyKeyValueRowOperations(
     const rocksdb::UserFrontiers* frontiers,
     const HybridTime hybrid_time,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  LOG_WITH_FUNC(INFO) << "Starting ApplyKeyValueRowOperations " << put_batch.ShortDebugString();
   if (put_batch.write_pairs().empty() && put_batch.read_pairs().empty() &&
       put_batch.apply_external_transactions().empty()) {
     return Status::OK();
@@ -1311,6 +1312,7 @@ void Tablet::WriteToRocksDB(
     const rocksdb::UserFrontiers* frontiers,
     rocksdb::WriteBatch* write_batch,
     docdb::StorageDbType storage_db_type) {
+  LOG_WITH_FUNC(INFO) << "Writing to rocksdb " << storage_db_type;
   rocksdb::DB* dest_db = nullptr;
   switch (storage_db_type) {
     case StorageDbType::kRegular: dest_db = regular_db_.get(); break;
@@ -1674,6 +1676,7 @@ Status Tablet::CreatePagingStateForRead(const PgsqlReadRequestPB& pgsql_read_req
 //--------------------------------------------------------------------------------------------------
 
 void Tablet::AcquireLocksAndPerformDocOperations(std::unique_ptr<WriteQuery> query) {
+  LOG_WITH_FUNC(INFO) << "Starting AcquireLocksAndPerformDocOperations";
   TRACE(__func__);
   if (table_type_ == TableType::TRANSACTION_STATUS_TABLE_TYPE) {
     query->Cancel(
@@ -1694,6 +1697,7 @@ void Tablet::AcquireLocksAndPerformDocOperations(std::unique_ptr<WriteQuery> que
   }
 
   WriteQuery::Execute(std::move(query));
+  LOG_WITH_FUNC(INFO) << "Ending AcquireLocksAndPerformDocOperations";
 }
 
 Status Tablet::Flush(FlushMode mode, FlushFlags flags, int64_t ignore_if_flushed_after_tick) {

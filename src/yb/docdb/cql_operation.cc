@@ -957,6 +957,7 @@ DocPath QLWriteOperation::MakeSubPath(const ColumnSchema& column_schema, ColumnI
 
 Status QLWriteOperation::ApplyUpsert(
     const DocOperationApplyData& data, const QLTableRow& existing_row, QLTableRow* new_row) {
+  // LOG(INFO) << "ApplyUpsert for " << request_.ShortDebugString();
   const auto control_fields = ValueControlFields {
     .ttl = request_ttl(),
     .timestamp = user_timestamp(),

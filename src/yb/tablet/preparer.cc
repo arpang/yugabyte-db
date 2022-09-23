@@ -169,6 +169,7 @@ void PreparerImpl::Stop() {
 }
 
 Status PreparerImpl::Submit(OperationDriver* operation_driver) {
+  LOG_WITH_FUNC(INFO) << "Starting submit " << operation_driver->ToString(); 
   if (stop_requested_.load(std::memory_order_acquire)) {
     return STATUS(IllegalState, "Tablet is shutting down");
   }
@@ -203,6 +204,7 @@ Status PreparerImpl::Submit(OperationDriver* operation_driver) {
 }
 
 void PreparerImpl::Run() {
+  LOG_WITH_FUNC(INFO) << "Run";
   VLOG(2) << "Starting prepare task:" << this;
   for (;;) {
     while (OperationDriver *item = queue_.Pop()) {
@@ -260,6 +262,7 @@ bool ShouldApplySeparately(OperationType operation_type) {
 }  // anonymous namespace
 
 void PreparerImpl::ProcessItem(OperationDriver* item) {
+  LOG_WITH_FUNC(INFO) << "Process item";
   CHECK_NOTNULL(item);
 
   LOG_IF(DFATAL, !item->is_leader_side()) << "Processing follower-side item";
@@ -317,6 +320,9 @@ void PreparerImpl::ProcessAndClearLeaderSideBatch() {
           << " leader-side operations, estimated size: " << leader_side_batch_size_estimate_
           << " bytes";
 
+  LOG_WITH_FUNC(INFO) << "Preparing a batch of " << leader_side_batch_.size()
+                      << " leader-side operations, estimated size: "
+                      << leader_side_batch_size_estimate_ << " bytes";
   auto iter = leader_side_batch_.begin();
   auto replication_subbatch_begin = iter;
   auto replication_subbatch_end = iter;
@@ -353,6 +359,7 @@ void PreparerImpl::ProcessAndClearLeaderSideBatch() {
 void PreparerImpl::ReplicateSubBatch(
     OperationDrivers::iterator batch_begin,
     OperationDrivers::iterator batch_end) {
+  LOG_WITH_FUNC(INFO) << "Starting ReplicateSubBatch";
   DCHECK_GE(std::distance(batch_begin, batch_end), 0);
   if (batch_begin == batch_end) {
     return;
@@ -386,6 +393,7 @@ void PreparerImpl::ReplicateSubBatch(
     LOG(DFATAL) << "Operations should fail, but was successfully prepared: "
                 << AsString(boost::make_iterator_range(batch_begin, batch_end));
   }
+  LOG_WITH_FUNC(INFO) << "Ending ReplicateSubBatch";
 }
 
 // ------------------------------------------------------------------------------------------------

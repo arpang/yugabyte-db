@@ -257,6 +257,7 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
   const TableId table_id = resp.superblock().primary_table_id();
   const bool colocated = resp.superblock().colocated();
   const tablet::TableInfoPB* table_ptr = nullptr;
+  // TODO: kv_store->tables() won't be available
   for (auto& table_pb : kv_store->tables()) {
     if (table_pb.table_id() == table_id) {
       table_ptr = &table_pb;

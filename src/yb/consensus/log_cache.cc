@@ -175,6 +175,7 @@ LogCache::PrepareAppendResult LogCache::PrepareAppendOperations(const ReplicateM
   std::vector<CacheEntry> entries_to_insert;
   entries_to_insert.reserve(msgs.size());
   for (const auto& msg : msgs) {
+    LOG_WITH_FUNC(INFO) << "Appending to wal "; // << msg->ShortDebugString();
     CacheEntry e = { msg, static_cast<int64_t>(msg->SpaceUsedLong()) };
     result.mem_required += e.mem_usage;
     entries_to_insert.emplace_back(std::move(e));
