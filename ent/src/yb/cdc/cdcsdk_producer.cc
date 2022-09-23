@@ -490,7 +490,6 @@ Status PopulateCDCSDKDDLRecord(
   row_message->set_new_table_name(msg->change_metadata_request().new_table_name());
   row_message->set_pgschema_name(schema.SchemaName());
   SetTableProperties(table_properties, cdc_sdk_table_properties_pb);
-
   return Status::OK();
 }
 
@@ -693,7 +692,6 @@ Status GetChangesForCDCSDK(
     auto txn_participant = tablet_peer->tablet()->transaction_participant();
     ReadHybridTime time;
     std::string nextKey;
-    SchemaPB schema_pb;
     // It is first call in snapshot then take snapshot.
     if ((from_op_id.key().empty()) && (from_op_id.snapshot_time() == 0)) {
       if (txn_participant == nullptr || txn_participant->context() == nullptr)
@@ -730,23 +728,27 @@ Status GetChangesForCDCSDK(
       VLOG(1) << "The after snapshot term " << from_op_id.term() << "index  " << from_op_id.index()
               << "key " << from_op_id.key() << "snapshot time " << from_op_id.snapshot_time();
 
-      Schema schema = *tablet_peer->tablet()->schema().get();
+      for (auto const& table_id : tablet_peer->tablet_metadata()->GetAllColocatedTables()) {
+        auto table_name = tablet_peer->tablet()->metadata()->table_name(table_id);
+        auto schema_version = tablet_peer->tablet()->metadata()->schema_version(table_id);
+        Schema schema = *tablet_peer->tablet()->metadata()->schema(table_id).get();
+        SchemaPB schema_pb;
+        SchemaToPB(schema, &schema_pb);
+        proto_record = resp->add_cdc_sdk_proto_records();
+        row_message = proto_record->mutable_row_message();
+        row_message->set_op(RowMessage_Op_DDL);
+        row_message->set_table(table_name);
+        FillDDLInfo(row_message, schema_pb, schema_version);
+      }
+
+      Schema schema = *tablet_peer->tablet()->metadata()->schema().get();
+
       int limit = FLAGS_cdc_snapshot_batch_size;
       int fetched = 0;
       std::vector<QLTableRow> rows;
+      QLTableRow row;
       auto iter = VERIFY_RESULT(tablet_peer->tablet()->CreateCDCSnapshotIterator(
           schema.CopyWithoutColumnIds(), time, nextKey));
-
-      QLTableRow row;
-      SchemaToPB(*tablet_peer->tablet()->schema().get(), &schema_pb);
-
-      proto_record = resp->add_cdc_sdk_proto_records();
-      row_message = proto_record->mutable_row_message();
-      row_message->set_op(RowMessage_Op_DDL);
-      row_message->set_table(tablet_peer->tablet()->metadata()->table_name());
-
-      FillDDLInfo(row_message, schema_pb, tablet_peer->tablet()->metadata()->schema_version());
-
       while (VERIFY_RESULT(iter->HasNext()) && fetched < limit) {
         RETURN_NOT_OK(iter->NextRow(&row));
         RETURN_NOT_OK(PopulateCDCSDKSnapshotRecord(
