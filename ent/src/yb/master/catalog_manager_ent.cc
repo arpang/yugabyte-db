@@ -2088,7 +2088,6 @@ Status CatalogManager::ImportTableEntry(const NamespaceMap& namespace_map,
       VLOG_WITH_PREFIX(3) << "Begin first search";
       // At this point, namespace id and table id match. Check other properties, like whether the
       // table is active and whether table name matches.
-      SharedLock lock(mutex_);
       if (VERIFY_RESULT(CheckTableForImport(table, table_data))) {
         LOG_WITH_FUNC(INFO) << "Found existing table: '" << table->ToString() << "'";
         if (meta.colocated() && IsColocationParentTableId(table_data->old_table_id)) {
@@ -3336,7 +3335,6 @@ Status CatalogManager::BackfillMetadataForCDC(
   AlterTableRequestPB alter_table_req_pg_type;
   bool backfill_required = false;
   {
-    SharedLock lock(mutex_);
     auto l = table->LockForRead();
     table_id = table->id();
     if (table->GetTableType() == PGSQL_TABLE_TYPE) {
@@ -3347,10 +3345,10 @@ Status CatalogManager::BackfillMetadataForCDC(
         for (const auto& entry : att_name_typid_map) {
           type_oids.push_back(entry.second);
         }
-        auto ns = VERIFY_RESULT(FindNamespaceByIdUnlocked(table->namespace_id()));
+        auto ns = VERIFY_RESULT(FindNamespaceById(table->namespace_id()));
         auto const type_oid_info_map = VERIFY_RESULT(GetPgTypeInfo(ns, &type_oids));
         for (const auto& entry : att_name_typid_map) {
-          VLOG(1) << "For table:" << table->name() << " column:" << entry.first
+          VLOG(1) << "For table: " << table->name() << " column: " << entry.first
                   << ", pg_type_oid: " << entry.second;
           auto* step = alter_table_req_pg_type.add_alter_schema_steps();
           step->set_type(::yb::master::AlterTableRequestPB_StepType::
