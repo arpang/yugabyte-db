@@ -426,7 +426,7 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
   Status AlterWalRetentionSecs(ChangeMetadataOperation* operation);
 
   // Apply replicated add table operation.
-  Status AddTable(const TableInfoPB& table_info);
+  Status AddTable(ChangeMetadataOperation* operation, const TableInfoPB& table_info);
 
   Status AddMultipleTables(const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos);
 

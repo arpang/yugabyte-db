@@ -16,13 +16,21 @@
 
 #include <boost/container/small_vector.hpp>
 
+#include "yb/common/ql_value.h"
 #include "yb/common/read_hybrid_time.h"
 #include "yb/common/transaction.pb.h"
 
+#include "yb/docdb/doc_path.h"
 #include "yb/docdb/docdb_fwd.h"
 
+#include "yb/tablet/metadata.pb.h"
 #include "yb/util/monotime.h"
 #include "yb/util/ref_cnt_buffer.h"
+#include "yb/tablet/tablet_metadata.h"
+#include "yb/docdb/doc_key.h"
+#include "yb/util/yb_partition.h"
+#include "yb/docdb/doc_write_batch.h"
+#include "yb/common/schema.h"
 
 namespace yb {
 namespace docdb {
@@ -44,8 +52,11 @@ const int kNilSubkeyIndex = -1;
 typedef boost::container::small_vector_base<RefCntPrefix> DocPathsToLock;
 
 YB_DEFINE_ENUM(GetDocPathsMode, (kLock)(kIntents));
-YB_DEFINE_ENUM(DocOperationType,
-               (PGSQL_WRITE_OPERATION)(QL_WRITE_OPERATION)(REDIS_WRITE_OPERATION));
+// TODO: Add CHANGE_METADATA_DOC_OPERATION to DocOperationType
+// TODO: Add class ChangeMetadataDocOperation : DocOperation
+YB_DEFINE_ENUM(
+    DocOperationType,
+    (PGSQL_WRITE_OPERATION)(QL_WRITE_OPERATION)(REDIS_WRITE_OPERATION)(CHANGE_METADATA_DOC_OPERATION));
 
 class DocOperation {
  public:
@@ -92,9 +103,46 @@ class DocOperationBase : public DocOperation {
   const RequestPB& request_;
 };
 
+
+class ChangeMetadataDocOperation : public DocOperation {
+ public:
+  // TODO: Can change metadata change everything in tableinfopb?
+  // Serialization: tableinfo -> pb -> SerializeToString
+  // Deserialization: TableInfoPB.ParseFromString()
+
+  // TODO:Argument should be TableInfoPB
+  ChangeMetadataDocOperation(const tablet::TableInfo& table_info);
+
+  Status Apply(const DocOperationApplyData& data) override;
+
+  Type OpType() override { return DocOperationType::CHANGE_METADATA_DOC_OPERATION; }
+
+  bool RequireReadSnapshot() const override { return false; }
+
+  Status GetDocPaths(
+      GetDocPathsMode mode, DocPathsToLock* paths, IsolationLevel* level) const override {
+    paths->push_back(encoded_doc_key_);
+    return Status::OK();
+  }
+
+  void ClearResponse() override {
+    // NOOP
+  }
+
+  std::string ToString() const override {
+    return "";  // TODO
+  }
+
+ private:
+  const tablet::TableInfo& table_info_;
+  // Doc key and encoded doc key for the primary key.
+  boost::optional<DocKey> doc_key_;
+  RefCntPrefix encoded_doc_key_;
+};
+
 typedef std::vector<std::unique_ptr<DocOperation>> DocOperations;
 
 }  // namespace docdb
 }  // namespace yb
 
-#endif // YB_DOCDB_DOC_OPERATION_H_
+#endif  // YB_DOCDB_ppERATION_H_

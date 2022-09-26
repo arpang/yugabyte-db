@@ -240,6 +240,7 @@ void WriteQuery::ExecuteDone(const Status& status) {
 
 Result<bool> WriteQuery::PrepareExecute() {
   if (client_request_) {
+    LOG_WITH_FUNC(INFO) << "client_request_ " << client_request_->ShortDebugString();
     auto* request = operation().AllocateRequest();
     SetupKeyValueBatch(*client_request_, request);
 
@@ -361,6 +362,7 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
   bool colocated = metadata.colocated() || tablet().is_sys_catalog();
 
   for (const auto& req : pgsql_write_batch) {
+    LOG_WITH_FUNC(INFO) << " req.has_hash_code() " << req.has_hash_code();
     PgsqlResponsePB* resp = response_->add_pgsql_response_batch();
     // Table-level tombstones should not be requested for non-colocated tables.
     if ((req.stmt_type() == PgsqlWriteRequestPB::PGSQL_TRUNCATE_COLOCATED) && !colocated) {
@@ -390,10 +392,10 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
 }
 
 void WriteQuery::Execute(std::unique_ptr<WriteQuery> query) {
-  LOG_WITH_FUNC(INFO) << "Starting Execute ";
+  // LOG_WITH_FUNC(INFO) << "Starting Execute " << query->request().ShortDebugString();
   auto* query_ptr = query.get();
   query_ptr->self_ = std::move(query);
-
+  // if (query_ptr->request())
   auto prepare_result = query_ptr->PrepareExecute();
 
   if (!prepare_result.ok()) {

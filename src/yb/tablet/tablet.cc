@@ -1891,8 +1891,34 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
   return Status::OK();
 }
 
-Status Tablet::AddTable(const TableInfoPB& table_info) {
-  RETURN_NOT_OK(AddTableInMemory(table_info));
+Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& table_info_pb) {
+  TableInfo table_info;  // TODO: initialize
+                         // TableInfo::LoadFromPB(table_info_pb.table_id(), table_info)
+
+  // auto write_op = std::make_unique<docdb::PgsqlWriteOperation>(
+  //     req, rpc::SharedField(table_info, table_info->doc_read_context.get()), txn_op_ctx);
+  // RETURN_NOT_OK(write_op->Init(resp));
+  // doc_ops_.emplace_back(std::move(write_op));
+  auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(table_info);
+  // docdb::ChangeMetadataDocOperation op(table_info);
+  KeyValueWriteBatchPB write_batch;
+
+  const ReadHybridTime& read_ht =
+      ReadHybridTime::SingleTime(clock()->Now());  // ReadHybridTime::Max();
+  const CoarseTimePoint deadline = CoarseTimePoint::max();
+  HybridTime restart_read_ht;
+  docdb::DocOperations doc_write_ops;
+  doc_write_ops.emplace_back(std::move(op));
+  RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
+      doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
+      docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
+      metadata()->table_name()));  // TODO: table name fix, but it is not used as such
+  RETURN_NOT_OK(ApplyOperation(
+      *operation, 1,
+      write_batch));  // todo: batch_idx hardcoding
+                      // along the lines of writepb, does it make sense to add batch_idx field in
+                      // ChangeMetadataRequestPB. See operations.proto
+  RETURN_NOT_OK(AddTableInMemory(table_info_pb));
   return metadata_->Flush();
 }
 

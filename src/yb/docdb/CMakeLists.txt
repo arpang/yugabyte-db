@@ -57,6 +57,7 @@ include_directories("${YB_BUILD_ROOT}/postgres_build/src/include/catalog")
 
 set(DOCDB_SRCS
         bounded_rocksdb_iterator.cc
+        change_metadata_doc_operation.cc
         conflict_resolution.cc
         consensus_frontier.cc
         cql_operation.cc
