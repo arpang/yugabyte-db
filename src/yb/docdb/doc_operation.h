@@ -111,7 +111,7 @@ class ChangeMetadataDocOperation : public DocOperation {
   // Deserialization: TableInfoPB.ParseFromString()
 
   // TODO:Argument should be TableInfoPB
-  ChangeMetadataDocOperation(const tablet::TableInfo& table_info);
+  ChangeMetadataDocOperation(const tablet::TableInfoPB& table_info);
 
   Status Apply(const DocOperationApplyData& data) override;
 
@@ -134,7 +134,7 @@ class ChangeMetadataDocOperation : public DocOperation {
   }
 
  private:
-  const tablet::TableInfo& table_info_;
+  const tablet::TableInfoPB& table_info_;
   // Doc key and encoded doc key for the primary key.
   boost::optional<DocKey> doc_key_;
   RefCntPrefix encoded_doc_key_;

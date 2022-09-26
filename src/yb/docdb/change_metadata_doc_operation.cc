@@ -16,10 +16,10 @@ Schema metadata_table_schema = Schema(
     {metadata_table_key_col, metadata_table_value_col}, 1, TableProperties(), Uuid::Nil(),
     metadata_table_colocation_id);
 
-ChangeMetadataDocOperation::ChangeMetadataDocOperation(const tablet::TableInfo& table_info)
+ChangeMetadataDocOperation::ChangeMetadataDocOperation(const tablet::TableInfoPB& table_info)
     : table_info_(table_info) {
   QLValuePB table_id_value;
-  table_id_value.set_string_value(table_info_.table_id);
+  table_id_value.set_string_value(table_info_.table_id());
 
   std::string key_string;
   AppendToKey(table_id_value, &key_string);
@@ -30,10 +30,10 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(const tablet::TableInfo& 
 }
 
 Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
-  tablet::TableInfoPB table_info_pb;
-  table_info_.ToPB(&table_info_pb);
+  // tablet::TableInfoPB table_info_pb;
+  // table_info_.ToPB(&table_info_pb);
   string table_info_pb_string;
-  table_info_pb.SerializeToString(&table_info_pb_string);
+  table_info_.SerializeToString(&table_info_pb_string);
 
   QLValuePB table_info_value;
   table_info_value.set_string_value(table_info_pb_string);

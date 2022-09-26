@@ -1892,15 +1892,7 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 }
 
 Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& table_info_pb) {
-  TableInfo table_info;  // TODO: initialize
-                         // TableInfo::LoadFromPB(table_info_pb.table_id(), table_info)
-
-  // auto write_op = std::make_unique<docdb::PgsqlWriteOperation>(
-  //     req, rpc::SharedField(table_info, table_info->doc_read_context.get()), txn_op_ctx);
-  // RETURN_NOT_OK(write_op->Init(resp));
-  // doc_ops_.emplace_back(std::move(write_op));
-  auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(table_info);
-  // docdb::ChangeMetadataDocOperation op(table_info);
+  auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(table_info_pb);
   KeyValueWriteBatchPB write_batch;
 
   const ReadHybridTime& read_ht =
