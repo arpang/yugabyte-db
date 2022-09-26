@@ -442,7 +442,7 @@ Status WriteQuery::DoExecute() {
 
   auto* transaction_participant = tablet().transaction_participant();
   if (transaction_participant) {
-    request_scope_ = RequestScope(transaction_participant);
+    request_scope_ = VERIFY_RESULT(RequestScope::Create(transaction_participant));
   }
 
   if (!tablet().txns_enabled() || !transactional_table) {
@@ -452,8 +452,7 @@ Status WriteQuery::DoExecute() {
 
   if (isolation_level_ == IsolationLevel::NON_TRANSACTIONAL) {
     auto now = tablet().clock()->Now();
-    LOG_WITH_FUNC(INFO) << "Start ResolveOperationConflicts";
-    docdb::ResolveOperationConflicts(
+    return docdb::ResolveOperationConflicts(
         doc_ops_, now, tablet().doc_db(), partial_range_key_intents,
         transaction_participant, tablet().metrics()->transaction_conflicts.get(),
         &prepare_result_.lock_batch, tablet().wait_queue(),
@@ -466,8 +465,6 @@ Status WriteQuery::DoExecute() {
           NonTransactionalConflictsResolved(now, *result);
           TRACE("NonTransactionalConflictsResolved");
         });
-    LOG_WITH_FUNC(INFO) << "End ResolveOperationConflicts, returning";
-    return Status::OK();
   }
 
   if (isolation_level_ == IsolationLevel::SERIALIZABLE_ISOLATION &&
@@ -491,7 +488,7 @@ Status WriteQuery::DoExecute() {
   }
 
   // TODO(pessimistic): Ensure that wait_queue respects deadline() during conflict resolution.
-  docdb::ResolveTransactionConflicts(
+  return docdb::ResolveTransactionConflicts(
       doc_ops_, write_batch, tablet().clock()->Now(),
       read_time_ ? read_time_.read : HybridTime::kMax,
       tablet().doc_db(), partial_range_key_intents,
@@ -506,8 +503,6 @@ Status WriteQuery::DoExecute() {
         TransactionalConflictsResolved();
         TRACE("TransactionalConflictsResolved");
       });
-
-  return Status::OK();
 }
 
 void WriteQuery::NonTransactionalConflictsResolved(HybridTime now, HybridTime result) {

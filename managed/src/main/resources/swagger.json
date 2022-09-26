@@ -981,7 +981,7 @@
         },
         "target" : {
           "description" : "Target",
-          "enum" : [ "Session", "CloudProvider", "Region", "AvailabilityZone", "CustomerConfig", "KMSConfig", "Customer", "Release", "Certificate", "Alert", "AlertChannel", "AlertDestination", "MaintenanceWindow", "AccessKey", "Universe", "XClusterConfig", "Table", "Backup", "CustomerTask", "NodeInstance", "PlatformInstance", "Schedule", "User", "LoggingConfig", "RuntimeConfigKey", "HAConfig", "HABackup", "ScheduledScript", "SupportBundle", "GFlags", "Hook", "HookScope", "NodeAgent" ],
+          "enum" : [ "Session", "CloudProvider", "Region", "AvailabilityZone", "CustomerConfig", "KMSConfig", "Customer", "Release", "Certificate", "Alert", "AlertChannel", "AlertDestination", "MaintenanceWindow", "AccessKey", "Universe", "XClusterConfig", "Table", "Backup", "CustomerTask", "NodeInstance", "PlatformInstance", "Schedule", "User", "LoggingConfig", "RuntimeConfigKey", "HAConfig", "HABackup", "ScheduledScript", "SupportBundle", "GFlags", "Hook", "HookScope", "NodeAgent", "CustomerLicense" ],
           "example" : "User",
           "readOnly" : true,
           "type" : "string"
@@ -1138,6 +1138,12 @@
           "readOnly" : true,
           "type" : "string"
         },
+        "baseBackupUUID" : {
+          "description" : "Base backup UUID",
+          "format" : "uuid",
+          "readOnly" : true,
+          "type" : "string"
+        },
         "category" : {
           "description" : "Category of the backup",
           "enum" : [ "YB_BACKUP_SCRIPT", "YB_CONTROLLER" ],
@@ -1146,6 +1152,7 @@
         "completionTime" : {
           "description" : "Backup completion time",
           "format" : "date-time",
+          "readOnly" : true,
           "type" : "string"
         },
         "createTime" : {
@@ -1167,6 +1174,12 @@
           "enum" : [ "NANOSECONDS", "MICROSECONDS", "MILLISECONDS", "SECONDS", "MINUTES", "HOURS", "DAYS", "MONTHS", "YEARS" ],
           "type" : "string"
         },
+        "incrementalBackup" : {
+          "type" : "boolean"
+        },
+        "parentBackup" : {
+          "type" : "boolean"
+        },
         "scheduleUUID" : {
           "description" : "Schedule UUID, if this backup is part of a schedule",
           "format" : "uuid",
@@ -1174,7 +1187,7 @@
         },
         "state" : {
           "description" : "State of the backup",
-          "enum" : [ "InProgress", "Completed", "Failed", "Deleted", "Skipped", "FailedToDelete", "Stopped", "DeleteInProgress", "QueuedForDeletion" ],
+          "enum" : [ "InProgress", "Completed", "Failed", "Deleted", "Skipped", "FailedToDelete", "Stopping", "Stopped", "DeleteInProgress", "QueuedForDeletion" ],
           "example" : "DELETED",
           "readOnly" : true,
           "type" : "string"
@@ -1209,7 +1222,7 @@
           "type" : "string"
         }
       },
-      "required" : [ "createTime", "updateTime" ],
+      "required" : [ "createTime", "incrementalBackup", "parentBackup", "updateTime" ],
       "type" : "object"
     },
     "BackupApiFilter" : {
@@ -1245,7 +1258,7 @@
         },
         "states" : {
           "items" : {
-            "enum" : [ "InProgress", "Completed", "Failed", "Deleted", "Skipped", "FailedToDelete", "Stopped", "DeleteInProgress", "QueuedForDeletion" ],
+            "enum" : [ "InProgress", "Completed", "Failed", "Deleted", "Skipped", "FailedToDelete", "Stopping", "Stopped", "DeleteInProgress", "QueuedForDeletion" ],
             "type" : "string"
           },
           "type" : "array",
@@ -1340,6 +1353,11 @@
           "enum" : [ "YQL_TABLE_TYPE", "REDIS_TABLE_TYPE", "PGSQL_TABLE_TYPE", "TRANSACTION_STATUS_TABLE_TYPE" ],
           "type" : "string"
         },
+        "baseBackupUUID" : {
+          "description" : "UUID of the parent backup",
+          "format" : "uuid",
+          "type" : "string"
+        },
         "cmkArn" : {
           "description" : "Amazon Resource Name (ARN) of the CMK",
           "type" : "string"
@@ -1417,6 +1435,16 @@
         "ignoreErrors" : {
           "description" : "Should table backup errors be ignored",
           "type" : "boolean"
+        },
+        "incrementalBackupFrequency" : {
+          "description" : "Frequency of incremental backups",
+          "format" : "int64",
+          "type" : "integer"
+        },
+        "incrementalBackupFrequencyTimeUnit" : {
+          "description" : "Time unit for user input incremental backup schedule frequency",
+          "enum" : [ "NANOSECONDS", "MICROSECONDS", "MILLISECONDS", "SECONDS", "MINUTES", "HOURS", "DAYS", "MONTHS", "YEARS" ],
+          "type" : "string"
         },
         "installYbc" : {
           "type" : "boolean"
@@ -1598,7 +1626,7 @@
           "type" : "boolean"
         },
         "state" : {
-          "enum" : [ "InProgress", "Completed", "Failed", "Deleted", "Skipped", "FailedToDelete", "Stopped", "DeleteInProgress", "QueuedForDeletion" ],
+          "enum" : [ "InProgress", "Completed", "Failed", "Deleted", "Skipped", "FailedToDelete", "Stopping", "Stopped", "DeleteInProgress", "QueuedForDeletion" ],
           "type" : "string"
         },
         "storageConfigType" : {
@@ -1696,6 +1724,11 @@
           "format" : "uuid",
           "type" : "string"
         },
+        "baseBackupUUID" : {
+          "description" : "Base backup UUID",
+          "format" : "uuid",
+          "type" : "string"
+        },
         "cmkArn" : {
           "description" : "Amazon Resource Name (ARN) of the CMK",
           "type" : "string"
@@ -1764,6 +1797,11 @@
         "firstTry" : {
           "description" : "Whether this task has been tried before",
           "type" : "boolean"
+        },
+        "fullChainSizeInBytes" : {
+          "description" : "Incremental backups chain size",
+          "format" : "int64",
+          "type" : "integer"
         },
         "ignoreErrors" : {
           "description" : "Should table backup errors be ignored",
@@ -3143,6 +3181,38 @@
       "required" : [ "code", "name" ],
       "type" : "object"
     },
+    "CustomerLicense" : {
+      "description" : "Customer Licenses. This helps customer to upload licenses for the thirdparrty softwares if required.",
+      "properties" : {
+        "creationDate" : {
+          "description" : "Creation date of license",
+          "format" : "date-time",
+          "readOnly" : true,
+          "type" : "string"
+        },
+        "customerUUID" : {
+          "description" : "Customer UUID that owns this license",
+          "format" : "uuid",
+          "type" : "string"
+        },
+        "license" : {
+          "description" : "License File Path",
+          "type" : "string"
+        },
+        "licenseType" : {
+          "description" : "Type of the license",
+          "type" : "string"
+        },
+        "licenseUUID" : {
+          "description" : "License UUID",
+          "format" : "uuid",
+          "readOnly" : true,
+          "type" : "string"
+        }
+      },
+      "required" : [ "license", "licenseType" ],
+      "type" : "object"
+    },
     "CustomerRegisterFormData" : {
       "properties" : {
         "code" : {
@@ -3716,10 +3786,13 @@
           "$ref" : "#/definitions/InstanceTypeKey"
         },
         "instanceTypeCode" : {
+          "description" : "Instance type code",
+          "readOnly" : true,
           "type" : "string"
         },
         "instanceTypeDetails" : {
-          "$ref" : "#/definitions/InstanceTypeDetails"
+          "$ref" : "#/definitions/InstanceTypeDetails",
+          "description" : "Extra details about the instance (as a JSON object)"
         },
         "memSizeGB" : {
           "description" : "The instance's memory size, in gigabytes",
@@ -3730,19 +3803,9 @@
           "description" : "The instance's number of CPU cores",
           "format" : "double",
           "type" : "number"
-        },
-        "provider" : {
-          "$ref" : "#/definitions/Provider"
-        },
-        "providerCode" : {
-          "type" : "string"
-        },
-        "providerUuid" : {
-          "format" : "uuid",
-          "type" : "string"
         }
       },
-      "required" : [ "idKey", "instanceTypeCode", "instanceTypeDetails", "provider", "providerCode", "providerUuid" ],
+      "required" : [ "idKey" ],
       "type" : "object"
     },
     "InstanceTypeDetails" : {
@@ -3772,6 +3835,51 @@
         }
       },
       "required" : [ "instanceTypeCode", "providerUuid" ],
+      "type" : "object"
+    },
+    "InstanceTypeResp" : {
+      "description" : "Details of a cloud instance type",
+      "properties" : {
+        "active" : {
+          "description" : "True if the instance is active",
+          "readOnly" : true,
+          "type" : "boolean"
+        },
+        "idKey" : {
+          "$ref" : "#/definitions/InstanceTypeKey"
+        },
+        "instanceTypeCode" : {
+          "description" : "Instance type code",
+          "readOnly" : true,
+          "type" : "string"
+        },
+        "instanceTypeDetails" : {
+          "$ref" : "#/definitions/InstanceTypeDetails",
+          "description" : "Extra details about the instance (as a JSON object)"
+        },
+        "memSizeGB" : {
+          "description" : "The instance's memory size, in gigabytes",
+          "format" : "double",
+          "type" : "number"
+        },
+        "numCores" : {
+          "description" : "The instance's number of CPU cores",
+          "format" : "double",
+          "type" : "number"
+        },
+        "providerCode" : {
+          "description" : "Cloud provider code",
+          "readOnly" : true,
+          "type" : "string"
+        },
+        "providerUuid" : {
+          "description" : "Provider UUID",
+          "format" : "uuid",
+          "readOnly" : true,
+          "type" : "string"
+        }
+      },
+      "required" : [ "idKey" ],
       "type" : "object"
     },
     "KeyInfo" : {
@@ -4428,6 +4536,11 @@
           "format" : "uuid",
           "type" : "string"
         },
+        "baseBackupUUID" : {
+          "description" : "Base backup UUID",
+          "format" : "uuid",
+          "type" : "string"
+        },
         "cmkArn" : {
           "description" : "Amazon Resource Name (ARN) of the CMK",
           "type" : "string"
@@ -4501,6 +4614,11 @@
         "firstTry" : {
           "description" : "Whether this task has been tried before",
           "type" : "boolean"
+        },
+        "fullChainSizeInBytes" : {
+          "description" : "Incremental backups chain size",
+          "format" : "int64",
+          "type" : "integer"
         },
         "ignoreErrors" : {
           "description" : "Should table backup errors be ignored",
@@ -7416,7 +7534,7 @@
           "type" : "string"
         },
         "sizeBytes" : {
-          "description" : "Size in bytes",
+          "description" : "SST size in bytes",
           "format" : "double",
           "readOnly" : true,
           "type" : "number"
@@ -7439,6 +7557,12 @@
           "format" : "uuid",
           "readOnly" : true,
           "type" : "string"
+        },
+        "walSizeBytes" : {
+          "description" : "WAL size in bytes",
+          "format" : "double",
+          "readOnly" : true,
+          "type" : "number"
         }
       },
       "type" : "object"
@@ -9508,12 +9632,19 @@
         },
         "status" : {
           "description" : "Status",
-          "enum" : [ "Init", "Bootstrapping", "Running", "Updating", "Paused", "Failed" ],
+          "enum" : [ "Initialized", "Running", "Updating", "DeletedUniverse", "DeletionFailed", "Failed" ],
           "type" : "string"
         },
         "tableDetails" : {
           "items" : {
             "$ref" : "#/definitions/XClusterTableConfig"
+          },
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "tableIdsWithReplicationSetup" : {
+          "items" : {
+            "type" : "string"
           },
           "type" : "array",
           "uniqueItems" : true
@@ -9536,7 +9667,7 @@
           "type" : "string"
         }
       },
-      "required" : [ "tableDetails" ],
+      "required" : [ "tableDetails", "tableIdsWithReplicationSetup" ],
       "type" : "object"
     },
     "XClusterConfigCreateFormData" : {
@@ -9577,6 +9708,10 @@
     "XClusterConfigEditFormData" : {
       "description" : "xcluster edit form",
       "properties" : {
+        "bootstrapParams" : {
+          "$ref" : "#/definitions/BootstrapParams",
+          "description" : "Parameters needed for the bootstrap flow including backup/restore"
+        },
         "name" : {
           "description" : "Name",
           "example" : "Repl-config1",
@@ -9637,12 +9772,19 @@
         },
         "status" : {
           "description" : "Status",
-          "enum" : [ "Init", "Bootstrapping", "Running", "Updating", "Paused", "Failed" ],
+          "enum" : [ "Initialized", "Running", "Updating", "DeletedUniverse", "DeletionFailed", "Failed" ],
           "type" : "string"
         },
         "tableDetails" : {
           "items" : {
             "$ref" : "#/definitions/XClusterTableConfig"
+          },
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "tableIdsWithReplicationSetup" : {
+          "items" : {
+            "type" : "string"
           },
           "type" : "array",
           "uniqueItems" : true
@@ -9665,7 +9807,7 @@
           "type" : "string"
         }
       },
-      "required" : [ "lag", "tableDetails" ],
+      "required" : [ "lag", "tableDetails", "tableIdsWithReplicationSetup" ],
       "type" : "object"
     },
     "XClusterConfigNeedBootstrapFormData" : {
@@ -9724,6 +9866,9 @@
           "format" : "date-time",
           "type" : "string"
         },
+        "indexTable" : {
+          "type" : "boolean"
+        },
         "needBootstrap" : {
           "description" : "Whether this table needs bootstrap process for replication setup",
           "type" : "boolean"
@@ -9749,6 +9894,7 @@
           "type" : "string"
         }
       },
+      "required" : [ "indexTable" ],
       "type" : "object"
     },
     "YBPError" : {
@@ -10938,7 +11084,7 @@
     "/api/v1/customers/{cUUID}/backups/delete" : {
       "post" : {
         "description" : "",
-        "operationId" : "deleteBackupsv2",
+        "operationId" : "deleteBackupsV2",
         "parameters" : [ {
           "format" : "uuid",
           "in" : "path",
@@ -11916,6 +12062,64 @@
         "tags" : [ "Encryption at rest" ]
       }
     },
+    "/api/v1/customers/{cUUID}/licenses" : {
+      "post" : {
+        "description" : "",
+        "operationId" : "upload_license",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/CustomerLicense"
+            }
+          }
+        },
+        "security" : [ {
+          "apiKeyAuth" : [ ]
+        } ],
+        "summary" : "Uploads the license",
+        "tags" : [ "License management" ]
+      }
+    },
+    "/api/v1/customers/{cUUID}/licenses/{lUUID}" : {
+      "delete" : {
+        "description" : "",
+        "operationId" : "deleteLicense",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "lUUID",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/YBPSuccess"
+            }
+          }
+        },
+        "security" : [ {
+          "apiKeyAuth" : [ ]
+        } ],
+        "summary" : "Delete a license",
+        "tags" : [ "License management" ]
+      }
+    },
     "/api/v1/customers/{cUUID}/maintenance_windows" : {
       "post" : {
         "description" : "",
@@ -12648,7 +12852,7 @@
             "description" : "successful operation",
             "schema" : {
               "items" : {
-                "$ref" : "#/definitions/InstanceType"
+                "$ref" : "#/definitions/InstanceTypeResp"
               },
               "type" : "array"
             }
@@ -12694,7 +12898,7 @@
           "200" : {
             "description" : "successful operation",
             "schema" : {
-              "$ref" : "#/definitions/InstanceType"
+              "$ref" : "#/definitions/InstanceTypeResp"
             }
           }
         },
@@ -12766,7 +12970,7 @@
           "200" : {
             "description" : "successful operation",
             "schema" : {
-              "$ref" : "#/definitions/InstanceType"
+              "$ref" : "#/definitions/InstanceTypeResp"
             }
           }
         },
@@ -18160,6 +18364,8 @@
     "name" : "Grafana Dashboard"
   }, {
     "name" : "Instance types"
+  }, {
+    "name" : "License management"
   }, {
     "name" : "LoggingConfig"
   }, {
