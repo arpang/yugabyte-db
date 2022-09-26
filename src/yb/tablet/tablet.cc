@@ -1892,24 +1892,31 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 }
 
 Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& table_info_pb) {
-  auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(table_info_pb);
-  KeyValueWriteBatchPB write_batch;
+  LOG_WITH_FUNC(INFO) << "Starting AddTable for table " << table_info_pb.table_name();
+  if (table_info_pb.table_type() == PGSQL_TABLE_TYPE && table_info_pb.has_namespace_name() &&
+      table_info_pb.namespace_name() != "system_platform") {
+    LOG_WITH_FUNC(INFO) << "Adding table to docdb " << table_info_pb.ShortDebugString();
+    auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(table_info_pb);
+    KeyValueWriteBatchPB write_batch;
 
-  const ReadHybridTime& read_ht =
-      ReadHybridTime::SingleTime(clock()->Now());  // ReadHybridTime::Max();
-  const CoarseTimePoint deadline = CoarseTimePoint::max();
-  HybridTime restart_read_ht;
-  docdb::DocOperations doc_write_ops;
-  doc_write_ops.emplace_back(std::move(op));
-  RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
-      doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
-      docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
-      metadata()->table_name()));  // TODO: table name fix, but it is not used as such
-  RETURN_NOT_OK(ApplyOperation(
-      *operation, 1,
-      write_batch));  // todo: batch_idx hardcoding
-                      // along the lines of writepb, does it make sense to add batch_idx field in
-                      // ChangeMetadataRequestPB. See operations.proto
+    const ReadHybridTime& read_ht =
+        ReadHybridTime::SingleTime(clock()->Now());  // ReadHybridTime::Max();
+    const CoarseTimePoint deadline = CoarseTimePoint::max();
+    HybridTime restart_read_ht;
+    docdb::DocOperations doc_write_ops;
+    doc_write_ops.emplace_back(std::move(op));
+    RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
+        doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
+        docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
+        metadata()->table_name()));  // TODO: table name fix, but it is not used as such
+    RETURN_NOT_OK(ApplyOperation(
+        *operation, 1,
+        write_batch));  // todo: batch_idx hardcoding
+                        // along the lines of writepb, does it make sense to add batch_idx field in
+                        // ChangeMetadataRequestPB. See operations.proto
+  } else {
+    LOG_WITH_FUNC(INFO) << "Skipped adding table to docdb " << table_info_pb.table_name();
+  }
   RETURN_NOT_OK(AddTableInMemory(table_info_pb));
   return metadata_->Flush();
 }
