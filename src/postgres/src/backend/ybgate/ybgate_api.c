@@ -933,10 +933,7 @@ char* DecodeRangeArrayDatum(char const* arr_fn_name, uintptr_t datum,
 char *
 DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
 {
-	FmgrInfo *finfo;
-	finfo = palloc0(sizeof(FmgrInfo));
-	Oid id = fmgr_internal_function("record_out");
-	fmgr_info(id, finfo);
+	FmgrInfo *finfo = palloc0(sizeof(FmgrInfo));
 
 	HeapTupleHeader rec = DatumGetHeapTupleHeader(datum);
 	Oid				tupType = HeapTupleHeaderGetTypeId(rec);
@@ -958,8 +955,7 @@ DecodeRecordDatum(uintptr_t datum, void *attrs, size_t natts)
 		fmgr_info(column_info->typiofunc, &column_info->proc);
 		column_info->column_type = att->atttypid;
 	}
-	return DatumGetCString(
-		FunctionCall2Coll(finfo, InvalidOid, datum, (uintptr_t) &tupdesc));
+	return DatumGetCString(record_out_internal(rec, &tupdesc, finfo));
 }
 
 char *

@@ -1,3 +1,6 @@
+#include "postgres.h"
+#include "access/htup_details.h"
+#include "fmgr.h"
 /*
  * structure to cache metadata needed for record I/O
  */
@@ -17,3 +20,6 @@ typedef struct RecordIOData
 	int			 ncolumns;
 	ColumnIOData columns[FLEXIBLE_ARRAY_MEMBER];
 } RecordIOData;
+
+Datum record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
+						  FmgrInfo *flinfo);

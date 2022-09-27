@@ -275,39 +275,34 @@ record_in(PG_FUNCTION_ARGS)
 }
 
 /*
- * record_out		- output routine for any composite type.
+ * record_out_internal - a helper function for record_out. The
+ * portion of record_out that doesn't depend on sys/rel cache has been extracted
+ * into this function. This has been done so that it can be used by YB CDC for
+ * decoding composite types.
  */
 Datum
-record_out(PG_FUNCTION_ARGS)
+record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
+					FmgrInfo *flinfo)
 {
-	HeapTupleHeader rec = PG_GETARG_HEAPTUPLEHEADER(0);
-	Oid			tupType;
-	int32		tupTypmod;
-	TupleDesc	tupdesc;
-	HeapTupleData tuple;
-	RecordIOData *my_extra;
-	bool		needComma = false;
-	int			ncolumns;
-	int			i;
-	Datum	   *values;
-	bool	   *nulls;
+	Oid			   tupType;
+	int32		   tupTypmod;
+	TupleDesc	   tupdesc;
+	HeapTupleData  tuple;
+	RecordIOData	 *my_extra;
+	bool		   needComma = false;
+	int			   ncolumns;
+	int			   i;
+	Datum		  *values;
+	bool			 *nulls;
 	StringInfoData buf;
 
-	check_stack_depth();		/* recurses for record-type columns */
+	check_stack_depth(); /* recurses for record-type columns */
 
 	/* Extract type info from the tuple itself */
 	tupType = HeapTupleHeaderGetTypeId(rec);
 	tupTypmod = HeapTupleHeaderGetTypMod(rec);
 
-	if (PG_NARGS() >= 2)
-	{
-		TupleDesc *tupdesc_ptr = (TupleDesc *) PG_GETARG_POINTER(1);
-		tupdesc = *tupdesc_ptr;
-	}
-	else
-	{
-		tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
-	}
+	tupdesc = *tupdesc_ptr;
 	ncolumns = tupdesc->natts;
 
 	/* Build a temporary HeapTuple control structure */
@@ -320,15 +315,13 @@ record_out(PG_FUNCTION_ARGS)
 	 * We arrange to look up the needed I/O info just once per series of
 	 * calls, assuming the record type doesn't change underneath us.
 	 */
-	my_extra = (RecordIOData *) fcinfo->flinfo->fn_extra;
-	if (my_extra == NULL ||
-		my_extra->ncolumns != ncolumns)
+	my_extra = (RecordIOData *) flinfo->fn_extra;
+	if (my_extra == NULL || my_extra->ncolumns != ncolumns)
 	{
-		fcinfo->flinfo->fn_extra =
-			MemoryContextAlloc(fcinfo->flinfo->fn_mcxt,
-							   offsetof(RecordIOData, columns) +
-							   ncolumns * sizeof(ColumnIOData));
-		my_extra = (RecordIOData *) fcinfo->flinfo->fn_extra;
+		flinfo->fn_extra = MemoryContextAlloc(
+			flinfo->fn_mcxt,
+			offsetof(RecordIOData, columns) + ncolumns * sizeof(ColumnIOData));
+		my_extra = (RecordIOData *) flinfo->fn_extra;
 		my_extra->record_type = InvalidOid;
 		my_extra->record_typmod = 0;
 	}
@@ -338,7 +331,7 @@ record_out(PG_FUNCTION_ARGS)
 	{
 		MemSet(my_extra, 0,
 			   offsetof(RecordIOData, columns) +
-			   ncolumns * sizeof(ColumnIOData));
+				   ncolumns * sizeof(ColumnIOData));
 		my_extra->record_type = tupType;
 		my_extra->record_typmod = tupTypmod;
 		my_extra->ncolumns = ncolumns;
@@ -358,12 +351,12 @@ record_out(PG_FUNCTION_ARGS)
 	for (i = 0; i < ncolumns; i++)
 	{
 		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
-		ColumnIOData *column_info = &my_extra->columns[i];
-		Oid			column_type = att->atttypid;
-		Datum		attr;
-		char	   *value;
-		char	   *tmp;
-		bool		nq;
+		ColumnIOData	 *column_info = &my_extra->columns[i];
+		Oid				  column_type = att->atttypid;
+		Datum			  attr;
+		char			 *value;
+		char			 *tmp;
+		bool			  nq;
 
 		/* Ignore dropped columns in datatype */
 		if (att->attisdropped)
@@ -384,11 +377,10 @@ record_out(PG_FUNCTION_ARGS)
 		 */
 		if (column_info->column_type != column_type)
 		{
-			getTypeOutputInfo(column_type,
-							  &column_info->typiofunc,
+			getTypeOutputInfo(column_type, &column_info->typiofunc,
 							  &column_info->typisvarlena);
 			fmgr_info_cxt(column_info->typiofunc, &column_info->proc,
-						  fcinfo->flinfo->fn_mcxt);
+						  flinfo->fn_mcxt);
 			column_info->column_type = column_type;
 		}
 
@@ -396,14 +388,13 @@ record_out(PG_FUNCTION_ARGS)
 		value = OutputFunctionCall(&column_info->proc, attr);
 
 		/* Detect whether we need double quotes for this value */
-		nq = (value[0] == '\0');	/* force quotes for empty string */
+		nq = (value[0] == '\0'); /* force quotes for empty string */
 		for (tmp = value; *tmp; tmp++)
 		{
-			char		ch = *tmp;
+			char ch = *tmp;
 
-			if (ch == '"' || ch == '\\' ||
-				ch == '(' || ch == ')' || ch == ',' ||
-				isspace((unsigned char) ch))
+			if (ch == '"' || ch == '\\' || ch == '(' || ch == ')' ||
+				ch == ',' || isspace((unsigned char) ch))
 			{
 				nq = true;
 				break;
@@ -415,7 +406,7 @@ record_out(PG_FUNCTION_ARGS)
 			appendStringInfoCharMacro(&buf, '"');
 		for (tmp = value; *tmp; tmp++)
 		{
-			char		ch = *tmp;
+			char ch = *tmp;
 
 			if (ch == '"' || ch == '\\')
 				appendStringInfoCharMacro(&buf, ch);
@@ -432,6 +423,32 @@ record_out(PG_FUNCTION_ARGS)
 	ReleaseTupleDesc(tupdesc);
 
 	PG_RETURN_CSTRING(buf.data);
+}
+
+/*
+ * record_out		- output routine for any composite type.
+ * Note: The portion of this function that is independent of sys/rel cache has
+ * been extracted as record_out_internal. Any upstream changes to that portion
+ * should go there.
+ */
+Datum
+record_out(PG_FUNCTION_ARGS)
+{
+	YBC_LOG_INFO("Inside record_out");
+	HeapTupleHeader rec = PG_GETARG_HEAPTUPLEHEADER(0);
+	Oid				tupType;
+	int32			tupTypmod;
+	TupleDesc		tupdesc;
+	check_stack_depth(); /* recurses for record-type columns */
+
+	/* Extract type info from the tuple itself */
+	tupType = HeapTupleHeaderGetTypeId(rec);
+	tupTypmod = HeapTupleHeaderGetTypMod(rec);
+
+	tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
+	fcinfo->nargs = 2;
+	fcinfo->arg[1] = PointerGetDatum(&tupdesc);
+	return record_out_internal(rec, &tupdesc, fcinfo->flinfo);
 }
 
 /*
