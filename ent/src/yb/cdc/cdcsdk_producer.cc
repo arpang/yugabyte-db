@@ -490,6 +490,7 @@ Status PopulateCDCSDKDDLRecord(
   row_message->set_new_table_name(msg->change_metadata_request().new_table_name());
   row_message->set_pgschema_name(schema.SchemaName());
   SetTableProperties(table_properties, cdc_sdk_table_properties_pb);
+
   return Status::OK();
 }
 
