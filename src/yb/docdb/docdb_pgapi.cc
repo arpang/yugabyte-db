@@ -777,7 +777,6 @@ char *get_record_string_value(
   PgAttributeRow *attrs[natts];
   for (size_t i = 0; i < natts; i++) {
     const auto &att_pb = att_pbs[i];
-    // TODO: free malloc
     PgAttributeRow *pg_att =
         reinterpret_cast<PgAttributeRow *>(malloc(sizeof(struct PgAttributeRow)));
     *pg_att = {att_pb.attrelid(),           "",
