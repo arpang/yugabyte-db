@@ -280,6 +280,10 @@ def find_binary_location(binary_name):
         os.path.join(YUGABYTE_DIR, "build", "latest", "gobin"),
     ]
 
+    dir_candidates += [
+        os.path.join(YUGABYTE_DIR)
+    ]
+
     return search_file_in_paths(dir_candidates, binary_name)
 
 # Finds the path of the sample data
