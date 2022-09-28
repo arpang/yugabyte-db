@@ -1934,9 +1934,8 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& table_info_pb) {
   LOG_WITH_FUNC(INFO) << "Starting AddTable for table " << table_info_pb.table_name() << " "
                       << table_info_pb.ShortDebugString();
-  if (table_info_pb.table_type() == PGSQL_TABLE_TYPE &&
-      !table_info_pb.table_name().starts_with("pg_") &&
-      table_info_pb.namespace_name() != "system_platform") {
+  RETURN_NOT_OK(AddTableInMemory(table_info_pb));
+  if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
     LOG_WITH_FUNC(INFO) << "Adding table to docdb " << table_info_pb.ShortDebugString();
     auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(table_info_pb);
     KeyValueWriteBatchPB write_batch;
@@ -1959,7 +1958,7 @@ Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& t
   } else {
     LOG_WITH_FUNC(INFO) << "Skipped adding table to docdb " << table_info_pb.table_name();
   }
-  RETURN_NOT_OK(AddTableInMemory(table_info_pb));
+  LOG_WITH_FUNC(INFO) << "Add table done";
   return metadata_->Flush();
 }
 

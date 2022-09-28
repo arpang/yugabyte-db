@@ -1102,6 +1102,14 @@ class Schema {
   // code to swap() and CopyFrom() as well to prevent subtle bugs.
 };
 
+const Uuid metadata_table_cotable_id = Uuid::Generate();
+const ColocationId metadata_table_colocation_id = 1;
+const ColumnSchema metadata_table_key_col = ColumnSchema("table_id", STRING, false, true);
+const ColumnSchema metadata_table_value_col = ColumnSchema("table_info", STRING, false, false);
+const Schema metadata_table_schema = Schema(
+    {metadata_table_key_col, metadata_table_value_col}, 1, TableProperties(), Uuid::Nil(),
+    metadata_table_colocation_id);
+
 // Helper used for schema creation/editing.
 //
 // Example:

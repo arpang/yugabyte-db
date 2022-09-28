@@ -9,13 +9,6 @@ namespace yb {
 
 namespace docdb {
 
-ColocationId metadata_table_colocation_id = 1;
-ColumnSchema metadata_table_key_col = ColumnSchema("table_id", STRING, false, true);
-ColumnSchema metadata_table_value_col = ColumnSchema("table_info", STRING, false, false);
-Schema metadata_table_schema = Schema(
-    {metadata_table_key_col, metadata_table_value_col}, 1, TableProperties(), Uuid::Nil(),
-    metadata_table_colocation_id);
-
 ChangeMetadataDocOperation::ChangeMetadataDocOperation(const tablet::TableInfoPB& table_info)
     : table_info_(table_info) {
   QLValuePB table_id_value;
@@ -25,7 +18,12 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(const tablet::TableInfoPB
   AppendToKey(table_id_value, &key_string);
   DocKeyHash hash = YBPartition::HashColumnCompoundValue(key_string);
   auto key = KeyEntryValue::FromQLValuePB(table_id_value, metadata_table_key_col.sorting_type());
-  doc_key_ = DocKey(metadata_table_colocation_id, hash, {key});
+  if (table_info.schema().table_properties().is_ysql_catalog_table()) {
+    LOG(INFO) << "metadata_table_cotable_id " << metadata_table_cotable_id.ToString();
+    doc_key_ = DocKey(metadata_table_cotable_id, hash, {key});
+  } else {
+    doc_key_ = DocKey(metadata_table_colocation_id, hash, {key});
+  }
   encoded_doc_key_ = doc_key_->EncodeAsRefCntPrefix();
 }
 
