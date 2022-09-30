@@ -161,6 +161,9 @@ struct KvStoreInfo {
   Status LoadTablesFromPB(
       const google::protobuf::RepeatedPtrField<TableInfoPB>& pbs, const TableId& primary_table_id);
 
+  Status LoadTablesFromDocDB(
+      const TabletPtr& tablet, const TableId& primary_table_id, const TableId& metadata_table_id);
+
   void ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const;
 
   // Updates colocation map with new table info.
@@ -197,12 +200,13 @@ struct KvStoreInfo {
 
 struct RaftGroupMetadataData {
   FsManager* fs_manager;
-  TableInfoPtr table_info;
+  TableInfoPtr primary_table_info;
   RaftGroupId raft_group_id;
   Partition partition;
   TabletDataState tablet_data_state;
   bool colocated = false;
   std::vector<SnapshotScheduleId> snapshot_schedules;
+  TableInfoPtr metadata_table_info;
 };
 
 // At startup, the TSTabletManager will load a RaftGroupMetadata for each
@@ -465,6 +469,11 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return primary_table_info_unlocked();
   }
 
+  TableInfoPtr metadata_table_info() const {
+    std::lock_guard<MutexType> lock(data_mutex_);
+    return metadata_table_info_unlocked();
+  }
+
   bool colocated() const;
 
   Result<std::string> TopSnapshotsDir() const;
@@ -550,6 +559,13 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return itr->second;
   }
 
+  const TableInfoPtr metadata_table_info_unlocked() const {
+    const auto& tables = kv_store_.tables;
+    const auto itr = tables.find(metadata_table_id_);
+    CHECK(itr != tables.end());
+    return itr->second;
+  }
+
   enum State {
     kNotLoadedYet,
     kNotWrittenYet,
@@ -571,6 +587,8 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // The primary table id. Primary table is the first table this Raft group is created for.
   // Additional tables can be added to this Raft group to co-locate with this table.
   TableId primary_table_id_ GUARDED_BY(data_mutex_);
+
+  TableId metadata_table_id_ GUARDED_BY(data_mutex_);
 
   // KV-store for this Raft group.
   KvStoreInfo kv_store_;

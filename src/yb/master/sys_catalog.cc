@@ -327,19 +327,27 @@ Status SysCatalogTable::CreateNew(FsManager *fs_manager) {
   RETURN_NOT_OK(partition_schema.CreatePartitions(split_rows, schema, &partitions));
   DCHECK_EQ(1, partitions.size());
 
-  auto table_info = std::make_shared<tablet::TableInfo>(
+  auto primary_table_info = std::make_shared<tablet::TableInfo>(
       tablet::Primary::kTrue, kSysCatalogTableId, "", table_name(), TableType::YQL_TABLE_TYPE,
       schema, IndexMap(), boost::none /* index_info */, 0 /* schema_version */, partition_schema);
+
+  auto metadata_table_info = std::make_shared<tablet::TableInfo>(
+      tablet::Primary::kFalse, metadata_table_id, "", metadata_table_name,
+      TableType::YQL_TABLE_TYPE, master_metadata_table_schema, IndexMap(),
+      boost::none /* index_info */, 0 /* schema_version */, PartitionSchema());
+
   string data_root_dir = fs_manager->GetDataRootDirs()[0];
   fs_manager->SetTabletPathByDataPath(kSysCatalogTabletId, data_root_dir);
-  auto metadata = VERIFY_RESULT(tablet::RaftGroupMetadata::CreateNew(tablet::RaftGroupMetadataData {
-    .fs_manager = fs_manager,
-    .table_info = table_info,
-    .raft_group_id = kSysCatalogTabletId,
-    .partition = partitions[0],
-    .tablet_data_state = tablet::TABLET_DATA_READY,
-    .snapshot_schedules = {},
-  }, data_root_dir));
+  auto metadata = VERIFY_RESULT(tablet::RaftGroupMetadata::CreateNew(
+      tablet::RaftGroupMetadataData{
+          .fs_manager = fs_manager,
+          .primary_table_info = primary_table_info,
+          .raft_group_id = kSysCatalogTabletId,
+          .partition = partitions[0],
+          .tablet_data_state = tablet::TABLET_DATA_READY,
+          .snapshot_schedules = {},
+          .metadata_table_info = metadata_table_info},
+      data_root_dir));
 
   RaftConfigPB config;
   RETURN_NOT_OK_PREPEND(SetupConfig(master_->opts(), &config),

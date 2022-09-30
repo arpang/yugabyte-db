@@ -1937,7 +1937,8 @@ Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& t
   RETURN_NOT_OK(AddTableInMemory(table_info_pb));
   if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
     LOG_WITH_FUNC(INFO) << "Adding table to docdb " << table_info_pb.ShortDebugString();
-    auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(table_info_pb);
+    auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
+        metadata_->metadata_table_info(), table_info_pb);
     KeyValueWriteBatchPB write_batch;
 
     const ReadHybridTime& read_ht =

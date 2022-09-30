@@ -1101,14 +1101,22 @@ class Schema {
   // NOTE: if you add more members, make sure to add the appropriate
   // code to swap() and CopyFrom() as well to prevent subtle bugs.
 };
-
 const Uuid metadata_table_cotable_id = Uuid::Generate();
+const TableId metadata_table_id = metadata_table_cotable_id.ToHexString();
+const string metadata_table_name = "metadata_table";
 const ColocationId metadata_table_colocation_id = 1;
+const ColumnId metadata_table_key_col_id(10);
 const ColumnSchema metadata_table_key_col = ColumnSchema("table_id", STRING, false, true);
+const ColumnId metadata_table_value_col_id(11);
 const ColumnSchema metadata_table_value_col = ColumnSchema("table_info", STRING, false, false);
-const Schema metadata_table_schema = Schema(
-    {metadata_table_key_col, metadata_table_value_col}, 1, TableProperties(), Uuid::Nil(),
+const Schema tserver_metadata_table_schema = Schema(
+    {metadata_table_key_col, metadata_table_value_col},
+    {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(), Uuid::Nil(),
     metadata_table_colocation_id);
+const Schema master_metadata_table_schema = Schema(
+    {metadata_table_key_col, metadata_table_value_col},
+    {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(),
+    metadata_table_cotable_id);
 
 // Helper used for schema creation/editing.
 //

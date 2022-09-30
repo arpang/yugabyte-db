@@ -41,6 +41,7 @@
 
 #include "yb/common/entity_ids.h"
 #include "yb/common/index.h"
+#include "yb/common/ql_expr.h"
 #include "yb/common/schema.h"
 #include "yb/common/transaction.h"
 #include "yb/common/wire_protocol.h"
@@ -48,7 +49,9 @@
 #include "yb/consensus/consensus_util.h"
 #include "yb/consensus/opid_util.h"
 
+#include "yb/docdb/doc_pgsql_scanspec.h"
 #include "yb/docdb/doc_read_context.h"
+#include "yb/docdb/doc_rowwise_iterator.h"
 #include "yb/docdb/docdb_rocksdb_util.h"
 
 #include "yb/gutil/atomicops.h"
@@ -74,6 +77,7 @@
 #include "yb/util/status.h"
 #include "yb/util/status_log.h"
 #include "yb/util/trace.h"
+#include "tablet.h"
 
 DEFINE_bool(enable_tablet_orphaned_block_deletion, true,
             "Whether to enable deletion of orphaned blocks from disk. "
@@ -284,6 +288,7 @@ bool TableInfo::TEST_Equals(const TableInfo& lhs, const TableInfo& rhs) {
 Status KvStoreInfo::LoadTablesFromPB(
     const google::protobuf::RepeatedPtrField<TableInfoPB>& pbs, const TableId& primary_table_id) {
   tables.clear();
+  colocation_to_table.clear();  // TODO: Check for correctness
   for (const auto& table_pb : pbs) {
     const TableId table_id = table_pb.table_id();
     TableInfoPtr& table_info =
@@ -306,9 +311,61 @@ Status KvStoreInfo::LoadTablesFromPB(
   return Status::OK();
 }
 
-Status KvStoreInfo::LoadFromPB(const KvStoreInfoPB& pb,
-                               const TableId& primary_table_id,
-                               bool local_superblock) {
+Status KvStoreInfo::LoadTablesFromDocDB(
+    const TabletPtr& tablet, const TableId& primary_table_id, const TableId& metadata_table_id) {
+  // TODO: Probably need to handle sys.catalog.uuid in master and how about the colocation parent
+  // table in tserver
+  auto metadata_table_ptr = tables.find(metadata_table_id);
+  auto primary_table_ptr = tables.find(primary_table_id);
+  DCHECK(metadata_table_ptr != tables.end());
+  DCHECK(primary_table_ptr != tables.end());
+  tables.clear();
+  colocation_to_table.clear();
+  auto metadata_table_info = metadata_table_ptr->second;
+  auto primary_table_info = metadata_table_ptr->second;
+  tables.emplace(metadata_table_info->table_id, metadata_table_info);
+  tables.emplace(primary_table_info->table_id, primary_table_info);
+  UpdateColocationMap(metadata_table_info);
+  UpdateColocationMap(primary_table_info);
+
+  const auto& metadata_schema = metadata_table_info->schema();
+
+  // const auto table_id_col_id = VERIFY_RESULT(metadata_schema.ColumnIdByName("table_id")).rep();
+  const auto table_info_col_id = VERIFY_RESULT(metadata_schema.ColumnIdByName("table_info")).rep();
+
+  auto iter = VERIFY_RESULT(tablet->NewRowIterator(
+      metadata_schema.CopyWithoutColumnIds(), {} /* read_hybrid_time */, metadata_table_id));
+  {
+    auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
+    const std::vector<docdb::KeyEntryValue> empty_key_components;
+    docdb::DocPgsqlScanSpec spec(
+        metadata_schema, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components,
+        nullptr, boost::none /* hash_code */, boost::none /* max_hash_code */, nullptr /* where */);
+    RETURN_NOT_OK(doc_iter->Init(spec));
+  }
+
+  while (VERIFY_RESULT(iter->HasNext())) {
+    QLTableRow row;
+    RETURN_NOT_OK(iter->NextRow(&row));
+    const auto& table_info_ql_value = row.GetValue(table_info_col_id);
+    if (!table_info_ql_value) {
+      return STATUS_FORMAT(Corruption, "Could not read table schema from DocDB");
+    }
+    const string& table_info_string = table_info_ql_value->string_value();
+    TableInfoPB table_info_pb;
+    table_info_pb.ParseFromString(table_info_string);
+
+    const TableId table_id = table_info_pb.table_id();
+    TableInfoPtr& table_info_ptr =
+        tables.emplace(table_id, std::make_shared<TableInfo>()).first->second;
+    RETURN_NOT_OK(table_info_ptr->LoadFromPB(primary_table_id, table_info_pb));
+    UpdateColocationMap(table_info_ptr);
+  }
+  return Status::OK();
+}
+
+Status KvStoreInfo::LoadFromPB(
+    const KvStoreInfoPB& pb, const TableId& primary_table_id, bool local_superblock) {
   kv_store_id = KvStoreId(pb.kv_store_id());
   if (local_superblock) {
     rocksdb_dir = pb.rocksdb_dir();
@@ -336,8 +393,8 @@ Status KvStoreInfo::MergeWithRestored(const KvStoreInfoPB& pb) {
       // Skip tables that are not present in the restored state.
       continue;
     }
-    auto new_table_info = std::make_shared<TableInfo>(
-        *table_it->second, std::numeric_limits<SchemaVersion>::max());
+    auto new_table_info =
+        std::make_shared<TableInfo>(*table_it->second, std::numeric_limits<SchemaVersion>::max());
     RETURN_NOT_OK(new_table_info->MergeWithRestored(table_pb));
     table_it->second = new_table_info;
   }
@@ -388,23 +445,22 @@ bool KvStoreInfo::TEST_Equals(const KvStoreInfo& lhs, const KvStoreInfo& rhs) {
   auto eq = [](const auto& lhs, const auto& rhs) {
     return DereferencedEqual(lhs, rhs, TableInfo::TEST_Equals);
   };
-  return YB_STRUCT_EQUALS(kv_store_id,
-                          rocksdb_dir,
-                          lower_bound_key,
-                          upper_bound_key,
-                          has_been_fully_compacted,
-                          snapshot_schedules) &&
+  return YB_STRUCT_EQUALS(
+             kv_store_id,
+             rocksdb_dir,
+             lower_bound_key,
+             upper_bound_key,
+             has_been_fully_compacted,
+             snapshot_schedules) &&
          MapsEqual(lhs.tables, rhs.tables, eq) &&
          MapsEqual(lhs.colocation_to_table, rhs.colocation_to_table, eq);
 }
 
 namespace {
 
-std::string MakeTabletDirName(const TabletId& tablet_id) {
-  return Format("tablet-$0", tablet_id);
-}
+std::string MakeTabletDirName(const TabletId& tablet_id) { return Format("tablet-$0", tablet_id); }
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 
@@ -433,11 +489,11 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::CreateNew(
     wal_top_dir = wal_root_dirs[0];
   }
 
-  const string table_dir_name = Substitute("table-$0", data.table_info->table_id);
+  const string table_dir_name = Substitute("table-$0", data.primary_table_info->table_id);
   const string tablet_dir_name = MakeTabletDirName(data.raft_group_id);
   const string wal_dir = JoinPathSegments(wal_top_dir, table_dir_name, tablet_dir_name);
-  const string rocksdb_dir = JoinPathSegments(
-      data_top_dir, FsManager::kRocksDBDirName, table_dir_name, tablet_dir_name);
+  const string rocksdb_dir =
+      JoinPathSegments(data_top_dir, FsManager::kRocksDBDirName, table_dir_name, tablet_dir_name);
 
   RaftGroupMetadataPtr ret(new RaftGroupMetadata(data, rocksdb_dir, wal_dir));
   RETURN_NOT_OK(ret->Flush());
@@ -456,10 +512,10 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::TEST_LoadOrCreate(
   if (data.fs_manager->LookupTablet(data.raft_group_id)) {
     auto metadata = Load(data.fs_manager, data.raft_group_id);
     if (metadata.ok()) {
-      if (!(**metadata).schema()->Equals(data.table_info->schema())) {
+      if (!(**metadata).schema()->Equals(data.primary_table_info->schema())) {
         return STATUS_FORMAT(
             Corruption, "Schema on disk ($0) does not match expected schema ($1)",
-            *(*metadata)->schema(), data.table_info->schema());
+            *(*metadata)->schema(), data.primary_table_info->schema());
       }
       return *metadata;
     }
@@ -471,8 +527,8 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::TEST_LoadOrCreate(
 }
 
 template <class TablesMap>
-Status MakeTableNotFound(const TableId& table_id, const RaftGroupId& raft_group_id,
-                                 const TablesMap& tables) {
+Status MakeTableNotFound(
+    const TableId& table_id, const RaftGroupId& raft_group_id, const TablesMap& tables) {
   std::string table_name = "<unknown_table_name>";
   if (!table_id.empty()) {
     const auto iter = tables.find(table_id);
@@ -482,7 +538,7 @@ Status MakeTableNotFound(const TableId& table_id, const RaftGroupId& raft_group_
   }
   std::ostringstream string_stream;
   string_stream << "Table " << table_name << " (" << table_id << ") not found in Raft group "
-      << raft_group_id;
+                << raft_group_id;
   std::string msg = string_stream.str();
 #ifndef NDEBUG
   // This very large message should be logged instead of being appended to STATUS.
@@ -637,7 +693,8 @@ RaftGroupMetadata::RaftGroupMetadata(
     : state_(kNotWrittenYet),
       raft_group_id_(data.raft_group_id),
       partition_(std::make_shared<Partition>(data.partition)),
-      primary_table_id_(data.table_info->table_id),
+      primary_table_id_(data.primary_table_info->table_id),
+      metadata_table_id_(data.metadata_table_info->table_id),
       kv_store_(KvStoreId(raft_group_id_), data_dir, data.snapshot_schedules),
       fs_manager_(data.fs_manager),
       wal_dir_(wal_dir),
@@ -645,10 +702,15 @@ RaftGroupMetadata::RaftGroupMetadata(
       colocated_(data.colocated),
       cdc_min_replicated_index_(std::numeric_limits<int64_t>::max()),
       cdc_sdk_min_checkpoint_op_id_(OpId::Invalid()) {
-  CHECK(data.table_info->schema().has_column_ids());
-  CHECK_GT(data.table_info->schema().num_key_columns(), 0);
-  kv_store_.tables.emplace(primary_table_id_, data.table_info);
-  kv_store_.UpdateColocationMap(data.table_info);
+  CHECK(data.primary_table_info->schema().has_column_ids());
+  CHECK_GT(data.primary_table_info->schema().num_key_columns(), 0);
+  kv_store_.tables.emplace(primary_table_id_, data.primary_table_info);
+  kv_store_.UpdateColocationMap(data.primary_table_info);
+
+  CHECK(data.metadata_table_info->schema().has_column_ids());
+  CHECK_EQ(data.metadata_table_info->schema().num_key_columns(), 1);
+  kv_store_.tables.emplace(metadata_table_id_, data.metadata_table_info);
+  kv_store_.UpdateColocationMap(data.metadata_table_info);
 }
 
 RaftGroupMetadata::~RaftGroupMetadata() {
@@ -1497,5 +1559,5 @@ Status CheckCanServeTabletData(const RaftGroupMetadata& metadata) {
   return Status::OK();
 }
 
-} // namespace tablet
+}  // namespace tablet
 } // namespace yb

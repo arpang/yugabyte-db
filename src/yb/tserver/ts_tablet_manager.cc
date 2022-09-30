@@ -47,6 +47,7 @@
 #include "yb/client/client.h"
 #include "yb/client/transaction_manager.h"
 
+#include "yb/common/index.h"
 #include "yb/common/wire_protocol.h"
 
 #include "yb/consensus/consensus.h"
@@ -714,15 +715,23 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
   GetAndRegisterDataAndWalDir(
       fs_manager_, table_info->table_id, tablet_id, &data_root_dir, &wal_root_dir);
   fs_manager_->SetTabletPathByDataPath(tablet_id, data_root_dir);
-  auto create_result = RaftGroupMetadata::CreateNew(tablet::RaftGroupMetadataData {
-    .fs_manager = fs_manager_,
-    .table_info = table_info,
-    .raft_group_id = tablet_id,
-    .partition = partition,
-    .tablet_data_state = TABLET_DATA_READY,
-    .colocated = colocated,
-    .snapshot_schedules = snapshot_schedules,
-  }, data_root_dir, wal_root_dir);
+
+  auto metadata_table_info = std::make_shared<tablet::TableInfo>(
+      tablet::Primary::kFalse, metadata_table_id, "", metadata_table_name,
+      TableType::YQL_TABLE_TYPE, tserver_metadata_table_schema, IndexMap(),
+      boost::none /* index_info */, 0 /* schema_version */, PartitionSchema());
+
+  auto create_result = RaftGroupMetadata::CreateNew(
+      tablet::RaftGroupMetadataData{
+          .fs_manager = fs_manager_,
+          .primary_table_info = table_info,
+          .raft_group_id = tablet_id,
+          .partition = partition,
+          .tablet_data_state = TABLET_DATA_READY,
+          .colocated = colocated,
+          .snapshot_schedules = snapshot_schedules,
+          .metadata_table_info = metadata_table_info},
+      data_root_dir, wal_root_dir);
   if (!create_result.ok()) {
     UnregisterDataWalDir(table_info->table_id, tablet_id, data_root_dir, wal_root_dir);
   }
