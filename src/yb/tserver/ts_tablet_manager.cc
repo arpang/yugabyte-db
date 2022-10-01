@@ -1529,6 +1529,12 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
       tablet_peer->SetFailed(s);
       return;
     }
+    s = tablet->metadata()->LoadTablesFromDocDB(tablet);
+    if (!s.ok()) {
+      LOG(ERROR) << kLogPrefix << "Failed to load table metadata from DocDB: " << s;
+      tablet_peer->SetFailed(s);
+      return;
+    }
   }
 
   MonoTime start(MonoTime::Now());
@@ -1595,13 +1601,6 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
     tablets_blocked_from_lb_.insert(tablet->tablet_id());
     VLOG(2) << TabletLogPrefix(tablet->tablet_id())
             << " marking as maybe being compacted after split.";
-  }
-
-  auto s = tablet_peer->tablet()->metadata()->LoadTablesFromDocDB(tablet);
-  if (!s.ok()) {
-    LOG(ERROR) << kLogPrefix << "Failed to load table metadata from DocDB: " << s;
-    tablet_peer->SetFailed(s);
-    return;
   }
 }
 

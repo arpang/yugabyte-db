@@ -320,29 +320,29 @@ Status KvStoreInfo::LoadTablesFromDocDB(
 
   auto metadata_table_ptr = tables.find(metadata_table_id);
   auto primary_table_ptr = tables.find(primary_table_id);
-  KvStoreInfoPB kv_store_pb;
-  ToPB(primary_table_id, &kv_store_pb);
-  LOG_IF(INFO, metadata_table_ptr == tables.end())
-      << "metadata_table_ptr == tables.end() encountered for metadata_table_id "
-      << metadata_table_id << " " << kv_store_pb.ShortDebugString();
+  // KvStoreInfoPB kv_store_pb;
+  // ToPB(primary_table_id, &kv_store_pb);
+  // LOG_IF(INFO, metadata_table_ptr == tables.end())
+  //     << "metadata_table_ptr == tables.end() encountered for metadata_table_id "
+  //     << metadata_table_id << " " << kv_store_pb.ShortDebugString();
   DCHECK(metadata_table_ptr != tables.end());
   DCHECK(primary_table_ptr != tables.end());
-  tables.clear();
-  colocation_to_table.clear();
+  // tables.clear();
+  // colocation_to_table.clear();
   auto metadata_table_info = metadata_table_ptr->second;
-  auto primary_table_info = primary_table_ptr->second;
-  tables.emplace(metadata_table_info->table_id, metadata_table_info);
-  tables.emplace(primary_table_info->table_id, primary_table_info);
-  UpdateColocationMap(metadata_table_info);
-  UpdateColocationMap(primary_table_info);
+  // auto primary_table_info = primary_table_ptr->second;
+  // tables.emplace(metadata_table_info->table_id, metadata_table_info);
+  // tables.emplace(primary_table_info->table_id, primary_table_info);
+  // UpdateColocationMap(metadata_table_info);
+  // UpdateColocationMap(primary_table_info);
 
-  RaftGroupReplicaSuperBlockPB superblock;
-  tablet->metadata()->ToSuperBlock(&superblock);
-  LOG_WITH_FUNC(INFO) << "Incoming tablet superblock " << superblock.ShortDebugString();
+  // RaftGroupReplicaSuperBlockPB superblock;
+  // tablet->metadata()->ToSuperBlock(&superblock);
+  // LOG_WITH_FUNC(INFO) << "Incoming tablet superblock " << superblock.ShortDebugString();
 
   // KvStoreInfoPB kv_store_pb;
-  ToPB(primary_table_id, &kv_store_pb);
-  LOG_WITH_FUNC(INFO) << "Current KvStoreInfoPB : " << kv_store_pb.ShortDebugString();
+  // ToPB(primary_table_id, &kv_store_pb);
+  // LOG_WITH_FUNC(INFO) << "Current KvStoreInfoPB : " << kv_store_pb.ShortDebugString();
 
   const auto& metadata_schema = metadata_table_info->schema();
 
