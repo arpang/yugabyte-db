@@ -284,24 +284,23 @@ Datum
 record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
 					FmgrInfo *flinfo)
 {
-	Oid			   tupType;
-	int32		   tupTypmod;
-	TupleDesc	   tupdesc;
-	HeapTupleData  tuple;
-	RecordIOData	 *my_extra;
-	bool		   needComma = false;
-	int			   ncolumns;
-	int			   i;
-	Datum		  *values;
-	bool			 *nulls;
+	Oid			tupType;
+	int32		tupTypmod;
+	TupleDesc	tupdesc;
+	HeapTupleData tuple;
+	RecordIOData *my_extra;
+	bool		needComma = false;
+	int			ncolumns;
+	int			i;
+	Datum	   *values;
+	bool	   *nulls;
 	StringInfoData buf;
 
-	check_stack_depth(); /* recurses for record-type columns */
+	check_stack_depth();		/* recurses for record-type columns */
 
 	/* Extract type info from the tuple itself */
 	tupType = HeapTupleHeaderGetTypeId(rec);
 	tupTypmod = HeapTupleHeaderGetTypMod(rec);
-
 	tupdesc = *tupdesc_ptr;
 	ncolumns = tupdesc->natts;
 
@@ -316,11 +315,13 @@ record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
 	 * calls, assuming the record type doesn't change underneath us.
 	 */
 	my_extra = (RecordIOData *) flinfo->fn_extra;
-	if (my_extra == NULL || my_extra->ncolumns != ncolumns)
+	if (my_extra == NULL ||
+		my_extra->ncolumns != ncolumns)
 	{
-		flinfo->fn_extra = MemoryContextAlloc(
-			flinfo->fn_mcxt,
-			offsetof(RecordIOData, columns) + ncolumns * sizeof(ColumnIOData));
+		flinfo->fn_extra =
+			MemoryContextAlloc(flinfo->fn_mcxt,
+							   offsetof(RecordIOData, columns) +
+							   ncolumns * sizeof(ColumnIOData));
 		my_extra = (RecordIOData *) flinfo->fn_extra;
 		my_extra->record_type = InvalidOid;
 		my_extra->record_typmod = 0;
@@ -331,7 +332,7 @@ record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
 	{
 		MemSet(my_extra, 0,
 			   offsetof(RecordIOData, columns) +
-				   ncolumns * sizeof(ColumnIOData));
+			   ncolumns * sizeof(ColumnIOData));
 		my_extra->record_type = tupType;
 		my_extra->record_typmod = tupTypmod;
 		my_extra->ncolumns = ncolumns;
@@ -351,12 +352,12 @@ record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
 	for (i = 0; i < ncolumns; i++)
 	{
 		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
-		ColumnIOData	 *column_info = &my_extra->columns[i];
-		Oid				  column_type = att->atttypid;
-		Datum			  attr;
-		char			 *value;
-		char			 *tmp;
-		bool			  nq;
+		ColumnIOData *column_info = &my_extra->columns[i];
+		Oid			column_type = att->atttypid;
+		Datum		attr;
+		char	   *value;
+		char	   *tmp;
+		bool		nq;
 
 		/* Ignore dropped columns in datatype */
 		if (att->attisdropped)
@@ -377,7 +378,8 @@ record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
 		 */
 		if (column_info->column_type != column_type)
 		{
-			getTypeOutputInfo(column_type, &column_info->typiofunc,
+			getTypeOutputInfo(column_type,
+							  &column_info->typiofunc,
 							  &column_info->typisvarlena);
 			fmgr_info_cxt(column_info->typiofunc, &column_info->proc,
 						  flinfo->fn_mcxt);
@@ -388,13 +390,14 @@ record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
 		value = OutputFunctionCall(&column_info->proc, attr);
 
 		/* Detect whether we need double quotes for this value */
-		nq = (value[0] == '\0'); /* force quotes for empty string */
+		nq = (value[0] == '\0');	/* force quotes for empty string */
 		for (tmp = value; *tmp; tmp++)
 		{
-			char ch = *tmp;
+			char		ch = *tmp;
 
-			if (ch == '"' || ch == '\\' || ch == '(' || ch == ')' ||
-				ch == ',' || isspace((unsigned char) ch))
+			if (ch == '"' || ch == '\\' ||
+				ch == '(' || ch == ')' || ch == ',' ||
+				isspace((unsigned char) ch))
 			{
 				nq = true;
 				break;
@@ -406,7 +409,7 @@ record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
 			appendStringInfoCharMacro(&buf, '"');
 		for (tmp = value; *tmp; tmp++)
 		{
-			char ch = *tmp;
+			char		ch = *tmp;
 
 			if (ch == '"' || ch == '\\')
 				appendStringInfoCharMacro(&buf, ch);
