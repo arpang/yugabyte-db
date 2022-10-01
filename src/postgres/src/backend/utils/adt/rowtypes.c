@@ -437,11 +437,11 @@ record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
 Datum
 record_out(PG_FUNCTION_ARGS)
 {
-	YBC_LOG_INFO("Inside record_out");
 	HeapTupleHeader rec = PG_GETARG_HEAPTUPLEHEADER(0);
 	Oid				tupType;
 	int32			tupTypmod;
 	TupleDesc		tupdesc;
+
 	check_stack_depth(); /* recurses for record-type columns */
 
 	/* Extract type info from the tuple itself */
@@ -449,8 +449,6 @@ record_out(PG_FUNCTION_ARGS)
 	tupTypmod = HeapTupleHeaderGetTypMod(rec);
 	tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
 
-	fcinfo->nargs = 2;
-	fcinfo->arg[1] = PointerGetDatum(&tupdesc);
 	return record_out_internal(rec, &tupdesc, fcinfo->flinfo);
 }
 
