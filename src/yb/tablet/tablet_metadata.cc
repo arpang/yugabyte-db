@@ -351,16 +351,15 @@ Status KvStoreInfo::LoadTablesFromDocDB(
 
   auto iter = VERIFY_RESULT(tablet->NewRowIterator(
       metadata_schema.CopyWithoutColumnIds(), {} /* read_hybrid_time */, metadata_table_id));
-  {
-    auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
-    const std::vector<docdb::KeyEntryValue> empty_key_components;
-    docdb::DocPgsqlScanSpec spec(
-        metadata_schema, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components,
-        nullptr, boost::none /* hash_code */, boost::none /* max_hash_code */, nullptr /* where */);
-    RETURN_NOT_OK(doc_iter->Init(spec));
-  }
+  auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
+  const std::vector<docdb::KeyEntryValue> empty_key_components;
+  docdb::DocPgsqlScanSpec spec(
+      metadata_schema, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components,
+      nullptr, boost::none /* hash_code */, boost::none /* max_hash_code */, nullptr /* where */);
+  RETURN_NOT_OK(doc_iter->Init(spec));
 
   while (VERIFY_RESULT(iter->HasNext())) {
+    LOG_WITH_FUNC(INFO) << "Processing next row";
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
     const auto& table_info_ql_value = row.GetValue(table_info_col_id);
@@ -534,12 +533,13 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::Load(
 }
 
 Status RaftGroupMetadata::LoadTablesFromDocDB(const TabletPtr& tablet) {
-  //  if (colocated()) {
-  LOG_WITH_FUNC(INFO) << "Loading from docdb with metadata_table_id_ " << metadata_table_id_;
-  return kv_store_.LoadTablesFromDocDB(tablet, primary_table_id_, metadata_table_id_);
-  // } else {
-  //   return Status::OK();
-  // }
+  if (tablet->table_type() == TableType::YQL_TABLE_TYPE ||
+      tablet->table_type() == TableType::PGSQL_TABLE_TYPE) {
+    LOG_WITH_FUNC(INFO) << "Loading from docdb with metadata_table_id_ " << metadata_table_id_;
+    return kv_store_.LoadTablesFromDocDB(tablet, primary_table_id_, metadata_table_id_);
+  } else {
+    return Status::OK();
+  }
 }
 
 Result<RaftGroupMetadataPtr> RaftGroupMetadata::TEST_LoadOrCreate(
