@@ -287,9 +287,11 @@ bool TableInfo::TEST_Equals(const TableInfo& lhs, const TableInfo& rhs) {
 // Arpan: this usage will likely go away
 Status KvStoreInfo::LoadTablesFromPB(
     const google::protobuf::RepeatedPtrField<TableInfoPB>& pbs, const TableId& primary_table_id) {
+  LOG_WITH_FUNC(INFO) << "Starting LoadTablesFromPB";
   tables.clear();
   colocation_to_table.clear();  // TODO: Check for correctness
   for (const auto& table_pb : pbs) {
+    LOG_WITH_FUNC(INFO) << "Loaing table " << table_pb.table_name();
     const TableId table_id = table_pb.table_id();
     TableInfoPtr& table_info =
         tables.emplace(table_id, std::make_shared<TableInfo>()).first->second;
@@ -315,18 +317,32 @@ Status KvStoreInfo::LoadTablesFromDocDB(
     const TabletPtr& tablet, const TableId& primary_table_id, const TableId& metadata_table_id) {
   // TODO: Probably need to handle sys.catalog.uuid in master and how about the colocation parent
   // table in tserver
+
   auto metadata_table_ptr = tables.find(metadata_table_id);
   auto primary_table_ptr = tables.find(primary_table_id);
+  KvStoreInfoPB kv_store_pb;
+  ToPB(primary_table_id, &kv_store_pb);
+  LOG_IF(INFO, metadata_table_ptr == tables.end())
+      << "metadata_table_ptr == tables.end() encountered for metadata_table_id "
+      << metadata_table_id << " " << kv_store_pb.ShortDebugString();
   DCHECK(metadata_table_ptr != tables.end());
   DCHECK(primary_table_ptr != tables.end());
   tables.clear();
   colocation_to_table.clear();
   auto metadata_table_info = metadata_table_ptr->second;
-  auto primary_table_info = metadata_table_ptr->second;
+  auto primary_table_info = primary_table_ptr->second;
   tables.emplace(metadata_table_info->table_id, metadata_table_info);
   tables.emplace(primary_table_info->table_id, primary_table_info);
   UpdateColocationMap(metadata_table_info);
   UpdateColocationMap(primary_table_info);
+
+  RaftGroupReplicaSuperBlockPB superblock;
+  tablet->metadata()->ToSuperBlock(&superblock);
+  LOG_WITH_FUNC(INFO) << "Incoming tablet superblock " << superblock.ShortDebugString();
+
+  // KvStoreInfoPB kv_store_pb;
+  ToPB(primary_table_id, &kv_store_pb);
+  LOG_WITH_FUNC(INFO) << "Current KvStoreInfoPB : " << kv_store_pb.ShortDebugString();
 
   const auto& metadata_schema = metadata_table_info->schema();
 
@@ -435,10 +451,17 @@ void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const
 }
 
 void KvStoreInfo::UpdateColocationMap(const TableInfoPtr& table_info) {
+  TableInfoPB tableinfopb;
+  table_info->ToPB(&tableinfopb);
+  LOG_WITH_FUNC(INFO) << "UpdateColocationMap starting for " << tableinfopb.ShortDebugString();
+  LOG_WITH_FUNC(INFO) << "table_info is null " << !table_info;
+  DCHECK_NOTNULL(table_info);
+
   auto colocation_id = table_info->schema().colocation_id();
   if (colocation_id) {
     colocation_to_table.emplace(colocation_id, table_info);
   }
+  LOG_WITH_FUNC(INFO) << "UpdateColocationMap done";
 }
 
 bool KvStoreInfo::TEST_Equals(const KvStoreInfo& lhs, const KvStoreInfo& rhs) {
@@ -502,9 +525,21 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::CreateNew(
 
 Result<RaftGroupMetadataPtr> RaftGroupMetadata::Load(
     FsManager* fs_manager, const RaftGroupId& raft_group_id) {
+  LOG_WITH_FUNC(INFO) << "Load being called";
   RaftGroupMetadataPtr ret(new RaftGroupMetadata(fs_manager, raft_group_id));
   RETURN_NOT_OK(ret->LoadFromDisk());
+  LOG_WITH_FUNC(INFO) << "at end of load primary_table_id_ " << ret->primary_table_id_
+                      << " metadata_table_id_: " << ret->metadata_table_id_;
   return ret;
+}
+
+Status RaftGroupMetadata::LoadTablesFromDocDB(const TabletPtr& tablet) {
+  //  if (colocated()) {
+  LOG_WITH_FUNC(INFO) << "Loading from docdb with metadata_table_id_ " << metadata_table_id_;
+  return kv_store_.LoadTablesFromDocDB(tablet, primary_table_id_, metadata_table_id_);
+  // } else {
+  //   return Status::OK();
+  // }
 }
 
 Result<RaftGroupMetadataPtr> RaftGroupMetadata::TEST_LoadOrCreate(
@@ -702,6 +737,8 @@ RaftGroupMetadata::RaftGroupMetadata(
       colocated_(data.colocated),
       cdc_min_replicated_index_(std::numeric_limits<int64_t>::max()),
       cdc_sdk_min_checkpoint_op_id_(OpId::Invalid()) {
+  LOG_WITH_FUNC(INFO) << "Set primary " << primary_table_id_ << " metadata_table_id_ to "
+                      << metadata_table_id_;
   CHECK(data.primary_table_info->schema().has_column_ids());
   CHECK_GT(data.primary_table_info->schema().num_key_columns(), 0);
   kv_store_.tables.emplace(primary_table_id_, data.primary_table_info);
@@ -763,6 +800,7 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
     Partition::FromPB(superblock.partition(), &partition);
     partition_ = std::make_shared<Partition>(partition);
     primary_table_id_ = superblock.primary_table_id();
+    metadata_table_id_ = superblock.metadata_table_id();
     colocated_ = superblock.colocated();
 
     RETURN_NOT_OK(kv_store_.LoadFromPB(superblock.kv_store(),
@@ -909,6 +947,7 @@ void RaftGroupMetadata::ToSuperBlockUnlocked(RaftGroupReplicaSuperBlockPB* super
   }
 
   pb.set_primary_table_id(primary_table_id_);
+  pb.set_metadata_table_id(metadata_table_id_);
   pb.set_colocated(colocated_);
   pb.set_cdc_min_replicated_index(cdc_min_replicated_index_);
   cdc_sdk_min_checkpoint_op_id_.ToPB(pb.mutable_cdc_sdk_min_checkpoint_op_id());

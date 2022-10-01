@@ -353,6 +353,7 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
         table.has_index_info() ? boost::optional<IndexInfo>(table.index_info()) : boost::none,
         table.schema_version(), partition_schema);
     fs_manager().SetTabletPathByDataPath(tablet_id_, data_root_dir);
+    LOG_WITH_PREFIX(INFO) << "Arpan Remote bootstrap";
     // TODO: Set metadata table info, may be it could have newly generated table id?
     auto create_result = RaftGroupMetadata::CreateNew(
         tablet::RaftGroupMetadataData{

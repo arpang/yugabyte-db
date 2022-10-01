@@ -228,6 +228,8 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // Load existing metadata from disk.
   static Result<RaftGroupMetadataPtr> Load(FsManager* fs_manager, const RaftGroupId& raft_group_id);
 
+  Status LoadTablesFromDocDB(const TabletPtr& tablet);
+
   // Try to load an existing Raft group. If it does not exist, create it.
   // If it already existed, verifies that the schema of the Raft group matches the
   // provided 'schema'.

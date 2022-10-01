@@ -446,6 +446,7 @@ TSTabletManager::~TSTabletManager() {
 }
 
 Status TSTabletManager::Init() {
+  LOG_WITH_FUNC(INFO) << "Starting init";
   CHECK_EQ(state(), MANAGER_INITIALIZING);
 
   tablet_options_.env = server_->GetEnv();
@@ -508,6 +509,7 @@ Status TSTabletManager::Init() {
   // for disk resources, etc, with bootstrap processes and running tablets.
   MonoTime start(MonoTime::Now());
   for (const string& tablet_id : tablet_ids) {
+    LOG_WITH_FUNC(INFO) << "Opening tablet meta for " << tablet_id;
     RaftGroupMetadataPtr meta;
     RETURN_NOT_OK_PREPEND(OpenTabletMeta(tablet_id, &meta),
                           "Failed to open tablet metadata for tablet: " + tablet_id);
@@ -536,14 +538,18 @@ Status TSTabletManager::Init() {
 
   // Now submit the "Open" task for each.
   for (const RaftGroupMetadataPtr& meta : metas) {
+    LOG_WITH_FUNC(INFO) << "Opening tablet for " << meta->primary_table_info()->table_name;
     scoped_refptr<TransitionInProgressDeleter> deleter;
     RETURN_NOT_OK(StartTabletStateTransition(
         meta->raft_group_id(), "opening tablet", &deleter));
 
     TabletPeerPtr tablet_peer = VERIFY_RESULT(CreateAndRegisterTabletPeer(meta, NEW_PEER));
+    LOG_WITH_FUNC(INFO) << "OpenTablet caller 1";
     RETURN_NOT_OK(open_tablet_pool_->SubmitFunc(
         std::bind(&TSTabletManager::OpenTablet, this, meta, deleter)));
   }
+
+  LOG_WITH_FUNC(INFO) << "Done opening tablet meta and tablet";
 
   {
     std::lock_guard<RWMutex> lock(mutex_);
@@ -716,6 +722,13 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
       fs_manager_, table_info->table_id, tablet_id, &data_root_dir, &wal_root_dir);
   fs_manager_->SetTabletPathByDataPath(tablet_id, data_root_dir);
 
+  const Uuid metadata_table_cotable_id = Uuid::Generate();
+  const TableId metadata_table_id = metadata_table_cotable_id.ToHexString();
+  const Schema tserver_metadata_table_schema = Schema(
+      {metadata_table_key_col, metadata_table_value_col},
+      {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(), Uuid::Nil(),
+      metadata_table_colocation_id);
+
   auto metadata_table_info = std::make_shared<tablet::TableInfo>(
       tablet::Primary::kFalse, metadata_table_id, "", metadata_table_name,
       TableType::YQL_TABLE_TYPE, tserver_metadata_table_schema, IndexMap(),
@@ -748,6 +761,7 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
                         "Unable to create new ConsensusMeta for tablet " + tablet_id);
   TabletPeerPtr new_peer = VERIFY_RESULT(CreateAndRegisterTabletPeer(meta, NEW_PEER));
 
+  LOG_WITH_FUNC(INFO) << "OpenTablet caller 2";
   // We can run this synchronously since there is nothing to bootstrap.
   RETURN_NOT_OK(
       open_tablet_pool_->SubmitFunc(std::bind(&TSTabletManager::OpenTablet, this, meta, deleter)));
@@ -866,6 +880,7 @@ void TSTabletManager::CreatePeerAndOpenTablet(
     }
     return;
   }
+  LOG_WITH_FUNC(INFO) << "OpenTablet caller 3";
   s = open_tablet_pool_->SubmitFunc(std::bind(&TSTabletManager::OpenTablet, this, meta, deleter));
   if (!s.ok()) {
     LOG(DFATAL) << Format("Failed to schedule opening tablet $0: $1", meta->table_id(), s);
@@ -1235,6 +1250,7 @@ Status TSTabletManager::StartRemoteBootstrap(const StartRemoteBootstrapRequestPB
 
   LOG(INFO) << kLogPrefix << "Remote bootstrap: Opening tablet";
 
+  LOG_WITH_FUNC(INFO) << "OpenTablet caller 4";
   // TODO(hector):  ENG-3173: We need to simulate a failure in OpenTablet during remote bootstrap
   // and verify that this tablet server gets remote bootstrapped again by the leader. We also need
   // to check what happens when this server receives raft consensus requests since at this point,
@@ -1437,6 +1453,7 @@ Status TSTabletManager::OpenTabletMeta(const string& tablet_id,
 
 void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
                                  const scoped_refptr<TransitionInProgressDeleter>& deleter) {
+  LOG_WITH_FUNC(INFO) << "Starting OpenTablet";
   string tablet_id = meta->raft_group_id();
   TRACE_EVENT1("tserver", "TSTabletManager::OpenTablet",
                "tablet_id", tablet_id);
@@ -1578,6 +1595,13 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
     tablets_blocked_from_lb_.insert(tablet->tablet_id());
     VLOG(2) << TabletLogPrefix(tablet->tablet_id())
             << " marking as maybe being compacted after split.";
+  }
+
+  auto s = tablet_peer->tablet()->metadata()->LoadTablesFromDocDB(tablet);
+  if (!s.ok()) {
+    LOG(ERROR) << kLogPrefix << "Failed to load table metadata from DocDB: " << s;
+    tablet_peer->SetFailed(s);
+    return;
   }
 }
 

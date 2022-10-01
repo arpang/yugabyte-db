@@ -331,6 +331,13 @@ Status SysCatalogTable::CreateNew(FsManager *fs_manager) {
       tablet::Primary::kTrue, kSysCatalogTableId, "", table_name(), TableType::YQL_TABLE_TYPE,
       schema, IndexMap(), boost::none /* index_info */, 0 /* schema_version */, partition_schema);
 
+  const Uuid metadata_table_cotable_id = Uuid::Generate();
+  const TableId metadata_table_id = metadata_table_cotable_id.ToHexString();
+  const Schema master_metadata_table_schema = Schema(
+      {metadata_table_key_col, metadata_table_value_col},
+      {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(),
+      metadata_table_cotable_id);
+
   auto metadata_table_info = std::make_shared<tablet::TableInfo>(
       tablet::Primary::kFalse, metadata_table_id, "", metadata_table_name,
       TableType::YQL_TABLE_TYPE, master_metadata_table_schema, IndexMap(),
@@ -592,6 +599,8 @@ Status SysCatalogTable::OpenTablet(const scoped_refptr<tablet::RaftGroupMetadata
       .retryable_requests = nullptr,
   };
   RETURN_NOT_OK(BootstrapTablet(data, &tablet, &log, &consensus_info));
+
+  RETURN_NOT_OK(tablet->metadata()->LoadTablesFromDocDB(tablet));
 
   // TODO: Do we have a setSplittable(false) or something from the outside is
   // handling split in the TS?
