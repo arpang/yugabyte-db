@@ -447,8 +447,8 @@ record_out(PG_FUNCTION_ARGS)
 	/* Extract type info from the tuple itself */
 	tupType = HeapTupleHeaderGetTypeId(rec);
 	tupTypmod = HeapTupleHeaderGetTypMod(rec);
-
 	tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
+
 	fcinfo->nargs = 2;
 	fcinfo->arg[1] = PointerGetDatum(&tupdesc);
 	return record_out_internal(rec, &tupdesc, fcinfo->flinfo);
