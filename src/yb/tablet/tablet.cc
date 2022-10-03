@@ -1291,7 +1291,7 @@ Status Tablet::ApplyKeyValueRowOperations(
     const rocksdb::UserFrontiers* frontiers,
     const HybridTime hybrid_time,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
-  LOG_WITH_FUNC(INFO) << "Starting ApplyKeyValueRowOperations " << put_batch.ShortDebugString();
+  // LOG_WITH_FUNC(INFO) << "Starting ApplyKeyValueRowOperations " << put_batch.ShortDebugString();
   if (put_batch.write_pairs().empty() && put_batch.read_pairs().empty() &&
       put_batch.apply_external_transactions().empty()) {
     return Status::OK();
@@ -1352,7 +1352,7 @@ void Tablet::WriteToRocksDB(
     const rocksdb::UserFrontiers* frontiers,
     rocksdb::WriteBatch* write_batch,
     docdb::StorageDbType storage_db_type) {
-  LOG_WITH_FUNC(INFO) << "Writing to rocksdb " << storage_db_type;
+  // LOG_WITH_FUNC(INFO) << "Writing to rocksdb " << storage_db_type;
   rocksdb::DB* dest_db = nullptr;
   switch (storage_db_type) {
     case StorageDbType::kRegular: dest_db = regular_db_.get(); break;
@@ -1716,7 +1716,7 @@ Status Tablet::CreatePagingStateForRead(const PgsqlReadRequestPB& pgsql_read_req
 //--------------------------------------------------------------------------------------------------
 
 void Tablet::AcquireLocksAndPerformDocOperations(std::unique_ptr<WriteQuery> query) {
-  LOG_WITH_FUNC(INFO) << "Starting AcquireLocksAndPerformDocOperations";
+  // LOG_WITH_FUNC(INFO) << "Starting AcquireLocksAndPerformDocOperations";
   TRACE(__func__);
   if (table_type_ == TableType::TRANSACTION_STATUS_TABLE_TYPE) {
     query->Cancel(
@@ -1737,7 +1737,7 @@ void Tablet::AcquireLocksAndPerformDocOperations(std::unique_ptr<WriteQuery> que
   }
 
   WriteQuery::Execute(std::move(query));
-  LOG_WITH_FUNC(INFO) << "Ending AcquireLocksAndPerformDocOperations";
+  // LOG_WITH_FUNC(INFO) << "Ending AcquireLocksAndPerformDocOperations";
 }
 
 Status Tablet::Flush(FlushMode mode, FlushFlags flags, int64_t ignore_if_flushed_after_tick) {
@@ -1932,11 +1932,12 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 }
 
 Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& table_info_pb) {
-  LOG_WITH_FUNC(INFO) << "Starting AddTable for table " << table_info_pb.table_name() << " "
-                      << table_info_pb.ShortDebugString();
+  LOG_WITH_FUNC(INFO) << "Starting AddTable for table " << table_info_pb.table_name();
+  // << " "                     << table_info_pb.ShortDebugString();
   RETURN_NOT_OK(AddTableInMemory(table_info_pb));
+  // TODO: Probably should handle YQL_TABLE_TYPE TOO?
   if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
-    LOG_WITH_FUNC(INFO) << "Adding table to docdb " << table_info_pb.ShortDebugString();
+    LOG_WITH_FUNC(INFO) << "Adding table to docdb " << table_info_pb.table_name();
     auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
         metadata_->metadata_table_info(), table_info_pb);
     KeyValueWriteBatchPB write_batch;
@@ -1957,10 +1958,13 @@ Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& t
                         // along the lines of writepb, does it make sense to add batch_idx field in
                         // ChangeMetadataRequestPB. See operations.proto
   } else {
-    LOG_WITH_FUNC(INFO) << "Skipped adding table to docdb " << table_info_pb.table_name();
+    // TODO: For any table reaching here: we are neither flushing it to protobuf file nor writing to
+    // docdb so this is really problematic
+    LOG_WITH_FUNC(INFO) << "NOT Adding table to docdb " << table_info_pb.table_name();
   }
   LOG_WITH_FUNC(INFO) << "Add table done";
-  return metadata_->Flush();
+  return Status::OK();
+  // return metadata_->Flush();
 }
 
 Status Tablet::AddMultipleTables(

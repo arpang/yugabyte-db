@@ -1516,10 +1516,12 @@ Status SetQLPrimaryKeyColumnValues(const Schema& schema,
         column_type, begin_index, begin_index + column_count - 1, schema.num_columns());
   }
   KeyEntryValue key_entry_value;
+  LOG_WITH_FUNC(INFO) << "Schema " << schema.ToString();
   for (size_t i = 0, j = begin_index; i < column_count; i++, j++) {
     const auto ql_type = schema.column(j).type();
     QLTableColumn& column = table_row->AllocColumn(schema.column_id(j));
     RETURN_NOT_OK(decoder->DecodeKeyEntryValue(&key_entry_value));
+    LOG_WITH_FUNC(INFO) << "ToQLValuePB caller 1, INDEX: " << j;
     key_entry_value.ToQLValuePB(ql_type, &column.value);
   }
   return decoder->ConsumeGroupEnd();
@@ -1558,9 +1560,16 @@ Status DocRowwiseIterator::DoNextRow(const Schema& projection, QLTableRow* table
   }
 
   DocKeyDecoder decoder(row_key_);
-  RETURN_NOT_OK(decoder.DecodeCotableId());
+  LOG_WITH_FUNC(INFO) << "row_key_.ToDebugString " << row_key_.ToDebugString() << " "
+                      << row_key_.ToBuffer();
+  Uuid cotableid;
+  RETURN_NOT_OK(decoder.DecodeCotableId(&cotableid));
+  LOG_WITH_FUNC(INFO) << "Found cotable id " << cotableid.ToHexString() << " "
+                      << cotableid.ToString();
   RETURN_NOT_OK(decoder.DecodeColocationId());
-  bool has_hash_components = VERIFY_RESULT(decoder.DecodeHashCode());
+  uint16_t hash;
+  bool has_hash_components = VERIFY_RESULT(decoder.DecodeHashCode(&hash));
+  LOG_WITH_FUNC(INFO) << "Found hash " << hash;
 
   // Populate the key column values from the doc key. The key column values in doc key were
   // written in the same order as in the table schema (see DocKeyFromQLKey). If the range columns

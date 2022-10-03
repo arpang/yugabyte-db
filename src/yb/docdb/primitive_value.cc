@@ -1822,6 +1822,8 @@ bool SharedToQLValuePB(
     return true;
   }
 
+  LOG(INFO) << "Starting SharedToQLValuePB for " << type << " " << ql_value->ShortDebugString();
+
   // For ybgin indexes, null category can be set on any index key column, regardless of the column's
   // actual type.  The column's actual type cannot be kGinNull, so it throws error in the below
   // switch.
@@ -1844,6 +1846,7 @@ bool SharedToQLValuePB(
       ql_value->set_int64_value(value.GetInt64());
       return true;
     case UINT32:
+      LOG(INFO) << "Caller 1";
       ql_value->set_uint32_value(value.GetUInt32());
       return true;
     case UINT64:
@@ -1868,6 +1871,7 @@ bool SharedToQLValuePB(
       ql_value->set_timestamp_value(value.GetTimestamp().ToInt64());
       return true;
     case DATE:
+      LOG(INFO) << "Caller 2";
       ql_value->set_date_value(value.GetUInt32());
       return true;
     case TIME:
@@ -1959,6 +1963,7 @@ void PrimitiveValue::ToQLValuePB(const std::shared_ptr<QLType>& ql_type,
     return;
   }
 
+  LOG(INFO) << "SharedToQLValuePB caller 1";
   if (SharedToQLValuePB(*this, ql_type, ql_value)) {
     return;
   }
@@ -2536,6 +2541,7 @@ int KeyEntryValue::CompareTo(const KeyEntryValue& other) const {
 }
 
 void KeyEntryValue::ToQLValuePB(const std::shared_ptr<QLType>& ql_type, QLValuePB* ql_value) const {
+  LOG(INFO) << "SharedToQLValuePB caller 2";
   if (SharedToQLValuePB(*this, ql_type, ql_value)) {
     return;
   }
@@ -2604,6 +2610,7 @@ int32_t KeyEntryValue::GetInt32() const {
 }
 
 bool KeyEntryValue::IsUInt32() const {
+  LOG(INFO) << "IsUInt32 actual type: " << type_ << " " << ToString();
   return KeyEntryType::kUInt32 == type_ || KeyEntryType::kUInt32Descending == type_;
 }
 

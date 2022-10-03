@@ -1103,7 +1103,7 @@ class Schema {
 };
 
 const string metadata_table_name = "metadata_table";
-const ColocationId metadata_table_colocation_id = 1;
+const ColocationId metadata_table_colocation_id = 11;
 const ColumnId metadata_table_key_col_id(10);
 const ColumnSchema metadata_table_key_col = ColumnSchema("table_id", STRING, false, true);
 const ColumnId metadata_table_value_col_id(11);

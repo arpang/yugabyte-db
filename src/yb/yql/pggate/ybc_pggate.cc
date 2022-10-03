@@ -597,6 +597,7 @@ static Status GetSplitPoints(YBCPgTableDesc table_desc,
         // Convert from KeyEntryValue to QLValuePB
         auto column_schema_result = VERIFY_RESULT(schema.column_by_id(column_ids[col_idx]));
         QLValuePB ql_value;
+        LOG(INFO) << "ToQLValuePB caller 3";
         v.ToQLValuePB(column_schema_result.get().type(), &ql_value);
 
         // Decode Collation

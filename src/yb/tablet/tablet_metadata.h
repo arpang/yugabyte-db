@@ -164,7 +164,8 @@ struct KvStoreInfo {
   Status LoadTablesFromDocDB(
       const TabletPtr& tablet, const TableId& primary_table_id, const TableId& metadata_table_id);
 
-  void ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const;
+  void ToPB(
+      const TableId& primary_table_id, const TableId& metadata_table_id, KvStoreInfoPB* pb) const;
 
   // Updates colocation map with new table info.
   void UpdateColocationMap(const TableInfoPtr& table_info);

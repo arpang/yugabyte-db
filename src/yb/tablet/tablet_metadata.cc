@@ -315,6 +315,7 @@ Status KvStoreInfo::LoadTablesFromPB(
 
 Status KvStoreInfo::LoadTablesFromDocDB(
     const TabletPtr& tablet, const TableId& primary_table_id, const TableId& metadata_table_id) {
+  LOG_WITH_FUNC(INFO) << "Starting LoadTablesFromDocDB";
   // TODO: Probably need to handle sys.catalog.uuid in master and how about the colocation parent
   // table in tserver
 
@@ -351,12 +352,15 @@ Status KvStoreInfo::LoadTablesFromDocDB(
 
   auto iter = VERIFY_RESULT(tablet->NewRowIterator(
       metadata_schema.CopyWithoutColumnIds(), {} /* read_hybrid_time */, metadata_table_id));
-  auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
-  const std::vector<docdb::KeyEntryValue> empty_key_components;
-  docdb::DocPgsqlScanSpec spec(
-      metadata_schema, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components,
-      nullptr, boost::none /* hash_code */, boost::none /* max_hash_code */, nullptr /* where */);
-  RETURN_NOT_OK(doc_iter->Init(spec));
+
+  {
+    auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
+    const std::vector<docdb::KeyEntryValue> empty_key_components;
+    docdb::DocPgsqlScanSpec spec(
+        metadata_schema, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components,
+        nullptr, boost::none /* hash_code */, boost::none /* max_hash_code */, nullptr /* where */);
+    RETURN_NOT_OK(doc_iter->Init(spec));
+  }
 
   while (VERIFY_RESULT(iter->HasNext())) {
     LOG_WITH_FUNC(INFO) << "Processing next row";
@@ -371,11 +375,15 @@ Status KvStoreInfo::LoadTablesFromDocDB(
     table_info_pb.ParseFromString(table_info_string);
 
     const TableId table_id = table_info_pb.table_id();
+    LOG_WITH_FUNC(INFO) << "Adding table to metadata: " << table_id;
     TableInfoPtr& table_info_ptr =
         tables.emplace(table_id, std::make_shared<TableInfo>()).first->second;
     RETURN_NOT_OK(table_info_ptr->LoadFromPB(primary_table_id, table_info_pb));
+    LOG_WITH_FUNC(INFO) << "Table info for table: " << table_info_pb.table_name() << " "
+                        << table_info_pb.ShortDebugString();
     UpdateColocationMap(table_info_ptr);
   }
+  LOG_WITH_FUNC(INFO) << "Done LoadTablesFromDocDB";
   return Status::OK();
 }
 
@@ -416,7 +424,8 @@ Status KvStoreInfo::MergeWithRestored(const KvStoreInfoPB& pb) {
   return Status::OK();
 }
 
-void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const {
+void KvStoreInfo::ToPB(
+    const TableId& primary_table_id, const TableId& metadata_table_id, KvStoreInfoPB* pb) const {
   pb->set_kv_store_id(kv_store_id.ToString());
   pb->set_rocksdb_dir(rocksdb_dir);
   if (lower_bound_key.empty()) {
@@ -431,18 +440,21 @@ void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const
   }
   pb->set_has_been_fully_compacted(has_been_fully_compacted);
 
-  // Arpan: this usage will go away
   // Putting primary table first, then all other tables.
-  pb->mutable_tables()->Reserve(narrow_cast<int>(tables.size() + 1));
+  pb->mutable_tables()->Reserve(2);  // TODO: why was it reserving an extra slot?
   const auto& it = tables.find(primary_table_id);
   if (it != tables.end()) {
     it->second->ToPB(pb->add_tables());
   }
-  for (const auto& [id, table_info] : tables) {
-    if (id != primary_table_id) {
-      table_info->ToPB(pb->add_tables());
-    }
+  const auto& it2 = tables.find(metadata_table_id);
+  if (it2 != tables.end()) {
+    it2->second->ToPB(pb->add_tables());
   }
+  // for (const auto& [id, table_info] : tables) {
+  //   if (id != primary_table_id) {
+  //     table_info->ToPB(pb->add_tables());
+  //   }
+  // }
 
   for (const auto& schedule_id : snapshot_schedules) {
     pb->add_snapshot_schedules(schedule_id.data(), schedule_id.size());
@@ -452,15 +464,15 @@ void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const
 void KvStoreInfo::UpdateColocationMap(const TableInfoPtr& table_info) {
   TableInfoPB tableinfopb;
   table_info->ToPB(&tableinfopb);
-  LOG_WITH_FUNC(INFO) << "UpdateColocationMap starting for " << tableinfopb.ShortDebugString();
-  LOG_WITH_FUNC(INFO) << "table_info is null " << !table_info;
+  // LOG_WITH_FUNC(INFO) << "UpdateColocationMap starting for " << tableinfopb.ShortDebugString();
+  // LOG_WITH_FUNC(INFO) << "table_info is null " << !table_info;
   DCHECK_NOTNULL(table_info);
 
   auto colocation_id = table_info->schema().colocation_id();
   if (colocation_id) {
     colocation_to_table.emplace(colocation_id, table_info);
   }
-  LOG_WITH_FUNC(INFO) << "UpdateColocationMap done";
+  // LOG_WITH_FUNC(INFO) << "UpdateColocationMap done";
 }
 
 bool KvStoreInfo::TEST_Equals(const KvStoreInfo& lhs, const KvStoreInfo& rhs) {
@@ -533,11 +545,13 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::Load(
 }
 
 Status RaftGroupMetadata::LoadTablesFromDocDB(const TabletPtr& tablet) {
+  LOG_WITH_FUNC(INFO) << "LoadTablesFromDocDB called";
   if (tablet->table_type() == TableType::YQL_TABLE_TYPE ||
       tablet->table_type() == TableType::PGSQL_TABLE_TYPE) {
     LOG_WITH_FUNC(INFO) << "Loading from docdb with metadata_table_id_ " << metadata_table_id_;
     return kv_store_.LoadTablesFromDocDB(tablet, primary_table_id_, metadata_table_id_);
   } else {
+    LOG_WITH_FUNC(INFO) << "Not Loading from docdb because table_type: " << tablet->table_type();
     return Status::OK();
   }
 }
@@ -938,7 +952,7 @@ void RaftGroupMetadata::ToSuperBlockUnlocked(RaftGroupReplicaSuperBlockPB* super
   pb.set_raft_group_id(raft_group_id_);
   partition_->ToPB(pb.mutable_partition());
 
-  kv_store_.ToPB(primary_table_id_, pb.mutable_kv_store());
+  kv_store_.ToPB(primary_table_id_, metadata_table_id_, pb.mutable_kv_store());
 
   pb.set_wal_dir(wal_dir_);
   pb.set_tablet_data_state(tablet_data_state_);
