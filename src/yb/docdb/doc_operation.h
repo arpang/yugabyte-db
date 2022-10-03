@@ -56,7 +56,11 @@ YB_DEFINE_ENUM(GetDocPathsMode, (kLock)(kIntents));
 // TODO: Add class ChangeMetadataDocOperation : DocOperation
 YB_DEFINE_ENUM(
     DocOperationType,
-    (PGSQL_WRITE_OPERATION)(QL_WRITE_OPERATION)(REDIS_WRITE_OPERATION)(CHANGE_METADATA_DOC_OPERATION));
+    (PGSQL_WRITE_OPERATION)
+    (QL_WRITE_OPERATION)
+    (REDIS_WRITE_OPERATION)
+    (CHANGE_METADATA_DOC_OPERATION)
+  );
 
 class DocOperation {
  public:
@@ -145,4 +149,4 @@ typedef std::vector<std::unique_ptr<DocOperation>> DocOperations;
 }  // namespace docdb
 }  // namespace yb
 
-#endif  // YB_DOCDB_ppERATION_H_
+#endif  // YB_DOCDB_DOC_OPERATION_H_

@@ -77,7 +77,7 @@
 #include "yb/util/status.h"
 #include "yb/util/status_log.h"
 #include "yb/util/trace.h"
-#include "tablet.h"
+#include "yb/tablet/tablet.h"
 
 DEFINE_bool(enable_tablet_orphaned_block_deletion, true,
             "Whether to enable deletion of orphaned blocks from disk. "

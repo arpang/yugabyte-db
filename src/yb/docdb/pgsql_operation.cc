@@ -354,7 +354,6 @@ class PgsqlWriteOperation::RowPackContext {
 Status PgsqlWriteOperation::Init(PgsqlResponsePB* response) {
   // Initialize operation inputs.
   response_ = response;
-  // LOG(INFO) << "PgsqlWriteOperation::Init Is has code filled here" << request_.ShortDebugString();
   doc_key_ = VERIFY_RESULT(FetchDocKey(doc_read_context_->schema, request_));
   encoded_doc_key_ = doc_key_->EncodeAsRefCntPrefix();
 
