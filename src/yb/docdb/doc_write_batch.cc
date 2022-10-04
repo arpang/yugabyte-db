@@ -446,9 +446,6 @@ Status DocWriteBatch::SetPrimitive(const DocPath& doc_path,
                                    CoarseTimePoint deadline,
                                    rocksdb::QueryId query_id,
                                    std::optional<IntraTxnWriteId> write_id) {
-  // LOG_WITH_FUNC(INFO) << Format(
-  //     "Called with doc_path=$0, value=$1", doc_path.ToString(), value.ToString());
-
   DOCDB_DEBUG_LOG("Called with doc_path=$0, value=$1", doc_path.ToString(), value.ToString());
 
   LazyIterator iter = {
@@ -527,7 +524,6 @@ Status DocWriteBatch::InsertSubDocument(
     MonoDelta ttl,
     UserTimeMicros user_timestamp,
     bool init_marker_ttl) {
-  // LOG_WITH_FUNC(INFO) << "Inserting " << value.ToString() << " at path " << doc_path.ToString();
   if (!value.IsTombstoneOrPrimitive()) {
     auto key_ttl = init_marker_ttl ? ttl : ValueControlFields::kMaxTtl;
     auto control_fields = ValueControlFields {

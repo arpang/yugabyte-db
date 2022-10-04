@@ -448,7 +448,6 @@ void SubDocument::ToQLValuePB(const shared_ptr<QLType>& ql_type, QLValuePB* ql_v
     SetNull(ql_value);
     return;
   }
-  LOG(INFO) << "ToQLValuePB caller 2";
   switch (ql_type->main()) {
     case MAP: {
       const shared_ptr<QLType>& keys_type = ql_type->params()[0];

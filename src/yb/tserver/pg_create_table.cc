@@ -57,7 +57,6 @@ PgCreateTable::PgCreateTable(const PgCreateTableRequestPB& req) : req_(req) {
 }
 
 Status PgCreateTable::Prepare() {
-  LOG(INFO) << "Starting PgCreateTable::Prepare";
   table_name_ = client::YBTableName(
     YQL_DATABASE_PGSQL, GetPgsqlNamespaceId(req_.table_id().database_oid()),
     req_.database_name(), req_.table_name());
@@ -82,7 +81,6 @@ Status PgCreateTable::Prepare() {
 Status PgCreateTable::Exec(
     client::YBClient* client, const TransactionMetadata* transaction_metadata,
     CoarseTimePoint deadline) {
-  LOG(INFO) << "Starting PgCreateTable::Exec " << req_.ShortDebugString();
   // Construct schema.
   client::YBSchema schema;
 

@@ -482,7 +482,6 @@ Result<HybridTime> PgsqlWriteOperation::FindOldestOverwrittenTimestamp(
 }
 
 Status PgsqlWriteOperation::Apply(const DocOperationApplyData& data) {
-  LOG(INFO) << "Starting PgsqlWriteOperation::Apply";
   VLOG(4) << "Write, read time: " << data.read_time << ", txn: " << txn_op_context_;
 
   auto scope_exit = ScopeExit([this] {
@@ -545,7 +544,6 @@ Status PgsqlWriteOperation::InsertColumn(
 
 Status PgsqlWriteOperation::ApplyInsert(const DocOperationApplyData& data, IsUpsert is_upsert) {
   QLTableRow table_row;
-  LOG(INFO) << "Inside PgsqlWriteOperation::ApplyInsert with is_upsert " << is_upsert;
   if (!is_upsert) {
     if (request_.is_backfill()) {
       if (VERIFY_RESULT(HasDuplicateUniqueIndexValue(data))) {
@@ -604,7 +602,6 @@ Status PgsqlWriteOperation::ApplyInsert(const DocOperationApplyData& data, IsUps
   }
 
   RETURN_NOT_OK(PopulateResultSet(table_row));
-  // table_row.ToString();
 
   response_->set_status(PgsqlResponsePB::PGSQL_STATUS_OK);
   return Status::OK();

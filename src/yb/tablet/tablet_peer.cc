@@ -665,7 +665,6 @@ Status TabletPeer::WaitUntilConsensusRunning(const MonoDelta& timeout) {
 }
 
 void TabletPeer::WriteAsync(std::unique_ptr<WriteQuery> query) {
-  LOG_WITH_FUNC(INFO) << "Starting WriteAsync";
   ScopedOperation preparing_token(&preparing_operations_counter_);
   auto status = CheckRunning();
   if (!status.ok()) {
@@ -675,7 +674,6 @@ void TabletPeer::WriteAsync(std::unique_ptr<WriteQuery> query) {
 
   query->operation().set_preparing_token(std::move(preparing_token));
   tablet_->AcquireLocksAndPerformDocOperations(std::move(query));
-  LOG_WITH_FUNC(INFO) << "Ending WriteAsync";
 }
 
 Result<HybridTime> TabletPeer::ReportReadRestart() {
@@ -689,7 +687,6 @@ void TabletPeer::Submit(std::unique_ptr<Operation> operation, int64_t term) {
   if (status.ok()) {
     auto driver = NewLeaderOperationDriver(&operation, term);
     if (driver.ok()) {
-      LOG_WITH_FUNC(INFO) << "ExecuteAsync Caller 1";
       (**driver).ExecuteAsync();
     } else {
       status = driver.status();
@@ -1159,7 +1156,6 @@ std::unique_ptr<Operation> TabletPeer::CreateOperation(consensus::ReplicateMsg* 
 
 Status TabletPeer::StartReplicaOperation(
     const scoped_refptr<ConsensusRound>& round, HybridTime propagated_safe_time) {
-  LOG_WITH_FUNC(INFO) << "Starting StartReplicaOperation";
   RaftGroupStatePB value = state();
   if (value != RaftGroupStatePB::RUNNING && value != RaftGroupStatePB::BOOTSTRAPPING) {
     return STATUS(IllegalState, RaftGroupStatePB_Name(value));
@@ -1188,7 +1184,6 @@ Status TabletPeer::StartReplicaOperation(
   if (propagated_safe_time) {
     driver->SetPropagatedSafeTime(propagated_safe_time, tablet_->mvcc_manager());
   }
-  LOG_WITH_FUNC(INFO) << "ExecuteAsync Caller 2";
   driver->ExecuteAsync();
   return Status::OK();
 }
@@ -1200,7 +1195,6 @@ void TabletPeer::SetPropagatedSafeTime(HybridTime ht) {
     return;
   }
   (**driver).SetPropagatedSafeTime(ht, tablet_->mvcc_manager());
-  LOG_WITH_FUNC(INFO) << "ExecuteAsync Caller 3";
   (**driver).ExecuteAsync();
 }
 

@@ -297,7 +297,6 @@ Result<uint32_t> YBTableTestBase::GetLoadOnTserver(ExternalTabletServer* server)
   std::vector<string> replicas;
   // Need to get load from each table.
   for (const auto& table_name : table_names_) {
-    LOG(INFO) << "Processing table: " << table_name.table_name();
     master::GetTableLocationsRequestPB req;
     if (table_name.namespace_type() == YQL_DATABASE_PGSQL) {
       // Use table_id/namespace_id for SQL tables.

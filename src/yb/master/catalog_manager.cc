@@ -1038,13 +1038,10 @@ void CatalogManager::LoadSysCatalogDataTask() {
     is_catalog_loaded_ = true;
     LOG_WITH_PREFIX(INFO) << "Completed load of sys catalog in term " << term;
   }
-  LOG_WITH_FUNC(INFO) << "Checkpoint 1";
   SysCatalogLoaded(term);
   // Once we have loaded the SysCatalog, reset and regenerate the yql partitions table in order to
   // regenerate entries for previous tables.
-  LOG_WITH_FUNC(INFO) << "Checkpoint 2";
   GetYqlPartitionsVtable().ResetAndRegenerateCache();
-  LOG_WITH_FUNC(INFO) << "Checkpoint 3";
 }
 
 Status CatalogManager::WaitForWorkerPoolTests(const MonoDelta& timeout) const {

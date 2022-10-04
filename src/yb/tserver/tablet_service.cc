@@ -1667,10 +1667,8 @@ bool EmptyWriteBatch(const docdb::KeyValueWriteBatchPB& write_batch) {
   return write_batch.write_pairs().empty() && write_batch.apply_external_transactions().empty();
 }
 
-void TabletServiceImpl::Write(const WriteRequestPB* req,
-                              WriteResponsePB* resp,
-                              rpc::RpcContext context) {
-  LOG_WITH_FUNC(INFO) << "Starting write";
+void TabletServiceImpl::Write(
+    const WriteRequestPB* req, WriteResponsePB* resp, rpc::RpcContext context) {
   if (FLAGS_TEST_tserver_noop_read_write) {
     for (int i = 0; i < req->ql_write_batch_size(); ++i) {
       resp->add_ql_response_batch();
@@ -1791,7 +1789,6 @@ void TabletServiceImpl::Write(const WriteRequestPB* req,
   query->AdjustYsqlQueryTransactionality(req->pgsql_write_batch_size());
 
   tablet.peer->WriteAsync(std::move(query));
-  LOG_WITH_FUNC(INFO) << "Ending write ";
 }
 
 void TabletServiceImpl::Read(const ReadRequestPB* req,

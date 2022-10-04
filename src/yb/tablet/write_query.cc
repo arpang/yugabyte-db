@@ -240,7 +240,6 @@ void WriteQuery::ExecuteDone(const Status& status) {
 
 Result<bool> WriteQuery::PrepareExecute() {
   if (client_request_) {
-    LOG_WITH_FUNC(INFO) << "client_request_ " << client_request_->ShortDebugString();
     auto* request = operation().AllocateRequest();
     SetupKeyValueBatch(*client_request_, request);
 
@@ -362,7 +361,6 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
   bool colocated = metadata.colocated() || tablet().is_sys_catalog();
 
   for (const auto& req : pgsql_write_batch) {
-    LOG_WITH_FUNC(INFO) << " req.has_hash_code() " << req.has_hash_code();
     PgsqlResponsePB* resp = response_->add_pgsql_response_batch();
     // Table-level tombstones should not be requested for non-colocated tables.
     if ((req.stmt_type() == PgsqlWriteRequestPB::PGSQL_TRUNCATE_COLOCATED) && !colocated) {
@@ -392,7 +390,6 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
 }
 
 void WriteQuery::Execute(std::unique_ptr<WriteQuery> query) {
-  // LOG_WITH_FUNC(INFO) << "Starting Execute " << query->request().ShortDebugString();
   auto* query_ptr = query.get();
   query_ptr->self_ = std::move(query);
   // if (query_ptr->request())
@@ -411,13 +408,11 @@ void WriteQuery::Execute(std::unique_ptr<WriteQuery> query) {
   if (!status.ok()) {
     query_ptr->ExecuteDone(status);
   }
-  LOG_WITH_FUNC(INFO) << "Done with Execute ";
 }
 
 Status WriteQuery::DoExecute() {
   auto& write_batch = *request().mutable_write_batch();
   isolation_level_ = VERIFY_RESULT(tablet().GetIsolationLevelFromPB(write_batch));
-  LOG_WITH_FUNC(INFO) << "DoExecute with isolation level " << isolation_level_;
   const RowMarkType row_mark_type = GetRowMarkTypeFromPB(write_batch);
   const auto& metadata = *tablet().metadata();
 
@@ -437,8 +432,6 @@ Status WriteQuery::DoExecute() {
       deadline(), partial_range_key_intents, tablet().shared_lock_manager()));
 
   TEST_SYNC_POINT("WriteQuery::DoExecute::PreparedDocWriteOps");
-
-  LOG_WITH_FUNC(INFO) << "WriteQuery::DoExecute::PreparedDocWriteOps";
 
   auto* transaction_participant = tablet().transaction_participant();
   if (transaction_participant) {
@@ -506,13 +499,11 @@ Status WriteQuery::DoExecute() {
 }
 
 void WriteQuery::NonTransactionalConflictsResolved(HybridTime now, HybridTime result) {
-  LOG_WITH_FUNC(INFO) << "Starting NonTransactionalConflictsResolved";
   if (now != result) {
     tablet().clock()->Update(result);
   }
 
   CompleteExecute();
-  LOG_WITH_FUNC(INFO) << "Ending NonTransactionalConflictsResolved";
 }
 
 void WriteQuery::TransactionalConflictsResolved() {
@@ -545,7 +536,6 @@ void WriteQuery::CompleteExecute() {
 }
 
 Status WriteQuery::DoCompleteExecute() {
-  LOG_WITH_FUNC(INFO) << "Starting DoCompleteExecute";
   auto read_op = prepare_result_.need_read_snapshot
       ? VERIFY_RESULT(ScopedReadOperation::Create(&tablet(), RequireLease::kTrue, read_time_))
       : ScopedReadOperation();
@@ -566,18 +556,13 @@ Status WriteQuery::DoCompleteExecute() {
       ? docdb::InitMarkerBehavior::kRequired
       : docdb::InitMarkerBehavior::kOptional;
   for (;;) {
-    LOG_WITH_FUNC(INFO) << "Inside infinite for loop with doc_ops_size: " << doc_ops_.size();
     RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
-        doc_ops_, deadline(), real_read_time, tablet().doc_db(),
-        request().mutable_write_batch(), init_marker_behavior,
-        tablet().monotonic_counter(), &restart_read_ht_,
+        doc_ops_, deadline(), real_read_time, tablet().doc_db(), request().mutable_write_batch(),
+        init_marker_behavior, tablet().monotonic_counter(), &restart_read_ht_,
         tablet().metadata()->table_name()));
-    LOG_WITH_FUNC(INFO) << "Assembled request().write_batch(): "
-                        << request().write_batch().ShortDebugString();
     // For serializable isolation we don't fix read time, so could do read restart locally,
     // instead of failing whole transaction.
     if (!restart_read_ht_.is_valid() || !allow_immediate_read_restart_) {
-      LOG_WITH_FUNC(INFO) << "Breaking from infinite loop";
       break;
     }
 
@@ -589,7 +574,6 @@ Status WriteQuery::DoCompleteExecute() {
     }
 
     restart_read_ht_ = HybridTime();
-    LOG_WITH_FUNC(INFO) << "Clearing write_batc()";
     request().mutable_write_batch()->clear_write_pairs();
 
     for (auto& doc_op : doc_ops_) {
@@ -608,7 +592,6 @@ Status WriteQuery::DoCompleteExecute() {
   }
 
   docdb_locks_ = std::move(prepare_result_.lock_batch);
-  LOG_WITH_FUNC(INFO) << "Ending DoCompleteExecute";
   return Status::OK();
 }
 
@@ -878,7 +861,6 @@ bool WriteQuery::PgsqlCheckSchemaVersion() {
 }
 
 void WriteQuery::PgsqlExecuteDone(const Status& status) {
-  LOG_WITH_FUNC(INFO) << "Starting PgsqlExecuteDone";
   if (!PgsqlCheckSchemaVersion()) {
     return;
   }
@@ -896,7 +878,6 @@ void WriteQuery::PgsqlExecuteDone(const Status& status) {
   }
 
   StartSynchronization(std::move(self_), Status::OK());
-  LOG_WITH_FUNC(INFO) << "Done PgsqlExecuteDone";
 }
 
 void WriteQuery::SimpleExecuteDone(const Status& status) {

@@ -167,7 +167,6 @@ string OperationDriver::ToStringUnlocked() const {
 
 
 void OperationDriver::ExecuteAsync() {
-  LOG_WITH_FUNC(INFO) << "Starting ExecuteAsync";
   VLOG_WITH_PREFIX(4) << "ExecuteAsync()";
   TRACE_EVENT_FLOW_BEGIN0("operation", "ExecuteAsync", this);
   ADOPT_TRACE(trace());

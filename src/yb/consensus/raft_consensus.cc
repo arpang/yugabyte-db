@@ -1151,7 +1151,6 @@ Status RaftConsensus::TEST_Replicate(const ConsensusRoundPtr& round) {
 }
 
 Status RaftConsensus::ReplicateBatch(const ConsensusRounds& rounds) {
-  LOG_WITH_FUNC(INFO) << "Starting ReplicateBatch";
   size_t processed_rounds = 0;
   auto status = DoReplicateBatch(rounds, &processed_rounds);
   if (!status.ok()) {
@@ -1163,7 +1162,6 @@ Status RaftConsensus::ReplicateBatch(const ConsensusRounds& rounds) {
       rounds[--i]->NotifyReplicationFailed(status);
     }
   }
-  LOG_WITH_FUNC(INFO) << "Ending ReplicateBatch";
   return status;
 }
 
@@ -1302,7 +1300,6 @@ Status RaftConsensus::DoAppendNewRoundsToQueueUnlocked(
       RollbackIdAndDeleteOpId(round->replicate_msg(), false /* should_exists */);
       return s;
     }
-    LOG_WITH_FUNC(INFO) << "Message to add to wal " << round->replicate_msg()->ShortDebugString();
     replicate_msgs->push_back(round->replicate_msg());
   }
 
@@ -1492,10 +1489,8 @@ void RaftConsensus::TryRemoveFollowerTask(const string& uuid,
               state_->LogPrefix() + "Unable to remove follower " + uuid);
 }
 
-Status RaftConsensus::Update(ConsensusRequestPB* request,
-                             ConsensusResponsePB* response,
-                             CoarseTimePoint deadline) {
-  LOG_WITH_FUNC(INFO) << "Starting update";
+Status RaftConsensus::Update(
+    ConsensusRequestPB* request, ConsensusResponsePB* response, CoarseTimePoint deadline) {
   if (PREDICT_FALSE(FLAGS_TEST_follower_reject_update_consensus_requests)) {
     return STATUS(IllegalState, "Rejected: --TEST_follower_reject_update_consensus_requests "
                                 "is set to true.");
@@ -1528,7 +1523,6 @@ Status RaftConsensus::Update(ConsensusRequestPB* request,
   response->set_responder_uuid(state_->GetPeerUuid());
 
   VLOG_WITH_PREFIX(2) << "Replica received request: " << request->ShortDebugString();
-  LOG_WITH_FUNC(INFO) << "Replica received request: " << request->ShortDebugString();
 
   UpdateReplicaResult result;
   {
@@ -1571,7 +1565,6 @@ Status RaftConsensus::Update(ConsensusRequestPB* request,
   }
 
   RETURN_NOT_OK(ExecuteHook(POST_UPDATE));
-  LOG_WITH_FUNC(INFO) << "Ending update";
   return Status::OK();
 }
 

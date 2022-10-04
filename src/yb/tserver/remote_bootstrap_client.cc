@@ -257,7 +257,7 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
   const TableId table_id = resp.superblock().primary_table_id();
   const bool colocated = resp.superblock().colocated();
   const tablet::TableInfoPB* table_ptr = nullptr;
-  // TODO: kv_store->tables() won't be available
+  // TODO: Any changes here?
   for (auto& table_pb : kv_store->tables()) {
     if (table_pb.table_id() == table_id) {
       table_ptr = &table_pb;
@@ -353,8 +353,7 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
         table.has_index_info() ? boost::optional<IndexInfo>(table.index_info()) : boost::none,
         table.schema_version(), partition_schema);
     fs_manager().SetTabletPathByDataPath(tablet_id_, data_root_dir);
-    LOG_WITH_PREFIX(INFO) << "Arpan Remote bootstrap";
-    // TODO: Set metadata table info, may be it could have newly generated table id?
+    // TODO: Set metadata table?
     auto create_result = RaftGroupMetadata::CreateNew(
         tablet::RaftGroupMetadataData{
             .fs_manager = &fs_manager(),

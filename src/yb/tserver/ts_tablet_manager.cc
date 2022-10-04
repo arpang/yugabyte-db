@@ -446,7 +446,6 @@ TSTabletManager::~TSTabletManager() {
 }
 
 Status TSTabletManager::Init() {
-  LOG_WITH_FUNC(INFO) << "Starting init";
   CHECK_EQ(state(), MANAGER_INITIALIZING);
 
   tablet_options_.env = server_->GetEnv();
@@ -509,7 +508,6 @@ Status TSTabletManager::Init() {
   // for disk resources, etc, with bootstrap processes and running tablets.
   MonoTime start(MonoTime::Now());
   for (const string& tablet_id : tablet_ids) {
-    LOG_WITH_FUNC(INFO) << "Opening tablet meta for " << tablet_id;
     RaftGroupMetadataPtr meta;
     RETURN_NOT_OK_PREPEND(OpenTabletMeta(tablet_id, &meta),
                           "Failed to open tablet metadata for tablet: " + tablet_id);
@@ -538,18 +536,14 @@ Status TSTabletManager::Init() {
 
   // Now submit the "Open" task for each.
   for (const RaftGroupMetadataPtr& meta : metas) {
-    LOG_WITH_FUNC(INFO) << "Opening tablet for " << meta->primary_table_info()->table_name;
     scoped_refptr<TransitionInProgressDeleter> deleter;
     RETURN_NOT_OK(StartTabletStateTransition(
         meta->raft_group_id(), "opening tablet", &deleter));
 
     TabletPeerPtr tablet_peer = VERIFY_RESULT(CreateAndRegisterTabletPeer(meta, NEW_PEER));
-    LOG_WITH_FUNC(INFO) << "OpenTablet caller 1";
     RETURN_NOT_OK(open_tablet_pool_->SubmitFunc(
         std::bind(&TSTabletManager::OpenTablet, this, meta, deleter)));
   }
-
-  LOG_WITH_FUNC(INFO) << "Done opening tablet meta and tablet";
 
   {
     std::lock_guard<RWMutex> lock(mutex_);
@@ -761,7 +755,6 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
                         "Unable to create new ConsensusMeta for tablet " + tablet_id);
   TabletPeerPtr new_peer = VERIFY_RESULT(CreateAndRegisterTabletPeer(meta, NEW_PEER));
 
-  LOG_WITH_FUNC(INFO) << "OpenTablet caller 2";
   // We can run this synchronously since there is nothing to bootstrap.
   RETURN_NOT_OK(
       open_tablet_pool_->SubmitFunc(std::bind(&TSTabletManager::OpenTablet, this, meta, deleter)));
@@ -880,7 +873,6 @@ void TSTabletManager::CreatePeerAndOpenTablet(
     }
     return;
   }
-  LOG_WITH_FUNC(INFO) << "OpenTablet caller 3";
   s = open_tablet_pool_->SubmitFunc(std::bind(&TSTabletManager::OpenTablet, this, meta, deleter));
   if (!s.ok()) {
     LOG(DFATAL) << Format("Failed to schedule opening tablet $0: $1", meta->table_id(), s);
@@ -1250,7 +1242,6 @@ Status TSTabletManager::StartRemoteBootstrap(const StartRemoteBootstrapRequestPB
 
   LOG(INFO) << kLogPrefix << "Remote bootstrap: Opening tablet";
 
-  LOG_WITH_FUNC(INFO) << "OpenTablet caller 4";
   // TODO(hector):  ENG-3173: We need to simulate a failure in OpenTablet during remote bootstrap
   // and verify that this tablet server gets remote bootstrapped again by the leader. We also need
   // to check what happens when this server receives raft consensus requests since at this point,
@@ -1451,9 +1442,8 @@ Status TSTabletManager::OpenTabletMeta(const string& tablet_id,
   return Status::OK();
 }
 
-void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
-                                 const scoped_refptr<TransitionInProgressDeleter>& deleter) {
-  LOG_WITH_FUNC(INFO) << "Starting OpenTablet";
+void TSTabletManager::OpenTablet(
+    const RaftGroupMetadataPtr& meta, const scoped_refptr<TransitionInProgressDeleter>& deleter) {
   string tablet_id = meta->raft_group_id();
   TRACE_EVENT1("tserver", "TSTabletManager::OpenTablet",
                "tablet_id", tablet_id);
