@@ -1916,30 +1916,34 @@ Status Tablet::CreatePreparedChangeMetadata(
   return Status::OK();
 }
 
-Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
+Result<TableInfoPtr> Tablet::AddTableInMemory(const TableInfoPB& table_info) {
   Schema schema;
   RETURN_NOT_OK(SchemaFromPB(table_info.schema(), &schema));
 
   PartitionSchema partition_schema;
   RETURN_NOT_OK(PartitionSchema::FromPB(table_info.partition_schema(), schema, &partition_schema));
 
-  metadata_->AddTable(
+  return metadata_->AddTable(
       table_info.table_id(), table_info.namespace_name(), table_info.table_name(),
       table_info.table_type(), schema, IndexMap(), partition_schema, boost::none,
       table_info.schema_version());
 
-  return Status::OK();
+  // return Status::OK();
 }
 
 Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& table_info_pb) {
   LOG_WITH_FUNC(INFO) << "Starting AddTable for table " << table_info_pb.table_name();
   // << " "                     << table_info_pb.ShortDebugString();
-  RETURN_NOT_OK(AddTableInMemory(table_info_pb));
+  auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
   // TODO: Probably should handle YQL_TABLE_TYPE TOO?
   if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
     LOG_WITH_FUNC(INFO) << "Adding table to docdb " << table_info_pb.table_name();
+    LOG_WITH_FUNC(INFO) << "Existing table info pb: " << table_info_pb.ShortDebugString();
+    LOG_WITH_FUNC(INFO) << "Added table info: " << added_table->ToString();
+    TableInfoPB added_table_pb;
+    added_table->ToPB(&added_table_pb);
     auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        metadata_->metadata_table_info(), table_info_pb);
+        metadata_->metadata_table_info(), added_table_pb);
     KeyValueWriteBatchPB write_batch;
 
     const ReadHybridTime& read_ht =

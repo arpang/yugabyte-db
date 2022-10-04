@@ -836,7 +836,7 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
 
   const docdb::SchemaPackingStorage& PrimarySchemaPackingStorage();
 
-  Status AddTableInMemory(const TableInfoPB& table_info);
+  Result<TableInfoPtr> AddTableInMemory(const TableInfoPB& table_info);
 
   std::unique_ptr<const Schema> key_schema_;
 

@@ -1057,7 +1057,7 @@ void RaftGroupMetadata::SetTableName(
   it->second->table_name = table_name;
 }
 
-void RaftGroupMetadata::AddTable(const std::string& table_id,
+TableInfoPtr RaftGroupMetadata::AddTable(const std::string& table_id,
                                  const std::string& namespace_name,
                                  const std::string& table_name,
                                  const TableType table_type,
@@ -1124,6 +1124,7 @@ void RaftGroupMetadata::AddTable(const std::string& table_id,
                         << "\n" << AsString(new_table_info);
     kv_store_.UpdateColocationMap(new_table_info);
   }
+  return new_table_info;
 }
 
 void RaftGroupMetadata::RemoveTable(const TableId& table_id) {

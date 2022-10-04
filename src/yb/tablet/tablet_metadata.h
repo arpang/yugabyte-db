@@ -375,7 +375,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
       const std::string& namespace_name, const std::string& table_name,
       const TableId& table_id = "");
 
-  void AddTable(const std::string& table_id,
+  TableInfoPtr AddTable(const std::string& table_id,
                 const std::string& namespace_name,
                 const std::string& table_name,
                 const TableType table_type,

@@ -1202,6 +1202,8 @@ DocRowwiseIterator::DocRowwiseIterator(
       has_bound_key_(false),
       pending_op_(pending_op_counter),
       done_(false) {
+  LOG_WITH_FUNC(INFO) << "doc_read_context_.schema " << doc_read_context_.schema.ToString();
+  LOG_WITH_FUNC(INFO) << "project " << projection.ToString();
   projection_subkeys_.reserve(projection.num_columns() + 1);
   projection_subkeys_.push_back(KeyEntryValue::kLivenessColumn);
   for (size_t i = projection_.num_key_columns(); i < projection.num_columns(); i++) {
