@@ -1667,8 +1667,9 @@ bool EmptyWriteBatch(const docdb::KeyValueWriteBatchPB& write_batch) {
   return write_batch.write_pairs().empty() && write_batch.apply_external_transactions().empty();
 }
 
-void TabletServiceImpl::Write(
-    const WriteRequestPB* req, WriteResponsePB* resp, rpc::RpcContext context) {
+void TabletServiceImpl::Write(const WriteRequestPB* req,
+                              WriteResponsePB* resp,
+                              rpc::RpcContext context) {
   if (FLAGS_TEST_tserver_noop_read_write) {
     for (int i = 0; i < req->ql_write_batch_size(); ++i) {
       resp->add_ql_response_batch();

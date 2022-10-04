@@ -1300,6 +1300,7 @@ Status RaftConsensus::DoAppendNewRoundsToQueueUnlocked(
       RollbackIdAndDeleteOpId(round->replicate_msg(), false /* should_exists */);
       return s;
     }
+
     replicate_msgs->push_back(round->replicate_msg());
   }
 
@@ -1489,8 +1490,9 @@ void RaftConsensus::TryRemoveFollowerTask(const string& uuid,
               state_->LogPrefix() + "Unable to remove follower " + uuid);
 }
 
-Status RaftConsensus::Update(
-    ConsensusRequestPB* request, ConsensusResponsePB* response, CoarseTimePoint deadline) {
+Status RaftConsensus::Update(ConsensusRequestPB* request,
+                             ConsensusResponsePB* response,
+                             CoarseTimePoint deadline) {
   if (PREDICT_FALSE(FLAGS_TEST_follower_reject_update_consensus_requests)) {
     return STATUS(IllegalState, "Rejected: --TEST_follower_reject_update_consensus_requests "
                                 "is set to true.");

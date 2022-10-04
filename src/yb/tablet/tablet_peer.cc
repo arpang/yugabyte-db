@@ -1184,6 +1184,7 @@ Status TabletPeer::StartReplicaOperation(
   if (propagated_safe_time) {
     driver->SetPropagatedSafeTime(propagated_safe_time, tablet_->mvcc_manager());
   }
+
   driver->ExecuteAsync();
   return Status::OK();
 }

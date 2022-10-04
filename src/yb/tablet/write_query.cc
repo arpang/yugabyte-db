@@ -392,6 +392,7 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
 void WriteQuery::Execute(std::unique_ptr<WriteQuery> query) {
   auto* query_ptr = query.get();
   query_ptr->self_ = std::move(query);
+
   auto prepare_result = query_ptr->PrepareExecute();
 
   if (!prepare_result.ok()) {
@@ -556,9 +557,11 @@ Status WriteQuery::DoCompleteExecute() {
       : docdb::InitMarkerBehavior::kOptional;
   for (;;) {
     RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
-        doc_ops_, deadline(), real_read_time, tablet().doc_db(), request().mutable_write_batch(),
-        init_marker_behavior, tablet().monotonic_counter(), &restart_read_ht_,
+        doc_ops_, deadline(), real_read_time, tablet().doc_db(),
+        request().mutable_write_batch(), init_marker_behavior,
+        tablet().monotonic_counter(), &restart_read_ht_,
         tablet().metadata()->table_name()));
+
     // For serializable isolation we don't fix read time, so could do read restart locally,
     // instead of failing whole transaction.
     if (!restart_read_ht_.is_valid() || !allow_immediate_read_restart_) {
@@ -573,6 +576,7 @@ Status WriteQuery::DoCompleteExecute() {
     }
 
     restart_read_ht_ = HybridTime();
+
     request().mutable_write_batch()->clear_write_pairs();
 
     for (auto& doc_op : doc_ops_) {
@@ -591,6 +595,7 @@ Status WriteQuery::DoCompleteExecute() {
   }
 
   docdb_locks_ = std::move(prepare_result_.lock_batch);
+
   return Status::OK();
 }
 
