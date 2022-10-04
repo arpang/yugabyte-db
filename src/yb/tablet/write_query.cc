@@ -392,7 +392,6 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
 void WriteQuery::Execute(std::unique_ptr<WriteQuery> query) {
   auto* query_ptr = query.get();
   query_ptr->self_ = std::move(query);
-  // if (query_ptr->request())
   auto prepare_result = query_ptr->PrepareExecute();
 
   if (!prepare_result.ok()) {

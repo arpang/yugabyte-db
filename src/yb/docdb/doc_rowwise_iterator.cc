@@ -1558,11 +1558,9 @@ Status DocRowwiseIterator::DoNextRow(const Schema& projection, QLTableRow* table
   }
 
   DocKeyDecoder decoder(row_key_);
-  Uuid cotableid;
-  RETURN_NOT_OK(decoder.DecodeCotableId(&cotableid));
+  RETURN_NOT_OK(decoder.DecodeCotableId());
   RETURN_NOT_OK(decoder.DecodeColocationId());
-  uint16_t hash;
-  bool has_hash_components = VERIFY_RESULT(decoder.DecodeHashCode(&hash));
+  bool has_hash_components = VERIFY_RESULT(decoder.DecodeHashCode());
 
   // Populate the key column values from the doc key. The key column values in doc key were
   // written in the same order as in the table schema (see DocKeyFromQLKey). If the range columns
