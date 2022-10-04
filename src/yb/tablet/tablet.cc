@@ -1931,7 +1931,9 @@ Result<TableInfoPtr> Tablet::AddTableInMemory(const TableInfoPB& table_info) {
   // return Status::OK();
 }
 
-Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& table_info_pb) {
+Status Tablet::AddTable(
+    ChangeMetadataOperation* operation, const TableInfoPB& table_info_pb,
+    AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   LOG_WITH_FUNC(INFO) << "Starting AddTable for table " << table_info_pb.table_name();
   // << " "                     << table_info_pb.ShortDebugString();
   auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
@@ -1957,10 +1959,11 @@ Status Tablet::AddTable(ChangeMetadataOperation* operation, const TableInfoPB& t
         docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
         metadata()->table_name()));  // TODO: table name fix, but it is not used as such
     RETURN_NOT_OK(ApplyOperation(
-        *operation, 1,
-        write_batch));  // todo: batch_idx hardcoding
-                        // along the lines of writepb, does it make sense to add batch_idx field in
-                        // ChangeMetadataRequestPB. See operations.proto
+        *operation, 1, write_batch,
+        already_applied_to_regular_db));  // todo: batch_idx hardcoding
+                                          // along the lines of writepb, does it make sense to add
+                                          // batch_idx field in ChangeMetadataRequestPB. See
+                                          // operations.proto
   } else {
     // TODO: For any table reaching here: we are neither flushing it to protobuf file nor writing to
     // docdb so this is really problematic

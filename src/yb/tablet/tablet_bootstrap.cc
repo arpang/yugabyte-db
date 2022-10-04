@@ -936,7 +936,7 @@ class TabletBootstrap {
         return PlayWriteRequest(replicate, already_applied_to_regular_db);
 
       case consensus::CHANGE_METADATA_OP:
-        return PlayChangeMetadataRequest(replicate);
+        return PlayChangeMetadataRequest(replicate, already_applied_to_regular_db);
 
       case consensus::CHANGE_CONFIG_OP:
         return PlayChangeConfigRequest(replicate);
@@ -1449,7 +1449,8 @@ class TabletBootstrap {
     return Status::OK();
   }
 
-  Status PlayChangeMetadataRequest(ReplicateMsg* replicate_msg) {
+  Status PlayChangeMetadataRequest(
+      ReplicateMsg* replicate_msg, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
     ChangeMetadataRequestPB* request = replicate_msg->mutable_change_metadata_request();
 
     // Decode schema
@@ -1459,6 +1460,18 @@ class TabletBootstrap {
     }
 
     ChangeMetadataOperation operation(request);
+    operation.set_op_id(OpId::FromPB(replicate_msg->id()));
+    HybridTime hybrid_time(replicate_msg->hybrid_time());
+    operation.set_hybrid_time(hybrid_time);
+
+    if (request->has_add_table()) {
+      // tablet->AddTable(this, request()->add_table())
+      auto apply_status =
+          tablet_->AddTable(&operation, request->add_table(), already_applied_to_regular_db);
+      // Failure is regular case, since could happen because transaction was aborted, while
+      // replicating its intents.
+      LOG_IF(INFO, !apply_status.ok()) << "Apply operation failed: " << apply_status;
+    }
 
     // If table id isn't in metadata, ignore the replay as the table might've been dropped.
     auto table_info = meta_->GetTableInfo(operation.table_id());
