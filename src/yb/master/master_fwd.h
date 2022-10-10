@@ -53,6 +53,7 @@ class CatalogManagerIf;
 class CatalogManagerBgTasks;
 class CDCConsumerSplitDriverIf;
 class CDCRpcTasks;
+class CDCSplitDriverIf;
 class ClusterConfigInfo;
 class ClusterLoadBalancer;
 class FlushManager;
@@ -79,7 +80,6 @@ class SysRowEntries;
 class TSDescriptor;
 class TSManager;
 class UDTypeInfo;
-class XClusterSplitDriverIf;
 class YQLPartitionsVTable;
 class YQLVirtualTable;
 class YsqlTablegroupManager;
@@ -108,6 +108,7 @@ using SnapshotScheduleRestorationPtr = std::shared_ptr<SnapshotScheduleRestorati
 YB_STRONGLY_TYPED_BOOL(RegisteredThroughHeartbeat);
 
 YB_STRONGLY_TYPED_BOOL(IncludeInactive);
+YB_STRONGLY_TYPED_BOOL(IncludeDeleted);
 
 YB_DEFINE_ENUM(
     CollectFlag,

@@ -482,11 +482,6 @@ class PeerMessageQueue {
     std::string ToString() const;
   };
 
-  struct PeerMessageQueueMetrics {
-    int64_t num_majority_done_ops;
-    int64_t num_in_progress_ops;
-  };
-
   // Returns true iff given 'desired_op' is found in the local WAL.
   // If the op is not found, returns false.
   // If the log cache returns some error other than NotFound, crashes with a fatal error.
@@ -509,15 +504,14 @@ class PeerMessageQueue {
 
   std::string ToStringUnlocked() const;
 
-  std::string LogPrefixUnlocked() const;
+  std::string LogPrefix() const;
 
-  // compute metrics under lock
-  PeerMessageQueueMetrics ComputeMetricsUnderLock() const;
+  std::string LogPrefixUnlocked() const REQUIRES(queue_lock_);
 
   // Updates the metrics based on index math.
-  void UpdateMetrics(const PeerMessageQueueMetrics& metrics_value);
+  void UpdateMetrics() REQUIRES(queue_lock_);
 
-  void ClearUnlocked();
+  void ClearUnlocked() REQUIRES(queue_lock_);
 
   // Returns the last operation in the message queue, or 'preceding_first_op_in_queue_' if the queue
   // is empty.
@@ -525,16 +519,16 @@ class PeerMessageQueue {
 
   // Does the setup work required after adding a new tracked peer.
   TrackedPeer* SetupNewTrackedPeerUnlocked(
-      std::unique_ptr<PeerMessageQueue::TrackedPeer> tracked_peer);
+      std::unique_ptr<PeerMessageQueue::TrackedPeer> tracked_peer) REQUIRES(queue_lock_);
 
-  TrackedPeer* TrackPeerUnlocked(const std::string& uuid);
+  TrackedPeer* TrackPeerUnlocked(const std::string& uuid) REQUIRES(queue_lock_);
 
-  TrackedPeer* TrackPeerUnlocked(const RaftPeerPB& raft_peer_pb);
+  TrackedPeer* TrackPeerUnlocked(const RaftPeerPB& raft_peer_pb) REQUIRES(queue_lock_);
 
   // Checks that if the queue is in LEADER mode then all registered peers are in the active config.
   // Crashes with a FATAL log message if this invariant does not hold. If the queue is in NON_LEADER
   // mode, does nothing.
-  void CheckPeersInActiveConfigIfLeaderUnlocked() const;
+  void CheckPeersInActiveConfigIfLeaderUnlocked() const REQUIRES(queue_lock_);
 
   // Callback when a REPLICATE message has finished appending to the local log.
   void LocalPeerAppendFinished(const OpId& id, const Status& status);
@@ -554,12 +548,12 @@ class PeerMessageQueue {
   // I.e. simple leader lease or hybrid time leader lease etc.
   // It should provide result type and a function for extracting a value from a peer.
   template <class Policy>
-  typename Policy::result_type GetWatermark();
+  typename Policy::result_type GetWatermark() REQUIRES(queue_lock_);
 
-  CoarseTimePoint LeaderLeaseExpirationWatermark();
-  MicrosTime HybridTimeLeaseExpirationWatermark();
-  OpId OpIdWatermark();
-  uint64_t NumSSTFilesWatermark();
+  CoarseTimePoint LeaderLeaseExpirationWatermark() REQUIRES(queue_lock_);
+  MicrosTime HybridTimeLeaseExpirationWatermark() REQUIRES(queue_lock_);
+  OpId OpIdWatermark() REQUIRES(queue_lock_);
+  uint64_t NumSSTFilesWatermark() REQUIRES(queue_lock_);
 
   // Reads operations from the log cache in the range (after_index, to_index].
   //
@@ -582,7 +576,7 @@ class PeerMessageQueue {
 
   const TabletId tablet_id_;
 
-  QueueState queue_state_;
+  QueueState queue_state_ GUARDED_BY(queue_lock_);
 
   // The currently tracked peers.
   PeersMap peers_map_;

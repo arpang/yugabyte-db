@@ -92,6 +92,9 @@ service TabletServerService {
   rpc GetSplitKey(GetSplitKeyRequestPB) returns (GetSplitKeyResponsePB);
 
   rpc GetSharedData(GetSharedDataRequestPB) returns (GetSharedDataResponsePB);
+
+  rpc GetTserverCatalogVersionInfo(GetTserverCatalogVersionInfoRequestPB)
+      returns (GetTserverCatalogVersionInfoResponsePB);
 }
 
 message GetLogLocationRequestPB {
@@ -153,6 +156,7 @@ message UpdateTransactionRequestPB {
   optional tablet.TransactionStatePB state = 2;
 
   optional fixed64 propagated_hybrid_time = 3;
+  optional bool is_external = 4;
 }
 
 message UpdateTransactionResponsePB {
@@ -315,4 +319,24 @@ message GetSharedDataRequestPB {
 
 message GetSharedDataResponsePB {
   optional bytes data = 1;
+}
+
+message GetTserverCatalogVersionInfoRequestPB {
+  // We ask for the catalog version of all databases from the tserver.
+}
+
+message GetTserverCatalogVersionInfoResponsePB {
+  // An entry for each database catalog version info.
+  message Entry {
+    // The Postgres OID of this database.
+    optional uint32 db_oid = 1;
+    // The index of the tserver shared memory catalog version array for this database.
+    optional int32 shm_index = 2;
+    // The current catalog version for this database.
+    optional uint64 current_version = 3;
+  }
+
+  // Error message, if any.
+  optional TabletServerErrorPB error = 1;
+  repeated Entry entries = 2;
 }

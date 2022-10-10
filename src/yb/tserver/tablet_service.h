@@ -167,6 +167,10 @@ class TabletServiceImpl : public TabletServerServiceIf, public ReadTabletProvide
                      GetSharedDataResponsePB* resp,
                      rpc::RpcContext context) override;
 
+  void GetTserverCatalogVersionInfo(const GetTserverCatalogVersionInfoRequestPB* req,
+                                    GetTserverCatalogVersionInfoResponsePB* resp,
+                                    rpc::RpcContext context) override;
+
   void Shutdown() override;
 
  private:
@@ -198,6 +202,10 @@ class TabletServiceAdminImpl : public TabletServerAdminServiceIf {
   void CreateTablet(const CreateTabletRequestPB* req,
                     CreateTabletResponsePB* resp,
                     rpc::RpcContext context) override;
+
+  void PrepareDeleteTransactionTablet(const PrepareDeleteTransactionTabletRequestPB* req,
+                                      PrepareDeleteTransactionTabletResponsePB* resp,
+                                      rpc::RpcContext context) override;
 
   void DeleteTablet(const DeleteTabletRequestPB* req,
                     DeleteTabletResponsePB* resp,
@@ -253,6 +261,11 @@ class TabletServiceAdminImpl : public TabletServerAdminServiceIf {
   void UpgradeYsql(
       const UpgradeYsqlRequestPB* req,
       UpgradeYsqlResponsePB* resp,
+      rpc::RpcContext context) override;
+
+  void UpdateTransactionTablesVersion(
+      const UpdateTransactionTablesVersionRequestPB* req,
+      UpdateTransactionTablesVersionResponsePB* resp,
       rpc::RpcContext context) override;
 
   void TestRetry(

@@ -68,6 +68,8 @@ struct DocPgVarRef {
 
 const YBCPgTypeEntity* DocPgGetTypeEntity(YbgTypeDesc pg_type);
 
+Status DocPgInit();
+
 //-----------------------------------------------------------------------------
 // Expressions/Values
 //-----------------------------------------------------------------------------
