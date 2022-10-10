@@ -15,6 +15,7 @@
 #include "yb/docdb/docdb_pgapi.h"
 
 #include "postgres/src/include/ybgate/ybgate_api.h"
+
 #include "yb/common/pg_types.h"
 #include "yb/common/ql_expr.h"
 #include "yb/common/schema.h"
@@ -203,7 +204,7 @@ Status DocPgEvalExpr(YbgPreparedExpr expr,
 Status SetValueFromQLBinary(
     const QLValuePB ql_value, const int pg_data_type,
     const std::unordered_map<uint32_t, string> &enum_oid_label_map,
-    const std::unordered_map<std::uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
+    const std::unordered_map<uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
     DatumMessagePB *cdc_datum_message) {
   PG_RETURN_NOT_OK(YbgPrepareMemoryContext());
 
@@ -251,9 +252,9 @@ Result<std::vector<std::string>> ExtractVectorFromQLBinaryValueHelper(
   return result;
 }
 
-} // namespace
-
 const char *tz = "GMT";
+
+}  // namespace
 
 Result<std::vector<std::string>> ExtractTextArrayFromQLBinaryValue(const QLValuePB& ql_value) {
   PG_RETURN_NOT_OK(YbgPrepareMemoryContext());
@@ -770,7 +771,7 @@ uint32_t get_range_array_element_type(uint32_t pg_data_type) {
 }
 
 char *get_record_string_value(
-    const std::unordered_map<std::uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
+    const std::unordered_map<uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
     uint32_t type_id, uintptr_t datum) {
   const auto &att_pbs = composite_atts_map.at(type_id);
   size_t natts = att_pbs.size();
@@ -867,7 +868,7 @@ char *get_record_string_value(
 Status SetValueFromQLBinaryHelper(
     const QLValuePB ql_value, const int pg_data_type,
     const std::unordered_map<uint32_t, string> &enum_oid_label_map,
-    const std::unordered_map<std::uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
+    const std::unordered_map<uint32_t, std::vector<master::PgAttributePB>> &composite_atts_map,
     DatumMessagePB *cdc_datum_message) {
   uint64_t size;
   char *val;

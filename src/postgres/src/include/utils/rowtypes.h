@@ -1,6 +1,7 @@
 #include "postgres.h"
 #include "access/htup_details.h"
 #include "fmgr.h"
+
 /*
  * structure to cache metadata needed for record I/O
  */
