@@ -14,6 +14,8 @@
  * the License.
  *------------------------------------------------------------------------------
  */
+#ifndef ROWTYPES_H
+#define ROWTYPES_H
 
 #include "postgres.h"
 #include "access/htup_details.h"
@@ -41,3 +43,5 @@ typedef struct RecordIOData
 
 Datum record_out_internal(HeapTupleHeader rec, TupleDesc *tupdesc_ptr,
 						  FmgrInfo *flinfo);
+
+#endif							/* ROWTYPES_H */
