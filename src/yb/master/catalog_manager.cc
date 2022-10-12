@@ -3830,6 +3830,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
         auto tablet_lock = tablet->LockForRead();
 
         std::unordered_set<ColocationId> colocation_ids;
+        colocation_ids.reserve(tablet_lock.data().pb.table_ids().size());
         if (!req.has_colocation_id()) {
           for (const TableId& table_id : tablet_lock.data().pb.table_ids()) {
             DCHECK(!table_id.empty());
