@@ -3839,7 +3839,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
               // Needed because of #11129, should be replaced with DCHECK after the fix.
               continue;
             }
-            colocation_ids.insert(colocated_table_info->ColocationId());
+            colocation_ids.insert(colocated_table_info->GetColocationId());
           }
         }
 
