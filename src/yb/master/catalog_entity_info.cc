@@ -345,7 +345,7 @@ const NamespaceName TableInfo::namespace_name() const {
   return LockForRead()->namespace_name();
 }
 
-ColocationId TableInfo::colocation_id() const {
+ColocationId TableInfo::ColocationId() const {
   return LockForRead()->schema().colocated_table_id().colocation_id();
 }
 

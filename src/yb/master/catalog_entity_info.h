@@ -421,7 +421,7 @@ class TableInfo : public RefCountedThreadSafe<TableInfo>,
   const NamespaceId namespace_id() const;
   const NamespaceName namespace_name() const;
 
-  ColocationId colocation_id() const;
+  ColocationId ColocationId() const;
 
   const Status GetSchema(Schema* schema) const;
 
