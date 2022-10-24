@@ -431,8 +431,7 @@ void KvStoreInfo::ToPB(
 }
 
 void KvStoreInfo::UpdateColocationMap(const TableInfoPtr& table_info) {
-  DCHECK_NOTNULL(table_info);
-
+  // DCHECK_NOTNULL(table_info);
   auto colocation_id = table_info->schema().colocation_id();
   if (colocation_id) {
     colocation_to_table.emplace(colocation_id, table_info);
