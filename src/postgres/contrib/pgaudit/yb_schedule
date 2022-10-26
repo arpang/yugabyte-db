@@ -1,3 +1,0 @@
-# contrib/pgaudit/yb_schedule
-
-test: yb_pg_pgaudit

@@ -213,15 +213,3 @@ YBIsCollationEnabled()
 	return false;
 #endif
 }
-
-bool
-YBColocateDatabaseByDefault()
-{
-	static int cached_value = -1;
-	if (cached_value == -1)
-	{
-		cached_value = YBCIsEnvVarTrueWithDefault("FLAGS_ysql_colocate_database_by_default",
-												  false /* default_value */);
-	}
-	return cached_value;
-}

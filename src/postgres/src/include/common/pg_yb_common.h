@@ -139,9 +139,4 @@ extern int YBGetYsqlOutputBufferSize();
  */
 extern const bool kTestOnlyUseOSDefaultCollation;
 
-/**
- * Returns whether colocation is enabled by default for each database.
- */
-extern bool YBColocateDatabaseByDefault();
-
 #endif /* PG_YB_COMMON_H */

@@ -348,14 +348,12 @@ webserver_worker_main(Datum unused)
    */
 
   YBCInitThreading();
-  /*
-   * We call YBCInit here so that HandleYBStatus can correctly report potential error.
-   */
-  HandleYBStatus(YBCInit(NULL /* argv[0] */, palloc, NULL /* cstring_to_text_with_len_fn */));
 
   backendStatusArrayPointer = getBackendStatusArrayPointer();
 
   BackgroundWorkerUnblockSignals();
+
+  HandleYBStatus(YBCInitGFlags(NULL /* argv[0] */));
 
   webserver = CreateWebserver(ListenAddresses, port);
 
@@ -714,8 +712,7 @@ ybpgm_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
     bool is_breaking_catalog_change = false;
     if (IsTransactionalDdlStatement(pstmt,
                                     &is_catalog_version_increment,
-                                    &is_breaking_catalog_change,
-                                    context))
+                                    &is_breaking_catalog_change))
     {
       ybpgm_Store(Transaction, INSTR_TIME_GET_MICROSEC(end), 0);
     }
