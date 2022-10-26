@@ -47,7 +47,6 @@
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
 #include "optimizer/restrictinfo.h"
-#include "optimizer/var.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/sampling.h"
@@ -64,7 +63,7 @@
 #include "access/yb_scan.h"
 #include "executor/ybcExpr.h"
 #include "executor/ybc_fdw.h"
-
+#include "optimizer/optimizer.h"
 #include "utils/resowner_private.h"
 
 /* -------------------------------------------------------------------------- */
@@ -172,37 +171,37 @@ ybcGetForeignPlan(PlannerInfo *root,
 {
 	YbFdwPlanState *yb_plan_state = (YbFdwPlanState *) baserel->fdw_private;
 	Index			scan_relid = baserel->relid;
-	List		   *local_quals = NIL;
-	List		   *remote_quals = NIL;
-	List		   *remote_colrefs = NIL;
+	List		   *local_clauses = NIL;
+	List		   *remote_clauses = NIL;
+	List		   *remote_params = NIL;
 	ListCell	   *lc;
 
 	scan_clauses = extract_actual_clauses(scan_clauses, false);
 
 	/*
 	 * Split the expressions in the scan_clauses onto two lists:
-	 * - remote_quals gets supported expressions to push down to DocDB, and
-	 * - local_quals gets remaining to evaluate upon returned rows.
-	 * The remote_colrefs list contains data type details of the columns
-	 * referenced by the expressions in the remote_quals list. DocDB needs it
+	 * - remote_clauses gets supported expressions to push down to DocDB, and
+	 * - local_clauses gets remaining to evaluate upon returned rows.
+	 * The remote_params list contains data type details of the columns
+	 * referenced by the expressions in the remote_clauses list. DocDB needs it
 	 * to convert row values to Datum/isnull pairs consumable by Postgres
 	 * functions.
-	 * The remote_quals and remote_colrefs lists are sent with the protobuf
+	 * The remote_clauses and remote_params lists are sent with the protobuf
 	 * read request.
 	 */
 	foreach(lc, scan_clauses)
 	{
-		List *colrefs = NIL;
+		List *params = NIL;
 		Expr *expr = (Expr *) lfirst(lc);
-		if (YbCanPushdownExpr(expr, &colrefs))
+		if (YbCanPushdownExpr(expr, &params))
 		{
-			remote_quals = lappend(remote_quals, expr);
-			remote_colrefs = list_concat(remote_colrefs, colrefs);
+			remote_clauses = lappend(remote_clauses, expr);
+			remote_params = list_concat(remote_params, params);
 		}
 		else
 		{
-			local_quals = lappend(local_quals, expr);
-			list_free_deep(colrefs);
+			local_clauses = lappend(local_clauses, expr);
+			list_free_deep(params);
 		}
 	}
 
@@ -216,8 +215,8 @@ ybcGetForeignPlan(PlannerInfo *root,
 								baserel->min_attr);
 	}
 
-	/* Get the target columns that are needed to evaluate local quals */
-	foreach(lc, local_quals)
+	/* Get the target columns that are needed to evaluate local clauses */
+	foreach(lc, local_clauses)
 	{
 		Expr *expr = (Expr *) lfirst(lc);
 		pull_varattnos_min_attr((Node *) expr,
@@ -258,8 +257,7 @@ ybcGetForeignPlan(PlannerInfo *root,
 					break;
 				case ObjectIdAttributeNumber:
 				case YBTupleIdAttributeNumber:
-				default: /* Regular column: attnum > 0.
-							NOTE: dropped columns may be included. */
+				default: /* Regular column: attrNum > 0*/
 				{
 					TargetEntry *target = makeNode(TargetEntry);
 					target->resno = attnum;
@@ -271,12 +269,12 @@ ybcGetForeignPlan(PlannerInfo *root,
 
 	/* Create the ForeignScan node */
 	return make_foreignscan(tlist,           /* local target list */
-							local_quals,
+							local_clauses,   /* local qual */
 							scan_relid,
 							target_attrs,    /* referenced attributes */
-							remote_colrefs,  /* fdw_private data (attribute types) */
+							remote_params,   /* fdw_private data (attribute types) */
 							NIL,             /* remote target list (none for now) */
-							remote_quals,
+							remote_clauses,  /* remote qual */
 							outer_plan);
 }
 
@@ -325,6 +323,7 @@ ybcBeginForeignScan(ForeignScanState *node, int eflags)
 	if (YBReadFromFollowersEnabled()) {
 		ereport(DEBUG2, (errmsg("Doing read from followers")));
 	}
+
 	if (XactIsoLevel == XACT_SERIALIZABLE)
 	{
 		/*
@@ -332,22 +331,29 @@ ybcBeginForeignScan(ForeignScanState *node, int eflags)
 		 * INSERTion of new rows that satisfy the query predicate. So, we set the rowmark on all
 		 * read requests sent to tserver instead of locking each tuple one by one in LockRows node.
 		 */
-		ListCell   *l;
-		foreach(l, estate->es_rowMarks) {
-			ExecRowMark *erm = (ExecRowMark *) lfirst(l);
+		if (estate->es_rowmarks && estate->es_range_table_size > 0) {
+			ExecRowMark *erm = estate->es_rowmarks[0];
 			// Do not propagate non-row-locking row marks.
 			if (erm->markType != ROW_MARK_REFERENCE && erm->markType != ROW_MARK_COPY)
 			{
 				ybc_state->exec_params->rowmark = erm->markType;
-				YBUpdateRowLockPolicyForSerializable(&ybc_state->exec_params->wait_policy, erm->waitPolicy);
+				/*
+				 * TODO(Piyush): We don't honour SKIP LOCKED yet in serializable isolation level.
+				 */
+				ybc_state->exec_params->wait_policy = LockWaitError;
 			}
-			break;
 		}
 	}
 
 	ybc_state->is_exec_done = false;
 
-	YbSetCatalogCacheVersion(ybc_state->handle, YbGetCatalogCacheVersion());
+	/* Set the current syscatalog version (will check that we are up to date) */
+	if (YBIsDBCatalogVersionMode())
+		HandleYBStatus(YBCPgSetDBCatalogCacheVersion(
+			ybc_state->handle, MyDatabaseId, yb_catalog_cache_version));
+	else
+		HandleYBStatus(YBCPgSetCatalogCacheVersion(
+			ybc_state->handle, yb_catalog_cache_version));
 }
 
 /*
@@ -376,40 +382,64 @@ ybcSetupScanTargets(ForeignScanState *node)
 	if (node->yb_fdw_aggs == NIL)
 	{
 		/* Set non-aggregate column targets. */
-		bool target_added = false;
+		bool has_targets = false;
 		foreach(lc, target_attrs)
 		{
 			TargetEntry *target = (TargetEntry *) lfirst(lc);
-			AttrNumber	attnum = target->resno;
 
-			if (attnum < 0)
-				YbDmlAppendTargetSystem(attnum, ybc_state->handle);
-			else
+			/* For regular (non-system) attribute check if they were deleted */
+			Oid   attr_typid  = InvalidOid;
+			Oid   attr_collation = InvalidOid;
+			int32 attr_typmod = 0;
+			if (target->resno > 0)
 			{
-				Assert(attnum > 0);
-				if (!TupleDescAttr(tupdesc, attnum - 1)->attisdropped)
-					YbDmlAppendTargetRegular(tupdesc, attnum,
-											 ybc_state->handle);
-				else
+				Form_pg_attribute attr;
+				attr = TupleDescAttr(tupdesc, target->resno - 1);
+				/* Ignore dropped attributes */
+				if (attr->attisdropped)
+				{
 					continue;
+				}
+				attr_typid  = attr->atttypid;
+				attr_typmod = attr->atttypmod;
+				attr_collation = attr->attcollation;
 			}
 
-			target_added = true;
+			YBCPgTypeAttrs type_attrs = {attr_typmod};
+			YBCPgExpr      expr       = YBCNewColumnRef(ybc_state->handle,
+														target->resno,
+														attr_typid,
+														attr_collation,
+														&type_attrs);
+			HandleYBStatus(YBCPgDmlAppendTarget(ybc_state->handle, expr));
+			has_targets = true;
 		}
 
 		/*
-		 * We can have no target columns at this point for e.g. a count(*). We
-		 * need to set a placeholder for the targets to properly make pg_dml
-		 * fetcher recognize the correct number of rows though the targeted
-		 * rows are not being effectively retrieved. Otherwise, the pg_dml
-		 * fetcher will stop too early when seeing empty rows.
-		 * TODO(#16717): Such placeholder target can be removed once the pg_dml
-		 * fetcher can recognize empty rows in a response with no explict
-		 * targets.
+		 * We can have no target columns at this point for e.g. a count(*). For now
+		 * we request the first non-dropped column in that case.
+		 * TODO look into handling this on YugaByte side.
 		 */
-		if (!target_added)
-			YbDmlAppendTargetSystem(YBTupleIdAttributeNumber,
-									ybc_state->handle);
+		if (!has_targets)
+		{
+			for (int16_t i = 0; i < tupdesc->natts; i++)
+			{
+				/* Ignore dropped attributes */
+				if (TupleDescAttr(tupdesc, i)->attisdropped)
+				{
+					continue;
+				}
+
+				YBCPgTypeAttrs type_attrs = { TupleDescAttr(tupdesc, i)->atttypmod };
+				YBCPgExpr      expr       = YBCNewColumnRef(ybc_state->handle,
+															i + 1,
+															TupleDescAttr(tupdesc, i)->atttypid,
+															TupleDescAttr(tupdesc, i)->attcollation,
+															&type_attrs);
+				HandleYBStatus(YBCPgDmlAppendTarget(ybc_state->handle, expr));
+				break;
+			}
+		}
 	}
 	else
 	{
@@ -471,7 +501,7 @@ ybcSetupScanTargets(ForeignScanState *node)
 						 * Use original attribute number (varoattno) instead of projected one (varattno)
 						 * as projection is disabled for tuples produced by pushed down operators.
 						 */
-						int attno = castNode(Var, tle->expr)->varoattno;
+						int attno = castNode(Var, tle->expr)->varattnosyn;
 						Form_pg_attribute attr = TupleDescAttr(tupdesc, attno - 1);
 						YBCPgTypeAttrs type_attrs = {attr->atttypmod};
 
@@ -500,9 +530,9 @@ ybcSetupScanTargets(ForeignScanState *node)
 		 * Setup the scan slot based on new tuple descriptor for the given targets. This is a dummy
 		 * tupledesc that only includes the number of attributes.
 		 */
-		TupleDesc target_tupdesc = CreateTemplateTupleDesc(list_length(node->yb_fdw_aggs),
-														   false /* hasoid */);
-		ExecInitScanTupleSlot(estate, &node->ss, target_tupdesc);
+		TupleDesc target_tupdesc = CreateTemplateTupleDesc(list_length(node->yb_fdw_aggs));
+		ExecInitScanTupleSlot(estate, &node->ss, target_tupdesc,
+							  table_slot_callbacks(relation));
 
 		/*
 		 * Consider the example "SELECT COUNT(oid) FROM pg_type", Postgres would have to do a
@@ -516,6 +546,72 @@ ybcSetupScanTargets(ForeignScanState *node)
 }
 
 /*
+ * ybSetupScanQual
+ *		Add the pushable qual expressions to the DocDB statement.
+ */
+static void
+ybSetupScanQual(ForeignScanState *node)
+{
+	EState	   *estate = node->ss.ps.state;
+	ForeignScan *foreignScan = (ForeignScan *) node->ss.ps.plan;
+	YbFdwExecState *yb_state = (YbFdwExecState *) node->fdw_state;
+	List	   *qual = foreignScan->fdw_recheck_quals;
+	ListCell   *lc;
+
+	MemoryContext oldcontext =
+		MemoryContextSwitchTo(node->ss.ps.ps_ExprContext->ecxt_per_query_memory);
+
+	foreach(lc, qual)
+	{
+		Expr *expr = (Expr *) lfirst(lc);
+		/*
+		 * Some expressions may be parametrized, obviously remote end can not
+		 * acccess the estate to get parameter values, so param references
+		 * are replaced with constant expressions.
+		 */
+		expr = YbExprInstantiateParams(expr, estate);
+		/* Create new PgExpr wrapper for the expression */
+		YBCPgExpr yb_expr = YBCNewEvalExprCall(yb_state->handle, expr);
+		/* Add the PgExpr to the statement */
+		HandleYBStatus(YbPgDmlAppendQual(yb_state->handle, yb_expr, true));
+	}
+
+	MemoryContextSwitchTo(oldcontext);
+}
+
+/*
+ * ybSetupScanColumnRefs
+ *		Add the column references to the DocDB statement.
+ */
+static void
+ybSetupScanColumnRefs(ForeignScanState *node)
+{
+	ForeignScan *foreignScan = (ForeignScan *) node->ss.ps.plan;
+	YbFdwExecState *yb_state = (YbFdwExecState *) node->fdw_state;
+	List	   *params = foreignScan->fdw_private;
+	ListCell   *lc;
+
+	MemoryContext oldcontext =
+		MemoryContextSwitchTo(node->ss.ps.ps_ExprContext->ecxt_per_query_memory);
+
+	foreach(lc, params)
+	{
+		YbExprParamDesc *param = (YbExprParamDesc *) lfirst(lc);
+		YBCPgTypeAttrs type_attrs = { param->typmod };
+		/* Create new PgExpr wrapper for the column reference */
+		YBCPgExpr yb_expr = YBCNewColumnRef(yb_state->handle,
+											param->attno,
+											param->typid,
+											param->collid,
+											&type_attrs);
+		/* Add the PgExpr to the statement */
+		HandleYBStatus(YbPgDmlAppendColumnRef(yb_state->handle, yb_expr, true));
+	}
+
+	MemoryContextSwitchTo(oldcontext);
+}
+
+/*
  * ybcIterateForeignScan
  *		Read next record from the data file and store it into the
  *		ScanTupleSlot as a virtual tuple
@@ -524,74 +620,6 @@ static TupleTableSlot *
 ybcIterateForeignScan(ForeignScanState *node)
 {
 	YbFdwExecState *ybc_state = (YbFdwExecState *) node->fdw_state;
-	EState	   *estate = node->ss.ps.state;
-	ForeignScan *foreignScan = (ForeignScan *) node->ss.ps.plan;
-
-	/*
-	 * Unlike YbSeqScan, IndexScan, and IndexOnlyScan, YB ForeignScan does not
-	 * call YbInstantiatePushdownParams before doing scan:
-	 *
-	 * - YbSeqNext
-	 *   - YbInstantiatePushdownParams
-	 *   - ybc_remote_beginscan
-	 *     - YbDmlAppendQuals/YbDmlAppendColumnRefs
-	 * - IndexScan/IndexNextWithReorder/ExecReScanIndexScan
-	 *   - YbInstantiatePushdownParams
-	 *   - index_rescan
-	 *     - YbDmlAppendQuals/YbDmlAppendColumnRefs
-	 * - IndexOnlyScan/ExecReScanIndexOnlyScan
-	 *   - YbInstantiatePushdownParams
-	 *   - index_rescan
-	 *     - YbDmlAppendQuals/YbDmlAppendColumnRefs
-	 * - ForeignNext
-	 *   - ybcIterateForeignScan (impl of IterateForeignScan)
-	 *     - YbInstantiatePushdownParams
-	 *     - YbDmlAppendQuals/YbDmlAppendColumnRefs
-	 *
-	 * Reasoning:
-	 *
-	 * - FDW API does not provide an easy way to pass in a PushdownExprs
-	 *   structure.  It allows passing in custom data using fdw_private, but it
-	 *   expects a List type.  It technically can accept any type, but said
-	 *   type should support node functions like copyObject() and
-	 *   nodeToString(): PushdownExprs is not a node, so it doesn't support
-	 *   them.  An alternative solution (though still not meeting the previous
-	 *   criteria) is to rework PushdownExprs to be a list of structs rather
-	 *   than a struct of lists, but this removes the ability to pass in the
-	 *   entire quals list to YbExprInstantiateParams.  It can still be
-	 *   iterated through and called on each qual, but that is more
-	 *   inconvenient.
-	 * - quals are already stored in fdw_recheck_quals, so putting them in
-	 *   fdw_private in the form of PushdownExprs would be duplicate info.  Not
-	 *   only that, but it would need to be updated after setup.
-	 *
-	 *   - exec_simple_query
-	 *     - pg_plan_queries
-	 *       - standard_planner
-	 *         - create_plan
-	 *           - ybcGetForeignPlan
-	 *             - make_foreignscan
-	 *               - (setup fdw_private, fdw_recheck_quals)
-	 *         - set_plan_references
-	 *           - set_foreignscan_references
-	 *             - (modify fdw_recheck_quals)
-	 *     - PortalRun
-	 *       - ForeignNext
-	 *         - ybcIterateForeignScan (this function)
-	 *
-	 *   If it were desired to solely rely on fdw_private holding
-	 *   PushdownExprs, whatever modifications that happened to
-	 *   fdw_recheck_quals would have to be updated onto fdw_private's copy of
-	 *   quals before calling YbInstantiatePushdownParams.
-	 * - Plan is to remove YB FDW code in favor of YbSeqScan, so it is not
-	 *   worth the effort of making a good long-term solution here.
-	 */
-	PushdownExprs orig_pushdown = {
-		.quals = foreignScan->fdw_recheck_quals,
-		.colrefs = foreignScan->fdw_private,
-	};
-	PushdownExprs *pushdown = YbInstantiatePushdownParams(&orig_pushdown,
-														  estate);
 
 	/* Execute the select statement one time.
 	 * TODO(neil) Check whether YugaByte PgGate should combine Exec() and Fetch() into one function.
@@ -601,13 +629,8 @@ ybcIterateForeignScan(ForeignScanState *node)
 	 */
 	if (!ybc_state->is_exec_done) {
 		ybcSetupScanTargets(node);
-		if (pushdown != NULL)
-		{
-			YbDmlAppendQuals(pushdown->quals, true /* is_primary */,
-							 ybc_state->handle);
-			YbDmlAppendColumnRefs(pushdown->colrefs, true /* is_primary */,
-								  ybc_state->handle);
-		}
+		ybSetupScanQual(node);
+		ybSetupScanColumnRefs(node);
 		HandleYBStatus(YBCPgExecSelect(ybc_state->handle, ybc_state->exec_params));
 		ybc_state->is_exec_done = true;
 	}
@@ -620,6 +643,59 @@ ybcIterateForeignScan(ForeignScanState *node)
 					   node->ss.ss_ScanTupleSlot,
 					   InvalidOid);
 }
+
+#ifdef NEIL_TODO
+/* Keep this code till I look at ybFetchNext()
+{
+	/* Clear tuple slot before starting */
+	slot = node->ss.ss_ScanTupleSlot;
+	ExecClearTuple(slot);
+
+	TupleDesc       tupdesc = slot->tts_tupleDescriptor;
+	Datum           *values = slot->tts_values;
+	bool            *isnull = slot->tts_isnull;
+	YBCPgSysColumns syscols;
+
+	/* Fetch one row. */
+	HandleYBStatus(YBCPgDmlFetch(ybc_state->handle,
+	                             tupdesc->natts,
+	                             (uint64_t *) values,
+	                             isnull,
+	                             &syscols,
+	                             &has_data));
+
+	/* If we have result(s) update the tuple slot. */
+	if (has_data)
+	{
+		if (node->yb_fdw_aggs == NIL)
+		{
+			HeapTuple tuple = heap_form_tuple(tupdesc, values, isnull);
+#ifdef NEIL_OID
+	/* OID is now a regular column */
+			if (syscols.oid != InvalidOid)
+			{
+				HeapTupleSetOid(tuple, syscols.oid);
+			}
+#endif
+			slot = ExecStoreHeapTuple(tuple, slot, false);
+
+			/* Setup special columns in the slot */
+			TABLETUPLE_YBCTID(slot) = PointerGetDatum(syscols.ybctid);
+		}
+		else
+		{
+			/*
+			 * Aggregate results stored in virtual slot (no tuple). Set the
+			 * number of valid values and mark as non-empty.
+			 */
+			slot->tts_nvalid = tupdesc->natts;
+			slot->tts_flags &= ~TTS_FLAG_EMPTY;
+		}
+	}
+
+	return slot;
+}
+#endif
 
 static void
 ybcFreeStatementObject(YbFdwExecState* yb_fdw_exec_state)
@@ -670,6 +746,16 @@ ybcExplainForeignScan(ForeignScanState *node, ExplainState *es)
 {
 	if (node->yb_fdw_aggs != NIL)
 		ExplainPropertyBool("Partial Aggregate", true, es);
+}
+
+void
+YbExecUpdateInstrumentForeignScan(ForeignScanState *node,
+								  Instrumentation *instr)
+{
+	YbFdwExecState *ybc_state = (YbFdwExecState *) node->fdw_state;
+	if (ybc_state->handle)
+		YbUpdateReadRpcStats(ybc_state->handle,
+							 &instr->yb_read_rpcs, &instr->yb_tbl_read_rpcs);
 }
 
 /* ------------------------------------------------------------------------- */
