@@ -148,16 +148,16 @@ Status RetryFunc(
     return STATUS(TimedOut, timeout_msg);
   }
   for (;;) {
+    LOG_WITH_FUNC(INFO) << "Calling retry function";
+    if (!waiter.Wait()) {
+      break;
+    }
     bool retry = true;
     Status s = func(deadline, &retry);
     if (!retry) {
       return s;
     }
-
     VLOG(1) << retry_msg << " attempt=" << waiter.attempt() << " status=" << s.ToString();
-    if (!waiter.Wait()) {
-      break;
-    }
   }
 
   return STATUS(TimedOut, timeout_msg);
