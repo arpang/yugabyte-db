@@ -427,10 +427,14 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
 
   // Apply replicated add table operation.
   Status AddTable(
-      ChangeMetadataOperation* operation, const TableInfoPB& table_info,
+      Operation* operation, const TableInfoPB& table_info,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
-  Status AddMultipleTables(const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos);
+  Status AddMultipleTables(
+      Operation* operation, const google::protobuf::RepeatedPtrField<TableInfoPB>& table_info_pbs,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
+
+  Status AddExistingTableInfoPBsToDocDB();
 
   // Apply replicated remove table operation.
   Status RemoveTable(const std::string& table_id);

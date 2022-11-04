@@ -769,7 +769,9 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
     Partition::FromPB(superblock.partition(), &partition);
     partition_ = std::make_shared<Partition>(partition);
     primary_table_id_ = superblock.primary_table_id();
-    metadata_table_id_ = superblock.metadata_table_id();
+    if (superblock.has_metadata_table_id()) {
+      metadata_table_id_ = superblock.metadata_table_id();  // could be absent
+    }
     colocated_ = superblock.colocated();
 
     RETURN_NOT_OK(kv_store_.LoadFromPB(superblock.kv_store(),
@@ -1020,7 +1022,8 @@ TableInfoPtr RaftGroupMetadata::AddTable(const std::string& table_id,
                                  const IndexMap& index_map,
                                  const PartitionSchema& partition_schema,
                                  const boost::optional<IndexInfo>& index_info,
-                                 const SchemaVersion schema_version) {
+                                 const SchemaVersion schema_version,
+                                 bool is_metadata_table) {
   DCHECK(schema.has_column_ids());
   Primary primary(table_id == primary_table_id_);
   TableInfoPtr new_table_info = std::make_shared<TableInfo>(primary,
@@ -1078,6 +1081,9 @@ TableInfoPtr RaftGroupMetadata::AddTable(const std::string& table_id,
     VLOG_WITH_PREFIX(1) << "Added table with schema version " << schema_version
                         << "\n" << AsString(new_table_info);
     kv_store_.UpdateColocationMap(new_table_info);
+  }
+  if (is_metadata_table) {
+    metadata_table_id_ = table_id;
   }
   return new_table_info;
 }
@@ -1556,6 +1562,15 @@ std::vector<TableId> RaftGroupMetadata::GetAllColocatedTables() {
     table_ids.emplace_back(id_and_info.first);
   }
   return table_ids;
+}
+
+void RaftGroupMetadata::GetAllTableInfos(RaftGroupReplicaSuperBlockPB* superblock) const {
+  std::lock_guard<MutexType> lock(data_mutex_);
+  auto kv_store = superblock->mutable_kv_store();
+  for (const auto& [id, table_info] : kv_store_.tables) {
+    table_info->ToPB(kv_store->add_tables());
+  }
+  return;
 }
 
 Status CheckCanServeTabletData(const RaftGroupMetadata& metadata) {

@@ -1928,7 +1928,7 @@ Result<TableInfoPtr> Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 }
 
 Status Tablet::AddTable(
-    ChangeMetadataOperation* operation, const TableInfoPB& table_info_pb,
+    Operation* operation, const TableInfoPB& table_info_pb,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
   // TODO: Probably should handle YQL_TABLE_TYPE TOO?
@@ -1967,13 +1967,70 @@ Status Tablet::AddTable(
 }
 
 Status Tablet::AddMultipleTables(
-    const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos) {
+    Operation* operation, const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos_pbs,
+    AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   // If nothing has changed then return.
-  RSTATUS_DCHECK_GT(table_infos.size(), 0, Ok, "No table to add to metadata");
-  for (const auto& table_info : table_infos) {
-    RETURN_NOT_OK(AddTableInMemory(table_info));
+  RSTATUS_DCHECK_GT(table_infos_pbs.size(), 0, Ok, "No table to add to metadata");
+  docdb::DocOperations doc_write_ops;
+  KeyValueWriteBatchPB write_batch;
+  for (const auto& table_info_pb : table_infos_pbs) {
+    auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
+    if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
+      TableInfoPB added_table_pb;
+      added_table->ToPB(&added_table_pb);
+      auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
+          metadata_->metadata_table_info(), added_table_pb);
+      doc_write_ops.emplace_back(std::move(op));
+    }
   }
-  return metadata_->Flush();
+  const ReadHybridTime& read_ht = ReadHybridTime::SingleTime(clock()->Now());
+  const CoarseTimePoint deadline = CoarseTimePoint::max();
+  HybridTime restart_read_ht;
+  RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
+      doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
+      docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
+      metadata()->table_name()));  // TODO: table name fix, but it is not used as such
+  RETURN_NOT_OK(ApplyOperation(
+      *operation, 1, write_batch,
+      already_applied_to_regular_db));  // todo: batch_idx hardcoding
+                                        // along the lines of writepb, does it make sense to add
+                                        // batch_idx field in ChangeMetadataRequestPB. See
+                                        // operations.proto
+  return Status::OK();
+  // return metadata_->Flush();
+}
+
+Status Tablet::AddExistingTableInfoPBsToDocDB() {
+  // If nothing has changed then return.
+  ChangeMetadataOperation operation(this, nullptr, nullptr);
+  RaftGroupReplicaSuperBlockPB superblock;
+  metadata_->GetAllTableInfos(&superblock);
+  const auto& table_infos_pbs = superblock.kv_store().tables();
+  RSTATUS_DCHECK_GT(table_infos_pbs.size(), 0, Ok, "No table to add to metadata");
+  docdb::DocOperations doc_write_ops;
+  KeyValueWriteBatchPB write_batch;
+  for (const auto& table_info_pb : table_infos_pbs) {
+    if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
+      auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
+          metadata_->metadata_table_info(), table_info_pb);
+      doc_write_ops.emplace_back(std::move(op));
+    }
+  }
+  const ReadHybridTime& read_ht = ReadHybridTime::SingleTime(
+      HybridTime(kMinHybridTimeValue));  // As the tables are pre-existing
+  const CoarseTimePoint deadline = CoarseTimePoint::max();
+  HybridTime restart_read_ht;
+  RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
+      doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
+      docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
+      metadata()->table_name()));  // TODO: table name fix, but it is not used as such
+  RETURN_NOT_OK(
+      ApplyOperation(operation, 1, write_batch));  // todo: batch_idx hardcoding
+                                                   // along the lines of writepb, does it make
+                                                   // sense to add batch_idx field in
+                                                   // ChangeMetadataRequestPB. See operations.proto
+  return Status::OK();
+  // return metadata_->Flush();
 }
 
 Status Tablet::RemoveTable(const std::string& table_id) {

@@ -383,7 +383,8 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
                 const IndexMap& index_map,
                 const PartitionSchema& partition_schema,
                 const boost::optional<IndexInfo>& index_info,
-                const SchemaVersion schema_version);
+                const SchemaVersion schema_version,
+                bool is_metadata_table = false);
 
   void RemoveTable(const TableId& table_id);
 
@@ -472,8 +473,14 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return primary_table_info_unlocked();
   }
 
+  bool is_metadata_table_set() const {
+    std::lock_guard<MutexType> lock(data_mutex_);
+    return !metadata_table_id_.empty();
+  }
+
   TableInfoPtr metadata_table_info() const {
     std::lock_guard<MutexType> lock(data_mutex_);
+    CHECK(!metadata_table_id_.empty());
     return metadata_table_info_unlocked();
   }
 
@@ -520,6 +527,8 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   const KvStoreInfo& TEST_kv_store() const {
     return kv_store_;
   }
+
+  void GetAllTableInfos(RaftGroupReplicaSuperBlockPB* superblock) const;
 
  private:
   typedef simple_spinlock MutexType;
