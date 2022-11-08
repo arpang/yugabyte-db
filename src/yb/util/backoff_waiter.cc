@@ -13,9 +13,6 @@
 #include "yb/util/backoff_waiter.h"
 #include "yb/util/flag_tags.h"
 
-#include <algorithm>
-#include <string>
-
 #include <glog/logging.h>
 
 using std::string;
