@@ -222,6 +222,11 @@ DocKey::DocKey(const Schema& schema, DocKeyHash hash,
       range_group_(std::move(range_components)) {
 }
 
+DocKey::DocKey(bool metadata_key, DocKeyHash hash, std::vector<KeyEntryValue> hashed_components)
+    : metadata_key_(metadata_key), hash_(hash), hashed_group_(std::move(hashed_components)) {}
+
+DocKey::DocKey(bool metadata_key) : metadata_key_(metadata_key) {}
+
 KeyBytes DocKey::Encode() const {
   KeyBytes result;
   AppendTo(&result);
@@ -248,7 +253,9 @@ RefCntPrefix DocKey::EncodeAsRefCntPrefix() const {
 
 void DocKey::AppendTo(KeyBytes* out) const {
   auto encoder = DocKeyEncoder(out);
-  if (!cotable_id_.IsNil()) {
+  if (metadata_key_) {
+    encoder.MetadataKey().Hash(hash_present_, hash_, hashed_group_).Range(range_group_);
+  } else if (!cotable_id_.IsNil()) {
     encoder.CotableId(cotable_id_).Hash(hash_present_, hash_, hashed_group_).Range(range_group_);
   } else {
     encoder.ColocationId(colocation_id_)
@@ -292,6 +299,8 @@ class DecodeDocKeyCallback {
 
   void SetColocationId(const ColocationId colocation_id) const {}
 
+  void SetMetadataKey() const {}
+
  private:
   boost::container::small_vector_base<Slice>* out_;
 };
@@ -311,6 +320,8 @@ class DummyCallback {
   void SetCoTableId(const Uuid& cotable_id) const {}
 
   void SetColocationId(const ColocationId colocation_id) const {}
+
+  void SetMetadataKey() const {}
 
   KeyEntryValue* AddSubkey() const {
     return nullptr;
@@ -335,6 +346,8 @@ class EncodedSizesCallback {
   void SetCoTableId(const Uuid& cotable_id) const {}
 
   void SetColocationId(const ColocationId colocation_id) const {}
+
+  void SetMetadataKey() const {}
 
   KeyEntryValue* AddSubkey() const {
     return nullptr;
@@ -365,6 +378,7 @@ Result<DocKeyHash> DocKey::DecodeHash(const Slice& slice) {
   DocKeyDecoder decoder(slice);
   RETURN_NOT_OK(decoder.DecodeCotableId());
   RETURN_NOT_OK(decoder.DecodeColocationId());
+  RETURN_NOT_OK(decoder.DecodeMetadataKey());
   uint16_t hash;
   RETURN_NOT_OK(decoder.DecodeHashCode(&hash));
   return hash;
@@ -441,6 +455,10 @@ class DocKey::DecodeFromCallback {
     key_->colocation_id_ = colocation_id;
   }
 
+  void SetMetadataKey() const {
+    key_->metadata_key_ = true;
+  }
+
  private:
   DocKey* key_;
 };
@@ -492,6 +510,8 @@ yb::Status DocKey::DoDecode(DocKeyDecoder* decoder,
     callback.SetCoTableId(cotable_id);
   } else if (VERIFY_RESULT(decoder->DecodeColocationId(&colocation_id))) {
     callback.SetColocationId(colocation_id);
+  } else if (VERIFY_RESULT(decoder->DecodeMetadataKey())) {
+    callback.SetMetadataKey();
   }
 
   switch (part_to_decode) {
@@ -1215,11 +1235,18 @@ DocKeyEncoderAfterTableIdStep DocKeyEncoder::ColocationId(const yb::ColocationId
 }
 
 DocKeyEncoderAfterTableIdStep DocKeyEncoder::Schema(const class Schema& schema) {
-  if (schema.colocation_id() != kColocationIdNotSet) {
+  if (schema.Equals(metadata_schema)) {
+    return MetadataKey();
+  } else if (schema.colocation_id() != kColocationIdNotSet) {
     return ColocationId(schema.colocation_id());
   } else {
     return CotableId(schema.cotable_id());
   }
+}
+
+DocKeyEncoderAfterTableIdStep DocKeyEncoder::MetadataKey() {
+  out_->AppendKeyEntryType(KeyEntryType::kTabletMetadata);
+  return DocKeyEncoderAfterTableIdStep(out_);
 }
 
 Result<bool> DocKeyDecoder::DecodeCotableId(Uuid* uuid) {
@@ -1260,6 +1287,13 @@ Result<bool> DocKeyDecoder::DecodeColocationId(ColocationId* colocation_id) {
   }
   input_.remove_prefix(sizeof(ColocationId));
 
+  return true;
+}
+
+Result<bool> DocKeyDecoder::DecodeMetadataKey() {
+  if (!input_.TryConsumeByte(KeyEntryTypeAsChar::kTabletMetadata)) {
+    return false;
+  }
   return true;
 }
 
@@ -1335,6 +1369,7 @@ Result<bool> DocKeyDecoder::HasPrimitiveValue(AllowSpecial allow_special) {
 Status DocKeyDecoder::DecodeToRangeGroup() {
   RETURN_NOT_OK(DecodeCotableId());
   RETURN_NOT_OK(DecodeColocationId());
+  RETURN_NOT_OK(DecodeMetadataKey());
   if (VERIFY_RESULT(DecodeHashCode())) {
     while (VERIFY_RESULT(HasPrimitiveValue())) {
       RETURN_NOT_OK(DecodeKeyEntryValue());
@@ -1371,6 +1406,8 @@ Result<bool> HashedOrFirstRangeComponentsEqual(const Slice& lhs, const Slice& rh
   RETURN_NOT_OK(rhs_decoder.DecodeCotableId());
   RETURN_NOT_OK(lhs_decoder.DecodeColocationId());
   RETURN_NOT_OK(rhs_decoder.DecodeColocationId());
+  RETURN_NOT_OK(lhs_decoder.DecodeMetadataKey());
+  RETURN_NOT_OK(rhs_decoder.DecodeMetadataKey());
 
   const bool hash_present = VERIFY_RESULT(lhs_decoder.DecodeHashCode(AllowSpecial::kTrue));
   if (hash_present != VERIFY_RESULT(rhs_decoder.DecodeHashCode(AllowSpecial::kTrue))) {

@@ -538,40 +538,44 @@ class TabletBootstrap {
 
     const bool has_blocks = VERIFY_RESULT(OpenTablet());
 
-    if (!tablet_->metadata()->is_metadata_table_set()) {
+    if (tablet_->metadata()->MoveMetadataToDocDB()) {
+      // if (!tablet_->metadata()->is_metadata_table_set()) {
       // upgrade required
-      bool master = (tablet_->metadata()->raft_group_id() == master::kSysCatalogTabletId);
-      LOG_WITH_FUNC(INFO) << "Starting upgrade for " << (master ? "master" : "tserver");
+      // bool master = (tablet_->metadata()->raft_group_id() == master::kSysCatalogTabletId);
+      // LOG_WITH_FUNC(INFO) << "Starting upgrade for " << (master ? "master" : "tserver");
 
-      Schema metadata_table_schema;
-      const Uuid metadata_table_cotable_id = Uuid::Generate();
-      const TableId metadata_table_id = metadata_table_cotable_id.ToHexString();
+      // Schema metadata_table_schema;
+      // const Uuid metadata_table_cotable_id = Uuid::Generate();
+      // const TableId metadata_table_id = metadata_table_cotable_id.ToHexString();
 
-      if (master) {
-        metadata_table_schema = Schema(
-            {metadata_table_key_col, metadata_table_value_col},
-            {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(),
-            metadata_table_cotable_id);
-      } else {
-        metadata_table_schema = Schema(
-            {metadata_table_key_col, metadata_table_value_col},
-            {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(),
-            Uuid::Nil(), metadata_table_colocation_id);
-      }
+      // if (master) {
+      //   metadata_table_schema = Schema(
+      //       {metadata_table_key_col, metadata_table_value_col},
+      //       {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(),
+      //       metadata_table_cotable_id);
+      // } else {
+      //   metadata_table_schema = Schema(
+      //       {metadata_table_key_col, metadata_table_value_col},
+      //       {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(),
+      //       Uuid::Nil(), metadata_table_colocation_id);
+      // }
       // add metadata table in memory
-      tablet_->metadata()->AddTable(
-          metadata_table_id, "", metadata_table_name, TableType::YQL_TABLE_TYPE,
-          metadata_table_schema, IndexMap(), PartitionSchema(), boost::none /* index_info */, 0,
-          true /* is_metadata_table*/);
+      // tablet_->metadata()->AddTable(
+      //     metadata_table_id, "", metadata_table_name, TableType::YQL_TABLE_TYPE,
+      //     metadata_table_schema, IndexMap(), PartitionSchema(), boost::none /* index_info */, 0,
+      //     true /* is_metadata_table*/);
 
       // add tableinfo of other tables in docdb
-      RETURN_NOT_OK(tablet_->AddExistingTableInfoPBsToDocDB());
+      RETURN_NOT_OK(tablet_->MoveTableInfoPBsToDocDB());
 
       // flush docdb to disk (unknown)
-      RETURN_NOT_OK(tablet_->Flush(tablet::FlushMode::kSync));  // should we just flush regular db?
+      RETURN_NOT_OK(
+          tablet_->Flush(tablet::FlushMode::kSync));  // TODO: should we just flush regular db?
 
-      // flush superblock with only metadata and primary table
-      RETURN_NOT_OK(tablet_->metadata()->Flush());
+      // replace superblock in disk and in memory
+      RaftGroupReplicaSuperBlockPB superblock;
+      tablet_->metadata()->ToSuperBlock(&superblock);
+      RETURN_NOT_OK(tablet_->metadata()->ReplaceSuperBlock(superblock));
     }
 
     if (FLAGS_TEST_dump_docdb_before_tablet_bootstrap) {

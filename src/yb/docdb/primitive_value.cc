@@ -319,7 +319,8 @@ std::string PrimitiveValue::ToString() const {
     case KeyEntryType::kSSForward: FALLTHROUGH_INTENDED; \
     case KeyEntryType::kSSReverse: FALLTHROUGH_INTENDED; \
     case KeyEntryType::kTrue: FALLTHROUGH_INTENDED; \
-    case KeyEntryType::kTrueDescending:
+    case KeyEntryType::kTrueDescending: FALLTHROUGH_INTENDED; \
+    case KeyEntryType::kTabletMetadata:
 
 #define IGNORE_SPECIAL_KEY_ENTRY_TYPES \
     case KeyEntryType::kBitSet: FALLTHROUGH_INTENDED; \
@@ -2434,6 +2435,8 @@ std::string KeyEntryValue::ToString(AutoDecodeKeys auto_decode_keys) const {
       return "+Inf";
     case KeyEntryType::kMaxByte:
       return "0xff";
+    case KeyEntryType::kTabletMetadata:
+      return "metadata";
   }
   FATAL_INVALID_ENUM_VALUE(KeyEntryType, type_);
 }

@@ -22,7 +22,8 @@ namespace yb {
 namespace docdb {
 
 ChangeMetadataDocOperation::ChangeMetadataDocOperation(
-    const tablet::TableInfoPtr& metadata_table, const tablet::TableInfoPB& table_info)
+    // const tablet::TableInfoPtr& metadata_table,
+    const tablet::TableInfoPB& table_info)
     : table_info_(table_info) {
   QLValuePB table_id_value;
   table_id_value.set_string_value(table_info_.table_id());
@@ -30,16 +31,21 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
   std::string key_string;
   AppendToKey(table_id_value, &key_string);
   DocKeyHash hash = YBPartition::HashColumnCompoundValue(key_string);
-  auto key = KeyEntryValue::FromQLValuePB(table_id_value, metadata_table_key_col.sorting_type());
-  const auto& metadata_table_schema = metadata_table->doc_read_context->schema;
-  if (table_info.schema().table_properties().is_ysql_catalog_table()) {
-    DCHECK(metadata_table_schema.has_cotable_id());
-    doc_key_ = DocKey(metadata_table_schema.cotable_id(), hash, {key});
-  } else {
-    DCHECK(metadata_table_schema.has_colocation_id());
-    doc_key_ = DocKey(metadata_table_schema.colocation_id(), hash, {key});
-  }
-  encoded_doc_key_ = doc_key_->EncodeAsRefCntPrefix();
+  auto hash_component = KeyEntryValue::FromQLValuePB(table_id_value, metadata_table_key_col.sorting_type());
+  // const auto& metadata_schema = metadata_table->doc_read_context->schema;
+  // if (table_info.schema().table_properties().is_ysql_catalog_table()) {
+  //   DCHECK(metadata_schema.has_cotable_id());
+  //   doc_key_ = DocKey(metadata_schema.cotable_id(), hash, {key});
+  // } else {
+  //   DCHECK(metadata_schema.has_colocation_id());
+  //   doc_key_ = DocKey(metadata_schema.colocation_id(), hash, {key});
+  // }
+  // encoded_doc_key_ = doc_key_->EncodeAsRefCntPrefix();
+  // KeyBytes key_bytes;
+  // key_bytes.AppendKeyEntryType(KeyEntryType::kTabletMetadata);
+  DocKey doc_key = DocKey(true, hash, {hash_component});
+  // doc_key.AppendTo(&key_bytes);
+  encoded_doc_key_ = doc_key.EncodeAsRefCntPrefix();;
 }
 
 Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {

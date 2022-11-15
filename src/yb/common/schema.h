@@ -1102,12 +1102,17 @@ class Schema {
   // code to swap() and CopyFrom() as well to prevent subtle bugs.
 };
 
-const string metadata_table_name = "metadata_table";
-const ColocationId metadata_table_colocation_id = 1;
+// const uint32_t metadata_table_id = 1;
+// const string metadata_table_name = "metadata_table";
+// const ColocationId metadata_table_colocation_id = 1;
 const ColumnId metadata_table_key_col_id(10);
 const ColumnSchema metadata_table_key_col = ColumnSchema("table_id", STRING, false, true);
 const ColumnId metadata_table_value_col_id(11);
 const ColumnSchema metadata_table_value_col = ColumnSchema("table_info", STRING, false, false);
+
+const Schema metadata_schema = Schema(
+    {metadata_table_key_col, metadata_table_value_col},
+    {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(), Uuid::Nil());
 
 // Helper used for schema creation/editing.
 //

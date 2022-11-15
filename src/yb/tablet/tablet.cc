@@ -1107,6 +1107,45 @@ Status Tablet::CompleteShutdownRocksDBs(
 }
 
 Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::NewRowIterator(
+    const Schema& projection,
+    const Schema& schema,
+const docdb::DocReadContext& doc_read_context,
+    const ReadHybridTime read_hybrid_time,
+    CoarseTimePoint deadline,
+    AllowBootstrappingState allow_bootstrapping_state,
+    const Slice& sub_doc_key) const {
+  if (state_ != kOpen && (!allow_bootstrapping_state || state_ != kBootstrapping)) {
+    return STATUS_FORMAT(IllegalState, "Tablet in wrong state: $0", state_);
+  }
+
+  if (table_type_ != TableType::YQL_TABLE_TYPE && table_type_ != TableType::PGSQL_TABLE_TYPE) {
+    return STATUS_FORMAT(NotSupported, "Invalid table type: $0", table_type_);
+  }
+
+  auto scoped_read_operation = CreateNonAbortableScopedRWOperation();
+  RETURN_NOT_OK(scoped_read_operation);
+
+  VLOG_WITH_PREFIX(2) << "Created new Iterator reading at " << read_hybrid_time.ToString();
+
+  // const std::shared_ptr<tablet::TableInfo> table_info =
+  //     VERIFY_RESULT(metadata_->GetTableInfo(table_id));
+  // const Schema& schema = table_info->schema();
+  auto mapped_projection = std::make_unique<Schema>();
+  RETURN_NOT_OK(schema.GetMappedReadProjection(projection, mapped_projection.get()));
+
+  auto txn_op_ctx = VERIFY_RESULT(CreateTransactionOperationContext(
+      /* transaction_id */ boost::none, schema.table_properties().is_ysql_catalog_table()));
+  const auto read_time =
+      read_hybrid_time ? read_hybrid_time
+                       : ReadHybridTime::SingleTime(VERIFY_RESULT(SafeTime(RequireLease::kFalse)));
+  auto result = std::make_unique<DocRowwiseIterator>(
+      std::move(mapped_projection), doc_read_context, txn_op_ctx, doc_db(), deadline, read_time,
+      &pending_non_abortable_op_counter_);
+  RETURN_NOT_OK(result->Init(table_type_, sub_doc_key));
+  return std::move(result);
+}
+
+Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::NewRowIterator(
     const Schema &projection,
     const ReadHybridTime read_hybrid_time,
     const TableId& table_id,
@@ -1936,7 +1975,8 @@ Status Tablet::AddTable(
     TableInfoPB added_table_pb;
     added_table->ToPB(&added_table_pb);
     auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        metadata_->metadata_table_info(), added_table_pb);
+        // metadata_->metadata_table_info(),
+        added_table_pb);
     KeyValueWriteBatchPB write_batch;
 
     const ReadHybridTime& read_ht =
@@ -1979,7 +2019,8 @@ Status Tablet::AddMultipleTables(
       TableInfoPB added_table_pb;
       added_table->ToPB(&added_table_pb);
       auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
-          metadata_->metadata_table_info(), added_table_pb);
+          // metadata_->metadata_table_info(),
+          added_table_pb);
       doc_write_ops.emplace_back(std::move(op));
     }
   }
@@ -2000,19 +2041,24 @@ Status Tablet::AddMultipleTables(
   // return metadata_->Flush();
 }
 
-Status Tablet::AddExistingTableInfoPBsToDocDB() {
+Status Tablet::MoveTableInfoPBsToDocDB() {
   // If nothing has changed then return.
   ChangeMetadataOperation operation(this, nullptr, nullptr);
   RaftGroupReplicaSuperBlockPB superblock;
   metadata_->GetAllTableInfos(&superblock);
   const auto& table_infos_pbs = superblock.kv_store().tables();
+  // if (table_infos_pbs.size() == 0) {
+  //   // No TablesInfoPB to move
+  //   return false;
+  // }
   RSTATUS_DCHECK_GT(table_infos_pbs.size(), 0, Ok, "No table to add to metadata");
   docdb::DocOperations doc_write_ops;
   KeyValueWriteBatchPB write_batch;
   for (const auto& table_info_pb : table_infos_pbs) {
     if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
       auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
-          metadata_->metadata_table_info(), table_info_pb);
+          // metadata_->metadata_table_info(),
+          table_info_pb);
       doc_write_ops.emplace_back(std::move(op));
     }
   }

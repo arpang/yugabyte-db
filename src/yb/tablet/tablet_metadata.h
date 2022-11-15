@@ -162,10 +162,10 @@ struct KvStoreInfo {
       const google::protobuf::RepeatedPtrField<TableInfoPB>& pbs, const TableId& primary_table_id);
 
   Status LoadTablesFromDocDB(
-      const TabletPtr& tablet, const TableId& primary_table_id, const TableId& metadata_table_id);
+      const TabletPtr& tablet, const TableId& primary_table_id);
 
   void ToPB(
-      const TableId& primary_table_id, const TableId& metadata_table_id, KvStoreInfoPB* pb) const;
+      const TableId& primary_table_id, KvStoreInfoPB* pb) const;
 
   // Updates colocation map with new table info.
   void UpdateColocationMap(const TableInfoPtr& table_info);
@@ -184,6 +184,8 @@ struct KvStoreInfo {
 
   // See KvStoreInfoPB field with the same name.
   bool has_been_fully_compacted = false;
+
+  TableInfoPtr initial_primary_table = nullptr;
 
   // Map of tables sharing this KV-store indexed by the table id.
   // If pieces of the same table live in the same Raft group they should be located in different
@@ -207,7 +209,7 @@ struct RaftGroupMetadataData {
   TabletDataState tablet_data_state;
   bool colocated = false;
   std::vector<SnapshotScheduleId> snapshot_schedules;
-  TableInfoPtr metadata_table_info;
+  // TableInfoPtr metadata_table_info;
 };
 
 // At startup, the TSTabletManager will load a RaftGroupMetadata for each
@@ -383,8 +385,9 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
                 const IndexMap& index_map,
                 const PartitionSchema& partition_schema,
                 const boost::optional<IndexInfo>& index_info,
-                const SchemaVersion schema_version,
-                bool is_metadata_table = false);
+                const SchemaVersion schema_version
+                // bool is_metadata_table = false
+                );
 
   void RemoveTable(const TableId& table_id);
 
@@ -473,16 +476,16 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return primary_table_info_unlocked();
   }
 
-  bool is_metadata_table_set() const {
-    std::lock_guard<MutexType> lock(data_mutex_);
-    return !metadata_table_id_.empty();
+  bool MoveMetadataToDocDB () const {
+    // TODO: data_mutex_ not required?
+    return !kv_store_.initial_primary_table;
   }
 
-  TableInfoPtr metadata_table_info() const {
-    std::lock_guard<MutexType> lock(data_mutex_);
-    CHECK(!metadata_table_id_.empty());
-    return metadata_table_info_unlocked();
-  }
+  // TableInfoPtr metadata_table_info() const {
+  //   std::lock_guard<MutexType> lock(data_mutex_);
+  //   CHECK(!metadata_table_id_.empty());
+  //   return metadata_table_info_unlocked();
+  // }
 
   bool colocated() const;
 
@@ -571,12 +574,12 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return itr->second;
   }
 
-  const TableInfoPtr metadata_table_info_unlocked() const {
-    const auto& tables = kv_store_.tables;
-    const auto itr = tables.find(metadata_table_id_);
-    CHECK(itr != tables.end());
-    return itr->second;
-  }
+  // const TableInfoPtr metadata_table_info_unlocked() const {
+  //   const auto& tables = kv_store_.tables;
+  //   const auto itr = tables.find(metadata_table_id_);
+  //   CHECK(itr != tables.end());
+  //   return itr->second;
+  // }
 
   enum State {
     kNotLoadedYet,
@@ -600,7 +603,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // Additional tables can be added to this Raft group to co-locate with this table.
   TableId primary_table_id_ GUARDED_BY(data_mutex_);
 
-  TableId metadata_table_id_ GUARDED_BY(data_mutex_);
+  // TableId metadata_table_id_ GUARDED_BY(data_mutex_);
 
   // KV-store for this Raft group.
   KvStoreInfo kv_store_;

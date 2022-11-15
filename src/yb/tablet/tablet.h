@@ -382,6 +382,15 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
   Status PreparePgsqlWriteOperations(WriteQuery* query);
   void KeyValueBatchFromPgsqlWriteBatch(std::unique_ptr<WriteQuery> query);
 
+  Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> NewRowIterator(
+      const Schema& projection,
+      const Schema& schema,
+      const docdb::DocReadContext& doc_read_context,
+      const ReadHybridTime read_hybrid_time = {},
+      CoarseTimePoint deadline = CoarseTimePoint::max(),
+      AllowBootstrappingState allow_bootstrapping_state = AllowBootstrappingState::kFalse,
+      const Slice& sub_doc_key = Slice()) const;
+
   // Create a new row iterator which yields the rows as of the current MVCC
   // state of this tablet.
   // The returned iterator is not initialized.
@@ -434,7 +443,9 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
       Operation* operation, const google::protobuf::RepeatedPtrField<TableInfoPB>& table_info_pbs,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
-  Status AddExistingTableInfoPBsToDocDB();
+  // Move TableInfoPBs from superblock to DocDB. Must be called during the tablet bootstrap step
+  // before the TableInfoPBs from the DocDB are loaded. Returns true if it moved any TableInfoPB.
+  Status MoveTableInfoPBsToDocDB();
 
   // Apply replicated remove table operation.
   Status RemoveTable(const std::string& table_id);

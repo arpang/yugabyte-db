@@ -132,6 +132,8 @@ class DocKey {
   DocKey(const Schema& schema, DocKeyHash hash,
          std::vector<KeyEntryValue> hashed_components,
          std::vector<KeyEntryValue> range_components = std::vector<KeyEntryValue>());
+  DocKey(bool metadata_key, DocKeyHash hash, std::vector<KeyEntryValue> hashed_components);
+  explicit DocKey(bool metadata_key);
 
   KeyBytes Encode() const;
   void AppendTo(KeyBytes* out) const;
@@ -308,6 +310,8 @@ class DocKey {
   // kColocationIdNotSet for a primary or single-tenant table.
   ColocationId colocation_id_;
 
+  bool metadata_key_ = false;
+
   // TODO: can we get rid of this field and just use !hashed_group_.empty() instead?
   bool hash_present_;
 
@@ -387,6 +391,8 @@ class DocKeyEncoder {
 
   DocKeyEncoderAfterTableIdStep Schema(const Schema& schema);
 
+  DocKeyEncoderAfterTableIdStep MetadataKey();
+
  private:
   KeyBytes* out_;
 };
@@ -397,6 +403,7 @@ class DocKeyDecoder {
 
   Result<bool> DecodeCotableId(Uuid* uuid = nullptr);
   Result<bool> DecodeColocationId(ColocationId* colocation_id = nullptr);
+  Result<bool> DecodeMetadataKey();
 
   Result<bool> HasPrimitiveValue(AllowSpecial allow_special = AllowSpecial::kFalse);
 

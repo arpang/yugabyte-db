@@ -1560,6 +1560,7 @@ Status DocRowwiseIterator::DoNextRow(const Schema& projection, QLTableRow* table
   DocKeyDecoder decoder(row_key_);
   RETURN_NOT_OK(decoder.DecodeCotableId());
   RETURN_NOT_OK(decoder.DecodeColocationId());
+  RETURN_NOT_OK(decoder.DecodeMetadataKey());
   bool has_hash_components = VERIFY_RESULT(decoder.DecodeHashCode());
 
   // Populate the key column values from the doc key. The key column values in doc key were

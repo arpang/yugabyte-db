@@ -106,6 +106,9 @@ message KvStoreInfoPB {
   optional bool has_been_fully_compacted = 8;
 
   repeated bytes snapshot_schedules = 9;
+
+  // Initial primary TableInfoPB. Any subsequent version goes to DocDB.
+  optional TableInfoPB initial_primary_table = 10;
 }
 
 // The super-block keeps track of the Raft group.
