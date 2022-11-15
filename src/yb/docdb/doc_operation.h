@@ -113,7 +113,7 @@ class ChangeMetadataDocOperation : public DocOperation {
   // Deserialization: TableInfoPB.ParseFromString()
 
   ChangeMetadataDocOperation(
-      //const tablet::TableInfoPtr& metadata_table,
+      // const tablet::TableInfoPtr& metadata_table,
       const tablet::TableInfoPB& table_info);
 
   Status Apply(const DocOperationApplyData& data) override;

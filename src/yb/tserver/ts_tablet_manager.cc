@@ -720,7 +720,8 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
   // const TableId metadata_table_id = metadata_table_cotable_id.ToHexString();
   // const Schema tserver_metadata_table_schema = Schema(
   //     {metadata_table_key_col, metadata_table_value_col},
-  //     {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(), Uuid::Nil());
+  //     {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(),
+  //     Uuid::Nil());
 
   // auto metadata_table_info = std::make_shared<tablet::TableInfo>(
   //     tablet::Primary::kFalse, metadata_table_id, "", metadata_table_name,

@@ -31,7 +31,8 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
   std::string key_string;
   AppendToKey(table_id_value, &key_string);
   DocKeyHash hash = YBPartition::HashColumnCompoundValue(key_string);
-  auto hash_component = KeyEntryValue::FromQLValuePB(table_id_value, metadata_table_key_col.sorting_type());
+  auto hash_component =
+      KeyEntryValue::FromQLValuePB(table_id_value, metadata_table_key_col.sorting_type());
   // const auto& metadata_schema = metadata_table->doc_read_context->schema;
   // if (table_info.schema().table_properties().is_ysql_catalog_table()) {
   //   DCHECK(metadata_schema.has_cotable_id());
