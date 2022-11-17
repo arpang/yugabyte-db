@@ -121,6 +121,7 @@ namespace docdb {
     ((kRowLock, 'l'))  /* ASCII code 108 */ \
     ((kBitSet, 'm')) /* ASCII code 109 */ \
     ((kSubTransactionId, 'n')) /* ASCII code 110 */ \
+    ((kTabletMetadata, 'o')) /* ASCII code 111 */ \
     /* Timestamp value in microseconds */ \
     ((kTimestamp, 's'))  /* ASCII code 115 */ \
     /* TTL value in milliseconds, optionally present at the start of a value. */ \
@@ -129,7 +130,6 @@ namespace docdb {
     ((kGinNull, 'v')) /* ASCII code 118 */ \
     ((kTransactionId, 'x')) /* ASCII code 120 */ \
     ((kTableId, 'y')) /* ASCII code 121 */ \
-    ((kTabletMetadata, 'z')) /* ASCII code 122 */ \
     \
     /* Null desc must be higher than the other descending primitive types so that it compares */ \
     /* as bigger than them. It is used for frozen CQL user-defined types (which can contain */ \

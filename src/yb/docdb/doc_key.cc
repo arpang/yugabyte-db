@@ -1291,10 +1291,7 @@ Result<bool> DocKeyDecoder::DecodeColocationId(ColocationId* colocation_id) {
 }
 
 Result<bool> DocKeyDecoder::DecodeMetadataKey() {
-  if (!input_.TryConsumeByte(KeyEntryTypeAsChar::kTabletMetadata)) {
-    return false;
-  }
-  return true;
+  return input_.TryConsumeByte(KeyEntryTypeAsChar::kTabletMetadata);
 }
 
 Result<bool> DocKeyDecoder::DecodeHashCode(uint16_t* out, AllowSpecial allow_special) {
@@ -1449,6 +1446,11 @@ Result<bool> HashedOrFirstRangeComponentsEqual(const Slice& lhs, const Slice& rh
 }
 
 bool DocKeyBelongsTo(Slice doc_key, const Schema& schema) {
+
+  if (schema.Equals(metadata_schema)) {
+    return !doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata;
+  }
+
   bool has_table_id = !doc_key.empty() &&
        (doc_key[0] == KeyEntryTypeAsChar::kTableId ||
         doc_key[0] == KeyEntryTypeAsChar::kColocationId);

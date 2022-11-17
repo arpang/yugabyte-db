@@ -49,6 +49,7 @@
 #include "yb/consensus/consensus_util.h"
 #include "yb/consensus/opid_util.h"
 
+#include "yb/docdb/doc_key.h"
 #include "yb/docdb/doc_pgsql_scanspec.h"
 #include "yb/docdb/doc_read_context.h"
 #include "yb/docdb/doc_rowwise_iterator.h"
@@ -330,9 +331,11 @@ Status KvStoreInfo::LoadTablesFromDocDB(const TabletPtr& tablet, const TableId& 
   {
     auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
     const std::vector<docdb::KeyEntryValue> empty_key_components;
-    docdb::DocPgsqlScanSpec spec(
-        metadata_schema, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components,
-        nullptr, boost::none /* hash_code */, boost::none /* max_hash_code */, nullptr /* where */);
+    // docdb::DocPgsqlScanSpec spec(
+    //     metadata_schema, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components,
+    //     nullptr, boost::none /* hash_code */, boost::none /* max_hash_code */, nullptr /* where
+    //     */);
+    docdb::DocPgsqlScanSpec spec(metadata_schema, rocksdb::kDefaultQueryId, docdb::DocKey(true));
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
 

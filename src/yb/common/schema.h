@@ -1112,7 +1112,7 @@ const ColumnSchema metadata_table_value_col = ColumnSchema("table_info", STRING,
 
 const Schema metadata_schema = Schema(
     {metadata_table_key_col, metadata_table_value_col},
-    {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(), Uuid::Nil());
+    {metadata_table_key_col_id, metadata_table_value_col_id}, 1);
 
 // Helper used for schema creation/editing.
 //
