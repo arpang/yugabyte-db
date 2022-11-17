@@ -2063,7 +2063,8 @@ Status Tablet::MoveTableInfoPBsToDocDB() {
     }
   }
   const ReadHybridTime& read_ht = ReadHybridTime::SingleTime(
-      HybridTime(kMinHybridTimeValue));  // As the tables are pre-existing
+      HybridTime(kMinHybridTimeValue));  // As the tables are pre-existing // Most likely this is
+                                         // wrong, should be now?
   const CoarseTimePoint deadline = CoarseTimePoint::max();
   HybridTime restart_read_ht;
   RETURN_NOT_OK(docdb::AssembleDocWriteBatch(

@@ -223,7 +223,10 @@ DocKey::DocKey(const Schema& schema, DocKeyHash hash,
 }
 
 DocKey::DocKey(bool metadata_key, DocKeyHash hash, std::vector<KeyEntryValue> hashed_components)
-    : metadata_key_(metadata_key), hash_(hash), hashed_group_(std::move(hashed_components)) {}
+    : metadata_key_(metadata_key),
+      hash_present_(true),
+      hash_(hash),
+      hashed_group_(std::move(hashed_components)) {}
 
 DocKey::DocKey(bool metadata_key) : metadata_key_(metadata_key) {}
 
