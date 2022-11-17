@@ -1225,11 +1225,9 @@ Status DocRowwiseIterator::Init(TableType table_type, const Slice& sub_doc_key) 
       read_time_);
   if (!sub_doc_key.empty()) {
     row_key_ = sub_doc_key;
-    LOG_WITH_FUNC(INFO) << "(1) Intialized row key to " << ToShortDebugStr(row_key_);
   } else {
     DocKeyEncoder(&iter_key_).Schema(doc_read_context_.schema);
     row_key_ = iter_key_;
-    LOG_WITH_FUNC(INFO) << "(2) Intialized row key to " << ToShortDebugStr(row_key_);
   }
   row_hash_key_ = row_key_;
   VLOG(3) << __PRETTY_FUNCTION__ << " Seeking to " << row_key_;

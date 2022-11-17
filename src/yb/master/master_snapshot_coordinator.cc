@@ -315,7 +315,7 @@ class MasterSnapshotCoordinator::Impl {
     docdb::SubDocKey sub_doc_key;
     RETURN_NOT_OK(sub_doc_key.FullyDecodeFrom(key, docdb::HybridTimeRequired::kFalse));
 
-    if (sub_doc_key.doc_key().has_cotable_id()) {
+    if (sub_doc_key.doc_key().has_cotable_id() || sub_doc_key.doc_key().is_metadata_key()) {
       return Status::OK();
     }
 

@@ -168,6 +168,10 @@ class DocKey {
     return colocation_id_ != kColocationIdNotSet;
   }
 
+  bool is_metadata_key() const {
+    return metadata_key_;
+  }
+
   DocKeyHash hash() const {
     return hash_;
   }
