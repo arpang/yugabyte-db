@@ -1451,6 +1451,10 @@ bool DocKeyBelongsTo(Slice doc_key, const Schema& schema) {
     return !doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata;
   }
 
+  if (!doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+    return schema.Equals(metadata_schema);
+  }
+
   bool has_table_id = !doc_key.empty() &&
        (doc_key[0] == KeyEntryTypeAsChar::kTableId ||
         doc_key[0] == KeyEntryTypeAsChar::kColocationId);
