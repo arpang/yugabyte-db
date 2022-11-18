@@ -1998,71 +1998,16 @@ Result<TableInfoPtr> Tablet::AddTableInMemory(const TableInfoPB& table_info) {
       table_info.table_id(), table_info.namespace_name(), table_info.table_name(),
       table_info.table_type(), schema, IndexMap(), partition_schema, boost::none,
       table_info.schema_version());
-
-  // return Status::OK();
 }
 
-Status Tablet::AddTable(
-    Operation* operation, const TableInfoPB& table_info_pb,
+Status Tablet::ApplyMetadataDocOperation(
+    Operation* operation, const docdb::DocOperations& doc_write_ops,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
-  auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
-  // TODO: Probably should handle YQL_TABLE_TYPE TOO?
-  if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
-    TableInfoPB added_table_pb;
-    added_table->ToPB(&added_table_pb);
-    auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        // metadata_->metadata_table_info(),
-        added_table_pb);
-    Arena arena;
-    docdb::LWKeyValueWriteBatchPB write_batch(&arena);
-
-    const ReadHybridTime& read_ht =
-        ReadHybridTime::SingleTime(clock()->Now());  // ReadHybridTime::Max();
-    const CoarseTimePoint deadline = CoarseTimePoint::max();
-    HybridTime restart_read_ht;
-    docdb::DocOperations doc_write_ops;
-    doc_write_ops.emplace_back(std::move(op));
-    RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
-        doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
-        docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
-        metadata()->table_name()));  // TODO: table name fix, but it is not used as such
-    RETURN_NOT_OK(ApplyOperation(
-        *operation, 1, write_batch,
-        already_applied_to_regular_db));  // todo: batch_idx hardcoding
-                                          // along the lines of writepb, does it make sense to add
-                                          // batch_idx field in ChangeMetadataRequestPB. See
-                                          // operations.proto
-  }
-  // else {
-  //   // TODO: For any table reaching here: we are neither flushing it to protobuf file nor writing
-  //   to
-  //   // docdb so this is really problematic
-  //   LOG_WITH_FUNC(INFO) << "NOT Adding table to docdb " << table_info_pb.table_name();
-  // }
-  return Status::OK();
-  // return metadata_->Flush();
-}
-
-Status Tablet::AddMultipleTables(
-    Operation* operation, const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos_pbs,
-    AlreadyAppliedToRegularDB already_applied_to_regular_db) {
-  // If nothing has changed then return.
-  RSTATUS_DCHECK_GT(table_infos_pbs.size(), 0, Ok, "No table to add to metadata");
-  docdb::DocOperations doc_write_ops;
   Arena arena;
   docdb::LWKeyValueWriteBatchPB write_batch(&arena);
-  for (const auto& table_info_pb : table_infos_pbs) {
-    auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
-    if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
-      TableInfoPB added_table_pb;
-      added_table->ToPB(&added_table_pb);
-      auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
-          // metadata_->metadata_table_info(),
-          added_table_pb);
-      doc_write_ops.emplace_back(std::move(op));
-    }
-  }
-  const ReadHybridTime& read_ht = ReadHybridTime::SingleTime(clock()->Now());
+
+  const ReadHybridTime& read_ht =
+      ReadHybridTime::SingleTime(clock()->Now());  // ReadHybridTime::Max();
   const CoarseTimePoint deadline = CoarseTimePoint::max();
   HybridTime restart_read_ht;
   RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
@@ -2076,52 +2021,69 @@ Status Tablet::AddMultipleTables(
                                         // batch_idx field in ChangeMetadataRequestPB. See
                                         // operations.proto
   return Status::OK();
-  // return metadata_->Flush();
+}
+
+Status Tablet::AddTable(
+    Operation* operation, const TableInfoPB& table_info_pb,
+    AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
+  DCHECK_EQ(table_info_pb.table_type(), PGSQL_TABLE_TYPE);
+  TableInfoPB added_table_pb;
+  added_table->ToPB(&added_table_pb);
+  auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
+      MetadataChange::ADD_TABLE, added_table_pb.table_id(), added_table_pb);
+  docdb::DocOperations doc_write_ops;
+  doc_write_ops.emplace_back(std::move(doc_operation));
+  RETURN_NOT_OK(ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
+  return Status::OK();
+}
+
+Status Tablet::AddMultipleTables(
+    Operation* operation, const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos_pbs,
+    AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  // If nothing has changed then return.
+  RSTATUS_DCHECK_GT(table_infos_pbs.size(), 0, Ok, "No table to add to metadata");
+  docdb::DocOperations doc_write_ops;
+  for (const auto& table_info_pb : table_infos_pbs) {
+    auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
+    DCHECK_EQ(table_info_pb.table_type(), PGSQL_TABLE_TYPE);
+    TableInfoPB added_table_pb;
+    added_table->ToPB(&added_table_pb);
+    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
+        MetadataChange::ADD_TABLE, added_table_pb.table_id(), added_table_pb);
+    doc_write_ops.emplace_back(std::move(doc_operation));
+  }
+  RETURN_NOT_OK(ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
+  return Status::OK();
 }
 
 Status Tablet::MoveTableInfoPBsToDocDB() {
-  // If nothing has changed then return.
   ChangeMetadataOperation operation(shared_from_this(), nullptr, nullptr);
   RaftGroupReplicaSuperBlockPB superblock;
   metadata_->GetAllTableInfos(&superblock);
   const auto& table_infos_pbs = superblock.kv_store().tables();
-  // if (table_infos_pbs.size() == 0) {
-  //   // No TablesInfoPB to move
-  //   return false;
-  // }
   RSTATUS_DCHECK_GT(table_infos_pbs.size(), 0, Ok, "No table to add to metadata");
   docdb::DocOperations doc_write_ops;
-  Arena arena;
-  docdb::LWKeyValueWriteBatchPB write_batch(&arena);
   for (const auto& table_info_pb : table_infos_pbs) {
     if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
       auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
-          // metadata_->metadata_table_info(),
-          table_info_pb);
+          MetadataChange::ADD_TABLE, table_info_pb.table_id(), table_info_pb);
       doc_write_ops.emplace_back(std::move(op));
     }
   }
-  const ReadHybridTime& read_ht = ReadHybridTime::SingleTime(
-      HybridTime(kMinHybridTimeValue));  // As the tables are pre-existing // Most likely this is
-                                         // wrong, should be now?
-  const CoarseTimePoint deadline = CoarseTimePoint::max();
-  HybridTime restart_read_ht;
-  RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
-      doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
-      docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
-      metadata()->table_name()));  // TODO: table name fix, but it is not used as such
-  RETURN_NOT_OK(
-      ApplyOperation(operation, 1, write_batch));  // todo: batch_idx hardcoding
-                                                   // along the lines of writepb, does it make
-                                                   // sense to add batch_idx field in
-                                                   // ChangeMetadataRequestPB. See operations.proto
+  RETURN_NOT_OK(ApplyMetadataDocOperation(&operation, doc_write_ops));
   return Status::OK();
-  // return metadata_->Flush();
 }
 
-Status Tablet::RemoveTable(const std::string& table_id) {
+Status Tablet::RemoveTable(Operation* operation,
+    const std::string& table_id, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   metadata_->RemoveTable(table_id);
-  RETURN_NOT_OK(metadata_->Flush());
+  auto doc_operation =
+      std::make_unique<docdb::ChangeMetadataDocOperation>(MetadataChange::REMOVE_TABLE, table_id);
+  docdb::DocOperations doc_write_ops;
+  doc_write_ops.emplace_back(std::move(doc_operation));
+  RETURN_NOT_OK(ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
+
   return Status::OK();
 }
 

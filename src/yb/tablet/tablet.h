@@ -43,6 +43,7 @@
 #include "yb/consensus/consensus_types.pb.h"
 
 #include "yb/docdb/docdb_fwd.h"
+#include "yb/docdb/doc_operation.h"
 #include "yb/docdb/docdb_types.h"
 #include "yb/docdb/key_bounds.h"
 #include "yb/docdb/shared_lock_manager.h"
@@ -444,6 +445,10 @@ class Tablet : public AbstractTablet,
   // Change wal_retention_secs in the metadata.
   Status AlterWalRetentionSecs(ChangeMetadataOperation* operation);
 
+  Status ApplyMetadataDocOperation(
+      Operation* operation, const docdb::DocOperations& doc_write_ops,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
+
   // Apply replicated add table operation.
   Status AddTable(
       Operation* operation, const TableInfoPB& table_info,
@@ -458,7 +463,10 @@ class Tablet : public AbstractTablet,
   Status MoveTableInfoPBsToDocDB();
 
   // Apply replicated remove table operation.
-  Status RemoveTable(const std::string& table_id);
+  Status RemoveTable(
+      Operation* operation,
+      const std::string& table_id,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
   // Truncate this tablet by resetting the content of RocksDB.
   Status Truncate(TruncateOperation* operation);

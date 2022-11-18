@@ -133,16 +133,6 @@ Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* comple
     }
   }
 
-  // Only perform one operation.
-  enum MetadataChange {
-    NONE,
-    SCHEMA,
-    ADD_TABLE,
-    REMOVE_TABLE,
-    BACKFILL_DONE,
-    ADD_MULTIPLE_TABLES,
-  };
-
   MetadataChange metadata_change = MetadataChange::NONE;
   bool request_has_newer_schema = false;
   if (request()->has_schema()) {
@@ -199,6 +189,7 @@ Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* comple
       log->SetSchemaForNextLogSegment(*DCHECK_NOTNULL(schema()), schema_version());
       break;
     case MetadataChange::ADD_TABLE:
+      LOG_WITH_FUNC(INFO) << "MetadataChange::ADD_TABLE";
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
       RETURN_NOT_OK(tablet->AddTable(this, request()->add_table().ToGoogleProtobuf()));
@@ -206,7 +197,7 @@ Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* comple
     case MetadataChange::REMOVE_TABLE:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
-      RETURN_NOT_OK(tablet->RemoveTable(request()->remove_table_id().ToBuffer()));
+      RETURN_NOT_OK(tablet->RemoveTable(this, request()->remove_table_id().ToBuffer()));
       break;
     case MetadataChange::BACKFILL_DONE:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
@@ -215,6 +206,7 @@ Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* comple
           request()->backfill_done_table_id().ToBuffer()));
       break;
     case MetadataChange::ADD_MULTIPLE_TABLES:
+      LOG_WITH_FUNC(INFO) << "MetadataChange::ADD_MULTIPLE_TABLES";
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
       RETURN_NOT_OK(

@@ -57,6 +57,16 @@ namespace tablet {
 
 class TabletPeer;
 
+// Only perform one operation.
+enum MetadataChange {
+  NONE,
+  SCHEMA,
+  ADD_TABLE,
+  REMOVE_TABLE,
+  BACKFILL_DONE,
+  ADD_MULTIPLE_TABLES,
+};
+
 // Operation Context for the AlterSchema operation.
 // Keeps track of the Operation states (request, result, ...)
 class ChangeMetadataOperation

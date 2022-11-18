@@ -23,6 +23,7 @@
 #include "yb/docdb/docdb_fwd.h"
 
 #include "yb/tablet/metadata.pb.h"
+#include "yb/tablet/operations/change_metadata_operation.h"
 #include "yb/util/monotime.h"
 #include "yb/util/ref_cnt_buffer.h"
 #include "yb/tablet/tablet_metadata.h"
@@ -112,8 +113,8 @@ class ChangeMetadataDocOperation : public DocOperation {
   // Deserialization: TableInfoPB.ParseFromString()
 
   ChangeMetadataDocOperation(
-      // const tablet::TableInfoPtr& metadata_table,
-      const tablet::TableInfoPB& table_info);
+      const tablet::MetadataChange metadata_change, const std::string& table_id,
+      const tablet::TableInfoPB& table_info = tablet::TableInfoPB());
 
   Status Apply(const DocOperationApplyData& data) override;
 
@@ -137,9 +138,9 @@ class ChangeMetadataDocOperation : public DocOperation {
 
  private:
   const tablet::TableInfoPB& table_info_;
-  // Doc key and encoded doc key for the primary key.
-  // boost::optional<DocKey> doc_key_;
   RefCntPrefix encoded_doc_key_;
+  // QLValuePB table_info_value;
+  const tablet::MetadataChange metadata_change_;
 };
 
 typedef std::vector<std::unique_ptr<DocOperation>> DocOperations;
