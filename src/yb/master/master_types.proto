@@ -141,6 +141,8 @@ message MasterErrorPB {
     TABLET_NOT_RUNNING = 38;
 
     TABLE_NOT_RUNNING = 39;
+
+    TABLE_SCHEMA_CHANGE_IN_PROGRESS = 40;
   }
 
   // The error code.
@@ -201,4 +203,10 @@ message TServerMetricsPB {
   }
   repeated PathMetrics path_metrics = 8;
   optional bool disable_tablet_split_if_default_ttl = 9;
+}
+
+message StreamReplicationStatusPB {
+  // The keys are expected to be of type 'ReplicationErrorPb'. This works around the limitation that
+  // enums can not be used as map keys in the protobuf spec.
+  map<int32, string> replication_errors = 1;
 }

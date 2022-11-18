@@ -10,12 +10,16 @@
 
 package com.yugabyte.yw.commissioner.tasks;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.yugabyte.yw.commissioner.BaseTaskDependencies;
 import com.yugabyte.yw.commissioner.Common.CloudType;
 import com.yugabyte.yw.commissioner.UserTaskDetails.SubTaskGroupType;
+import com.yugabyte.yw.common.certmgmt.CertConfigType;
 import com.yugabyte.yw.common.kms.util.EncryptionAtRestUtil;
 import com.yugabyte.yw.forms.CertsRotateParams;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams;
+import com.yugabyte.yw.models.CertificateInfo;
 import com.yugabyte.yw.models.Universe;
 import com.yugabyte.yw.models.helpers.NodeDetails;
 import java.util.Collection;
@@ -36,8 +40,13 @@ public class ResumeUniverse extends UniverseDefinitionTaskBase {
     super(baseTaskDependencies);
   }
 
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  @JsonDeserialize(converter = Params.Converter.class)
   public static class Params extends UniverseDefinitionTaskParams {
     public UUID customerUUID;
+
+    public static class Converter
+        extends UniverseDefinitionTaskParams.BaseConverter<ResumeUniverse.Params> {}
   }
 
   public Params params() {
@@ -58,24 +67,28 @@ public class ResumeUniverse extends UniverseDefinitionTaskBase {
         createResumeServerTasks(universe).setSubTaskGroupType(SubTaskGroupType.ResumeUniverse);
       }
 
-      // Optimistically rotate node-to-node server certificates before starting DB processes
-      // Also see CertsRotate
       List<NodeDetails> tserverNodeList = universe.getTServers();
       List<NodeDetails> masterNodeList = universe.getMasters();
 
-      SubTaskGroupType certRotate = RotatingCert;
-      taskParams().rootCA = universeDetails.rootCA;
-      taskParams().clientRootCA = universeDetails.clientRootCA;
-      createCertUpdateTasks(
-          masterNodeList,
-          tserverNodeList,
-          certRotate,
-          CertsRotateParams.CertRotationType.ServerCert,
-          CertsRotateParams.CertRotationType.None);
-      createUniverseSetTlsParamsTask(certRotate);
+      // Optimistically rotate node-to-node server certificates before starting DB processes
+      // Also see CertsRotate
+      if (universeDetails.rootCA != null) {
+        CertificateInfo rootCert = CertificateInfo.get(universeDetails.rootCA);
 
-      if (universeDetails.getPrimaryCluster().userIntent.providerType == CloudType.azu) {
-        createServerInfoTasks(nodes).setSubTaskGroupType(SubTaskGroupType.Provisioning);
+        if (rootCert == null) {
+          log.error("Root certificate not found for {}", universe.universeUUID);
+        } else if (rootCert.certType == CertConfigType.SelfSigned) {
+          SubTaskGroupType certRotate = RotatingCert;
+          taskParams().rootCA = universeDetails.rootCA;
+          taskParams().clientRootCA = universeDetails.clientRootCA;
+          createCertUpdateTasks(
+              masterNodeList,
+              tserverNodeList,
+              certRotate,
+              CertsRotateParams.CertRotationType.ServerCert,
+              CertsRotateParams.CertRotationType.None);
+          createUniverseSetTlsParamsTask(certRotate);
+        }
       }
 
       createStartMasterTasks(masterNodeList)

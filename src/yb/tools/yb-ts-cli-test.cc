@@ -56,9 +56,13 @@
 
 #include "yb/tools/admin-test-base.h"
 
+#include "yb/util/backoff_waiter.h"
 #include "yb/util/path_util.h"
 #include "yb/util/pb_util.h"
 #include "yb/util/subprocess.h"
+
+using std::string;
+using std::vector;
 
 using boost::assign::list_of;
 using strings::Split;

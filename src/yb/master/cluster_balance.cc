@@ -32,89 +32,75 @@
 #include "yb/master/master.h"
 #include "yb/master/master_error.h"
 
-#include "yb/util/flag_tags.h"
+#include "yb/util/flags.h"
 #include "yb/util/status.h"
 #include "yb/util/status_format.h"
 #include "yb/util/status_log.h"
 
-DEFINE_bool(enable_load_balancing,
-            true,
-            "Choose whether to enable the load balancing algorithm, to move tablets around.");
+DEFINE_RUNTIME_bool(enable_load_balancing, true,
+    "Choose whether to enable the load balancing algorithm, to move tablets around.");
 
-DEFINE_bool(transaction_tables_use_preferred_zones,
-            false,
-            "Choose whether transaction tablet leaders respect preferred zones.");
+DEFINE_RUNTIME_bool(transaction_tables_use_preferred_zones, false,
+    "Choose whether transaction tablet leaders respect preferred zones.");
 
-DEFINE_bool(enable_global_load_balancing,
-            true,
-            "Choose whether to allow the load balancer to make moves that strictly only balance "
-            "global load. Note that global balancing only occurs after all tables are balanced.");
+DEFINE_RUNTIME_bool(enable_global_load_balancing, true,
+    "Choose whether to allow the load balancer to make moves that strictly only balance "
+    "global load. Note that global balancing only occurs after all tables are balanced.");
 
-DEFINE_int32(leader_balance_threshold,
-             0,
-             "Number of leaders per each tablet server to balance below. If this is configured to "
-                 "0 (the default), the leaders will be balanced optimally at extra cost.");
+DEFINE_RUNTIME_int32(leader_balance_threshold, 0,
+    "Number of leaders per each tablet server to balance below. If this is configured to "
+    "0 (the default), the leaders will be balanced optimally at extra cost.");
 
-DEFINE_int32(leader_balance_unresponsive_timeout_ms,
-             3 * 1000,
-             "The period of time that a master can go without receiving a heartbeat from a "
-                 "tablet server before considering it unresponsive. Unresponsive servers are "
-                 "excluded from leader balancing.");
+DEFINE_RUNTIME_int32(leader_balance_unresponsive_timeout_ms, 3 * 1000,
+    "The period of time that a master can go without receiving a heartbeat from a "
+    "tablet server before considering it unresponsive. Unresponsive servers are "
+    "excluded from leader balancing.");
 
-DEFINE_int32(load_balancer_max_concurrent_tablet_remote_bootstraps,
-             10,
-             "Maximum number of tablets being remote bootstrapped across the cluster.");
+DEFINE_RUNTIME_int32(load_balancer_max_concurrent_tablet_remote_bootstraps, 10,
+    "Maximum number of tablets being remote bootstrapped across the cluster.");
 
-DEFINE_int32(load_balancer_max_concurrent_tablet_remote_bootstraps_per_table,
-             2,
-             "Maximum number of tablets being remote bootstrapped for any table. The maximum "
-             "number of remote bootstraps across the cluster is still limited by the flag "
-             "load_balancer_max_concurrent_tablet_remote_bootstraps. This flag is meant to prevent "
-             "a single table use all the available remote bootstrap sessions and starving other "
-             "tables.");
+DEFINE_RUNTIME_int32(load_balancer_max_concurrent_tablet_remote_bootstraps_per_table, 2,
+    "Maximum number of tablets being remote bootstrapped for any table. The maximum "
+    "number of remote bootstraps across the cluster is still limited by the flag "
+    "load_balancer_max_concurrent_tablet_remote_bootstraps. This flag is meant to prevent "
+    "a single table use all the available remote bootstrap sessions and starving other "
+    "tables.");
 
-DEFINE_int32(load_balancer_max_over_replicated_tablets,
-             1,
-             "Maximum number of running tablet replicas that are allowed to be over the configured "
-             "replication factor.");
+DEFINE_RUNTIME_int32(load_balancer_max_over_replicated_tablets, 1,
+    "Maximum number of running tablet replicas that are allowed to be over the configured "
+    "replication factor.");
 
-DEFINE_int32(load_balancer_max_concurrent_adds,
-             1,
-             "Maximum number of tablet peer replicas to add in any one run of the load balancer.");
+DEFINE_RUNTIME_int32(load_balancer_max_concurrent_adds, 1,
+    "Maximum number of tablet peer replicas to add in any one run of the load balancer.");
 
-DEFINE_int32(load_balancer_max_concurrent_removals,
-             1,
-             "Maximum number of over-replicated tablet peer removals to do in any one run of the "
-             "load balancer.");
+DEFINE_RUNTIME_int32(load_balancer_max_concurrent_removals, 1,
+    "Maximum number of over-replicated tablet peer removals to do in any one run of the "
+    "load balancer.");
 
-DEFINE_int32(load_balancer_max_concurrent_moves,
-             10,
-             "Maximum number of tablet leaders on tablet servers (across the cluster) to move in "
-             "any one run of the load balancer.");
+DEFINE_RUNTIME_int32(load_balancer_max_concurrent_moves, 10,
+    "Maximum number of tablet leaders on tablet servers (across the cluster) to move in "
+    "any one run of the load balancer.");
 
-DEFINE_int32(load_balancer_max_concurrent_moves_per_table,
-             1,
-             "Maximum number of tablet leaders per table to move in any one run of the load "
-             "balancer. The maximum number of tablet leader moves across the cluster is still "
-             "limited by the flag load_balancer_max_concurrent_moves. This flag is meant to "
-             "prevent a single table from using all of the leader moves quota and starving "
-             "other tables.");
+DEFINE_RUNTIME_int32(load_balancer_max_concurrent_moves_per_table, 1,
+    "Maximum number of tablet leaders per table to move in any one run of the load "
+    "balancer. The maximum number of tablet leader moves across the cluster is still "
+    "limited by the flag load_balancer_max_concurrent_moves. This flag is meant to "
+    "prevent a single table from using all of the leader moves quota and starving "
+    "other tables.");
 
-DEFINE_int32(load_balancer_num_idle_runs,
-             5,
-             "Number of idle runs of load balancer to deem it idle.");
+DEFINE_RUNTIME_int32(load_balancer_num_idle_runs, 5,
+    "Number of idle runs of load balancer to deem it idle.");
 
 DEFINE_test_flag(bool, load_balancer_handle_under_replicated_tablets_only, false,
                  "Limit the functionality of the load balancer during tests so tests can make "
                  "progress");
 
-// No longer used because leader stepdown is not as slow as it used to be.)
-DEFINE_bool(load_balancer_skip_leader_as_remove_victim, false,
-            "DEPRECATED. Should the LB skip a leader as a possible remove candidate.");
+// No longer used because leader stepdown is not as slow as it used to be.
+DEPRECATE_FLAG(bool, load_balancer_skip_leader_as_remove_victim, "10_2022");
 
-DEFINE_bool(allow_leader_balancing_dead_node, true,
-            "When a tserver is marked as dead, do we continue leader balancing for tables that "
-            "have a replica on this tserver");
+DEFINE_RUNTIME_bool(allow_leader_balancing_dead_node, true,
+    "When a tserver is marked as dead, do we continue leader balancing for tables that "
+    "have a replica on this tserver");
 
 DEFINE_test_flag(int32, load_balancer_wait_after_count_pending_tasks_ms, 0,
                  "For testing purposes, number of milliseconds to wait after counting and "
@@ -123,17 +109,16 @@ DEFINE_test_flag(int32, load_balancer_wait_after_count_pending_tasks_ms, 0,
 DECLARE_int32(min_leader_stepdown_retry_interval_ms);
 DECLARE_bool(enable_ysql_tablespaces_for_placement);
 
-DEFINE_bool(load_balancer_count_move_as_add, true,
-            "Should we enable state change to count add server triggered by load move as just an "
-            "add instead of both an add and remove.");
+DEFINE_RUNTIME_bool(load_balancer_count_move_as_add, true,
+    "Should we enable state change to count add server triggered by load move as just an "
+    "add instead of both an add and remove.");
 
-DEFINE_bool(load_balancer_drive_aware, true,
-            "When LB decides to move a tablet from server A to B, on the target LB "
-            "should select the tablet to move from most loaded drive.");
+DEFINE_RUNTIME_bool(load_balancer_drive_aware, true,
+    "When LB decides to move a tablet from server A to B, on the target LB "
+    "should select the tablet to move from most loaded drive.");
 
-DEFINE_bool(load_balancer_ignore_cloud_info_similarity, false,
-            "If true, ignore the similarity between cloud infos when deciding which tablet "
-            "to move.");
+DEFINE_RUNTIME_bool(load_balancer_ignore_cloud_info_similarity, false,
+    "If true, ignore the similarity between cloud infos when deciding which tablet to move");
 
 METRIC_DEFINE_gauge_int64(cluster,
                           is_load_balancing_enabled,
@@ -262,11 +247,11 @@ size_t ClusterLoadBalancer::get_total_wrong_placement() const {
 }
 
 size_t ClusterLoadBalancer::get_total_blacklisted_servers() const {
-  return state_->blacklisted_servers_.size();
+  return global_state_->blacklisted_servers_.size();
 }
 
 size_t ClusterLoadBalancer::get_total_leader_blacklisted_servers() const {
-  return state_->leader_blacklisted_servers_.size();
+  return global_state_->leader_blacklisted_servers_.size();
 }
 
 size_t ClusterLoadBalancer::get_total_over_replication() const {
@@ -297,6 +282,7 @@ ClusterLoadBalancer::ClusterLoadBalancer(CatalogManager* cm)
   ResetGlobalState(false /* initialize_ts_descs */);
 
   catalog_manager_ = cm;
+  last_load_balance_run_ = MonoTime::Min();
 }
 
 // Reduce remaining_tasks by pending_tasks value, after sanitizing inputs.
@@ -354,7 +340,8 @@ void ClusterLoadBalancer::RunLoadBalancerWithOptions(Options* options) {
   int pending_stepdown_leader_tasks = 0;
 
   // Set blacklist upfront since per table states require it.
-  SetBlacklist();
+  // Also, set tservers that have pending deletes.
+  SetBlacklistAndPendingDeleteTS();
 
   for (const auto& table : GetTableMap()) {
     if (SkipLoadBalancing(*table.second)) {
@@ -653,7 +640,11 @@ void ClusterLoadBalancer::RecordActivity(bool tasks_added_in_this_run, uint32_t 
   // enabled up until we perform a non-global balancing move (see GetLoadToMove()).
   // TODO(julien) some small improvements can be made here, such as ignoring leader stepdown tasks.
   can_perform_global_operations_ = can_perform_global_operations_ || ai.IsIdle();
+
+  last_load_balance_run_ = MonoTime::Now();
 }
+
+MonoTime ClusterLoadBalancer::LastRunTime() const { return last_load_balance_run_; }
 
 Status ClusterLoadBalancer::IsIdle() const {
   if (IsLoadBalancerEnabled() && !is_idle_.load(std::memory_order_acquire)) {
@@ -1108,8 +1099,8 @@ Result<bool> ClusterLoadBalancer::GetLeaderToMove(
     --right;
     const TabletServerId& high_load_uuid = sorted_leader_load[right];
     auto high_leader_blacklisted =
-        (state_->leader_blacklisted_servers_.find(high_load_uuid) !=
-         state_->leader_blacklisted_servers_.end());
+        (global_state_->leader_blacklisted_servers_.find(high_load_uuid) !=
+         global_state_->leader_blacklisted_servers_.end());
     auto high_load = state_->GetLeaderLoad(high_load_uuid);
     if (high_leader_blacklisted) {
       if (high_load > 0) {
@@ -1158,8 +1149,8 @@ Result<bool> ClusterLoadBalancer::GetLeaderToMove(
   ssize_t last_pos = sorted_leader_load.size() - 1;
   for (ssize_t left = 0; left <= last_pos; ++left) {
     const TabletServerId& low_load_uuid = sorted_leader_load[left];
-    auto low_leader_blacklisted = (state_->leader_blacklisted_servers_.find(low_load_uuid) !=
-        state_->leader_blacklisted_servers_.end());
+    auto low_leader_blacklisted = (global_state_->leader_blacklisted_servers_.find(low_load_uuid)
+        != global_state_->leader_blacklisted_servers_.end());
     if (low_leader_blacklisted) {
       // Left marker has gone beyond non-leader blacklisted tservers.
       return false;
@@ -1167,8 +1158,9 @@ Result<bool> ClusterLoadBalancer::GetLeaderToMove(
 
     for (auto right = last_pos; right >= 0; --right) {
       const TabletServerId& high_load_uuid = sorted_leader_load[right];
-      auto high_leader_blacklisted = (state_->leader_blacklisted_servers_.find(high_load_uuid) !=
-          state_->leader_blacklisted_servers_.end());
+      auto high_leader_blacklisted =
+          (global_state_->leader_blacklisted_servers_.find(high_load_uuid) !=
+              global_state_->leader_blacklisted_servers_.end());
       ssize_t load_variance =
           state_->GetLeaderLoad(high_load_uuid) - state_->GetLeaderLoad(low_load_uuid);
 
@@ -1345,8 +1337,8 @@ Result<bool> ClusterLoadBalancer::GetLeaderToMoveAcrossAffinitizedPriorities(
       idx--;
       const TabletServerId& from_uuid = leader_set[idx];
       if (state_->GetLeaderLoad(from_uuid) == 0) {
-        bool is_blacklisted = state_->leader_blacklisted_servers_.find(from_uuid) !=
-                              state_->leader_blacklisted_servers_.end();
+        bool is_blacklisted = global_state_->leader_blacklisted_servers_.find(from_uuid) !=
+                              global_state_->leader_blacklisted_servers_.end();
         if (is_blacklisted) {
           // Blacklisted nodes are sorted to the end even if their load is 0.
           // There could still be non-blacklisted nodes with higher loads. So keep looking.
@@ -1444,13 +1436,40 @@ void ClusterLoadBalancer::GetAllAffinitizedZones(
   CatalogManagerUtil::GetAllAffinitizedZones(replication_info, affinitized_zones);
 }
 
-void ClusterLoadBalancer::SetBlacklist() const {
+void ClusterLoadBalancer::AddTSIfBlacklisted(
+    const std::shared_ptr<TSDescriptor>& ts_desc, const BlacklistPB& blacklist,
+    const bool leader_blacklist) {
+  for (const auto& blacklist_hp : blacklist.hosts()) {
+    if (ts_desc->IsRunningOn(blacklist_hp)) {
+      if (leader_blacklist) {
+        global_state_->leader_blacklisted_servers_.insert(ts_desc->permanent_uuid());
+      } else {
+        global_state_->blacklisted_servers_.insert(ts_desc->permanent_uuid());
+      }
+      return;
+    }
+  }
+  if (!leader_blacklist && ts_desc->has_faulty_drive()) {
+    global_state_->blacklisted_servers_.insert(ts_desc->permanent_uuid());
+  }
+}
+
+void ClusterLoadBalancer::SetBlacklistAndPendingDeleteTS() {
   // Set the blacklist and leader blacklist so
   // we can also mark the tablet servers as we add them up.
   {
+    global_state_->blacklisted_servers_.clear();
+    global_state_->leader_blacklisted_servers_.clear();
+    global_state_->servers_with_pending_deletes_.clear();
+
     auto l = catalog_manager_->ClusterConfig()->LockForRead();
-    global_state_->SetBlacklist(l->pb.server_blacklist());
-    global_state_->SetLeaderBlacklist(l->pb.leader_blacklist());
+    for (const auto& ts_desc : global_state_->ts_descs_) {
+      AddTSIfBlacklisted(ts_desc, l->pb.server_blacklist(), false /* leader_blacklist */);
+      AddTSIfBlacklisted(ts_desc, l->pb.leader_blacklist(), true /* leader_blacklist */);
+      if (ts_desc->HasTabletDeletePending()) {
+        global_state_->servers_with_pending_deletes_.insert(ts_desc->permanent_uuid());
+      }
+    }
   }
 }
 

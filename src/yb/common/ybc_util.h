@@ -13,8 +13,7 @@
 // C wrappers around some YB utilities. Suitable for inclusion into C codebases such as our modified
 // version of PostgreSQL.
 
-#ifndef YB_COMMON_YBC_UTIL_H
-#define YB_COMMON_YBC_UTIL_H
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -71,10 +70,20 @@ extern int ysql_max_in_flight_ops;
  */
 extern bool yb_binary_restore;
 
+/*
+ * xcluster consistency level
+ */
+#define XCLUSTER_CONSISTENCY_TABLET 0
+#define XCLUSTER_CONSISTENCY_DATABASE 1
+
+/*
+ * Enables atomic and ordered reads of data in xCluster replicated databases. This may add a delay
+ * to the visibility of all data in the database.
+ */
+extern int yb_xcluster_consistency_level;
+
 typedef struct YBCStatusStruct* YBCStatus;
 
-extern YBCStatus YBCStatusOKValue;
-bool YBCStatusIsOK(YBCStatus s);
 bool YBCStatusIsNotFound(YBCStatus s);
 bool YBCStatusIsDuplicateKey(YBCStatus s);
 uint32_t YBCStatusPgsqlError(YBCStatus s);
@@ -109,8 +118,6 @@ CHECKED_YBCSTATUS YBCInit(
     const char* argv0,
     YBCPAllocFn palloc_fn,
     YBCCStringToTextWithLenFn cstring_to_text_with_len_fn);
-
-CHECKED_YBCSTATUS YBCInitGFlags(const char* argv0);
 
 // From glog's log_severity.h:
 // const int GLOG_INFO = 0, GLOG_WARNING = 1, GLOG_ERROR = 2, GLOG_FATAL = 3;
@@ -172,5 +179,3 @@ double YBCEvalHashValueSelectivity(int32_t hash_low, int32_t hash_high);
 #ifdef __cplusplus
 } // extern "C"
 #endif
-
-#endif  // YB_COMMON_YBC_UTIL_H

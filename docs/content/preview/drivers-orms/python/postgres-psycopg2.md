@@ -12,10 +12,23 @@ type: docs
 ---
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
+  <li class="active">
+    <a href="../yugabyte-psycopg2/" class="nav-link">
+      YSQL
+    </a>
+  </li>
+  <li>
+    <a href="../ycql/" class="nav-link">
+      YCQL
+    </a>
+  </li>
+</ul>
+
+<ul class="nav nav-tabs-alt nav-tabs-yb">
 
   <li >
     <a href="../yugabyte-psycopg2" class="nav-link">
-      <i class="icon-java-bold" aria-hidden="true"></i>
+      <i class="icon-postgres" aria-hidden="true"></i>
       YugabyteDB Psycopg2 Smart Driver
     </a>
   </li>
@@ -33,9 +46,9 @@ Psycopg is the most popular PostgreSQL database adapter for Python. Its main fea
 
 ## CRUD operations
 
-Learn how to establish a connection to YugabyteDB database and begin basic CRUD operations using the steps in the [Build an application](../../../develop/build-apps/python/ysql-psycopg2/) page.
+The following sections demonstrate how to perform common tasks required for Python application development using the PostgreSQL Psycopg2 driver.
 
-The following sections break down the example to demonstrate how to perform common tasks required for Python application development using the PostgreSQL Psycopg2 driver.
+To start building your application, make sure you have met the [prerequisites](../#prerequisites).
 
 ### Step 1: Download the driver dependency
 
@@ -61,12 +74,6 @@ pip install psycopg2-binary
 ```
 
 The binary package is a practical choice for development and testing, but in production it is recommended to use the package built from sources.
-
-Then import the psycopg2 package.
-
-```python
-import psycopg2
-```
 
 ### Step 2: Connect to your cluster
 
@@ -105,7 +112,7 @@ conn = psycopg2.connect(dbname='yugabyte',host='localhost',port='5433',user='yug
 The following table describes the connection parameters required to connect using SSL.
 
 | Parameter | Description | Default |
-| :---------- | :---------- | :------ |
+| :-------- | :---------- | :------ |
 | sslmode | SSL mode  | prefer
 | sslrootcert | Path to the root certificate on your computer | ~/.postgresql/
 
@@ -119,7 +126,7 @@ If you have created a cluster on [YugabyteDB Managed](https://www.yugabyte.com/c
 
 ### Step 3: Write your application
 
-Create a new Python file called `yb-ysql-helloworld.py` in the base package directory of your project.
+Create a new Python file called `QuickStartApp.py` in the base package directory of your project.
 
 Copy the following sample code to set up tables and query the table contents. Replace the connection string `connString` with the cluster credentials and SSL certificate, if required.
 
@@ -179,7 +186,13 @@ cur.close()
 conn.close()
 ```
 
-When you run the `yb-ysql-helloworld.py` project, you should see output similar to the following:
+Run the project `QuickStartApp.py` using the following command:
+
+```python
+python3 QuickStartApp.py
+```
+
+You should see output similar to the following:
 
 ```text
 Created table employee
@@ -191,6 +204,8 @@ If there is no output or you get an error, verify the parameters included in the
 
 ## Learn more
 
-- Build Python applications using [Django](../../../drivers-orms/python/django/)
-- Build Python applications using [SQLAlchemy](../../../drivers-orms/python/sqlalchemy/)
-- [Python driver reference](../../../reference/drivers/python/postgres-psycopg2-reference/#fundamentals) of the PostgreSQL psycopg2 driver.
+- [PostgreSQL Psycopg2 driver reference](../../../reference/drivers/python/postgres-psycopg2-reference/)
+- [YugabyteDB smart drivers for YSQL](../../smart-drivers/)
+- Build Python applications using [YugabyteDB Psycopg2 smart driver](../yugabyte-psycopg2/)
+- Build Python applications using [Django](../django/)
+- Build Python applications using [SQLAlchemy](../sqlalchemy/)

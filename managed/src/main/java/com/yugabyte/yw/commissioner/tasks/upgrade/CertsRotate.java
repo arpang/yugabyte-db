@@ -6,21 +6,30 @@ import com.yugabyte.yw.commissioner.BaseTaskDependencies;
 import com.yugabyte.yw.commissioner.TaskExecutor.SubTaskGroup;
 import com.yugabyte.yw.commissioner.UpgradeTaskBase;
 import com.yugabyte.yw.commissioner.UserTaskDetails.SubTaskGroupType;
+import com.yugabyte.yw.commissioner.tasks.subtasks.AnsibleConfigureServers;
+import com.yugabyte.yw.commissioner.tasks.subtasks.CertReloadTaskCreator;
 import com.yugabyte.yw.commissioner.tasks.subtasks.UniverseSetTlsParams;
 import com.yugabyte.yw.commissioner.tasks.subtasks.UniverseUpdateRootCert;
 import com.yugabyte.yw.commissioner.tasks.subtasks.UniverseUpdateRootCert.UpdateRootCertAction;
+import com.yugabyte.yw.common.NodeManager;
 import com.yugabyte.yw.common.NodeManager.CertRotateAction;
+import com.yugabyte.yw.common.utils.Version;
 import com.yugabyte.yw.forms.CertsRotateParams;
 import com.yugabyte.yw.forms.CertsRotateParams.CertRotationType;
+import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.UserIntent;
 import com.yugabyte.yw.forms.UpgradeTaskParams.UpgradeOption;
+import com.yugabyte.yw.models.Universe;
 import com.yugabyte.yw.models.helpers.NodeDetails;
 import com.yugabyte.yw.models.helpers.NodeDetails.NodeState;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import javax.inject.Inject;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 
+@Slf4j
 public class CertsRotate extends UpgradeTaskBase {
 
   @Inject
@@ -60,12 +69,16 @@ public class CertsRotate extends UpgradeTaskBase {
             createUniverseUpdateRootCertTask(UpdateRootCertAction.MultiCert);
             // Append new root cert to the existing ca.crt
             createCertUpdateTasks(allNodes, CertRotateAction.APPEND_NEW_ROOT_CERT);
-            // Do a rolling restart
-            createRestartTasks(nodes, UpgradeOption.ROLLING_UPGRADE, false);
+
+            // Add task to use the updated certs
+            createActivateCertsTask(getUniverse(), nodes, UpgradeOption.ROLLING_UPGRADE, false);
+
             // Copy new server certs to all nodes
             createCertUpdateTasks(allNodes, CertRotateAction.ROTATE_CERTS);
-            // Do a rolling restart
-            createRestartTasks(nodes, UpgradeOption.ROLLING_UPGRADE, false);
+
+            // Add task to use the updated certs
+            createActivateCertsTask(getUniverse(), nodes, UpgradeOption.ROLLING_UPGRADE, false);
+
             // Remove old root cert from the ca.crt
             createCertUpdateTasks(allNodes, CertRotateAction.REMOVE_OLD_ROOT_CERT);
             // Update gflags of cert directories
@@ -76,8 +89,11 @@ public class CertsRotate extends UpgradeTaskBase {
             createUniverseUpdateRootCertTask(UpdateRootCertAction.Reset);
             // Update universe details with new cert values
             createUniverseSetTlsParamsTask(getTaskSubGroupType());
-            // Do a rolling restart
-            createRestartTasks(nodes, UpgradeOption.ROLLING_UPGRADE, taskParams().ybcInstalled);
+
+            // Add task to use the updated certs
+            createActivateCertsTask(
+                getUniverse(), nodes, UpgradeOption.ROLLING_UPGRADE, taskParams().ybcInstalled);
+
           } else {
             // Update the rootCA in platform to have both old cert and new cert
             if (taskParams().rootCARotationType == CertRotationType.RootCert) {
@@ -90,8 +106,10 @@ public class CertsRotate extends UpgradeTaskBase {
                 taskParams().rootCARotationType,
                 taskParams().clientRootCARotationType);
 
-            // Do a rolling/non-rolling restart
-            createRestartTasks(nodes, taskParams().upgradeOption, taskParams().ybcInstalled);
+            // Add task to use the updated certs
+            createActivateCertsTask(
+                getUniverse(), nodes, taskParams().upgradeOption, taskParams().ybcInstalled);
+
             // Reset the old rootCA content in platform
             if (taskParams().rootCARotationType == CertRotationType.RootCert) {
               createUniverseUpdateRootCertTask(UpdateRootCertAction.Reset);
@@ -130,16 +148,99 @@ public class CertsRotate extends UpgradeTaskBase {
     createUpdateCertDirsTask(nodes, serverType, getTaskSubGroupType());
   }
 
+  // TODO: sort out the mess with rootAndClientRootCASame silently shadowing its namesake
+  // in UniverseDefinitionTaskParams
+  // (referencing them through taskParams() may cause subtle bugs)
   @Override
   protected UniverseSetTlsParams.Params createSetTlsParams(SubTaskGroupType subTaskGroupType) {
     UniverseSetTlsParams.Params params = super.createSetTlsParams(subTaskGroupType);
-
-    // TODO: sort out the mess with these props silently shadowing their namesakes
-    // in UniverseDefinitionTaskParams
-    // (referencing them through taskParams() may cause subtle bugs)
-    params.rootCA = taskParams().rootCA;
-    params.clientRootCA = taskParams().clientRootCA;
     params.rootAndClientRootCASame = taskParams().rootAndClientRootCASame;
     return params;
+  }
+
+  @Override
+  protected AnsibleConfigureServers.Params createCertUpdateParams(
+      UserIntent userIntent,
+      NodeDetails node,
+      NodeManager.CertRotateAction certRotateAction,
+      CertsRotateParams.CertRotationType rootCARotationType,
+      CertsRotateParams.CertRotationType clientRootCARotationType) {
+    AnsibleConfigureServers.Params params =
+        super.createCertUpdateParams(
+            userIntent, node, certRotateAction, rootCARotationType, clientRootCARotationType);
+    params.rootAndClientRootCASame = taskParams().rootAndClientRootCASame;
+    return params;
+  }
+
+  @Override
+  protected AnsibleConfigureServers.Params createUpdateCertDirParams(
+      UserIntent userIntent, NodeDetails node, ServerType serverType) {
+    AnsibleConfigureServers.Params params =
+        super.createUpdateCertDirParams(userIntent, node, serverType);
+    params.rootAndClientRootCASame = taskParams().rootAndClientRootCASame;
+    return params;
+  }
+
+  /**
+   * compare the universe version against the versions where cert rotate is supported and
+   * appropriately call 'cert rotate' for newer universes or 'restart nodes' for older universes
+   *
+   * @param universe
+   * @param nodes nodes which are to be activated with new certs
+   * @param upgradeOption
+   * @param ybcInstalled
+   */
+  private void createActivateCertsTask(
+      Universe universe,
+      Pair<List<NodeDetails>, List<NodeDetails>> nodes,
+      UpgradeOption upgradeOption,
+      boolean ybcInstalled) {
+
+    if (isCertReloadable(universe)) {
+      // cert rotate can be performed
+      log.info("adding cert rotate via reload task ...");
+      createCertReloadTask(nodes, universe.universeUUID, userTaskUUID);
+
+    } else {
+      // Do a rolling restart
+      log.info("adding a cert rotate via restart task ...");
+      createRestartTasks(nodes, upgradeOption, ybcInstalled);
+    }
+  }
+
+  private boolean isCertReloadable(Universe universe) {
+    if (!Boolean.parseBoolean(
+        this.runtimeConfigFactory
+            .globalRuntimeConf()
+            .getString("yb.features.cert_reload.enabled"))) {
+      log.debug("hot cert reload disabled in reference.conf");
+      return false;
+    }
+    List<String> supportedVersions =
+        this.runtimeConfigFactory
+            .staticApplicationConf()
+            .getStringList("yb.features.cert_reload.supportedVersions");
+    Version ybSoftwareVersion =
+        new Version(universe.getUniverseDetails().getPrimaryCluster().userIntent.ybSoftwareVersion);
+    return supportedVersions
+        .stream()
+        .map(Version::new)
+        .anyMatch(supportedVersion -> (supportedVersion.compareTo(ybSoftwareVersion) == 0));
+  }
+
+  protected void createCertReloadTask(
+      Pair<List<NodeDetails>, List<NodeDetails>> nodesPair, UUID universeUuid, UUID userTaskUuid) {
+
+    if (nodesPair == null) {
+      return; // nothing to do if node details are missing
+    }
+    log.debug("creating certReloadTaskCreator ...");
+
+    CertReloadTaskCreator taskCreator =
+        new CertReloadTaskCreator(
+            universeUuid, userTaskUuid, getRunnableTask(), getTaskExecutor(), nodesPair.getKey());
+
+    createNonRestartUpgradeTaskFlow(
+        taskCreator, nodesPair, DEFAULT_CONTEXT, taskParams().ybcInstalled);
   }
 }

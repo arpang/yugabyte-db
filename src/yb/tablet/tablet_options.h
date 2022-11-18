@@ -10,14 +10,15 @@
 // or implied.  See the License for the specific language governing permissions and limitations
 // under the License.
 //
-#ifndef YB_TABLET_TABLET_OPTIONS_H
-#define YB_TABLET_TABLET_OPTIONS_H
+
+#pragma once
 
 #include <future>
 #include <memory>
 #include <vector>
 
 #include "yb/util/env.h"
+#include "yb/util/threadpool.h"
 #include "yb/rocksdb/env.h"
 
 #include "yb/client/client_fwd.h"
@@ -41,6 +42,7 @@ struct RocksDBPriorityThreadPoolMetrics;
 
 namespace yb {
 
+class AutoFlagsManager;
 class Env;
 class MemTracker;
 class MetricRegistry;
@@ -80,8 +82,11 @@ struct TabletInitData {
   std::function<HybridTime(RaftGroupMetadata*)> allowed_history_cutoff_provider;
   TransactionManagerProvider transaction_manager_provider;
   LocalWaitingTxnRegistry* waiting_txn_registry = nullptr;
+  ThreadPool* wait_queue_pool = nullptr;
+  AutoFlagsManager* auto_flags_manager = nullptr;
+  ThreadPool* full_compaction_pool;
+  scoped_refptr<yb::AtomicGauge<uint64_t>> post_split_compaction_added;
 };
 
 } // namespace tablet
 } // namespace yb
-#endif // YB_TABLET_TABLET_OPTIONS_H

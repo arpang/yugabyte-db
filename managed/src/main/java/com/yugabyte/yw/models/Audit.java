@@ -67,6 +67,9 @@ public class Audit extends Model {
     @EnumValue("Alert")
     Alert,
 
+    @EnumValue("Alert Template Settings")
+    AlertTemplateSettings,
+
     @EnumValue("Alert Channel")
     AlertChannel,
 
@@ -357,8 +360,8 @@ public class Audit extends Model {
     @EnumValue("Create PITR Config")
     CreatePitrConfig,
 
-    @EnumValue("Restore Snapshot")
-    RestoreSnapshot,
+    @EnumValue("Restore Snapshot Schedule")
+    RestoreSnapshotSchedule,
 
     @EnumValue("Delete PITR Config")
     DeletePitrConfig,

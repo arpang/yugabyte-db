@@ -163,7 +163,6 @@ public class Region extends Model {
       details = new RegionDetails();
     }
     details.arch = arch;
-    save();
   }
 
   @ApiModelProperty(required = false)
@@ -248,6 +247,10 @@ public class Region extends Model {
   @Deprecated()
   public static Region get(UUID regionUUID) {
     return find.query().fetch("provider").where().idEq(regionUUID).findOne();
+  }
+
+  public static List<Region> findByUuids(Collection<UUID> uuids) {
+    return Region.find.query().where().idIn(uuids).findList();
   }
 
   public static Region getByCode(Provider provider, String code) {

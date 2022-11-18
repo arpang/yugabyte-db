@@ -53,8 +53,7 @@ func RegisterNodeAgent(ctx context.Context, apiToken string) error {
 		"Starting Node Agent registration (Version: %s)", version)
 	util.FileLogger().Info("Starting RPC server...")
 	// Start server to verify host.
-	// TODO let platform verify the connection.
-	server, err := NewRPCServer(ctx, host, port, false)
+	server, err := NewRPCServer(ctx, fmt.Sprintf("%s:%s", host, port), false)
 	if err != nil {
 		util.FileLogger().Errorf("Failed to start RPC server - %s", err.Error())
 		return err
@@ -80,7 +79,7 @@ func RegisterNodeAgent(ctx context.Context, apiToken string) error {
 		util.FileLogger().Info(
 			"Error while saving certs, unregistering the node-agent in the platform.",
 		)
-		UnregisterNodeAgent(ctx, apiToken, false)
+		UnregisterNodeAgent(ctx, apiToken)
 		return err
 	}
 	util.FileLogger().Info("Setting node agent state to LIVE.")
@@ -99,7 +98,7 @@ func RegisterNodeAgent(ctx context.Context, apiToken string) error {
 }
 
 // Unregisters the node agent from the platform.
-func UnregisterNodeAgent(ctx context.Context, apiToken string, useJWT bool) error {
+func UnregisterNodeAgent(ctx context.Context, apiToken string) error {
 	config := util.CurrentConfig()
 	nodeAgentId := config.String(util.NodeAgentIdKey)
 	// Return error if there is no node agent id present in the config.
@@ -111,7 +110,7 @@ func UnregisterNodeAgent(ctx context.Context, apiToken string, useJWT bool) erro
 		return err
 	}
 	util.FileLogger().Infof("Unregistering Node Agent - %s", nodeAgentId)
-	unregisterHandler := task.NewAgentUnregistrationHandler(useJWT, apiToken)
+	unregisterHandler := task.NewAgentUnregistrationHandler(apiToken)
 	err := executor.GetInstance(ctx).
 		ExecuteTask(ctx, unregisterHandler.Handle)
 	if err != nil {

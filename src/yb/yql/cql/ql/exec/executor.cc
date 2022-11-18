@@ -70,6 +70,7 @@
 #include "yb/yql/cql/ql/ptree/pt_use_keyspace.h"
 #include "yb/yql/cql/ql/ql_processor.h"
 #include "yb/yql/cql/ql/util/errcodes.h"
+#include "yb/util/flags.h"
 
 using namespace std::literals;
 using namespace std::placeholders;
@@ -106,7 +107,7 @@ using strings::Substitute;
     } while (false)
 
 //--------------------------------------------------------------------------------------------------
-DEFINE_bool(ycql_serial_operation_in_transaction_block, true,
+DEFINE_UNKNOWN_bool(ycql_serial_operation_in_transaction_block, true,
             "If true, operations within a transaction block must be executed in order, "
             "at least semantically speaking.");
 
@@ -2560,8 +2561,8 @@ Status Executor::ProcessAsyncStatus(const OpErrors& op_errors, ExecContext* exec
           }
           if (PREDICT_FALSE(!s.ok() && !NeedsRestart(s))) {
             // YBOperation returns not-found error when the tablet is not found.
-            const auto errcode = s.IsNotFound() ? ErrorCode::TABLET_NOT_FOUND
-                                                : ErrorCode::EXEC_ERROR;
+            const auto errcode =
+                s.IsNotFound() ? ErrorCode::TABLET_NOT_FOUND : ErrorCode::EXEC_ERROR;
             s = exec_context->Error(tnode, s, errcode);
           }
           if (s.ok()) {

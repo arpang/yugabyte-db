@@ -12,45 +12,21 @@ type: docs
 ---
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
-  <li>
-    <a href="../ysql-yb-pgx/" class="nav-link">
-      <i class="icon-postgres" aria-hidden="true"></i>
-      YSQL - YugabyteDB PGX
-    </a>
-  </li>
-  <li>
-    <a href="../ysql-pgx/" class="nav-link">
-      <i class="icon-postgres" aria-hidden="true"></i>
-      YSQL - PGX
-    </a>
-  </li>
-  <li >
-    <a href="../ysql-pq/" class="nav-link">
-      <i class="icon-postgres" aria-hidden="true"></i>
-      YSQL - PQ
-    </a>
-  </li>
   <li >
     <a href="../ysql-pg/" class="nav-link">
       <i class="icon-postgres" aria-hidden="true"></i>
-      YSQL - PG
+      PG ORM
     </a>
   </li>
   <li >
     <a href="../ysql-gorm/" class="nav-link active">
       <i class="icon-postgres" aria-hidden="true"></i>
-      YSQL - GORM
-    </a>
-  </li>
-  <li>
-    <a href="../ycql/" class="nav-link">
-      <i class="icon-cassandra" aria-hidden="true"></i>
-      YCQL
+      GORM
     </a>
   </li>
 </ul>
 
-The following tutorial implements an ORM example using [GORM](https://gorm.io/), the ORM library for Golang, that implements a simple REST API server. The scenario is that of an e-commerce application. Database access in this application is managed using GORM. The e-commerce database (`ysql_gorm`) includes the following tables:
+The following tutorial implements an ORM example using [GORM](https://gorm.io/), the ORM library for Golang, that implements a basic REST API server. The scenario is that of an e-commerce application. Database access in this application is managed using GORM. The e-commerce database (`ysql_gorm`) includes the following tables:
 
 - `users` table — the users of the e-commerce site
 - `products` table — the products being sold

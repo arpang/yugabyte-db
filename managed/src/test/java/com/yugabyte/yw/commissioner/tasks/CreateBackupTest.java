@@ -5,8 +5,8 @@ package com.yugabyte.yw.commissioner.tasks;
 import static com.yugabyte.yw.common.Util.SYSTEM_PLATFORM_DB;
 import static com.yugabyte.yw.models.TaskInfo.State.Failure;
 import static com.yugabyte.yw.models.TaskInfo.State.Success;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
@@ -22,10 +22,10 @@ import com.yugabyte.yw.common.ShellResponse;
 import com.yugabyte.yw.forms.BackupRequestParams;
 import com.yugabyte.yw.forms.ITaskParams;
 import com.yugabyte.yw.models.Backup;
+import com.yugabyte.yw.models.Backup.BackupState;
 import com.yugabyte.yw.models.CustomerTask;
 import com.yugabyte.yw.models.TaskInfo;
 import com.yugabyte.yw.models.Universe;
-import com.yugabyte.yw.models.Backup.BackupState;
 import com.yugabyte.yw.models.configs.CustomerConfig;
 import com.yugabyte.yw.models.helpers.TaskType;
 import java.util.ArrayList;
@@ -42,8 +42,8 @@ import org.yb.CommonTypes.TableType;
 import org.yb.client.GetTableSchemaResponse;
 import org.yb.client.ListTablesResponse;
 import org.yb.client.YBClient;
-import org.yb.master.MasterTypes;
 import org.yb.master.MasterDdlOuterClass.ListTablesResponsePB.TableInfo;
+import org.yb.master.MasterTypes;
 
 @RunWith(MockitoJUnitRunner.class)
 public class CreateBackupTest extends CommissionerBaseTest {
@@ -190,6 +190,7 @@ public class CreateBackupTest extends CommissionerBaseTest {
     Map<String, String> config = new HashMap<>();
     config.put(Universe.TAKE_BACKUPS, "true");
     defaultUniverse.updateConfig(config);
+    defaultUniverse.save();
     ShellResponse shellResponse = new ShellResponse();
     shellResponse.message = "{\"snapshot_url\": \"/tmp/backup\", \"backup_size_in_bytes\": 340}";
     shellResponse.code = 0;
@@ -206,6 +207,7 @@ public class CreateBackupTest extends CommissionerBaseTest {
     Map<String, String> config = new HashMap<>();
     config.put(Universe.TAKE_BACKUPS, "true");
     defaultUniverse.updateConfig(config);
+    defaultUniverse.save();
     ShellResponse shellResponse = new ShellResponse();
     shellResponse.message = "{\"snapshot_url\": \"/tmp/backup\", \"backup_size_in_bytes\": 340}";
     shellResponse.code = 0;
@@ -234,6 +236,7 @@ public class CreateBackupTest extends CommissionerBaseTest {
     Map<String, String> config = new HashMap<>();
     config.put(Universe.TAKE_BACKUPS, "true");
     defaultUniverse.updateConfig(config);
+    defaultUniverse.save();
     ShellResponse shellResponse = new ShellResponse();
     shellResponse.message = "{\"snapshot_url\": \"/tmp/backup\", \"backup_size_in_bytes\": 340}";
     shellResponse.code = 0;
@@ -249,6 +252,7 @@ public class CreateBackupTest extends CommissionerBaseTest {
     Map<String, String> config = new HashMap<>();
     config.put(Universe.TAKE_BACKUPS, "true");
     defaultUniverse.updateConfig(config);
+    defaultUniverse.save();
     TaskInfo taskInfo =
         submitTask("InvalidKeySpace", new ArrayList<>(), TableType.PGSQL_TABLE_TYPE);
     assertEquals(Failure, taskInfo.getTaskState());
@@ -262,6 +266,7 @@ public class CreateBackupTest extends CommissionerBaseTest {
     Map<String, String> config = new HashMap<>();
     config.put(Universe.TAKE_BACKUPS, "true");
     defaultUniverse.updateConfig(config);
+    defaultUniverse.save();
     ShellResponse shellResponse = new ShellResponse();
     shellResponse.message = "{\"snapshot_url\": \"/tmp/backup\", \"backup_size_in_bytes\": 340}";
     shellResponse.code = 0;
@@ -277,6 +282,7 @@ public class CreateBackupTest extends CommissionerBaseTest {
     Map<String, String> config = new HashMap<>();
     config.put(Universe.TAKE_BACKUPS, "true");
     defaultUniverse.updateConfig(config);
+    defaultUniverse.save();
     ShellResponse shellResponse = new ShellResponse();
     shellResponse.message = "{\"snapshot_url\": \"/tmp/backup\", \"backup_size_in_bytes\": 340}";
     shellResponse.code = 0;
@@ -295,6 +301,7 @@ public class CreateBackupTest extends CommissionerBaseTest {
     Map<String, String> config = new HashMap<>();
     config.put(Universe.TAKE_BACKUPS, "false");
     defaultUniverse.updateConfig(config);
+    defaultUniverse.save();
     TaskInfo taskInfo = submitTask(TableType.YQL_TABLE_TYPE);
     verify(mockTableManagerYb, times(0)).createBackup(any());
     assertEquals(Success, taskInfo.getTaskState());
@@ -305,6 +312,7 @@ public class CreateBackupTest extends CommissionerBaseTest {
     Map<String, String> config = new HashMap<>();
     config.put(Universe.TAKE_BACKUPS, "true");
     defaultUniverse.updateConfig(config);
+    defaultUniverse.save();
     ShellResponse shellResponse = new ShellResponse();
     shellResponse.code = ShellResponse.ERROR_CODE_EXECUTION_CANCELLED;
     when(mockTableManagerYb.createBackup(any())).thenReturn(shellResponse);

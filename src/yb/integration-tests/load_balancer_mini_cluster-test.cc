@@ -32,6 +32,7 @@
 #include "yb/tserver/tablet_server.h"
 #include "yb/tserver/tablet_server_options.h"
 
+#include "yb/util/backoff_waiter.h"
 #include "yb/util/monotime.h"
 #include "yb/util/multi_drive_test_env.h"
 
@@ -121,8 +122,8 @@ typedef std::unordered_map<std::string,
                            std::pair<std::unordered_map<std::string, int>, int>> DriveStats;
 
 Status GetTabletsDriveStats(DriveStats* stats,
-                                    yb::MiniCluster* mini_cluster,
-                                    const yb::client::YBTableName& table_name) {
+                            yb::MiniCluster* mini_cluster,
+                            const yb::client::YBTableName& table_name) {
   scoped_refptr<master::TableInfo> tbl_info =
     VERIFY_RESULT(mini_cluster->GetLeaderMiniMaster())->catalog_manager().
       GetTableInfoFromNamespaceNameAndTableName(table_name.namespace_type(),

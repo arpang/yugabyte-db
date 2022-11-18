@@ -13,7 +13,7 @@ package com.yugabyte.yw.commissioner.tasks;
 import com.yugabyte.yw.commissioner.BaseTaskDependencies;
 import com.yugabyte.yw.commissioner.ITask.Retryable;
 import com.yugabyte.yw.commissioner.UserTaskDetails.SubTaskGroupType;
-import com.yugabyte.yw.commissioner.tasks.UniverseDefinitionTaskBase.ServerType;
+import com.yugabyte.yw.commissioner.tasks.UniverseTaskBase.ServerType;
 import com.yugabyte.yw.commissioner.tasks.params.NodeTaskParams;
 import com.yugabyte.yw.common.DnsManager;
 import com.yugabyte.yw.common.NodeActionType;
@@ -161,6 +161,11 @@ public class RemoveNodeFromUniverse extends UniverseTaskBase {
         }
         createTServerTaskForNode(currentNode, "stop")
             .setSubTaskGroupType(SubTaskGroupType.StoppingNodeProcesses);
+
+        if (universe.isYbcEnabled()) {
+          createStopYbControllerTasks(new HashSet<>(Arrays.asList(currentNode)))
+              .setSubTaskGroupType(SubTaskGroupType.StoppingNodeProcesses);
+        }
       }
 
       // Remove master status (even when it does not exists or is not reachable).

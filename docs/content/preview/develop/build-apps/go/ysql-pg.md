@@ -12,45 +12,21 @@ type: docs
 ---
 
 <ul class="nav nav-tabs-alt nav-tabs-yb">
-  <li>
-    <a href="../ysql-yb-pgx/" class="nav-link">
-      <i class="icon-postgres" aria-hidden="true"></i>
-      YSQL - YugabyteDB PGX
-    </a>
-  </li>
-  <li>
-    <a href="../ysql-pgx/" class="nav-link">
-      <i class="icon-postgres" aria-hidden="true"></i>
-      YSQL - PGX
-    </a>
-  </li>
-  <li >
-    <a href="../ysql-pq/" class="nav-link">
-      <i class="icon-postgres" aria-hidden="true"></i>
-      YSQL - PQ
-    </a>
-  </li>
   <li >
     <a href="../ysql-pg/" class="nav-link active">
       <i class="icon-postgres" aria-hidden="true"></i>
-      YSQL - PG
+      PG ORM
     </a>
   </li>
   <li >
     <a href="../ysql-gorm/" class="nav-link">
       <i class="icon-postgres" aria-hidden="true"></i>
-      YSQL - GORM
-    </a>
-  </li>
-  <li>
-    <a href="../ycql/" class="nav-link">
-      <i class="icon-cassandra" aria-hidden="true"></i>
-      YCQL
+      GORM
     </a>
   </li>
 </ul>
 
-The following tutorial creates a simple Go application that connects to a YugabyteDB cluster using the [Go-pg client and ORM](https://pkg.go.dev/github.com/go-pg/pg), performs a few basic database operations — creating a table, inserting data, and running a SQL query — and then prints the results to the screen.
+The following tutorial creates a basic Go application that connects to a YugabyteDB cluster using the [Go-pg client and ORM](https://pkg.go.dev/github.com/go-pg/pg), performs a few basic database operations — creating a table, inserting data, and running a SQL query — and then prints the results to the screen.
 
 ## Prerequisites
 

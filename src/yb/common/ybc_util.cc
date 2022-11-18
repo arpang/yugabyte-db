@@ -26,7 +26,7 @@
 #include "yb/util/debug-util.h"
 #include "yb/util/enums.h"
 #include "yb/util/env.h"
-#include "yb/util/flag_tags.h"
+#include "yb/util/flags.h"
 #include "yb/util/init.h"
 #include "yb/util/logging.h"
 #include "yb/util/net/net_util.h"
@@ -55,6 +55,8 @@ bool yb_binary_restore = false;
 int ysql_session_max_batch_size = 0;
 
 int ysql_max_in_flight_ops = 0;
+
+int yb_xcluster_consistency_level = XCLUSTER_CONSISTENCY_DATABASE;
 
 namespace yb {
 
@@ -201,12 +203,6 @@ YBPgErrorCode FetchErrorCode(YBCStatus s) {
 
 extern "C" {
 
-YBCStatus YBCStatusOKValue = nullptr;
-
-bool YBCStatusIsOK(YBCStatus s) {
-  return StatusWrapper(s)->IsOk();
-}
-
 bool YBCStatusIsNotFound(YBCStatus s) {
   return StatusWrapper(s)->IsNotFound();
 }
@@ -269,10 +265,6 @@ const char* BuildYBStatusMessage(YBCStatus status, GetUniqueConstraintNameFn get
 
 bool YBCIsRestartReadError(uint16_t txn_errcode) {
   return txn_errcode == to_underlying(TransactionErrorCode::kReadRestartRequired);
-}
-
-YBCStatus YBCInitGFlags(const char* argv0) {
-  return ToYBCStatus(yb::InitGFlags(argv0));
 }
 
 bool YBCIsTxnConflictError(uint16_t txn_errcode) {

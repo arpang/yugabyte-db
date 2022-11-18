@@ -1,28 +1,21 @@
 import moment from 'moment';
-import { TableType } from '../../redesign/helpers/dtos';
+
 import {
   CUSTOM_METRIC_TIME_RANGE_OPTION,
   DROPDOWN_DIVIDER,
+  MetricName,
   METRIC_TIME_RANGE_OPTIONS,
   ReplicationStatus,
-  YBTableRelationType
+  XClusterTableEligibility,
+  XClusterTableStatus
 } from './constants';
 
-export interface YBTable {
-  isIndexTable: boolean;
-  keySpace: string;
-  pgSchemaName: string;
-  relationType: YBTableRelationType;
-  sizeBytes: number;
-  tableName: string;
-  tableType: TableType;
-  tableUUID: string;
-}
+import { TableType, YBTable } from '../../redesign/helpers/dtos';
 
 /**
  * XCluster supported table type.
  */
- export type XClusterTableType = TableType.PGSQL_TABLE_TYPE | TableType.YQL_TABLE_TYPE;
+export type XClusterTableType = TableType.PGSQL_TABLE_TYPE | TableType.YQL_TABLE_TYPE;
 
 export interface XClusterConfig {
   createTime: string;
@@ -31,25 +24,83 @@ export interface XClusterConfig {
   paused: boolean;
   sourceUniverseUUID: string;
   status: ReplicationStatus;
-  tableDetails: TableDetails[];
+  tableDetails: XClusterTableDetails[];
   tables: string[];
   targetUniverseUUID: string;
   uuid: string;
 }
 
-export interface TableDetails {
+/**
+ * Source: XClusterTableConfig.java
+ */
+export interface XClusterTableDetails {
   needBootstrap: boolean;
   replicationSetupDone: true;
+  bootstrapCreateTime: string;
+  status: XClusterTableStatus;
+  restoreTime: string;
   streamId: string;
   tableId: string;
 }
 
+export type XClusterTable = YBTable & Omit<XClusterTableDetails, 'tableId'>;
+//------------------------------------------------------------------------------------
+// Table Selection Types
+
+/**
+ * This type stores details of a table's eligibility for xCluster replication.
+ */
+export type EligibilityDetails =
+  | {
+      status: typeof XClusterTableEligibility.ELIGIBLE_UNUSED;
+    }
+  | {
+      status: typeof XClusterTableEligibility.ELIGIBLE_IN_CURRENT_CONFIG;
+      xClusterConfigName: string;
+    }
+  | { status: typeof XClusterTableEligibility.INELIGIBLE_IN_USE; xClusterConfigName: string }
+  | { status: typeof XClusterTableEligibility.INELIGIBLE_NO_MATCH };
+
+/**
+ * YBTable with an EligibilityDetail field
+ */
+export interface XClusterTableCandidate extends YBTable {
+  eligibilityDetails: EligibilityDetails;
+}
+
+/**
+ * Holds list of tables for a keyspace and provides extra metadata.
+ */
+export interface KeyspaceItem {
+  tableEligibilityCount: {
+    ineligible: number;
+    eligibleInCurrentConfig: number;
+  };
+  sizeBytes: number;
+  tables: XClusterTableCandidate[];
+}
+
+export interface KeyspaceRow extends KeyspaceItem {
+  keyspace: string;
+}
+
+/**
+ * Structure for organizing tables by table type first and keyspace/database name second.
+ */
+export type ReplicationItems = Record<
+  XClusterTableType,
+  { keyspaces: Record<string, KeyspaceItem>; tableCount: number }
+>;
+//------------------------------------------------------------------------------------
+
+// TODO: Move the metric types to dtos.ts or another more appropriate file.
+
 export interface MetricTrace {
-  instanceName: string;
+  instanceName?: string;
   name: string;
   type: string;
   x: number[];
-  y: number[];
+  y: string[] | number[];
   mode?: string;
   line?: {
     dash: string;
@@ -57,9 +108,8 @@ export interface MetricTrace {
   };
 }
 
-// TODO - Make this more robust and reusable
-export interface TableReplicationMetric {
-  tserver_async_replication_lag_micros: {
+export type Metrics<MetricNameType extends MetricName> = {
+  [metricName in MetricNameType]: {
     data: MetricTrace[];
     directURLs: string[];
     layout: {
@@ -75,7 +125,7 @@ export interface TableReplicationMetric {
     };
     queryKey: string;
   };
-}
+};
 
 // Time range selector types.
 

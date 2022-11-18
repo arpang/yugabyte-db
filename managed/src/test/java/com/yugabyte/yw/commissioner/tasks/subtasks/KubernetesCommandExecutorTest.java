@@ -120,6 +120,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
     defaultAZ = AvailabilityZone.createOrThrow(defaultRegion, "az-1", "PlacementAZ 1", "subnet-1");
     config.put("KUBECONFIG", "test");
     defaultAZ.updateConfig(config);
+    defaultAZ.save();
     defaultUniverse = ModelFactory.createUniverse(defaultCustomer.getCustomerId());
     defaultUniverse = updateUniverseDetails("small");
     new File(CERTS_DIR).mkdirs();
@@ -133,6 +134,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
                 defaultProvider.customerUUID));
     defaultUniverse.updateConfig(
         ImmutableMap.of(Universe.HELM2_LEGACY, Universe.HelmLegacy.V3.toString()));
+    defaultUniverse.save();
   }
 
   @After
@@ -322,7 +324,6 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
     // defaultUniverse.getUniverseDetails().getPrimaryCluster().uuid);
     tserverOverrides.put("placement_uuid", hackPlacementUUID.toString());
     tserverOverrides.put("start_redis_proxy", "true");
-
     gflagOverrides.put("tserver", tserverOverrides);
     // Put all the flags together.
     expectedOverrides.put("gflags", gflagOverrides);
@@ -388,9 +389,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(config, expectedConfig.getValue());
     assertEquals(hackPlacementUUID, defaultUniverse.getUniverseDetails().getPrimaryCluster().uuid);
@@ -435,9 +434,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(config, expectedConfig.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
@@ -480,9 +477,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(config, expectedConfig.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
@@ -526,9 +521,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
     assertEquals(config, expectedConfig.getValue());
@@ -576,9 +569,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
     assertEquals(config, expectedConfig.getValue());
@@ -626,9 +617,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
     assertEquals(config, expectedConfig.getValue());
@@ -676,9 +665,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
     assertEquals(config, expectedConfig.getValue());
@@ -715,9 +702,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
     assertEquals(config, expectedConfig.getValue());
@@ -776,9 +761,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(config, expectedConfig.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
@@ -821,9 +804,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(config, expectedConfig.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
@@ -847,6 +828,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
         "OVERRIDES",
         "serviceEndpoints:\n  - name: yb-master-service\n    type: LoadBalancer\n    app: yb-master\n    annotations:\n      annotation-1: bar\n    ports:\n      ui: 7000\n\n  - name: yb-tserver-service\n    type: LoadBalancer\n    app: yb-tserver\n    ports:\n      ycql-port: 9042\n      yedis-port: 6379");
     defaultAZ.updateConfig(defaultAnnotations);
+    defaultAZ.save();
     KubernetesCommandExecutor kubernetesCommandExecutor =
         createExecutor(
             KubernetesCommandExecutor.CommandType.HELM_INSTALL, /* set namespace */ true);
@@ -865,9 +847,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(config, expectedConfig.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
@@ -892,6 +872,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
     defaultProvider.save();
     defaultAnnotations.put("OVERRIDES", "bar: foo");
     defaultAZ.updateConfig(defaultAnnotations);
+    defaultAZ.save();
 
     KubernetesCommandExecutor kubernetesCommandExecutor =
         createExecutor(
@@ -911,9 +892,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(config, expectedConfig.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
@@ -935,6 +914,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
     Map<String, String> defaultAnnotations = new HashMap<String, String>();
     defaultAnnotations.put("OVERRIDES", "resource:\n  master:\n    limits:\n      cpu: 650m");
     defaultAZ.updateConfig(defaultAnnotations);
+    defaultAZ.save();
     defaultUniverse = updateUniverseDetails("dev");
     KubernetesCommandExecutor kubernetesCommandExecutor =
         createExecutor(
@@ -954,9 +934,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(config, expectedConfig.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
@@ -1028,9 +1006,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
     assertEquals(config, expectedConfig.getValue());
@@ -1071,9 +1047,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     assertEquals(ybSoftwareVersion, expectedYbSoftwareVersion.getValue());
     assertEquals(config, expectedConfig.getValue());
     assertEquals(defaultProvider.uuid, expectedProviderUUID.getValue());
@@ -1144,6 +1118,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
       azConfig.put("KUBENAMESPACE", namespace);
     }
     defaultAZ.updateConfig(azConfig);
+    defaultAZ.save();
 
     String helmNameSuffix = "";
     if (newNamingStyle) {
@@ -1251,8 +1226,11 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
     }
 
     az1.updateConfig(config1);
+    az1.save();
     az2.updateConfig(config2);
+    az2.save();
     az3.updateConfig(config3);
+    az3.save();
 
     String podInfosMessage =
         "{\"items\": [{\"status\": {\"startTime\": \"1234\", \"phase\": \"Running\","
@@ -1321,6 +1299,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
     when(kubernetesManager.getServices(any(), any(), any())).thenReturn(services);
     defaultUniverse.updateConfig(
         ImmutableMap.of(Universe.HELM2_LEGACY, Universe.HelmLegacy.V2TO3.toString()));
+    defaultUniverse.save();
     assertEquals(hackPlacementUUID, defaultUniverse.getUniverseDetails().getPrimaryCluster().uuid);
     KubernetesCommandExecutor kubernetesCommandExecutor =
         createExecutor(
@@ -1343,9 +1322,7 @@ public class KubernetesCommandExecutorTest extends SubTaskBaseTest {
             expectedProviderUUID.capture(),
             expectedNodePrefix.capture(),
             expectedNamespace.capture(),
-            expectedOverrideFile.capture(),
-            eq(null),
-            eq(null));
+            expectedOverrideFile.capture());
     verify(kubernetesManager, times(1))
         .getServices(
             expectedConfig.capture(), expectedNodePrefix.capture(), expectedNamespace.capture());

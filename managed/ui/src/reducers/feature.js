@@ -16,14 +16,15 @@ const initialStateFeatureInTest = {
   enableOIDC: true,
   supportBundle: false,
   enableThirdpartyUpgrade: false,
-  topNodeMetrics: false,
-  enableYbc: false,
+  enableYbc: true,
   enableMultiRegionConfig: false,
   enableGcpKMS: true,
   enableAzuKMS: true,
-  allowOptionalAuth: false,
+  enableTopKMetrics: false,
+  enableRunTimeConfig: false,
   enablePITR: false,
-  enableDedicatedNodes: false
+  enableDedicatedNodes: false,
+  enableNotificationTemplates: false
 };
 
 const initialStateFeatureReleased = {
@@ -42,14 +43,15 @@ const initialStateFeatureReleased = {
   enableOIDC: true,
   supportBundle: true,
   enableThirdpartyUpgrade: false,
-  topNodeMetrics: false,
-  enableYbc: false,
+  enableYbc: true,
   enableMultiRegionConfig: false,
   enableGcpKMS: true,
   enableAzuKMS: true,
-  allowOptionalAuth: false,
+  enableTopKMetrics: false,
+  enableRunTimeConfig: false,
   enablePITR: false,
-  enableDedicatedNodes: false
+  enableDedicatedNodes: false,
+  enableNotificationTemplates: false
 };
 
 export const FeatureFlag = (

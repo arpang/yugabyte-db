@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.collections.MapUtils;
+import play.libs.Json;
 
 @Singleton
 public class NodeUniverseManager extends DevopsBase {
@@ -73,6 +74,15 @@ public class NodeUniverseManager extends DevopsBase {
     } finally {
       universeLock.releaseLock(universe.getUniverseUUID());
     }
+  }
+
+  public ShellResponse uploadFileToNode(
+      NodeDetails node,
+      Universe universe,
+      String sourceFile,
+      String targetFile,
+      String permissions) {
+    return uploadFileToNode(node, universe, sourceFile, targetFile, permissions, DEFAULT_CONTEXT);
   }
 
   public ShellResponse uploadFileToNode(
@@ -151,7 +161,11 @@ public class NodeUniverseManager extends DevopsBase {
   }
 
   public ShellResponse runYbAdminCommand(
-      NodeDetails node, Universe universe, String ybAdminCommand, long timeoutSec) {
+      NodeDetails node,
+      Universe universe,
+      String ybAdminCommand,
+      List<String> args,
+      long timeoutSec) {
     List<String> command = new ArrayList<>();
     command.add(getYbHomeDir(node, universe) + "/master/bin/yb-admin");
     command.add("--master_addresses");
@@ -164,6 +178,7 @@ public class NodeUniverseManager extends DevopsBase {
     command.add("-timeout_ms");
     command.add(String.valueOf(TimeUnit.SECONDS.toMillis(timeoutSec)));
     command.add(ybAdminCommand);
+    command.addAll(args);
     ShellProcessContext context =
         ShellProcessContext.builder().logCmdOutput(true).timeoutSecs(timeoutSec).build();
     return runCommand(node, universe, command, context);
@@ -202,6 +217,7 @@ public class NodeUniverseManager extends DevopsBase {
     String escapedYsqlCommand = ysqlCommand.replace("\"", "\\\"");
     // Escaping single quotes after for non k8s deployments.
     if (!universe.getNodeDeploymentMode(node).equals(Common.CloudType.kubernetes)) {
+      escapedYsqlCommand = escapedYsqlCommand.replace("$", "\\$");
       escapedYsqlCommand = escapedYsqlCommand.replace("'", "'\"'\"'");
     }
     bashCommand.add("\"" + escapedYsqlCommand + "\"");
@@ -266,20 +282,18 @@ public class NodeUniverseManager extends DevopsBase {
     commandArgs.add("--node_name");
     commandArgs.add(node.nodeName);
     if (universe.getNodeDeploymentMode(node).equals(Common.CloudType.kubernetes)) {
-      String kubeconfig =
+      Map<String, String> k8sConfig =
           PlacementInfoUtil.getKubernetesConfigPerPod(
                   cluster.placementInfo,
                   universe.getUniverseDetails().getNodesInCluster(cluster.uuid))
               .get(node.cloudInfo.private_ip);
-      if (kubeconfig == null) {
-        throw new RuntimeException("kubeconfig cannot be null");
+      if (k8sConfig == null) {
+        throw new RuntimeException("Kubernetes config cannot be null");
       }
 
       commandArgs.add("k8s");
-      commandArgs.add("--pod_fqdn");
-      commandArgs.add(node.cloudInfo.private_ip);
-      commandArgs.add("--kubeconfig");
-      commandArgs.add(kubeconfig);
+      commandArgs.add("--k8s_config");
+      commandArgs.add(Json.stringify(Json.toJson(k8sConfig)));
     } else if (!universe.getNodeDeploymentMode(node).equals(Common.CloudType.unknown)) {
       AccessKey accessKey =
           AccessKey.getOrBadRequest(providerUUID, cluster.userIntent.accessKeyCode);

@@ -24,9 +24,12 @@ import com.yugabyte.yw.commissioner.tasks.params.ScheduledAccessKeyRotateParams;
 import com.yugabyte.yw.commissioner.tasks.subtasks.DeleteBackupYb;
 import com.yugabyte.yw.commissioner.tasks.subtasks.RunExternalScript;
 import com.yugabyte.yw.common.AccessKeyRotationUtil;
+import com.yugabyte.yw.common.BackupUtil;
 import com.yugabyte.yw.common.PlatformScheduler;
+import com.yugabyte.yw.common.ScheduleUtil;
 import com.yugabyte.yw.common.TaskInfoManager;
 import com.yugabyte.yw.common.Util;
+import com.yugabyte.yw.forms.BackupRequestParams;
 import com.yugabyte.yw.models.Backup;
 import com.yugabyte.yw.models.Customer;
 import com.yugabyte.yw.models.CustomerTask;
@@ -35,6 +38,7 @@ import com.yugabyte.yw.models.Provider;
 import com.yugabyte.yw.models.Schedule;
 import com.yugabyte.yw.models.ScheduleTask;
 import com.yugabyte.yw.models.Universe;
+import com.yugabyte.yw.models.Backup.BackupState;
 import com.yugabyte.yw.models.helpers.CommonUtils;
 import com.yugabyte.yw.models.helpers.TaskType;
 import java.time.Duration;
@@ -47,7 +51,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
 import lombok.extern.slf4j.Slf4j;
 import play.libs.Json;
 
@@ -163,6 +166,13 @@ public class Scheduler {
           }
 
           boolean shouldRunTask = Util.isTimeExpired(expectedScheduleTaskTime);
+          UUID baseBackupUUID = null;
+          if (!shouldRunTask && ScheduleUtil.isIncrementalBackupSchedule(schedule.scheduleUUID)) {
+            baseBackupUUID = fetchBaseBackupUUIDIfIncrementalBackupRequired(schedule);
+            if (baseBackupUUID != null) {
+              shouldRunTask = true;
+            }
+          }
 
           if (shouldRunTask || backlogStatus) {
             switch (taskType) {
@@ -176,7 +186,7 @@ public class Scheduler {
                 this.runExternalScriptTask(schedule, alreadyRunning);
                 break;
               case CreateBackup:
-                this.runCreateBackupTask(schedule, alreadyRunning);
+                this.runCreateBackupTask(schedule, alreadyRunning, baseBackupUUID);
                 break;
               case CreateAndRotateAccessKey:
                 this.runAccessKeyRotation(schedule, alreadyRunning);
@@ -204,6 +214,24 @@ public class Scheduler {
     }
   }
 
+  private UUID fetchBaseBackupUUIDIfIncrementalBackupRequired(Schedule schedule) {
+    Backup backup =
+        ScheduleUtil.fetchLatestSuccessfulBackupForSchedule(
+            schedule.getCustomerUUID(), schedule.getScheduleUUID());
+    if (backup == null) {
+      return null;
+    }
+    BackupRequestParams params = Json.fromJson(schedule.getTaskParams(), BackupRequestParams.class);
+    long incrementalBackupFrequency = params.incrementalBackupFrequency;
+    Date todaysDate = new Date();
+    Date expectedTaskExecutionTime =
+        new Date(backup.getCreateTime().getTime() + incrementalBackupFrequency);
+    if (todaysDate.after(expectedTaskExecutionTime)) {
+      return backup.baseBackupUUID;
+    }
+    return null;
+  }
+
   private void deleteExpiredBackupsForCustomer(Customer customer, List<Backup> expiredBackups) {
     Map<UUID, List<Backup>> expiredBackupsPerSchedule = new HashMap<>();
     List<Backup> backupsToDelete = new ArrayList<>();
@@ -226,7 +254,17 @@ public class Scheduler {
     }
 
     for (Backup backup : backupsToDelete) {
-      this.runDeleteBackupTask(customer, backup);
+      if (BackupUtil.checkIfStorageConfigExists(backup)) {
+        this.runDeleteBackupTask(customer, backup);
+      } else {
+        log.error(
+            "Cannot delete expired backup {} as storage config {} does not exists",
+            backup.backupUUID,
+            backup.storageConfigUUID);
+        if (!backup.state.equals(BackupState.FailedToDelete)) {
+          backup.transitionState(BackupState.FailedToDelete);
+        }
+      }
     }
   }
 
@@ -234,24 +272,32 @@ public class Scheduler {
       UUID customerUUID, UUID scheduleUUID, List<Backup> expiredBackups) {
     List<Backup> backupsToDelete = new ArrayList<Backup>();
     int minNumBackupsToRetain = Util.MIN_NUM_BACKUPS_TO_RETAIN,
-        totalBackupsCount = Backup.fetchAllBackupsByScheduleUUID(customerUUID, scheduleUUID).size();
-    Schedule schedule = Schedule.getOrBadRequest(scheduleUUID);
-    if (schedule.getTaskParams().has("minNumBackupsToRetain")) {
+        totalBackupsCount =
+            Backup.fetchAllCompletedBackupsByScheduleUUID(customerUUID, scheduleUUID).size();
+    Schedule schedule = Schedule.maybeGet(scheduleUUID).orElse(null);
+    if (schedule != null && schedule.getTaskParams().has("minNumBackupsToRetain")) {
       minNumBackupsToRetain = schedule.getTaskParams().get("minNumBackupsToRetain").intValue();
     }
-
+    backupsToDelete.addAll(
+        expiredBackups
+            .stream()
+            .filter(backup -> !backup.state.equals(BackupState.Completed))
+            .collect(Collectors.toList()));
+    expiredBackups.removeIf(backup -> !backup.state.equals(BackupState.Completed));
     int numBackupsToDelete =
         Math.min(expiredBackups.size(), Math.max(0, totalBackupsCount - minNumBackupsToRetain));
-    Collections.sort(
-        expiredBackups,
-        new Comparator<Backup>() {
-          @Override
-          public int compare(Backup b1, Backup b2) {
-            return b1.getCreateTime().compareTo(b2.getCreateTime());
-          }
-        });
-    for (int i = 0; i < Math.min(numBackupsToDelete, expiredBackups.size()); i++) {
-      backupsToDelete.add(expiredBackups.get(i));
+    if (numBackupsToDelete > 0) {
+      Collections.sort(
+          expiredBackups,
+          new Comparator<Backup>() {
+            @Override
+            public int compare(Backup b1, Backup b2) {
+              return b1.getCreateTime().compareTo(b2.getCreateTime());
+            }
+          });
+      for (int i = 0; i < Math.min(numBackupsToDelete, expiredBackups.size()); i++) {
+        backupsToDelete.add(expiredBackups.get(i));
+      }
     }
     return backupsToDelete;
   }
@@ -266,9 +312,9 @@ public class Scheduler {
     multiTableBackup.runScheduledBackup(schedule, commissioner, alreadyRunning);
   }
 
-  private void runCreateBackupTask(Schedule schedule, boolean alreadyRunning) {
+  private void runCreateBackupTask(Schedule schedule, boolean alreadyRunning, UUID baseBackupUUID) {
     CreateBackup createBackup = AbstractTaskBase.createTask(CreateBackup.class);
-    createBackup.runScheduledBackup(schedule, commissioner, alreadyRunning);
+    createBackup.runScheduledBackup(schedule, commissioner, alreadyRunning, baseBackupUUID);
   }
 
   private void runDeleteBackupTask(Customer customer, Backup backup) {

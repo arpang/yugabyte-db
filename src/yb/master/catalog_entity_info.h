@@ -30,8 +30,7 @@
 // under the License.
 //
 
-#ifndef YB_MASTER_CATALOG_ENTITY_INFO_H
-#define YB_MASTER_CATALOG_ENTITY_INFO_H
+#pragma once
 
 #include <shared_mutex>
 #include <mutex>
@@ -243,6 +242,9 @@ class TabletInfo : public RefCountedThreadSafe<TabletInfo>,
   void UpdateReplicaDriveInfo(const std::string& ts_uuid,
                               const TabletReplicaDriveInfo& drive_info);
 
+  // Returns the per-stream replication status bitmasks.
+  std::unordered_map<CDCStreamId, uint64_t> GetReplicationStatus();
+
   // Accessors for the last time the replica locations were updated.
   void set_last_update_time(const MonoTime& ts);
   MonoTime last_update_time() const;
@@ -250,6 +252,10 @@ class TabletInfo : public RefCountedThreadSafe<TabletInfo>,
   // Accessors for the last reported schema version.
   bool set_reported_schema_version(const TableId& table_id, uint32_t version);
   uint32_t reported_schema_version(const TableId& table_id);
+
+  // Accessors for the initial leader election protege.
+  void SetInitiaLeaderElectionProtege(const std::string& protege_uuid) EXCLUDES(lock_);
+  std::string InitiaLeaderElectionProtege() EXCLUDES(lock_);
 
   bool colocated() const;
 
@@ -303,9 +309,14 @@ class TabletInfo : public RefCountedThreadSafe<TabletInfo>,
   // Reported schema version (in-memory only).
   std::unordered_map<TableId, uint32_t> reported_schema_version_ GUARDED_BY(lock_) = {};
 
+  // The protege UUID to use for the initial leader election (in-memory only).
+  std::string initial_leader_election_protege_ GUARDED_BY(lock_);
+
   LeaderStepDownFailureTimes leader_stepdown_failure_times_ GUARDED_BY(lock_);
 
   std::atomic<bool> initiated_election_{false};
+
+  std::unordered_map<CDCStreamId, uint64_t> replication_stream_to_status_bitmask_;
 
   DISALLOW_COPY_AND_ASSIGN(TabletInfo);
 };
@@ -375,6 +386,33 @@ struct PersistentTableInfo : public Persistent<SysTablesEntryPB, SysRowEntryType
     return pb.mutable_schema();
   }
 
+  std::string pb_transaction_id() const {
+    if (!pb.has_transaction()) {
+      return {};
+    }
+    return pb.transaction().transaction_id();
+  }
+
+  bool has_ysql_ddl_txn_verifier_state() const {
+    return pb.ysql_ddl_txn_verifier_state_size() > 0;
+  }
+
+  auto ysql_ddl_txn_verifier_state() const {
+    // Currently DDL with savepoints is disabled, so this repeated field can have only 1 element.
+    DCHECK_EQ(pb.ysql_ddl_txn_verifier_state_size(), 1);
+    return pb.ysql_ddl_txn_verifier_state(0);
+  }
+
+  bool is_being_deleted_by_ysql_ddl_txn() const {
+    return has_ysql_ddl_txn_verifier_state() &&
+      ysql_ddl_txn_verifier_state().contains_drop_table_op();
+  }
+
+  bool is_being_created_by_ysql_ddl_txn() const {
+    return has_ysql_ddl_txn_verifier_state() &&
+      ysql_ddl_txn_verifier_state().contains_create_table_op();
+  }
+
   // Helper to set the state of the tablet with a custom message.
   void set_state(SysTablesEntryPB::State state, const std::string& msg);
 };
@@ -409,11 +447,13 @@ class TableInfo : public RefCountedThreadSafe<TableInfo>,
   const NamespaceId namespace_id() const;
   const NamespaceName namespace_name() const;
 
+  ColocationId GetColocationId() const;
+
   const Status GetSchema(Schema* schema) const;
 
   bool has_pgschema_name() const;
 
-  const std::string& pgschema_name() const;
+  const std::string pgschema_name() const;
 
   // True if all the column schemas have pg_type_oid set.
   bool has_pg_type_oid() const;
@@ -560,7 +600,7 @@ class TableInfo : public RefCountedThreadSafe<TableInfo>,
   std::size_t NumLBTasks() const;
   std::size_t NumTasks() const;
   bool HasTasks() const;
-  bool HasTasks(server::MonitoredTask::Type type) const;
+  bool HasTasks(server::MonitoredTaskType type) const;
   void AddTask(std::shared_ptr<server::MonitoredTask> task);
 
   // Returns true if no running tasks left.
@@ -709,7 +749,7 @@ class NamespaceInfo : public RefCountedThreadSafe<NamespaceInfo>,
 
   virtual const NamespaceId& id() const override { return namespace_id_; }
 
-  const NamespaceName& name() const;
+  const NamespaceName name() const;
 
   YQLDatabase database_type() const;
 
@@ -747,7 +787,7 @@ struct PersistentUDTypeInfo : public Persistent<SysUDTypeEntryPB, SysRowEntryTyp
     return pb.field_names_size();
   }
 
-  const string& field_names(int index) const {
+  const std::string& field_names(int index) const {
     return pb.field_names(index);
   }
 
@@ -768,17 +808,17 @@ class UDTypeInfo : public RefCountedThreadSafe<UDTypeInfo>,
   // Return the user defined type's ID. Does not require synchronization.
   virtual const std::string& id() const override { return udtype_id_; }
 
-  const UDTypeName& name() const;
+  const UDTypeName name() const;
 
-  const NamespaceId& namespace_id() const;
+  const NamespaceId namespace_id() const;
 
   int field_names_size() const;
 
-  const string& field_names(int index) const;
+  const std::string field_names(int index) const;
 
   int field_types_size() const;
 
-  const QLTypePB& field_types(int index) const;
+  const QLTypePB field_types(int index) const;
 
   std::string ToString() const override;
 
@@ -978,5 +1018,3 @@ class XClusterSafeTimeInfo : public MetadataCowWrapper<PersistentXClusterSafeTim
 
 }  // namespace master
 }  // namespace yb
-
-#endif  // YB_MASTER_CATALOG_ENTITY_INFO_H

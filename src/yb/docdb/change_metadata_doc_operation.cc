@@ -50,7 +50,7 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
 }
 
 Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
-  string table_info_pb_string;
+  std::string table_info_pb_string;
   table_info_.SerializeToString(&table_info_pb_string);
 
   QLValuePB table_info_value;

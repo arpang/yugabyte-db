@@ -4,6 +4,7 @@ package com.yugabyte.yw.controllers;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yugabyte.yw.commissioner.Commissioner;
 import com.yugabyte.yw.commissioner.tasks.subtasks.DeleteBackup;
 import com.yugabyte.yw.commissioner.tasks.subtasks.DeleteBackupYb;
@@ -25,31 +26,32 @@ import com.yugabyte.yw.forms.PlatformResults.YBPError;
 import com.yugabyte.yw.forms.PlatformResults.YBPSuccess;
 import com.yugabyte.yw.forms.PlatformResults.YBPTask;
 import com.yugabyte.yw.forms.PlatformResults.YBPTasks;
-import com.yugabyte.yw.forms.RestoreBackupParams.BackupStorageInfo;
 import com.yugabyte.yw.forms.RestoreBackupParams;
+import com.yugabyte.yw.forms.RestoreBackupParams.BackupStorageInfo;
 import com.yugabyte.yw.forms.YbcThrottleParameters;
 import com.yugabyte.yw.forms.filters.BackupApiFilter;
 import com.yugabyte.yw.forms.paging.BackupPagedApiQuery;
 import com.yugabyte.yw.models.Audit;
 import com.yugabyte.yw.models.Backup;
+import com.yugabyte.yw.models.CommonBackupInfo;
 import com.yugabyte.yw.models.Backup.BackupCategory;
 import com.yugabyte.yw.models.Backup.BackupState;
 import com.yugabyte.yw.models.Backup.StorageConfigType;
-import com.yugabyte.yw.models.configs.CustomerConfig;
-import com.yugabyte.yw.models.configs.CustomerConfig.ConfigState;
-import com.yugabyte.yw.models.configs.CustomerConfig.ConfigType;
-import com.yugabyte.yw.models.configs.data.CustomerConfigStorageData;
 import com.yugabyte.yw.models.Customer;
 import com.yugabyte.yw.models.CustomerTask;
 import com.yugabyte.yw.models.Schedule;
 import com.yugabyte.yw.models.TaskInfo;
 import com.yugabyte.yw.models.Universe;
+import com.yugabyte.yw.models.configs.CustomerConfig;
+import com.yugabyte.yw.models.configs.CustomerConfig.ConfigState;
+import com.yugabyte.yw.models.configs.CustomerConfig.ConfigType;
+import com.yugabyte.yw.models.configs.data.CustomerConfigStorageData;
 import com.yugabyte.yw.models.extended.UserWithFeatures;
 import com.yugabyte.yw.models.filters.BackupFilter;
 import com.yugabyte.yw.models.helpers.CommonUtils;
 import com.yugabyte.yw.models.helpers.TaskType;
-import com.yugabyte.yw.models.paging.BackupPagedQuery;
 import com.yugabyte.yw.models.paging.BackupPagedApiResponse;
+import com.yugabyte.yw.models.paging.BackupPagedQuery;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
@@ -162,6 +164,20 @@ public class BackupsController extends AuthenticatedController {
     BackupPagedApiResponse backups = Backup.pagedList(query);
 
     return PlatformResults.withData(backups);
+  }
+
+  @ApiOperation(
+      value = "List Incremental backups",
+      response = CommonBackupInfo.class,
+      responseContainer = "List",
+      nickname = "listIncrementalBackups")
+  public Result listIncrementalBackups(UUID customerUUID, UUID baseBackupUUID) {
+    Customer.getOrBadRequest(customerUUID);
+    Backup.getOrBadRequest(customerUUID, baseBackupUUID);
+    List<CommonBackupInfo> incrementalBackupChain =
+        backupUtil.getIncrementalBackupList(baseBackupUUID, customerUUID);
+
+    return PlatformResults.withData(incrementalBackupChain);
   }
 
   @ApiOperation(
@@ -333,7 +349,27 @@ public class BackupsController extends AuthenticatedController {
     } else {
       backupUtil.validateTables(null, universe, null, taskParams.backupType);
     }
-
+    if (taskParams.incrementalBackupFrequency != 0L) {
+      if (taskParams.incrementalBackupFrequencyTimeUnit == null) {
+        throw new PlatformServiceException(
+            BAD_REQUEST, "Please provide time unit for incremental backup frequency.");
+      }
+      if (taskParams.baseBackupUUID != null) {
+        throw new PlatformServiceException(
+            BAD_REQUEST, "Cannot assign base backup while creating backup schedules.");
+      }
+      if (!universe.isYbcEnabled()) {
+        throw new PlatformServiceException(
+            BAD_REQUEST, "Cannot create incremental backup schedules on non-ybc universes.");
+      }
+      // Validate Incremental backup schedule frequency
+      long schedulingFrequency =
+          (StringUtils.isEmpty(taskParams.cronExpression))
+              ? taskParams.schedulingFrequency
+              : BackupUtil.getCronExpressionTimeInterval(taskParams.cronExpression);
+      BackupUtil.validateIncrementalScheduleFrequency(
+          taskParams.incrementalBackupFrequency, schedulingFrequency);
+    }
     Schedule schedule =
         Schedule.create(
             customerUUID,
@@ -377,7 +413,7 @@ public class BackupsController extends AuthenticatedController {
         });
 
     taskParams.customerUUID = customerUUID;
-
+    taskParams.prefixUUID = UUID.randomUUID();
     UUID universeUUID = taskParams.universeUUID;
     Universe universe = Universe.getOrBadRequest(universeUUID);
     if (CollectionUtils.isEmpty(taskParams.backupStorageInfoList)) {
@@ -405,6 +441,11 @@ public class BackupsController extends AuthenticatedController {
     }
     if (backupUtil.isYbcBackup(taskParams.backupStorageInfoList.get(0).storageLocation)) {
       taskParams.category = BackupCategory.YB_CONTROLLER;
+    }
+
+    if (taskParams.category.equals(BackupCategory.YB_CONTROLLER) && !universe.isYbcEnabled()) {
+      throw new PlatformServiceException(
+          BAD_REQUEST, "Cannot restore the ybc backup as ybc is not installed on the universe");
     }
     UUID taskUUID = commissioner.submit(TaskType.RestoreBackup, taskParams);
     CustomerTask.create(
@@ -635,7 +676,7 @@ public class BackupsController extends AuthenticatedController {
                   : String.format("univ-%s", backup.universeUUID.toString());
           CustomerTask.create(
               customer,
-              backup.backupUUID,
+              backup.universeUUID,
               taskUUID,
               CustomerTask.TargetType.Backup,
               CustomerTask.TaskType.Delete,
@@ -729,6 +770,8 @@ public class BackupsController extends AuthenticatedController {
         && taskParams.expiryTimeUnit == null) {
       throw new PlatformServiceException(
           BAD_REQUEST, "Please provide a time unit for backup expiry");
+    } else if (!backup.backupUUID.equals(backup.baseBackupUUID)) {
+      throw new PlatformServiceException(BAD_REQUEST, "Cannot edit an incremental backup");
     }
     if (taskParams.storageConfigUUID != null) {
       updateBackupStorageConfig(customerUUID, backupUUID, taskParams);
