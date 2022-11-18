@@ -129,7 +129,9 @@ struct TabletScopedRWOperationPauses {
   }
 };
 
-class Tablet : public AbstractTablet, public TransactionIntentApplier, public std::enable_shared_from_this<Tablet> {
+class Tablet : public AbstractTablet,
+               public TransactionIntentApplier,
+               public std::enable_shared_from_this<Tablet> {
  public:
   class CompactionFaultHooks;
   class FlushCompactCommonHooks;

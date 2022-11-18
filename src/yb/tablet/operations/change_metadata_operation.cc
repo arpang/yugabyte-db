@@ -217,7 +217,8 @@ Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* comple
     case MetadataChange::ADD_MULTIPLE_TABLES:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
-      RETURN_NOT_OK(tablet->AddMultipleTables(this,  ToRepeatedPtrField(request()->add_multiple_tables())));
+      RETURN_NOT_OK(
+          tablet->AddMultipleTables(this, ToRepeatedPtrField(request()->add_multiple_tables())));
       break;
   }
 

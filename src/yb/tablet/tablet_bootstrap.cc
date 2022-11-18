@@ -1515,7 +1515,8 @@ class TabletBootstrap {
   }
 
   Status PlayChangeMetadataRequest(
-      consensus::LWReplicateMsg* replicate_msg, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+      consensus::LWReplicateMsg* replicate_msg,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db) {
     LWChangeMetadataRequestPB* request = replicate_msg->mutable_change_metadata_request();
 
     // Decode schema
@@ -1531,8 +1532,8 @@ class TabletBootstrap {
 
     if (request->has_add_table()) {
       // tablet->AddTable(this, request()->add_table())
-      auto apply_status =
-          tablet_->AddTable(&operation, request->add_table().ToGoogleProtobuf(), already_applied_to_regular_db);
+      auto apply_status = tablet_->AddTable(
+          &operation, request->add_table().ToGoogleProtobuf(), already_applied_to_regular_db);
       // Failure is regular case, since could happen because transaction was aborted, while
       // replicating its intents.
       LOG_IF(INFO, !apply_status.ok()) << "Apply operation failed: " << apply_status;

@@ -10,11 +10,11 @@
 // or implied.  See the License for the specific language governing permissions and limitations
 // under the License.
 
-#include "yb/util/backoff_waiter.h"
-#include "yb/util/flags/flag_tags.h"
-
 #include <algorithm>
 #include <string>
+
+#include "yb/util/backoff_waiter.h"
+#include "yb/util/flags/flag_tags.h"
 
 #include <glog/logging.h>
 
