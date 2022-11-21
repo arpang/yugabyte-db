@@ -23,7 +23,7 @@ namespace docdb {
 
 ChangeMetadataDocOperation::ChangeMetadataDocOperation(
     const tablet::MetadataChange metadata_change, const std::string& table_id,
-    const tablet::TableInfoPB& table_info)
+    const tablet::TableInfoPB table_info)
     : table_info_(table_info), metadata_change_(metadata_change) {
   QLValuePB table_id_value;
   table_id_value.set_string_value(table_id);

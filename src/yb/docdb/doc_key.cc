@@ -224,12 +224,19 @@ DocKey::DocKey(const Schema& schema, DocKeyHash hash,
 }
 
 DocKey::DocKey(bool metadata_key, DocKeyHash hash, std::vector<KeyEntryValue> hashed_components)
-    : metadata_key_(metadata_key),
+    : cotable_id_(Uuid::Nil()),
+      colocation_id_(kColocationIdNotSet),
+      metadata_key_(metadata_key),
       hash_present_(true),
       hash_(hash),
       hashed_group_(std::move(hashed_components)) {}
 
-DocKey::DocKey(bool metadata_key) : metadata_key_(metadata_key) {}
+DocKey::DocKey(bool metadata_key)
+    : cotable_id_(Uuid::Nil()),
+      colocation_id_(kColocationIdNotSet),
+      metadata_key_(metadata_key),
+      hash_present_(false),
+      hash_(0) {}
 
 KeyBytes DocKey::Encode() const {
   KeyBytes result;

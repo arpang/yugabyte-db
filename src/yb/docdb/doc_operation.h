@@ -112,9 +112,16 @@ class ChangeMetadataDocOperation : public DocOperation {
   // Serialization: tableinfo -> pb -> SerializeToString
   // Deserialization: TableInfoPB.ParseFromString()
 
+  // Making table_info a reference throws:
+  // *** SIGSEGV (@0x20) received by PID 46099 (TID 0x16e2ef000) stack trace: ***
+  //   @        0x1bd0574a4 _sigtramp
+  //   @        0x10523cf9c yb::tablet::TableInfoPB::IsInitialized()
+  //   @        0x10523cf9c yb::tablet::TableInfoPB::IsInitialized()
+  //   @        0x109198c50 google::protobuf::MessageLite::AppendToString()
+  //   @        0x1048d4014 yb::docdb::ChangeMetadataDocOperation::Apply()
   ChangeMetadataDocOperation(
       const tablet::MetadataChange metadata_change, const std::string& table_id,
-      const tablet::TableInfoPB& table_info = tablet::TableInfoPB());
+      const tablet::TableInfoPB table_info = tablet::TableInfoPB());
 
   Status Apply(const DocOperationApplyData& data) override;
 
@@ -137,7 +144,7 @@ class ChangeMetadataDocOperation : public DocOperation {
   }
 
  private:
-  const tablet::TableInfoPB& table_info_;
+  const tablet::TableInfoPB table_info_;
   RefCntPrefix encoded_doc_key_;
   // QLValuePB table_info_value;
   const tablet::MetadataChange metadata_change_;
