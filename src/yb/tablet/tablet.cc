@@ -2165,6 +2165,9 @@ Status Tablet::AlterSchema(ChangeMetadataOperation *operation) {
   return metadata_->Flush();
 }
 
+// TODO: wal_retention_secs is set and altered for primary table. Not changing this function since
+// primary table is in superblock for now. Change this if you move primary
+// table to DocDB
 Status Tablet::AlterWalRetentionSecs(ChangeMetadataOperation* operation) {
   if (operation->has_wal_retention_secs()) {
     LOG_WITH_PREFIX(INFO) << "Altering metadata wal_retention_secs from "

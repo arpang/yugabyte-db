@@ -272,6 +272,8 @@ Status SysCatalogTable::Load(FsManager* fs_manager) {
     RETURN_NOT_OK(PartitionSchema::FromPB(PartitionSchemaPB(), *metadata->schema(),
                                           &partition_schema));
     metadata->SetPartitionSchema(partition_schema);
+    // TODO: Flush as long as master's primary table is in superblock. If you move it to
+    // DocDB, replace it with write to docdb
     RETURN_NOT_OK(metadata->Flush());
   }
 

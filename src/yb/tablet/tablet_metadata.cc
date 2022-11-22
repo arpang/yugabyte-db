@@ -1187,6 +1187,7 @@ string RaftGroupMetadata::wal_root_dir() const {
   return wal_root_dir;
 }
 
+// TODO: Replace flush with write to docdb, if primary tabe is moved to docdb
 Status RaftGroupMetadata::set_namespace_id(const NamespaceId& namespace_id) {
   {
     std::lock_guard<MutexType> lock(data_mutex_);
