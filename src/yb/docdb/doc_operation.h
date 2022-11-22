@@ -112,7 +112,7 @@ class ChangeMetadataDocOperation : public DocOperation {
   // Serialization: tableinfo -> pb -> SerializeToString
   // Deserialization: TableInfoPB.ParseFromString()
 
-  // Making table_info a reference throws:
+  // Making table_info a reference throws seg fault:
   // *** SIGSEGV (@0x20) received by PID 46099 (TID 0x16e2ef000) stack trace: ***
   //   @        0x1bd0574a4 _sigtramp
   //   @        0x10523cf9c yb::tablet::TableInfoPB::IsInitialized()

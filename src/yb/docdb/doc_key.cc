@@ -909,6 +909,7 @@ Status SubDocKey::DecodeDocKeyAndSubKeyEnds(
     SCHECK_GE(slice.size(), id_size + 1, Corruption,
               Format("Cannot have exclusively ID in key $0", slice.ToDebugHexString()));
     // Identify table tombstone.
+    // TODO: Any changes required here?
     if ((slice[0] == KeyEntryTypeAsChar::kColocationId || slice[0] == KeyEntryTypeAsChar::kTableId)
         && slice[id_size] == KeyEntryTypeAsChar::kGroupEnd) {
       SCHECK_GE(slice.size(), id_size + 2, Corruption,
@@ -1457,7 +1458,10 @@ Result<bool> HashedOrFirstRangeComponentsEqual(const Slice& lhs, const Slice& rh
 }
 
 bool DocKeyBelongsTo(Slice doc_key, const Schema& schema) {
-
+  // Without the below checks, the following error was thrown
+  // ysqlsh: FATAL:  Not found: [Not found (yb/tablet/tablet_metadata.cc:566): Table
+  // <unknown_table_name> (00000001000030008000000000000b94) not found in Raft group
+  // 00000000000000000000000000000000]
   if (schema.Equals(metadata_schema)) {
     return !doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata;
   }
