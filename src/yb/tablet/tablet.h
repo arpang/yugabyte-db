@@ -436,11 +436,15 @@ class Tablet : public AbstractTablet,
       const Schema* schema);
 
   // Apply the Schema of the specified operation.
-  Status AlterSchema(ChangeMetadataOperation* operation);
+  Status AlterSchema(
+      ChangeMetadataOperation* operation,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
   // Used to update the tablets on the index table that the index has been backfilled.
   // This means that full compactions can now garbage collect delete markers.
-  Status MarkBackfillDone(const TableId& table_id = "");
+  Status MarkBackfillDone(
+      Operation* operation, const TableId& table_id = "",
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
   // Change wal_retention_secs in the metadata.
   Status AlterWalRetentionSecs(ChangeMetadataOperation* operation);
@@ -460,7 +464,7 @@ class Tablet : public AbstractTablet,
 
   // Move TableInfoPBs from superblock to DocDB. Must be called during the tablet bootstrap step
   // before the TableInfoPBs from the DocDB are loaded. Returns true if it moved any TableInfoPB.
-  Status MoveTableInfoPBsToDocDB();
+  // Status MoveTableMetadataToDocDB();
 
   // Apply replicated remove table operation.
   Status RemoveTable(

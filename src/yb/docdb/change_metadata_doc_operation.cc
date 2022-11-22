@@ -21,6 +21,9 @@ namespace yb {
 
 namespace docdb {
 
+// TODO: Replace TableInfoPB with string pointer from arena
+// TODO: Add to and from string helper function in TableInfo
+// TODO: Can replace metadata_change enum with just two: add/delete
 ChangeMetadataDocOperation::ChangeMetadataDocOperation(
     const tablet::MetadataChange metadata_change, const std::string& table_id,
     const tablet::TableInfoPB table_info)
@@ -40,8 +43,9 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
 Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
   DocPath sub_path(
       encoded_doc_key_.as_slice(), KeyEntryValue::MakeColumnId(metadata_table_value_col_id));
-
   switch (metadata_change_) {
+    case tablet::BACKFILL_DONE:
+      FALLTHROUGH_INTENDED;
     case tablet::SCHEMA:
       FALLTHROUGH_INTENDED;
     case tablet::ADD_MULTIPLE_TABLES:
@@ -60,8 +64,6 @@ Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
       RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(sub_path, data.read_time, data.deadline));
       break;
     case tablet::NONE:
-      FALLTHROUGH_INTENDED;
-    case tablet::BACKFILL_DONE:
       break;
   }
   return Status::OK();

@@ -202,8 +202,7 @@ Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* comple
     case MetadataChange::BACKFILL_DONE:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
-      RETURN_NOT_OK(tablet->MarkBackfillDone(
-          request()->backfill_done_table_id().ToBuffer()));
+      RETURN_NOT_OK(tablet->MarkBackfillDone(this, request()->backfill_done_table_id().ToBuffer()));
       break;
     case MetadataChange::ADD_MULTIPLE_TABLES:
       LOG_WITH_FUNC(INFO) << "MetadataChange::ADD_MULTIPLE_TABLES";

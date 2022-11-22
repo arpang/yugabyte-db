@@ -2027,15 +2027,19 @@ Status Tablet::AddTable(
     Operation* operation, const TableInfoPB& table_info_pb,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
-  DCHECK_EQ(table_info_pb.table_type(), PGSQL_TABLE_TYPE);
-  TableInfoPB added_table_pb;
-  added_table->ToPB(&added_table_pb);
-  auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-      MetadataChange::ADD_TABLE, added_table_pb.table_id(), added_table_pb);
-  docdb::DocOperations doc_write_ops;
-  doc_write_ops.emplace_back(std::move(doc_operation));
-  RETURN_NOT_OK(ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
-  return Status::OK();
+  if (metadata_->IsTableMetadataInDocDB()) {
+    TableInfoPB added_table_pb;
+    added_table->ToPB(&added_table_pb);
+    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
+        MetadataChange::ADD_TABLE, added_table_pb.table_id(), added_table_pb);
+    docdb::DocOperations doc_write_ops;
+    doc_write_ops.emplace_back(std::move(doc_operation));
+    RETURN_NOT_OK(
+        ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
+    return Status::OK();
+  } else {
+    return metadata_->Flush();
+  }
 }
 
 Status Tablet::AddMultipleTables(
@@ -2046,50 +2050,59 @@ Status Tablet::AddMultipleTables(
   docdb::DocOperations doc_write_ops;
   for (const auto& table_info_pb : table_infos_pbs) {
     auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
-    DCHECK_EQ(table_info_pb.table_type(), PGSQL_TABLE_TYPE);
-    TableInfoPB added_table_pb;
-    added_table->ToPB(&added_table_pb);
-    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        MetadataChange::ADD_TABLE, added_table_pb.table_id(), added_table_pb);
-    doc_write_ops.emplace_back(std::move(doc_operation));
-  }
-  RETURN_NOT_OK(ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
-  return Status::OK();
-}
-
-Status Tablet::MoveTableInfoPBsToDocDB() {
-  ChangeMetadataOperation operation(shared_from_this(), nullptr, nullptr);
-  RaftGroupReplicaSuperBlockPB superblock;
-  metadata_->GetAllTableInfos(&superblock);
-  const auto& table_infos_pbs = superblock.kv_store().tables();
-  RSTATUS_DCHECK_GT(table_infos_pbs.size(), 0, Ok, "No table to add to metadata");
-  docdb::DocOperations doc_write_ops;
-  for (const auto& table_info_pb : table_infos_pbs) {
-    if (table_info_pb.table_type() == PGSQL_TABLE_TYPE) {
-      auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
-          MetadataChange::ADD_TABLE, table_info_pb.table_id(), table_info_pb);
-      doc_write_ops.emplace_back(std::move(op));
+    if (metadata_->IsTableMetadataInDocDB()) {
+      TableInfoPB added_table_pb;
+      added_table->ToPB(&added_table_pb);
+      auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
+          MetadataChange::ADD_TABLE, added_table_pb.table_id(), added_table_pb);
+      doc_write_ops.emplace_back(std::move(doc_operation));
     }
   }
-  RETURN_NOT_OK(ApplyMetadataDocOperation(&operation, doc_write_ops));
-  return Status::OK();
+  if (metadata_->IsTableMetadataInDocDB()) {
+    RETURN_NOT_OK(
+        ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
+    return Status::OK();
+  } else {
+    return metadata_->Flush();
+  }
 }
+
+// Status Tablet::MoveTableMetadataToDocDB() {
+//   ChangeMetadataOperation operation(shared_from_this(), nullptr, nullptr);
+//   RaftGroupReplicaSuperBlockPB superblock;
+//   metadata_->GetAllTableInfos(&superblock);
+//   const auto& table_infos_pbs = superblock.kv_store().tables();
+//   RSTATUS_DCHECK_GT(table_infos_pbs.size(), 0, Ok, "No table to add to metadata");
+//   docdb::DocOperations doc_write_ops;
+//   for (const auto& table_info_pb : table_infos_pbs) {
+//     auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
+//         MetadataChange::ADD_TABLE, table_info_pb.table_id(), table_info_pb);
+//     doc_write_ops.emplace_back(std::move(op));
+//   }
+//   RETURN_NOT_OK(ApplyMetadataDocOperation(&operation, doc_write_ops));
+//   return Status::OK();
+// }
 
 Status Tablet::RemoveTable(Operation* operation,
     const std::string& table_id, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   metadata_->RemoveTable(table_id);
-  auto doc_operation =
-      std::make_unique<docdb::ChangeMetadataDocOperation>(MetadataChange::REMOVE_TABLE, table_id);
-  docdb::DocOperations doc_write_ops;
-  doc_write_ops.emplace_back(std::move(doc_operation));
-  RETURN_NOT_OK(ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
-
-  return Status::OK();
+  if (metadata_->IsTableMetadataInDocDB()) {
+    auto doc_operation =
+        std::make_unique<docdb::ChangeMetadataDocOperation>(MetadataChange::REMOVE_TABLE, table_id);
+    docdb::DocOperations doc_write_ops;
+    doc_write_ops.emplace_back(std::move(doc_operation));
+    RETURN_NOT_OK(
+        ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
+    return Status::OK();
+  } else {
+    return metadata_->Flush();
+  }
 }
 
-Status Tablet::MarkBackfillDone(const TableId& table_id) {
-  auto table_info = table_id.empty() ?
-    metadata_->primary_table_info() : VERIFY_RESULT(metadata_->GetTableInfo(table_id));
+Status Tablet::MarkBackfillDone(
+    Operation* operation, const TableId& table_id,
+    AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  auto table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
   LOG_WITH_PREFIX(INFO) << "Setting backfill as done. Current schema  "
                         << table_info->schema().ToString();
   const vector<DeletedColumn> empty_deleted_cols;
@@ -2097,13 +2110,30 @@ Status Tablet::MarkBackfillDone(const TableId& table_id) {
   new_schema.SetRetainDeleteMarkers(false);
   metadata_->SetSchema(
       new_schema, *table_info->index_map, empty_deleted_cols, table_info->schema_version, table_id);
-  return metadata_->Flush();
+
+  if (metadata_->IsTableMetadataInDocDB()) {
+    auto updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
+    TableInfoPB updated_table_pb;
+    updated_table_info->ToPB(&updated_table_pb);
+    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
+        MetadataChange::BACKFILL_DONE, updated_table_pb.table_id(), updated_table_pb);
+    docdb::DocOperations doc_write_ops;
+    doc_write_ops.emplace_back(std::move(doc_operation));
+    RETURN_NOT_OK(
+        ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
+    return Status::OK();
+  } else {
+    return metadata_->Flush();
+  }
 }
 
-Status Tablet::AlterSchema(ChangeMetadataOperation *operation) {
-  auto current_table_info = VERIFY_RESULT(metadata_->GetTableInfo(
-        operation->request()->has_alter_table_id() ?
-        operation->request()->alter_table_id().ToBuffer() : ""));
+Status Tablet::AlterSchema(
+    ChangeMetadataOperation* operation, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  auto table_id = operation->request()->has_alter_table_id()
+                      ? operation->request()->alter_table_id().ToBuffer()
+                      : "";
+  auto current_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
+
   auto key_schema = current_table_info->schema().CreateKeyProjection();
 
   RSTATUS_DCHECK_NE(operation->schema(), static_cast<void*>(nullptr), InvalidArgument,
@@ -2138,11 +2168,12 @@ Status Tablet::AlterSchema(ChangeMetadataOperation *operation) {
     }
   }
 
-  metadata_->SetSchema(*operation->schema(), operation->index_map(), deleted_cols,
-                      operation->schema_version(), current_table_info->table_id);
+  metadata_->SetSchema(
+      *operation->schema(), operation->index_map(), deleted_cols, operation->schema_version(),
+      table_id);
   if (operation->has_new_table_name()) {
     metadata_->SetTableName(
-        current_table_info->namespace_name, operation->new_table_name().ToBuffer());
+        current_table_info->namespace_name, operation->new_table_name().ToBuffer(), table_id);
     if (table_metrics_entity_) {
       table_metrics_entity_->SetAttribute("table_name", operation->new_table_name().ToBuffer());
       table_metrics_entity_->SetAttribute("namespace_name", current_table_info->namespace_name);
@@ -2161,8 +2192,21 @@ Status Tablet::AlterSchema(ChangeMetadataOperation *operation) {
     CreateNewYBMetaDataCache();
   }
 
-  // Flush the updated schema metadata to disk.
-  return metadata_->Flush();
+  if (metadata_->IsTableMetadataInDocDB()) {
+    auto updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
+    TableInfoPB updated_table_pb;
+    updated_table_info->ToPB(&updated_table_pb);
+    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
+        MetadataChange::SCHEMA, updated_table_pb.table_id(), updated_table_pb);
+    docdb::DocOperations doc_write_ops;
+    doc_write_ops.emplace_back(std::move(doc_operation));
+    RETURN_NOT_OK(
+        ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
+    return Status::OK();
+  } else {
+    // Flush the updated schema metadata to disk.
+    return metadata_->Flush();
+  }
 }
 
 // TODO: wal_retention_secs is set and altered for primary table. Not changing this function since
