@@ -463,7 +463,7 @@ void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const
   pb->set_has_been_fully_compacted(has_been_fully_compacted);
   pb->set_last_full_compaction_time(last_full_compaction_time);
 
-  if (IsMetadataInDocDB()) {
+  if (IsTableMetadataInDocDB()) {
     initial_primary_table->ToPB(pb->mutable_initial_primary_table());
   } else {
     // Putting primary table first, then all other tables.
@@ -558,7 +558,7 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::Load(
 }
 
 Status RaftGroupMetadata::LoadTablesFromDocDB(const TabletPtr& tablet) {
-  if (IsMetadataInDocDB()) {
+  if (IsTableMetadataInDocDB()) {
     return kv_store_.LoadTablesFromDocDB(tablet, primary_table_id_);
   } else {
     return Status::OK();

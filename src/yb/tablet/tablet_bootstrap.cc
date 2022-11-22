@@ -545,7 +545,7 @@ class TabletBootstrap {
 
     // Upgrade condition: !tablet_->metadata()->IsMetadataInDocDB() && upgrade_flag && (master?
     // master_flag : (ts_flag && table_type == PGSQL))
-    if (!tablet_->metadata()->IsMetadataInDocDB()) {
+    if (!tablet_->metadata()->IsTableMetadataInDocDB()) {
       // if (!tablet_->metadata()->is_metadata_table_set()) {
       // upgrade required
       // bool master = (tablet_->metadata()->raft_group_id() == master::kSysCatalogTabletId);
@@ -573,7 +573,7 @@ class TabletBootstrap {
       //     true /* is_metadata_table*/);
 
       // add tableinfo of other tables in docdb
-      RETURN_NOT_OK(tablet_->MoveTableInfoPBsToDocDB());
+      RETURN_NOT_OK(tablet_->MoveTableMetadataToDocDB());
 
       // flush docdb to disk (unknown)
       RETURN_NOT_OK(

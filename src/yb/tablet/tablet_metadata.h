@@ -179,7 +179,7 @@ struct KvStoreInfo {
   // Updates colocation map with new table info.
   void UpdateColocationMap(const TableInfoPtr& table_info);
 
-  bool IsMetadataInDocDB() const { return initial_primary_table != nullptr; }
+  bool IsTableMetadataInDocDB() const { return initial_primary_table != nullptr; }
 
   KvStoreId kv_store_id;
 
@@ -512,9 +512,9 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return primary_table_info_unlocked();
   }
 
-  bool IsMetadataInDocDB() const {
+  bool IsTableMetadataInDocDB() const {
     // TODO: data_mutex_ not required?
-    return kv_store_.IsMetadataInDocDB();
+    return kv_store_.IsTableMetadataInDocDB();
   }
 
   // TableInfoPtr metadata_table_info() const {
