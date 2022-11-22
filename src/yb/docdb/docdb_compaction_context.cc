@@ -335,7 +335,9 @@ class PackedRowData {
   // colocation.
   Status UpdateCoprefix(const Slice& coprefix) {
     // Getting the below error without this change:
-    // F20221121 19:08:59 ../../src/yb/tablet/tablet.cc:1444] T 00000000000000000000000000000000 P e7efd50d65b440ef8260b3b308b06bc2: Failed to write a batch with 0 operations into RocksDB: Corruption (yb/docdb/docdb_compaction_context.cc:378): Wrong coprefix: 6F
+    // F20221121 19:08:59 ../../src/yb/tablet/tablet.cc:1444] T 00000000000000000000000000000000 P
+    // e7efd50d65b440ef8260b3b308b06bc2: Failed to write a batch with 0 operations into RocksDB:
+    // Corruption (yb/docdb/docdb_compaction_context.cc:378): Wrong coprefix: 6F
     // @        0x107a860dc  google::LogDestination::LogToSinks()
     // @        0x107a85238  google::LogMessage::SendToLog()
     // @        0x107a85bdc  google::LogMessage::Flush()
