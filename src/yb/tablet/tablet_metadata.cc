@@ -82,6 +82,12 @@
 
 DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 
+DEFINE_NON_RUNTIME_bool(
+    master_tableinfo_in_docdb, true, "Stores the TableInfoPB in DocDB for master tables");
+
+DEFINE_NON_RUNTIME_bool(
+    ts_tableinfo_in_docdb, true, "Stores the TableInfoPB in DocDB for tserver tables");
+
 using std::shared_ptr;
 using std::string;
 
@@ -457,29 +463,21 @@ void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const
   pb->set_has_been_fully_compacted(has_been_fully_compacted);
   pb->set_last_full_compaction_time(last_full_compaction_time);
 
-  if (!initial_primary_table) {
-    auto it = tables.find(primary_table_id);
-    DCHECK(it != tables.end());
-    it->second->ToPB(pb->mutable_initial_primary_table());
-  } else {
+  if (IsMetadataInDocDB()) {
     initial_primary_table->ToPB(pb->mutable_initial_primary_table());
+  } else {
+    // Putting primary table first, then all other tables.
+    pb->mutable_tables()->Reserve(2);
+    const auto& it = tables.find(primary_table_id);
+    if (it != tables.end()) {
+      it->second->ToPB(pb->add_tables());
+    }
+    for (const auto& [id, table_info] : tables) {
+      if (id != primary_table_id) {
+        table_info->ToPB(pb->add_tables());
+      }
+    }
   }
-
-  // Putting primary table first, then all other tables.
-  // pb->mutable_tables()->Reserve(2);  // TODO: why was it reserving an extra slot?
-  // const auto& it = tables.find(primary_table_id);
-  // if (it != tables.end()) {
-  //   it->second->ToPB(pb->add_tables());
-  // }
-  // const auto& it2 = tables.find(metadata_table_id);
-  // if (it2 != tables.end()) {
-  //   it2->second->ToPB(pb->add_tables());
-  // }
-  // for (const auto& [id, table_info] : tables) {
-  //   if (id != primary_table_id) {
-  //     table_info->ToPB(pb->add_tables());
-  //   }
-  // }
 
   for (const auto& schedule_id : snapshot_schedules) {
     pb->add_snapshot_schedules(schedule_id.data(), schedule_id.size());
@@ -560,8 +558,7 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::Load(
 }
 
 Status RaftGroupMetadata::LoadTablesFromDocDB(const TabletPtr& tablet) {
-  if (tablet->table_type() == TableType::YQL_TABLE_TYPE ||
-      tablet->table_type() == TableType::PGSQL_TABLE_TYPE) {
+  if (IsMetadataInDocDB()) {
     return kv_store_.LoadTablesFromDocDB(tablet, primary_table_id_);
   } else {
     return Status::OK();
@@ -767,7 +764,14 @@ RaftGroupMetadata::RaftGroupMetadata(
   CHECK_GT(data.primary_table_info->schema().num_key_columns(), 0);
   kv_store_.tables.emplace(primary_table_id_, data.primary_table_info);
   kv_store_.UpdateColocationMap(data.primary_table_info);
-  kv_store_.initial_primary_table = data.primary_table_info;
+
+  bool is_master = data.primary_table_info->table_name == master::kSysCatalogTableName;
+  bool metadata_in_docdb = is_master ? FLAGS_master_tableinfo_in_docdb
+                                     : FLAGS_ts_tableinfo_in_docdb &&
+                                           data.primary_table_info->table_type == PGSQL_TABLE_TYPE;
+  if (metadata_in_docdb) {
+    kv_store_.initial_primary_table = data.primary_table_info;
+  }
 
   // CHECK(data.metadata_table_info->schema().has_column_ids());
   // CHECK_EQ(data.metadata_table_info->schema().num_key_columns(), 1);

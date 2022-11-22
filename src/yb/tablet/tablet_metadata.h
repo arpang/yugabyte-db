@@ -46,6 +46,7 @@
 #include "yb/common/partition.h"
 #include "yb/common/snapshot.h"
 
+#include "yb/docdb/doc_read_context.h"
 #include "yb/docdb/docdb_fwd.h"
 #include "yb/docdb/docdb_compaction_context.h"
 #include "yb/docdb/schema_packing.h"
@@ -56,6 +57,7 @@
 #include "yb/gutil/macros.h"
 #include "yb/gutil/ref_counted.h"
 
+#include "yb/master/sys_catalog_constants.h"
 #include "yb/tablet/tablet_fwd.h"
 #include "yb/tablet/metadata.pb.h"
 
@@ -176,6 +178,8 @@ struct KvStoreInfo {
 
   // Updates colocation map with new table info.
   void UpdateColocationMap(const TableInfoPtr& table_info);
+
+  bool IsMetadataInDocDB() const { return initial_primary_table != nullptr; }
 
   KvStoreId kv_store_id;
 
@@ -508,9 +512,9 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return primary_table_info_unlocked();
   }
 
-  bool MoveMetadataToDocDB () const {
+  bool IsMetadataInDocDB() const {
     // TODO: data_mutex_ not required?
-    return !kv_store_.initial_primary_table;
+    return kv_store_.IsMetadataInDocDB();
   }
 
   // TableInfoPtr metadata_table_info() const {

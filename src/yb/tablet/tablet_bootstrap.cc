@@ -543,7 +543,9 @@ class TabletBootstrap {
 
     const bool has_blocks = VERIFY_RESULT(OpenTablet());
 
-    if (tablet_->metadata()->MoveMetadataToDocDB()) {
+    // Upgrade condition: !tablet_->metadata()->IsMetadataInDocDB() && upgrade_flag && (master?
+    // master_flag : (ts_flag && table_type == PGSQL))
+    if (!tablet_->metadata()->IsMetadataInDocDB()) {
       // if (!tablet_->metadata()->is_metadata_table_set()) {
       // upgrade required
       // bool master = (tablet_->metadata()->raft_group_id() == master::kSysCatalogTabletId);
