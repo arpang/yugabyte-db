@@ -108,11 +108,7 @@ class DocOperationBase : public DocOperation {
 
 class ChangeMetadataDocOperation : public DocOperation {
  public:
-  // TODO: Can change metadata change everything in tableinfopb?
-  // Serialization: tableinfo -> pb -> SerializeToString
-  // Deserialization: TableInfoPB.ParseFromString()
-
-  // Making table_info a reference throws seg fault:
+  // Replacing serialized_table_info with reference to TableInfoPB throws seg fault:
   // *** SIGSEGV (@0x20) received by PID 46099 (TID 0x16e2ef000) stack trace: ***
   //   @        0x1bd0574a4 _sigtramp
   //   @        0x10523cf9c yb::tablet::TableInfoPB::IsInitialized()
@@ -121,7 +117,7 @@ class ChangeMetadataDocOperation : public DocOperation {
   //   @        0x1048d4014 yb::docdb::ChangeMetadataDocOperation::Apply()
   ChangeMetadataDocOperation(
       const tablet::MetadataChange metadata_change, const std::string& table_id,
-      const tablet::TableInfoPB table_info = tablet::TableInfoPB());
+      const std::string& serialized_table_info = "");
 
   Status Apply(const DocOperationApplyData& data) override;
 
@@ -144,7 +140,7 @@ class ChangeMetadataDocOperation : public DocOperation {
   }
 
  private:
-  const tablet::TableInfoPB table_info_;
+  const std::string& serialized_table_info_;
   RefCntPrefix encoded_doc_key_;
   // QLValuePB table_info_value;
   const tablet::MetadataChange metadata_change_;

@@ -2028,10 +2028,10 @@ Status Tablet::AddTable(
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
   if (metadata_->IsTableMetadataInDocDB()) {
-    TableInfoPB added_table_pb;
-    added_table->ToPB(&added_table_pb);
+    std::string serialized_table_info;
+    added_table->SerializeToString(&serialized_table_info);
     auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        MetadataChange::ADD_TABLE, added_table_pb.table_id(), added_table_pb);
+        MetadataChange::ADD_TABLE, added_table->table_id, serialized_table_info);
     docdb::DocOperations doc_write_ops;
     doc_write_ops.emplace_back(std::move(doc_operation));
     RETURN_NOT_OK(
@@ -2051,10 +2051,10 @@ Status Tablet::AddMultipleTables(
   for (const auto& table_info_pb : table_infos_pbs) {
     auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
     if (metadata_->IsTableMetadataInDocDB()) {
-      TableInfoPB added_table_pb;
-      added_table->ToPB(&added_table_pb);
+      std::string serialized_table_info;
+      added_table->SerializeToString(&serialized_table_info);
       auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-          MetadataChange::ADD_TABLE, added_table_pb.table_id(), added_table_pb);
+          MetadataChange::ADD_TABLE, added_table->table_id, serialized_table_info);
       doc_write_ops.emplace_back(std::move(doc_operation));
     }
   }
@@ -2113,10 +2113,10 @@ Status Tablet::MarkBackfillDone(
 
   if (metadata_->IsTableMetadataInDocDB()) {
     auto updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
-    TableInfoPB updated_table_pb;
-    updated_table_info->ToPB(&updated_table_pb);
+    std::string serialized_table_info;
+    updated_table_info->SerializeToString(&serialized_table_info);
     auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        MetadataChange::BACKFILL_DONE, updated_table_pb.table_id(), updated_table_pb);
+        MetadataChange::BACKFILL_DONE, updated_table_info->table_id, serialized_table_info);
     docdb::DocOperations doc_write_ops;
     doc_write_ops.emplace_back(std::move(doc_operation));
     RETURN_NOT_OK(
@@ -2194,10 +2194,10 @@ Status Tablet::AlterSchema(
 
   if (metadata_->IsTableMetadataInDocDB()) {
     auto updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
-    TableInfoPB updated_table_pb;
-    updated_table_info->ToPB(&updated_table_pb);
+    std::string serialized_table_info;
+    updated_table_info->SerializeToString(&serialized_table_info);
     auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        MetadataChange::SCHEMA, updated_table_pb.table_id(), updated_table_pb);
+        MetadataChange::SCHEMA, updated_table_info->table_id, serialized_table_info);
     docdb::DocOperations doc_write_ops;
     doc_write_ops.emplace_back(std::move(doc_operation));
     RETURN_NOT_OK(

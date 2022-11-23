@@ -288,6 +288,19 @@ Result<docdb::CompactionSchemaInfo> TableInfo::Packing(
   };
 }
 
+bool TableInfo::SerializeToString(std::string* output) const {
+  TableInfoPB pb;
+  ToPB(&pb);
+  return pb.SerializeToString(output);
+}
+
+Status TableInfo::LoadFromString(
+    const TableId& primary_table_id, const std::string& serialized_string) {
+  TableInfoPB table_info_pb;
+  table_info_pb.ParseFromString(serialized_string);
+  return LoadFromPB(primary_table_id, table_info_pb);
+}
+
 bool TableInfo::TEST_Equals(const TableInfo& lhs, const TableInfo& rhs) {
   return YB_STRUCT_EQUALS(table_id,
                           namespace_name,
@@ -370,15 +383,11 @@ Status KvStoreInfo::LoadTablesFromDocDB(const TabletPtr& tablet, const TableId& 
     if (!table_info_ql_value) {
       return STATUS_FORMAT(Corruption, "Could not read table schema from DocDB");
     }
-    const string& table_info_string = table_info_ql_value->string_value();
-    TableInfoPB table_info_pb;
-    table_info_pb.ParseFromString(table_info_string);
-
-    const TableId table_id = table_info_pb.table_id();
-    TableInfoPtr& table_info_ptr =
-        tables.emplace(table_id, std::make_shared<TableInfo>()).first->second;
-    RETURN_NOT_OK(table_info_ptr->LoadFromPB(primary_table_id, table_info_pb));
-    UpdateColocationMap(table_info_ptr);
+    const string& serialized_table_info = table_info_ql_value->string_value();
+    TableInfoPtr table_info = std::make_shared<TableInfo>();
+    RETURN_NOT_OK(table_info->LoadFromString(primary_table_id, serialized_table_info));
+    tables.emplace(table_info->table_id, table_info);
+    UpdateColocationMap(table_info);
   }
   return Status::OK();
 }
@@ -1120,8 +1129,9 @@ TableInfoPtr RaftGroupMetadata::AddTable(
       // This must be the one-time migration with transactional DDL being turned on for the first
       // time on this cluster.
     } else {
-      LOG(DFATAL) << "Table " << table_id << " already exists. New table info: "
-          << new_table_info->ToString() << ", old table info: " << existing_table.ToString();
+      LOG(DFATAL) << "Table " << table_id
+                  << " already exists. New table info: " << new_table_info->ShortDebugString()
+                  << ", old table info: " << existing_table.ShortDebugString();
 
       // We never expect colocation IDs to mismatch.
       const auto& existing_schema = existing_table.schema();

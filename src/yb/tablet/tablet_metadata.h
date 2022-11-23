@@ -130,11 +130,15 @@ struct TableInfo {
   Status LoadFromPB(const TableId& primary_table_id, const TableInfoPB& pb);
   void ToPB(TableInfoPB* pb) const;
 
-  std::string ToString() const {
+  std::string ShortDebugString() const {
     TableInfoPB pb;
     ToPB(&pb);
     return pb.ShortDebugString();
   }
+
+  bool SerializeToString(std::string* output) const;
+
+  Status LoadFromString(const TableId& primary_table_id, const std::string& serialized_string);
 
   // If schema version is kLatestSchemaVersion, then latest possible schema packing is returned.
   static Result<docdb::CompactionSchemaInfo> Packing(

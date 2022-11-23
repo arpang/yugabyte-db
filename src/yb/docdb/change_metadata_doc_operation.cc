@@ -21,13 +21,11 @@ namespace yb {
 
 namespace docdb {
 
-// TODO: Replace TableInfoPB with string pointer from arena
-// TODO: Add to and from string helper function in TableInfo
 // TODO: Can replace metadata_change enum with just two: add/delete
 ChangeMetadataDocOperation::ChangeMetadataDocOperation(
     const tablet::MetadataChange metadata_change, const std::string& table_id,
-    const tablet::TableInfoPB table_info)
-    : table_info_(table_info), metadata_change_(metadata_change) {
+    const std::string& serialized_table_info)
+    : serialized_table_info_(serialized_table_info), metadata_change_(metadata_change) {
   QLValuePB table_id_value;
   table_id_value.set_string_value(table_id);
 
@@ -51,10 +49,8 @@ Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
     case tablet::ADD_MULTIPLE_TABLES:
       FALLTHROUGH_INTENDED;
     case yb::tablet::MetadataChange::ADD_TABLE: {
-      std::string table_info_pb_string;
-      table_info_.SerializeToString(&table_info_pb_string);
       QLValuePB table_info_value;
-      table_info_value.set_string_value(table_info_pb_string);
+      table_info_value.set_string_value(serialized_table_info_);
       RETURN_NOT_OK(data.doc_write_batch->InsertSubDocument(
           sub_path, ValueRef(table_info_value, metadata_table_value_col.sorting_type()),
           data.read_time, data.deadline));
