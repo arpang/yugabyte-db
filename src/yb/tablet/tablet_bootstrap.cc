@@ -1528,7 +1528,9 @@ class TabletBootstrap {
 
     if (request->has_schema()) {
       // Apply the alter schema to the tablet.
-      RETURN_NOT_OK_PREPEND(tablet_->AlterSchema(&operation), "Failed to AlterSchema:");
+      RETURN_NOT_OK_PREPEND(
+          tablet_->AlterSchema(&operation, already_applied_to_regular_db),
+          "Failed to AlterSchema:");
 
       // Also update the log information. Normally, the AlterSchema() call above takes care of this,
       // but our new log isn't hooked up to the tablet yet.
@@ -1536,8 +1538,9 @@ class TabletBootstrap {
     }
 
     if (request->has_wal_retention_secs()) {
-      RETURN_NOT_OK_PREPEND(tablet_->AlterWalRetentionSecs(&operation),
-                            "Failed to alter wal retention secs");
+      RETURN_NOT_OK_PREPEND(
+          tablet_->AlterWalRetentionSecs(&operation, already_applied_to_regular_db),
+          "Failed to alter wal retention secs");
       log_->set_wal_retention_secs(request->wal_retention_secs());
     }
 

@@ -2212,14 +2212,29 @@ Status Tablet::AlterSchema(
 // TODO: wal_retention_secs is set and altered for primary table. Not changing this function since
 // primary table is in superblock for now. Change this if you move primary
 // table to DocDB
-Status Tablet::AlterWalRetentionSecs(ChangeMetadataOperation* operation) {
+Status Tablet::AlterWalRetentionSecs(
+    ChangeMetadataOperation* operation, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   if (operation->has_wal_retention_secs()) {
     LOG_WITH_PREFIX(INFO) << "Altering metadata wal_retention_secs from "
                           << metadata_->wal_retention_secs()
                           << " to " << operation->wal_retention_secs();
     metadata_->set_wal_retention_secs(operation->wal_retention_secs());
-    // Flush the updated schema metadata to disk.
-    return metadata_->Flush();
+
+    if (metadata_->IsTableMetadataInDocDB()) {
+      auto table_info = VERIFY_RESULT(metadata_->GetTableInfo(""));
+      std::string serialized_table_info;
+      table_info->SerializeToString(&serialized_table_info);
+      auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
+          table_info->table_id, serialized_table_info);
+      docdb::DocOperations doc_write_ops;
+      doc_write_ops.emplace_back(std::move(doc_operation));
+      RETURN_NOT_OK(
+          ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
+      return Status::OK();
+    } else {
+      // Flush the updated schema metadata to disk.
+      return metadata_->Flush();
+    }
   }
   return STATUS_SUBSTITUTE(InvalidArgument, "Invalid ChangeMetadataOperation: $0",
                            operation->ToString());

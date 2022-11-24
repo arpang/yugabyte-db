@@ -447,7 +447,9 @@ class Tablet : public AbstractTablet,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
   // Change wal_retention_secs in the metadata.
-  Status AlterWalRetentionSecs(ChangeMetadataOperation* operation);
+  Status AlterWalRetentionSecs(
+      ChangeMetadataOperation* operation,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
   Status ApplyMetadataDocOperation(
       Operation* operation, const docdb::DocOperations& doc_write_ops,
