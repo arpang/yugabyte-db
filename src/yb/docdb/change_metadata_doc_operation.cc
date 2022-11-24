@@ -24,7 +24,7 @@ namespace docdb {
 // TODO: Can replace metadata_change enum with just two: add/delete
 ChangeMetadataDocOperation::ChangeMetadataDocOperation(
     const tablet::MetadataChange metadata_change, const std::string& table_id,
-    const std::string& serialized_table_info)
+    const std::string serialized_table_info)
     : serialized_table_info_(serialized_table_info), metadata_change_(metadata_change) {
   QLValuePB table_id_value;
   table_id_value.set_string_value(table_id);
