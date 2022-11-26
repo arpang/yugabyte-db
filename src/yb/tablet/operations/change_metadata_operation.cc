@@ -115,7 +115,7 @@ Status ChangeMetadataOperation::Prepare() {
   return Status::OK();
 }
 
-Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* complete_status) {
+Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   TRACE("APPLY CHANGE-METADATA: Starting");
 
   TabletPtr tablet = VERIFY_RESULT(tablet_safe());
@@ -217,6 +217,10 @@ Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* comple
   // make the changes visible to readers.
   TRACE("AlterSchemaCommitCallback: making alter schema visible");
   return Status::OK();
+}
+
+Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* complete_status) {
+  return Apply();
 }
 
 Status ChangeMetadataOperation::DoAborted(const Status& status) {
