@@ -129,7 +129,8 @@ class ChangeMetadataOperation
 
   Status Prepare() override;
 
-  Status Apply(AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
+  Status Apply(
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
  private:
   // Starts the ChangeMetadataOperation by assigning it a timestamp.
