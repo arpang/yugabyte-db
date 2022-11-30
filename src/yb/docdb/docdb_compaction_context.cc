@@ -350,7 +350,7 @@ class PackedRowData {
     // @        0x1058f7ad0  yb::tablet::TransactionParticipant::Impl::ProcessReplicated()
     // @        0x105939f70  yb::tablet::UpdateTxnOperation::DoReplicated()
     // @        0x105913dd4  yb::tablet::Operation::Replicated()
-    if (coprefix[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+    if (!coprefix.empty() && coprefix[0] == KeyEntryTypeAsChar::kTabletMetadata) {
       return Status::OK();
     }
     if (!schema_packing_provider_) {

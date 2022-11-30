@@ -83,7 +83,7 @@
 DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 
 DEFINE_NON_RUNTIME_bool(
-    master_tableinfo_in_docdb, true, "Stores the TableInfoPB in DocDB for master tables");
+    master_tableinfo_in_docdb, false, "Stores the TableInfoPB in DocDB for master tables");
 
 DEFINE_NON_RUNTIME_bool(
     ts_tableinfo_in_docdb, true, "Stores the TableInfoPB in DocDB for tserver tables");
