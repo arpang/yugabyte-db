@@ -14,6 +14,7 @@
 #pragma once
 
 #include "yb/docdb/key_bytes.h"
+#include "yb/docdb/value_type.h"
 #include "yb/rocksdb/rocksdb_fwd.h"
 
 namespace yb {
@@ -34,6 +35,9 @@ struct KeyBounds {
   KeyBounds(const Slice& _lower, const Slice& _upper) : lower(_lower), upper(_upper) {}
 
   bool IsWithinBounds(const Slice& key) const {
+    if (docdb::DecodeKeyEntryType(key) == KeyEntryType::kTabletMetadata) {
+      return true;
+    }
     return (lower.empty() || key.compare(lower) >= 0) &&
            (upper.empty() || key.compare(upper) < 0);
   }

@@ -376,6 +376,8 @@ Status KvStoreInfo::LoadTablesFromDocDB(const TabletPtr& tablet, const TableId& 
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
 
+  string tablet_id = tablet->tablet_id();
+
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
@@ -386,6 +388,8 @@ Status KvStoreInfo::LoadTablesFromDocDB(const TabletPtr& tablet, const TableId& 
     const string& serialized_table_info = table_info_ql_value->string_value();
     TableInfoPtr table_info = std::make_shared<TableInfo>();
     RETURN_NOT_OK(table_info->LoadFromString(primary_table_id, serialized_table_info));
+    LOG_WITH_FUNC(INFO) << "Tablet " << tablet_id
+                        << " Loaded from docdb: " << table_info->ShortDebugString();
     tables.emplace(table_info->table_id, table_info);
     UpdateColocationMap(table_info);
   }
@@ -567,6 +571,8 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::Load(
 }
 
 Status RaftGroupMetadata::LoadTablesFromDocDB(const TabletPtr& tablet) {
+  LOG_WITH_FUNC(INFO) << "Loading table infos for tablet " << tablet->tablet_id()
+                      << " DOCDB: " << IsTableMetadataInDocDB();
   if (IsTableMetadataInDocDB()) {
     return kv_store_.LoadTablesFromDocDB(tablet, primary_table_id_);
   } else {

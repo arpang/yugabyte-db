@@ -243,7 +243,9 @@ constexpr inline bool IsCollectionType(const ValueEntryType value_type) {
 constexpr inline bool IsRegulaDBInternalRecordKeyType(const KeyEntryType value_type) {
   // For regular db:
   // - transaction apply state records.
-  return value_type == KeyEntryType::kTransactionApplyState;
+  // - metadata entries.
+  return value_type == KeyEntryType::kTransactionApplyState ||
+         value_type == KeyEntryType::kTabletMetadata;
 }
 
 constexpr inline bool IsIntentsDBInternalRecordKeyType(const KeyEntryType value_type) {
