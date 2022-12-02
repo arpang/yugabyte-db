@@ -350,9 +350,10 @@ class PackedRowData {
     // @        0x1058f7ad0  yb::tablet::TransactionParticipant::Impl::ProcessReplicated()
     // @        0x105939f70  yb::tablet::UpdateTxnOperation::DoReplicated()
     // @        0x105913dd4  yb::tablet::Operation::Replicated()
-    if (!coprefix.empty() && coprefix[0] == KeyEntryTypeAsChar::kTabletMetadata) {
-      return Status::OK();
-    }
+    // if (!coprefix.empty() && coprefix[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+    //   return Status::OK();
+    // }
+
     if (!schema_packing_provider_) {
       return Status::OK();
     }
@@ -360,6 +361,12 @@ class PackedRowData {
       return Status::OK();
     }
     RETURN_NOT_OK(Flush());
+
+    if (!coprefix.empty() && coprefix[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+      active_coprefix_ = "FAKE_PREFIX"s;
+      active_coprefix_dropped_ = false;
+      can_start_packing_ = false;
+    }
 
     auto packing = GetCompactionSchemaInfo(coprefix);
     if (!packing.ok()) {
