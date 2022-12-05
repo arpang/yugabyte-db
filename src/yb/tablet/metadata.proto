@@ -122,7 +122,7 @@ message RaftGroupReplicaSuperBlockPB {
   // tables in master Raft group and sys catalog table is the primary table in this case.
   required bytes primary_table_id = 1;
 
-  optional bytes metadata_table_id = 34;
+  // optional bytes metadata_table_id = 34;
 
   required bytes raft_group_id = 2;
 
@@ -211,6 +211,8 @@ message RaftGroupReplicaSuperBlockPB {
   // Minimum checkpoint op id for cdcsdk streams. This value is used to retain intents
   // with op id larger than this one.
   optional OpIdPB cdc_sdk_min_checkpoint_op_id = 33;
+
+  optional fixed64 cdc_sdk_safe_time = 34;
 }
 
 message FilePB {

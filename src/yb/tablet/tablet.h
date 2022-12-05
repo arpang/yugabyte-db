@@ -313,7 +313,8 @@ class Tablet : public AbstractTablet,
       const TransactionIdSet& transactions) override;
 
   Status GetIntents(
-      const TransactionId& id, std::vector<docdb::IntentKeyValueForCDC>* keyValueIntents,
+      const TransactionId& id,
+      std::vector<docdb::IntentKeyValueForCDC>* keyValueIntents,
       docdb::ApplyTransactionState* stream_state);
 
   // Apply all of the row operations associated with this transaction.
@@ -365,7 +366,8 @@ class Tablet : public AbstractTablet,
       const ReadHybridTime& read_time,
       const QLReadRequestPB& ql_read_request,
       const TransactionMetadataPB& transaction_metadata,
-      QLReadRequestResult* result) override;
+      QLReadRequestResult* result,
+      WriteBuffer* rows_data) override;
 
   Status CreatePagingStateForRead(
       const QLReadRequestPB& ql_read_request, const size_t row_count,
@@ -383,8 +385,7 @@ class Tablet : public AbstractTablet,
       const PgsqlReadRequestPB& pgsql_read_request,
       const TransactionMetadataPB& transaction_metadata,
       const SubTransactionMetadataPB& subtransaction_metadata,
-      PgsqlReadRequestResult* result,
-      size_t* num_rows_read) override;
+      PgsqlReadRequestResult* result) override;
 
   Status CreatePagingStateForRead(
       const PgsqlReadRequestPB& pgsql_read_request, const size_t row_count,
@@ -819,6 +820,8 @@ class Tablet : public AbstractTablet,
   // critical failures.
   Status ApplyAutoFlagsConfig(const AutoFlagsConfigPB& config);
 
+  std::string LogPrefix() const;
+
  private:
   friend class Iterator;
   friend class TabletPeerTest;
@@ -874,8 +877,6 @@ class Tablet : public AbstractTablet,
       const CoarseTimePoint deadline = CoarseTimePoint()) const;
 
   Status DoEnableCompactions();
-
-  std::string LogPrefix() const;
 
   std::string LogPrefix(docdb::StorageDbType db_type) const;
 

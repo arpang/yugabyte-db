@@ -53,15 +53,15 @@ Status TabletHarness::Create(bool first_time) {
   RETURN_NOT_OK(fs_manager_->CheckAndOpenFileSystemRoots());
 
   auto table_info = std::make_shared<TableInfo>(
-      Primary::kTrue, "YBTableTest", "test", "YBTableTest", options_.table_type, schema_,
-      IndexMap(), boost::none, 0 /* schema_version */, partition.first);
-  auto metadata = VERIFY_RESULT(RaftGroupMetadata::TEST_LoadOrCreate(RaftGroupMetadataData{
-      .fs_manager = fs_manager_.get(),
-      .primary_table_info = table_info,
-      .raft_group_id = options_.tablet_id,
-      .partition = partition.second,
-      .tablet_data_state = TABLET_DATA_READY,
-      .snapshot_schedules = {},
+      "test-tablet", Primary::kTrue, "YBTableTest", "test", "YBTableTest", options_.table_type,
+      schema_, IndexMap(), boost::none, 0 /* schema_version */, partition.first);
+  auto metadata = VERIFY_RESULT(RaftGroupMetadata::TEST_LoadOrCreate(RaftGroupMetadataData {
+    .fs_manager = fs_manager_.get(),
+    .primary_table_info = table_info,
+    .raft_group_id = options_.tablet_id,
+    .partition = partition.second,
+    .tablet_data_state = TABLET_DATA_READY,
+    .snapshot_schedules = {},
   }));
   if (options_.enable_metrics) {
     metrics_registry_.reset(new MetricRegistry());

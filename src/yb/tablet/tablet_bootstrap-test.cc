@@ -179,15 +179,15 @@ class BootstrapTest : public LogTestBase {
     std::pair<PartitionSchema, Partition> partition = CreateDefaultPartition(schema);
 
     auto table_info = std::make_shared<TableInfo>(
-        Primary::kTrue, log::kTestTable, log::kTestNamespace, log::kTestTable, kTableType, schema,
-        IndexMap(), boost::none /* index_info */, 0 /* schema_version */, partition.first);
-    auto result = VERIFY_RESULT(RaftGroupMetadata::TEST_LoadOrCreate(RaftGroupMetadataData{
-        .fs_manager = fs_manager_.get(),
-        .primary_table_info = table_info,
-        .raft_group_id = log::kTestTablet,
-        .partition = partition.second,
-        .tablet_data_state = TABLET_DATA_READY,
-        .snapshot_schedules = {},
+        "TEST: ", Primary::kTrue, log::kTestTable, log::kTestNamespace, log::kTestTable, kTableType,
+        schema, IndexMap(), boost::none /* index_info */, 0 /* schema_version */, partition.first);
+    auto result = VERIFY_RESULT(RaftGroupMetadata::TEST_LoadOrCreate(RaftGroupMetadataData {
+      .fs_manager = fs_manager_.get(),
+      .primary_table_info = table_info,
+      .raft_group_id = log::kTestTablet,
+      .partition = partition.second,
+      .tablet_data_state = TABLET_DATA_READY,
+      .snapshot_schedules = {},
     }));
     RETURN_NOT_OK(result->Flush());
     return result;
