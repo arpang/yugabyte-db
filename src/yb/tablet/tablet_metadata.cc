@@ -314,7 +314,7 @@ Status TableInfo::LoadFromString(const std::string& tablet_log_prefix,
     const TableId& primary_table_id, const std::string& serialized_string) {
   TableInfoPB table_info_pb;
   table_info_pb.ParseFromString(serialized_string);
-  return LoadFromPB(tablet_log_prefix, primary_table_id, table_info_pb); // TODO: add proper log prefix
+  return LoadFromPB(tablet_log_prefix, primary_table_id, table_info_pb);
 }
 
 bool TableInfo::TEST_Equals(const TableInfo& lhs, const TableInfo& rhs) {
@@ -365,7 +365,9 @@ Status KvStoreInfo::LoadTablesFromPB(
   return Status::OK();
 }
 
-Status KvStoreInfo::LoadTablesFromDocDB(const std::string& tablet_log_prefix, const TabletPtr& tablet, const TableId& primary_table_id) {
+Status KvStoreInfo::LoadTablesFromDocDB(
+    const std::string& tablet_log_prefix, const TabletPtr& tablet,
+    const TableId& primary_table_id) {
   // auto metadata_table_ptr = tables.find(metadata_table_id);
   // auto primary_table_ptr = tables.find(primary_table_id);
   // DCHECK(metadata_table_ptr != tables.end());
@@ -404,7 +406,8 @@ Status KvStoreInfo::LoadTablesFromDocDB(const std::string& tablet_log_prefix, co
     }
     const string& serialized_table_info = table_info_ql_value->string_value();
     TableInfoPtr table_info = std::make_shared<TableInfo>();
-    RETURN_NOT_OK(table_info->LoadFromString(tablet_log_prefix, primary_table_id, serialized_table_info));
+    RETURN_NOT_OK(
+        table_info->LoadFromString(tablet_log_prefix, primary_table_id, serialized_table_info));
     LOG_WITH_FUNC(INFO) << "Tablet " << tablet_id
                         << " Loaded from docdb: " << table_info->ShortDebugString();
     tables.emplace(table_info->table_id, table_info);
@@ -432,7 +435,8 @@ Status KvStoreInfo::LoadFromPB(const std::string& tablet_log_prefix,
   RETURN_NOT_OK(LoadTablesFromPB(tablet_log_prefix, pb.tables(), primary_table_id));
   if (pb.has_initial_primary_table()) {
     initial_primary_table = std::make_shared<TableInfo>();
-    RETURN_NOT_OK(initial_primary_table->LoadFromPB(tablet_log_prefix, primary_table_id, pb.initial_primary_table()));
+    RETURN_NOT_OK(initial_primary_table->LoadFromPB(
+        tablet_log_prefix, primary_table_id, pb.initial_primary_table()));
     tables.emplace(primary_table_id, initial_primary_table);
     UpdateColocationMap(initial_primary_table);
   }
@@ -1159,9 +1163,9 @@ TableInfoPtr RaftGroupMetadata::AddTable(
       // This must be the one-time migration with transactional DDL being turned on for the first
       // time on this cluster.
     } else {
-      LOG_WITH_PREFIX(DFATAL)
-          << "Table " << table_id << " already exists. New table info: "
-          << new_table_info->ShortDebugString() << ", old table info: " << existing_table.ShortDebugString();
+      LOG_WITH_PREFIX(DFATAL) << "Table " << table_id << " already exists. New table info: "
+                              << new_table_info->ShortDebugString()
+                              << ", old table info: " << existing_table.ShortDebugString();
 
       // We never expect colocation IDs to mismatch.
       const auto& existing_schema = existing_table.schema();
