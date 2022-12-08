@@ -23,7 +23,6 @@ class ChangeMetadataDocOperation : public DocOperation {
   // Cannot make serialized_table_info a reference. The serialized string is not guaranteed to exist
   // by the time Apply is called. See Tablet::AddMultipleTables for instance.
   ChangeMetadataDocOperation(
-      // const tablet::MetadataChange metadata_change,
       const std::string& table_id, const std::string serialized_table_info, bool is_delete = false);
 
   Status Apply(const DocOperationApplyData& data) override;

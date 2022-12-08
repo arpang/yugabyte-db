@@ -133,6 +133,16 @@ Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_
     }
   }
 
+  // Only perform one operation.
+  enum MetadataChange {
+    NONE,
+    SCHEMA,
+    ADD_TABLE,
+    REMOVE_TABLE,
+    BACKFILL_DONE,
+    ADD_MULTIPLE_TABLES,
+  };
+
   MetadataChange metadata_change = MetadataChange::NONE;
   bool request_has_newer_schema = false;
   if (request()->has_schema()) {

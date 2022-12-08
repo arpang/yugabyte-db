@@ -365,8 +365,6 @@ Status KvStoreInfo::LoadTablesFromPB(
 Status KvStoreInfo::LoadTablesFromRocksDB(
     const std::string& tablet_log_prefix, const TabletPtr& tablet,
     const TableId& primary_table_id) {
-  const auto table_info_col_id = VERIFY_RESULT(metadata_schema.ColumnIdByName("table_info")).rep();
-
   const docdb::DocReadContext doc_read_context(tablet_log_prefix, metadata_schema, 0);
   auto iter = VERIFY_RESULT(tablet->NewRowIterator(
       metadata_schema.CopyWithoutColumnIds(), metadata_schema, doc_read_context));
@@ -383,7 +381,7 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
-    const auto& table_info_ql_value = row.GetValue(table_info_col_id);
+    const auto& table_info_ql_value = row.GetValue(metadata_table_value_col_id);
     if (!table_info_ql_value) {
       return STATUS_FORMAT(Corruption, "Could not read table schema from DocDB");
     }

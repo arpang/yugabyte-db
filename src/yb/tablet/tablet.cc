@@ -1133,10 +1133,11 @@ Status Tablet::CompleteShutdownRocksDBs(
   return regular_status.ok() ? intents_status : regular_status;
 }
 
+// TODO: Dedupe the code
 Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::NewRowIterator(
     const Schema& projection,
     const Schema& schema,
-const docdb::DocReadContext& doc_read_context,
+    const docdb::DocReadContext& doc_read_context,
     const ReadHybridTime read_hybrid_time,
     CoarseTimePoint deadline,
     AllowBootstrappingState allow_bootstrapping_state,
@@ -1154,9 +1155,6 @@ const docdb::DocReadContext& doc_read_context,
 
   VLOG_WITH_PREFIX(2) << "Created new Iterator reading at " << read_hybrid_time.ToString();
 
-  // const std::shared_ptr<tablet::TableInfo> table_info =
-  //     VERIFY_RESULT(metadata_->GetTableInfo(table_id));
-  // const Schema& schema = table_info->schema();
   auto mapped_projection = std::make_unique<Schema>();
   RETURN_NOT_OK(schema.GetMappedReadProjection(projection, mapped_projection.get()));
 
@@ -2198,9 +2196,6 @@ Status Tablet::AlterSchema(
   }
 }
 
-// TODO: wal_retention_secs is set and altered for primary table. Not changing this function since
-// primary table is in superblock for now. Change this if you move primary
-// table to DocDB
 Status Tablet::AlterWalRetentionSecs(
     ChangeMetadataOperation* operation, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   if (operation->has_wal_retention_secs()) {

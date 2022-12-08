@@ -63,7 +63,6 @@
 #include "yb/gutil/strings/substitute.h"
 #include "yb/gutil/thread_annotations.h"
 
-#include "yb/master/sys_catalog_constants.h"
 #include "yb/rpc/rpc_fwd.h"
 #include "yb/rpc/lightweight_message.h"
 
