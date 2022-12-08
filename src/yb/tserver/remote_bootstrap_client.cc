@@ -359,7 +359,7 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
     auto create_result = RaftGroupMetadata::CreateNew(
         tablet::RaftGroupMetadataData{
             .fs_manager = &fs_manager(),
-            .primary_table_info = table_info,
+            .table_info = table_info,
             .raft_group_id = tablet_id_,
             .partition = partition,
             .tablet_data_state = tablet::TABLET_DATA_COPYING,

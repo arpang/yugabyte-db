@@ -57,7 +57,7 @@ Status TabletHarness::Create(bool first_time) {
       schema_, IndexMap(), boost::none, 0 /* schema_version */, partition.first);
   auto metadata = VERIFY_RESULT(RaftGroupMetadata::TEST_LoadOrCreate(RaftGroupMetadataData {
     .fs_manager = fs_manager_.get(),
-    .primary_table_info = table_info,
+    .table_info = table_info,
     .raft_group_id = options_.tablet_id,
     .partition = partition.second,
     .tablet_data_state = TABLET_DATA_READY,

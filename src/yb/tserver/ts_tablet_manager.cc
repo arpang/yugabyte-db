@@ -753,14 +753,13 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
   auto create_result = RaftGroupMetadata::CreateNew(
       tablet::RaftGroupMetadataData{
           .fs_manager = fs_manager_,
-          .primary_table_info = table_info,
+          .table_info = table_info,
           .raft_group_id = tablet_id,
           .partition = partition,
           .tablet_data_state = TABLET_DATA_READY,
           .colocated = colocated,
           .snapshot_schedules = snapshot_schedules,
-          // .metadata_table_info = metadata_table_info
-          },
+      },
       data_root_dir, wal_root_dir);
   if (!create_result.ok()) {
     UnregisterDataWalDir(table_info->table_id, tablet_id, data_root_dir, wal_root_dir);

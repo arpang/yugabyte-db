@@ -558,7 +558,7 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::CreateNew(
     wal_top_dir = wal_root_dirs[0];
   }
 
-  const string table_dir_name = Substitute("table-$0", data.primary_table_info->table_id);
+  const string table_dir_name = Substitute("table-$0", data.table_info->table_id);
   const string tablet_dir_name = MakeTabletDirName(data.raft_group_id);
   const string wal_dir = JoinPathSegments(wal_top_dir, table_dir_name, tablet_dir_name);
   const string rocksdb_dir =
@@ -591,10 +591,10 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::TEST_LoadOrCreate(
   if (data.fs_manager->LookupTablet(data.raft_group_id)) {
     auto metadata = Load(data.fs_manager, data.raft_group_id);
     if (metadata.ok()) {
-      if (!(**metadata).schema()->Equals(data.primary_table_info->schema())) {
+      if (!(**metadata).schema()->Equals(data.table_info->schema())) {
         return STATUS_FORMAT(
             Corruption, "Schema on disk ($0) does not match expected schema ($1)",
-            *(*metadata)->schema(), data.primary_table_info->schema());
+            *(*metadata)->schema(), data.table_info->schema());
       }
       return *metadata;
     }
@@ -773,7 +773,7 @@ RaftGroupMetadata::RaftGroupMetadata(
     : state_(kNotWrittenYet),
       raft_group_id_(data.raft_group_id),
       partition_(std::make_shared<Partition>(data.partition)),
-      primary_table_id_(data.primary_table_info->table_id),
+      primary_table_id_(data.table_info->table_id),
       // metadata_table_id_(data.metadata_table_info->table_id),
       kv_store_(KvStoreId(raft_group_id_), data_dir, data.snapshot_schedules),
       fs_manager_(data.fs_manager),
@@ -784,15 +784,17 @@ RaftGroupMetadata::RaftGroupMetadata(
       cdc_sdk_min_checkpoint_op_id_(OpId::Invalid()),
       cdc_sdk_safe_time_(HybridTime::kInvalid),
       log_prefix_(consensus::MakeTabletLogPrefix(raft_group_id_, fs_manager_->uuid())) {
-  CHECK(data.primary_table_info->schema().has_column_ids());
-  CHECK_GT(data.primary_table_info->schema().num_key_columns(), 0);
-  kv_store_.tables.emplace(primary_table_id_, data.primary_table_info);
-  kv_store_.UpdateColocationMap(data.primary_table_info);
+  CHECK(data.table_info->schema().has_column_ids());
+  CHECK_GT(data.table_info->schema().num_key_columns(), 0);
+  kv_store_.tables.emplace(primary_table_id_, data.table_info);
+  kv_store_.UpdateColocationMap(data.table_info);
 
-  bool is_ts_tablet = data.primary_table_info->table_name != master::kSysCatalogTableName;
+  bool is_ts_tablet =
+      data.table_info->table_name !=
+      master::kSysCatalogTableName;  // TODO: can user table be of kSysCatalogTableName
   if (is_ts_tablet && FLAGS_ts_tableinfo_in_rocksdb &&
-      data.primary_table_info->table_type == PGSQL_TABLE_TYPE) {
-    kv_store_.initial_primary_table = data.primary_table_info;
+      data.table_info->table_type == PGSQL_TABLE_TYPE) {
+    kv_store_.initial_primary_table = data.table_info;
   }
 }
 

@@ -348,13 +348,13 @@ Status SysCatalogTable::CreateNew(FsManager *fs_manager) {
   auto metadata = VERIFY_RESULT(tablet::RaftGroupMetadata::CreateNew(
       tablet::RaftGroupMetadataData{
           .fs_manager = fs_manager,
-          .primary_table_info = primary_table_info,
+          .table_info = primary_table_info,
           .raft_group_id = kSysCatalogTabletId,
           .partition = partitions[0],
           .tablet_data_state = tablet::TABLET_DATA_READY,
           .snapshot_schedules = {},
           // .metadata_table_info = metadata_table_info
-          },
+      },
       data_root_dir));
 
   RaftConfigPB config;
