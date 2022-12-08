@@ -112,7 +112,7 @@ message KvStoreInfoPB {
   // compacted. Defaults to 0 (i.e. HybridTime::kMin).
   optional uint64 last_full_compaction_time = 10;
 
-  // Initial primary TableInfoPB. Any subsequent version goes to DocDB.
+  // Initial primary table's TableInfoPB. Any subsequent version goes to RocksDB.
   optional TableInfoPB initial_primary_table = 11;
 }
 
