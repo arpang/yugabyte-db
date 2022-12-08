@@ -11,6 +11,8 @@
 // under the License.
 //
 
+#pragma once
+
 #include "yb/docdb/doc_operation.h"
 
 namespace yb {
