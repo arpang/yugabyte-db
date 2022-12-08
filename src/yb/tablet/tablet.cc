@@ -56,6 +56,7 @@
 #include "yb/consensus/log_anchor_registry.h"
 #include "yb/consensus/opid_util.h"
 
+#include "yb/docdb/change_metadata_doc_operation.h"
 #include "yb/docdb/compaction_file_filter.h"
 #include "yb/docdb/conflict_resolution.h"
 #include "yb/docdb/consensus_frontier.h"

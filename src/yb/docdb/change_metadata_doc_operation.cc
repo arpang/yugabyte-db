@@ -11,11 +11,7 @@
 // under the License.
 //
 
-#include "yb/docdb/doc_operation.h"
-#include "yb/tablet/tablet_metadata.h"
-#include "yb/common/schema.h"
-#include "yb/tablet/metadata.pb.h"
-#include "yb/docdb/doc_read_context.h"
+#include "yb/docdb/change_metadata_doc_operation.h"
 
 namespace yb {
 

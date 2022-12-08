@@ -105,42 +105,6 @@ class DocOperationBase : public DocOperation {
   const RequestPB& request_;
 };
 
-
-class ChangeMetadataDocOperation : public DocOperation {
- public:
-  // Cannot make serialized_table_info a reference. The serialized string is not guaranteed to exist
-  // by the time Apply is called. See Tablet::AddMultipleTables for instance.
-  ChangeMetadataDocOperation(
-      // const tablet::MetadataChange metadata_change,
-      const std::string& table_id, const std::string serialized_table_info, bool is_delete = false);
-
-  Status Apply(const DocOperationApplyData& data) override;
-
-  Type OpType() override { return DocOperationType::CHANGE_METADATA_DOC_OPERATION; }
-
-  bool RequireReadSnapshot() const override { return false; }
-
-  Status GetDocPaths(
-      GetDocPathsMode mode, DocPathsToLock* paths, IsolationLevel* level) const override {
-    paths->push_back(encoded_doc_key_);
-    return Status::OK();
-  }
-
-  void ClearResponse() override {
-    // NOOP
-  }
-
-  std::string ToString() const override {
-    return "";  // TODO
-  }
-
- private:
-  const std::string serialized_table_info_;
-  RefCntPrefix encoded_doc_key_;
-  bool is_delete_ = false;
-  // const tablet::MetadataChange metadata_change_;
-};
-
 typedef std::vector<std::unique_ptr<DocOperation>> DocOperations;
 
 }  // namespace docdb
