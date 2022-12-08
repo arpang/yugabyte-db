@@ -368,16 +368,6 @@ Status KvStoreInfo::LoadTablesFromPB(
 Status KvStoreInfo::LoadTablesFromDocDB(
     const std::string& tablet_log_prefix, const TabletPtr& tablet,
     const TableId& primary_table_id) {
-  // auto metadata_table_ptr = tables.find(metadata_table_id);
-  // auto primary_table_ptr = tables.find(primary_table_id);
-  // DCHECK(metadata_table_ptr != tables.end());
-  // DCHECK(primary_table_ptr != tables.end());
-  // TODO: Should we be clearing anything?
-  // tables.clear();
-  // colocation_to_table.clear();
-  // auto metadata_table_info = metadata_table_ptr->second;
-  // const auto& metadata_schema = metadata_table_info->schema();
-
   const auto table_info_col_id = VERIFY_RESULT(metadata_schema.ColumnIdByName("table_info")).rep();
 
   const docdb::DocReadContext doc_read_context(tablet_log_prefix, metadata_schema, 0);
@@ -387,10 +377,6 @@ Status KvStoreInfo::LoadTablesFromDocDB(
   {
     auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
     const std::vector<docdb::KeyEntryValue> empty_key_components;
-    // docdb::DocPgsqlScanSpec spec(
-    //     metadata_schema, rocksdb::kDefaultQueryId, empty_key_components, empty_key_components,
-    //     nullptr, boost::none /* hash_code */, boost::none /* max_hash_code */, nullptr /* where
-    //     */);
     docdb::DocPgsqlScanSpec spec(metadata_schema, rocksdb::kDefaultQueryId, docdb::DocKey(true));
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
@@ -813,11 +799,6 @@ RaftGroupMetadata::RaftGroupMetadata(
   if (metadata_in_docdb) {
     kv_store_.initial_primary_table = data.primary_table_info;
   }
-
-  // CHECK(data.metadata_table_info->schema().has_column_ids());
-  // CHECK_EQ(data.metadata_table_info->schema().num_key_columns(), 1);
-  // kv_store_.tables.emplace(metadata_table_id_, data.metadata_table_info);
-  // kv_store_.UpdateColocationMap(data.metadata_table_info);
 }
 
 RaftGroupMetadata::~RaftGroupMetadata() {
@@ -870,9 +851,6 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
     Partition::FromPB(superblock.partition(), &partition);
     partition_ = std::make_shared<Partition>(partition);
     primary_table_id_ = superblock.primary_table_id();
-    // if (superblock.has_metadata_table_id()) {
-    //   metadata_table_id_ = superblock.metadata_table_id();  // could be absent
-    // }
     colocated_ = superblock.colocated();
 
     RETURN_NOT_OK(kv_store_.LoadFromPB(
@@ -1189,9 +1167,6 @@ TableInfoPtr RaftGroupMetadata::AddTable(
                         << "\n" << AsString(new_table_info);
     kv_store_.UpdateColocationMap(new_table_info);
   }
-  // if (is_metadata_table) {
-  //   metadata_table_id_ = table_id;
-  // }
   return new_table_info;
 }
 

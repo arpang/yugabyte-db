@@ -533,12 +533,6 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return kv_store_.IsTableMetadataInDocDB();
   }
 
-  // TableInfoPtr metadata_table_info() const {
-  //   std::lock_guard<MutexType> lock(data_mutex_);
-  //   CHECK(!metadata_table_id_.empty());
-  //   return metadata_table_info_unlocked();
-  // }
-
   bool colocated() const;
 
   Result<std::string> TopSnapshotsDir() const;
@@ -625,13 +619,6 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     CHECK(itr != tables.end());
     return itr->second;
   }
-
-  // const TableInfoPtr metadata_table_info_unlocked() const {
-  //   const auto& tables = kv_store_.tables;
-  //   const auto itr = tables.find(metadata_table_id_);
-  //   CHECK(itr != tables.end());
-  //   return itr->second;
-  // }
 
   enum State {
     kNotLoadedYet,

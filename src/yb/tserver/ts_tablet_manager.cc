@@ -750,18 +750,6 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
       fs_manager_, table_info->table_id, tablet_id, &data_root_dir, &wal_root_dir);
   fs_manager_->SetTabletPathByDataPath(tablet_id, data_root_dir);
 
-  // const Uuid metadata_table_cotable_id = Uuid::Generate();
-  // const TableId metadata_table_id = metadata_table_cotable_id.ToHexString();
-  // const Schema tserver_metadata_table_schema = Schema(
-  //     {metadata_table_key_col, metadata_table_value_col},
-  //     {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(),
-  //     Uuid::Nil());
-
-  // auto metadata_table_info = std::make_shared<tablet::TableInfo>(
-  //     tablet::Primary::kFalse, metadata_table_id, "", metadata_table_name,
-  //     TableType::YQL_TABLE_TYPE, tserver_metadata_table_schema, IndexMap(),
-  //     boost::none /* index_info */, 0 /* schema_version */, PartitionSchema());
-
   auto create_result = RaftGroupMetadata::CreateNew(
       tablet::RaftGroupMetadataData{
           .fs_manager = fs_manager_,

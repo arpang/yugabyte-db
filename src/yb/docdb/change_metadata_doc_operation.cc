@@ -48,27 +48,6 @@ Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
         sub_path, ValueRef(table_info_value, metadata_table_value_col.sorting_type()),
         data.read_time, data.deadline));
   }
-  // switch (metadata_change_) {
-  //   case tablet::BACKFILL_DONE:
-  //     FALLTHROUGH_INTENDED;
-  //   case tablet::SCHEMA:
-  //     FALLTHROUGH_INTENDED;
-  //   case tablet::ADD_MULTIPLE_TABLES:
-  //     FALLTHROUGH_INTENDED;
-  //   case yb::tablet::MetadataChange::ADD_TABLE: {
-  //     QLValuePB table_info_value;
-  //     table_info_value.set_string_value(serialized_table_info_);
-  //     RETURN_NOT_OK(data.doc_write_batch->InsertSubDocument(
-  //         sub_path, ValueRef(table_info_value, metadata_table_value_col.sorting_type()),
-  //         data.read_time, data.deadline));
-  //     break;
-  //   }
-  //   case tablet::REMOVE_TABLE:
-  //     RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(sub_path, data.read_time, data.deadline));
-  //     break;
-  //   case tablet::NONE:
-  //     break;
-  // }
   return Status::OK();
 }
 }  // namespace docdb

@@ -543,22 +543,6 @@ class TabletBootstrap {
 
     const bool has_blocks = VERIFY_RESULT(OpenTablet());
 
-    // Upgrade condition: !tablet_->metadata()->IsMetadataInDocDB() && upgrade_flag && (master?
-    // master_flag : (ts_flag && table_type == PGSQL))
-    // if (!tablet_->metadata()->IsTableMetadataInDocDB()) {
-    //   // add tableinfo of other tables in docdb
-    //   RETURN_NOT_OK(tablet_->MoveTableMetadataToDocDB());
-
-    //   // flush docdb to disk (unknown)
-    //   RETURN_NOT_OK(
-    //       tablet_->Flush(tablet::FlushMode::kSync));  // TODO: should we just flush regular db?
-
-    //   // replace superblock in disk and in memory
-    //   RaftGroupReplicaSuperBlockPB superblock;
-    //   tablet_->metadata()->ToSuperBlock(&superblock);
-    //   RETURN_NOT_OK(tablet_->metadata()->ReplaceSuperBlock(superblock));
-    // }
-
     if (FLAGS_TEST_dump_docdb_before_tablet_bootstrap) {
       LOG_WITH_PREFIX(INFO) << "DEBUG: DocDB dump before tablet bootstrap:";
       tablet_->TEST_DocDBDumpToLog(IncludeIntents::kTrue);
@@ -1510,46 +1494,6 @@ class TabletBootstrap {
     RETURN_NOT_OK(operation.Apply(already_applied_to_regular_db));
 
     // TODO: Should we do tablet_->mvcc_manager()->Replicated(hybrid_time, op_id);?
-
-    // if (request->has_add_table()) {
-    //   // tablet->AddTable(this, request()->add_table())
-    //   auto apply_status = tablet_->AddTable(
-    //       &operation, request->add_table().ToGoogleProtobuf(), already_applied_to_regular_db);
-    //   // Failure is regular case, since could happen because transaction was aborted, while
-    //   // replicating its intents.
-    //   LOG_IF(INFO, !apply_status.ok()) << "Apply operation failed: " << apply_status;
-    // }
-
-    // // If table id isn't in metadata, ignore the replay as the table might've been dropped.
-    // auto table_info = meta_->GetTableInfo(operation.table_id().ToBuffer());
-    // if (!table_info.ok()) {
-    //   LOG_WITH_PREFIX(WARNING) << "Table ID " << operation.table_id()
-    //       << " not found in metadata, skipping this ChangeMetadataRequest";
-    //   return Status::OK();
-    // }
-
-    // RETURN_NOT_OK(tablet_->CreatePreparedChangeMetadata(
-    //     &operation, request->has_schema() ? &schema : nullptr));
-
-    // if (request->has_schema()) {
-    //   // Apply the alter schema to the tablet.
-    //   RETURN_NOT_OK_PREPEND(
-    //       tablet_->AlterSchema(&operation, already_applied_to_regular_db),
-    //       "Failed to AlterSchema:");
-
-    //   // Also update the log information. Normally, the AlterSchema() call above takes care of
-    //   this,
-    //   // but our new log isn't hooked up to the tablet yet.
-    //   log_->SetSchemaForNextLogSegment(schema, operation.schema_version());
-    // }
-
-    // if (request->has_wal_retention_secs()) {
-    //   RETURN_NOT_OK_PREPEND(
-    //       tablet_->AlterWalRetentionSecs(&operation, already_applied_to_regular_db),
-    //       "Failed to alter wal retention secs");
-    //   log_->set_wal_retention_secs(request->wal_retention_secs());
-    // }
-
     return Status::OK();
   }
 

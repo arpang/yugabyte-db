@@ -465,10 +465,6 @@ class Tablet : public AbstractTablet,
       Operation* operation, const google::protobuf::RepeatedPtrField<TableInfoPB>& table_info_pbs,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
-  // Move TableInfoPBs from superblock to DocDB. Must be called during the tablet bootstrap step
-  // before the TableInfoPBs from the DocDB are loaded. Returns true if it moved any TableInfoPB.
-  // Status MoveTableMetadataToDocDB();
-
   // Apply replicated remove table operation.
   Status RemoveTable(
       Operation* operation,

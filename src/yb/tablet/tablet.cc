@@ -2071,22 +2071,6 @@ Status Tablet::AddMultipleTables(
   }
 }
 
-// Status Tablet::MoveTableMetadataToDocDB() {
-//   ChangeMetadataOperation operation(shared_from_this(), nullptr, nullptr);
-//   RaftGroupReplicaSuperBlockPB superblock;
-//   metadata_->GetAllTableInfos(&superblock);
-//   const auto& table_infos_pbs = superblock.kv_store().tables();
-//   RSTATUS_DCHECK_GT(table_infos_pbs.size(), 0, Ok, "No table to add to metadata");
-//   docdb::DocOperations doc_write_ops;
-//   for (const auto& table_info_pb : table_infos_pbs) {
-//     auto op = std::make_unique<docdb::ChangeMetadataDocOperation>(
-//         MetadataChange::ADD_TABLE, table_info_pb.table_id(), table_info_pb);
-//     doc_write_ops.emplace_back(std::move(op));
-//   }
-//   RETURN_NOT_OK(ApplyMetadataDocOperation(&operation, doc_write_ops));
-//   return Status::OK();
-// }
-
 Status Tablet::RemoveTable(Operation* operation,
     const std::string& table_id, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   metadata_->RemoveTable(table_id);
