@@ -606,7 +606,7 @@ Status SysCatalogTable::OpenTablet(const scoped_refptr<tablet::RaftGroupMetadata
   };
   RETURN_NOT_OK(BootstrapTablet(data, &tablet, &log, &consensus_info));
 
-  RETURN_NOT_OK(tablet->metadata()->LoadTablesFromDocDB(tablet));
+  RETURN_NOT_OK(tablet->metadata()->LoadTablesFromRocksDB(tablet));
 
   // TODO: Do we have a setSplittable(false) or something from the outside is
   // handling split in the TS?

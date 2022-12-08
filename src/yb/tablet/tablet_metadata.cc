@@ -84,10 +84,7 @@
 DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 
 DEFINE_NON_RUNTIME_bool(
-    master_tableinfo_in_docdb, false, "Stores the TableInfoPB in DocDB for master tables");
-
-DEFINE_NON_RUNTIME_bool(
-    ts_tableinfo_in_docdb, true, "Stores the TableInfoPB in DocDB for tserver tables");
+    ts_tableinfo_in_rocksdb, true, "Stores the TableInfoPB in RocksDB for tserver tables");
 
 using std::shared_ptr;
 using std::string;
@@ -365,7 +362,7 @@ Status KvStoreInfo::LoadTablesFromPB(
   return Status::OK();
 }
 
-Status KvStoreInfo::LoadTablesFromDocDB(
+Status KvStoreInfo::LoadTablesFromRocksDB(
     const std::string& tablet_log_prefix, const TabletPtr& tablet,
     const TableId& primary_table_id) {
   const auto table_info_col_id = VERIFY_RESULT(metadata_schema.ColumnIdByName("table_info")).rep();
@@ -485,7 +482,7 @@ void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const
   pb->set_has_been_fully_compacted(has_been_fully_compacted);
   pb->set_last_full_compaction_time(last_full_compaction_time);
 
-  if (IsTableMetadataInDocDB()) {
+  if (IsTableMetadataInRocksDB()) {
     initial_primary_table->ToPB(pb->mutable_initial_primary_table());
   } else {
     // Putting primary table first, then all other tables.
@@ -579,11 +576,11 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::Load(
   return ret;
 }
 
-Status RaftGroupMetadata::LoadTablesFromDocDB(const TabletPtr& tablet) {
+Status RaftGroupMetadata::LoadTablesFromRocksDB(const TabletPtr& tablet) {
   LOG_WITH_FUNC(INFO) << "Loading table infos for tablet " << tablet->tablet_id()
-                      << " DOCDB: " << IsTableMetadataInDocDB();
-  if (IsTableMetadataInDocDB()) {
-    return kv_store_.LoadTablesFromDocDB(log_prefix_, tablet, primary_table_id_);
+                      << " DOCDB: " << IsTableMetadataInRocksDB();
+  if (IsTableMetadataInRocksDB()) {
+    return kv_store_.LoadTablesFromRocksDB(log_prefix_, tablet, primary_table_id_);
   } else {
     return Status::OK();
   }
@@ -792,11 +789,9 @@ RaftGroupMetadata::RaftGroupMetadata(
   kv_store_.tables.emplace(primary_table_id_, data.primary_table_info);
   kv_store_.UpdateColocationMap(data.primary_table_info);
 
-  bool is_master = data.primary_table_info->table_name == master::kSysCatalogTableName;
-  bool metadata_in_docdb = is_master ? FLAGS_master_tableinfo_in_docdb
-                                     : FLAGS_ts_tableinfo_in_docdb &&
-                                           data.primary_table_info->table_type == PGSQL_TABLE_TYPE;
-  if (metadata_in_docdb) {
+  bool is_ts_tablet = data.primary_table_info->table_name != master::kSysCatalogTableName;
+  if (is_ts_tablet && FLAGS_ts_tableinfo_in_rocksdb &&
+      data.primary_table_info->table_type == PGSQL_TABLE_TYPE) {
     kv_store_.initial_primary_table = data.primary_table_info;
   }
 }

@@ -1572,7 +1572,7 @@ void TSTabletManager::OpenTablet(
       tablet_peer->SetFailed(s);
       return;
     }
-    s = tablet->metadata()->LoadTablesFromDocDB(tablet);
+    s = tablet->metadata()->LoadTablesFromRocksDB(tablet);
     if (!s.ok()) {
       LOG(ERROR) << kLogPrefix << "Failed to load table metadata from DocDB: " << s;
       tablet_peer->SetFailed(s);

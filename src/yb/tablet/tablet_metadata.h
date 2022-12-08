@@ -185,7 +185,7 @@ struct KvStoreInfo {
       const std::string& tablet_log_prefix,
       const google::protobuf::RepeatedPtrField<TableInfoPB>& pbs, const TableId& primary_table_id);
 
-  Status LoadTablesFromDocDB(
+  Status LoadTablesFromRocksDB(
       const std::string& tablet_log_prefix, const TabletPtr& tablet,
       const TableId& primary_table_id);
 
@@ -195,7 +195,7 @@ struct KvStoreInfo {
   // Updates colocation map with new table info.
   void UpdateColocationMap(const TableInfoPtr& table_info);
 
-  bool IsTableMetadataInDocDB() const { return initial_primary_table != nullptr; }
+  bool IsTableMetadataInRocksDB() const { return initial_primary_table != nullptr; }
 
   KvStoreId kv_store_id;
 
@@ -261,7 +261,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // Load existing metadata from disk.
   static Result<RaftGroupMetadataPtr> Load(FsManager* fs_manager, const RaftGroupId& raft_group_id);
 
-  Status LoadTablesFromDocDB(const TabletPtr& tablet);
+  Status LoadTablesFromRocksDB(const TabletPtr& tablet);
 
   // Try to load an existing Raft group. If it does not exist, create it.
   // If it already existed, verifies that the schema of the Raft group matches the
@@ -528,9 +528,9 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return primary_table_info_unlocked();
   }
 
-  bool IsTableMetadataInDocDB() const {
+  bool IsTableMetadataInRocksDB() const {
     // TODO: data_mutex_ not required?
-    return kv_store_.IsTableMetadataInDocDB();
+    return kv_store_.IsTableMetadataInRocksDB();
   }
 
   bool colocated() const;

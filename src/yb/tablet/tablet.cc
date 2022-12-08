@@ -2031,7 +2031,7 @@ Status Tablet::AddTable(
     Operation* operation, const TableInfoPB& table_info_pb,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
-  if (metadata_->IsTableMetadataInDocDB()) {
+  if (metadata_->IsTableMetadataInRocksDB()) {
     std::string serialized_table_info;
     added_table->SerializeToString(&serialized_table_info);
     auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
@@ -2054,7 +2054,7 @@ Status Tablet::AddMultipleTables(
   docdb::DocOperations doc_write_ops;
   for (const auto& table_info_pb : table_infos_pbs) {
     auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
-    if (metadata_->IsTableMetadataInDocDB()) {
+    if (metadata_->IsTableMetadataInRocksDB()) {
       std::string serialized_table_info;
       added_table->SerializeToString(&serialized_table_info);
       auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
@@ -2062,7 +2062,7 @@ Status Tablet::AddMultipleTables(
       doc_write_ops.emplace_back(std::move(doc_operation));
     }
   }
-  if (metadata_->IsTableMetadataInDocDB()) {
+  if (metadata_->IsTableMetadataInRocksDB()) {
     RETURN_NOT_OK(
         ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
     return Status::OK();
@@ -2074,7 +2074,7 @@ Status Tablet::AddMultipleTables(
 Status Tablet::RemoveTable(Operation* operation,
     const std::string& table_id, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   metadata_->RemoveTable(table_id);
-  if (metadata_->IsTableMetadataInDocDB()) {
+  if (metadata_->IsTableMetadataInRocksDB()) {
     auto doc_operation =
         std::make_unique<docdb::ChangeMetadataDocOperation>(table_id, "", /* is_delete */ true);
     docdb::DocOperations doc_write_ops;
@@ -2099,7 +2099,7 @@ Status Tablet::MarkBackfillDone(
   metadata_->SetSchema(
       new_schema, *table_info->index_map, empty_deleted_cols, table_info->schema_version, table_id);
 
-  if (metadata_->IsTableMetadataInDocDB()) {
+  if (metadata_->IsTableMetadataInRocksDB()) {
     auto updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
     std::string serialized_table_info;
     updated_table_info->SerializeToString(&serialized_table_info);
@@ -2180,7 +2180,7 @@ Status Tablet::AlterSchema(
     CreateNewYBMetaDataCache();
   }
 
-  if (metadata_->IsTableMetadataInDocDB()) {
+  if (metadata_->IsTableMetadataInRocksDB()) {
     auto updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
     std::string serialized_table_info;
     updated_table_info->SerializeToString(&serialized_table_info);
@@ -2208,7 +2208,7 @@ Status Tablet::AlterWalRetentionSecs(
                           << " to " << operation->wal_retention_secs();
     metadata_->set_wal_retention_secs(operation->wal_retention_secs());
 
-    if (metadata_->IsTableMetadataInDocDB()) {
+    if (metadata_->IsTableMetadataInRocksDB()) {
       auto table_info = VERIFY_RESULT(metadata_->GetTableInfo(""));
       std::string serialized_table_info;
       table_info->SerializeToString(&serialized_table_info);
