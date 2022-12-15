@@ -157,10 +157,12 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           }
         }
       } else if (lhs.has_tuple()) {
-        std::vector<ColumnId> col_ids;
-        std::vector<int> col_idxs;
         size_t num_cols = lhs.tuple().elems_size();
         DCHECK_GT(num_cols, 0);
+        std::vector<ColumnId> col_ids;
+        std::vector<int> col_idxs;
+        col_ids.reserve(num_cols);
+        col_idxs.reserve(num_cols);
 
         for (const auto& elem : lhs.tuple().elems()) {
           DCHECK(elem.has_column_id());
@@ -200,16 +202,11 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           // IN arguments should have been de-duplicated and ordered ascendingly by the
           // executor.
 
-          std::vector<const QLValuePB*> options_elems;
-          options_elems.reserve(options.elems_size());
-          for (const auto& value : options.elems()) {
-            options_elems.push_back(&value);
-          }
-
-          SortTuplesByOrdering(&options_elems, schema_, is_forward_scan_, col_idxs);
+          std::vector<const QLValuePB*> sorted_options =
+              GetTuplesSortedByOrdering(options, schema_, is_forward_scan_, col_idxs);
 
           for (int i = 0; i < num_options; i++) {
-            const auto& elem = options_elems[i];
+            const auto& elem = sorted_options[i];
             DCHECK(elem->has_tuple_value());
             const auto& value = elem->tuple_value();
             DCHECK_EQ(num_cols, value.elems_size());

@@ -946,11 +946,16 @@ bool BothNull(const QLValuePB& lhs, const QLValue& rhs) {
   return IsNull(lhs) && rhs.IsNull();
 }
 
-void SortTuplesByOrdering(
-    std::vector<const QLValuePB*>* tuples, const Schema& schema, bool is_forward_scan,
+std::vector<const QLValuePB*> GetTuplesSortedByOrdering(
+    const QLSeqValuePB& options, const Schema& schema, bool is_forward_scan,
     const std::vector<int>& col_idxs) {
+  std::vector<const QLValuePB*> options_elems;
+  options_elems.reserve(options.elems_size());
+  for (const auto& value : options.elems()) {
+    options_elems.push_back(&value);
+  }
   std::sort(
-      tuples->begin(), tuples->end(),
+      options_elems.begin(), options_elems.end(),
       [&schema, is_forward_scan, &col_idxs](const auto& t1, const auto& t2) {
         DCHECK(t1->has_tuple_value());
         DCHECK(t2->has_tuple_value());
@@ -987,6 +992,7 @@ void SortTuplesByOrdering(
         }
         return cmp;
       });
+  return options_elems;
 }
 
 template <class PB>
