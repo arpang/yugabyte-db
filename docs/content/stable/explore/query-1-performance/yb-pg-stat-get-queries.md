@@ -5,7 +5,7 @@ description: Track planning and execution statistics for all SQL statements exec
 headerTitle: View terminated queries with yb_pg_stat_get_queries
 headcontent: See why a query failed
 menu:
-  preview:
+  stable:
     identifier: yb-pg-stat-get-queries
     parent: query-tuning
     weight: 350
@@ -16,7 +16,7 @@ Use the YugabyteDB `yb_pg_stat_get_queries` function to see terminated queries a
 
 When a query quits for unexpected reasons, information about the query and the responsible backend is stored. You can access this information by using yb_pg_stat_get_queries. Calling the function returns queries using the following criteria:
 
-- Temporary file size exceeds temp_file_limit.
+- Temporary file size exceeds `temp_file_limit`.
 - Terminated by SIGSEGV - the query terminated due to a crash in the PostgreSQL process.
 - Terminated by SIGKILL - the query was killed by the system's out of memory killer because the node is running out of memory.
 
@@ -82,13 +82,13 @@ In the same session, start a long-running query, so that you have time to send a
 yugabyte=# SELECT * FROM generate_series(1, 123456789);
 ```
 
-In another shell, send the terminating signal to the backend process:
+In another session, send the terminating signal to the backend process:
 
 ```sh
 $ kill -SIGSEGV 4650 # the pid of the backend process
 ```
 
-Verify that the query is listed as a terminated query:
+Verify that the query is listed as a terminated query as follows:
 
 ```sql
 yugabyte=# SELECT backend_pid, query_text, termination_reason FROM yb_pg_stat_get_queries(NULL);
