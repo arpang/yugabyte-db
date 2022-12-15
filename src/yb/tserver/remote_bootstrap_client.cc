@@ -355,7 +355,6 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
         table.has_index_info() ? boost::optional<IndexInfo>(table.index_info()) : boost::none,
         table.schema_version(), partition_schema);
     fs_manager().SetTabletPathByDataPath(tablet_id_, data_root_dir);
-    // TODO: Set metadata table?
     auto create_result = RaftGroupMetadata::CreateNew(
         tablet::RaftGroupMetadataData{
             .fs_manager = &fs_manager(),

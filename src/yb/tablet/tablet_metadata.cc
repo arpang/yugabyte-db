@@ -425,7 +425,6 @@ Status KvStoreInfo::LoadFromPB(const std::string& tablet_log_prefix,
   return Status::OK();
 }
 
-// TODO: any changes here?
 Status KvStoreInfo::MergeWithRestored(
     const KvStoreInfoPB& pb, bool colocated, docdb::OverwriteSchemaPacking overwrite) {
   lower_bound_key = pb.lower_bound_key();
@@ -1206,7 +1205,6 @@ string RaftGroupMetadata::wal_root_dir() const {
   return wal_root_dir;
 }
 
-// TODO: Replace flush with write to docdb, if primary tabe is moved to docdb
 Status RaftGroupMetadata::set_namespace_id(const NamespaceId& namespace_id) {
   {
     std::lock_guard<MutexType> lock(data_mutex_);
