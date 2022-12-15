@@ -31,6 +31,21 @@ using std::vector;
 namespace yb {
 namespace docdb {
 
+namespace {
+bool AreColumnsContinous(const std::vector<int>& col_idxs) {
+  std::vector<int> copy = col_idxs;
+  std::sort(copy.begin(), copy.end());
+  int prev_idx = -1;
+  for (auto const idx : copy) {
+    if (prev_idx != -1 && idx != prev_idx + 1) {
+      return false;
+    }
+    prev_idx = idx;
+  }
+  return true;
+}
+}  // namespace
+
 DocQLScanSpec::DocQLScanSpec(const Schema& schema,
                              const DocKey& doc_key,
                              const rocksdb::QueryId query_id,
@@ -80,19 +95,6 @@ DocQLScanSpec::DocQLScanSpec(
       range_options_num_cols_ = std::vector<size_t>(schema_.num_range_key_columns(), 0);
       InitRangeOptions(*condition);
     }
-}
-
-bool AreColumnsContinous(const std::vector<int>& col_idxs) {
-  std::vector<int> copy = col_idxs;
-  std::sort(copy.begin(), copy.end());
-  int prev_idx = -1;
-  for (auto const idx : copy) {
-    if (prev_idx != -1 && idx != prev_idx + 1) {
-      return false;
-    }
-    prev_idx = idx;
-  }
-  return true;
 }
 
 void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
@@ -204,7 +206,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
             options_elems.push_back(&value);
           }
 
-          SortTuplesbyOrdering(&options_elems, schema_, is_forward_scan_, col_idxs);
+          SortTuplesByOrdering(&options_elems, schema_, is_forward_scan_, col_idxs);
 
           for (int i = 0; i < num_options; i++) {
             const auto& elem = options_elems[i];

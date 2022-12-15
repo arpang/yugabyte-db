@@ -598,7 +598,7 @@ void ConcatStrings(const std::string& lhs, const std::string& rhs, QLValuePB* re
 void ConcatStrings(const std::string& lhs, const std::string& rhs, QLValue* result);
 void ConcatStrings(const Slice& lhs, const Slice& rhs, LWQLValuePB* result);
 
-void SortTuplesbyOrdering(
+void SortTuplesByOrdering(
     std::vector<const QLValuePB*>* tuples, const Schema& schema, bool is_forward_scan,
     const std::vector<int>& col_idxs);
 
