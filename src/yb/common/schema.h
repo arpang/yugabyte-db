@@ -1114,6 +1114,7 @@ class Schema {
 };
 
 // TODO: type column
+const TableName metadata_table_name = "metadata_table";
 const ColumnId metadata_table_key_col_id(10);
 const ColumnSchema metadata_table_key_col = ColumnSchema("id", STRING, false, true);
 const ColumnId metadata_table_value_col_id(11);

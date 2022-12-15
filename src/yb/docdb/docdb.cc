@@ -25,6 +25,7 @@
 #include "yb/common/row_mark.h"
 #include "yb/common/transaction.h"
 
+#include "yb/docdb/change_metadata_doc_operation.h"
 #include "yb/docdb/conflict_resolution.h"
 #include "yb/docdb/cql_operation.h"
 #include "yb/docdb/docdb-internal.h"
@@ -281,6 +282,7 @@ Result<PrepareDocWriteOperationResult> PrepareDocWriteOperation(
   return result;
 }
 
+// TODO: Handle error here
 Status SetDocOpQLErrorResponse(DocOperation* doc_op, string err_msg) {
   switch (doc_op->OpType()) {
     case DocOperation::Type::QL_WRITE_OPERATION: {
@@ -295,6 +297,12 @@ Status SetDocOpQLErrorResponse(DocOperation* doc_op, string err_msg) {
       resp->set_error_message(err_msg);
       break;
     }
+    // case DocOperation::Type::CHANGE_METADATA_DOC_OPERATION: {
+    //   const auto& resp = down_cast<ChangeMetadataDocOperation*>(doc_op)->response();
+    //   resp->set_status(PgsqlResponsePB::PGSQL_STATUS_USAGE_ERROR);
+    //   resp->set_error_message(err_msg);
+    //   break;
+    // }
     default:
       return STATUS_FORMAT(InternalError,
                            "Invalid status (QLError) for doc operation %d",

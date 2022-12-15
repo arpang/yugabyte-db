@@ -1523,6 +1523,8 @@ struct ReadOptions {
 
   std::shared_ptr<ReadFileFilter> file_filter;
 
+  bool metadata_iterator = false;
+
   static const ReadOptions kDefault;
 
   ReadOptions();

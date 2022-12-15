@@ -238,6 +238,14 @@ Status ChangeMetadataOperation::DoAborted(const Status& status) {
   return status;
 }
 
+// TODO: What should be the hybrid time?
+// HybridTime ChangeMetadataOperation::WriteHybridTime() const {
+//   if (request()->has_external_hybrid_time()) {
+//     return HybridTime(request()->external_hybrid_time());
+//   }
+//   return Operation::WriteHybridTime();
+// }
+
 Status SyncReplicateChangeMetadataOperation(
     const ChangeMetadataRequestPB* req,
     TabletPeer* tablet_peer,

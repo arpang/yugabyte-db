@@ -101,7 +101,10 @@ Status DocRowwiseIterator::Init(TableType table_type, const Slice& sub_doc_key) 
       rocksdb::kDefaultQueryId,
       txn_op_context_,
       deadline_,
-      read_time_);
+      read_time_,
+      nullptr,
+      nullptr,
+      doc_read_context_.schema.Equals(metadata_schema));
   if (!sub_doc_key.empty()) {
     row_key_ = sub_doc_key;
   } else {
@@ -169,8 +172,9 @@ Status DocRowwiseIterator::DoInit(const T& doc_spec) {
                                        : BloomFilterMode::DONT_USE_BLOOM_FILTER;
 
   db_iter_ = CreateIntentAwareIterator(
-      doc_db_, mode, lower_doc_key.AsSlice(), doc_spec.QueryId(), txn_op_context_,
-      deadline_, read_time_, doc_spec.CreateFileFilter());
+      doc_db_, mode, lower_doc_key.AsSlice(), doc_spec.QueryId(), txn_op_context_, deadline_,
+      read_time_, doc_spec.CreateFileFilter(), nullptr,
+      doc_read_context_.schema.Equals(metadata_schema));
 
   row_ready_ = false;
 
@@ -498,6 +502,8 @@ Result<Slice> DocRowwiseIterator::GetTupleId() const {
     tuple_id.remove_prefix(1 + kUuidSize);
   } else if (tuple_id.starts_with(KeyEntryTypeAsChar::kColocationId)) {
     tuple_id.remove_prefix(1 + sizeof(ColocationId));
+  } else if (tuple_id.starts_with(KeyEntryTypeAsChar::kTabletMetadata)) {
+    tuple_id.remove_prefix(1);
   }
   return tuple_id;
 }
@@ -522,6 +528,16 @@ Result<bool> DocRowwiseIterator::SeekTuple(const Slice& tuple_id) {
       }
     } else {
       tuple_key_->Truncate(1 + size);
+    }
+    tuple_key_->AppendRawBytes(tuple_id);
+    db_iter_->Seek(*tuple_key_);
+  } else if (doc_read_context_.schema.Equals(metadata_schema)) {
+    if (!tuple_key_) {
+      tuple_key_.emplace();
+      tuple_key_->Reserve(1 + tuple_id.size());
+      tuple_key_->AppendKeyEntryType(KeyEntryType::kTabletMetadata);
+    } else {
+      tuple_key_->Truncate(1);
     }
     tuple_key_->AppendRawBytes(tuple_id);
     db_iter_->Seek(*tuple_key_);

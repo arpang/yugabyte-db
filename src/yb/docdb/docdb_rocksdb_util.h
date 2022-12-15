@@ -106,7 +106,8 @@ std::unique_ptr<IntentAwareIterator> CreateIntentAwareIterator(
     CoarseTimePoint deadline,
     const ReadHybridTime& read_time,
     std::shared_ptr<rocksdb::ReadFileFilter> file_filter = nullptr,
-    const Slice* iterate_upper_bound = nullptr);
+    const Slice* iterate_upper_bound = nullptr,
+    bool is_metadata_iterator = false);
 
 // Request RocksDB compaction and wait until it completes.
 Status ForceRocksDBCompact(rocksdb::DB* db, SkipFlush skip_flush = SkipFlush::kFalse);

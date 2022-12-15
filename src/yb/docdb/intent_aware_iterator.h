@@ -318,6 +318,8 @@ class IntentAwareIterator : public IntentAwareIteratorIf {
   // Reusable buffer to prepare seek key to avoid reallocating temporary buffers in critical paths.
   KeyBytes seek_key_buffer_;
   Slice seek_key_prefix_;
+
+  bool metadata_iterator_ = false;
 };
 
 class NODISCARD_CLASS IntentAwareIteratorPrefixScope {

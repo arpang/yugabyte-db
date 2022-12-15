@@ -2009,14 +2009,13 @@ Status Tablet::ApplyMetadataDocOperation(
   Arena arena;
   docdb::LWKeyValueWriteBatchPB write_batch(&arena);
 
-  const ReadHybridTime& read_ht =
-      ReadHybridTime::SingleTime(clock()->Now());  // ReadHybridTime::Max();
+  auto read_ht = ReadHybridTime::SingleTime(clock()->Now());  // ReadHybridTime::Max();
   const CoarseTimePoint deadline = CoarseTimePoint::max();
   HybridTime restart_read_ht;
   RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
       doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
       docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
-      metadata()->table_name()));  // TODO: table name fix, but it is not used as such
+      metadata_table_name));
   RETURN_NOT_OK(ApplyOperation(
       *operation, 1, write_batch,
       already_applied_to_regular_db));  // todo: batch_idx hardcoding
