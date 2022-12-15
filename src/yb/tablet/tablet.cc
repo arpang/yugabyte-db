@@ -1968,16 +1968,20 @@ Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::CreateCDCSnapshotIt
 }
 
 Status Tablet::CreatePreparedChangeMetadata(
-    ChangeMetadataOperation *operation, const Schema* schema) {
+    ChangeMetadataOperation *operation, const Schema* schema, IsLeaderSide is_leader_side) {
   if (schema) {
-    auto key_schema = GetKeySchema(
-        operation->has_table_id() ? operation->table_id().ToBuffer() : "");
-    if (!key_schema.KeyEquals(*schema)) {
-      return STATUS_FORMAT(
-          InvalidArgument,
-          "Schema keys cannot be altered. New schema key: $0. Existing schema key: $1",
-          schema->CreateKeyProjection(),
-          key_schema);
+    // On follower, the previous op for adding table may not finish applying.
+    // GetKeySchema might fail in this case.
+    if (is_leader_side) {
+      auto key_schema = GetKeySchema(
+          operation->has_table_id() ? operation->table_id().ToBuffer() : "");
+      if (!key_schema.KeyEquals(*schema)) {
+        return STATUS_FORMAT(
+            InvalidArgument,
+            "Schema keys cannot be altered. New schema key: $0. Existing schema key: $1",
+            schema->CreateKeyProjection(),
+            key_schema);
+      }
     }
 
     if (!schema->has_column_ids()) {
@@ -3427,22 +3431,26 @@ bool Tablet::ShouldDisableLbMove() {
 }
 
 void Tablet::TEST_ForceRocksDBCompact(docdb::SkipFlush skip_flush) {
-  CHECK_OK(ForceFullRocksDBCompact(skip_flush));
+  CHECK_OK(ForceFullRocksDBCompact(rocksdb::CompactionReason::kManualCompaction, skip_flush));
 }
 
-Status Tablet::ForceFullRocksDBCompact(docdb::SkipFlush skip_flush) {
+Status Tablet::ForceFullRocksDBCompact(rocksdb::CompactionReason compaction_reason,
+    docdb::SkipFlush skip_flush) {
   auto scoped_operation = CreateAbortableScopedRWOperation();
   RETURN_NOT_OK(scoped_operation);
+  rocksdb::CompactRangeOptions options;
+  options.skip_flush = skip_flush;
+  options.compaction_reason = compaction_reason;
 
   if (regular_db_) {
-    RETURN_NOT_OK(docdb::ForceRocksDBCompact(regular_db_.get(), skip_flush));
+    RETURN_NOT_OK(docdb::ForceRocksDBCompact(regular_db_.get(), options));
   }
   if (intents_db_) {
     if (!skip_flush) {
       RETURN_NOT_OK_PREPEND(
           intents_db_->Flush(rocksdb::FlushOptions()), "Pre-compaction flush of intents db failed");
     }
-    RETURN_NOT_OK(docdb::ForceRocksDBCompact(intents_db_.get(), skip_flush));
+    RETURN_NOT_OK(docdb::ForceRocksDBCompact(intents_db_.get(), options));
   }
   return Status::OK();
 }
@@ -3877,7 +3885,7 @@ void Tablet::TriggerPostSplitCompactionIfNeeded() {
   if (!StillHasOrphanedPostSplitDataAbortable()) {
     return;
   }
-  auto status = TriggerFullCompactionIfNeeded(FullCompactionReason::PostSplit);
+  auto status = TriggerFullCompactionIfNeeded(rocksdb::CompactionReason::kPostSplitCompaction);
   if (status.ok()) {
     ts_post_split_compaction_added_->Increment();
   } else if (!status.IsServiceUnavailable()) {
@@ -3886,7 +3894,7 @@ void Tablet::TriggerPostSplitCompactionIfNeeded() {
   }
 }
 
-Status Tablet::TriggerFullCompactionIfNeeded(FullCompactionReason compaction_reason) {
+Status Tablet::TriggerFullCompactionIfNeeded(rocksdb::CompactionReason compaction_reason) {
   if (!full_compaction_pool_ || state_ != State::kOpen) {
     return STATUS(ServiceUnavailable, "Full compaction thread pool unavailable.");
   }
@@ -3906,13 +3914,11 @@ Status Tablet::TriggerFullCompactionIfNeeded(FullCompactionReason compaction_rea
       std::bind(&Tablet::TriggerFullCompactionSync, this, compaction_reason));
 }
 
-void Tablet::TriggerFullCompactionSync(FullCompactionReason reason) {
+void Tablet::TriggerFullCompactionSync(rocksdb::CompactionReason reason) {
   TEST_PAUSE_IF_FLAG(TEST_pause_before_full_compaction);
-  LOG_WITH_PREFIX(INFO) << "Beginning full compaction on this tablet. "
-      << "Reason: " << ToString(reason);
   WARN_WITH_PREFIX_NOT_OK(
-      ForceFullRocksDBCompact(), LogPrefix() + "Failed tablet full compaction ("
-      + ToString(reason) + ")");
+      ForceFullRocksDBCompact(reason),
+      Format("$0: Failed tablet full compaction ($1)", log_prefix_suffix_, ToString(reason)));
 }
 
 bool Tablet::HasActiveTTLFileExpiration() {

@@ -67,6 +67,7 @@
 #include "catalog/yb_type.h"
 #include "commands/dbcommands.h"
 #include "commands/defrem.h"
+#include "commands/variable.h"
 #include "common/pg_yb_common.h"
 #include "lib/stringinfo.h"
 #include "optimizer/cost.h"
@@ -2390,10 +2391,53 @@ yb_get_range_split_clause(PG_FUNCTION_ARGS)
 	PG_RETURN_CSTRING(range_split_clause);
 }
 
+const char*
+yb_fetch_current_transaction_priority(void)
+{
+	TxnPriorityRequirement txn_priority_type;
+	double				   txn_priority;
+	static char			   buf[50];
+
+	txn_priority_type = YBCGetTransactionPriorityType();
+	txn_priority	  = YBCGetTransactionPriority();
+
+	if (txn_priority_type == kHighestPriority)
+		snprintf(buf, sizeof(buf), "Highest priority transaction");
+	else if (txn_priority_type == kHigherPriorityRange)
+		snprintf(buf, sizeof(buf),
+				 "%.9lf (High priority transaction)", txn_priority);
+	else
+		snprintf(buf, sizeof(buf),
+				 "%.9lf (Normal priority transaction)", txn_priority);
+
+	return buf;
+}
+
+Datum
+yb_get_current_transaction_priority(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_CSTRING(yb_fetch_current_transaction_priority());
+}
+
+Datum
+yb_get_effective_transaction_isolation_level(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_CSTRING(yb_fetch_effective_transaction_isolation_level());
+}
+
+/*
+ * This PG function takes one optional bool input argument (legacy).
+ * If the input argument is not specified or its value is false, this function
+ * returns whether the current database is a colocated database.
+ * If the value of the input argument is true, this function returns whether the
+ * current database is a legacy colocated database.
+ */
 Datum
 yb_is_database_colocated(PG_FUNCTION_ARGS)
 {
-	PG_RETURN_BOOL(MyDatabaseColocated);
+	if (!PG_GETARG_BOOL(0))
+		PG_RETURN_BOOL(MyDatabaseColocated);
+	PG_RETURN_BOOL(MyDatabaseColocated && MyColocatedDatabaseLegacy);
 }
 
 /*
@@ -2939,7 +2983,7 @@ void YbRegisterSysTableForPrefetching(int sys_table_id) {
 		{
 			ereport(FATAL,
 			        (errcode(ERRCODE_INTERNAL_ERROR),
-			         errmsg("Sys table '%d' is not yet inteded for preloading", sys_table_id)));
+			         errmsg("Sys table '%d' is not yet intended for preloading", sys_table_id)));
 
 		}
 	}

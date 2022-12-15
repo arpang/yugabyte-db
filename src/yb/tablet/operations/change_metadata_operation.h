@@ -117,7 +117,7 @@ class ChangeMetadataOperation
   //
   // TODO: need a schema lock?
 
-  Status Prepare() override;
+  Status Prepare(IsLeaderSide is_leader_side) override;
 
   Status Apply(
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);

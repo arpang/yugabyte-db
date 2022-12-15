@@ -79,6 +79,8 @@ public class BackupUtil {
 
   @Inject YBClientService ybService;
 
+  @Inject CustomerConfigService customerConfigService;
+
   public static final Logger LOG = LoggerFactory.getLogger(BackupUtil.class);
 
   public static final int EMR_MULTIPLE = 8;
@@ -109,12 +111,13 @@ public class BackupUtil {
   public static final List<TaskType> BACKUP_TASK_TYPES =
       ImmutableList.of(TaskType.CreateBackup, TaskType.BackupUniverse, TaskType.MultiTableBackup);
 
-  public static Map<TableType, YQLDatabase> TABLE_TYPE_TO_YQL_DATABASE_MAP;
+  public static BiMap<TableType, YQLDatabase> TABLE_TYPE_TO_YQL_DATABASE_MAP;
 
   static {
-    TABLE_TYPE_TO_YQL_DATABASE_MAP = new HashMap<>();
+    TABLE_TYPE_TO_YQL_DATABASE_MAP = HashBiMap.create();
     TABLE_TYPE_TO_YQL_DATABASE_MAP.put(TableType.YQL_TABLE_TYPE, YQLDatabase.YQL_DATABASE_CQL);
     TABLE_TYPE_TO_YQL_DATABASE_MAP.put(TableType.PGSQL_TABLE_TYPE, YQLDatabase.YQL_DATABASE_PGSQL);
+    TABLE_TYPE_TO_YQL_DATABASE_MAP.put(TableType.REDIS_TABLE_TYPE, YQLDatabase.YQL_DATABASE_REDIS);
   }
 
   public enum ApiType {
@@ -426,6 +429,12 @@ public class BackupUtil {
             getCloudpathWithConfigSuffix(backupLocation, params.storageLocation);
       }
     }
+  }
+
+  public void validateBackupStorageConfig(Backup backup) {
+    CustomerConfig config =
+        customerConfigService.getOrBadRequest(backup.customerUUID, backup.storageConfigUUID);
+    validateStorageConfigOnBackup(config, backup);
   }
 
   public void validateStorageConfigOnBackup(CustomerConfig config, Backup backup) {

@@ -5,6 +5,7 @@
 package common
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -18,7 +19,6 @@ import (
 
 	log "github.com/yugabyte/yugabyte-db/managed/yba-installer/logging"
 	// "github.com/yugabyte/yugabyte-db/managed/yba-installer/preflight"
-
 )
 
 // Bash Command Constants
@@ -129,8 +129,8 @@ func ExecuteBashCommand(command string, args []string) (o string, e error) {
 	if err == nil {
 		log.Debug(command + " " + strings.Join(args, " ") + " successfully executed.")
 	} else {
-		log.Debug(command + " " + strings.Join(args, " ") + " failed with error " + err.Error() +
-			"\nPrinting stdOut/stdErr " + execOut.String() + execErr.String())
+		log.Info("ERROR: '" + command + " " + strings.Join(args, " ") + "' failed with error " +
+			err.Error() + "\nPrinting stdOut/stdErr " + execOut.String() + execErr.String())
 	}
 
 	return execOut.String(), err
@@ -148,12 +148,11 @@ func IndexOf(arr []string, val string) int {
 	return -1
 }
 
-// Contains checks an array s for the presence of str.
-func Contains(s []string, str string) bool {
-
-	for _, v := range s {
-
-		if v == str {
+// Contains checks an array values for the presence of target.
+// Type must be a comparable
+func Contains[T comparable](values []T, target T) bool {
+	for _, v := range values {
+		if v == target {
 			return true
 		}
 	}
@@ -217,7 +216,6 @@ func GetCurrentUser() string {
 	return user.Username
 }
 
-
 // CopyFileGolang copies src file to dst.
 // Assumes both src/dst are valid absolute paths and dst file parent directory is already created.
 func CopyFileGolang(src string, dst string) {
@@ -277,4 +275,61 @@ func CreateSymlink(pkgDir string, linkDir string, binary string) {
 
 	args := []string{"-sf", binaryPath, linkPath}
 	ExecuteBashCommand("ln", args)
+}
+
+type defaultAnswer int
+
+func (d defaultAnswer) String() string {
+	return strconv.Itoa(int(d))
+}
+
+const (
+	DefaultNone defaultAnswer = iota
+	DefaultYes
+	DefaultNo
+)
+
+func UserConfirm(prompt string, defAns defaultAnswer) bool {
+	if !strings.HasSuffix(prompt, " ") {
+		prompt = prompt + " "
+	}
+	var selector string
+	switch defAns {
+	case DefaultNone:
+		selector = "[yes/no]"
+	case DefaultYes:
+		selector = "[YES/no]"
+	case DefaultNo:
+		selector = "[yes/NO]"
+	default:
+		log.Fatal("unknown defaultanswer " + defAns.String())
+	}
+
+	for {
+		fmt.Printf("%s%s: ", prompt, selector)
+		reader := bufio.NewReader(os.Stdin)
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Println("invalid input: " + err.Error())
+			continue
+		}
+		input = strings.TrimSuffix(input, "\n")
+		input = strings.Trim(input, " ")
+		input = strings.ToLower(input)
+		switch input {
+		case "n", "no":
+			return false
+		case "y", "yes":
+			return true
+		case "":
+			if defAns == DefaultYes {
+				return true
+			} else if defAns == DefaultNo {
+				return false
+			}
+			fallthrough
+		default:
+			fmt.Println("please enter 'yes' or 'no'")
+		}
+	}
 }

@@ -5060,6 +5060,27 @@
       "required" : [ "creatingUser", "platformUrl", "sleepAfterMasterRestartMillis", "sleepAfterTServerRestartMillis", "storageConfigUUID", "timeTakenPartial" ],
       "type" : "object"
     },
+    "NamespaceInfoResp" : {
+      "description" : "Namespace information response",
+      "properties" : {
+        "name" : {
+          "description" : "Namespace name",
+          "type" : "string"
+        },
+        "namespaceUUID" : {
+          "description" : "Namespace UUID",
+          "format" : "uuid",
+          "readOnly" : true,
+          "type" : "string"
+        },
+        "tableType" : {
+          "description" : "Table type",
+          "enum" : [ "YQL_TABLE_TYPE", "REDIS_TABLE_TYPE", "PGSQL_TABLE_TYPE", "TRANSACTION_STATUS_TABLE_TYPE" ],
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
     "NodeActionFormData" : {
       "properties" : {
         "nodeAction" : {
@@ -5797,10 +5818,6 @@
           "readOnly" : true,
           "type" : "boolean"
         },
-        "airGapInstall" : {
-          "description" : "Transient property - only present in mutate API request",
-          "type" : "boolean"
-        },
         "code" : {
           "description" : "Provider cloud code",
           "type" : "string"
@@ -5819,6 +5836,9 @@
         },
         "destVpcId" : {
           "type" : "string"
+        },
+        "details" : {
+          "$ref" : "#/definitions/ProviderDetails"
         },
         "hostVpcId" : {
           "type" : "string"
@@ -5840,41 +5860,13 @@
           "description" : "Provider name",
           "type" : "string"
         },
-        "ntpServers" : {
-          "description" : "Transient property - only present in mutate API request",
-          "items" : {
-            "type" : "string"
-          },
-          "type" : "array"
-        },
-        "overrideKeyValidate" : {
-          "description" : "Transient property - only present in mutate API request",
-          "type" : "boolean"
-        },
         "regions" : {
           "items" : {
             "$ref" : "#/definitions/Region"
           },
           "type" : "array"
         },
-        "setUpChrony" : {
-          "description" : "Transient property - only present in mutate API request",
-          "type" : "boolean"
-        },
-        "showSetUpChrony" : {
-          "description" : "Transient property - only present in mutate API request",
-          "type" : "boolean"
-        },
-        "sshPort" : {
-          "description" : "Transient property - only present in mutate API request",
-          "format" : "int32",
-          "type" : "integer"
-        },
         "sshPrivateKeyContent" : {
-          "description" : "Transient property - only present in mutate API request",
-          "type" : "string"
-        },
-        "sshUser" : {
           "description" : "Transient property - only present in mutate API request",
           "type" : "string"
         },
@@ -5891,7 +5883,59 @@
           "type" : "integer"
         }
       },
-      "required" : [ "regions" ],
+      "required" : [ "details", "regions" ],
+      "type" : "object"
+    },
+    "ProviderDetails" : {
+      "properties" : {
+        "airGapInstall" : {
+          "type" : "boolean"
+        },
+        "installNodeExporter" : {
+          "readOnly" : true,
+          "type" : "boolean"
+        },
+        "nodeExporterPort" : {
+          "format" : "int32",
+          "readOnly" : true,
+          "type" : "integer"
+        },
+        "nodeExporterUser" : {
+          "readOnly" : true,
+          "type" : "string"
+        },
+        "ntpServers" : {
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "passwordlessSudoAccess" : {
+          "readOnly" : true,
+          "type" : "boolean"
+        },
+        "provisionInstanceScript" : {
+          "readOnly" : true,
+          "type" : "string"
+        },
+        "setUpChrony" : {
+          "type" : "boolean"
+        },
+        "showSetUpChrony" : {
+          "type" : "boolean"
+        },
+        "skipProvisioning" : {
+          "readOnly" : true,
+          "type" : "boolean"
+        },
+        "sshPort" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sshUser" : {
+          "type" : "string"
+        }
+      },
       "type" : "object"
     },
     "QueryDistributionSuggestionResponse" : {
@@ -15745,6 +15789,47 @@
         "tags" : [ "Backups", "Table management" ]
       }
     },
+    "/api/v1/customers/{cUUID}/universes/{uniUUID}/namespaces" : {
+      "get" : {
+        "description" : "Get a list of all namespaces in the specified universe",
+        "operationId" : "getAllNamespaces",
+        "parameters" : [ {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "cUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "format" : "uuid",
+          "in" : "path",
+          "name" : "uniUUID",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "default" : false,
+          "in" : "query",
+          "name" : "includeSystemNamespaces",
+          "required" : false,
+          "type" : "boolean"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "items" : {
+                "$ref" : "#/definitions/NamespaceInfoResp"
+              },
+              "type" : "array"
+            }
+          }
+        },
+        "security" : [ {
+          "apiKeyAuth" : [ ]
+        } ],
+        "summary" : "List all namespaces",
+        "tags" : [ "Table management" ]
+      }
+    },
     "/api/v1/customers/{cUUID}/universes/{uniUUID}/need_bootstrap" : {
       "post" : {
         "description" : "",
@@ -17570,7 +17655,7 @@
     "/api/v1/customers/{cUUID}/universes/{uniUUID}/ybc_throttle_params" : {
       "get" : {
         "description" : "",
-        "operationId" : "getThrottleparams",
+        "operationId" : "getThrottleParams",
         "parameters" : [ {
           "format" : "uuid",
           "in" : "path",

@@ -83,6 +83,7 @@ class AbstractMethod(object):
         self.parser.add_argument("--ask_sudo_pass", action='store_true', default=False)
         self.parser.add_argument("--vars_file", default=None)
         self.parser.add_argument("--ssh2_enabled", action='store_true', default=False)
+        self.parser.add_argument("--ansible_connection_type", default=None, required=False)
 
     def preprocess_args(self, args):
         """Hook for pre-processing args before actually executing the callback. Useful for shared
@@ -238,6 +239,8 @@ class AbstractInstancesMethod(AbstractMethod):
         else:
             updated_args["ssh_user"] = self.SSH_USER
 
+        if args.ansible_connection_type:
+            updated_args["ansible_connection_type"] = args.ansible_connection_type
         if args.node_agent_ip:
             updated_args["node_agent_ip"] = args.node_agent_ip
         if args.node_agent_port:
@@ -1071,14 +1074,12 @@ class ConfigureInstancesMethod(AbstractInstancesMethod):
         self.parser.add_argument('--gcs_credentials_json')
         self.parser.add_argument('--http_remote_download', action="store_true")
         self.parser.add_argument('--http_package_checksum', default='')
-        self.parser.add_argument('--update_packages', action="store_true", default=False)
         self.parser.add_argument('--install_third_party_packages',
                                  action="store_true",
                                  default=False)
         self.parser.add_argument("--local_package_path",
                                  required=False,
                                  help="Path to local directory with the third-party tarball.")
-        self.parser.add_argument('--ssh_user_update_packages')
         # Development flag for itests.
         self.parser.add_argument('--itest_s3_package_path',
                                  help="Path to download packages for itest. Only for AWS/onprem.")
@@ -1293,16 +1294,6 @@ class ConfigureInstancesMethod(AbstractInstancesMethod):
                 "install-third-party.yml", self.extra_vars, host_info)
             return
 
-        # Update packages as "sudo" user as part of software upgrade.
-        if args.update_packages:
-            # Defaulting to sudo user, in case not provided as part of seeting up provider
-            self.extra_vars["ssh_user"] = args.ssh_user_update_packages if \
-                args.ssh_user_update_packages else self.SSH_USER
-            self.cloud.setup_ansible(args).run(
-                "reinstall-package.yml", self.extra_vars, host_info)
-            # As the Update package run as a seprate subtask returning, need not to
-            # configure the clusters as part of the same
-            return
         ssh_options = {
             # TODO: replace with args.ssh_user when it's setup in the flow
             "ssh_user": self.get_ssh_user(),

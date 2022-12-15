@@ -1489,7 +1489,7 @@ class TabletBootstrap {
     HybridTime hybrid_time(replicate_msg->hybrid_time());
     operation.set_hybrid_time(hybrid_time);
 
-    RETURN_NOT_OK(operation.Prepare());
+    RETURN_NOT_OK(operation.Prepare(IsLeaderSide::kTrue));
     RETURN_NOT_OK(operation.Apply(already_applied_to_regular_db));
 
     // TODO: Should we do tablet_->mvcc_manager()->Replicated(hybrid_time, op_id);?

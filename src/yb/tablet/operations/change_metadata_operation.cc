@@ -52,6 +52,11 @@
 #include "yb/util/status_format.h"
 #include "yb/util/trace.h"
 
+DEFINE_test_flag(
+    bool, ignore_apply_change_metadata_on_followers, false,
+    "Used in tests to ignore applying change metadata operation"
+    " on followers.");
+
 using std::string;
 
 namespace yb {
@@ -74,12 +79,10 @@ LWChangeMetadataRequestPB* RequestTraits<LWChangeMetadataRequestPB>::MutableRequ
 
 ChangeMetadataOperation::ChangeMetadataOperation(
     TabletPtr tablet, log::Log* log, const LWChangeMetadataRequestPB* request)
-    : ExclusiveSchemaOperation(std::move(tablet), request), log_(log) {
-}
+    : ExclusiveSchemaOperation(std::move(tablet), request), log_(log) {}
 
 ChangeMetadataOperation::ChangeMetadataOperation(const LWChangeMetadataRequestPB* request)
-    : ChangeMetadataOperation(nullptr, nullptr, request) {
-}
+    : ChangeMetadataOperation(nullptr, nullptr, request) {}
 
 ChangeMetadataOperation::~ChangeMetadataOperation() = default;
 
@@ -88,11 +91,12 @@ void ChangeMetadataOperation::SetIndexes(const RepeatedPtrField<IndexInfoPB>& in
 }
 
 string ChangeMetadataOperation::ToString() const {
-  return Format("ChangeMetadataOperation { hybrid_time: $0 schema: $1 request: $2 }",
-                hybrid_time_even_if_unset(), schema_, request());
+  return Format(
+      "ChangeMetadataOperation { hybrid_time: $0 schema: $1 request: $2 }",
+      hybrid_time_even_if_unset(), schema_, request());
 }
 
-Status ChangeMetadataOperation::Prepare() {
+Status ChangeMetadataOperation::Prepare(IsLeaderSide is_leader_side) {
   TRACE("PREPARE CHANGE-METADATA: Starting");
 
   // Decode schema
@@ -107,7 +111,7 @@ Status ChangeMetadataOperation::Prepare() {
   }
 
   TabletPtr tablet = VERIFY_RESULT(tablet_safe());
-  RETURN_NOT_OK(tablet->CreatePreparedChangeMetadata(this, schema_holder_.get()));
+  RETURN_NOT_OK(tablet->CreatePreparedChangeMetadata(this, schema_holder_.get(), is_leader_side));
 
   SetIndexes(ToRepeatedPtrField(request()->indexes()));
 
@@ -188,36 +192,36 @@ Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_
           num_operations);
     case MetadataChange::SCHEMA:
       if (!request_has_newer_schema) {
-        LOG_WITH_PREFIX(INFO)
-            << "Already running schema version " << tablet->metadata()->schema_version()
-            << " got alter request for version " << schema_version();
+        LOG_WITH_PREFIX(INFO) << "Already running schema version "
+                              << tablet->metadata()->schema_version()
+                              << " got alter request for version " << schema_version();
         break;
       }
-      DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
-                                   << num_operations;
+      DCHECK_EQ(1, num_operations)
+          << "Invalid number of change metadata operations: " << num_operations;
       RETURN_NOT_OK(tablet->AlterSchema(this));
       log->SetSchemaForNextLogSegment(*DCHECK_NOTNULL(schema()), schema_version());
       break;
     case MetadataChange::ADD_TABLE:
       LOG_WITH_FUNC(INFO) << "MetadataChange::ADD_TABLE";
-      DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
-                                   << num_operations;
+      DCHECK_EQ(1, num_operations)
+          << "Invalid number of change metadata operations: " << num_operations;
       RETURN_NOT_OK(tablet->AddTable(this, request()->add_table().ToGoogleProtobuf()));
       break;
     case MetadataChange::REMOVE_TABLE:
-      DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
-                                   << num_operations;
+      DCHECK_EQ(1, num_operations)
+          << "Invalid number of change metadata operations: " << num_operations;
       RETURN_NOT_OK(tablet->RemoveTable(this, request()->remove_table_id().ToBuffer()));
       break;
     case MetadataChange::BACKFILL_DONE:
-      DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
-                                   << num_operations;
+      DCHECK_EQ(1, num_operations)
+          << "Invalid number of change metadata operations: " << num_operations;
       RETURN_NOT_OK(tablet->MarkBackfillDone(this, request()->backfill_done_table_id().ToBuffer()));
       break;
     case MetadataChange::ADD_MULTIPLE_TABLES:
       LOG_WITH_FUNC(INFO) << "MetadataChange::ADD_MULTIPLE_TABLES";
-      DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
-                                   << num_operations;
+      DCHECK_EQ(1, num_operations)
+          << "Invalid number of change metadata operations: " << num_operations;
       RETURN_NOT_OK(
           tablet->AddMultipleTables(this, ToRepeatedPtrField(request()->add_multiple_tables())));
       break;
@@ -230,6 +234,10 @@ Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_
 }
 
 Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* complete_status) {
+  if (PREDICT_FALSE(FLAGS_TEST_ignore_apply_change_metadata_on_followers)) {
+    LOG_WITH_PREFIX(INFO) << "Ignoring apply of change metadata ops on followers";
+    return Status::OK();
+  }
   return Apply();
 }
 
@@ -247,9 +255,7 @@ Status ChangeMetadataOperation::DoAborted(const Status& status) {
 // }
 
 Status SyncReplicateChangeMetadataOperation(
-    const ChangeMetadataRequestPB* req,
-    TabletPeer* tablet_peer,
-    int64_t term) {
+    const ChangeMetadataRequestPB* req, TabletPeer* tablet_peer, int64_t term) {
   auto operation = std::make_unique<ChangeMetadataOperation>(
       VERIFY_RESULT(tablet_peer->shared_tablet_safe()), tablet_peer->log());
   operation->AllocateRequest()->CopyFrom(*req);
