@@ -2020,12 +2020,9 @@ Status Tablet::ApplyMetadataDocOperation(
       doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
       docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
       metadata_table_name));
-  RETURN_NOT_OK(ApplyOperation(
-      *operation, 1, write_batch,
-      already_applied_to_regular_db));  // todo: batch_idx hardcoding
-                                        // along the lines of writepb, does it make sense to add
-                                        // batch_idx field in ChangeMetadataRequestPB. See
-                                        // operations.proto
+  // batch_idx is not used hence hardcoding it to 1.
+  // https://yugabyte.slack.com/archives/C03ULJYE0KG/p1670928620405749
+  RETURN_NOT_OK(ApplyOperation(*operation, 1, write_batch, already_applied_to_regular_db));
   return Status::OK();
 }
 

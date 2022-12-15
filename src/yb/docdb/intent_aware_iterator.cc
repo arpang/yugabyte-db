@@ -481,6 +481,7 @@ Result<FetchKeyResult> IntentAwareIterator::FetchKey() {
     DCHECK(result.key.ends_with(KeyEntryTypeAsChar::kHybridTime)) << result.key.ToDebugString();
     result.key.remove_suffix(1);
     result.same_transaction = false;
+    // Required because of https://yugabyte.slack.com/archives/C046GED8ARW/p1670930653884049
     bool is_metadata_key = VERIFY_RESULT(IsMetadataKey(result.key));
     if (!is_metadata_key || metadata_iterator_) {
       max_seen_ht_.MakeAtLeast(result.write_time.hybrid_time());
