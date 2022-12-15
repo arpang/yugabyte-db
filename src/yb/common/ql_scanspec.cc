@@ -80,6 +80,7 @@ auto GetColumnValue(const Col& col) {
   }
   if (it->expr_case() == decltype(it->expr_case())::kTuple) {
     std::vector<ColumnId> column_ids;
+    column_ids.reserve(it->tuple().elems().size());
     for (const auto& elem : it->tuple().elems()) {
       DCHECK(elem.has_column_id());
       column_ids.emplace_back(ColumnId(elem.column_id()));
@@ -136,6 +137,7 @@ void QLScanRange::Init(const Cond& condition) {
     if (operand.expr_case() == ExprCase::kColumnId) {
       column_ids.push_back(operand.column_id());
     } else if (operand.expr_case() == ExprCase::kTuple) {
+      column_ids.reserve(operand.tuple().elems().size());
       for (auto const& elem : operand.tuple().elems()) {
         DCHECK(elem.has_column_id());
         column_ids.push_back(elem.column_id());

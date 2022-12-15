@@ -150,6 +150,7 @@ class HybridScanChoices : public ScanChoices {
         num_cols = range_options_num_cols[idx - num_hash_cols];
         auto& options = (*range_options)[idx - num_hash_cols];
 
+        current_options.reserve(options.size());
         if (options.empty()) {
           // If there is nothing specified in the IN list like in
           // SELECT * FROM ... WHERE c1 IN ();
