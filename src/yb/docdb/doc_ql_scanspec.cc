@@ -137,7 +137,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
 
         if (condition.op() == QL_OP_EQUAL) {
           auto pv = KeyEntryValue::FromQLValuePBForKey(rhs.value(), sorting_type);
-          (*range_options_)[col_idx - num_hash_cols].push_back({pv});
+          (*range_options_)[col_idx - num_hash_cols].push_back({std::move(pv)});
         } else {  // QL_OP_IN
           DCHECK_EQ(condition.op(), QL_OP_IN);
           DCHECK(rhs.value().has_list_value());
@@ -151,7 +151,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
             int elem_idx = is_reverse_order ? opt_size - i - 1 : i;
             const auto& elem = options.elems(elem_idx);
             auto pv = KeyEntryValue::FromQLValuePBForKey(elem, sorting_type);
-            (*range_options_)[col_idx - num_hash_cols].push_back({pv});
+            (*range_options_)[col_idx - num_hash_cols].push_back({std::move(pv)});
           }
         }
       } else if (lhs.has_tuple()) {
@@ -162,7 +162,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
 
         for (const auto& elem : lhs.tuple().elems()) {
           DCHECK(elem.has_column_id());
-          ColumnId col_id = ColumnId(elem.column_id());
+          ColumnId col_id(elem.column_id());
           int col_idx = schema_.find_column_by_id(col_id);
           DCHECK(schema_.is_range_column(col_idx));
           col_ids.push_back(col_id);
@@ -185,10 +185,10 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           Option option;
           option.reserve(num_cols);
           for (size_t i = 0; i < num_cols; i++) {
-            SortingType sorting_type = schema_.column(col_idxs[i]).sorting_type();
+            auto sorting_type = schema_.column(col_idxs[i]).sorting_type();
             auto pv =
                 KeyEntryValue::FromQLValuePBForKey(value.elems(static_cast<int>(i)), sorting_type);
-            option.push_back(pv);
+            option.push_back(std::move(pv));
           }
           (*range_options_)[start_idx - num_hash_cols].push_back(std::move(option));
         } else if (condition.op() == QL_OP_IN) {
@@ -218,7 +218,7 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
               SortingType sorting_type = schema_.column(col_idxs[j]).sorting_type();
               auto pv = KeyEntryValue::FromQLValuePBForKey(
                   value.elems(static_cast<int>(j)), sorting_type);
-              option.push_back(pv);
+              option.push_back(std::move(pv));
             }
             (*range_options_)[start_idx - num_hash_cols].push_back(std::move(option));
           }

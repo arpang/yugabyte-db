@@ -946,8 +946,8 @@ bool BothNull(const QLValuePB& lhs, const QLValue& rhs) {
   return IsNull(lhs) && rhs.IsNull();
 }
 
-void SortTuplesbyOrdering(
-    std::vector<const QLValuePB*>* tuples, const Schema& schema, const bool is_forward_scan,
+void SortTuplesByOrdering(
+    std::vector<const QLValuePB*>* tuples, const Schema& schema, bool is_forward_scan,
     const std::vector<int>& col_idxs) {
   std::sort(
       tuples->begin(), tuples->end(),
@@ -981,11 +981,9 @@ void SortTuplesbyOrdering(
         }
 
         if (i != tuple1.elems().size()) {
-          SortingType sorting_type = schema.column(col_idxs[i]).sorting_type();
-          bool is_reverse_order = is_forward_scan ^ (sorting_type == SortingType::kAscending);
-          if (is_reverse_order) {
-            cmp = cmp ^ 1;
-          }
+          auto sorting_type = schema.column(col_idxs[i]).sorting_type();
+          auto is_reverse_order = is_forward_scan ^ (sorting_type == SortingType::kAscending);
+          cmp ^= is_reverse_order;
         }
         return cmp;
       });
