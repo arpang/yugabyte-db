@@ -393,7 +393,7 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
           std::string serialized_table_info;
           table_info->SerializeToString(&serialized_table_info);
           auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-              table_info->table_id, serialized_table_info);
+              table_info->table_id, std::move(serialized_table_info));
           doc_write_ops.emplace_back(std::move(doc_operation));
         }
         ERROR_NOT_OK(tablet_->ApplyMetadataDocOperation(&operation, doc_write_ops), log_prefix_);
@@ -2043,15 +2043,32 @@ Status Tablet::ApplyMetadataDocOperation(
   return Status::OK();
 }
 
+Status Tablet::SetNamespaceId(const NamespaceId& namespace_id) {
+  auto table_info = VERIFY_RESULT(metadata_->set_namespace_id(namespace_id));
+  if (metadata_->IsTableMetadataInRocksDB()) {
+    ChangeMetadataOperation operation(shared_from_this(), nullptr);
+    std::string serialized_table_info;
+    table_info->SerializeToString(&serialized_table_info);
+    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
+        table_info->table_id, std::move(serialized_table_info));
+    docdb::DocOperations doc_write_ops;
+    doc_write_ops.emplace_back(std::move(doc_operation));
+    RETURN_NOT_OK(ApplyMetadataDocOperation(&operation, doc_write_ops));
+    return Flush(FlushMode::kSync, FlushFlags::kRegular);
+  } else {
+    return metadata_->Flush();
+  }
+}
+
 Status Tablet::AddTable(
     Operation* operation, const TableInfoPB& table_info_pb,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
-  auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
+  const auto& added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
   if (metadata_->IsTableMetadataInRocksDB()) {
     std::string serialized_table_info;
     added_table->SerializeToString(&serialized_table_info);
     auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        added_table->table_id, serialized_table_info);
+        added_table->table_id, std::move(serialized_table_info));
     docdb::DocOperations doc_write_ops;
     doc_write_ops.emplace_back(std::move(doc_operation));
     RETURN_NOT_OK(

@@ -1153,7 +1153,7 @@ Result<NamespaceId> TabletPeer::GetNamespaceId() {
     return STATUS(IllegalState, Format("Could not get namespace id for $0",
                                        namespace_name));
   }
-  RETURN_NOT_OK(metadata->set_namespace_id(namespace_id));
+  RETURN_NOT_OK(shared_tablet()->SetNamespaceId(namespace_id));
   return namespace_id;
 }
 

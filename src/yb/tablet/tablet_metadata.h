@@ -346,7 +346,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   const std::string& wal_dir() const { return wal_dir_; }
 
-  Status set_namespace_id(const NamespaceId& namespace_id);
+  Result<TableInfoPtr> set_namespace_id(const NamespaceId& namespace_id);
 
   // Set the WAL retention time for the primary table.
   void set_wal_retention_secs(uint32 wal_retention_secs);

@@ -456,6 +456,8 @@ class Tablet : public AbstractTablet,
       Operation* operation, const docdb::DocOperations& doc_write_ops,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
+  Status SetNamespaceId(const NamespaceId& namespace_id);
+
   // Apply replicated add table operation.
   Status AddTable(
       Operation* operation, const TableInfoPB& table_info,

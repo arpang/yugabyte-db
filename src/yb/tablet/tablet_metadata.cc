@@ -1205,12 +1205,10 @@ string RaftGroupMetadata::wal_root_dir() const {
   return wal_root_dir;
 }
 
-Status RaftGroupMetadata::set_namespace_id(const NamespaceId& namespace_id) {
-  {
-    std::lock_guard<MutexType> lock(data_mutex_);
-    primary_table_info_unlocked()->namespace_id = namespace_id;
-  }
-  return Flush();
+Result<TableInfoPtr> RaftGroupMetadata::set_namespace_id(const NamespaceId& namespace_id) {
+  std::lock_guard<MutexType> lock(data_mutex_);
+  primary_table_info_unlocked()->namespace_id = namespace_id;
+  return primary_table_info_unlocked();
 }
 
 void RaftGroupMetadata::set_wal_retention_secs(uint32 wal_retention_secs) {
