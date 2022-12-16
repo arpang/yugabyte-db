@@ -37,13 +37,11 @@ import com.yugabyte.yw.models.Universe;
 import com.yugabyte.yw.models.configs.CustomerConfig;
 import com.yugabyte.yw.models.configs.data.CustomerConfigStorageData;
 import com.yugabyte.yw.models.configs.data.CustomerConfigStorageNFSData;
-import com.yugabyte.yw.models.helpers.CustomerConfigConsts;
 import com.yugabyte.yw.models.helpers.KeyspaceTablesList;
 import com.yugabyte.yw.models.helpers.KnownAlertLabels;
 import com.yugabyte.yw.models.helpers.PlatformMetrics;
 import com.yugabyte.yw.models.helpers.TaskType;
 import com.yugabyte.yw.models.KmsConfig;
-import com.yugabyte.yw.models.Universe;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
@@ -698,6 +696,13 @@ public class BackupUtil {
     return keyspaceRegionLocations;
   }
 
+  public static String getKeyspaceFromStorageLocation(String storageLocation) {
+    String[] splitArray = storageLocation.split("/");
+    String keyspaceString = splitArray[(splitArray).length - 1];
+    splitArray = keyspaceString.split("-");
+    return splitArray[(splitArray).length - 1];
+  }
+
   public static boolean checkInProgressIncrementalBackup(Backup backup) {
     return Backup.fetchAllBackupsByBaseBackupUUID(backup.customerUUID, backup.backupUUID)
         .stream()
@@ -710,5 +715,9 @@ public class BackupUtil {
 
   public static boolean checkIfUniverseExists(Backup backup) {
     return Universe.maybeGet(backup.universeUUID).isPresent();
+  }
+
+  public static boolean checkIfUniverseExists(UUID universeUUID) {
+    return Universe.maybeGet(universeUUID).isPresent();
   }
 }
