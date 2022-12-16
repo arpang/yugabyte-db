@@ -987,7 +987,8 @@ std::vector<const QLValuePB*> GetTuplesSortedByOrdering(
 
         if (i != tuple1.elems().size()) {
           auto sorting_type = schema.column(col_idxs[i]).sorting_type();
-          auto is_reverse_order = is_forward_scan ^ (sorting_type == SortingType::kAscending);
+          auto is_reverse_order = is_forward_scan ^ (sorting_type == SortingType::kAscending ||
+                                                     sorting_type == kAscendingNullsLast);
           cmp ^= is_reverse_order;
         }
         return cmp;
