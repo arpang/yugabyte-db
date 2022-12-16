@@ -1408,9 +1408,9 @@ bool RaftGroupMetadata::CleanupRestorations(
   return result;
 }
 
-Status RaftGroupMetadata::OldSchemaGC(
+std::vector<TableInfoPtr> RaftGroupMetadata::OldSchemaGC(
     const std::unordered_map<Uuid, SchemaVersion, UuidHash>& versions) {
-  bool need_flush = false;
+  std::vector<TableInfoPtr> updated_table_infos;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
     for (const auto& [table_id, schema_version] : versions) {
@@ -1424,17 +1424,12 @@ Status RaftGroupMetadata::OldSchemaGC(
       if (!it->second->doc_read_context->schema_packing_storage.HasVersionBelow(schema_version)) {
         continue;
       }
-      auto new_value = std::make_shared<TableInfo>(
-          *it->second, schema_version);
+      auto new_value = std::make_shared<TableInfo>(*it->second, schema_version);
       it->second = new_value;
-      need_flush = true;
+      updated_table_infos.push_back(new_value);
     }
   }
-
-  if (!need_flush) {
-    return Status::OK();
-  }
-  return Flush();
+  return updated_table_infos;
 }
 
 Result<docdb::CompactionSchemaInfo> RaftGroupMetadata::CotablePacking(
