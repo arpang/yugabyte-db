@@ -2010,7 +2010,7 @@ Result<TableInfoPtr> Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 Status Tablet::ApplyMetadataDocOperation(
     Operation* operation, const docdb::DocOperations& doc_write_ops,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
-  Arena arena;
+  ThreadSafeArena arena;
   docdb::LWKeyValueWriteBatchPB write_batch(&arena);
 
   auto read_ht = ReadHybridTime::SingleTime(clock()->Now());  // ReadHybridTime::Max();
