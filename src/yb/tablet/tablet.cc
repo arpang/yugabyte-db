@@ -387,7 +387,6 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
     const auto& modified_table_infos = metadata.OldSchemaGC(table_id_to_min_schema_version);
     if (!modified_table_infos.empty()) {
       if (metadata.IsTableMetadataInRocksDB()) {
-        ChangeMetadataOperation operation(tablet_, nullptr);
         docdb::DocOperations doc_write_ops;
         for (const auto& table_info : modified_table_infos) {
           std::string serialized_table_info;
@@ -396,7 +395,7 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
               table_info->table_id, std::move(serialized_table_info));
           doc_write_ops.emplace_back(std::move(doc_operation));
         }
-        ERROR_NOT_OK(tablet_->ApplyMetadataDocOperation(&operation, doc_write_ops), log_prefix_);
+        ERROR_NOT_OK(tablet_->MetadataUpsertDocOperation(modified_table_infos), log_prefix_);
         ERROR_NOT_OK(tablet_->Flush(FlushMode::kSync, FlushFlags::kRegular), log_prefix_);
       } else {
         ERROR_NOT_OK(metadata.Flush(), log_prefix_);
@@ -2025,35 +2024,63 @@ Result<TableInfoPtr> Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 }
 
 Status Tablet::ApplyMetadataDocOperation(
-    Operation* operation, const docdb::DocOperations& doc_write_ops,
+    const docdb::DocOperations& doc_write_ops,
+    Operation* operation,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
-  ThreadSafeArena arena;
-  docdb::LWKeyValueWriteBatchPB write_batch(&arena);
+  if (!operation) {
+    DCHECK(!already_applied_to_regular_db);  // this metadata update doesn't is not through WAL
+    ChangeMetadataOperation dummy_operation(shared_from_this(), nullptr);
+    operation = &dummy_operation;
+  }
 
   auto read_ht = ReadHybridTime::SingleTime(clock()->Now());  // ReadHybridTime::Max();
   const CoarseTimePoint deadline = CoarseTimePoint::max();
   HybridTime restart_read_ht;
+
+  ThreadSafeArena arena;
+  docdb::LWKeyValueWriteBatchPB write_batch(&arena);
+
   RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
       doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
       docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
       metadata_table_name));
-  // batch_idx is not used hence hardcoding it to 1.
+
+  // batch_idx is not used, hardcoding dummy value
   // https://yugabyte.slack.com/archives/C03ULJYE0KG/p1670928620405749
-  RETURN_NOT_OK(ApplyOperation(*operation, 1, write_batch, already_applied_to_regular_db));
-  return Status::OK();
+  return ApplyOperation(*operation, 1, write_batch, already_applied_to_regular_db);
+}
+
+Status Tablet::MetadataDeleteDocOperation(
+    const TableId& table_id,
+    Operation* operation,
+    AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  docdb::DocOperations doc_write_ops;
+  auto doc_operation =
+      std::make_unique<docdb::ChangeMetadataDocOperation>(table_id, "", /*is_delete*/ true);
+  doc_write_ops.emplace_back(std::move(doc_operation));
+  return ApplyMetadataDocOperation(doc_write_ops, operation, already_applied_to_regular_db);
+}
+
+Status Tablet::MetadataUpsertDocOperation(
+    const std::vector<TableInfoPtr>& table_infos,
+    Operation* operation,
+    AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  docdb::DocOperations doc_write_ops;
+  doc_write_ops.reserve(table_infos.size());
+  for (const auto& table_info_pb : table_infos) {
+    std::string serialized_table_info;
+    table_info_pb->SerializeToString(&serialized_table_info);
+    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
+        table_info_pb->table_id, std::move(serialized_table_info));
+    doc_write_ops.emplace_back(std::move(doc_operation));
+  }
+  return ApplyMetadataDocOperation(doc_write_ops, operation, already_applied_to_regular_db);
 }
 
 Status Tablet::SetNamespaceId(const NamespaceId& namespace_id) {
   auto table_info = VERIFY_RESULT(metadata_->set_namespace_id(namespace_id));
   if (metadata_->IsTableMetadataInRocksDB()) {
-    ChangeMetadataOperation operation(shared_from_this(), nullptr);
-    std::string serialized_table_info;
-    table_info->SerializeToString(&serialized_table_info);
-    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        table_info->table_id, std::move(serialized_table_info));
-    docdb::DocOperations doc_write_ops;
-    doc_write_ops.emplace_back(std::move(doc_operation));
-    RETURN_NOT_OK(ApplyMetadataDocOperation(&operation, doc_write_ops));
+    RETURN_NOT_OK(MetadataUpsertDocOperation({table_info}));
     return Flush(FlushMode::kSync, FlushFlags::kRegular);
   } else {
     return metadata_->Flush();
@@ -2065,15 +2092,7 @@ Status Tablet::AddTable(
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   const auto& added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
   if (metadata_->IsTableMetadataInRocksDB()) {
-    std::string serialized_table_info;
-    added_table->SerializeToString(&serialized_table_info);
-    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        added_table->table_id, std::move(serialized_table_info));
-    docdb::DocOperations doc_write_ops;
-    doc_write_ops.emplace_back(std::move(doc_operation));
-    RETURN_NOT_OK(
-        ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
-    return Status::OK();
+    return MetadataUpsertDocOperation({added_table}, operation, already_applied_to_regular_db);
   } else {
     return metadata_->Flush();
   }
@@ -2084,21 +2103,14 @@ Status Tablet::AddMultipleTables(
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   // If nothing has changed then return.
   RSTATUS_DCHECK_GT(table_infos_pbs.size(), 0, Ok, "No table to add to metadata");
-  docdb::DocOperations doc_write_ops;
+  std::vector<TableInfoPtr> added_tables;
+  added_tables.reserve(table_infos_pbs.size());
   for (const auto& table_info_pb : table_infos_pbs) {
-    auto added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
-    if (metadata_->IsTableMetadataInRocksDB()) {
-      std::string serialized_table_info;
-      added_table->SerializeToString(&serialized_table_info);
-      auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-          added_table->table_id, serialized_table_info);
-      doc_write_ops.emplace_back(std::move(doc_operation));
-    }
+    const auto& added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
+    added_tables.push_back(added_table);
   }
   if (metadata_->IsTableMetadataInRocksDB()) {
-    RETURN_NOT_OK(
-        ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
-    return Status::OK();
+    return MetadataUpsertDocOperation(added_tables, operation, already_applied_to_regular_db);
   } else {
     return metadata_->Flush();
   }
@@ -2108,13 +2120,7 @@ Status Tablet::RemoveTable(Operation* operation,
     const std::string& table_id, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   metadata_->RemoveTable(table_id);
   if (metadata_->IsTableMetadataInRocksDB()) {
-    auto doc_operation =
-        std::make_unique<docdb::ChangeMetadataDocOperation>(table_id, "", /* is_delete */ true);
-    docdb::DocOperations doc_write_ops;
-    doc_write_ops.emplace_back(std::move(doc_operation));
-    RETURN_NOT_OK(
-        ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
-    return Status::OK();
+    return MetadataDeleteDocOperation(table_id, operation, already_applied_to_regular_db);
   } else {
     return metadata_->Flush();
   }
@@ -2123,7 +2129,7 @@ Status Tablet::RemoveTable(Operation* operation,
 Status Tablet::MarkBackfillDone(
     Operation* operation, const TableId& table_id,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
-  auto table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
+  const auto& table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
   LOG_WITH_PREFIX(INFO) << "Setting backfill as done. Current schema  "
                         << table_info->schema().ToString();
   const vector<DeletedColumn> empty_deleted_cols;
@@ -2133,16 +2139,9 @@ Status Tablet::MarkBackfillDone(
       new_schema, *table_info->index_map, empty_deleted_cols, table_info->schema_version, table_id);
 
   if (metadata_->IsTableMetadataInRocksDB()) {
-    auto updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
-    std::string serialized_table_info;
-    updated_table_info->SerializeToString(&serialized_table_info);
-    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        updated_table_info->table_id, serialized_table_info);
-    docdb::DocOperations doc_write_ops;
-    doc_write_ops.emplace_back(std::move(doc_operation));
-    RETURN_NOT_OK(
-        ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
-    return Status::OK();
+    const auto& updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
+    return MetadataUpsertDocOperation(
+        {updated_table_info}, operation, already_applied_to_regular_db);
   } else {
     return metadata_->Flush();
   }
@@ -2214,16 +2213,9 @@ Status Tablet::AlterSchema(
   }
 
   if (metadata_->IsTableMetadataInRocksDB()) {
-    auto updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
-    std::string serialized_table_info;
-    updated_table_info->SerializeToString(&serialized_table_info);
-    auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        updated_table_info->table_id, serialized_table_info);
-    docdb::DocOperations doc_write_ops;
-    doc_write_ops.emplace_back(std::move(doc_operation));
-    RETURN_NOT_OK(
-        ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
-    return Status::OK();
+    const auto& updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
+    return MetadataUpsertDocOperation(
+        {updated_table_info}, operation, already_applied_to_regular_db);
   } else {
     // Flush the updated schema metadata to disk.
     return metadata_->Flush();
@@ -2239,16 +2231,8 @@ Status Tablet::AlterWalRetentionSecs(
     metadata_->set_wal_retention_secs(operation->wal_retention_secs());
 
     if (metadata_->IsTableMetadataInRocksDB()) {
-      auto table_info = VERIFY_RESULT(metadata_->GetTableInfo(""));
-      std::string serialized_table_info;
-      table_info->SerializeToString(&serialized_table_info);
-      auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-          table_info->table_id, serialized_table_info);
-      docdb::DocOperations doc_write_ops;
-      doc_write_ops.emplace_back(std::move(doc_operation));
-      RETURN_NOT_OK(
-          ApplyMetadataDocOperation(operation, doc_write_ops, already_applied_to_regular_db));
-      return Status::OK();
+      const auto& table_info = VERIFY_RESULT(metadata_->GetTableInfo(""));
+      return MetadataUpsertDocOperation({table_info}, operation, already_applied_to_regular_db);
     } else {
       // Flush the updated schema metadata to disk.
       return metadata_->Flush();

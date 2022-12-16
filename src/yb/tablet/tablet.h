@@ -453,7 +453,17 @@ class Tablet : public AbstractTablet,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
   Status ApplyMetadataDocOperation(
-      Operation* operation, const docdb::DocOperations& doc_write_ops,
+      const docdb::DocOperations& doc_write_ops,
+      Operation* operation,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db);
+
+  Status MetadataDeleteDocOperation(
+      const TableId& table_id,
+      Operation* operation = nullptr,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
+
+  Status MetadataUpsertDocOperation(
+      const std::vector<TableInfoPtr>& table_infos, Operation* operation = nullptr,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
   Status SetNamespaceId(const NamespaceId& namespace_id);
