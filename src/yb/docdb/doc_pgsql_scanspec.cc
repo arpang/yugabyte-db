@@ -266,12 +266,13 @@ void DocPgsqlScanSpec::InitRangeOptions(const PgsqlConditionPB& condition) {
             reverse.push_back(is_reverse_order);
           }
 
-          std::vector<QLValuePB> sorted_options = SortTuplesbyOrdering(options, reverse);
+          std::vector<const QLValuePB*> sorted_options =
+              GetTuplesSortedByOrdering(options, schema_, is_forward_scan_, col_idxs);
 
           for (int i = 0; i < num_options; i++) {
             const auto& elem = sorted_options[i];
-            DCHECK(elem.has_tuple_value());
-            const auto& value = elem.tuple_value();
+            DCHECK(elem->has_tuple_value());
+            const auto& value = elem->tuple_value();
 
             for (size_t j = start_range_col_idx; j < total_cols; j++) {
               SortingType sorting_type = schema_.column(col_idxs[j]).sorting_type();
