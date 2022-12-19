@@ -362,14 +362,13 @@ Result<HybridTime> CheckSafeTime(HybridTime time, HybridTime min_allowed) {
 class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
  public:
   RegularRocksDbListener(Tablet* tablet, const std::string& log_prefix)
-      : tablet_(CHECK_NOTNULL(tablet)),
-        log_prefix_(log_prefix) {}
+      : tablet_(*CHECK_NOTNULL(tablet)), log_prefix_(log_prefix) {}
 
   void OnCompactionCompleted(rocksdb::DB* db, const rocksdb::CompactionJobInfo& ci) override {
-    auto& metadata = *CHECK_NOTNULL(tablet_->metadata());
+    auto& metadata = *CHECK_NOTNULL(tablet_.metadata());
     if (ci.is_full_compaction) {
       if (PREDICT_TRUE(!FLAGS_TEST_disable_adding_last_compaction_to_tablet_metadata)) {
-        metadata.set_last_full_compaction_time(tablet_->clock()->Now().ToUint64());
+        metadata.set_last_full_compaction_time(tablet_.clock()->Now().ToUint64());
       }
       if (!metadata.has_been_fully_compacted()) {
         metadata.set_has_been_fully_compacted(true);
@@ -387,16 +386,8 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
     const auto& modified_table_infos = metadata.OldSchemaGC(table_id_to_min_schema_version);
     if (!modified_table_infos.empty()) {
       if (metadata.IsTableMetadataInRocksDB()) {
-        docdb::DocOperations doc_write_ops;
-        for (const auto& table_info : modified_table_infos) {
-          std::string serialized_table_info;
-          table_info->SerializeToString(&serialized_table_info);
-          auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-              table_info->table_id, std::move(serialized_table_info));
-          doc_write_ops.emplace_back(std::move(doc_operation));
-        }
-        ERROR_NOT_OK(tablet_->MetadataUpsertDocOperation(modified_table_infos), log_prefix_);
-        ERROR_NOT_OK(tablet_->Flush(FlushMode::kSync, FlushFlags::kRegular), log_prefix_);
+        ERROR_NOT_OK(tablet_.MetadataUpsertDocOperation(modified_table_infos), log_prefix_);
+        ERROR_NOT_OK(tablet_.Flush(FlushMode::kSync, FlushFlags::kRegular), log_prefix_);
       } else {
         ERROR_NOT_OK(metadata.Flush(), log_prefix_);
       }
@@ -404,7 +395,7 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
   }
 
  private:
-  TabletPtr tablet_; // TODO: Is this change okay?
+  Tablet& tablet_;
   const std::string log_prefix_;
 };
 
