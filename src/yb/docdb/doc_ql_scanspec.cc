@@ -32,11 +32,11 @@ namespace yb {
 namespace docdb {
 
 namespace {
-bool AreColumnsContinous(const std::vector<int>& col_idxs) {
-  std::vector<int> copy = col_idxs;
-  std::sort(copy.begin(), copy.end());
+
+bool AreColumnsContinous(std::vector<int> col_idxs) {
+  std::sort(col_idxs.begin(), col_idxs.end());
   int prev_idx = -1;
-  for (auto const idx : copy) {
+  for (auto const idx : col_idxs) {
     if (prev_idx != -1 && idx != prev_idx + 1) {
       return false;
     }
@@ -44,6 +44,7 @@ bool AreColumnsContinous(const std::vector<int>& col_idxs) {
   }
   return true;
 }
+
 }  // namespace
 
 DocQLScanSpec::DocQLScanSpec(const Schema& schema,
@@ -197,18 +198,17 @@ void DocQLScanSpec::InitRangeOptions(const QLConditionPB& condition) {
           // IN arguments should have been de-duplicated and ordered ascendingly by the
           // executor.
 
-          std::vector<const QLValuePB*> sorted_options =
+          const auto sorted_options =
               GetTuplesSortedByOrdering(options, schema_, is_forward_scan_, col_idxs);
 
           for (int i = 0; i < num_options; i++) {
             const auto& elem = sorted_options[i];
-            DCHECK(elem->has_tuple_value());
             const auto& value = elem->tuple_value();
             DCHECK_EQ(num_cols, value.elems_size());
 
             for (size_t j = 0; j < num_cols; j++) {
-              SortingType sorting_type = schema_.column(col_idxs[j]).sorting_type();
-              Option option = KeyEntryValue::FromQLValuePBForKey(
+              const auto sorting_type = schema_.column(col_idxs[j]).sorting_type();
+              auto option = KeyEntryValue::FromQLValuePBForKey(
                   value.elems(static_cast<int>(j)), sorting_type);
               (*range_options_)[col_idxs[j] - num_hash_cols].push_back(std::move(option));
             }
