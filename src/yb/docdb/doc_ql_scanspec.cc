@@ -35,12 +35,10 @@ namespace {
 
 bool AreColumnsContinous(std::vector<int> col_idxs) {
   std::sort(col_idxs.begin(), col_idxs.end());
-  int prev_idx = -1;
-  for (auto const idx : col_idxs) {
-    if (prev_idx != -1 && idx != prev_idx + 1) {
+  for (size_t i = 0; i < col_idxs.size() - 1; ++i) {
+    if (col_idxs[i] + 1 != col_idxs[i + 1]) {
       return false;
     }
-    prev_idx = idx;
   }
   return true;
 }

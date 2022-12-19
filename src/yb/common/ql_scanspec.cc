@@ -120,8 +120,9 @@ void QLScanRange::Init(const Cond& condition) {
   const auto& operands = condition.operands();
   bool has_range_column = false;
   using ExprCase = decltype(operands.begin()->expr_case());
+  std::vector<int> column_ids;
   for (const auto& operand : operands) {
-    std::vector<int> column_ids;
+    column_ids.clear();
     if (operand.expr_case() == ExprCase::kColumnId) {
       column_ids.push_back(operand.column_id());
     } else if (operand.expr_case() == ExprCase::kTuple) {
