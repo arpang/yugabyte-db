@@ -10,38 +10,16 @@
 // or implied.  See the License for the specific language governing permissions and limitations
 // under the License.
 
+#include "yb/util/backoff_waiter.h"
+
 #include <algorithm>
 #include <string>
-
-#include "yb/util/backoff_waiter.h"
-#include "yb/util/flags/flag_tags.h"
 
 #include <glog/logging.h>
 
 using std::string;
 
-DEFINE_test_flag(int32, max_jitter, 0, "Max backoff jitter");
-DEFINE_test_flag(
-    int32, backoff_start_exponent, 0, "Initial exponent of 2 that backoff starts with");
-
 namespace yb {
-
-template <class Clock>
-typename Clock::duration GenericBackoffWaiter<Clock>::DelayForTime(TimePoint now) const {
-  Duration max_wait = std::min(deadline_ - now, max_wait_);
-  // 1st retry delayed 2^4 of base delays, 2nd 2^5 base delays, etc..
-  Duration attempt_delay =
-      base_delay_ * (attempt_ >= 29 ? std::numeric_limits<int32_t>::max()
-                                    : 1LL << (attempt_ + FLAGS_TEST_backoff_start_exponent));
-  Duration jitter = std::chrono::milliseconds(RandomUniformInt(0, FLAGS_TEST_max_jitter));
-
-  LOG(INFO) << "Total delay: " << (attempt_delay + jitter) << " attempt_delay: " << attempt_delay
-            << " jitter: " << jitter;
-  return std::min(attempt_delay + jitter, max_wait);
-}
-
-template class GenericBackoffWaiter<std::chrono::steady_clock>;
-template class GenericBackoffWaiter<CoarseMonoClock>;
 
 Status RetryFunc(
     CoarseTimePoint deadline,
@@ -64,7 +42,7 @@ Status RetryFunc(
     }
 
     VLOG(1) << retry_msg << " attempt=" << waiter.attempt() << " status=" << s.ToString();
-    if (!waiter.Wait()) { // TODO: Should we wait first?
+    if (!waiter.Wait()) {
       break;
     }
   }

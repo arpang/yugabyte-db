@@ -314,8 +314,9 @@ bool TableInfo::SerializeToString(std::string* output) const {
   return pb.SerializeToString(output);
 }
 
-Status TableInfo::LoadFromString(const std::string& tablet_log_prefix,
-    const TableId& primary_table_id, const std::string& serialized_string) {
+Result<TableInfoPtr> TableInfo::LoadFromString(
+    const std::string& tablet_log_prefix, const TableId& primary_table_id,
+    const std::string& serialized_string) {
   TableInfoPB table_info_pb;
   table_info_pb.ParseFromString(serialized_string);
   return LoadFromPB(tablet_log_prefix, primary_table_id, table_info_pb);
@@ -391,9 +392,8 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
       return STATUS_FORMAT(Corruption, "Could not read table schema from DocDB");
     }
     const string& serialized_table_info = table_info_ql_value->string_value();
-    TableInfoPtr table_info = std::make_shared<TableInfo>();
-    RETURN_NOT_OK(
-        table_info->LoadFromString(tablet_log_prefix, primary_table_id, serialized_table_info));
+    TableInfoPtr table_info = VERIFY_RESULT(
+        TableInfo::LoadFromString(tablet_log_prefix, primary_table_id, serialized_table_info));
     LOG_WITH_FUNC(INFO) << "Tablet " << tablet_id
                         << " Loaded from docdb: " << table_info->ShortDebugString();
     tables.emplace(table_info->table_id, table_info);
@@ -420,9 +420,8 @@ Status KvStoreInfo::LoadFromPB(const std::string& tablet_log_prefix,
   }
   RETURN_NOT_OK(LoadTablesFromPB(tablet_log_prefix, pb.tables(), primary_table_id));
   if (pb.has_initial_primary_table()) {
-    initial_primary_table = std::make_shared<TableInfo>();
-    RETURN_NOT_OK(initial_primary_table->LoadFromPB(
-        tablet_log_prefix, primary_table_id, pb.initial_primary_table()));
+    initial_primary_table = VERIFY_RESULT(
+        TableInfo::LoadFromPB(tablet_log_prefix, primary_table_id, pb.initial_primary_table()));
     tables.emplace(primary_table_id, initial_primary_table);
     UpdateColocationMap(initial_primary_table);
   }

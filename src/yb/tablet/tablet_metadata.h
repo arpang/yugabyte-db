@@ -145,7 +145,7 @@ struct TableInfo {
 
   bool SerializeToString(std::string* output) const;
 
-  Status LoadFromString(
+  static Result<TableInfoPtr> LoadFromString(
       const std::string& tablet_log_prefix, const TableId& primary_table_id,
       const std::string& serialized_string);
 

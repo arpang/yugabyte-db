@@ -66,18 +66,15 @@ class GenericBackoffWaiter {
     return DelayForTime(Clock::now());
   }
 
-  Duration DelayForTime(TimePoint now) const;
-
-  // Duration DelayForTime(TimePoint now) const {
-  //   Duration max_wait = std::min(deadline_ - now, max_wait_);
-  //   // 1st retry delayed 2^4 of base delays, 2nd 2^5 base delays, etc..
-  //   Duration attempt_delay =
-  //       base_delay_ * (attempt_ >= 29 ? std::numeric_limits<int32_t>::max() : 1LL << (attempt_));
-  //   // Duration jitter = std::chrono::milliseconds(RandomUniformInt(0, 10));
-  //   LOG(INFO) << "Delay: " << (attempt_delay) << " attempt_delay: " << attempt_delay;
-  //   // << " jitter: " << jitter;
-  //   return std::min(attempt_delay, max_wait);
-  // }
+  Duration DelayForTime(TimePoint now) const {
+    Duration max_wait = std::min(deadline_ - now, max_wait_);
+    // 1st retry delayed 2^4 of base delays, 2nd 2^5 base delays, etc..
+    Duration attempt_delay =
+        base_delay_ *
+        (attempt_ >= 29 ? std::numeric_limits<int32_t>::max() : 1LL << (attempt_ + 3));
+    Duration jitter = std::chrono::milliseconds(RandomUniformInt(0, 50));
+    return std::min(attempt_delay + jitter, max_wait);
+  }
 
   size_t attempt() const {
     return attempt_;
