@@ -1089,13 +1089,12 @@ class Schema {
 };
 
 // TODO: type column
-const TableName metadata_table_name = "metadata_table";
-const ColumnId metadata_table_key_col_id(10);
-const ColumnSchema metadata_table_key_col = ColumnSchema("id", STRING, false, true);
-const ColumnId metadata_table_value_col_id(11);
-const ColumnSchema metadata_table_value_col = ColumnSchema("data", STRING, false, false);
-
-const Schema metadata_schema = Schema(
+static const TableName metadata_table_name = "metadata_table";
+static const ColumnId metadata_table_key_col_id(10);
+static const ColumnSchema metadata_table_key_col = ColumnSchema("id", STRING, false, true);
+static const ColumnId metadata_table_value_col_id(11);
+static const ColumnSchema metadata_table_value_col = ColumnSchema("data", STRING, false, false);
+static const Schema metadata_schema = Schema(
     {metadata_table_key_col, metadata_table_value_col},
     {metadata_table_key_col_id, metadata_table_value_col_id}, 1);
 
