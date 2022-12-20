@@ -1149,7 +1149,7 @@ DocKeyEncoderAfterTableIdStep DocKeyEncoder::ColocationId(const yb::ColocationId
 }
 
 DocKeyEncoderAfterTableIdStep DocKeyEncoder::Schema(const class Schema& schema) {
-  if (schema.Equals(metadata_schema)) {
+  if (schema.is_metadata_schema()) {
     return MetadataKey();
   } else if (schema.colocation_id() != kColocationIdNotSet) {
     return ColocationId(schema.colocation_id());
@@ -1364,12 +1364,12 @@ bool DocKeyBelongsTo(Slice doc_key, const Schema& schema) {
   // ysqlsh: FATAL:  Not found: [Not found (yb/tablet/tablet_metadata.cc:566): Table
   // <unknown_table_name> (00000001000030008000000000000b94) not found in Raft group
   // 00000000000000000000000000000000]
-  if (schema.Equals(metadata_schema)) {
+  if (schema.is_metadata_schema()) {
     return !doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata;
   }
 
   if (!doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata) {
-    return schema.Equals(metadata_schema);
+    return schema.is_metadata_schema();
   }
 
   bool has_table_id = !doc_key.empty() &&

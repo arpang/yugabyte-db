@@ -535,7 +535,8 @@ class Schema {
          const TableProperties& table_properties = TableProperties(),
          const Uuid& cotable_id = Uuid::Nil(),
          const ColocationId colocation_id = kColocationIdNotSet,
-         const PgSchemaName pgschema_name = "");
+         const PgSchemaName pgschema_name = "",
+         bool is_metadata_schema = false);
 
   // Construct a schema with the given information.
   //
@@ -549,7 +550,8 @@ class Schema {
          const TableProperties& table_properties = TableProperties(),
          const Uuid& cotable_id = Uuid::Nil(),
          const ColocationId colocation_id = kColocationIdNotSet,
-         const PgSchemaName pgschema_name = "");
+         const PgSchemaName pgschema_name = "",
+         bool is_metadata_schema = false);
 
   // Reset this Schema object to the given schema.
   // If this fails, the Schema object is left in an inconsistent
@@ -558,7 +560,8 @@ class Schema {
                const TableProperties& table_properties = TableProperties(),
                const Uuid& cotable_id = Uuid::Nil(),
                const ColocationId colocation_id = kColocationIdNotSet,
-               const PgSchemaName pgschema_name = "");
+               const PgSchemaName pgschema_name = "",
+               bool is_metadata_schema = false);
 
   // Reset this Schema object to the given schema.
   // If this fails, the Schema object is left in an inconsistent
@@ -569,7 +572,8 @@ class Schema {
                const TableProperties& table_properties = TableProperties(),
                const Uuid& cotable_id = Uuid::Nil(),
                const ColocationId colocation_id = kColocationIdNotSet,
-               const PgSchemaName pgschema_name = "");
+               const PgSchemaName pgschema_name = "",
+               bool is_metadata_schema = false);
 
   // Return the number of bytes needed to represent a single row of this schema.
   //
@@ -771,6 +775,7 @@ class Schema {
   void set_cotable_id(const Uuid& cotable_id) {
     if (!cotable_id.IsNil()) {
       DCHECK_EQ(colocation_id_, kColocationIdNotSet);
+      DCHECK(!is_metadata_schema_);
     }
     cotable_id_ = cotable_id;
   }
@@ -787,13 +792,20 @@ class Schema {
 
   void set_colocation_id(const ColocationId colocation_id) {
     if (colocation_id != kColocationIdNotSet) {
-      DCHECK(cotable_id_.IsNil());
+      DCHECK(cotable_id_.IsNil() && !is_metadata_schema_);
     }
     colocation_id_ = colocation_id;
   }
 
   bool is_colocated() const {
     return has_colocation_id() || has_cotable_id();
+  }
+
+  bool is_metadata_schema() const { return is_metadata_schema_; }
+
+  void set_metadata_schema() {
+    DCHECK(cotable_id_.IsNil() && colocation_id_ == kColocationIdNotSet);
+    is_metadata_schema_ = true;
   }
 
   // Stringify the given row, which conforms to this schema,
@@ -1082,6 +1094,9 @@ class Schema {
   // kColocationIdNotSet for a primary or single-tenant table.
   ColocationId colocation_id_;
 
+  // True if it is the schema of metadata.
+  bool is_metadata_schema_ = false;
+
   PgSchemaName pgschema_name_;
 
   // NOTE: if you add more members, make sure to add the appropriate
@@ -1096,7 +1111,8 @@ static const ColumnId metadata_table_value_col_id(11);
 static const ColumnSchema metadata_table_value_col = ColumnSchema("data", STRING, false, false);
 static const Schema metadata_schema = Schema(
     {metadata_table_key_col, metadata_table_value_col},
-    {metadata_table_key_col_id, metadata_table_value_col_id}, 1);
+    {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(), Uuid::Nil(),
+    kColocationIdNotSet, "", true);
 
 // Helper used for schema creation/editing.
 //
@@ -1157,13 +1173,17 @@ class SchemaBuilder {
     return cotable_id_;
   }
 
+  void set_metadata_schema() { is_metadata_schema_ = true; }
+
+  bool is_metadata_schema() const { return is_metadata_schema_; }
+
   Schema Build() const {
     return Schema(cols_, col_ids_, num_key_columns_, table_properties_, cotable_id_,
-                  colocation_id_, pgschema_name_);
+                  colocation_id_, pgschema_name_, is_metadata_schema_);
   }
   Schema BuildWithoutIds() const {
     return Schema(cols_, num_key_columns_, table_properties_, cotable_id_,
-                  colocation_id_, pgschema_name_);
+                  colocation_id_, pgschema_name_, is_metadata_schema_);
   }
 
   // assumes type is allowed in primary key -- this should be checked before getting here
@@ -1228,6 +1248,7 @@ class SchemaBuilder {
   ColocationId colocation_id_ = kColocationIdNotSet;
   PgSchemaName pgschema_name_ = "";
   Uuid cotable_id_ = Uuid::Nil();
+  bool is_metadata_schema_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(SchemaBuilder);
 };
