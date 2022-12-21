@@ -749,17 +749,15 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
       fs_manager_, table_info->table_id, tablet_id, &data_root_dir, &wal_root_dir);
   fs_manager_->SetTabletPathByDataPath(tablet_id, data_root_dir);
 
-  auto create_result = RaftGroupMetadata::CreateNew(
-      tablet::RaftGroupMetadataData{
-          .fs_manager = fs_manager_,
-          .table_info = table_info,
-          .raft_group_id = tablet_id,
-          .partition = partition,
-          .tablet_data_state = TABLET_DATA_READY,
-          .colocated = colocated,
-          .snapshot_schedules = snapshot_schedules,
-      },
-      data_root_dir, wal_root_dir);
+  auto create_result = RaftGroupMetadata::CreateNew(tablet::RaftGroupMetadataData{
+    .fs_manager = fs_manager_,
+    .table_info = table_info,
+    .raft_group_id = tablet_id,
+    .partition = partition,
+    .tablet_data_state = TABLET_DATA_READY,
+    .colocated = colocated,
+    .snapshot_schedules = snapshot_schedules,
+  }, data_root_dir, wal_root_dir);
   if (!create_result.ok()) {
     UnregisterDataWalDir(table_info->table_id, tablet_id, data_root_dir, wal_root_dir);
   }
@@ -1467,8 +1465,8 @@ Status TSTabletManager::OpenTabletMeta(const string& tablet_id,
   return Status::OK();
 }
 
-void TSTabletManager::OpenTablet(
-    const RaftGroupMetadataPtr& meta, const scoped_refptr<TransitionInProgressDeleter>& deleter) {
+void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
+                                 const scoped_refptr<TransitionInProgressDeleter>& deleter) {
   string tablet_id = meta->raft_group_id();
   TRACE_EVENT1("tserver", "TSTabletManager::OpenTablet",
                "tablet_id", tablet_id);

@@ -356,7 +356,7 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
         table.schema_version(), partition_schema);
     fs_manager().SetTabletPathByDataPath(tablet_id_, data_root_dir);
     auto create_result = RaftGroupMetadata::CreateNew(
-        tablet::RaftGroupMetadataData{
+        tablet::RaftGroupMetadataData {
             .fs_manager = &fs_manager(),
             .table_info = table_info,
             .raft_group_id = tablet_id_,

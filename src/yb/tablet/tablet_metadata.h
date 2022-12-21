@@ -58,6 +58,7 @@
 #include "yb/gutil/ref_counted.h"
 
 #include "yb/master/sys_catalog_constants.h"
+
 #include "yb/tablet/tablet_fwd.h"
 #include "yb/tablet/metadata.pb.h"
 
@@ -199,8 +200,7 @@ struct KvStoreInfo {
       const std::string& tablet_log_prefix, const TabletPtr& tablet,
       const TableId& primary_table_id);
 
-  void ToPB(
-      const TableId& primary_table_id, KvStoreInfoPB* pb) const;
+  void ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const;
 
   // Updates colocation map with new table info.
   void UpdateColocationMap(const TableInfoPtr& table_info);
@@ -460,7 +460,6 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
                 const PartitionSchema& partition_schema,
                 const boost::optional<IndexInfo>& index_info,
                 const SchemaVersion schema_version
-                // bool is_metadata_table = false
                 );
 
   void RemoveTable(const TableId& table_id);
@@ -587,8 +586,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   bool UsePartialRangeKeyIntents() const;
 
   // versions is a map from table id to min schema version that should be kept for this table.
-  std::vector<TableInfoPtr> OldSchemaGC(
-      const std::unordered_map<Uuid, SchemaVersion, UuidHash>& versions);
+  std::vector<TableInfoPtr> OldSchemaGC(const std::unordered_map<Uuid, SchemaVersion, UuidHash>& versions);
 
   Result<docdb::CompactionSchemaInfo> CotablePacking(
       const Uuid& cotable_id, uint32_t schema_version, HybridTime history_cutoff) override;
@@ -666,8 +664,6 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // The primary table id. Primary table is the first table this Raft group is created for.
   // Additional tables can be added to this Raft group to co-locate with this table.
   TableId primary_table_id_ GUARDED_BY(data_mutex_);
-
-  // TableId metadata_table_id_ GUARDED_BY(data_mutex_);
 
   // KV-store for this Raft group.
   KvStoreInfo kv_store_;
