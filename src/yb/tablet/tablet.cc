@@ -362,7 +362,8 @@ Result<HybridTime> CheckSafeTime(HybridTime time, HybridTime min_allowed) {
 class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
  public:
   RegularRocksDbListener(Tablet* tablet, const std::string& log_prefix)
-      : tablet_(*CHECK_NOTNULL(tablet)), log_prefix_(log_prefix) {}
+      : tablet_(*CHECK_NOTNULL(tablet)),
+        log_prefix_(log_prefix) {}
 
   void OnCompactionCompleted(rocksdb::DB* db, const rocksdb::CompactionJobInfo& ci) override {
     auto& metadata = *CHECK_NOTNULL(tablet_.metadata());

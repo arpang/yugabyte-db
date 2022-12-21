@@ -586,7 +586,8 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   bool UsePartialRangeKeyIntents() const;
 
   // versions is a map from table id to min schema version that should be kept for this table.
-  std::vector<TableInfoPtr> OldSchemaGC(const std::unordered_map<Uuid, SchemaVersion, UuidHash>& versions);
+  std::vector<TableInfoPtr> OldSchemaGC(
+      const std::unordered_map<Uuid, SchemaVersion, UuidHash>& versions);
 
   Result<docdb::CompactionSchemaInfo> CotablePacking(
       const Uuid& cotable_id, uint32_t schema_version, HybridTime history_cutoff) override;

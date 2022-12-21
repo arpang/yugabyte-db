@@ -452,20 +452,6 @@ class Tablet : public AbstractTablet,
       ChangeMetadataOperation* operation,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
-  Status ApplyMetadataDocOperation(
-      const docdb::DocOperations& doc_write_ops,
-      Operation* operation,
-      AlreadyAppliedToRegularDB already_applied_to_regular_db);
-
-  Status MetadataDeleteDocOperation(
-      const TableId& table_id,
-      Operation* operation = nullptr,
-      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
-
-  Status MetadataUpsertDocOperation(
-      const std::vector<TableInfoPtr>& table_infos, Operation* operation = nullptr,
-      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
-
   Status SetNamespaceId(const NamespaceId& namespace_id);
 
   // Apply replicated add table operation.
@@ -924,6 +910,20 @@ class Tablet : public AbstractTablet,
 
   template <class PB>
   Result<IsolationLevel> DoGetIsolationLevel(const PB& transaction);
+
+  Status ApplyMetadataDocOperation(
+      const docdb::DocOperations& doc_write_ops,
+      Operation* operation,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db);
+
+  Status MetadataDeleteDocOperation(
+      const TableId& table_id,
+      Operation* operation = nullptr,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
+
+  Status MetadataUpsertDocOperation(
+      const std::vector<TableInfoPtr>& table_infos, Operation* operation = nullptr,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
   std::unique_ptr<const Schema> key_schema_;
 

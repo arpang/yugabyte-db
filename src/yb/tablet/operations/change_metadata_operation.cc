@@ -52,10 +52,9 @@
 #include "yb/util/status_format.h"
 #include "yb/util/trace.h"
 
-DEFINE_test_flag(
-    bool, ignore_apply_change_metadata_on_followers, false,
-    "Used in tests to ignore applying change metadata operation"
-    " on followers.");
+DEFINE_test_flag(bool, ignore_apply_change_metadata_on_followers, false,
+                 "Used in tests to ignore applying change metadata operation"
+                 " on followers.");
 
 using std::string;
 
@@ -79,10 +78,12 @@ LWChangeMetadataRequestPB* RequestTraits<LWChangeMetadataRequestPB>::MutableRequ
 
 ChangeMetadataOperation::ChangeMetadataOperation(
     TabletPtr tablet, log::Log* log, const LWChangeMetadataRequestPB* request)
-    : ExclusiveSchemaOperation(std::move(tablet), request), log_(log) {}
+    : ExclusiveSchemaOperation(std::move(tablet), request), log_(log) {
+}
 
 ChangeMetadataOperation::ChangeMetadataOperation(const LWChangeMetadataRequestPB* request)
-    : ChangeMetadataOperation(nullptr, nullptr, request) {}
+    : ChangeMetadataOperation(nullptr, nullptr, request) {
+}
 
 ChangeMetadataOperation::~ChangeMetadataOperation() = default;
 
@@ -91,9 +92,8 @@ void ChangeMetadataOperation::SetIndexes(const RepeatedPtrField<IndexInfoPB>& in
 }
 
 string ChangeMetadataOperation::ToString() const {
-  return Format(
-      "ChangeMetadataOperation { hybrid_time: $0 schema: $1 request: $2 }",
-      hybrid_time_even_if_unset(), schema_, request());
+  return Format("ChangeMetadataOperation { hybrid_time: $0 schema: $1 request: $2 }",
+                hybrid_time_even_if_unset(), schema_, request());
 }
 
 Status ChangeMetadataOperation::Prepare(IsLeaderSide is_leader_side) {
@@ -111,7 +111,8 @@ Status ChangeMetadataOperation::Prepare(IsLeaderSide is_leader_side) {
   }
 
   TabletPtr tablet = VERIFY_RESULT(tablet_safe());
-  RETURN_NOT_OK(tablet->CreatePreparedChangeMetadata(this, schema_holder_.get(), is_leader_side));
+  RETURN_NOT_OK(tablet->CreatePreparedChangeMetadata(
+      this, schema_holder_.get(), is_leader_side));
 
   SetIndexes(ToRepeatedPtrField(request()->indexes()));
 
@@ -255,7 +256,9 @@ Status ChangeMetadataOperation::DoAborted(const Status& status) {
 // }
 
 Status SyncReplicateChangeMetadataOperation(
-    const ChangeMetadataRequestPB* req, TabletPeer* tablet_peer, int64_t term) {
+    const ChangeMetadataRequestPB* req,
+    TabletPeer* tablet_peer,
+    int64_t term) {
   auto operation = std::make_unique<ChangeMetadataOperation>(
       VERIFY_RESULT(tablet_peer->shared_tablet_safe()), tablet_peer->log());
   operation->AllocateRequest()->CopyFrom(*req);
