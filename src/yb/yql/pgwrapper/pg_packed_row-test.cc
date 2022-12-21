@@ -419,7 +419,7 @@ void PgPackedRowTest::TestColocated(int num_keys, int num_expected_records) {
   auto conn = ASSERT_RESULT(Connect());
   ASSERT_OK(conn.Execute("CREATE DATABASE test WITH colocated = true"));
   TestCompaction(num_keys, "WITH (colocated = true)");
-  CheckNumRecords(cluster_.get(), num_expected_records);
+  CheckNumRecords(cluster_.get(), num_expected_records + 2);
 }
 
 TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(TableGroup)) {
