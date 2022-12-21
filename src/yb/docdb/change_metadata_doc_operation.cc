@@ -48,9 +48,9 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
 }
 
 Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
-  const auto& metadata_col_id =
+  const auto metadata_col_id =
       VERIFY_RESULT(metadata_schema_.ColumnIdByName(kSysCatalogTableColMetadata));
-  const auto& metadata_col = metadata_schema_.column_by_id(metadata_col_id);
+  const ColumnSchema& metadata_col = VERIFY_RESULT(metadata_schema_.column_by_id(metadata_col_id));
   DocPath sub_path(encoded_doc_key_.as_slice(), KeyEntryValue::MakeColumnId(metadata_col_id));
   if (is_delete_) {
     RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(sub_path, data.read_time, data.deadline));
@@ -62,7 +62,7 @@ Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
     //     data.deadline));
     // todo: can we not do with SortingType::kNotSpecified
     RETURN_NOT_OK(data.doc_write_batch->InsertSubDocument(
-        sub_path, ValueRef(table_info_value, metadata_col->sorting_type()), data.read_time,
+        sub_path, ValueRef(table_info_value, metadata_col.sorting_type()), data.read_time,
         data.deadline));
   }
   return Status::OK();
