@@ -36,6 +36,7 @@ DECLARE_int32(history_cutoff_propagation_interval_ms);
 DECLARE_int32(timestamp_history_retention_interval_sec);
 DECLARE_uint64(ysql_packed_row_size_limit);
 DECLARE_bool(ysql_enable_packed_row_for_colocated_table);
+DECLARE_bool(ts_tableinfo_in_rocksdb);
 
 namespace yb {
 namespace pgwrapper {
@@ -419,7 +420,10 @@ void PgPackedRowTest::TestColocated(int num_keys, int num_expected_records) {
   auto conn = ASSERT_RESULT(Connect());
   ASSERT_OK(conn.Execute("CREATE DATABASE test WITH colocated = true"));
   TestCompaction(num_keys, "WITH (colocated = true)");
-  CheckNumRecords(cluster_.get(), num_expected_records + 2);
+  if (FLAGS_ts_tableinfo_in_rocksdb) {
+    num_expected_records += 2;  // an additional metadata entry per table
+  }
+  CheckNumRecords(cluster_.get(), num_expected_records);
 }
 
 TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(TableGroup)) {
@@ -447,18 +451,24 @@ TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(ColocatedPackRowDisabled)) {
   conn = ASSERT_RESULT(ConnectToDB("test"));
   ASSERT_OK(conn.Execute(
       "CREATE TABLE t1 (key INT PRIMARY KEY, value TEXT, payload TEXT) WITH (colocated = true)"));
+
+  int metadata_entries = 0;
+  if (FLAGS_ts_tableinfo_in_rocksdb) {
+    metadata_entries = 1;  // an additional metadata entry for the table
+  }
+
   ASSERT_OK(conn.Execute("INSERT INTO t1 (key, value, payload) VALUES (1, '', '')"));
   // The only row should not be packed.
-  CheckNumRecords(cluster_.get(), 3);
+  CheckNumRecords(cluster_.get(), 3 + metadata_entries);
   // Trigger full row update.
   ASSERT_OK(conn.Execute("UPDATE t1 SET value = '1', payload = '1' WHERE key = 1"));
   // The updated row should not be packed.
-  CheckNumRecords(cluster_.get(), 5);
+  CheckNumRecords(cluster_.get(), 5 + metadata_entries);
 
   // Enable pack row for colocated table and trigger compaction.
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_enable_packed_row_for_colocated_table) = true;
   ASSERT_OK(cluster_->CompactTablets());
-  CheckNumRecords(cluster_.get(), 1);
+  CheckNumRecords(cluster_.get(), 1 + metadata_entries);
 }
 
 TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(CompactAfterTransaction)) {
