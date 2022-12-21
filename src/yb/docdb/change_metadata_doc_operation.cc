@@ -33,7 +33,7 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
       serialized_table_info_(serialized_table_info),
       is_delete_(is_delete) {
   QLValuePB table_id_value;
-  table_id_value.set_string_value(table_id);
+  table_id_value.set_binary_value(table_id);
   std::string key_string;
   AppendToKey(table_id_value, &key_string);
   DocKeyHash hash = YBPartition::HashColumnCompoundValue(key_string);
@@ -56,7 +56,7 @@ Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
     RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(sub_path, data.read_time, data.deadline));
   } else {
     QLValuePB table_info_value;
-    table_info_value.set_string_value(serialized_table_info_);
+    table_info_value.set_binary_value(serialized_table_info_);
     // RETURN_NOT_OK(data.doc_write_batch->InsertSubDocument(
     //     sub_path, ValueRef(table_info_value, SortingType::kNotSpecified), data.read_time,
     //     data.deadline));

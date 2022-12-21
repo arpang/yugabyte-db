@@ -390,7 +390,7 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
     if (!table_info_ql_value) {
       return STATUS_FORMAT(Corruption, "Could not read table schema from DocDB");
     }
-    const string& serialized_table_info = table_info_ql_value->string_value();
+    const string& serialized_table_info = table_info_ql_value->binary_value();
     TableInfoPtr table_info = VERIFY_RESULT(
         TableInfo::LoadFromString(tablet_log_prefix, primary_table_id, serialized_table_info));
     LOG_WITH_FUNC(INFO) << "Tablet " << tablet_id

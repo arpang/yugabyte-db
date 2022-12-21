@@ -747,15 +747,15 @@ void SchemaBuilder::Reset(const Schema& schema) {
 }
 
 Status SchemaBuilder::AddKeyColumn(const string& name, const shared_ptr<QLType>& type) {
-  return AddColumn(ColumnSchema(name, type), /* is_nullable */ true);
+  return AddColumn(ColumnSchema(name, type), /* is_key */ true);
 }
 
 Status SchemaBuilder::AddKeyColumn(const string& name, DataType type) {
-  return AddColumn(ColumnSchema(name, QLType::Create(type)), /* is_nullable */ true);
+  return AddColumn(ColumnSchema(name, QLType::Create(type)), /* is_key */ true);
 }
 
 Status SchemaBuilder::AddHashKeyColumn(const string& name, const shared_ptr<QLType>& type) {
-  return AddColumn(ColumnSchema(name, type, false, true), true);
+  return AddColumn(ColumnSchema(name, type, false, true), /* is_key */ true);
 }
 
 Status SchemaBuilder::AddHashKeyColumn(const string& name, DataType type) {

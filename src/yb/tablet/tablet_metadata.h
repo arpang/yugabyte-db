@@ -239,12 +239,13 @@ struct KvStoreInfo {
 
   Schema metadata_schema;
 
+  // TODO: Think about making range key columns
   // TODO: Compare it with SysCatalogTable::BuildTableSchema()
   Schema BuildMetadataSchema() {
     SchemaBuilder builder;
     // TODO: CHECK_OK(builder.AddKeyColumn(kSysCatalogTableColType, INT8));
-    CHECK_OK(builder.AddHashKeyColumn(kSysCatalogTableColId, STRING));  // TODO: MAKE it binary
-    CHECK_OK(builder.AddColumn(kSysCatalogTableColMetadata, STRING));   // TODO: MAKE it binary
+    CHECK_OK(builder.AddHashKeyColumn(kSysCatalogTableColId, BINARY));
+    CHECK_OK(builder.AddColumn(kSysCatalogTableColMetadata, BINARY));
     builder.set_metadata_schema();
     return builder.Build();
   }

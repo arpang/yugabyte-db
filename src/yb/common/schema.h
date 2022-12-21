@@ -1094,7 +1094,7 @@ class Schema {
   // kColocationIdNotSet for a primary or single-tenant table.
   ColocationId colocation_id_;
 
-  // True if it is the schema of metadata.
+  // True if it is the metadata schema.
   bool is_metadata_schema_ = false;
 
   PgSchemaName pgschema_name_;
