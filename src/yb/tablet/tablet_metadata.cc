@@ -41,7 +41,6 @@
 
 #include "yb/common/entity_ids.h"
 #include "yb/common/index.h"
-#include "yb/common/ql_expr.h"
 #include "yb/common/schema.h"
 #include "yb/common/transaction.h"
 #include "yb/common/wire_protocol.h"
@@ -49,8 +48,6 @@
 #include "yb/consensus/consensus_util.h"
 #include "yb/consensus/opid_util.h"
 
-#include "yb/docdb/doc_key.h"
-#include "yb/docdb/doc_pgsql_scanspec.h"
 #include "yb/docdb/doc_read_context.h"
 #include "yb/docdb/doc_rowwise_iterator.h"
 #include "yb/docdb/docdb_rocksdb_util.h"
@@ -68,6 +65,7 @@
 #include "yb/rpc/lightweight_message.h"
 
 #include "yb/tablet/metadata.pb.h"
+#include "yb/tablet/tablet.h"
 #include "yb/tablet/tablet_options.h"
 
 #include "yb/util/debug/trace_event.h"
@@ -79,7 +77,6 @@
 #include "yb/util/status.h"
 #include "yb/util/status_log.h"
 #include "yb/util/trace.h"
-#include "yb/tablet/tablet.h"
 
 DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 

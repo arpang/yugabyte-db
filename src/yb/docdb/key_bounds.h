@@ -14,7 +14,6 @@
 #pragma once
 
 #include "yb/docdb/key_bytes.h"
-#include "yb/docdb/value_type.h"
 #include "yb/rocksdb/rocksdb_fwd.h"
 
 namespace yb {

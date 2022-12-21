@@ -25,7 +25,7 @@
 #include "yb/common/row_mark.h"
 #include "yb/common/transaction.h"
 
-#include "yb/docdb/change_metadata_doc_operation.h"
+// #include "yb/docdb/change_metadata_doc_operation.h"
 #include "yb/docdb/conflict_resolution.h"
 #include "yb/docdb/cql_operation.h"
 #include "yb/docdb/docdb-internal.h"

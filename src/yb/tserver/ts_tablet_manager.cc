@@ -47,7 +47,6 @@
 #include "yb/client/client.h"
 #include "yb/client/transaction_manager.h"
 
-#include "yb/common/index.h"
 #include "yb/common/wire_protocol.h"
 
 #include "yb/consensus/consensus.h"

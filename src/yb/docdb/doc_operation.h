@@ -15,22 +15,13 @@
 
 #include <boost/container/small_vector.hpp>
 
-#include "yb/common/ql_value.h"
 #include "yb/common/read_hybrid_time.h"
 #include "yb/common/transaction.pb.h"
 
-#include "yb/docdb/doc_path.h"
 #include "yb/docdb/docdb_fwd.h"
 
-#include "yb/tablet/metadata.pb.h"
-#include "yb/tablet/operations/change_metadata_operation.h"
 #include "yb/util/monotime.h"
 #include "yb/util/ref_cnt_buffer.h"
-#include "yb/tablet/tablet_metadata.h"
-#include "yb/docdb/doc_key.h"
-#include "yb/util/yb_partition.h"
-#include "yb/docdb/doc_write_batch.h"
-#include "yb/common/schema.h"
 
 namespace yb {
 namespace docdb {

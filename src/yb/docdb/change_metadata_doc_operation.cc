@@ -13,6 +13,15 @@
 
 #include "yb/docdb/change_metadata_doc_operation.h"
 
+#include "yb/common/schema.h"
+#include "yb/common/ql_value.h"
+
+#include "yb/docdb/doc_key.h"
+#include "yb/docdb/doc_path.h"
+#include "yb/docdb/doc_write_batch.h"
+
+#include "yb/util/yb_partition.h"
+
 namespace yb {
 
 namespace docdb {

@@ -28,7 +28,6 @@
 #include "yb/common/read_hybrid_time.h"
 #include "yb/common/transaction.h"
 
-#include "yb/docdb/doc_kv_util.h"
 #include "yb/docdb/docdb_fwd.h"
 #include "yb/docdb/doc_key.h"
 #include "yb/docdb/doc_path.h"
