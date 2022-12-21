@@ -1476,8 +1476,7 @@ class TabletBootstrap {
   Status PlayChangeMetadataRequest(
       consensus::LWReplicateMsg* replicate_msg,
       AlreadyAppliedToRegularDB already_applied_to_regular_db) {
-    LWChangeMetadataRequestPB* request = replicate_msg->mutable_change_metadata_request();
-    // LOG_WITH_FUNC(INFO) << "Replaying message " << replicate_msg->ShortDebugString();
+    auto* request = replicate_msg->mutable_change_metadata_request();
     // Decode schema
     Schema schema;
     if (request->has_schema()) {

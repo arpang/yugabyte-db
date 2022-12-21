@@ -748,8 +748,7 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
   GetAndRegisterDataAndWalDir(
       fs_manager_, table_info->table_id, tablet_id, &data_root_dir, &wal_root_dir);
   fs_manager_->SetTabletPathByDataPath(tablet_id, data_root_dir);
-
-  auto create_result = RaftGroupMetadata::CreateNew(tablet::RaftGroupMetadataData{
+  auto create_result = RaftGroupMetadata::CreateNew(tablet::RaftGroupMetadataData {
     .fs_manager = fs_manager_,
     .table_info = table_info,
     .raft_group_id = tablet_id,

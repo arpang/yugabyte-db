@@ -395,8 +395,7 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
     const string& serialized_table_info = table_info_ql_value->binary_value();
     TableInfoPtr table_info = VERIFY_RESULT(
         TableInfo::LoadFromString(tablet_log_prefix, primary_table_id, serialized_table_info));
-    LOG_WITH_FUNC(INFO) << "Tablet " << tablet_id
-                        << " Loaded from docdb: " << table_info->ShortDebugString();
+    LOG_WITH_FUNC(INFO) << " Loaded from docdb: " << table_info->ShortDebugString(); // TODO: UNDO
     tables.emplace(table_info->table_id, table_info);
     UpdateColocationMap(table_info);
   }
@@ -519,22 +518,23 @@ bool KvStoreInfo::TEST_Equals(const KvStoreInfo& lhs, const KvStoreInfo& rhs) {
   auto eq = [](const auto& lhs, const auto& rhs) {
     return DereferencedEqual(lhs, rhs, TableInfo::TEST_Equals);
   };
-  return YB_STRUCT_EQUALS(
-             kv_store_id,
-             rocksdb_dir,
-             lower_bound_key,
-             upper_bound_key,
-             has_been_fully_compacted,
-             snapshot_schedules) &&
+  return YB_STRUCT_EQUALS(kv_store_id,
+                          rocksdb_dir,
+                          lower_bound_key,
+                          upper_bound_key,
+                          has_been_fully_compacted,
+                          snapshot_schedules) &&
          MapsEqual(lhs.tables, rhs.tables, eq) &&
          MapsEqual(lhs.colocation_to_table, rhs.colocation_to_table, eq);
 }
 
 namespace {
 
-std::string MakeTabletDirName(const TabletId& tablet_id) { return Format("tablet-$0", tablet_id); }
+std::string MakeTabletDirName(const TabletId& tablet_id) {
+  return Format("tablet-$0", tablet_id);
+}
 
-}  // namespace
+} // namespace
 
 // ============================================================================
 
@@ -566,8 +566,8 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::CreateNew(
   const string table_dir_name = Substitute("table-$0", data.table_info->table_id);
   const string tablet_dir_name = MakeTabletDirName(data.raft_group_id);
   const string wal_dir = JoinPathSegments(wal_top_dir, table_dir_name, tablet_dir_name);
-  const string rocksdb_dir =
-      JoinPathSegments(data_top_dir, FsManager::kRocksDBDirName, table_dir_name, tablet_dir_name);
+  const string rocksdb_dir = JoinPathSegments(
+      data_top_dir, FsManager::kRocksDBDirName, table_dir_name, tablet_dir_name);
 
   RaftGroupMetadataPtr ret(new RaftGroupMetadata(data, rocksdb_dir, wal_dir));
   RETURN_NOT_OK(ret->Flush());
@@ -583,8 +583,6 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::Load(
 
 Status RaftGroupMetadata::LoadTablesFromRocksDB(const TabletPtr& tablet) {
   if (IsTableMetadataInRocksDB()) {
-    LOG_WITH_FUNC(INFO) << "Loading table infos for tablet " << tablet->tablet_id()
-                        << " DOCDB: " << IsTableMetadataInRocksDB();
     return kv_store_.LoadTablesFromRocksDB(log_prefix_, tablet, primary_table_id_);
   } else {
     return Status::OK();
@@ -622,7 +620,7 @@ Status MakeTableNotFound(const TableId& table_id, const RaftGroupId& raft_group_
   }
   std::ostringstream string_stream;
   string_stream << "Table " << table_name << " (" << table_id << ") not found in Raft group "
-                << raft_group_id;
+      << raft_group_id;
   std::string msg = string_stream.str();
 #ifndef NDEBUG
   // This very large message should be logged instead of being appended to STATUS.
@@ -779,7 +777,6 @@ RaftGroupMetadata::RaftGroupMetadata(
       raft_group_id_(data.raft_group_id),
       partition_(std::make_shared<Partition>(data.partition)),
       primary_table_id_(data.table_info->table_id),
-      // metadata_table_id_(data.metadata_table_info->table_id),
       kv_store_(KvStoreId(raft_group_id_), data_dir, data.snapshot_schedules),
       fs_manager_(data.fs_manager),
       wal_dir_(wal_dir),
@@ -1001,7 +998,6 @@ void RaftGroupMetadata::ToSuperBlockUnlocked(RaftGroupReplicaSuperBlockPB* super
   }
 
   pb.set_primary_table_id(primary_table_id_);
-  // pb.set_metadata_table_id(metadata_table_id_);
   pb.set_colocated(colocated_);
   pb.set_cdc_min_replicated_index(cdc_min_replicated_index_);
   cdc_sdk_min_checkpoint_op_id_.ToPB(pb.mutable_cdc_sdk_min_checkpoint_op_id());
@@ -1098,18 +1094,15 @@ void RaftGroupMetadata::SetTableName(
   it->second->table_name = table_name;
 }
 
-TableInfoPtr RaftGroupMetadata::AddTable(
-    const std::string& table_id,
-    const std::string& namespace_name,
-    const std::string& table_name,
-    const TableType table_type,
-    const Schema& schema,
-    const IndexMap& index_map,
-    const PartitionSchema& partition_schema,
-    const boost::optional<IndexInfo>& index_info,
-    const SchemaVersion schema_version
-    // bool is_metadata_table
-) {
+TableInfoPtr RaftGroupMetadata::AddTable(const std::string& table_id,
+                                         const std::string& namespace_name,
+                                         const std::string& table_name,
+                                         const TableType table_type,
+                                         const Schema& schema,
+                                         const IndexMap& index_map,
+                                         const PartitionSchema& partition_schema,
+                                         const boost::optional<IndexInfo>& index_info,
+                                         const SchemaVersion schema_version) {
   DCHECK(schema.has_column_ids());
   Primary primary(table_id == primary_table_id_);
   TableInfoPtr new_table_info = std::make_shared<TableInfo>(log_prefix_,
@@ -1713,5 +1706,5 @@ Status CheckCanServeTabletData(const RaftGroupMetadata& metadata) {
   return Status::OK();
 }
 
-}  // namespace tablet
+} // namespace tablet
 } // namespace yb
