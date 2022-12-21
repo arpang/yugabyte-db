@@ -366,6 +366,7 @@ class PackedRowData {
       active_coprefix_ = "FAKE_PREFIX"s;
       active_coprefix_dropped_ = false;
       can_start_packing_ = false;
+      return Status::OK();
     }
 
     auto packing = GetCompactionSchemaInfo(coprefix);
