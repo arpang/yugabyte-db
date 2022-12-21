@@ -632,7 +632,8 @@ string Schema::ToString() const {
                 cotable_id_.IsNil() ? "" : ("\ncotable_id: " + cotable_id_.ToString()),
                 colocation_id_ == kColocationIdNotSet
                     ? "" : ("\ncolocation_id: " + std::to_string(colocation_id_)),
-                ("\nis_metadata_schema: " + std::to_string(is_metadata_schema_)));
+                !is_metadata_schema_
+                    ? "" : ("\nis_metadata_schema: " + std::to_string(is_metadata_schema_)));
 }
 
 size_t Schema::memory_footprint_excluding_this() const {

@@ -2667,7 +2667,7 @@ std::string KeyEntryValue::ToString(AutoDecodeKeys auto_decode_keys) const {
     case KeyEntryType::kMaxByte:
       return "0xff";
     case KeyEntryType::kTabletMetadata:
-      return "metadata";
+      return "MetadataKey";
   }
   FATAL_INVALID_ENUM_VALUE(KeyEntryType, type_);
 }
