@@ -614,6 +614,8 @@ string DocKey::ToString(AutoDecodeKeys auto_decode_keys) const {
     result += "ColocationId=";
     result += std::to_string(colocation_id_);
     result += ", ";
+  } else if (metadata_key_) {
+    result += "MetadataKey, ";
   }
 
   if (hash_present_) {
