@@ -258,12 +258,15 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
   const TableId table_id = resp.superblock().primary_table_id();
   const bool colocated = resp.superblock().colocated();
   const tablet::TableInfoPB* table_ptr = nullptr;
-  // TODO: Any changes here?
   for (auto& table_pb : kv_store->tables()) {
     if (table_pb.table_id() == table_id) {
       table_ptr = &table_pb;
       break;
     }
+  }
+  // TODO: We are setting the initial primary table as table_ptr, what the table was  updated?
+  if (!table_ptr && kv_store->has_initial_primary_table()) {
+    table_ptr = &kv_store->initial_primary_table();
   }
   if (!table_ptr) {
     return STATUS(InvalidArgument, Format(
