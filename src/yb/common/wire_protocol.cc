@@ -380,6 +380,8 @@ void SchemaToColocatedTableIdentifierPB(
     colocated_pb->set_colocation_id(schema.colocation_id());
   } else if (schema.has_cotable_id()) {
     colocated_pb->set_cotable_id(schema.cotable_id().ToString());
+  } else if (schema.is_metadata_schema()) {
+    colocated_pb->set_metadata_schema(true);
   }
 
 }
@@ -421,6 +423,11 @@ Status SchemaFromPB(const SchemaPB& pb, Schema *schema) {
       }
       case ColocatedTableIdentifierPB::kColocationId:
         schema->set_colocation_id(pb.colocated_table_id().colocation_id());
+        break;
+      case ColocatedTableIdentifierPB::kMetadataSchema:
+        if (pb.colocated_table_id().metadata_schema()) {
+          schema->set_metadata_schema();
+        }
         break;
       case ColocatedTableIdentifierPB::VALUE_NOT_SET:
         break;

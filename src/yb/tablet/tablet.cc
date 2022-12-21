@@ -2043,7 +2043,7 @@ Status Tablet::ApplyMetadataDocOperation(
   RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
       doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
       docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
-      metadata_table_name));
+      kMetadataTableName));
 
   // batch_idx is not used, hardcoding dummy value
   // https://yugabyte.slack.com/archives/C03ULJYE0KG/p1670928620405749
@@ -2055,8 +2055,8 @@ Status Tablet::MetadataDeleteDocOperation(
     Operation* operation,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   docdb::DocOperations doc_write_ops;
-  auto doc_operation =
-      std::make_unique<docdb::ChangeMetadataDocOperation>(table_id, "", /*is_delete*/ true);
+  auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
+      metadata_->GetMetadataSchema(), table_id, "", /*is_delete*/ true);
   doc_write_ops.emplace_back(std::move(doc_operation));
   return ApplyMetadataDocOperation(doc_write_ops, operation, already_applied_to_regular_db);
 }
@@ -2071,7 +2071,7 @@ Status Tablet::MetadataUpsertDocOperation(
     std::string serialized_table_info;
     table_info_pb->SerializeToString(&serialized_table_info);
     auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        table_info_pb->table_id, std::move(serialized_table_info));
+        metadata_->GetMetadataSchema(), table_info_pb->table_id, std::move(serialized_table_info));
     doc_write_ops.emplace_back(std::move(doc_operation));
   }
   return ApplyMetadataDocOperation(doc_write_ops, operation, already_applied_to_regular_db);

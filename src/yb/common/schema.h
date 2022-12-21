@@ -1103,17 +1103,6 @@ class Schema {
   // code to swap() and CopyFrom() as well to prevent subtle bugs.
 };
 
-// TODO: type column
-static const TableName metadata_table_name = "metadata_table";
-static const ColumnId metadata_table_key_col_id(10);
-static const ColumnSchema metadata_table_key_col = ColumnSchema("id", STRING, false, true);
-static const ColumnId metadata_table_value_col_id(11);
-static const ColumnSchema metadata_table_value_col = ColumnSchema("data", STRING, false, false);
-static const Schema metadata_schema = Schema(
-    {metadata_table_key_col, metadata_table_value_col},
-    {metadata_table_key_col_id, metadata_table_value_col_id}, 1, TableProperties(), Uuid::Nil(),
-    kColocationIdNotSet, "", true);
-
 // Helper used for schema creation/editing.
 //
 // Example:

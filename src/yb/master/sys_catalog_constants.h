@@ -39,9 +39,6 @@ namespace master {
 static const char* const kSysCatalogTabletId = "00000000000000000000000000000000";
 static const char* const kSysCatalogTableId = kObsoleteShortPrimaryTableId;
 static const char* const kSysCatalogTableName = "sys.catalog";
-static const char* const kSysCatalogTableColType = "entry_type";
-static const char* const kSysCatalogTableColId = "entry_id";
-static const char* const kSysCatalogTableColMetadata = "metadata";
 
 static const char* const kDbOidColumnName = "db_oid";
 static const char* const kCurrentVersionColumnName = "current_version";

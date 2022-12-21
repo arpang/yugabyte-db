@@ -237,6 +237,18 @@ struct KvStoreInfo {
 
   std::unordered_set<SnapshotScheduleId, SnapshotScheduleIdHash> snapshot_schedules;
 
+  Schema metadata_schema;
+
+  // TODO: Compare it with SysCatalogTable::BuildTableSchema()
+  Schema BuildMetadataSchema() {
+    SchemaBuilder builder;
+    // TODO: CHECK_OK(builder.AddKeyColumn(kSysCatalogTableColType, INT8));
+    CHECK_OK(builder.AddHashKeyColumn(kSysCatalogTableColId, STRING));  // TODO: MAKE it binary
+    CHECK_OK(builder.AddColumn(kSysCatalogTableColMetadata, STRING));   // TODO: MAKE it binary
+    builder.set_metadata_schema();
+    return builder.Build();
+  }
+
   // Should account for every field in KvStoreInfo.
   static bool TEST_Equals(const KvStoreInfo& lhs, const KvStoreInfo& rhs);
 };
@@ -588,6 +600,8 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   }
 
   void GetAllTableInfos(RaftGroupReplicaSuperBlockPB* superblock) const;
+
+  const Schema& GetMetadataSchema() const { return kv_store_.metadata_schema; }
 
  private:
   typedef simple_spinlock MutexType;
