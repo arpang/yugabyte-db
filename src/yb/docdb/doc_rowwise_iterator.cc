@@ -358,6 +358,10 @@ Result<bool> DocRowwiseIterator::HasNext() {
     has_next_status_ = AdvanceIteratorToNextDesiredRow();
     RETURN_NOT_OK(has_next_status_);
     VLOG(4) << __func__ << ", iter: " << db_iter_->valid();
+    if (!doc_read_context_.schema.is_metadata_schema() && !row_key_.empty() &&
+        row_key_[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+      doc_found = false;
+    }
   }
   row_ready_ = true;
   return true;

@@ -1370,9 +1370,11 @@ bool DocKeyBelongsTo(Slice doc_key, const Schema& schema) {
     return !doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata;
   }
 
-  if (!doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata) {
-    return schema.is_metadata_schema();
-  }
+  // if (!doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+  //   LOG(INFO) << "if (!doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata)";
+  //   LOG(INFO) << "schema.is_metadata_schema() " << schema.is_metadata_schema();
+  //   return schema.is_metadata_schema();
+  // }
 
   bool has_table_id = !doc_key.empty() &&
        (doc_key[0] == KeyEntryTypeAsChar::kTableId ||

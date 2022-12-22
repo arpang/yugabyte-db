@@ -491,11 +491,7 @@ Result<FetchKeyResult> IntentAwareIterator::FetchKey() {
     result.key = resolved_intent_key_prefix_.AsSlice();
     result.write_time = GetIntentDocHybridTime();
     result.same_transaction = ResolvedIntentFromSameTransaction();
-    bool is_metadata_key = VERIFY_RESULT(IsMetadataKey(result.key));
-    // TODO: This is probably for intentsdb and not required
-    if (!is_metadata_key || metadata_iterator_) {
-      max_seen_ht_.MakeAtLeast(resolved_intent_txn_dht_.hybrid_time());
-    }
+    max_seen_ht_.MakeAtLeast(resolved_intent_txn_dht_.hybrid_time());
   }
   VLOG(4) << "Fetched key " << SubDocKey::DebugSliceToString(result.key)
           << ", regular: " << IsEntryRegular()
