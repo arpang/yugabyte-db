@@ -477,6 +477,8 @@ Status DocRowwiseIterator::ValidateSystemKey() {
     if (decoder.left_input().size() == 0) {
       return Status::OK();
     }
+  } else if (VERIFY_RESULT(decoder.DecodeMetadataKey())) {
+    return Status::OK();
   }
 
   return STATUS_FORMAT(
