@@ -1488,6 +1488,13 @@ class TabletBootstrap {
     }
 
     ChangeMetadataOperation operation(tablet_, log_.get(), request);
+    // If table id isn't in metadata, ignore the replay as the table might've been dropped.
+    auto table_info = meta_->GetTableInfo(operation.table_id().ToBuffer());
+    if (!table_info.ok()) {
+      LOG_WITH_PREFIX(WARNING) << "Table ID " << operation.table_id()
+                               << " not found in metadata, skipping this ChangeMetadataRequest";
+      return Status::OK();
+    }
     operation.set_op_id(OpId::FromPB(replicate_msg->id()));
     HybridTime hybrid_time(replicate_msg->hybrid_time());
     operation.set_hybrid_time(hybrid_time);
