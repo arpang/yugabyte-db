@@ -12,13 +12,21 @@ import (
 
 	"github.com/yugabyte/yugabyte-db/managed/yba-installer/common"
 	log "github.com/yugabyte/yugabyte-db/managed/yba-installer/logging"
-	"github.com/yugabyte/yugabyte-db/managed/yba-installer/preflight"
 )
 
 // List of services required for YBA installation.
 var services map[string]common.Component
 var serviceOrder []string
+
+// Service Names
+const (
+	YbPlatformServiceName string = "yb-platform"
+	PostgresServiceName   string = "postgres"
+	PrometheusServiceName string = "prometheus"
+)
+
 var force bool
+var logLevel string
 
 var rootCmd = &cobra.Command{
 	Use:   "yba-ctl",
@@ -28,6 +36,12 @@ var rootCmd = &cobra.Command{
     YBA Installer, you can perform numerous actions related to your Yugabyte
     Anywhere instance through our command line CLI, such as clean, createBackup,
     restoreBackup, install, and upgrade! View the CLI menu to learn more!`,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if len(logLevel) == 0 {
+			logLevel = viper.GetString("logLevel")
+		}
+		log.Init(logLevel)
+	},
 }
 
 func cleanCmd() *cobra.Command {
@@ -175,7 +189,7 @@ func createBackupCmd() *cobra.Command {
 		},
 	}
 
-	createBackup.Flags().StringVar(&dataDir, "data_dir", "/opt/yugabyte",
+	createBackup.Flags().StringVar(&dataDir, "data_dir", common.GetBaseInstall(),
 		"data directory to be backed up")
 	createBackup.Flags().BoolVar(&excludePrometheus, "exclude_prometheus", false,
 		"exclude prometheus metric data from backup (default: false)")
@@ -215,7 +229,7 @@ func restoreBackupCmd() *cobra.Command {
 		},
 	}
 
-	restoreBackup.Flags().StringVar(&destination, "destination", "/opt/yugabyte",
+	restoreBackup.Flags().StringVar(&destination, "destination", common.GetBaseInstall(),
 		"where to un-tar the backup")
 	restoreBackup.Flags().BoolVar(&skipRestart, "skip_restart", false,
 		"don't restart processes during execution (default: false)")
@@ -224,43 +238,21 @@ func restoreBackupCmd() *cobra.Command {
 	return restoreBackup
 }
 
-var upgradeCmd = &cobra.Command{
-	Use:   "upgrade",
-	Short: "The upgrade command is used to upgrade an existing Yugabyte Anywhere installation.",
-	Long: `
-   The execution of the upgrade command will upgrade an already installed version of Yugabyte
-   Anywhere present on your operating system, to the upgrade version associated with your download of
-   YBA Installer. Please make sure that you have installed Yugabyte Anywhere using the install command
-   prior to executing the upgrade command.
-   `,
-	Args: cobra.NoArgs,
-	Run: func(cmd *cobra.Command, args []string) {
-		errors := preflight.Run(preflight.UpgradeChecks)
-		if len(errors) > 0 {
-			preflight.PrintPreflightResults(errors)
-			log.Fatal("all preflight checks must pass to upgrade")
-		}
-
-		log.Fatal("Upgrade command not implemented yet.")
-	},
-}
-
 func init() {
 	// services is an ordered map so services that depend on others should go later in the chain.
 	services = make(map[string]common.Component)
-	services["postgres"] = NewPostgres(common.GetInstallRoot(), "9.6")
-	services["prometheus"] = NewPrometheus(common.GetInstallRoot(), "2.39.0", false)
-	services["yb-platform"] = NewPlatform(common.GetInstallRoot(), common.GetVersion())
+	services[PostgresServiceName] = NewPostgres("9.6")
+	services[PrometheusServiceName] = NewPrometheus("2.39.0")
+	services[YbPlatformServiceName] = NewPlatform(common.GetVersion())
 	// serviceOrder = make([]string, len(services))
-	serviceOrder = []string{"postgres", "prometheus", "yb-platform"}
+	serviceOrder = []string{PostgresServiceName, PrometheusServiceName, YbPlatformServiceName}
 	// populate names of services for valid args
 
 	rootCmd.AddCommand(cleanCmd(), licenseCmd, versionCmd,
 		createBackupCmd(), restoreBackupCmd(),
 		upgradeCmd, startCmd, stopCmd, restartCmd, statusCmd)
 	rootCmd.PersistentFlags().BoolVarP(&force, "force", "f", false, "skip user confirmation")
-
-	log.Init(viper.GetString("logLevel"))
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log_level", "", "log level for this command")
 
 }
 

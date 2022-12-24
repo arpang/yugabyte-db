@@ -125,6 +125,7 @@ func readConfigAndTemplate(configYmlFileName string, service common.Component) (
 		"yamlPath":          GetYamlPathData,
 		"installRoot":       common.GetInstallRoot,
 		"installVersionDir": common.GetInstallVersionDir,
+		"baseInstall":			 common.GetBaseInstall,
 	}
 
 	tmpl, err := template.New(configYmlFileName).
@@ -167,7 +168,7 @@ func readYAMLtoJSON(createdBytes []byte) (map[string]interface{}, error) {
 func WriteBytes(byteSlice []byte, fileName []byte) ([]byte, error) {
 
 	fileNameString := string(fileName)
-
+	log.Info("Creating file (and directory path): " + fileNameString)
 	file, createErr := common.Create(fileNameString)
 
 	if createErr != nil {

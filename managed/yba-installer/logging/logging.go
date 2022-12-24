@@ -1,9 +1,12 @@
 package logging
 
 import (
+	"fmt"
+	"io/ioutil"
 	"os"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/writer"
 )
 
 // Fatal prints the error message to stdout at the error level, and
@@ -27,6 +30,25 @@ func Debug(debugMsg string) {
 	log.Debugln(debugMsg)
 }
 
+func AddOutputFile(filePath string) {
+	logFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
+	if err != nil {
+		panic(err)
+	}
+	log.Infoln(fmt.Sprintf("Opened log file %s", filePath))
+
+	// log file is always at trace level
+	// set log file as a hook for all levels
+	for level := log.PanicLevel; level <= log.TraceLevel; level++ {
+		log.AddHook(&writer.Hook{
+			Writer: logFile,
+			LogLevels: []log.Level{
+				level,
+			},
+		})
+	}
+}
+
 // Init sets up the logger according to the right level.
 func Init(logLevel string) {
 
@@ -35,28 +57,24 @@ func Init(logLevel string) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:   true,
 		DisableColors: false,
+		FullTimestamp: true,
 	})
 
-	switch logLevel {
-  case "TraceLevel":
-    log.SetLevel(log.TraceLevel)
-  case "DebugLevel":
-    log.SetLevel(log.DebugLevel)
-  case "InfoLevel":
-    log.SetLevel(log.InfoLevel)
-  case "WarnLevel":
-    log.SetLevel(log.WarnLevel)
-  case "ErrorLevel":
-    log.SetLevel(log.ErrorLevel)
-  case "FatalLevel":
-    log.SetLevel(log.FatalLevel)
-  case "PanicLevel":
-    log.SetLevel(log.PanicLevel)
-  default:
-    Debug("Invalid Logging Level specified in yba-ctl.yml. Defaulting to InfoLevel.")
-    log.SetLevel(log.InfoLevel)
-  }
+	stdErrLogLevel, err := log.ParseLevel(logLevel)
+	if err != nil {
+		println(fmt.Sprintf("Invalid log level specified, assuming info: [%s]", logLevel))
+		stdErrLogLevel = log.InfoLevel
+	}
 
-	// TODO: Also make logging file for installer actions.
-	log.SetOutput(os.Stdout)
+	log.SetOutput(ioutil.Discard) // Send all logs to nowhere by default
+
+	// set ourselves as a handler for each level below the specified level
+	for level := log.PanicLevel; level <= stdErrLogLevel; level++ {
+		log.AddHook(&writer.Hook{
+			Writer: os.Stdout,
+			LogLevels: []log.Level{
+				level,
+			},
+		})
+	}
 }

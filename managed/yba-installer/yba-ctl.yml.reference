@@ -131,7 +131,7 @@ prometheus:
 # email address).
 
 # port: The container exposed port that is used by
-# the running Platform instance for HTTPS. Defaults to 9443, override
+# the running Platform instance for HTTPS. Defaults to 443, override
 # if you want to use a different port for running Yugabyte Platform
 # through HTTPS.
 
@@ -141,13 +141,10 @@ prometheus:
 # will be generated), override if you wish to change the
 # password.
 
-# logPath: Directory (relative to install root) to store YBA logs.
-
 # restartSeconds: time in seconds for systemd to wait before restarting
 # the platform
 
 platform:
-   logPath: "data/logs"
    platformDbUser: "yugabyte"
    platformDbPassword: ""
    useOauth: false
@@ -158,7 +155,7 @@ platform:
    ywUrl: ""
    ybOidcScope: ""
    ybOidcEmailAttr: ""
-   port: 9443
+   port: 443
    keyStorePassword: ""
    environmentVariables:
       platformAppSecret: "PLATFORM_APP_SECRET"
@@ -214,16 +211,6 @@ postgres:
    password: ""
    restartSeconds: 10
 
-# Edit this section if you are bringing in your
-# own version of Python to the Yugabyte
-# Platform Installation. Make sure you specify
-# all the required fields correctly, and specify
-# bringOwn = true (defaults to false).
-python:
-   bringOwn: false
-   path: "/usr/bin/python3"
-   version: 3.6
-
 # The dataVolumes section refers to any directories that are not
 # deleted during the uninstall operation of yba-installer. Edit this
 # section if you have any more directories that you would like preserved
@@ -256,14 +243,14 @@ serviceManagementMode: "systemd"
 # Parameter for configuring the level of logging that you want for your YBA Installer.
 # Possible options (in increasing order of severity, setting a particular Log Level will
 # only log entries with that severity, or anything above it).
-# TraceLevel
-# DebugLevel
-# InfoLevel
-# WarnLevel
-# ErrorLevel
-# FatalLevel
-# PanicLevel
-logLevel: "InfoLevel"
+# trace
+# debug
+# info
+# warn
+# error
+# fatal
+# panic
+logLevel: "info"
 
 # Parameter for configuring the InstallRoot. Should change if executing in non-root mode.
 installRoot: "/opt/yugabyte"

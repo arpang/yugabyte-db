@@ -29,6 +29,8 @@ const Systemctl string = "systemctl"
 // InputFile where installer config settings are specified.
 var InputFile = "/opt/yba-ctl/yba-ctl.yml"
 
+var YbaCtlLogFile = "/opt/yba-ctl/yba-ctl.log"
+
 var installingFile = "/opt/yba-ctl/.installing"
 
 // InstalledFile is location of install completed marker file.
@@ -65,39 +67,22 @@ func DetectOS() string {
 // installs the correct version of Yugabyte Anywhere.
 func GetVersion() string {
 
-	cwd, _ := os.Getwd()
-	currentFolderPathList := strings.Split(cwd, "/")
-	lenFolder := len(currentFolderPathList)
-	currFolder := currentFolderPathList[lenFolder-1]
+	// locate the version metadata json file in the same dir as the yba-ctl
+	// binary
+	var configViper = viper.New()
+	configViper.SetConfigName(versionMetadataJSON)
+	configViper.SetConfigType("json")
+	configViper.AddConfigPath(GetBinaryDir())
 
-	versionInformation := strings.Split(currFolder, "-")
-
-	// In case we are not executing in the install directory, return
-	// the version present in versionMetadata.json.
-	// TODO: Can we use viper for multiple files like this?
-	if len(versionInformation) < 3 {
-
-		viper.SetConfigName("version_metadata.json")
-		viper.SetConfigType("json")
-		viper.AddConfigPath(".")
-		err := viper.ReadInConfig()
-		if err != nil {
-			panic(err)
-		}
-
-		versionNumber := fmt.Sprint(viper.Get("version_number"))
-		buildNumber := fmt.Sprint(viper.Get("build_number"))
-
-		version := versionNumber + "-" + buildNumber
-
-		return version
-
+	err := configViper.ReadInConfig()
+	if err != nil {
+		panic(err)
 	}
 
-	versionNumber := versionInformation[1]
-	buildNumber := versionInformation[2]
+	versionNumber := fmt.Sprint(configViper.Get("version_number"))
+	buildNumber := fmt.Sprint(configViper.Get("build_number"))
 
-	version := versionNumber + "-" + buildNumber
+	version := versionNumber + "-b" + buildNumber
 
 	return version
 }
@@ -149,12 +134,13 @@ func Contains[T comparable](values []T, target T) bool {
 }
 
 // Chown changes ownership of dir to user:group, recursively (optional).
-func Chown(dir, user, group string, recursive bool) {
+func Chown(dir, user, group string, recursive bool) error {
 	args := []string{fmt.Sprintf("%s:%s", user, group), dir}
 	if recursive {
 		args = append([]string{"-R"}, args...)
 	}
-	ExecuteBashCommand("chown", args)
+	_, err := ExecuteBashCommand("chown", args)
+	return err
 }
 
 // HasSudoAccess determines whether or not running user has sudo permissions.

@@ -72,6 +72,7 @@ import java.util.List;
 import java.util.UUID;
 import junitparams.JUnitParamsRunner;
 import junitparams.Parameters;
+
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -502,9 +503,9 @@ public abstract class UniverseCreateControllerTestBase extends UniverseControlle
   @Test
   @Parameters({
     "true, true, true",
-    "true, true, false",
+    // "true, true, false",// invalid: clientTLS false and bothCASame true
     "true, false, true",
-    "true, false, false",
+    // "true, false, false",// invalid: clientTLS false and bothCASame true
     "false, true, true",
     "false, true, false",
     "false, false, true",
@@ -569,9 +570,9 @@ public abstract class UniverseCreateControllerTestBase extends UniverseControlle
       assertNull(taskParam.rootCA);
     }
     if (userIntent.enableClientToNodeEncrypt) {
-      assertNotNull(taskParam.clientRootCA);
+      assertNotNull(taskParam.getClientRootCA());
     } else {
-      assertNull(taskParam.clientRootCA);
+      assertNull(taskParam.getClientRootCA());
     }
 
     assertAuditEntry(1, customer.uuid);
@@ -617,9 +618,9 @@ public abstract class UniverseCreateControllerTestBase extends UniverseControlle
   @Test
   // @formatter:off
   @Parameters({
-    "2.8.0.0-b12, true",
-    "2.6.0.0-b1, false",
-    "2.12.1.0-b11, true",
+    "2.15.4.0-b12, true",
+    "2.15.3.0-b1, false",
+    "2.16.1.0-b11, true",
   })
   // @formatter:on
   public void testK8sUniverseCreateNewHelmNaming(String ybVersion, boolean newNamingStyle) {

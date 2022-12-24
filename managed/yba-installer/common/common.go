@@ -19,13 +19,18 @@ import (
 // Install performs the installation procedures common to
 // all services.
 func Install(version string) {
-
+	log.Info("Starting Common install")
 	// Hidden file written on first install (.installCompleted) at the end of the install,
 	// if the file already exists then it means that an installation has already taken place,
 	// and that future installs are prohibited.
 	if _, err := os.Stat(InstalledFile); err == nil {
 		log.Fatal("Install of YBA already completed, cannot perform reinstall without clean.")
 	}
+
+	// Change into the dir we are in so that we can specify paths relative to ourselves
+	// TODO(minor): probably not a good idea in the long run
+	os.Chdir(GetBinaryDir())
+
 	MarkInstallStart()
 	createYugabyteUser()
 	createInstallDirs()
@@ -34,6 +39,7 @@ func Install(version string) {
 	renameThirdPartyDependencies()
 	setupJDK()
 	setJDKEnvironmentVariable()
+	log.Info("Finishing Common install")
 }
 
 // MarkInstallStart creates the marker file we use to show an in-progress install.
@@ -54,6 +60,16 @@ func MarkInstallStart() {
 	}
 }
 
+func PostInstall() {
+	// Symlink at /usr/local/bin/yba-ctl -> /opt/yba-ctl/yba-ctl -> actual yba-ctl
+	if HasSudoAccess() {
+		CreateSymlink(GetInstallVersionDir(), filepath.Dir(InputFile), goBinaryName)
+		CreateSymlink(filepath.Dir(InputFile), "/usr/local/bin", goBinaryName)
+	}
+
+	MarkInstallComplete()
+}
+
 // MarkInstallComplete moves the .installing file to .installed to indicate install success.
 func MarkInstallComplete() {
 	MoveFileGolang(installingFile, InstalledFile)
@@ -63,7 +79,8 @@ func createInstallDirs() {
 	createDirs := []string{
 		GetInstallOne(),
 		GetInstallTwo(),
-		filepath.Join(GetInstallRoot(), "data/logs"),
+		filepath.Join(GetBaseInstall(), "data"),
+		filepath.Join(GetBaseInstall(), "data/logs"),
 		GetInstallVersionDir(),
 		filepath.Join(GetInstallVersionDir(), CronDir),
 		filepath.Join(GetInstallVersionDir(), ConfigDir),
@@ -73,7 +90,11 @@ func createInstallDirs() {
 		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 			log.Fatal(fmt.Sprintf("failed creating directory %s: %s", dir, err.Error()))
 		}
-		Chown(dir, viper.GetString("service_username"), viper.GetString("service_username"), true)
+		err := Chown(dir, viper.GetString("service_username"), viper.GetString("service_username"), true)
+		if err != nil {
+			log.Fatal("failed to change ownership of " + dir + " to " +
+				viper.GetString("service_username") + ": " + err.Error())
+		}
 	}
 
 	// Mark our active directory
@@ -82,13 +103,26 @@ func createInstallDirs() {
 	}
 
 	// Remove the symlink if one exists
-	if _, err := os.Stat(GetActiveSymlink()); err == nil {
-		os.Remove(GetActiveSymlink())
-	}
-	if err := os.Symlink(GetInstallRoot(), GetActiveSymlink()); err != nil {
-		log.Fatal("could not create active symlink " + err.Error())
+	SetActiveInstallSymlink()
+}
+
+func createUpgradeDirs() {
+	createDirs := []string{
+		GetInstallVersionDir(),
+		filepath.Join(GetInstallVersionDir(), CronDir),
+		filepath.Join(GetInstallVersionDir(), ConfigDir),
 	}
 
+	for _, dir := range createDirs {
+		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+			log.Fatal(fmt.Sprintf("failed creating directory %s: %s", dir, err.Error()))
+		}
+		err := Chown(dir, viper.GetString("service_username"), viper.GetString("service_username"), true)
+		if err != nil {
+			log.Fatal("failed to change ownership of " + dir + " to " +
+				viper.GetString("service_username") + ": " + err.Error())
+		}
+	}
 }
 
 // Copies over necessary files for all services from yba_installer_full to the GetInstallRoot()
@@ -172,14 +206,28 @@ func Uninstall() {
 }
 
 // Upgrade performs the upgrade procedures common to all services.
-func Upgrade(version string, services []Component) {
-
+func Upgrade(version string) {
+	log.Info("Starting common upgrade")
+	dm.CleanAltInstall()
+	createUpgradeDirs()
 	copyBits(version)
 	extractPlatformSupportPackageAndYugabundle(version)
 	renameThirdPartyDependencies()
 	setupJDK()
 	setJDKEnvironmentVariable()
 
+	log.Info("Finishing common upgrade")
+}
+
+// SetActiveInstallSymlink will create <installRoot>/active symlink
+func SetActiveInstallSymlink() {
+	// Remove the symlink if one exists
+	if _, err := os.Stat(GetActiveSymlink()); err == nil {
+		os.Remove(GetActiveSymlink())
+	}
+	if err := os.Symlink(GetInstallRoot(), GetActiveSymlink()); err != nil {
+		log.Fatal("could not create active symlink " + err.Error())
+	}
 }
 
 func setupJDK() {
@@ -287,7 +335,8 @@ func renameThirdPartyDependencies() {
 	log.Debug(GetInstallVersionDir() + "/packages/thirdparty-deps.tar.gz successfully extracted.")
 	MoveFileGolang(GetInstallVersionDir()+"/thirdparty", GetInstallVersionDir()+"/third-party")
 	//TODO: There is an error here because InstallRoot + "/yb-platform/third-party" does not exist
-	ExecuteBashCommand("bash",
-		[]string{"-c", "cp -R " + GetInstallVersionDir() + "/third-party" + " " +
-			GetInstallRoot() + "/yb-platform/third-party"})
+	/*ExecuteBashCommand("bash",
+	[]string{"-c", "cp -R " + GetInstallVersionDir() + "/third-party" + " " +
+		GetInstallRoot() + "/yb-platform/third-party"})
+	*/
 }
