@@ -2050,9 +2050,9 @@ Status Tablet::ApplyMetadataDocOperation(
     const docdb::DocOperations& doc_write_ops,
     Operation* operation,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  ChangeMetadataOperation dummy_operation(shared_from_this(), nullptr);
   if (!operation) {
     DCHECK(!already_applied_to_regular_db);  // this metadata update doesn't is not through WAL
-    ChangeMetadataOperation dummy_operation(shared_from_this(), nullptr);
     operation = &dummy_operation;
   }
 

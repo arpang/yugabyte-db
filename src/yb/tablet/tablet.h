@@ -918,7 +918,7 @@ class Tablet : public AbstractTablet,
 
   Status MetadataDeleteDocOperation(
       const TableId& table_id,
-      Operation* operation = nullptr,
+      Operation* operation,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
   Status MetadataUpsertDocOperation(
