@@ -2078,6 +2078,7 @@ Status Tablet::MetadataDeleteDocOperation(
     Operation* operation,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   docdb::DocOperations doc_write_ops;
+  doc_write_ops.reserve(1);
   auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
       metadata_->GetMetadataSchema(), table_id, "", /*is_delete*/ true);
   doc_write_ops.emplace_back(std::move(doc_operation));
