@@ -2051,6 +2051,7 @@ Status Tablet::ApplyMetadataDocOperation(
     Operation* operation,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   ChangeMetadataOperation dummy_operation(shared_from_this(), nullptr);
+  dummy_operation.set_hybrid_time(clock()->Now());
   if (!operation) {
     DCHECK(!already_applied_to_regular_db);  // this metadata update doesn't is not through WAL
     operation = &dummy_operation;
