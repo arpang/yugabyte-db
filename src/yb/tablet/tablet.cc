@@ -2069,6 +2069,8 @@ Status Tablet::ApplyMetadataDocOperation(
       docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
       kMetadataTableName));
 
+  // TODO: Not using restart_read_ht anywhere.
+
   // batch_idx is not used, hardcoding dummy value
   // https://yugabyte.slack.com/archives/C03ULJYE0KG/p1670928620405749
   return ApplyOperation(*operation, 1, write_batch, already_applied_to_regular_db);
