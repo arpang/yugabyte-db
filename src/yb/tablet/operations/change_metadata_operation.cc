@@ -204,7 +204,6 @@ Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_
       log->SetSchemaForNextLogSegment(*DCHECK_NOTNULL(schema()), schema_version());
       break;
     case MetadataChange::ADD_TABLE:
-      LOG_WITH_FUNC(INFO) << "MetadataChange::ADD_TABLE";
       DCHECK_EQ(1, num_operations)
           << "Invalid number of change metadata operations: " << num_operations;
       RETURN_NOT_OK(tablet->AddTable(this, request()->add_table().ToGoogleProtobuf()));
@@ -220,7 +219,6 @@ Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_
       RETURN_NOT_OK(tablet->MarkBackfillDone(this, request()->backfill_done_table_id().ToBuffer()));
       break;
     case MetadataChange::ADD_MULTIPLE_TABLES:
-      LOG_WITH_FUNC(INFO) << "MetadataChange::ADD_MULTIPLE_TABLES";
       DCHECK_EQ(1, num_operations)
           << "Invalid number of change metadata operations: " << num_operations;
       RETURN_NOT_OK(

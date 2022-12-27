@@ -395,7 +395,6 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
     const string& serialized_table_info = table_info_ql_value->binary_value();
     TableInfoPtr table_info = VERIFY_RESULT(
         TableInfo::LoadFromString(tablet_log_prefix, primary_table_id, serialized_table_info));
-    LOG_WITH_FUNC(INFO) << " Loaded from docdb: " << table_info->ShortDebugString(); // TODO: UNDO
     tables.emplace(table_info->table_id, table_info);
     UpdateColocationMap(table_info);
   }
