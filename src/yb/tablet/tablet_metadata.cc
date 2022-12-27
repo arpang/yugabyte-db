@@ -1687,15 +1687,6 @@ std::vector<TableId> RaftGroupMetadata::GetAllColocatedTables() {
   return table_ids;
 }
 
-void RaftGroupMetadata::GetAllTableInfos(RaftGroupReplicaSuperBlockPB* superblock) const {
-  std::lock_guard<MutexType> lock(data_mutex_);
-  auto kv_store = superblock->mutable_kv_store();
-  for (const auto& [id, table_info] : kv_store_.tables) {
-    table_info->ToPB(kv_store->add_tables());
-  }
-  return;
-}
-
 Status CheckCanServeTabletData(const RaftGroupMetadata& metadata) {
   auto data_state = metadata.tablet_data_state();
   if (!CanServeTabletData(data_state)) {

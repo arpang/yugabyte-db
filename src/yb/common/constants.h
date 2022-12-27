@@ -41,6 +41,6 @@ static const char* const kObsoleteShortPrimaryTableId = "sys.catalog.uuid";
 static const char* const kSysCatalogTableColType = "entry_type";
 static const char* const kSysCatalogTableColId = "entry_id";
 static const char* const kSysCatalogTableColMetadata = "metadata";
-static const char* const kMetadataTableName = "metadata_table";
+static const char* const kMetadataEntries = "metadata_entries";
 
 } // namespace yb

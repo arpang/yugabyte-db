@@ -459,8 +459,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
                 const IndexMap& index_map,
                 const PartitionSchema& partition_schema,
                 const boost::optional<IndexInfo>& index_info,
-                const SchemaVersion schema_version
-                );
+                const SchemaVersion schema_version);
 
   void RemoveTable(const TableId& table_id);
 
@@ -550,7 +549,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   }
 
   bool IsTableMetadataInRocksDB() const {
-    // TODO: data_mutex_ not required?
+    std::lock_guard<MutexType> lock(data_mutex_);
     return kv_store_.IsTableMetadataInRocksDB();
   }
 
@@ -598,8 +597,6 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   const KvStoreInfo& TEST_kv_store() const {
     return kv_store_;
   }
-
-  void GetAllTableInfos(RaftGroupReplicaSuperBlockPB* superblock) const;
 
   const Schema& GetMetadataSchema() const { return kv_store_.metadata_schema; }
 

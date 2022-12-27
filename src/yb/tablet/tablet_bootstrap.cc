@@ -1481,6 +1481,7 @@ class TabletBootstrap {
       consensus::LWReplicateMsg* replicate_msg,
       AlreadyAppliedToRegularDB already_applied_to_regular_db) {
     auto* request = replicate_msg->mutable_change_metadata_request();
+
     // Decode schema
     Schema schema;
     if (request->has_schema()) {
@@ -1488,11 +1489,12 @@ class TabletBootstrap {
     }
 
     ChangeMetadataOperation operation(tablet_, log_.get(), request);
+
     // If table id isn't in metadata, ignore the replay as the table might've been dropped.
     auto table_info = meta_->GetTableInfo(operation.table_id().ToBuffer());
     if (!table_info.ok()) {
       LOG_WITH_PREFIX(WARNING) << "Table ID " << operation.table_id()
-                               << " not found in metadata, skipping this ChangeMetadataRequest";
+          << " not found in metadata, skipping this ChangeMetadataRequest";
       return Status::OK();
     }
     operation.set_op_id(OpId::FromPB(replicate_msg->id()));
