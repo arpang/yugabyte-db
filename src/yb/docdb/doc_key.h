@@ -127,8 +127,8 @@ class DocKey {
   DocKey(const Schema& schema, DocKeyHash hash,
          std::vector<KeyEntryValue> hashed_components,
          std::vector<KeyEntryValue> range_components = std::vector<KeyEntryValue>());
-  DocKey(bool metadata_key, DocKeyHash hash, std::vector<KeyEntryValue> hashed_components);
-  explicit DocKey(bool metadata_key);
+  DocKey(bool is_metadata_key, DocKeyHash hash, std::vector<KeyEntryValue> hashed_components);
+  explicit DocKey(bool is_metadata_key);
 
   KeyBytes Encode() const;
   void AppendTo(KeyBytes* out) const;
