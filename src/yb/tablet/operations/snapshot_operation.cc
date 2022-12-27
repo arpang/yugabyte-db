@@ -167,6 +167,7 @@ Status SnapshotOperation::RejectionStatus(
       OperationType_Name(op_type), rejected_op_id);
 }
 
+// TODO: Should we disallow CHANGE_METADATA_OP too?
 bool SnapshotOperation::ShouldAllowOpDuringRestore(consensus::OperationType op_type) {
   switch (op_type) {
     case consensus::NO_OP: FALLTHROUGH_INTENDED;

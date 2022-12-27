@@ -39,10 +39,8 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
   DocKeyHash hash = YBPartition::HashColumnCompoundValue(key_string);
   const auto& metadata_id_col_idx = metadata_schema_.find_column(kSysCatalogTableColId);
   DCHECK_NE(metadata_id_col_idx, Schema::kColumnNotFound);
-  // todo: can we not do with SortingType::kNotSpecified
   auto hash_component = KeyEntryValue::FromQLValuePB(
       table_id_value, metadata_schema_.column(metadata_id_col_idx).sorting_type());
-  // auto hash_component = KeyEntryValue::FromQLValuePB(table_id_value, SortingType::kNotSpecified);
   DocKey doc_key = DocKey(true, hash, {hash_component});
   encoded_doc_key_ = doc_key.EncodeAsRefCntPrefix();
 }
@@ -57,10 +55,6 @@ Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
   } else {
     QLValuePB table_info_value;
     table_info_value.set_binary_value(serialized_table_info_);
-    // RETURN_NOT_OK(data.doc_write_batch->InsertSubDocument(
-    //     sub_path, ValueRef(table_info_value, SortingType::kNotSpecified), data.read_time,
-    //     data.deadline));
-    // todo: can we not do with SortingType::kNotSpecified
     RETURN_NOT_OK(data.doc_write_batch->InsertSubDocument(
         sub_path, ValueRef(table_info_value, metadata_col.sorting_type()), data.read_time,
         data.deadline));

@@ -2057,7 +2057,7 @@ Status Tablet::ApplyMetadataDocOperation(
     operation = &dummy_operation;
   }
 
-  auto read_ht = ReadHybridTime::SingleTime(clock()->Now());  // ReadHybridTime::Max();
+  auto read_ht = ReadHybridTime::SingleTime(clock()->Now());  // TODO: is it correct?
   const CoarseTimePoint deadline = CoarseTimePoint::max();
   HybridTime restart_read_ht;
 

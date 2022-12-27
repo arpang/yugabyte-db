@@ -910,6 +910,7 @@ Status ReplicaState::ApplyPendingOperationsUnlocked(
 
     auto type = round->replicate_msg()->op_type();
 
+    // TODO: Any changes here?
     // For write operations we block rocksdb flush, until appropriate records are written to the
     // log file. So we could apply them before adding to log.
     if (type == OperationType::WRITE_OP) {
