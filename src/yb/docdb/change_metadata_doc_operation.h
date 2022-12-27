@@ -20,8 +20,8 @@ namespace yb {
 namespace docdb {
 class ChangeMetadataDocOperation : public DocOperation {
  public:
-  // Cannot make serialized_table_info a reference. The serialized string is not guaranteed to exist
-  // by the time Apply is called. See Tablet::AddMultipleTables for instance.
+  // Cannot make serialized_table_info a reference. It goes out of scope by the time Apply() is
+  // called. See Tablet::MetadataUpsertDocOperation().
   ChangeMetadataDocOperation(
       const Schema& metadata_schema, const std::string& table_id,
       const std::string serialized_table_info, bool is_delete = false);
@@ -43,7 +43,9 @@ class ChangeMetadataDocOperation : public DocOperation {
   }
 
   std::string ToString() const override {
-    return "";  // TODO
+    return Format(
+        "CHANGE_METADATA_DOC_OPERATION { table_info: $0, is_delete: $1}", serialized_table_info_,
+        is_delete_, encoded_doc_key_.ShortDebugString());
   }
 
  private:

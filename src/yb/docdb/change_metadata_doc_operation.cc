@@ -30,7 +30,7 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
     const Schema& metadata_schema, const std::string& table_id,
     const std::string serialized_table_info, bool is_delete)
     : metadata_schema_(metadata_schema),
-      serialized_table_info_(serialized_table_info),
+      serialized_table_info_(std::move(serialized_table_info)),
       is_delete_(is_delete) {
   QLValuePB table_id_value;
   table_id_value.set_binary_value(table_id);

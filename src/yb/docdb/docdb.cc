@@ -282,7 +282,6 @@ Result<PrepareDocWriteOperationResult> PrepareDocWriteOperation(
   return result;
 }
 
-// TODO: Handle error here
 Status SetDocOpQLErrorResponse(DocOperation* doc_op, string err_msg) {
   switch (doc_op->OpType()) {
     case DocOperation::Type::QL_WRITE_OPERATION: {
@@ -297,16 +296,10 @@ Status SetDocOpQLErrorResponse(DocOperation* doc_op, string err_msg) {
       resp->set_error_message(err_msg);
       break;
     }
-    // case DocOperation::Type::CHANGE_METADATA_DOC_OPERATION: {
-    //   const auto& resp = down_cast<ChangeMetadataDocOperation*>(doc_op)->response();
-    //   resp->set_status(PgsqlResponsePB::PGSQL_STATUS_USAGE_ERROR);
-    //   resp->set_error_message(err_msg);
-    //   break;
-    // }
     default:
-      return STATUS_FORMAT(InternalError,
-                           "Invalid status (QLError) for doc operation %d",
-                           doc_op->OpType());
+      return STATUS_FORMAT(
+          InternalError, "Invalid status (QLError) for doc operation %d, error message: %s",
+          doc_op->OpType(), err_msg);
   }
   return Status::OK();
 }
