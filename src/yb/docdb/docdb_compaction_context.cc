@@ -334,26 +334,6 @@ class PackedRowData {
   // Updates current coprefix. Coprefix is located at start of the key and identifies cotable or
   // colocation.
   Status UpdateCoprefix(const Slice& coprefix) {
-    // Getting the below error without this change:
-    // F20221121 19:08:59 ../../src/yb/tablet/tablet.cc:1444] T 00000000000000000000000000000000 P
-    // e7efd50d65b440ef8260b3b308b06bc2: Failed to write a batch with 0 operations into RocksDB:
-    // Corruption (yb/docdb/docdb_compaction_context.cc:378): Wrong coprefix: 6F
-    // @        0x107a860dc  google::LogDestination::LogToSinks()
-    // @        0x107a85238  google::LogMessage::SendToLog()
-    // @        0x107a85bdc  google::LogMessage::Flush()
-    // @        0x107a89bd0  google::LogMessageFatal::~LogMessageFatal()
-    // @        0x107a86b1c  google::LogMessageFatal::~LogMessageFatal()
-    // @        0x10587ca94  yb::tablet::Tablet::WriteToRocksDB()
-    // @        0x10587fcc0  yb::tablet::Tablet::ApplyIntents()
-    // @        0x105908ffc  yb::tablet::TransactionParticipant::Impl::ProcessApply()
-    // @        0x1059080ac  yb::tablet::TransactionParticipant::Impl::ReplicatedApplying()
-    // @        0x1058f7ad0  yb::tablet::TransactionParticipant::Impl::ProcessReplicated()
-    // @        0x105939f70  yb::tablet::UpdateTxnOperation::DoReplicated()
-    // @        0x105913dd4  yb::tablet::Operation::Replicated()
-    // if (!coprefix.empty() && coprefix[0] == KeyEntryTypeAsChar::kTabletMetadata) {
-    //   return Status::OK();
-    // }
-
     if (!schema_packing_provider_) {
       return Status::OK();
     }
@@ -363,6 +343,7 @@ class PackedRowData {
     RETURN_NOT_OK(Flush());
 
     if (!coprefix.empty() && coprefix[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+      // metadata entry found, resetting to default values.
       active_coprefix_ = "FAKE_PREFIX"s;
       active_coprefix_dropped_ = false;
       can_start_packing_ = false;

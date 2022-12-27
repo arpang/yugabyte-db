@@ -360,7 +360,7 @@ Result<bool> DocRowwiseIterator::HasNext() {
     VLOG(4) << __func__ << ", iter: " << db_iter_->valid();
     if (!doc_read_context_.schema.is_metadata_schema() && !row_key_.empty() &&
         row_key_[0] == KeyEntryTypeAsChar::kTabletMetadata) {
-      doc_found = false;
+      doc_found = false;  // the doc found is a metadata entry, hence doesn't count.
     }
   }
   row_ready_ = true;

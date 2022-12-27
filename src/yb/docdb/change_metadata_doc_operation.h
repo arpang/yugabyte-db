@@ -28,8 +28,9 @@ class ChangeMetadataDocOperation : public DocOperation {
 
   Type OpType() override { return DocOperationType::CHANGE_METADATA_DOC_OPERATION; }
 
-  bool RequireReadSnapshot() const override { return false; }
+  bool RequireReadSnapshot() const override { return false; }  // TODO
 
+  // TODO
   Status GetDocPaths(
       GetDocPathsMode mode, DocPathsToLock* paths, IsolationLevel* level) const override {
     paths->push_back(encoded_doc_key_);

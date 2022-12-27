@@ -2064,6 +2064,7 @@ Status Tablet::ApplyMetadataDocOperation(
   ThreadSafeArena arena;
   docdb::LWKeyValueWriteBatchPB write_batch(&arena);
 
+  // TODO: PrepareDocWriteOperation
   RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
       doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
       docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
