@@ -319,7 +319,7 @@ class IntentAwareIterator : public IntentAwareIteratorIf {
   KeyBytes seek_key_buffer_;
   Slice seek_key_prefix_;
 
-  bool metadata_iterator_ = false;
+  bool is_metadata_iterator_ = false;
 };
 
 class NODISCARD_CLASS IntentAwareIteratorPrefixScope {

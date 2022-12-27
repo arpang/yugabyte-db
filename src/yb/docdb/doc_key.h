@@ -163,9 +163,7 @@ class DocKey {
     return colocation_id_ != kColocationIdNotSet;
   }
 
-  bool is_metadata_key() const {
-    return metadata_key_;
-  }
+  bool is_metadata_key() const { return is_metadata_key_; }
 
   DocKeyHash hash() const {
     return hash_;
@@ -309,7 +307,7 @@ class DocKey {
   // kColocationIdNotSet for a primary or single-tenant table.
   ColocationId colocation_id_;
 
-  bool metadata_key_ = false;
+  bool is_metadata_key_ = false;
 
   // TODO: can we get rid of this field and just use !hashed_group_.empty() instead?
   bool hash_present_;

@@ -65,6 +65,11 @@ void AppendEncodedDocHt(const Slice& encoded_doc_ht, KeyBytes* key_bytes) {
   key_bytes->AppendRawBytes(encoded_doc_ht);
 }
 
+Result<bool> IsMetadataKey(const Slice& slice) {
+  DocKeyDecoder decoder(slice);
+  return decoder.DecodeMetadataKey();
+}
+
 } // namespace
 
 namespace {
@@ -112,7 +117,7 @@ IntentAwareIterator::IntentAwareIterator(
                                                    : Slice(encoded_read_time_read_)),
       txn_op_context_(txn_op_context),
       transaction_status_cache_(txn_op_context_, read_time, deadline),
-      metadata_iterator_(read_opts.metadata_iterator) {
+      is_metadata_iterator_(read_opts.is_metadata_iterator) {
   VTRACE(1, __func__);
   VLOG(4) << "IntentAwareIterator, read_time: " << read_time
           << ", txn_op_context: " << txn_op_context_;
@@ -467,11 +472,6 @@ bool IntentAwareIterator::IsEntryRegular(bool descending) {
   return true;
 }
 
-Result<bool> IsMetadataKey(Slice slice) {
-  DocKeyDecoder decoder(slice);
-  return decoder.DecodeMetadataKey();
-}
-
 Result<FetchKeyResult> IntentAwareIterator::FetchKey() {
   RETURN_NOT_OK(status_);
   FetchKeyResult result;
@@ -481,9 +481,9 @@ Result<FetchKeyResult> IntentAwareIterator::FetchKey() {
     DCHECK(result.key.ends_with(KeyEntryTypeAsChar::kHybridTime)) << result.key.ToDebugString();
     result.key.remove_suffix(1);
     result.same_transaction = false;
-    // Required because of https://yugabyte.slack.com/archives/C046GED8ARW/p1670930653884049
     bool is_metadata_key = VERIFY_RESULT(IsMetadataKey(result.key));
-    if (!is_metadata_key || metadata_iterator_) {
+    if (!(is_metadata_key && !is_metadata_iterator_)) {  // do not update max_seen_ht_ if the entry
+                                                         // belong to metadata but iterator doesn't.
       max_seen_ht_.MakeAtLeast(result.write_time.hybrid_time());
     }
   } else {

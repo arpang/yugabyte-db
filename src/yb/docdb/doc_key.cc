@@ -223,18 +223,18 @@ DocKey::DocKey(const Schema& schema, DocKeyHash hash,
       range_group_(std::move(range_components)) {
 }
 
-DocKey::DocKey(bool metadata_key, DocKeyHash hash, std::vector<KeyEntryValue> hashed_components)
+DocKey::DocKey(bool is_metadata_key, DocKeyHash hash, std::vector<KeyEntryValue> hashed_components)
     : cotable_id_(Uuid::Nil()),
       colocation_id_(kColocationIdNotSet),
-      metadata_key_(metadata_key),
+      is_metadata_key_(is_metadata_key),
       hash_present_(true),
       hash_(hash),
       hashed_group_(std::move(hashed_components)) {}
 
-DocKey::DocKey(bool metadata_key)
+DocKey::DocKey(bool is_metadata_key)
     : cotable_id_(Uuid::Nil()),
       colocation_id_(kColocationIdNotSet),
-      metadata_key_(metadata_key),
+      is_metadata_key_(is_metadata_key),
       hash_present_(false),
       hash_(0) {}
 
@@ -264,7 +264,7 @@ RefCntPrefix DocKey::EncodeAsRefCntPrefix() const {
 
 void DocKey::AppendTo(KeyBytes* out) const {
   auto encoder = DocKeyEncoder(out);
-  if (metadata_key_) {
+  if (is_metadata_key_) {
     encoder.MetadataKey().Hash(hash_present_, hash_, hashed_group_).Range(range_group_);
   } else if (!cotable_id_.IsNil()) {
     encoder.CotableId(cotable_id_).Hash(hash_present_, hash_, hashed_group_).Range(range_group_);
@@ -310,7 +310,7 @@ class DecodeDocKeyCallback {
 
   void SetColocationId(const ColocationId colocation_id) const {}
 
-  void SetMetadataKey() const {}
+  void SetAsMetadataKey() const {}
 
  private:
   boost::container::small_vector_base<Slice>* out_;
@@ -332,7 +332,7 @@ class DummyCallback {
 
   void SetColocationId(const ColocationId colocation_id) const {}
 
-  void SetMetadataKey() const {}
+  void SetAsMetadataKey() const {}
 
   KeyEntryValue* AddSubkey() const {
     return nullptr;
@@ -358,7 +358,7 @@ class EncodedSizesCallback {
 
   void SetColocationId(const ColocationId colocation_id) const {}
 
-  void SetMetadataKey() const {}
+  void SetAsMetadataKey() const {}
 
   KeyEntryValue* AddSubkey() const {
     return nullptr;
@@ -466,9 +466,7 @@ class DocKey::DecodeFromCallback {
     key_->colocation_id_ = colocation_id;
   }
 
-  void SetMetadataKey() const {
-    key_->metadata_key_ = true;
-  }
+  void SetAsMetadataKey() const { key_->is_metadata_key_ = true; }
 
  private:
   DocKey* key_;
@@ -522,7 +520,7 @@ yb::Status DocKey::DoDecode(DocKeyDecoder* decoder,
   } else if (VERIFY_RESULT(decoder->DecodeColocationId(&colocation_id))) {
     callback.SetColocationId(colocation_id);
   } else if (VERIFY_RESULT(decoder->DecodeMetadataKey())) {
-    callback.SetMetadataKey();
+    callback.SetAsMetadataKey();
   }
 
   switch (part_to_decode) {
@@ -614,7 +612,7 @@ string DocKey::ToString(AutoDecodeKeys auto_decode_keys) const {
     result += "ColocationId=";
     result += std::to_string(colocation_id_);
     result += ", ";
-  } else if (metadata_key_) {
+  } else if (is_metadata_key_) {
     result += "MetadataKey, ";
   }
 

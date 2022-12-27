@@ -344,7 +344,7 @@ rocksdb::ReadOptions PrepareReadOptions(
   }
   read_opts.file_filter = std::move(file_filter);
   read_opts.iterate_upper_bound = iterate_upper_bound;
-  read_opts.metadata_iterator = is_metadata_iterator;
+  read_opts.is_metadata_iterator = is_metadata_iterator;
   return read_opts;
 }
 
@@ -375,9 +375,9 @@ unique_ptr<IntentAwareIterator> CreateIntentAwareIterator(
     const Slice* iterate_upper_bound,
     bool is_metadata_iterator) {
   // TODO(dtxn) do we need separate options for intents db?
-  rocksdb::ReadOptions read_opts = PrepareReadOptions(
-      doc_db.regular, bloom_filter_mode, user_key_for_filter, query_id, std::move(file_filter),
-      iterate_upper_bound, is_metadata_iterator);
+  rocksdb::ReadOptions read_opts = PrepareReadOptions(doc_db.regular, bloom_filter_mode,
+      user_key_for_filter, query_id, std::move(file_filter), iterate_upper_bound,
+      is_metadata_iterator);
   return std::make_unique<IntentAwareIterator>(
       doc_db, read_opts, deadline, read_time, txn_op_context);
 }
