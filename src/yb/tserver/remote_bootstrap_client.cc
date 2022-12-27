@@ -264,7 +264,6 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
       break;
     }
   }
-  // TODO: We are setting the initial primary table as table_ptr, what the table was  updated?
   if (!table_ptr && kv_store->has_initial_primary_table()) {
     table_ptr = &kv_store->initial_primary_table();
   }
