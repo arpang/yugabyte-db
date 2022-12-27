@@ -20,11 +20,9 @@ namespace yb {
 namespace docdb {
 class ChangeMetadataDocOperation : public DocOperation {
  public:
-  // Cannot make serialized_table_info a reference. It goes out of scope by the time Apply() is
-  // called. See Tablet::MetadataUpsertDocOperation().
   ChangeMetadataDocOperation(
       const Schema& metadata_schema, const std::string& table_id,
-      const std::string serialized_table_info, bool is_delete = false);
+      const std::string& serialized_table_info, bool is_delete = false);
 
   Status Apply(const DocOperationApplyData& data) override;
 

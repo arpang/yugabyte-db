@@ -111,7 +111,7 @@ message ColocatedTableIdentifierPB {
     uint32 colocation_id = 1;
     // Colocated YSQL system tables use 16-byte UUID.
     bytes cotable_id = 2;
-    // True if it is it the metadata schema.
+    // True if it is the metadata schema.
     bool metadata_schema = 3;
   }
 }
