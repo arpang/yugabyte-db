@@ -16,8 +16,8 @@
 #include "yb/docdb/doc_operation.h"
 
 namespace yb {
-
 namespace docdb {
+
 class ChangeMetadataDocOperation : public DocOperation {
  public:
   ChangeMetadataDocOperation(
@@ -53,5 +53,6 @@ class ChangeMetadataDocOperation : public DocOperation {
   RefCntPrefix encoded_doc_key_;
   bool is_delete_ = false;
 };
+
 }  // namespace docdb
 }  // namespace yb

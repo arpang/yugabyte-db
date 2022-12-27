@@ -23,7 +23,6 @@
 #include "yb/util/yb_partition.h"
 
 namespace yb {
-
 namespace docdb {
 
 ChangeMetadataDocOperation::ChangeMetadataDocOperation(
@@ -61,5 +60,6 @@ Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
   }
   return Status::OK();
 }
+
 }  // namespace docdb
 }  // namespace yb
