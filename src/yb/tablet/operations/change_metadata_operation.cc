@@ -193,34 +193,34 @@ Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_
           num_operations);
     case MetadataChange::SCHEMA:
       if (!request_has_newer_schema) {
-        LOG_WITH_PREFIX(INFO) << "Already running schema version "
-                              << tablet->metadata()->schema_version()
+        LOG_WITH_PREFIX(INFO)
+            << "Already running schema version " << tablet->metadata()->schema_version()
                               << " got alter request for version " << schema_version();
         break;
       }
-      DCHECK_EQ(1, num_operations)
-          << "Invalid number of change metadata operations: " << num_operations;
+      DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
+                                   << num_operations;
       RETURN_NOT_OK(tablet->AlterSchema(this));
       log->SetSchemaForNextLogSegment(*DCHECK_NOTNULL(schema()), schema_version());
       break;
     case MetadataChange::ADD_TABLE:
-      DCHECK_EQ(1, num_operations)
-          << "Invalid number of change metadata operations: " << num_operations;
+      DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
+                                   << num_operations;
       RETURN_NOT_OK(tablet->AddTable(this, request()->add_table().ToGoogleProtobuf()));
       break;
     case MetadataChange::REMOVE_TABLE:
-      DCHECK_EQ(1, num_operations)
-          << "Invalid number of change metadata operations: " << num_operations;
+      DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
+                                   << num_operations;
       RETURN_NOT_OK(tablet->RemoveTable(this, request()->remove_table_id().ToBuffer()));
       break;
     case MetadataChange::BACKFILL_DONE:
-      DCHECK_EQ(1, num_operations)
-          << "Invalid number of change metadata operations: " << num_operations;
+      DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
+                                   << num_operations;
       RETURN_NOT_OK(tablet->MarkBackfillDone(this, request()->backfill_done_table_id().ToBuffer()));
       break;
     case MetadataChange::ADD_MULTIPLE_TABLES:
-      DCHECK_EQ(1, num_operations)
-          << "Invalid number of change metadata operations: " << num_operations;
+      DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
+                                   << num_operations;
       RETURN_NOT_OK(
           tablet->AddMultipleTables(this, ToRepeatedPtrField(request()->add_multiple_tables())));
       break;
