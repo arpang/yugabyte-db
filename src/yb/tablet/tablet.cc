@@ -2057,20 +2057,25 @@ Status Tablet::ApplyMetadataDocOperation(
     operation = &dummy_operation;
   }
 
-  auto read_ht = ReadHybridTime::SingleTime(clock()->Now());  // TODO: is it correct?
+  auto read_ht = ReadHybridTime::Max();  // Can read everything that's there in the docdb.
   const CoarseTimePoint deadline = CoarseTimePoint::max();
   HybridTime restart_read_ht;
 
   ThreadSafeArena arena;
   docdb::LWKeyValueWriteBatchPB write_batch(&arena);
-
-  // TODO: PrepareDocWriteOperation
+  auto prepare_result = VERIFY_RESULT(docdb::PrepareDocWriteOperation(
+      doc_write_ops, write_batch.read_pairs(), metrics()->write_lock_latency,
+      IsolationLevel::NON_TRANSACTIONAL, docdb::OperationKind::kWrite, RowMarkType::ROW_MARK_ABSENT,
+      /* transactional_table */ false, /* write_transaction_metadata */ false, deadline,
+      /* partial_range_key_intents */ docdb::PartialRangeKeyIntents(false), shared_lock_manager()));
   RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
       doc_write_ops, deadline, read_ht, doc_db(), &write_batch,
       docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
       kMetadataEntries));
 
-  // TODO: Not using restart_read_ht anywhere.
+  // since read_ht is Max(), we do not need to check if read restart is required.
+
+  prepare_result.lock_batch.Reset();
 
   // batch_idx is not used, hardcoding dummy value
   // https://yugabyte.slack.com/archives/C03ULJYE0KG/p1670928620405749
