@@ -195,7 +195,7 @@ Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_
       if (!request_has_newer_schema) {
         LOG_WITH_PREFIX(INFO)
             << "Already running schema version " << tablet->metadata()->schema_version()
-                              << " got alter request for version " << schema_version();
+            << " got alter request for version " << schema_version();
         break;
       }
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
