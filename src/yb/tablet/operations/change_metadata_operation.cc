@@ -120,6 +120,14 @@ Status ChangeMetadataOperation::Prepare(IsLeaderSide is_leader_side) {
   return Status::OK();
 }
 
+Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* complete_status) {
+  if (PREDICT_FALSE(FLAGS_TEST_ignore_apply_change_metadata_on_followers)) {
+    LOG_WITH_PREFIX(INFO) << "Ignoring apply of change metadata ops on followers";
+    return Status::OK();
+  }
+  return Apply();
+}
+
 Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   TRACE("APPLY CHANGE-METADATA: Starting");
 
@@ -230,14 +238,6 @@ Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_
   // make the changes visible to readers.
   TRACE("AlterSchemaCommitCallback: making alter schema visible");
   return Status::OK();
-}
-
-Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* complete_status) {
-  if (PREDICT_FALSE(FLAGS_TEST_ignore_apply_change_metadata_on_followers)) {
-    LOG_WITH_PREFIX(INFO) << "Ignoring apply of change metadata ops on followers";
-    return Status::OK();
-  }
-  return Apply();
 }
 
 Status ChangeMetadataOperation::DoAborted(const Status& status) {
