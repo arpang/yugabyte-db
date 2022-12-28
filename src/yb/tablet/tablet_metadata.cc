@@ -790,9 +790,7 @@ RaftGroupMetadata::RaftGroupMetadata(
   kv_store_.tables.emplace(primary_table_id_, data.table_info);
   kv_store_.UpdateColocationMap(data.table_info);
 
-  bool is_ts_tablet =
-      data.table_info->table_name !=
-      master::kSysCatalogTableName;  // TODO: can user table be of kSysCatalogTableName
+  bool is_ts_tablet = data.table_info->table_id != master::kSysCatalogTableId;
   if (is_ts_tablet && FLAGS_ts_tableinfo_in_rocksdb &&
       data.table_info->table_type == PGSQL_TABLE_TYPE) {
     kv_store_.initial_primary_table = data.table_info;
