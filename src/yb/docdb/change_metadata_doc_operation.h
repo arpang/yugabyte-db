@@ -28,12 +28,15 @@ class ChangeMetadataDocOperation : public DocOperation {
 
   Type OpType() override { return DocOperationType::CHANGE_METADATA_DOC_OPERATION; }
 
-  bool RequireReadSnapshot() const override { return false; }  // TODO
+  bool RequireReadSnapshot() const override { return false; }
 
-  // TODO
   Status GetDocPaths(
       GetDocPathsMode mode, DocPathsToLock* paths, IsolationLevel* level) const override {
     paths->push_back(encoded_doc_key_);
+    *level = IsolationLevel::READ_COMMITTED;  // Ideally this should have been READ_UNCOMMITTED but
+                                              // we do not have support for that. Setting it to
+                                              // NON_TRANSACTIONAL throws "GetStrongIntentTypeSet
+                                              // invoked for non transactional isolation" error.
     return Status::OK();
   }
 
