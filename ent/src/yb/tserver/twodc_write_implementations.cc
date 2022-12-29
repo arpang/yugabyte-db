@@ -67,7 +67,6 @@ Status UpdatePackedRowWithConsumerSchemaVersion(const Slice& key,
 
   Slice value_slice = value;
   auto control_fields = VERIFY_RESULT(docdb::ValueControlFields::Decode(&value_slice));
-
   bool has_coprefix = VERIFY_RESULT(docdb::DocKey::EncodedSize(key,
                                                                docdb::DocKeyPart::kUpToId)) != 0;
 
