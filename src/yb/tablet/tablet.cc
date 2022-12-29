@@ -1168,7 +1168,6 @@ Status Tablet::CompleteShutdownRocksDBs(
   return regular_status.ok() ? intents_status : regular_status;
 }
 
-// TODO: Dedupe the code
 Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::NewRowIterator(
     const Schema& projection,
     const Schema& schema,
@@ -1206,42 +1205,18 @@ Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::NewRowIterator(
 }
 
 Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::NewRowIterator(
-    const Schema &projection,
+    const Schema& projection,
     const ReadHybridTime& read_hybrid_time,
     const TableId& table_id,
     CoarseTimePoint deadline,
     AllowBootstrappingState allow_bootstrapping_state,
     const Slice& sub_doc_key) const {
-  if (state_ != kOpen && (!allow_bootstrapping_state || state_ != kBootstrapping)) {
-    return STATUS_FORMAT(IllegalState, "Tablet in wrong state: $0", state_);
-  }
-
-  if (table_type_ != TableType::YQL_TABLE_TYPE && table_type_ != TableType::PGSQL_TABLE_TYPE) {
-    return STATUS_FORMAT(NotSupported, "Invalid table type: $0", table_type_);
-  }
-
-  auto scoped_read_operation = CreateNonAbortableScopedRWOperation();
-  RETURN_NOT_OK(scoped_read_operation);
-
-  VLOG_WITH_PREFIX(2) << "Created new Iterator reading at " << read_hybrid_time.ToString();
-
   const std::shared_ptr<tablet::TableInfo> table_info =
       VERIFY_RESULT(metadata_->GetTableInfo(table_id));
   const Schema& schema = table_info->schema();
-  auto mapped_projection = std::make_unique<Schema>();
-  RETURN_NOT_OK(schema.GetMappedReadProjection(projection, mapped_projection.get()));
-
-  auto txn_op_ctx = VERIFY_RESULT(CreateTransactionOperationContext(
-      /* transaction_id */ boost::none,
-      schema.table_properties().is_ysql_catalog_table()));
-  const auto read_time = read_hybrid_time
-      ? read_hybrid_time
-      : ReadHybridTime::SingleTime(VERIFY_RESULT(SafeTime(RequireLease::kFalse)));
-  auto result = std::make_unique<DocRowwiseIterator>(
-      std::move(mapped_projection), *table_info->doc_read_context, txn_op_ctx,
-      doc_db(), deadline, read_time, &pending_non_abortable_op_counter_);
-  RETURN_NOT_OK(result->Init(table_type_, sub_doc_key));
-  return std::move(result);
+  return NewRowIterator(
+      projection, schema, *table_info->doc_read_context, read_hybrid_time, deadline,
+      allow_bootstrapping_state, sub_doc_key);
 }
 
 Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::NewRowIterator(
