@@ -397,7 +397,7 @@ class Tablet : public AbstractTablet,
       const Schema& projection,
       const Schema& schema,
       const docdb::DocReadContext& doc_read_context,
-      const ReadHybridTime read_hybrid_time = {},
+      const ReadHybridTime& read_hybrid_time = {},
       CoarseTimePoint deadline = CoarseTimePoint::max(),
       AllowBootstrappingState allow_bootstrapping_state = AllowBootstrappingState::kFalse,
       const Slice& sub_doc_key = Slice()) const;
