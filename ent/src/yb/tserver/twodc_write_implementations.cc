@@ -68,14 +68,13 @@ Status UpdatePackedRowWithConsumerSchemaVersion(const Slice& key,
   Slice value_slice = value;
   auto control_fields = VERIFY_RESULT(docdb::ValueControlFields::Decode(&value_slice));
 
-  // TODO: Think through if this should be changed
   bool has_coprefix = VERIFY_RESULT(docdb::DocKey::EncodedSize(key,
                                                                docdb::DocKeyPart::kUpToId)) != 0;
 
   // Don't perform any changes to the value for the following cases:
   // 1. Non-packed rows
   // 2. Unknown or uninitialized schema version
-  // 3. Colocated tables - These are not supported yet.
+  // 3. Colocated tables / metadata entries - These are not supported yet.
   if (!value_slice.TryConsumeByte(docdb::ValueEntryTypeAsChar::kPackedRow) ||
       schema_version == cdc::kInvalidSchemaVersion ||
       has_coprefix) {

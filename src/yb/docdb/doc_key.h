@@ -38,7 +38,7 @@ namespace docdb {
 
 // A key that allows us to locate a document. This is the prefix of all RocksDB keys of records
 // inside this document. A document key contains:
-//   - An optional ID (cotable id or colocation id).
+//   - An optional ID (cotable id, colocation id, or metadata key identifier).
 //   - An optional fixed-width hash prefix.
 //   - A group of primitive values representing "hashed" components (this is what the hash is
 //     computed based on, so this group is present/absent together with the hash).
@@ -49,6 +49,7 @@ namespace docdb {
 //     * For cotable id, the byte ValueType::kTableId followed by a sixteen byte UUID.
 //     * For colocation id, the byte ValueType::kColocationId followed by a four byte
 //       ColocationId.
+//     * For metadata entries, the byte KeyEntryType::kTabletMetadata.
 //   - Optional fixed-width hash prefix, followed by hashed components:
 //     * The byte ValueType::kUInt16Hash, followed by two bytes of the hash prefix.
 //     * Hashed components:
