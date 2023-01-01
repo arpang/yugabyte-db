@@ -7,15 +7,23 @@ package common
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
+	"github.com/vmware-labs/yaml-jsonpath/pkg/yamlpath"
+	"gopkg.in/yaml.v3"
 
 	log "github.com/yugabyte/yugabyte-db/managed/yba-installer/logging"
 	// "github.com/yugabyte/yugabyte-db/managed/yba-installer/preflight"
@@ -36,8 +44,7 @@ var installingFile = "/opt/yba-ctl/.installing"
 // InstalledFile is location of install completed marker file.
 var InstalledFile = "/opt/yba-ctl/.installed"
 
-// BundledPostgresName is postgres package we ship with yba_installer_full.
-var BundledPostgresName = "postgresql-9.6.24-1-linux-x64-binaries.tar.gz"
+var PostgresPackageGlob = "postgresql-*-linux-x64-binaries.tar.gz"
 
 var skipConfirmation = false
 
@@ -49,9 +56,7 @@ var goBinaryName = "yba-ctl"
 
 var versionMetadataJSON = "version_metadata.json"
 
-var javaBinaryName = "OpenJDK8U-jdk_x64_linux_hotspot_8u345b01.tar.gz"
-
-var pemToKeystoreConverter = "pemtokeystore-linux-amd64"
+var javaBinaryGlob = "OpenJDK8U-jdk_x64_linux_*.tar.gz"
 
 // DetectOS detects the operating system yba-installer is running on.
 func DetectOS() string {
@@ -81,8 +86,16 @@ func GetVersion() string {
 
 	versionNumber := fmt.Sprint(configViper.Get("version_number"))
 	buildNumber := fmt.Sprint(configViper.Get("build_number"))
+	if os.Getenv("YBA_MODE") == "dev" {
+		// in dev itest builds, build_number is set to PRE_RELEASE
+		buildNumber = fmt.Sprint(configViper.Get("build_id"))
+	}
 
 	version := versionNumber + "-b" + buildNumber
+
+	if !IsValidVersion(version) {
+		log.Fatal(fmt.Sprintf("Invalid version in metadata file '%s'", version))
+	}
 
 	return version
 }
@@ -90,7 +103,9 @@ func GetVersion() string {
 // ExecuteBashCommand exeuctes a command in the shell, returning the output and error.
 func ExecuteBashCommand(command string, args []string) (o string, e error) {
 
-	log.Debug("Running command " + command + " " + strings.Join(args, " "))
+	fullCmd := command + " " + strings.Join(args, " ")
+	startTime := time.Now()
+	log.Debug("About to run command " + fullCmd)
 	cmd := exec.Command(command, args...)
 
 	var execOut bytes.Buffer
@@ -101,9 +116,12 @@ func ExecuteBashCommand(command string, args []string) (o string, e error) {
 	err := cmd.Run()
 
 	if err == nil {
-		log.Debug(command + " " + strings.Join(args, " ") + " successfully executed.")
+		log.Debug(fmt.Sprintf("Completed running command: %s [took %f secs]", fullCmd, time.Since(startTime).Seconds()))
+		log.Trace(fmt.Sprintf("Stdout for command %s was \n%s\n", fullCmd, execOut.String()))
+		log.Trace(fmt.Sprintf("Stderr for command %s was \n%s\n", fullCmd, execErr.String()))
 	} else {
-		log.Info("ERROR: '" + command + " " + strings.Join(args, " ") + "' failed with error " +
+		err = fmt.Errorf("command failed with error %w and stderr %s", err, execErr.String())
+		log.Info("ERROR: '" + fullCmd + "' failed with error " +
 			err.Error() + "\nPrinting stdOut/stdErr " + execOut.String() + execErr.String())
 	}
 
@@ -251,6 +269,7 @@ func DisableUserConfirm() {
 }
 
 // UserConfirm asks the user for confirmation before proceeding.
+// Returns true if the user is ok with proceeding (or if --force is spec'd)
 func UserConfirm(prompt string, defAns defaultAnswer) bool {
 	if skipConfirmation {
 		return true
@@ -301,7 +320,7 @@ func UserConfirm(prompt string, defAns defaultAnswer) bool {
 
 func InitViper() {
 	// Init Viper
-	viper.SetDefault("service_username", "yugabyte")
+	viper.SetDefault("service_username", DefaultServiceUser)
 	viper.SetDefault("installRoot", "/opt/yugabyte")
 	viper.SetConfigFile(InputFile)
 	viper.ReadInConfig()
@@ -309,15 +328,135 @@ func InitViper() {
 
 func GetBinaryDir() string {
 
-	ex, err := os.Executable()
+	exPath, err := os.Executable()
 	if err != nil {
 		log.Fatal("Error determining yba-ctl binary path.")
 	}
-	return filepath.Dir(ex)
+	realPath, err := filepath.EvalSymlinks(exPath)
+	if err != nil {
+		log.Fatal("Error eval symlinks for yba-ctl binary path.")
+	}
+	return filepath.Dir(realPath)
 }
 
 func GetReferenceYaml() string {
 	return filepath.Join(GetBinaryDir(), "yba-ctl.yml.reference")
+}
+
+type YBVersion struct {
+
+	// ex: 2.17.1.0-b235-foo
+	// major, minor, patch, subpatch in order
+	// ex: 2.17.1.0
+	PublicVersionDigits []int
+
+	// ex: 235
+	BuildNum int
+
+	// ex: foo
+	Remainder string
+}
+
+func NewYBVersion(versionString string) (*YBVersion, error) {
+	version := &YBVersion{
+		PublicVersionDigits: []int{-1, -1, -1, -1},
+		BuildNum:            -1,
+	}
+
+	if versionString == "" {
+		return version, nil
+	}
+
+	re := regexp.MustCompile(
+		`^(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)\.(?P<subpatch>[0-9]+)(?:-b(?P<build>[0-9]+)[-a-z]*)?$`)
+	matches := re.FindStringSubmatch(versionString)
+	if matches == nil || len(matches) < 5 {
+		return version, fmt.Errorf("invalid version string %s", versionString)
+	}
+
+	var err error
+	version.PublicVersionDigits[0], err = strconv.Atoi(matches[1])
+	if err != nil {
+		return version, err
+	}
+
+	version.PublicVersionDigits[1], err = strconv.Atoi(matches[2])
+	if err != nil {
+		return version, err
+	}
+
+	version.PublicVersionDigits[2], err = strconv.Atoi(matches[3])
+	if err != nil {
+		return version, err
+	}
+
+	version.PublicVersionDigits[3], err = strconv.Atoi(matches[4])
+	if err != nil {
+		return version, err
+	}
+
+	if len(matches) > 5 && matches[5] != "" {
+		version.BuildNum, err = strconv.Atoi(matches[5])
+		if err != nil {
+			return version, err
+		}
+	}
+
+	if len(matches) > 6 && matches[6] != "" {
+		version.Remainder = matches[6]
+	}
+
+	return version, nil
+
+}
+
+func (ybv YBVersion) String() string {
+	reprStr, _ := json.Marshal(ybv)
+	return string(reprStr)
+}
+
+func IsValidVersion(fullVersion string) bool {
+	_, err := NewYBVersion(fullVersion)
+	return err == nil
+}
+
+// returns true if version1 < version2
+func LessVersions(version1, version2 string) bool {
+	ybversion1, err := NewYBVersion(version1)
+	if err != nil {
+		panic(err)
+	}
+
+	ybversion2, err := NewYBVersion(version2)
+	if err != nil {
+		panic(err)
+	}
+
+	for i := 0; i < 4; i++ {
+		if ybversion1.PublicVersionDigits[i] != ybversion2.PublicVersionDigits[i] {
+			return ybversion1.PublicVersionDigits[i] < ybversion2.PublicVersionDigits[i]
+		}
+	}
+	if ybversion1.BuildNum != ybversion2.BuildNum {
+		return ybversion1.BuildNum < ybversion2.BuildNum
+	}
+
+	return ybversion1.Remainder < ybversion2.Remainder
+}
+
+// only keep elements which eval to true on filter func
+func FilterList[T any](sourceList []T, filterFunc func(T) bool) (result []T) {
+	for _, s := range sourceList {
+		if filterFunc(s) {
+			result = append(result, s)
+		}
+	}
+	return
+}
+
+func GetJsonRepr[T any](obj T) []byte {
+	reprStr, _ := json.Marshal(obj)
+	return reprStr
 }
 
 func init() {
@@ -331,4 +470,65 @@ func init() {
 		yugabundleBinary = "yugabundle-" + Version + "-centos-x86_64.tar.gz"
 		currentUser = GetCurrentUser()
 	*/
+}
+
+func setYamlValue(filePath string, yamlPath string, value string) {
+	origYamlBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		log.Fatal("unable to read config file " + filePath)
+	}
+
+	var root yaml.Node
+	err = yaml.Unmarshal(origYamlBytes, &root)
+	if err != nil {
+		log.Fatal("unable to parse config file " + filePath)
+	}
+
+	yPath, err := yamlpath.NewPath(yamlPath)
+	if err != nil {
+		log.Fatal(fmt.Sprintf("malformed yaml path %s", yamlPath))
+	}
+
+	matchNodes, err := yPath.Find(&root)
+	if len(matchNodes) != 1 {
+		log.Fatal(fmt.Sprintf("yamlPath %s is not accurate", yamlPath))
+	}
+	matchNodes[0].Value = value
+
+	finalYaml, err := yaml.Marshal(&root)
+	if err != nil {
+		log.Fatal(fmt.Sprintf("error serializing yaml"))
+	}
+	err = os.WriteFile(filePath, finalYaml, 0600)
+	if err != nil {
+		log.Fatal(fmt.Sprintf("error writing file %s", filePath))
+	}
+}
+
+func generateRandomBytes(n int) ([]byte, error) {
+
+	b := make([]byte, n)
+	_, err := rand.Read(b)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// generateRandomStringURLSafe is used to generate random passwords.
+func GenerateRandomStringURLSafe(n int) string {
+
+	b, _ := generateRandomBytes(n)
+	return base64.URLEncoding.EncodeToString(b)
+}
+
+func GuessPrimaryIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String()
 }

@@ -32,6 +32,7 @@ func Install(version string) {
 	os.Chdir(GetBinaryDir())
 
 	MarkInstallStart()
+	fixConfigValues()
 	createYugabyteUser()
 	createInstallDirs()
 	copyBits(version)
@@ -39,7 +40,6 @@ func Install(version string) {
 	renameThirdPartyDependencies()
 	setupJDK()
 	setJDKEnvironmentVariable()
-	log.Info("Finishing Common install")
 }
 
 // MarkInstallStart creates the marker file we use to show an in-progress install.
@@ -72,13 +72,22 @@ func PostInstall() {
 
 // MarkInstallComplete moves the .installing file to .installed to indicate install success.
 func MarkInstallComplete() {
+	_, err := os.Stat(InstalledFile)
+	if err == nil {
+		return
+	}
+	if !os.IsNotExist(err) {
+		log.Fatal(fmt.Sprintf("Error querying file status %s : %s", InstalledFile, err))
+	}
 	MoveFileGolang(installingFile, InstalledFile)
+
 }
 
 func createInstallDirs() {
 	createDirs := []string{
-		GetInstallOne(),
-		GetInstallTwo(),
+		//GetInstallOne(),
+		//GetInstallTwo(),
+		dm.WorkingDirectory(),
 		filepath.Join(GetBaseInstall(), "data"),
 		filepath.Join(GetBaseInstall(), "data/logs"),
 		GetInstallVersionDir(),
@@ -95,11 +104,6 @@ func createInstallDirs() {
 			log.Fatal("failed to change ownership of " + dir + " to " +
 				viper.GetString("service_username") + ": " + err.Error())
 		}
-	}
-
-	// Mark our active directory
-	if err := CreateInstallMarker(); err != nil {
-		log.Fatal("could not create active install marker file: " + err.Error())
 	}
 
 	// Remove the symlink if one exists
@@ -129,7 +133,7 @@ func createUpgradeDirs() {
 func copyBits(vers string) {
 	yugabundleBinary := "yugabundle-" + GetVersion() + "-centos-x86_64.tar.gz"
 	neededFiles := []string{goBinaryName, versionMetadataJSON, "../" + yugabundleBinary,
-		javaBinaryName, BundledPostgresName, pemToKeystoreConverter}
+		GetJavaPackagePath(), GetPostgresPackagePath()}
 
 	for _, file := range neededFiles {
 		_, err := ExecuteBashCommand("bash",
@@ -154,37 +158,33 @@ func copyBits(vers string) {
 
 // Uninstall performs the uninstallation procedures common to
 // all services when executing a clean.
-func Uninstall() {
+func Uninstall(serviceNames []string, removeData bool) {
 
 	// 1) Stop all running service processes
 	// 2) Delete service files (in root mode)/Stop cron/cleanup crontab in NonRoot
 	// 3) Delete service directories
 	// 4) Delete data dir in force mode (warn/ask for confirmation)
 
-	service0 := "yb-platform"
-	service1 := "prometheus"
-	service2 := "postgres"
-	services := []string{service0, service1, service2}
-
 	if HasSudoAccess() {
 
 		command := "service"
 
-		for index := range services {
+		for index := range serviceNames {
 			commandCheck0 := "bash"
-			subCheck0 := Systemctl + " list-unit-files --type service | grep -w " + services[index]
+			subCheck0 := Systemctl + " list-unit-files --type service | grep -w " + serviceNames[index]
 			argCheck0 := []string{"-c", subCheck0}
 			out0, _ := ExecuteBashCommand(commandCheck0, argCheck0)
 			if strings.TrimSuffix(string(out0), "\n") != "" {
-				argStop := []string{services[index], "stop"}
+				argStop := []string{serviceNames[index], "stop"}
 				ExecuteBashCommand(command, argStop)
 			}
+
 		}
 	} else {
 
-		for index := range services {
+		for index := range serviceNames {
 			commandCheck0 := "bash"
-			argCheck0 := []string{"-c", "pgrep -f " + services[index] + " | head -1"}
+			argCheck0 := []string{"-c", "pgrep -f " + serviceNames[index] + " | head -1"}
 			out0, _ := ExecuteBashCommand(commandCheck0, argCheck0)
 			// Need to stop the binary if it is running, can just do kill -9 PID (will work as the
 			// process itself was started by a non-root user.)
@@ -201,14 +201,19 @@ func Uninstall() {
 
 	os.RemoveAll(GetInstallVersionDir())
 
+	if removeData {
+		err := os.RemoveAll(GetYBAInstallerDataDir())
+		if err != nil {
+			log.Info(fmt.Sprintf("Failed to delete yba installer data dir %s", GetYBAInstallerDataDir()))
+		}
+	}
+
 	// Remove the hidden marker file
 	os.RemoveAll(InstalledFile)
 }
 
 // Upgrade performs the upgrade procedures common to all services.
 func Upgrade(version string) {
-	log.Info("Starting common upgrade")
-	dm.CleanAltInstall()
 	createUpgradeDirs()
 	copyBits(version)
 	extractPlatformSupportPackageAndYugabundle(version)
@@ -216,7 +221,16 @@ func Upgrade(version string) {
 	setupJDK()
 	setJDKEnvironmentVariable()
 
-	log.Info("Finishing common upgrade")
+}
+
+func PostUpgrade() {
+
+	SetActiveInstallSymlink()
+
+	PostInstall()
+
+	PrunePastInstalls()
+
 }
 
 // SetActiveInstallSymlink will create <installRoot>/active symlink
@@ -232,7 +246,7 @@ func SetActiveInstallSymlink() {
 
 func setupJDK() {
 	command1 := "bash"
-	arg1 := []string{"-c", "tar -zvxf " + javaBinaryName + " -C " + GetInstallVersionDir()}
+	arg1 := []string{"-c", "tar -zvxf " + GetJavaPackagePath() + " -C " + GetInstallVersionDir()}
 	ExecuteBashCommand(command1, arg1)
 }
 
@@ -242,7 +256,7 @@ func setupJDK() {
 // set the environment variables in the systemd service file any longer.
 func setJDKEnvironmentVariable() {
 	javaExtractedFolderName, err := ExecuteBashCommand("bash",
-		[]string{"-c", "tar -tf " + javaBinaryName + " | head -n 1"})
+		[]string{"-c", "tar -tf " + GetJavaPackagePath() + " | head -n 1"})
 	if err != nil {
 		log.Fatal("failed to setup JDK environment: " + err.Error())
 	}
@@ -339,4 +353,66 @@ func renameThirdPartyDependencies() {
 	[]string{"-c", "cp -R " + GetInstallVersionDir() + "/third-party" + " " +
 		GetInstallRoot() + "/yb-platform/third-party"})
 	*/
+}
+
+func fixConfigValues() {
+
+	if len(viper.GetString("service_username")) == 0 {
+		log.Info(fmt.Sprintf("Systemd services will be run as user %s", DefaultServiceUser))
+		setYamlValue(InputFile, "service_username", DefaultServiceUser)
+	}
+
+	if len(viper.GetString("platform.appSecret")) == 0 {
+		log.Debug("Generating default app secret for platform")
+		setYamlValue(InputFile, "platform.appSecret", GenerateRandomStringURLSafe(64))
+		InitViper()
+	}
+
+	if len(viper.GetString("platform.keyStorePassword")) == 0 {
+		log.Debug("Generating default app secret for platform")
+		setYamlValue(InputFile, "platform.keyStorePassword", GenerateRandomStringURLSafe(32))
+		InitViper()
+	}
+
+	if len(viper.GetString("host")) == 0 {
+		host := GuessPrimaryIP()
+		log.Info("Guessing primary IP of host to be " + host)
+		setYamlValue(InputFile, "host", host)
+		InitViper()
+	}
+
+	if len(viper.GetString("server_cert_path")) == 0 {
+		log.Info("Generating self-signed server certificates")
+		serverCertPath, serverKeyPath := generateSelfSignedCerts()
+		setYamlValue(InputFile, "server_cert_path", serverCertPath)
+		setYamlValue(InputFile, "server_key_path", serverKeyPath)
+		InitViper()
+	}
+
+}
+
+func generateSelfSignedCerts() (string, string) {
+	certsDir := GetSelfSignedCertsDir()
+	serverCertPath := filepath.Join(certsDir, ServerCertPath)
+	serverKeyPath := filepath.Join(certsDir, ServerKeyPath)
+
+	caCertPath := filepath.Join(certsDir, "ca_cert.pem")
+	caKeyPath := filepath.Join(certsDir, "ca_key.pem")
+
+	err := os.MkdirAll(certsDir, os.ModePerm)
+	if err != nil && !os.IsExist(err) {
+		log.Fatal(fmt.Sprintf("Unable to create dir %s", certsDir))
+	}
+	log.Debug("Created dir " + certsDir)
+
+	generateSelfSignedServerCert(
+		serverCertPath,
+		serverKeyPath,
+		caCertPath,
+		caKeyPath,
+		viper.GetString("host"),
+	)
+
+	return serverCertPath, serverKeyPath
+
 }

@@ -174,12 +174,26 @@ func (prom Prometheus) Restart() {
 // Uninstall uninstalls prometheus and optionally removes all data.
 func (prom Prometheus) Uninstall(removeData bool) {
 	prom.Stop()
+
+	if common.HasSudoAccess() {
+		err := os.Remove(prom.SystemdFileLocation)
+		if err != nil {
+			log.Info(fmt.Sprintf("Error %s removing systemd service %s.",
+				err.Error(), prom.SystemdFileLocation))
+		}
+	}
+
+	if removeData {
+		err := os.RemoveAll(prom.prometheusDirectories.DataDir)
+		if err != nil {
+			log.Info(fmt.Sprintf("Error %s removing data dir %s.", err.Error(), prom.prometheusDirectories.DataDir))
+		}
+	}
 }
 
 // Upgrade will upgrade prometheus and install it into the alt install directory.
 // Upgrade will NOT restart the service, the old version is expected to still be runnins
 func (prom Prometheus) Upgrade() {
-	log.Info("Starting Prometheus upgrade")
 	prom.prometheusDirectories = newPrometheusDirectories()
 	config.GenerateTemplate(prom) // No need to reload systemd, start takes care of that for us.
 	prom.moveAndExtractPrometheusPackage()
@@ -197,7 +211,6 @@ func (prom Prometheus) Upgrade() {
 		prom.CreateCronJob()
 	}
 	prom.Start()
-	log.Info("Finishing Prometheus upgrade")
 }
 
 func (prom Prometheus) moveAndExtractPrometheusPackage() {
@@ -274,10 +287,11 @@ func (prom Prometheus) createPrometheusSymlinks() {
 // Prometheus service specifically.
 func (prom Prometheus) Status() common.Status {
 	status := common.Status{
-		Service:   prom.Name(),
-		Port:      viper.GetInt("prometheus.port"),
-		Version:   prom.version,
-		ConfigLoc: prom.ConfFileLocation,
+		Service:    prom.Name(),
+		Port:       viper.GetInt("prometheus.port"),
+		Version:    prom.version,
+		ConfigLoc:  prom.ConfFileLocation,
+		LogFileLoc: prom.DataDir + "/prometheus.log",
 	}
 
 	// Set the systemd service file location if one exists
