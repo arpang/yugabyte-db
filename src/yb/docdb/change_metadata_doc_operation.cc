@@ -33,14 +33,11 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
       is_delete_(is_delete) {
   QLValuePB table_id_value;
   table_id_value.set_binary_value(table_id);
-  std::string key_string;
-  AppendToKey(table_id_value, &key_string);
-  DocKeyHash hash = YBPartition::HashColumnCompoundValue(key_string);
   const auto& metadata_id_col_idx = metadata_schema_.find_column(kSysCatalogTableColId);
   DCHECK_NE(metadata_id_col_idx, Schema::kColumnNotFound);
-  auto hash_component = KeyEntryValue::FromQLValuePB(
+  auto range_component = KeyEntryValue::FromQLValuePB(
       table_id_value, metadata_schema_.column(metadata_id_col_idx).sorting_type());
-  DocKey doc_key = DocKey(true, hash, {hash_component});
+  DocKey doc_key = DocKey({range_component}, true);
   encoded_doc_key_ = doc_key.EncodeAsRefCntPrefix();
 }
 

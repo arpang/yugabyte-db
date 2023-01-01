@@ -223,13 +223,12 @@ DocKey::DocKey(const Schema& schema, DocKeyHash hash,
       range_group_(std::move(range_components)) {
 }
 
-DocKey::DocKey(bool is_metadata_key, DocKeyHash hash, std::vector<KeyEntryValue> hashed_components)
+DocKey::DocKey(std::vector<KeyEntryValue> range_components, bool is_metadata_key)
     : cotable_id_(Uuid::Nil()),
       colocation_id_(kColocationIdNotSet),
       is_metadata_key_(is_metadata_key),
-      hash_present_(true),
-      hash_(hash),
-      hashed_group_(std::move(hashed_components)) {}
+      hash_present_(false),
+      range_group_(std::move(range_components)) {}
 
 DocKey::DocKey(bool is_metadata_key)
     : cotable_id_(Uuid::Nil()),
