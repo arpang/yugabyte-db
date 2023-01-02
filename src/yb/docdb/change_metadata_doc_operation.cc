@@ -14,6 +14,7 @@
 #include "yb/docdb/change_metadata_doc_operation.h"
 
 #include "yb/common/schema.h"
+#include "yb/common/shared_types.pb.h"
 #include "yb/common/ql_value.h"
 
 #include "yb/docdb/doc_key.h"
@@ -21,6 +22,7 @@
 #include "yb/docdb/doc_write_batch.h"
 
 #include "yb/util/yb_partition.h"
+
 
 namespace yb {
 namespace docdb {
@@ -31,13 +33,20 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
     : metadata_schema_(metadata_schema),
       serialized_table_info_(serialized_table_info),
       is_delete_(is_delete) {
+  QLValuePB type_value;
+  type_value.set_int8_value(common::SysRowEntryType::TABLET_TABLE);
+  const auto& metadata_type_col_idx = metadata_schema_.find_column(kSysCatalogTableColType);
+  DCHECK_NE(metadata_type_col_idx, Schema::kColumnNotFound);
+  auto type_range_component = KeyEntryValue::FromQLValuePB(
+      type_value, metadata_schema_.column(metadata_type_col_idx).sorting_type());
+
   QLValuePB table_id_value;
   table_id_value.set_binary_value(table_id);
   const auto& metadata_id_col_idx = metadata_schema_.find_column(kSysCatalogTableColId);
   DCHECK_NE(metadata_id_col_idx, Schema::kColumnNotFound);
-  auto range_component = KeyEntryValue::FromQLValuePB(
+  auto id_range_component = KeyEntryValue::FromQLValuePB(
       table_id_value, metadata_schema_.column(metadata_id_col_idx).sorting_type());
-  DocKey doc_key = DocKey({range_component}, true);
+  const auto doc_key = DocKey({type_range_component, id_range_component}, true);
   encoded_doc_key_ = doc_key.EncodeAsRefCntPrefix();
 }
 

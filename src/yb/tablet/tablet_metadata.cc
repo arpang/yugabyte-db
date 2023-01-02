@@ -42,6 +42,7 @@
 #include "yb/common/entity_ids.h"
 #include "yb/common/index.h"
 #include "yb/common/schema.h"
+#include "yb/common/shared_types.pb.h"
 #include "yb/common/transaction.h"
 #include "yb/common/wire_protocol.h"
 
@@ -379,12 +380,21 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
   {
     auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
     const std::vector<docdb::KeyEntryValue> empty_key_components;
-    docdb::DocPgsqlScanSpec spec(metadata_schema, rocksdb::kDefaultQueryId, docdb::DocKey(true));
+
+    QLValuePB type_value;
+    type_value.set_int8_value(common::SysRowEntryType::TABLET_TABLE);
+    const auto& metadata_type_col_idx = metadata_schema.find_column(kSysCatalogTableColType);
+    DCHECK_NE(metadata_type_col_idx, Schema::kColumnNotFound);
+    auto type_range_component = docdb::KeyEntryValue::FromQLValuePB(
+        type_value, metadata_schema.column(metadata_type_col_idx).sorting_type());
+
+    const auto doc_key = docdb::DocKey({type_range_component}, true);
+
+    docdb::DocPgsqlScanSpec spec(metadata_schema, rocksdb::kDefaultQueryId, doc_key);
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
 
   string tablet_id = tablet->tablet_id();
-
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));

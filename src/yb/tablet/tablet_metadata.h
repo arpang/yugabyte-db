@@ -241,7 +241,7 @@ struct KvStoreInfo {
 
   Schema BuildMetadataSchema() {
     SchemaBuilder builder;
-    // CHECK_OK(builder.AddKeyColumn(kSysCatalogTableColType, INT8));
+    CHECK_OK(builder.AddKeyColumn(kSysCatalogTableColType, INT8));
     CHECK_OK(builder.AddKeyColumn(kSysCatalogTableColId, BINARY));
     CHECK_OK(builder.AddColumn(kSysCatalogTableColMetadata, BINARY));
     builder.set_metadata_schema();
