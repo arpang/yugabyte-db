@@ -21,9 +21,6 @@
 #include "yb/docdb/doc_path.h"
 #include "yb/docdb/doc_write_batch.h"
 
-#include "yb/util/yb_partition.h"
-
-
 namespace yb {
 namespace docdb {
 
@@ -46,18 +43,19 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
   DCHECK_NE(metadata_id_col_idx, Schema::kColumnNotFound);
   auto id_range_component = KeyEntryValue::FromQLValuePB(
       table_id_value, metadata_schema_.column(metadata_id_col_idx).sorting_type());
-  const auto doc_key = DocKey({type_range_component, id_range_component}, true);
+  const DocKey doc_key({type_range_component, id_range_component}, /* is_metadata_key */ true);
   encoded_doc_key_ = doc_key.EncodeAsRefCntPrefix();
 }
 
 Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
   const auto metadata_col_id =
       VERIFY_RESULT(metadata_schema_.ColumnIdByName(kSysCatalogTableColMetadata));
-  const ColumnSchema& metadata_col = VERIFY_RESULT(metadata_schema_.column_by_id(metadata_col_id));
   DocPath sub_path(encoded_doc_key_.as_slice(), KeyEntryValue::MakeColumnId(metadata_col_id));
   if (is_delete_) {
     RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(sub_path, data.read_time, data.deadline));
   } else {
+    const ColumnSchema& metadata_col =
+        VERIFY_RESULT(metadata_schema_.column_by_id(metadata_col_id));
     QLValuePB table_info_value;
     table_info_value.set_binary_value(serialized_table_info_);
     RETURN_NOT_OK(data.doc_write_batch->InsertSubDocument(

@@ -129,7 +129,6 @@ class DocKey {
          std::vector<KeyEntryValue> hashed_components,
          std::vector<KeyEntryValue> range_components = std::vector<KeyEntryValue>());
   DocKey(std::vector<KeyEntryValue> range_components, bool is_metadata_key);
-  explicit DocKey(bool is_metadata_key);
 
   KeyBytes Encode() const;
   void AppendTo(KeyBytes* out) const;

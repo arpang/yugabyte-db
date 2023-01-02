@@ -379,8 +379,6 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
 
   {
     auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
-    const std::vector<docdb::KeyEntryValue> empty_key_components;
-
     QLValuePB type_value;
     type_value.set_int8_value(common::SysRowEntryType::TABLET_TABLE);
     const auto& metadata_type_col_idx = metadata_schema.find_column(kSysCatalogTableColType);
@@ -388,19 +386,17 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
     auto type_range_component = docdb::KeyEntryValue::FromQLValuePB(
         type_value, metadata_schema.column(metadata_type_col_idx).sorting_type());
 
-    const auto doc_key = docdb::DocKey({type_range_component}, true);
-
+    const docdb::DocKey doc_key({type_range_component}, true);
     docdb::DocPgsqlScanSpec spec(metadata_schema, rocksdb::kDefaultQueryId, doc_key);
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
 
-  string tablet_id = tablet->tablet_id();
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
     const auto& table_info_ql_value = row.GetValue(metadata_col_id);
     if (!table_info_ql_value) {
-      return STATUS_FORMAT(Corruption, "Could not read table schema from DocDB");
+      return STATUS_FORMAT(Corruption, "Could not read table metadata from RocksDB");
     }
     const string& serialized_table_info = table_info_ql_value->binary_value();
     TableInfoPtr table_info = VERIFY_RESULT(
@@ -499,7 +495,7 @@ void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const
     SchemaToPB(metadata_schema, pb->mutable_metadata_schema());
   } else {
     // Putting primary table first, then all other tables.
-    pb->mutable_tables()->Reserve(2);
+    pb->mutable_tables()->Reserve(narrow_cast<int>(tables.size() + 1));
     const auto& it = tables.find(primary_table_id);
     if (it != tables.end()) {
       it->second->ToPB(pb->add_tables());

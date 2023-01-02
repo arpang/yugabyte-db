@@ -392,7 +392,7 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
     const auto& modified_table_infos = metadata.OldSchemaGC(table_id_to_min_schema_version);
     if (!modified_table_infos.empty()) {
       if (metadata.IsTableMetadataInRocksDB()) {
-        ERROR_NOT_OK(tablet_.MetadataUpsertDocOperation(modified_table_infos), log_prefix_);
+        ERROR_NOT_OK(tablet_.UpsertMetadataDocOperation(modified_table_infos), log_prefix_);
         ERROR_NOT_OK(tablet_.Flush(FlushMode::kSync, FlushFlags::kRegular), log_prefix_);
       } else {
         ERROR_NOT_OK(metadata.Flush(), log_prefix_);
@@ -2028,9 +2028,9 @@ Status Tablet::ApplyMetadataDocOperation(
     Operation* operation,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   ChangeMetadataOperation dummy_operation(shared_from_this(), nullptr);
-  dummy_operation.set_hybrid_time(clock()->Now());
   if (!operation) {
-    DCHECK(!already_applied_to_regular_db);  // this metadata update doesn't is not through WAL
+    DCHECK(!already_applied_to_regular_db);  // this metadata update doesn't go through WAL.
+    dummy_operation.set_hybrid_time(clock()->Now());
     operation = &dummy_operation;
   }
 
@@ -2050,16 +2050,16 @@ Status Tablet::ApplyMetadataDocOperation(
       docdb::InitMarkerBehavior::kOptional, monotonic_counter(), &restart_read_ht,
       kMetadataEntries));
 
-  // since read_ht is Max(), we do not need to check if read restart is required.
+  // since read_ht is ReadHybridTime::Max(), we do not need to check if read restart is required.
 
   prepare_result.lock_batch.Reset();
 
   // batch_idx is not used, hardcoding dummy value
-  // https://yugabyte.slack.com/archives/C03ULJYE0KG/p1670928620405749
-  return ApplyOperation(*operation, 1, write_batch, already_applied_to_regular_db);
+  int dummy_batch_idx = 1;
+  return ApplyOperation(*operation, dummy_batch_idx, write_batch, already_applied_to_regular_db);
 }
 
-Status Tablet::MetadataDeleteDocOperation(
+Status Tablet::DeleteMetadataDocOperation(
     const TableId& table_id,
     Operation* operation,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
@@ -2071,7 +2071,7 @@ Status Tablet::MetadataDeleteDocOperation(
   return ApplyMetadataDocOperation(doc_write_ops, operation, already_applied_to_regular_db);
 }
 
-Status Tablet::MetadataUpsertDocOperation(
+Status Tablet::UpsertMetadataDocOperation(
     const std::vector<TableInfoPtr>& table_infos,
     Operation* operation,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
@@ -2088,9 +2088,9 @@ Status Tablet::MetadataUpsertDocOperation(
 }
 
 Status Tablet::SetNamespaceId(const NamespaceId& namespace_id) {
-  auto table_info = VERIFY_RESULT(metadata_->set_namespace_id(namespace_id));
+  auto updated_table_info = VERIFY_RESULT(metadata_->set_namespace_id(namespace_id));
   if (metadata_->IsTableMetadataInRocksDB()) {
-    RETURN_NOT_OK(MetadataUpsertDocOperation({table_info}));
+    RETURN_NOT_OK(UpsertMetadataDocOperation({updated_table_info}));
     return Flush(FlushMode::kSync, FlushFlags::kRegular);
   } else {
     return metadata_->Flush();
@@ -2102,7 +2102,7 @@ Status Tablet::AddTable(
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   const auto& added_table = VERIFY_RESULT(AddTableInMemory(table_info_pb));
   if (metadata_->IsTableMetadataInRocksDB()) {
-    return MetadataUpsertDocOperation({added_table}, operation, already_applied_to_regular_db);
+    return UpsertMetadataDocOperation({added_table}, operation, already_applied_to_regular_db);
   } else {
     return metadata_->Flush();
   }
@@ -2120,7 +2120,7 @@ Status Tablet::AddMultipleTables(
     added_tables.push_back(added_table);
   }
   if (metadata_->IsTableMetadataInRocksDB()) {
-    return MetadataUpsertDocOperation(added_tables, operation, already_applied_to_regular_db);
+    return UpsertMetadataDocOperation(added_tables, operation, already_applied_to_regular_db);
   } else {
     return metadata_->Flush();
   }
@@ -2130,7 +2130,7 @@ Status Tablet::RemoveTable(Operation* operation,
     const std::string& table_id, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   metadata_->RemoveTable(table_id);
   if (metadata_->IsTableMetadataInRocksDB()) {
-    return MetadataDeleteDocOperation(table_id, operation, already_applied_to_regular_db);
+    return DeleteMetadataDocOperation(table_id, operation, already_applied_to_regular_db);
   } else {
     return metadata_->Flush();
   }
@@ -2150,7 +2150,7 @@ Status Tablet::MarkBackfillDone(
 
   if (metadata_->IsTableMetadataInRocksDB()) {
     const auto& updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
-    return MetadataUpsertDocOperation(
+    return UpsertMetadataDocOperation(
         {updated_table_info}, operation, already_applied_to_regular_db);
   } else {
     return metadata_->Flush();
@@ -2198,9 +2198,8 @@ Status Tablet::AlterSchema(
     }
   }
 
-  metadata_->SetSchema(
-      *operation->schema(), operation->index_map(), deleted_cols, operation->schema_version(),
-      table_id);
+  metadata_->SetSchema(*operation->schema(), operation->index_map(), deleted_cols,
+                      operation->schema_version(), table_id);
   if (operation->has_new_table_name()) {
     metadata_->SetTableName(
         current_table_info->namespace_name, operation->new_table_name().ToBuffer(), table_id);
@@ -2224,7 +2223,7 @@ Status Tablet::AlterSchema(
 
   if (metadata_->IsTableMetadataInRocksDB()) {
     const auto& updated_table_info = VERIFY_RESULT(metadata_->GetTableInfo(table_id));
-    return MetadataUpsertDocOperation(
+    return UpsertMetadataDocOperation(
         {updated_table_info}, operation, already_applied_to_regular_db);
   } else {
     // Flush the updated schema metadata to disk.
@@ -2242,7 +2241,7 @@ Status Tablet::AlterWalRetentionSecs(
 
     if (metadata_->IsTableMetadataInRocksDB()) {
       const auto& table_info = VERIFY_RESULT(metadata_->GetTableInfo(""));
-      return MetadataUpsertDocOperation({table_info}, operation, already_applied_to_regular_db);
+      return UpsertMetadataDocOperation({table_info}, operation, already_applied_to_regular_db);
     } else {
       // Flush the updated schema metadata to disk.
       return metadata_->Flush();

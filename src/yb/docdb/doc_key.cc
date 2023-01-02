@@ -230,13 +230,6 @@ DocKey::DocKey(std::vector<KeyEntryValue> range_components, bool is_metadata_key
       hash_present_(false),
       range_group_(std::move(range_components)) {}
 
-DocKey::DocKey(bool is_metadata_key)
-    : cotable_id_(Uuid::Nil()),
-      colocation_id_(kColocationIdNotSet),
-      is_metadata_key_(is_metadata_key),
-      hash_present_(false),
-      hash_(0) {}
-
 KeyBytes DocKey::Encode() const {
   KeyBytes result;
   AppendTo(&result);

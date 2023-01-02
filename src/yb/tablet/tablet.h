@@ -42,8 +42,8 @@
 #include "yb/consensus/consensus_fwd.h"
 #include "yb/consensus/consensus_types.pb.h"
 
-#include "yb/docdb/docdb_fwd.h"
 #include "yb/docdb/doc_operation.h"
+#include "yb/docdb/docdb_fwd.h"
 #include "yb/docdb/docdb_types.h"
 #include "yb/docdb/key_bounds.h"
 #include "yb/docdb/shared_lock_manager.h"
@@ -916,12 +916,12 @@ class Tablet : public AbstractTablet,
       Operation* operation,
       AlreadyAppliedToRegularDB already_applied_to_regular_db);
 
-  Status MetadataDeleteDocOperation(
+  Status DeleteMetadataDocOperation(
       const TableId& table_id,
       Operation* operation,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
-  Status MetadataUpsertDocOperation(
+  Status UpsertMetadataDocOperation(
       const std::vector<TableInfoPtr>& table_infos, Operation* operation = nullptr,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
