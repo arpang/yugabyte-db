@@ -65,15 +65,15 @@ TEST_F(ClusterAdminClientTest, YB_DISABLE_TEST_IN_SANITIZERS(ListSnapshotsWithDe
   flags.Set(ListSnapshotsFlag::SHOW_DETAILS);
   auto resp = ASSERT_RESULT(cluster_admin_client_->ListSnapshots(flags));
   EXPECT_EQ(resp.snapshots_size(), 1);
-  std::unordered_set<master::SysRowEntryType> expected_types = {
-      master::SysRowEntryType::NAMESPACE, master::SysRowEntryType::TABLE};
-  std::unordered_set<master::SysRowEntryType> missing_types = {
-      master::SysRowEntryType::NAMESPACE, master::SysRowEntryType::TABLE};
+  std::unordered_set<common::SysRowEntryType> expected_types = {
+      common::SysRowEntryType::NAMESPACE, common::SysRowEntryType::TABLE};
+  std::unordered_set<common::SysRowEntryType> missing_types = {
+      common::SysRowEntryType::NAMESPACE, common::SysRowEntryType::TABLE};
   for (const auto& entry : resp.snapshots(0).entry().entries()) {
     EXPECT_THAT(expected_types, testing::Contains(entry.type()));
     missing_types.erase(entry.type());
     switch (entry.type()) {
-      case master::SysRowEntryType::NAMESPACE: {
+      case common::SysRowEntryType::NAMESPACE: {
         auto meta =
             ASSERT_RESULT(pb_util::ParseFromSlice<master::SysNamespaceEntryPB>(entry.data()));
         EXPECT_EQ(meta.name(), "yugabyte");
@@ -82,7 +82,7 @@ TEST_F(ClusterAdminClientTest, YB_DISABLE_TEST_IN_SANITIZERS(ListSnapshotsWithDe
             meta.state(), master::SysNamespaceEntryPB_State::SysNamespaceEntryPB_State_RUNNING);
         break;
       }
-      case master::SysRowEntryType::TABLE: {
+      case common::SysRowEntryType::TABLE: {
         auto meta = ASSERT_RESULT(pb_util::ParseFromSlice<master::SysTablesEntryPB>(entry.data()));
         EXPECT_EQ(meta.name(), "test_table");
         EXPECT_EQ(meta.table_type(), yb::TableType::PGSQL_TABLE_TYPE);

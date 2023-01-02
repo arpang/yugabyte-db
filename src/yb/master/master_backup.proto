@@ -16,6 +16,7 @@ package yb.master;
 
 option java_package = "org.yb.master";
 
+import "yb/common/shared_types.proto";
 import "yb/common/wire_protocol.proto";
 import "yb/master/catalog_entity_info.proto";
 import "yb/master/master_types.proto";
@@ -77,7 +78,7 @@ message TabletRestorationPB {
 
 message MasterRestorationMetadataPB {
   optional bytes id = 1;
-  optional SysRowEntryType type = 2;
+  optional yb.common.SysRowEntryType type = 2;
 }
 
 message SysRestorationEntryPB {

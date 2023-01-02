@@ -115,20 +115,20 @@ Status ListSnapshots(ClusterAdminClientClass* client, const EnumBitSet<ListSnaps
       for (master::SysRowEntry& entry : *snapshot.mutable_entry()->mutable_entries()) {
         string decoded_data;
         switch (entry.type()) {
-          case master::SysRowEntryType::NAMESPACE: {
+          case common::SysRowEntryType::NAMESPACE: {
             auto meta =
                 VERIFY_RESULT(pb_util::ParseFromSlice<master::SysNamespaceEntryPB>(entry.data()));
             meta.clear_transaction();
             decoded_data = JsonWriter::ToJson(meta, JsonWriter::COMPACT);
             break;
           }
-          case master::SysRowEntryType::UDTYPE: {
+          case common::SysRowEntryType::UDTYPE: {
             auto meta =
                 VERIFY_RESULT(pb_util::ParseFromSlice<master::SysUDTypeEntryPB>(entry.data()));
             decoded_data = JsonWriter::ToJson(meta, JsonWriter::COMPACT);
             break;
           }
-          case master::SysRowEntryType::TABLE: {
+          case common::SysRowEntryType::TABLE: {
             auto meta =
                 VERIFY_RESULT(pb_util::ParseFromSlice<master::SysTablesEntryPB>(entry.data()));
             meta.clear_schema();

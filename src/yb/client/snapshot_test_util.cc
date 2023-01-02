@@ -91,19 +91,19 @@ Status SnapshotTestUtil::VerifySnapshot(
   size_t num_namespaces = 0, num_tables = 0, num_tablets = 0;
   for (const auto& entry : snapshot.entry().entries()) {
     switch (entry.type()) {
-      case master::SysRowEntryType::TABLET:
+      case common::SysRowEntryType::TABLET:
         ++num_tablets;
         break;
-      case master::SysRowEntryType::TABLE:
+      case common::SysRowEntryType::TABLE:
         ++num_tables;
         break;
-      case master::SysRowEntryType::NAMESPACE:
+      case common::SysRowEntryType::NAMESPACE:
         ++num_namespaces;
         break;
       default:
         return STATUS_FORMAT(
             IllegalState, "Unexpected entry type: $0",
-            master::SysRowEntryType_Name(entry.type()));
+            common::SysRowEntryType_Name(entry.type()));
     }
   }
   SCHECK_EQ(num_namespaces, expected_num_namespaces, IllegalState,

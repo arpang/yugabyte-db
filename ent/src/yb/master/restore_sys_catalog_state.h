@@ -28,6 +28,8 @@
 #include "yb/tablet/restore_util.h"
 #include "yb/tablet/tablet_fwd.h"
 
+using yb::common::SysRowEntryType;
+
 namespace yb {
 namespace master {
 
