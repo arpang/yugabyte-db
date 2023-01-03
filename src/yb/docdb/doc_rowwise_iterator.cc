@@ -295,6 +295,12 @@ Result<bool> DocRowwiseIterator::HasNext() {
     row_hash_key_ = iter_key_.AsSlice().Prefix(dockey_sizes->hash_part_size);
     row_key_ = iter_key_.AsSlice().Prefix(dockey_sizes->doc_key_size);
 
+    if (!doc_read_context_.schema.is_metadata_schema() && !row_key_.empty() &&
+        row_key_[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+      db_iter_->SeekOutOfSubDoc(&iter_key_);
+      continue;
+    }
+
     // e.g in cotable, row may point outside table bounds
     if (!DocKeyBelongsTo(row_key_, doc_read_context_.schema) ||
         (has_bound_key_ && is_forward_scan_ == (row_key_.compare(bound_key_) >= 0))) {
@@ -358,10 +364,10 @@ Result<bool> DocRowwiseIterator::HasNext() {
     has_next_status_ = AdvanceIteratorToNextDesiredRow();
     RETURN_NOT_OK(has_next_status_);
     VLOG(4) << __func__ << ", iter: " << db_iter_->valid();
-    if (!doc_read_context_.schema.is_metadata_schema() && !row_key_.empty() &&
-        row_key_[0] == KeyEntryTypeAsChar::kTabletMetadata) {
-      doc_found = false;  // the found document is a metadata entry, hence doesn't count.
-    }
+    // if (!doc_read_context_.schema.is_metadata_schema() && !row_key_.empty() &&
+    //     row_key_[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+    //   doc_found = false;  // the found document is a metadata entry, hence doesn't count.
+    // }
   }
   row_ready_ = true;
   return true;
@@ -477,9 +483,10 @@ Status DocRowwiseIterator::ValidateSystemKey() {
     if (decoder.left_input().size() == 0) {
       return Status::OK();
     }
-  } else if (VERIFY_RESULT(decoder.DecodeMetadataKey())) {
-    return Status::OK();
   }
+  // else if (VERIFY_RESULT(decoder.DecodeMetadataKey())) {
+  //   return Status::OK();
+  // }
 
   return STATUS_FORMAT(
       Corruption, "Key parsing failed for non-system key $0", row_key_.ToDebugHexString());
