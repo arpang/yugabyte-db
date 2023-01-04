@@ -295,17 +295,21 @@ Result<bool> DocRowwiseIterator::HasNext() {
     row_hash_key_ = iter_key_.AsSlice().Prefix(dockey_sizes->hash_part_size);
     row_key_ = iter_key_.AsSlice().Prefix(dockey_sizes->doc_key_size);
 
-    if (!doc_read_context_.schema.is_metadata_schema() && !row_key_.empty() &&
-        row_key_[0] == KeyEntryTypeAsChar::kTabletMetadata) {
-      db_iter_->SeekOutOfSubDoc(&iter_key_);
-      continue;
-    }
-
     // e.g in cotable, row may point outside table bounds
     if (!DocKeyBelongsTo(row_key_, doc_read_context_.schema) ||
         (has_bound_key_ && is_forward_scan_ == (row_key_.compare(bound_key_) >= 0))) {
       done_ = true;
       return false;
+    }
+
+    if (!doc_read_context_.schema.is_metadata_schema() && !row_key_.empty() &&
+        row_key_[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+      if (is_forward_scan_) {
+        db_iter_->SeekOutOfSubDoc(&iter_key_);
+      } else {
+        db_iter_->PrevDocKey(row_key_);
+      }
+      continue;
     }
 
     // Prepare the DocKey to get the SubDocument. Trim the DocKey to contain just the primary key.
