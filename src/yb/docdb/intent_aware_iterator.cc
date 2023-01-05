@@ -482,9 +482,7 @@ Result<FetchKeyResult> IntentAwareIterator::FetchKey() {
     result.key.remove_suffix(1);
     result.same_transaction = false;
     bool is_metadata_key = VERIFY_RESULT(IsMetadataKey(result.key));
-    if (!(is_metadata_key &&
-          !is_metadata_iterator_)) {  // do not update max_seen_ht_ if the entry
-                                      // belongs to metadata but iterator doesn't.
+    if (is_metadata_key == is_metadata_iterator_) {
       max_seen_ht_.MakeAtLeast(result.write_time.hybrid_time());
     }
   } else {
