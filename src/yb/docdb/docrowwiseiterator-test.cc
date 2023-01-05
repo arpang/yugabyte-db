@@ -476,8 +476,6 @@ void DocRowwiseIteratorTest::TestClusteredFilterRangeWithTableTombstoneReverseSc
   auto option1 = options->add_elems()->mutable_tuple_value();
   option1->add_elems()->set_int32_value(5);
 
-  DocDBDebugDumpToConsole();
-
   const std::vector<KeyEntryValue> empty_key_components;
   boost::optional<int32_t> empty_hash_code;
   static const DocKey default_doc_key;
