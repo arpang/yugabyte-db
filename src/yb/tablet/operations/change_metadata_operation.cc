@@ -208,29 +208,33 @@ Status ChangeMetadataOperation::Apply(AlreadyAppliedToRegularDB already_applied_
       }
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
-      RETURN_NOT_OK(tablet->AlterSchema(this));
+      RETURN_NOT_OK(tablet->AlterSchema(this, already_applied_to_regular_db));
       log->SetSchemaForNextLogSegment(*DCHECK_NOTNULL(schema()), schema_version());
       break;
     case MetadataChange::ADD_TABLE:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
-      RETURN_NOT_OK(tablet->AddTable(this, request()->add_table().ToGoogleProtobuf()));
+      RETURN_NOT_OK(tablet->AddTable(
+          this, request()->add_table().ToGoogleProtobuf(), already_applied_to_regular_db));
       break;
     case MetadataChange::REMOVE_TABLE:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
-      RETURN_NOT_OK(tablet->RemoveTable(this, request()->remove_table_id().ToBuffer()));
+      RETURN_NOT_OK(tablet->RemoveTable(
+          this, request()->remove_table_id().ToBuffer(), already_applied_to_regular_db));
       break;
     case MetadataChange::BACKFILL_DONE:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
-      RETURN_NOT_OK(tablet->MarkBackfillDone(this, request()->backfill_done_table_id().ToBuffer()));
+      RETURN_NOT_OK(tablet->MarkBackfillDone(
+          this, request()->backfill_done_table_id().ToBuffer(), already_applied_to_regular_db));
       break;
     case MetadataChange::ADD_MULTIPLE_TABLES:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
-      RETURN_NOT_OK(
-          tablet->AddMultipleTables(this, ToRepeatedPtrField(request()->add_multiple_tables())));
+      RETURN_NOT_OK(tablet->AddMultipleTables(
+          this, ToRepeatedPtrField(request()->add_multiple_tables()),
+          already_applied_to_regular_db));
       break;
   }
 

@@ -760,7 +760,7 @@ Status SchemaBuilder::AddHashKeyColumn(const string& name, const shared_ptr<QLTy
 }
 
 Status SchemaBuilder::AddHashKeyColumn(const string& name, DataType type) {
-  return AddColumn(ColumnSchema(name, QLType::Create(type), false, true), true);
+  return AddColumn(ColumnSchema(name, QLType::Create(type), false, true), /* is_key */ true);
 }
 
 Status SchemaBuilder::AddColumn(const std::string& name, DataType type) {
