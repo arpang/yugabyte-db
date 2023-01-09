@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/fs"
 	"io/ioutil"
-	"os"
 	"path/filepath"
 	"sort"
 
@@ -62,7 +61,7 @@ func GetDataRoot() string {
 }
 
 // GetInstallRoot returns the InstallRoot where YBA is installed.
-func GetInstallRoot() string {
+func GetSoftwareRoot() string {
 	return dm.WorkingDirectory()
 }
 
@@ -71,9 +70,9 @@ func GetActiveSymlink() string {
 	return dm.ActiveSymlink()
 }
 
-// GetInstallVersionDir returns the yba_installer directory inside InstallRoot
-func GetInstallVersionDir() string {
-	return dm.WorkingDirectory() + "/yba_installer-" + GetVersion()
+// GetInstallerSoftwareDir returns the yba_installer directory inside InstallRoot
+func GetInstallerSoftwareDir() string {
+	return dm.WorkingDirectory() + "/yba_installer"
 }
 
 func PrunePastInstalls() {
@@ -115,7 +114,7 @@ func PrunePastInstalls() {
 	for i := 0; i < len(versionEntries)-1; i++ {
 		toDel := filepath.Join(softwareRoot, versionEntries[i].Name())
 		log.Warn(fmt.Sprintf("Removing old release directory %s", toDel))
-		os.RemoveAll(toDel)
+		RemoveAll(toDel)
 	}
 
 }
@@ -157,20 +156,16 @@ func (dm directoryManager) ActiveSymlink() string {
 	return filepath.Join(dm.BaseInstall(), "software", InstallSymlink)
 }
 
-func getFileMatchingGlob(glob string) string {
-	matches, err := filepath.Glob(glob)
-	if err != nil || len(matches) != 1 {
-		log.Fatal(fmt.Sprintf("Expect to find one match for glob %s (err %s)", matches, err))
-	}
-	return matches[0]
-}
-
 func GetPostgresPackagePath() string {
-	return getFileMatchingGlob(PostgresPackageGlob)
+	return GetFileMatchingGlob(PostgresPackageGlob)
 }
 
 func GetJavaPackagePath() string {
-	return getFileMatchingGlob(javaBinaryGlob)
+	return GetFileMatchingGlob(javaBinaryGlob)
+}
+
+func GetTemplatesDir() string {
+	return GetFileMatchingGlob(filepath.Join(GetBinaryDir(), TemplateDirGlob))
 }
 
 func GetYBAInstallerDataDir() string {

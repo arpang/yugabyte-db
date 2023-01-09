@@ -2,7 +2,6 @@
 title: yb-voyager CLI
 linkTitle: yb-voyager CLI
 description: YugabyteDB Voyager CLI and SSL connectivity.
-beta: /preview/faq/general/#what-is-the-definition-of-the-beta-feature-tag
 menu:
   preview:
     identifier: yb-voyager-cli
@@ -242,7 +241,7 @@ Specifies the path to the directory containing the data files to export.
 
 ### --source-db-type
 
-Specifies the source database type (postrgresql, mysql or oracle).
+Specifies the source database type (postgresql, mysql or oracle).
 
 ### --source-db-host
 
@@ -271,6 +270,10 @@ Specifies the format in which the report file is generated. It can be in `html`,
 ### --target-db-host
 
 Specifies the domain name or IP address of the machine on which target database server is running.
+
+### --target-db-port
+
+Specifies the port number of the machine on which the target database server is running.
 
 ### --target-db-user
 
@@ -396,15 +399,6 @@ The following table summarizes the arguments and options you can pass to yb-voya
 | | `--target-ssl-cert` <br /> `--target-ssl-key` | These two arguments specify names of the files containing SSL certificate and key, respectively. The `<cert, key>` pair forms the identity of the client. |
 | | `--target-ssl-root-cert` | Specifies the path to a file containing SSL certificate authority (CA) certificate(s). If the file exists, the server's certificate will be verified to be signed by one of these authorities. |
 | | `--target-ssl-crl` | Specifies the path to a file containing the SSL certificate revocation list (CRL). Certificates listed in this file, if it exists, will be rejected while attempting to authenticate the server's certificate. |
-
-## Unsupported features
-
-Currently, yb-voyager doesn't support the following features:
-
-| Feature | Description/Alternatives  | GitHub Issue |
-| :-------| :---------- | :----------- |
-| BLOB and CLOB | yb-voyager currently ignores all columns of type BLOB/CLOB. <br>  Use another mechanism to load the attributes till this feature is supported.| [43](https://github.com/yugabyte/yb-voyager/issues/43) |
-| ALTER VIEW | YugabyteDB does not yet support any schemas containing `ALTER VIEW` statements. | [48](https://github.com/yugabyte/yb-voyager/issues/48) |
 
 ## Data modeling
 
