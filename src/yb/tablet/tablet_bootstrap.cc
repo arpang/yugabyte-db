@@ -1482,12 +1482,6 @@ class TabletBootstrap {
       AlreadyAppliedToRegularDB already_applied_to_regular_db) {
     auto* request = replicate_msg->mutable_change_metadata_request();
 
-    // Decode schema
-    Schema schema;
-    if (request->has_schema()) {
-      RETURN_NOT_OK(SchemaFromPB(request->schema().ToGoogleProtobuf(), &schema));
-    }
-
     ChangeMetadataOperation operation(tablet_, log_.get(), request);
 
     // If table id isn't in metadata, ignore the replay as the table might've been dropped.
@@ -1497,17 +1491,37 @@ class TabletBootstrap {
           << " not found in metadata, skipping this ChangeMetadataRequest";
       return Status::OK();
     }
-    operation.set_op_id(OpId::FromPB(replicate_msg->id()));
-    HybridTime hybrid_time(replicate_msg->hybrid_time());
-    operation.set_hybrid_time(hybrid_time);
-
-    auto op_id = operation.op_id();
-    tablet_->mvcc_manager()->AddFollowerPending(hybrid_time, op_id);
 
     RETURN_NOT_OK(operation.Prepare(IsLeaderSide::kTrue));
-    RETURN_NOT_OK(operation.Apply(already_applied_to_regular_db));
 
-    tablet_->mvcc_manager()->Replicated(hybrid_time, op_id);
+    if (tablet_->metadata()->IsTableMetadataInRocksDB()) {
+      operation.set_op_id(OpId::FromPB(replicate_msg->id()));
+      HybridTime hybrid_time(replicate_msg->hybrid_time());
+      operation.set_hybrid_time(hybrid_time);
+
+      auto op_id = operation.op_id();
+      tablet_->mvcc_manager()->AddFollowerPending(hybrid_time, op_id);
+      RETURN_NOT_OK(operation.Apply(already_applied_to_regular_db));
+      tablet_->mvcc_manager()->Replicated(hybrid_time, op_id);
+    } else {
+      if (request->has_schema()) {
+        // Decode schema
+        Schema schema;
+        RETURN_NOT_OK(SchemaFromPB(request->schema().ToGoogleProtobuf(), &schema));
+        // Apply the alter schema to the tablet.
+        RETURN_NOT_OK_PREPEND(tablet_->AlterSchema(&operation), "Failed to AlterSchema:");
+
+        // Also update the log information. Normally, the AlterSchema() call above takes care of
+        // this, but our new log isn't hooked up to the tablet yet.
+        log_->SetSchemaForNextLogSegment(schema, operation.schema_version());
+      }
+
+      if (request->has_wal_retention_secs()) {
+        RETURN_NOT_OK_PREPEND(
+            tablet_->AlterWalRetentionSecs(&operation), "Failed to alter wal retention secs");
+        log_->set_wal_retention_secs(request->wal_retention_secs());
+      }
+    }
     return Status::OK();
   }
 
