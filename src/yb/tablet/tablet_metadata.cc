@@ -84,7 +84,7 @@ DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 // TODO: Set the target to false belong landing this diff
 // TODO: Set the target back to true after cross features changes are done
 DEFINE_RUNTIME_AUTO_bool(
-    ts_tableinfo_in_rocksdb, kLocalPersisted, false, true,
+    ts_tableinfo_in_rocksdb, kLocalPersisted, false, false,
     "Stores the TableInfoPB in RocksDB for tserver tables");
 
 using std::shared_ptr;
