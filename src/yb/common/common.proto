@@ -104,6 +104,9 @@ message ColumnSchemaPB {
   repeated QLJsonOperationPB OBSOLETE_json_operations = 13;
 }
 
+message Empty {
+}
+
 message ColocatedTableIdentifierPB {
   // Note: an absent value means NULL.
   oneof value {
@@ -112,7 +115,7 @@ message ColocatedTableIdentifierPB {
     // Colocated YSQL system tables use 16-byte UUID.
     bytes cotable_id = 2;
     // True if it is the metadata schema.
-    bool metadata_schema = 3;
+    Empty metadata_schema = 3;
   }
 }
 
