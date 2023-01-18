@@ -73,7 +73,8 @@ Status UpdatePackedRowWithConsumerSchemaVersion(const Slice& key,
   // Don't perform any changes to the value for the following cases:
   // 1. Non-packed rows
   // 2. Unknown or uninitialized schema version
-  // 3. Colocated tables / metadata entries - These are not supported yet.
+  // 3. Colocated tables - These are not supported yet.
+  // 4. Metadata entries - These are not supported yet.
   if (!value_slice.TryConsumeByte(docdb::ValueEntryTypeAsChar::kPackedRow) ||
       schema_version == cdc::kInvalidSchemaVersion ||
       has_coprefix) {

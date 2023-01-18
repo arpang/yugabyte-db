@@ -296,9 +296,9 @@ Status SetDocOpQLErrorResponse(DocOperation* doc_op, string err_msg) {
       break;
     }
     default:
-      return STATUS_FORMAT(
-          InternalError, "Invalid status (QLError) for doc operation %d, error message: %s",
-          doc_op->OpType(), err_msg);
+      return STATUS_FORMAT(InternalError,
+                           "Invalid status (QLError) for doc operation %d, error message: %s",
+                           doc_op->OpType(), err_msg);
   }
   return Status::OK();
 }
