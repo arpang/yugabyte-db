@@ -700,6 +700,7 @@ Status ReplicaState::AddPendingOperation(const ConsensusRoundPtr& round, Operati
       }
     }
   } else if (op_type == WRITE_OP) {
+    // Should we do the same for CHANGE_METADATA_OP if metadata is in rocksdb?
     // Leader registers an operation with RetryableRequests even before assigning an op id.
     if (mode == OperationMode::kFollower) {
       auto result = retryable_requests_.Register(round);
@@ -910,7 +911,7 @@ Status ReplicaState::ApplyPendingOperationsUnlocked(
 
     auto type = round->replicate_msg()->op_type();
 
-    // TODO: Any changes here?
+    // Should we do the same for CHANGE_METADATA_OP if metadata is in rocksdb?
     // For write operations we block rocksdb flush, until appropriate records are written to the
     // log file. So we could apply them before adding to log.
     if (type == OperationType::WRITE_OP) {

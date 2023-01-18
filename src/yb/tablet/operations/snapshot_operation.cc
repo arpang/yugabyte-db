@@ -168,7 +168,8 @@ Status SnapshotOperation::RejectionStatus(
       OperationType_Name(op_type), rejected_op_id);
 }
 
-// TODO: Should we disallow CHANGE_METADATA_OP too?
+// TODO: If metadata is in rocksdb, should we return !FLAGS_consistent_restore for
+// CHANGE_METADATA_OP?
 bool SnapshotOperation::ShouldAllowOpDuringRestore(consensus::OperationType op_type) {
   switch (op_type) {
     case consensus::NO_OP: FALLTHROUGH_INTENDED;

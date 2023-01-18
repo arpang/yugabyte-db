@@ -1278,6 +1278,7 @@ Status RaftConsensus::DoAppendNewRoundsToQueueUnlocked(
   for (const auto& round : rounds) {
     ++*processed_rounds;
 
+    // Should we do the same for CHANGE_METADATA_OP if metadata is in rocksdb?
     if (round->replicate_msg()->op_type() == OperationType::WRITE_OP) {
       auto result = state_->RegisterRetryableRequest(round);
       if (!result.ok()) {
