@@ -30,8 +30,6 @@
 #include "yb/util/status_fwd.h"
 #include "yb/util/opid.h"
 
-using yb::common::SysRowEntryType;
-
 namespace yb {
 namespace master {
 

@@ -56,8 +56,6 @@
 #include "yb/util/monotime.h"
 #include "yb/util/status_fwd.h"
 
-using yb::common::SysRowEntryType;
-
 namespace yb {
 namespace master {
 

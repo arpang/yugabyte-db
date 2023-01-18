@@ -34,7 +34,6 @@
 #include "yb/util/result.h"
 
 using namespace std::literals;
-using yb::common::SysRowEntryType;
 
 DEFINE_UNKNOWN_uint64(snapshot_coordinator_cleanup_delay_ms, 30000,
               "Delay for snapshot cleanup after deletion.");

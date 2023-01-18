@@ -26,6 +26,25 @@ enum RelationType {
   MATVIEW_TABLE_RELATION = 4;
 }
 
+enum SysRowEntryType {
+  UNKNOWN = 0;
+  TABLE = 1;
+  TABLET = 2;
+  CLUSTER_CONFIG = 3;
+  NAMESPACE = 4;
+  UDTYPE = 5;
+  ROLE = 6;
+  SNAPSHOT = 7;
+  REDIS_CONFIG = 8;
+  SYS_CONFIG = 9;
+  CDC_STREAM = 10;
+  UNIVERSE_REPLICATION = 11;
+  SNAPSHOT_SCHEDULE = 12;
+  DDL_LOG_ENTRY = 13;
+  SNAPSHOT_RESTORATION = 14;
+  XCLUSTER_SAFE_TIME = 15;
+}
+
 // Master specific errors use this protobuf.
 message MasterErrorPB {
   enum Code {

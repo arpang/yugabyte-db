@@ -74,9 +74,9 @@ using std::string;
 using google::protobuf::RepeatedPtrField;
 
 using client::YBTableName;
-using common::SysRowEntryType;
 using master::MasterBackupProxy;
 using master::SysRowEntry;
+using master::SysRowEntryType;
 using master::BackupRowEntryPB;
 using master::TableInfo;
 using master::TabletInfo;

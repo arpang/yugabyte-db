@@ -30,8 +30,6 @@
 
 #include "yb/tserver/backup.pb.h"
 
-using yb::common::SysRowEntryType;
-
 namespace yb {
 namespace master {
 

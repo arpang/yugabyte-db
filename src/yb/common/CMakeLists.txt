@@ -41,7 +41,6 @@ YRPC_GENERATE(
       common.proto
       common_net.proto
       common_types.proto
-      shared_types.proto
       pgsql_protocol.proto
       redis_protocol.proto
       ql_protocol.proto

@@ -490,11 +490,11 @@ void YBBackupTest::TestColocatedDBBackupRestore() {
   // the parent colocated table.
   int32_t num_namespaces = 0, num_tables = 0, num_tablets = 0, num_others = 0;
   for (const auto& entry : snapshot_info.backup_entries()) {
-    if (entry.entry().type() == common::SysRowEntryType::NAMESPACE) {
+    if (entry.entry().type() == master::SysRowEntryType::NAMESPACE) {
       num_namespaces++;
-    } else if (entry.entry().type() == common::SysRowEntryType::TABLE) {
+    } else if (entry.entry().type() == master::SysRowEntryType::TABLE) {
       num_tables++;
-    } else if (entry.entry().type() == common::SysRowEntryType::TABLET) {
+    } else if (entry.entry().type() == master::SysRowEntryType::TABLET) {
       num_tablets++;
     } else {
       num_others++;

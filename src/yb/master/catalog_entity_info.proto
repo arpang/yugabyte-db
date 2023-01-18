@@ -20,7 +20,6 @@ import "yb/cdc/cdc_consumer.proto";
 import "yb/common/common.proto";
 import "yb/common/common_net.proto";
 import "yb/common/common_types.proto";
-import "yb/common/shared_types.proto";
 import "yb/consensus/metadata.proto";
 import "yb/master/master_types.proto";
 
@@ -409,7 +408,7 @@ message SysRowEntry {
   // The type of entry we are storing. Since the data is serialized, we cannot
   // just store it with
   // the data, as we are not able to read into the appropriate type.
-  optional yb.common.SysRowEntryType type = 1;
+  optional SysRowEntryType type = 1;
 
   // The optional ID of the data that we are storing. This can be useful to only
   // read information
