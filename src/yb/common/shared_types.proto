@@ -16,9 +16,11 @@ package yb.common;
 
 option java_package = "org.yb.common";
 
-// This enum is used for sys.catalog as well as tablet metadata entries. The reason for using the
-// same enum - in the future we may move some sys.catalog entries to tablet metadata.
-// Enums entries specific to table metadata are expected to have TABLET_ prefix.
+// This enum has been copied from master_types.proto. It will be used both for sys.catalog as well
+// as tablet metadata entries. The enum defined in master_types.proto will be removed in a
+// subsequent diff. The reason for using the same enum - in the future we may move some sys.catalog
+// entries to tablet metadata. Enums entries specific to table metadata are expected to have
+// TABLET_ prefix.
 enum SysRowEntryType {
   UNKNOWN = 0;
   TABLE = 1;
