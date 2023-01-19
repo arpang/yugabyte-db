@@ -34,11 +34,6 @@ struct KeyBounds {
   KeyBounds(const Slice& _lower, const Slice& _upper) : lower(_lower), upper(_upper) {}
 
   bool IsWithinBounds(const Slice& key) const {
-    // On a tablet split, metadata entries must be visible in both children tablets. Hence,
-    // metadata entries are always within bounds.s
-    if (docdb::DecodeKeyEntryType(key) == KeyEntryType::kTabletMetadata) {
-      return true;
-    }
     return (lower.empty() || key.compare(lower) >= 0) &&
            (upper.empty() || key.compare(upper) < 0);
   }
