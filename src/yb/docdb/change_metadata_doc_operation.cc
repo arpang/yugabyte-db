@@ -27,15 +27,7 @@ namespace docdb {
 ChangeMetadataDocOperation::ChangeMetadataDocOperation(
     const Schema& metadata_schema, const std::string& table_id,
     const tablet::TableInfoPtr table_info, bool is_delete)
-    : metadata_schema_(metadata_schema), is_delete_(is_delete) {
-  if (!is_delete_) {
-    DCHECK(table_info != nullptr);
-  }
-
-  if (table_info) {
-    table_info->SerializeToString(&serialized_table_info_);
-  }
-
+    : metadata_schema_(metadata_schema), table_info_(table_info), is_delete_(is_delete) {
   QLValuePB type_value;
   type_value.set_int8_value(common::SysRowEntryType::TABLET_TABLE);
   const auto& metadata_type_col_idx = metadata_schema_.find_column(kSysCatalogTableColType);
@@ -60,10 +52,13 @@ Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
   if (is_delete_) {
     RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(sub_path, data.read_time, data.deadline));
   } else {
+    DCHECK(table_info_ != nullptr);
+    std::string serialized_table_info;
+    table_info_->SerializeToString(&serialized_table_info);
     const ColumnSchema& metadata_col =
         VERIFY_RESULT(metadata_schema_.column_by_id(metadata_col_id));
     QLValuePB table_info_value;
-    table_info_value.set_binary_value(serialized_table_info_);
+    table_info_value.set_binary_value(serialized_table_info);
     RETURN_NOT_OK(data.doc_write_batch->InsertSubDocument(
         sub_path, ValueRef(table_info_value, metadata_col.sorting_type()), data.read_time,
         data.deadline));

@@ -49,13 +49,13 @@ class ChangeMetadataDocOperation : public DocOperation {
 
   std::string ToString() const override {
     return Format(
-        "CHANGE_METADATA_DOC_OPERATION { table_info: $0, is_delete: $1}", serialized_table_info_,
-        is_delete_, encoded_doc_key_.ShortDebugString());
+        "CHANGE_METADATA_DOC_OPERATION { table_info: $0, is_delete: $1}",
+        table_info_->ShortDebugString(), is_delete_, encoded_doc_key_.ShortDebugString());
   }
 
  private:
   const Schema& metadata_schema_;
-  std::string serialized_table_info_;
+  const tablet::TableInfoPtr table_info_;
   RefCntPrefix encoded_doc_key_;
   bool is_delete_ = false;
 };
