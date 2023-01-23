@@ -48,10 +48,11 @@ ChangeMetadataDocOperation::ChangeMetadataDocOperation(
 Status ChangeMetadataDocOperation::Apply(const DocOperationApplyData& data) {
   const auto metadata_col_id =
       VERIFY_RESULT(metadata_schema_.ColumnIdByName(kSysCatalogTableColMetadata));
-  DocPath sub_path(encoded_doc_key_.as_slice(), KeyEntryValue::MakeColumnId(metadata_col_id));
   if (is_delete_) {
+    DocPath sub_path(encoded_doc_key_.as_slice());
     RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(sub_path, data.read_time, data.deadline));
   } else {
+    DocPath sub_path(encoded_doc_key_.as_slice(), KeyEntryValue::MakeColumnId(metadata_col_id));
     DCHECK(table_info_ != nullptr);
     std::string serialized_table_info;
     table_info_->SerializeToString(&serialized_table_info);
