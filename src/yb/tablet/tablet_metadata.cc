@@ -382,7 +382,7 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
     auto type_range_component = docdb::KeyEntryValue::FromQLValuePB(
         type_value, metadata_schema.column(metadata_type_col_idx).sorting_type());
 
-    const docdb::DocKey doc_key({type_range_component}, true);
+    const docdb::DocKey doc_key({type_range_component}, /* is_metadata_key */ true);
     docdb::DocPgsqlScanSpec spec(metadata_schema, rocksdb::kDefaultQueryId, doc_key);
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
