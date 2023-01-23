@@ -15,6 +15,9 @@
 
 #include "yb/docdb/doc_operation.h"
 
+#include "yb/tablet/tablet_fwd.h"
+#include "yb/tablet/tablet_metadata.h"
+
 namespace yb {
 namespace docdb {
 
@@ -22,7 +25,7 @@ class ChangeMetadataDocOperation : public DocOperation {
  public:
   ChangeMetadataDocOperation(
       const Schema& metadata_schema, const std::string& table_id,
-      const std::string& serialized_table_info, bool is_delete = false);
+      const tablet::TableInfoPtr table_info, bool is_delete = false);
 
   Status Apply(const DocOperationApplyData& data) override;
 
@@ -52,7 +55,7 @@ class ChangeMetadataDocOperation : public DocOperation {
 
  private:
   const Schema& metadata_schema_;
-  const std::string serialized_table_info_;
+  std::string serialized_table_info_;
   RefCntPrefix encoded_doc_key_;
   bool is_delete_ = false;
 };

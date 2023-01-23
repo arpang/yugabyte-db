@@ -2073,7 +2073,7 @@ Status Tablet::DeleteMetadataDocOperation(
   docdb::DocOperations doc_write_ops;
   doc_write_ops.reserve(1);
   auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-      metadata_->GetMetadataSchema(), table_id, "", /*is_delete*/ true);
+      metadata_->GetMetadataSchema(), table_id, nullptr, /*is_delete*/ true);
   doc_write_ops.emplace_back(std::move(doc_operation));
   return ApplyMetadataDocOperation(doc_write_ops, operation, already_applied_to_regular_db);
 }
@@ -2084,11 +2084,9 @@ Status Tablet::UpsertMetadataDocOperation(
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
   docdb::DocOperations doc_write_ops;
   doc_write_ops.reserve(table_infos.size());
-  for (const auto& table_info_pb : table_infos) {
-    std::string serialized_table_info;
-    table_info_pb->SerializeToString(&serialized_table_info);
+  for (const auto& table_info : table_infos) {
     auto doc_operation = std::make_unique<docdb::ChangeMetadataDocOperation>(
-        metadata_->GetMetadataSchema(), table_info_pb->table_id, std::move(serialized_table_info));
+        metadata_->GetMetadataSchema(), table_info->table_id, table_info);
     doc_write_ops.emplace_back(std::move(doc_operation));
   }
   return ApplyMetadataDocOperation(doc_write_ops, operation, already_applied_to_regular_db);

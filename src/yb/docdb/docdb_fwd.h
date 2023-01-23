@@ -25,6 +25,7 @@
 namespace yb {
 namespace docdb {
 
+class ChangeMetadataDocOperation;
 class ConsensusFrontier;
 class DeadlineInfo;
 class DocDBCompactionFilterFactory;

@@ -26,10 +26,16 @@ namespace docdb {
 
 ChangeMetadataDocOperation::ChangeMetadataDocOperation(
     const Schema& metadata_schema, const std::string& table_id,
-    const std::string& serialized_table_info, bool is_delete)
-    : metadata_schema_(metadata_schema),
-      serialized_table_info_(serialized_table_info),
-      is_delete_(is_delete) {
+    const tablet::TableInfoPtr table_info, bool is_delete)
+    : metadata_schema_(metadata_schema), is_delete_(is_delete) {
+  if (!is_delete_) {
+    DCHECK(table_info != nullptr);
+  }
+
+  if (table_info) {
+    table_info->SerializeToString(&serialized_table_info_);
+  }
+
   QLValuePB type_value;
   type_value.set_int8_value(common::SysRowEntryType::TABLET_TABLE);
   const auto& metadata_type_col_idx = metadata_schema_.find_column(kSysCatalogTableColType);
