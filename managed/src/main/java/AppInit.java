@@ -1,9 +1,12 @@
 // Copyright (c) YugaByte, Inc.
 
 import static com.yugabyte.yw.models.MetricConfig.METRICS_CONFIG_PATH;
+import static com.yugabyte.yw.models.YugawareProperty.get;
+import static com.yugabyte.yw.forms.AbstractTaskParams.platformVersion;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import com.google.inject.name.Named;
 import com.typesafe.config.Config;
 import com.yugabyte.yw.cloud.aws.AWSInitializer;
 import com.yugabyte.yw.commissioner.BackupGarbageCollector;
@@ -13,6 +16,7 @@ import com.yugabyte.yw.commissioner.NodeAgentPoller;
 import com.yugabyte.yw.commissioner.PerfAdvisorScheduler;
 import com.yugabyte.yw.commissioner.PitrConfigPoller;
 import com.yugabyte.yw.commissioner.SetUniverseKey;
+import com.yugabyte.yw.commissioner.RefreshKmsService;
 import com.yugabyte.yw.commissioner.SupportBundleCleanup;
 import com.yugabyte.yw.commissioner.TaskGarbageCollector;
 import com.yugabyte.yw.commissioner.YbcUpgrade;
@@ -52,6 +56,8 @@ import play.Logger;
 @Singleton
 public class AppInit {
 
+  private static final long MAX_APP_INITIALIZATION_TIME = 30;
+
   @Inject
   public AppInit(
       Environment environment,
@@ -65,6 +71,7 @@ public class AppInit {
       PitrConfigPoller pitrConfigPoller,
       TaskGarbageCollector taskGC,
       SetUniverseKey setUniverseKey,
+      RefreshKmsService refreshKmsService,
       BackupGarbageCollector backupGC,
       PerfAdvisorScheduler perfAdvisorScheduler,
       PlatformReplicationManager replicationManager,
@@ -83,7 +90,8 @@ public class AppInit {
       Config config,
       SupportBundleCleanup supportBundleCleanup,
       NodeAgentPoller nodeAgentPoller,
-      YbcUpgrade ybcUpgrade)
+      YbcUpgrade ybcUpgrade,
+      @Named("AppStartupTimeMs") Long startupTime)
       throws ReflectiveOperationException {
     Logger.info("Yugaware Application has started");
 
@@ -206,12 +214,13 @@ public class AppInit {
       alertsGC.start();
 
       setUniverseKey.start();
+      // Refreshes all the KMS providers. Useful for renewing tokens, ttls, etc.
+      refreshKmsService.start();
 
       // Schedule garbage collection of backups
       backupGC.start();
 
-      // Schedule perf advisor data retrieval
-      // perfAdvisorScheduler.start();
+      perfAdvisorScheduler.start();
 
       // Cleanup old support bundles
       supportBundleCleanup.start();
@@ -234,6 +243,15 @@ public class AppInit {
 
       // Add checksums for all certificates that don't have a checksum.
       CertificateHelper.createChecksums();
+
+      Long elapsed = (System.currentTimeMillis() - startupTime) / 1000;
+      String elapsedStr = String.valueOf(elapsed);
+      if (elapsed > MAX_APP_INITIALIZATION_TIME) {
+        Logger.warn("Completed initialization in " + elapsedStr + " seconds.");
+      } else {
+        Logger.info("Completed initialization in " + elapsedStr + " seconds.");
+      }
+      platformVersion = get("SoftwareVersion").getValue().get("version").asText();
 
       Logger.info("AppInit completed");
     }

@@ -164,19 +164,6 @@ $(document).ready(() => {
     // Active main Nav.
     yugabyteActiveMainNav();
 
-    // Change the version dropdown text with the selected version text.
-    if ($('.version-selector') && $('.dropdown-menu')) {
-      const versionDir = location.pathname.split('/')[1];
-      if (versionDir !== '') {
-        $('.dropdown-menu a').each((index, element) => {
-          if ($(element).attr('href').indexOf(`/${versionDir}/`) !== -1) {
-            $('.version-selector').html($(element).html());
-            return false;
-          }
-        });
-      }
-    }
-
     $(document).on('click', '.header-menu li.dropdown', (event) => {
       if ($(window).width() < 992) {
         if ($(event.currentTarget).hasClass('active')) {
@@ -214,15 +201,14 @@ $(document).ready(() => {
         $('ul.header-submenu', this).toggleClass('open');
       }
     });
-
+    if (document.querySelector('body').classList.contains('td-searchpage')) {
+      document.querySelector('.top-nav').classList.add('open-search-top');
+    }
     $(document).on('click', '.mobile-search', () => {
-      $('.page-header').toggleClass('open-search');
+      $('.top-nav').toggleClass('open-search-top');
       $('.page-header,.mobile-menu').removeClass('open');
       $('body').removeClass('hidden-scroll');
       $('.mobile-search').toggleClass('open');
-      if ($('.page-header .search-container-wrap').length === 0) {
-        $('.page-header').append('<div class="navbar-nav search-container-wrap">' + $('.search-container-wrap').html() + '</div>');
-      }
     });
   })();
 

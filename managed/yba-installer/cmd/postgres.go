@@ -186,6 +186,8 @@ func (pg Postgres) Restart() {
 // Uninstall drops the yugaware DB and removes Postgres binaries.
 func (pg Postgres) Uninstall(removeData bool) {
 
+	pg.Stop()
+
 	if removeData {
 		// Remove data directory
 		// TODO: we should also remove the pgsql run directory
@@ -201,6 +203,9 @@ func (pg Postgres) Uninstall(removeData bool) {
 			log.Info(fmt.Sprintf("Error %s removing systemd service %s.",
 				err.Error(), pg.SystemdFileLocation))
 		}
+
+		// reload systemd daemon
+		common.RunBash(common.Systemctl, []string{"daemon-reload"})
 	}
 
 	// Remove conf/binary
@@ -290,7 +295,7 @@ func (pg Postgres) Upgrade() {
 	pg.postgresDirectories = newPostgresDirectories()
 	config.GenerateTemplate(pg) // NOTE: This does not require systemd reload, start does it for us.
 	pg.extractPostgresPackage()
-	pg.moveConfFiles()
+	pg.copyConfFiles()
 	pg.modifyPostgresConf()
 
 	if !common.HasSudoAccess() {
@@ -329,7 +334,8 @@ func (pg Postgres) runInitDB() {
 
 		command3 := "sudo"
 		arg3 := []string{"-u", userName, "bash", "-c",
-			pg.PgBin + "/initdb -U " + pg.getPgUserName() + " -D " + pg.ConfFileLocation}
+			pg.PgBin + "/initdb -U " + pg.getPgUserName() + " -D " + pg.ConfFileLocation +
+				" --locale=" + viper.GetString("postgres.install.locale")}
 		if _, err := common.RunBash(command3, arg3); err != nil {
 			log.Fatal("Failed to run initdb for postgres: " + err.Error())
 		}
@@ -338,7 +344,8 @@ func (pg Postgres) runInitDB() {
 
 		command1 := "bash"
 		arg1 := []string{"-c",
-			pg.PgBin + "/initdb -U " + pg.getPgUserName() + " " + " -D " + pg.ConfFileLocation}
+			pg.PgBin + "/initdb -U " + pg.getPgUserName() + " " + " -D " + pg.ConfFileLocation +
+				" --locale=" + viper.GetString("postgres.install.locale")}
 		if _, err := common.RunBash(command1, arg1); err != nil {
 			log.Fatal("Failed to run initdb for postgres: " + err.Error())
 		}
@@ -371,12 +378,12 @@ func (pg Postgres) setUpDataDir() {
 		if err != nil {
 			log.Fatal("failed to move config: " + err.Error())
 		}
-		pg.moveConfFiles() // move conf files back to conf location
+		pg.copyConfFiles() // move conf files back to conf location
 	}
 	// TODO: Need to figure on non-root case.
 }
 
-func (pg Postgres) moveConfFiles() {
+func (pg Postgres) copyConfFiles() {
 	// move conf files back to conf location
 	userName := viper.GetString("service_username")
 
@@ -416,12 +423,26 @@ func (pg Postgres) createYugawareDatabase() {
 // Status prints the status output specific to Postgres.
 func (pg Postgres) Status() common.Status {
 	status := common.Status{
-		Service:    pg.Name(),
-		Port:       viper.GetInt("postgres.install.port"),
-		Version:    pg.version,
-		ConfigLoc:  pg.ConfFileLocation,
-		LogFileLoc: pg.postgresDirectories.LogFile,
+		Service: pg.Name(),
+		Port:    viper.GetInt("postgres.install.port"),
+		Version: pg.version,
 	}
+
+	// User brought there own service, we don't know much about the status
+	if viper.GetBool("postgres.useExisting.enabled") {
+		status.Status = common.StatusUserOwned
+		status.Port = viper.GetInt("postgres.useExisting.port")
+		host := viper.GetString("postgres.useExisting.host")
+		if host == "" {
+			host = "localhost"
+		}
+		status.Hostname = host
+		status.Version = "Unknown"
+		return status
+	}
+
+	status.ConfigLoc = pg.ConfFileLocation
+	status.LogFileLoc = pg.postgresDirectories.LogFile
 
 	// Set the systemd service file location if one exists
 	if common.HasSudoAccess() {

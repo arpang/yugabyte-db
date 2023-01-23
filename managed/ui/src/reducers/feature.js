@@ -21,10 +21,11 @@ const initialStateFeatureInTest = {
   enableGcpKMS: true,
   enableAzuKMS: true,
   enableRunTimeConfig: false,
-  enablePITR: false,
+  enablePITR: true,
   enableDedicatedNodes: false,
   enableNotificationTemplates: false,
-  enablePrefillKubeConfig: false,
+  enableRestore: false,
+  enablePrefillKubeConfig: false
 };
 
 const initialStateFeatureReleased = {
@@ -48,9 +49,10 @@ const initialStateFeatureReleased = {
   enableGcpKMS: true,
   enableAzuKMS: true,
   enableRunTimeConfig: false,
-  enablePITR: false,
+  enablePITR: true,
   enableDedicatedNodes: false,
   enableNotificationTemplates: false,
+  enableRestore: false,
   enablePrefillKubeConfig: false
 };
 

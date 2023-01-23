@@ -1280,8 +1280,7 @@ Status Tablet::WriteTransactionalBatch(
     int64_t batch_idx,
     const docdb::LWKeyValueWriteBatchPB& put_batch,
     HybridTime hybrid_time,
-    const rocksdb::UserFrontiers* frontiers,
-    bool external_transaction) {
+    const rocksdb::UserFrontiers* frontiers) {
   auto transaction_id = CHECK_RESULT(
       FullyDecodeTransactionId(put_batch.transaction().transaction_id()));
 
@@ -1289,7 +1288,6 @@ Status Tablet::WriteTransactionalBatch(
   if (put_batch.transaction().has_isolation()) {
     // Store transaction metadata (status tablet, isolation level etc.)
     auto metadata = VERIFY_RESULT(TransactionMetadata::FromPB(put_batch.transaction()));
-    metadata.external_transaction = external_transaction;
     auto add_result = transaction_participant()->Add(metadata);
     if (!add_result.ok()) {
       return add_result.status();
@@ -1334,32 +1332,35 @@ Status Tablet::WriteTransactionalBatch(
 
 namespace {
 
-std::vector<docdb::LWKeyValueWriteBatchPB*> SplitWriteBatchByTransaction(
+std::vector<std::pair<docdb::LWKeyValueWriteBatchPB*, HybridTime>>
+SplitExternalBatchIntoTransactionBatches(
     const docdb::LWKeyValueWriteBatchPB& put_batch, ThreadSafeArena* arena) {
-  std::map<Slice, docdb::LWKeyValueWriteBatchPB*> map;
+  std::map<std::pair<Slice, HybridTime>, docdb::LWKeyValueWriteBatchPB*> map;
   for (const auto& write_pair : put_batch.write_pairs()) {
     if (!write_pair.has_transaction()) {
       continue;
     }
     // The write pair has transaction metadata, so it should be part of the transaction write batch.
     auto transaction_id = write_pair.transaction().transaction_id();
-    auto& write_batch_ref = map[transaction_id];
+    auto external_hybrid_time = HybridTime(write_pair.external_hybrid_time());
+    auto& write_batch_ref = map[{transaction_id, external_hybrid_time}];
     if (!write_batch_ref) {
       write_batch_ref = arena->NewArenaObject<docdb::LWKeyValueWriteBatchPB>();
     }
     auto* write_batch = write_batch_ref;
     if (!write_batch->has_transaction()) {
-      *write_batch->mutable_transaction() = write_pair.transaction();
+      auto* transaction = write_batch->mutable_transaction();
+      *transaction = write_pair.transaction();
+      transaction->set_external_transaction(true);
     }
     auto *new_write_pair = write_batch->add_write_pairs();
     new_write_pair->ref_key(write_pair.key());
     new_write_pair->ref_value(write_pair.value());
-    new_write_pair->set_external_hybrid_time(write_pair.external_hybrid_time());
   }
-  std::vector<docdb::LWKeyValueWriteBatchPB*> result;
+  std::vector<std::pair<docdb::LWKeyValueWriteBatchPB*, HybridTime>> result;
   result.reserve(map.size());
   for (auto& entry : map) {
-    result.push_back(entry.second);
+    result.push_back({entry.second, entry.first.second});
   }
   return result;
 }
@@ -1390,16 +1391,22 @@ Status Tablet::ApplyKeyValueRowOperations(
     // See comments for PrepareExternalWriteBatch.
     if (put_batch.enable_replicate_transaction_status_table()) {
       if (!metadata_->is_under_twodc_replication()) {
+        // The first time the consumer tablet sees an external write batch, set
+        // is_under_twodc_replication to true.
         RETURN_NOT_OK(metadata_->SetIsUnderTwodcReplicationAndFlush(true));
       }
       ThreadSafeArena arena;
-      auto batches_by_transaction = SplitWriteBatchByTransaction(put_batch, &arena);
-      for (const auto& write_batch : batches_by_transaction) {
-        RETURN_NOT_OK(WriteTransactionalBatch(
-            batch_idx, *write_batch, hybrid_time, frontiers, true /* external_transaction */));
+      auto batches_by_transaction = SplitExternalBatchIntoTransactionBatches(put_batch, &arena);
+      for (const auto& batch_with_hybrid_time : batches_by_transaction) {
+        const auto& write_batch = batch_with_hybrid_time.first;
+        const auto& external_hybrid_time = batch_with_hybrid_time.second;
+        WARN_NOT_OK(WriteTransactionalBatch(
+            batch_idx, *write_batch, external_hybrid_time, frontiers),
+            "Could not write transactional batch");
       }
       return Status::OK();
     }
+
     rocksdb::WriteBatch intents_write_batch;
     auto* intents_write_batch_ptr = !put_batch.enable_replicate_transaction_status_table() ?
         &intents_write_batch : nullptr;
@@ -2171,11 +2178,6 @@ Status Tablet::AlterSchema(
   RSTATUS_DCHECK(key_schema.KeyEquals(*DCHECK_NOTNULL(operation->schema())), InvalidArgument,
                  "Schema keys cannot be altered");
 
-  // Abortable read/write operations could be long and they shouldn't access metadata_ without
-  // locks, so no need to wait for them here.
-  auto op_pause = PauseReadWriteOperations(Abortable::kFalse);
-  RETURN_NOT_OK(op_pause);
-
   // If the current version >= new version, there is nothing to do.
   if (current_table_info->schema_version >= operation->schema_version()) {
     LOG_WITH_PREFIX(INFO)
@@ -2198,11 +2200,11 @@ Status Tablet::AlterSchema(
     }
   }
 
-  metadata_->SetSchema(*operation->schema(), operation->index_map(), deleted_cols,
-                      operation->schema_version(), table_id);
   if (operation->has_new_table_name()) {
-    metadata_->SetTableName(
-        current_table_info->namespace_name, operation->new_table_name().ToBuffer(), table_id);
+    metadata_->SetSchemaAndTableName(
+        *operation->schema(), operation->index_map(), deleted_cols,
+        operation->schema_version(), current_table_info->namespace_name,
+        operation->new_table_name().ToBuffer(), current_table_info->table_id);
     if (table_metrics_entity_) {
       table_metrics_entity_->SetAttribute("table_name", operation->new_table_name().ToBuffer());
       table_metrics_entity_->SetAttribute("namespace_name", current_table_info->namespace_name);
@@ -2211,6 +2213,9 @@ Status Tablet::AlterSchema(
       tablet_metrics_entity_->SetAttribute("table_name", operation->new_table_name().ToBuffer());
       tablet_metrics_entity_->SetAttribute("namespace_name", current_table_info->namespace_name);
     }
+  } else {
+    metadata_->SetSchema(*operation->schema(), operation->index_map(), deleted_cols,
+                         operation->schema_version(), current_table_info->table_id);
   }
 
   // Clear old index table metadata cache.
@@ -2574,6 +2579,12 @@ Status Tablet::BackfillIndexes(
   std::vector<yb::ColumnSchema> columns = GetColumnSchemasForIndex(indexes);
 
   Schema projection(columns, {}, schema()->num_key_columns());
+  // We must hold this RequestScope for the lifetime of this iterator to ensure backfill has a
+  // consistent snapshot of the tablet w.r.t. transaction state.
+  RequestScope scope;
+  if (transaction_participant_) {
+    scope = VERIFY_RESULT(RequestScope::Create(transaction_participant_.get()));
+  }
   auto iter = VERIFY_RESULT(NewRowIterator(
       projection, ReadHybridTime::SingleTime(read_time), "" /* table_id */, deadline));
   QLTableRow row;
@@ -2630,6 +2641,9 @@ Status Tablet::BackfillIndexes(
       VLOG(1) << "Processed " << *number_of_rows_processed << " rows";
     }
   }
+  // Destruct RequestScope once iterator is no longer used to ensure transaction participant can
+  // clean-up old transactions.
+  scope = RequestScope();
 
   if (FLAGS_TEST_backfill_sabotage_frequency > 0) {
     LOG(INFO) << "In total, " << TEST_number_rows_corrupted
@@ -2851,6 +2865,12 @@ Status Tablet::VerifyTableConsistencyForCQL(
     std::unordered_map<TableId, uint64>* consistency_stats,
     std::string* verified_until) {
   Schema projection(columns, {}, schema()->num_key_columns());
+  // We must hold this RequestScope for the lifetime of this iterator to ensure verification has a
+  // consistent snapshot of the tablet w.r.t. transaction state.
+  RequestScope scope;
+  if (transaction_participant_) {
+    scope = VERIFY_RESULT(RequestScope::Create(transaction_participant_.get()));
+  }
   auto iter = VERIFY_RESULT(NewRowIterator(
       projection, ReadHybridTime::SingleTime(read_time), "" /* table_id */, deadline));
 
@@ -2882,6 +2902,9 @@ Status Tablet::VerifyTableConsistencyForCQL(
     }
     *verified_until = resume_verified_from;
   }
+  // Destruct RequestScope once iterator is no longer used to ensure transaction participant can
+  // clean-up old transactions.
+  scope = RequestScope();
   return FlushVerifyBatch(
       read_time, deadline, &requests, &last_flushed_at, &failed_indexes, consistency_stats);
 }

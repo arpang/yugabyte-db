@@ -5,10 +5,14 @@
 package common
 
 import (
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fluxcd/pkg/tar"
 	"github.com/spf13/viper"
@@ -66,11 +70,13 @@ func MarkInstallStart() {
 }
 
 func PostInstall() {
-	// Symlink at /usr/local/bin/yba-ctl -> /opt/yba-ctl/yba-ctl -> actual yba-ctl
+	// Symlink at /usr/bin/yba-ctl -> /opt/yba-ctl/yba-ctl -> actual yba-ctl
 	if HasSudoAccess() {
 		CreateSymlink(GetInstallerSoftwareDir(), filepath.Dir(InputFile), goBinaryName)
-		CreateSymlink(filepath.Dir(InputFile), "/usr/local/bin", goBinaryName)
+		CreateSymlink(filepath.Dir(InputFile), "/usr/bin", goBinaryName)
 	}
+
+	waitForYBAReady()
 
 	MarkInstallComplete()
 }
@@ -150,7 +156,7 @@ func copyBits(vers string) {
 	templateCpCmd := fmt.Sprintf("cp %s/* %s/%s",
 		configDirPath, GetInstallerSoftwareDir(), ConfigDir)
 
-	cronDirPath := GetFileMatchingGlob(cronDirGlob)
+	cronDirPath := GetCronDir()
 	cronCpCmd := fmt.Sprintf("cp %s/* %s/%s",
 		cronDirPath, GetInstallerSoftwareDir(), CronDir)
 
@@ -220,6 +226,11 @@ func Uninstall(serviceNames []string, removeData bool) {
 
 // Upgrade performs the upgrade procedures common to all services.
 func Upgrade(version string) {
+
+	// Change into the dir we are in so that we can specify paths relative to ourselves
+	// TODO(minor): probably not a good idea in the long run
+	os.Chdir(GetBinaryDir())
+
 	createUpgradeDirs()
 	copyBits(version)
 	extractPlatformSupportPackageAndYugabundle(version)
@@ -299,6 +310,9 @@ func createYugabyteUser() {
 }
 
 func extractPlatformSupportPackageAndYugabundle(vers string) {
+
+	log.Info("Extracting yugabundle package.")
+
 	RemoveAll(GetInstallerSoftwareDir() + "packages")
 
 	yugabundleBinary := GetInstallerSoftwareDir() + "/yugabundle-" + vers + "-centos-x86_64.tar.gz"
@@ -309,12 +323,12 @@ func extractPlatformSupportPackageAndYugabundle(vers string) {
 	}
 	defer rExtract1.Close()
 
-	log.Info(fmt.Sprintf("Extracting %s", yugabundleBinary))
+	log.Debug(fmt.Sprintf("Extracting %s", yugabundleBinary))
 	err := tar.Untar(rExtract1, GetInstallerSoftwareDir(), tar.WithMaxUntarSize(-1))
 	if err != nil {
 		log.Fatal(fmt.Sprintf("failed to extract file %s, error: %s", yugabundleBinary, err.Error()))
 	}
-	log.Info(fmt.Sprintf("Completed extracting %s", yugabundleBinary))
+	log.Debug(fmt.Sprintf("Completed extracting %s", yugabundleBinary))
 
 	path1 := GetInstallerSoftwareDir() + "/yugabyte-" + vers +
 		"/yugabundle_support-" + vers + "-centos-x86_64.tar.gz"
@@ -326,12 +340,12 @@ func extractPlatformSupportPackageAndYugabundle(vers string) {
 	}
 	defer rExtract2.Close()
 
-	log.Info(fmt.Sprintf("Extracting %s", path1))
+	log.Debug(fmt.Sprintf("Extracting %s", path1))
 	err = tar.Untar(rExtract2, GetInstallerSoftwareDir(), tar.WithMaxUntarSize(-1))
 	if err != nil {
 		log.Fatal(fmt.Sprintf("failed to extract file %s, error: %s", path1, err.Error()))
 	}
-	log.Info(fmt.Sprintf("Completed extracting %s", path1))
+	log.Debug(fmt.Sprintf("Completed extracting %s", path1))
 
 	RenameOrFail(GetInstallerSoftwareDir()+"/yugabyte-"+vers,
 		GetInstallerSoftwareDir()+"/packages/yugabyte-"+vers)
@@ -345,19 +359,21 @@ func extractPlatformSupportPackageAndYugabundle(vers string) {
 
 func renameThirdPartyDependencies() {
 
+	log.Info("Extracting third-party dependencies.")
+
 	//Remove any thirdparty directories if they already exist, so
 	//that the install action is idempotent.
 	RemoveAll(GetInstallerSoftwareDir() + "/thirdparty")
 
 	path := GetInstallerSoftwareDir() + "/packages/thirdparty-deps.tar.gz"
 	rExtract, _ := os.Open(path)
-	log.Info("Extracting archive " + path)
+	log.Debug("Extracting archive " + path)
 	if err := tar.Untar(rExtract, GetInstallerSoftwareDir(), tar.WithMaxUntarSize(-1)); err != nil {
 		log.Fatal(fmt.Sprintf("failed to extract file %s, error: %s",
 			path, err.Error()))
 	}
 
-	log.Info(fmt.Sprintf("Completed extracting archive at %s to %s", path, GetInstallerSoftwareDir()))
+	log.Debug(fmt.Sprintf("Completed extracting archive at %s to %s", path, GetInstallerSoftwareDir()))
 	RenameOrFail(GetInstallerSoftwareDir()+"/thirdparty", GetInstallerSoftwareDir()+"/third-party")
 	//TODO: There is an error here because InstallRoot + "/yb-platform/third-party" does not exist
 	/*RunBash("bash",
@@ -425,5 +441,46 @@ func generateSelfSignedCerts() (string, string) {
 	)
 
 	return serverCertPath, serverKeyPath
+
+}
+
+func waitForYBAReady() {
+	log.Info("Waiting for YBA ready.")
+
+	// Needed to access https URL without x509: certificate signed by unknown authority error
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	url := fmt.Sprintf("https://%s:%s/api/v1/app_version",
+		viper.GetString("host"),
+		viper.GetString("platform.port"))
+
+	var resp *http.Response
+	var err error
+	// Check YBA version every 10 seconds for 2 minutes
+	for i := 0; i < 12; i++ {
+		resp, err = http.Get(url)
+		if err != nil {
+			log.Info(fmt.Sprintf("YBA at %s not ready. Checking again in 10 seconds.", url))
+			time.Sleep(10 * time.Second)
+		} else {
+			break
+		}
+	}
+
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+
+	// Validate version
+	if err == nil {
+		var result map[string]string
+		json.NewDecoder(resp.Body).Decode(&result)
+		if result["version"] != GetVersion() {
+			log.Fatal(fmt.Sprintf("Running YBA version %s does not match expected version %s",
+				result["version"], GetVersion()))
+		}
+	} else {
+		log.Fatal(fmt.Sprintf("Error waiting for YBA ready: %s", err.Error()))
+	}
 
 }
