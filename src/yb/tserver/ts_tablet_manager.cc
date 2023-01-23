@@ -1570,7 +1570,7 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
     }
     s = tablet->metadata()->LoadTablesFromRocksDB(tablet);
     if (!s.ok()) {
-      LOG(ERROR) << kLogPrefix << "Failed to load table metadata from DocDB: " << s;
+      LOG(ERROR) << kLogPrefix << "Failed to load table metadata from RocksDB: " << s;
       tablet_peer->SetFailed(s);
       return;
     }
