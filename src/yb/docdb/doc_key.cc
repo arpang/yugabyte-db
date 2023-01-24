@@ -1352,7 +1352,7 @@ Result<bool> HashedOrFirstRangeComponentsEqual(const Slice& lhs, const Slice& rh
 
 bool DocKeyBelongsTo(Slice doc_key, const Schema& schema) {
   if (schema.is_metadata_schema()) {
-    return !doc_key.empty() && doc_key[0] == KeyEntryTypeAsChar::kTabletMetadata;
+    return doc_key.starts_with(KeyEntryTypeAsChar::kTabletMetadata);
   }
 
   bool has_table_id = !doc_key.empty() &&

@@ -328,8 +328,8 @@ Result<bool> DocRowwiseIterator::HasNext() {
       return false;
     }
 
-    if (!doc_read_context_.schema.is_metadata_schema() && !row_key_.empty() &&
-        row_key_[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+    if (!doc_read_context_.schema.is_metadata_schema() &&
+        row_key_.starts_with(KeyEntryTypeAsChar::kTabletMetadata)) {
       if (is_forward_scan_) {
         db_iter_->SeekOutOfSubDoc(&iter_key_);
       } else {

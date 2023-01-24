@@ -342,7 +342,7 @@ class PackedRowData {
     }
     RETURN_NOT_OK(Flush());
 
-    if (!coprefix.empty() && coprefix[0] == KeyEntryTypeAsChar::kTabletMetadata) {
+    if (coprefix.starts_with(KeyEntryTypeAsChar::kTabletMetadata)) {
       // metadata entry found, resetting to default values.
       active_coprefix_ = "FAKE_PREFIX"s;
       active_coprefix_dropped_ = false;
