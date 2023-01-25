@@ -132,7 +132,7 @@ class LogTest : public LogTestBase {
     header.set_major_version(0);
     header.set_minor_version(0);
     header.set_unused_tablet_id(kTestTablet);
-    SchemaToPB(GetSimpleTestSchema(), header.mutable_schema());
+    SchemaToPB(GetSimpleTestSchema(), header.mutable_unused_schema());
 
     LogSegmentFooterPB footer;
     footer.set_num_entries(10);
