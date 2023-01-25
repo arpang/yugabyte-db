@@ -112,9 +112,9 @@ message KvStoreInfoPB {
   // compacted. Defaults to 0 (i.e. HybridTime::kMin).
   optional uint64 last_full_compaction_time = 10;
 
-  // Initial version of the primary table. Set only when the tablet metadata is in RocksDB.
-  // Any subsequent version goes to RocksDB.
-  optional TableInfoPB initial_primary_table = 11;
+  // // Initial version of the primary table. Set only when the tablet metadata is in RocksDB.
+  // // Any subsequent version goes to RocksDB.
+  // optional TableInfoPB initial_primary_table = 11;
 
   // Table metadata schema. Set only when the metadata is in RocksDB.
   optional SchemaPB metadata_schema = 12;
@@ -215,6 +215,12 @@ message RaftGroupReplicaSuperBlockPB {
   optional OpIdPB cdc_sdk_min_checkpoint_op_id = 33;
 
   optional fixed64 cdc_sdk_safe_time = 34;
+
+  optional TableType  primary_table_type = 35;
+  
+  optional bool transactional = 36 [default = false];
+
+  optional bool index_table = 37 [default = false];
 }
 
 message FilePB {

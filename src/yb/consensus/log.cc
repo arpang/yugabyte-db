@@ -550,8 +550,8 @@ Status Log::Open(const LogOptions &options,
                  const std::string& tablet_id,
                  const std::string& wal_dir,
                  const std::string& peer_uuid,
-                 const Schema& schema,
-                 uint32_t schema_version,
+                //  const Schema& schema,
+                //  uint32_t schema_version,
                  const scoped_refptr<MetricEntity>& table_metric_entity,
                  const scoped_refptr<MetricEntity>& tablet_metric_entity,
                  ThreadPool* append_thread_pool,
@@ -571,8 +571,8 @@ Status Log::Open(const LogOptions &options,
                                      wal_dir,
                                      tablet_id,
                                      peer_uuid,
-                                     schema,
-                                     schema_version,
+                                    //  schema,
+                                    //  schema_version,
                                      table_metric_entity,
                                      tablet_metric_entity,
                                      append_thread_pool,
@@ -589,8 +589,8 @@ Log::Log(
     string wal_dir,
     string tablet_id,
     string peer_uuid,
-    const Schema& schema,
-    uint32_t schema_version,
+    // const Schema& schema,
+    // uint32_t schema_version,
     const scoped_refptr<MetricEntity>& table_metric_entity,
     const scoped_refptr<MetricEntity>& tablet_metric_entity,
     ThreadPool* append_thread_pool,
@@ -601,8 +601,8 @@ Log::Log(
       wal_dir_(std::move(wal_dir)),
       tablet_id_(std::move(tablet_id)),
       peer_uuid_(std::move(peer_uuid)),
-      schema_(std::make_unique<Schema>(schema)),
-      schema_version_(schema_version),
+      schema_(std::make_unique<Schema>()),
+      // schema_version_(schema_version),
       active_segment_sequence_number_(options.initial_active_segment_sequence_number),
       log_state_(kLogInitialized),
       max_segment_size_(options_.segment_size_bytes),
@@ -1424,8 +1424,7 @@ uint64_t Log::OnDiskSize() {
   return ret;
 }
 
-void Log::SetSchemaForNextLogSegment(const Schema& schema,
-                                     uint32_t version) {
+void Log::SetSchemaForNextLogSegment(const Schema& schema, uint32_t version) {
   std::lock_guard<rw_spinlock> l(schema_lock_);
   *schema_ = schema;
   schema_version_ = version;
@@ -1736,8 +1735,13 @@ Status Log::SwitchToAllocatedSegment() {
   // Set the new segment's schema.
   {
     SharedLock<decltype(schema_lock_)> l(schema_lock_);
-    SchemaToPB(*schema_, header.mutable_unused_schema());
-    header.set_unused_schema_version(schema_version_);
+    if (schema_) {
+      SchemaToPB(*schema_, header.mutable_unused_schema());
+      header.set_unused_schema_version(schema_version_);
+    } else {
+      header.mutable_unused_schema();
+      // header.set_unused_schema_version(schema_version_);
+    }
   }
 
   RETURN_NOT_OK(new_segment->WriteHeaderAndOpen(header));

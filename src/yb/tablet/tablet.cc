@@ -427,9 +427,35 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
   const std::string log_prefix_;
 };
 
+void Tablet::Init(const TabletInitData& data) {
+  key_schema_ = std::make_unique<Schema>(data.metadata->schema()->CreateKeyProjection());
+  CHECK(schema()->has_column_ids());
+  LOG_WITH_PREFIX(INFO) << "Schema version for " << metadata_->table_name() << " is "
+                        << metadata_->schema_version();
+
+  auto table_info = metadata_->primary_table_info();
+  table_metrics_entity_->SetAttribute("table_name", table_info->table_name);
+  table_metrics_entity_->SetAttribute("namespace_name", table_info->namespace_name);
+
+  bool has_index = !table_info->index_map->empty();
+
+  // Create index table metadata cache for secondary index update.
+  if (has_index) {
+    CreateNewYBMetaDataCache();
+  }
+
+  // If this is a unique index tablet, set up the index primary key schema.
+  if (table_info->index_info && table_info->index_info->is_unique()) {
+    unique_index_key_schema_ = std::make_unique<Schema>();
+    const auto ids = table_info->index_info->index_key_column_ids();
+    CHECK_OK(table_info->schema().CreateProjectionByIdsIgnoreMissing(
+        ids, unique_index_key_schema_.get()));
+  }
+}
+
 Tablet::Tablet(const TabletInitData& data)
-    : key_schema_(std::make_unique<Schema>(data.metadata->schema()->CreateKeyProjection())),
-      metadata_(data.metadata),
+    // : key_schema_(std::make_unique<Schema>(data.metadata->schema()->CreateKeyProjection())),
+    : metadata_(data.metadata),
       table_type_(data.metadata->table_type()),
       log_anchor_registry_(data.log_anchor_registry),
       mem_tracker_(MemTracker::CreateTracker(
@@ -453,16 +479,16 @@ Tablet::Tablet(const TabletInitData& data)
           clock_, data.allowed_history_cutoff_provider, metadata_.get())),
       full_compaction_pool_(data.full_compaction_pool),
       ts_post_split_compaction_added_(std::move(data.post_split_compaction_added)) {
-  CHECK(schema()->has_column_ids());
-  LOG_WITH_PREFIX(INFO) << "Schema version for " << metadata_->table_name() << " is "
-                        << metadata_->schema_version();
+  // CHECK(schema()->has_column_ids());
+  // LOG_WITH_PREFIX(INFO) << "Schema version for " << metadata_->table_name() << " is "
+  //                       << metadata_->schema_version();
 
   if (data.metric_registry) {
     MetricEntity::AttributeMap attrs;
     // TODO(KUDU-745): table_id is apparently not set in the metadata.
     attrs["table_id"] = metadata_->table_id();
-    attrs["table_name"] = metadata_->table_name();
-    attrs["namespace_name"] = metadata_->namespace_name();
+    // attrs["table_name"] = metadata_->table_name();
+    // attrs["namespace_name"] = metadata_->namespace_name();
     table_metrics_entity_ =
         METRIC_ENTITY_table.Instantiate(data.metric_registry, metadata_->table_id(), attrs);
     tablet_metrics_entity_ =
@@ -480,9 +506,10 @@ Tablet::Tablet(const TabletInitData& data)
     mem_tracker_->SetMetricEntity(tablet_metrics_entity_);
   }
 
-  auto table_info = metadata_->primary_table_info();
-  bool has_index = !table_info->index_map->empty();
-  bool transactional = data.metadata->schema()->table_properties().is_transactional();
+  // auto table_info = metadata_->primary_table_info();
+  // bool has_index = !table_info->index_map->empty();
+  // bool transactional = data.metadata->schema()->table_properties().is_transactional();
+  bool transactional = data.metadata->is_transactional();
   if (transactional) {
     server::HybridClock::EnableClockSkewControl();
   }
@@ -499,21 +526,21 @@ Tablet::Tablet(const TabletInitData& data)
     }
   }
 
-  // Create index table metadata cache for secondary index update.
-  if (has_index) {
-    CreateNewYBMetaDataCache();
-  }
+  // // Create index table metadata cache for secondary index update.
+  // if (has_index) {
+  //   CreateNewYBMetaDataCache();
+  // }
 
-  // If this is a unique index tablet, set up the index primary key schema.
-  if (table_info->index_info && table_info->index_info->is_unique()) {
-    unique_index_key_schema_ = std::make_unique<Schema>();
-    const auto ids = table_info->index_info->index_key_column_ids();
-    CHECK_OK(table_info->schema().CreateProjectionByIdsIgnoreMissing(
-        ids, unique_index_key_schema_.get()));
-  }
+  // // If this is a unique index tablet, set up the index primary key schema.
+  // if (table_info->index_info && table_info->index_info->is_unique()) {
+  //   unique_index_key_schema_ = std::make_unique<Schema>();
+  //   const auto ids = table_info->index_info->index_key_column_ids();
+  //   CHECK_OK(table_info->schema().CreateProjectionByIdsIgnoreMissing(
+  //       ids, unique_index_key_schema_.get()));
+  // }
 
   if (data.transaction_coordinator_context &&
-      table_info->table_type == TableType::TRANSACTION_STATUS_TABLE_TYPE) {
+      table_type_ == TableType::TRANSACTION_STATUS_TABLE_TYPE) {
     transaction_coordinator_ = std::make_unique<TransactionCoordinator>(
         metadata_->fs_manager()->uuid(),
         data.transaction_coordinator_context,
@@ -558,7 +585,7 @@ Status Tablet::Open() {
   TRACE_EVENT0("tablet", "Tablet::Open");
   std::lock_guard<rw_spinlock> lock(component_lock_);
   CHECK_EQ(state_, kInitialized) << "already open";
-  CHECK(schema()->has_column_ids());
+  // CHECK(schema()->has_column_ids());
 
   switch (table_type_) {
     case TableType::PGSQL_TABLE_TYPE: FALLTHROUGH_INTENDED;
@@ -707,7 +734,7 @@ Status Tablet::OpenKeyValueTablet() {
   static const std::string kIntentsDB = "IntentsDB"s;
 
   rocksdb::BlockBasedTableOptions table_options;
-  if (!metadata()->primary_table_info()->index_info || metadata()->colocated()) {
+  if (!metadata()->is_index_table() || metadata()->colocated()) {
     // This tablet is not dedicated to the index table, so it should be effective to use
     // advanced key-value encoding algorithm optimized for docdb keys structure.
     table_options.use_delta_encoding = true;
@@ -3645,7 +3672,7 @@ Result<TransactionOperationContext> Tablet::CreateTransactionOperationContext(
 
   if (transaction_id.is_initialized()) {
     txn_id = transaction_id.get_ptr();
-  } else if (metadata_->schema()->table_properties().is_transactional() || is_ysql_catalog_table) {
+  } else if (metadata_->is_transactional() || is_ysql_catalog_table) {
     // deadbeef-dead-beef-dead-beef00000075
     static const TransactionId kArbitraryTxnIdForNonTxnReads(
         17275436393656397278ULL, 8430738506459819486ULL);

@@ -82,7 +82,7 @@
 DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 
 DEFINE_RUNTIME_AUTO_bool(
-    ts_tableinfo_in_rocksdb, kLocalPersisted, false, false,
+    ts_tableinfo_in_rocksdb, kLocalPersisted, false, true,
     "Stores the TableInfoPB in RocksDB for tserver tables");
 
 using std::shared_ptr;
@@ -420,12 +420,12 @@ Status KvStoreInfo::LoadFromPB(const std::string& tablet_log_prefix,
     snapshot_schedules.insert(VERIFY_RESULT(FullyDecodeSnapshotScheduleId(schedule_id)));
   }
   RETURN_NOT_OK(LoadTablesFromPB(tablet_log_prefix, pb.tables(), primary_table_id));
-  if (pb.has_initial_primary_table()) {
-    initial_primary_table = VERIFY_RESULT(
-        TableInfo::LoadFromPB(tablet_log_prefix, primary_table_id, pb.initial_primary_table()));
-    tables.emplace(primary_table_id, initial_primary_table);
-    UpdateColocationMap(initial_primary_table);
-    DCHECK(pb.has_metadata_schema());
+  if (pb.has_metadata_schema()) {
+    // initial_primary_table = VERIFY_RESULT(
+    //     TableInfo::LoadFromPB(tablet_log_prefix, primary_table_id, pb.initial_primary_table()));
+    // tables.emplace(primary_table_id, initial_primary_table);
+    // UpdateColocationMap(initial_primary_table);
+    // DCHECK(pb.has_metadata_schema());
     RETURN_NOT_OK(SchemaFromPB(pb.metadata_schema(), &metadata_schema));
   }
   return Status::OK();
@@ -487,7 +487,7 @@ void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const
   pb->set_last_full_compaction_time(last_full_compaction_time);
 
   if (IsTableMetadataInRocksDB()) {
-    initial_primary_table->ToPB(pb->mutable_initial_primary_table());
+    // initial_primary_table->ToPB(pb->mutable_initial_primary_table());
     SchemaToPB(metadata_schema, pb->mutable_metadata_schema());
   } else {
     // Putting primary table first, then all other tables.
@@ -778,6 +778,9 @@ RaftGroupMetadata::RaftGroupMetadata(
       raft_group_id_(data.raft_group_id),
       partition_(std::make_shared<Partition>(data.partition)),
       primary_table_id_(data.table_info->table_id),
+      primary_table_type_(data.table_info->table_type),
+      is_transactional_(data.table_info->schema().table_properties().is_transactional()),
+      is_index_table_(data.table_info->index_info),
       kv_store_(KvStoreId(raft_group_id_), data_dir, data.snapshot_schedules),
       fs_manager_(data.fs_manager),
       wal_dir_(wal_dir),
@@ -787,16 +790,18 @@ RaftGroupMetadata::RaftGroupMetadata(
       cdc_sdk_min_checkpoint_op_id_(OpId::Invalid()),
       cdc_sdk_safe_time_(HybridTime::kInvalid),
       log_prefix_(consensus::MakeTabletLogPrefix(raft_group_id_, fs_manager_->uuid())) {
-  CHECK(data.table_info->schema().has_column_ids());
-  CHECK_GT(data.table_info->schema().num_key_columns(), 0);
-  kv_store_.tables.emplace(primary_table_id_, data.table_info);
-  kv_store_.UpdateColocationMap(data.table_info);
-
   bool is_ts_tablet = data.table_info->table_id != master::kSysCatalogTableId;
   if (is_ts_tablet && FLAGS_ts_tableinfo_in_rocksdb &&
       data.table_info->table_type == PGSQL_TABLE_TYPE) {
-    kv_store_.initial_primary_table = data.table_info;
+    // kv_store_.initial_primary_table = data.table_info;
     kv_store_.metadata_schema = kv_store_.BuildMetadataSchema();
+  } else {
+    CHECK(data.table_info->schema()
+              .has_column_ids());  // how to do this if metadata in rocksdb for primary table -
+                                   // probably we can check if schema is initialized
+    CHECK_GT(data.table_info->schema().num_key_columns(), 0);
+    kv_store_.tables.emplace(primary_table_id_, data.table_info);
+    kv_store_.UpdateColocationMap(data.table_info);
   }
 }
 
@@ -855,6 +860,27 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
 
     RETURN_NOT_OK(kv_store_.LoadFromPB(
         log_prefix_, superblock.kv_store(), primary_table_id_, local_superblock));
+
+    if (superblock.has_primary_table_type()) {
+      primary_table_type_ = superblock.primary_table_type();
+    } else {
+      primary_table_type_ = primary_table_info()->table_type;
+    }
+    LOG_WITH_FUNC(INFO) << "primary_table_type_ " << primary_table_type_;
+
+    if (superblock.has_transactional()) {
+      is_transactional_ = superblock.transactional();
+    } else {
+      is_transactional_ = primary_table_info()->schema().table_properties().is_transactional();
+    }
+    LOG_WITH_FUNC(INFO) << "is_transactional_ " << is_transactional_;
+
+    if (superblock.has_index_table()) {
+      is_index_table_ = superblock.index_table();
+    } else {
+      is_index_table_ = primary_table_info()->index_info != nullptr;
+    }
+    LOG_WITH_FUNC(INFO) << "is_index_table_ " << is_index_table_;
 
     wal_dir_ = superblock.wal_dir();
     tablet_data_state_ = superblock.tablet_data_state();
@@ -998,6 +1024,9 @@ void RaftGroupMetadata::ToSuperBlockUnlocked(RaftGroupReplicaSuperBlockPB* super
   }
 
   pb.set_primary_table_id(primary_table_id_);
+  pb.set_primary_table_type(primary_table_type_);
+  pb.set_transactional(is_transactional_);
+  pb.set_index_table(is_index_table_);
   pb.set_colocated(colocated_);
   pb.set_cdc_min_replicated_index(cdc_min_replicated_index_);
   cdc_sdk_min_checkpoint_op_id_.ToPB(pb.mutable_cdc_sdk_min_checkpoint_op_id());
@@ -1607,7 +1636,8 @@ std::string RaftGroupMetadata::table_name(
 TableType RaftGroupMetadata::table_type(const TableId& table_id) const {
   DCHECK_NE(state_, kNotLoadedYet);
   if (table_id.empty()) {
-    return primary_table_info()->table_type;
+    std::lock_guard<MutexType> lock(data_mutex_);
+    return primary_table_type_;
   }
   const auto& table_info = CHECK_RESULT(GetTableInfo(table_id));
   return table_info->table_type;

@@ -110,8 +110,8 @@ class LogCacheTest : public YBTest {
                             kTestTablet,
                             fs_manager_->GetFirstTabletWalDirOrDie(kTestTable, kTestTablet),
                             fs_manager_->uuid(),
-                            schema_,
-                            0, // schema_version
+                            // schema_,
+                            // 0, // schema_version
                             nullptr, // table_metrics_entity
                             nullptr, // tablet_metrics_entity
                             log_thread_pool_.get(),

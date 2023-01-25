@@ -153,6 +153,8 @@ class Tablet : public AbstractTablet,
 
   ~Tablet();
 
+  void Init(const TabletInitData& data);
+
   // Open the tablet.
   // Upon completion, the tablet enters the kBootstrapping state.
   Status Open();
@@ -815,6 +817,10 @@ class Tablet : public AbstractTablet,
   // critical failures.
   Status ApplyAutoFlagsConfig(const AutoFlagsConfigPB& config);
 
+  Status UpsertMetadataDocOperation(
+      const std::vector<TableInfoPtr>& table_infos, Operation* operation = nullptr,
+      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
+
   std::string LogPrefix() const;
 
  private:
@@ -918,10 +924,6 @@ class Tablet : public AbstractTablet,
   Status DeleteMetadataDocOperation(
       const TableId& table_id,
       Operation* operation,
-      AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
-
-  Status UpsertMetadataDocOperation(
-      const std::vector<TableInfoPtr>& table_infos, Operation* operation = nullptr,
       AlreadyAppliedToRegularDB already_applied_to_regular_db = AlreadyAppliedToRegularDB::kFalse);
 
   std::unique_ptr<const Schema> key_schema_;

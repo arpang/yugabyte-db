@@ -563,7 +563,7 @@ Status TSTabletManager::Init() {
 
     TabletPeerPtr tablet_peer = VERIFY_RESULT(CreateAndRegisterTabletPeer(meta, NEW_PEER));
     RETURN_NOT_OK(open_tablet_pool_->SubmitFunc(
-        std::bind(&TSTabletManager::OpenTablet, this, meta, deleter)));
+        std::bind(&TSTabletManager::OpenTablet, this, meta, deleter, nullptr)));
   }
 
   // Background task initiation.
@@ -774,8 +774,11 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
   TabletPeerPtr new_peer = VERIFY_RESULT(CreateAndRegisterTabletPeer(meta, NEW_PEER));
 
   // We can run this synchronously since there is nothing to bootstrap.
-  RETURN_NOT_OK(
-      open_tablet_pool_->SubmitFunc(std::bind(&TSTabletManager::OpenTablet, this, meta, deleter)));
+  // RETURN_NOT_OK(
+  //     open_tablet_pool_->SubmitFunc(std::bind(&TSTabletManager::OpenTablet, this, meta,
+  //     deleter)));
+
+  OpenTablet(meta, deleter, table_info);
 
   return new_peer;
 }
@@ -891,7 +894,8 @@ void TSTabletManager::CreatePeerAndOpenTablet(
     }
     return;
   }
-  s = open_tablet_pool_->SubmitFunc(std::bind(&TSTabletManager::OpenTablet, this, meta, deleter));
+  s = open_tablet_pool_->SubmitFunc(
+      std::bind(&TSTabletManager::OpenTablet, this, meta, deleter, nullptr));
   if (!s.ok()) {
     LOG(DFATAL) << Format("Failed to schedule opening tablet $0: $1", meta->table_id(), s);
     return;
@@ -1266,7 +1270,7 @@ Status TSTabletManager::StartRemoteBootstrap(const StartRemoteBootstrapRequestPB
   // to check what happens when this server receives raft consensus requests since at this point,
   // this tablet server could be a voter (if the ChangeRole request in Finish succeeded and its
   // initial role was PRE_VOTER).
-  OpenTablet(meta, nullptr);
+  OpenTablet(meta, nullptr, nullptr);
   // If OpenTablet fails, tablet_peer->error() will be set.
   RETURN_NOT_OK(ShutdownAndTombstoneTabletPeerNotOk(
       tablet_peer->error(), tablet_peer, meta, fs_manager_->uuid(),
@@ -1464,8 +1468,10 @@ Status TSTabletManager::OpenTabletMeta(const string& tablet_id,
   return Status::OK();
 }
 
-void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
-                                 const scoped_refptr<TransitionInProgressDeleter>& deleter) {
+void TSTabletManager::OpenTablet(
+    const RaftGroupMetadataPtr& meta,
+    const scoped_refptr<TransitionInProgressDeleter>& deleter,
+    const tablet::TableInfoPtr& table_info) {
   string tablet_id = meta->raft_group_id();
   TRACE_EVENT1("tserver", "TSTabletManager::OpenTablet",
                "tablet_id", tablet_id);
@@ -1568,12 +1574,28 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
       tablet_peer->SetFailed(s);
       return;
     }
+    if (table_info && tablet->metadata()->IsTableMetadataInRocksDB()) {
+      s = tablet->UpsertMetadataDocOperation({table_info});
+      if (!s.ok()) {
+        LOG(ERROR) << kLogPrefix << "Failed to insert metadata in RocksDB: " << s;
+        tablet_peer->SetFailed(s);
+        return;
+      }
+      s = tablet->Flush(tablet::FlushMode::kSync, tablet::FlushFlags::kRegular);
+      if (!s.ok()) {
+        LOG(ERROR) << kLogPrefix << "Failed to flush regulardb: " << s;
+        tablet_peer->SetFailed(s);
+        return;
+      }
+    }
     s = tablet->metadata()->LoadTablesFromRocksDB(tablet);
     if (!s.ok()) {
       LOG(ERROR) << kLogPrefix << "Failed to load table metadata from RocksDB: " << s;
       tablet_peer->SetFailed(s);
       return;
     }
+    tablet->Init(data.tablet_init_data);
+    log->SetSchemaForNextLogSegment(*tablet->schema(), tablet->metadata()->schema_version());
   }
 
   MonoTime start(MonoTime::Now());
@@ -2078,13 +2100,15 @@ void TSTabletManager::CreateReportedTabletPB(const TabletPeerPtr& tablet_peer,
     AppStatusPB* error_status = reported_tablet->mutable_error();
     StatusToPB(tablet_peer->error(), error_status);
   }
-  reported_tablet->set_schema_version(tablet_peer->tablet_metadata()->schema_version());
+  // reported_tablet->set_schema_version(tablet_peer->tablet_metadata()->schema_version());
+  reported_tablet->set_schema_version(0);
 
   auto& id_to_version = *reported_tablet->mutable_table_to_version();
   // Attach schema versions of all tables including the colocated ones.
   for (const auto& table_id : tablet_peer->tablet_metadata()->GetAllColocatedTables()) {
     if (id_to_version.find(table_id) == id_to_version.end()) {
-      id_to_version[table_id] = tablet_peer->tablet_metadata()->schema_version(table_id);
+      // id_to_version[table_id] = tablet_peer->tablet_metadata()->schema_version(table_id);
+      id_to_version[table_id] = 0;
     }
   }
 

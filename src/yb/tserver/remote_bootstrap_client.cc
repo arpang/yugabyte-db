@@ -264,9 +264,10 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
       break;
     }
   }
-  if (!table_ptr && kv_store->has_initial_primary_table()) {
-    table_ptr = &kv_store->initial_primary_table();
-  }
+  // TODO
+  // if (!table_ptr && kv_store->has_initial_primary_table()) {
+  //   table_ptr = &kv_store->initial_primary_table();
+  // }
   if (!table_ptr) {
     return STATUS(InvalidArgument, Format(
         "Tablet $0: Superblock's KV-store doesn't contain primary table $1", tablet_id_,

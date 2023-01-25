@@ -420,8 +420,10 @@ class TSTabletManager : public tserver::TabletPeerLookupIf, public tablet::Table
   // method. A TransitionInProgressDeleter must be passed as 'deleter' into
   // this method in order to remove that transition-in-progress entry when
   // opening the tablet is complete (in either a success or a failure case).
-  void OpenTablet(const scoped_refptr<tablet::RaftGroupMetadata>& meta,
-                  const scoped_refptr<TransitionInProgressDeleter>& deleter);
+  void OpenTablet(
+      const scoped_refptr<tablet::RaftGroupMetadata>& meta,
+      const scoped_refptr<TransitionInProgressDeleter>& deleter,
+      const tablet::TableInfoPtr& table_info);
 
   // Open a tablet whose metadata has already been loaded.
   void BootstrapAndInitTablet(const scoped_refptr<tablet::RaftGroupMetadata>& meta,

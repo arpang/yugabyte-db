@@ -182,7 +182,7 @@ class TabletPeerTest : public YBTabletTest {
     scoped_refptr<Log> log;
     ASSERT_OK(Log::Open(LogOptions(), tablet()->tablet_id(),
                         tablet()->metadata()->wal_dir(), tablet()->metadata()->fs_manager()->uuid(),
-                        *tablet()->schema(), tablet()->metadata()->schema_version(),
+                        // *tablet()->schema(), tablet()->metadata()->schema_version(),
                         table_metric_entity_.get(), tablet_metric_entity_.get(),
                         log_thread_pool_.get(), log_thread_pool_.get(), log_thread_pool_.get(),
                         tablet()->metadata()->cdc_min_replicated_index(), &log));

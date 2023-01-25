@@ -68,8 +68,8 @@ void RemoteBootstrapSessionTest::SetUpTabletPeer() {
                      fs_manager()->GetFirstTabletWalDirOrDie(tablet_ptr->metadata()->table_id(),
                                                              tablet_id),
                      fs_manager()->uuid(),
-                     *tablet()->schema(),
-                     0,  // schema_version
+                    //  *tablet()->schema(),
+                    //  0,  // schema_version
                      nullptr, // table_metric_entity
                      nullptr, // tablet_metric_entity
                      log_thread_pool_.get(),

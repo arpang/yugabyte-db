@@ -205,7 +205,7 @@ struct KvStoreInfo {
   // Updates colocation map with new table info.
   void UpdateColocationMap(const TableInfoPtr& table_info);
 
-  bool IsTableMetadataInRocksDB() const { return initial_primary_table != nullptr; }
+  bool IsTableMetadataInRocksDB() const { return metadata_schema.initialized(); }
 
   KvStoreId kv_store_id;
 
@@ -225,7 +225,7 @@ struct KvStoreInfo {
   // See KvStoreInfoPB field with the same name.
   uint64_t last_full_compaction_time = kNoLastFullCompactionTime;
 
-  TableInfoPtr initial_primary_table = nullptr;
+  // TableInfoPtr initial_primary_table = nullptr;
 
   // Map of tables sharing this KV-store indexed by the table id.
   // If pieces of the same table live in the same Raft group they should be located in different
@@ -314,6 +314,18 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     DCHECK_NE(state_, kNotLoadedYet);
     std::lock_guard<MutexType> lock(data_mutex_);
     return primary_table_id_;
+  }
+
+  bool is_transactional() const {
+    DCHECK_NE(state_, kNotLoadedYet);
+    std::lock_guard<MutexType> lock(data_mutex_);
+    return is_transactional_;
+  }
+
+  bool is_index_table() const {
+    DCHECK_NE(state_, kNotLoadedYet);
+    std::lock_guard<MutexType> lock(data_mutex_);
+    return is_index_table_;
   }
 
   // Returns the name, type, schema, index map, schema, etc of the table.
@@ -676,6 +688,12 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // The primary table id. Primary table is the first table this Raft group is created for.
   // Additional tables can be added to this Raft group to co-locate with this table.
   TableId primary_table_id_ GUARDED_BY(data_mutex_);
+
+  TableType primary_table_type_ GUARDED_BY(data_mutex_);
+
+  bool is_transactional_ GUARDED_BY(data_mutex_) = false;
+
+  bool is_index_table_ GUARDED_BY(data_mutex_) = false;
 
   // KV-store for this Raft group.
   KvStoreInfo kv_store_;
