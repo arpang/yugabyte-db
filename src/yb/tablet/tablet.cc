@@ -400,7 +400,8 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
       FillMinSchemaVersion(tablet_.regular_db_.get(), &table_id_to_min_schema_version);
       FillMinSchemaVersion(tablet_.intents_db_.get(), &table_id_to_min_schema_version);
     }
-    const auto& modified_table_infos = tablet_.metadata()->OldSchemaGC(table_id_to_min_schema_version);
+    const auto& modified_table_infos =
+        tablet_.metadata()->OldSchemaGC(table_id_to_min_schema_version);
     if (!modified_table_infos.empty()) {
       if (tablet_.metadata()->IsTableMetadataInRocksDB()) {
         ERROR_NOT_OK(tablet_.UpsertMetadataDocOperation(modified_table_infos), log_prefix_);
