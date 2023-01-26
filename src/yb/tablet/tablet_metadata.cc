@@ -367,6 +367,7 @@ Status KvStoreInfo::LoadTablesFromPB(
 Status KvStoreInfo::LoadTablesFromRocksDB(
     const std::string& tablet_log_prefix, const TabletPtr& tablet,
     const TableId& primary_table_id) {
+  LOG(INFO) << "Inside KvStoreInfo::LoadTablesFromRocksDB";
   ColumnId metadata_col_id =
       VERIFY_RESULT(metadata_schema.ColumnIdByName(kSysCatalogTableColMetadata));
   const docdb::DocReadContext doc_read_context(tablet_log_prefix, metadata_schema, 0);
@@ -386,7 +387,7 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
     docdb::DocPgsqlScanSpec spec(metadata_schema, rocksdb::kDefaultQueryId, doc_key);
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
-
+  LOG(INFO) << "Starting while loop";
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
@@ -397,9 +398,11 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
     const string& serialized_table_info = table_info_ql_value->binary_value();
     TableInfoPtr table_info = VERIFY_RESULT(
         TableInfo::LoadFromString(tablet_log_prefix, primary_table_id, serialized_table_info));
+    LOG(INFO) << "Loaded table from rocksdb " << table_info->ShortDebugString();
     tables.emplace(table_info->table_id, table_info);
     UpdateColocationMap(table_info);
   }
+  LOG(INFO) << "Outside while loop";
   return Status::OK();
 }
 
@@ -790,19 +793,26 @@ RaftGroupMetadata::RaftGroupMetadata(
       cdc_sdk_min_checkpoint_op_id_(OpId::Invalid()),
       cdc_sdk_safe_time_(HybridTime::kInvalid),
       log_prefix_(consensus::MakeTabletLogPrefix(raft_group_id_, fs_manager_->uuid())) {
+  CHECK(data.table_info->schema()
+            .has_column_ids());  // how to do this if metadata in rocksdb for primary table -
+                                 // probably we can check if schema is initialized
+  CHECK_GT(data.table_info->schema().num_key_columns(), 0);
+  kv_store_.tables.emplace(primary_table_id_, data.table_info);
+  kv_store_.UpdateColocationMap(data.table_info);
   bool is_ts_tablet = data.table_info->table_id != master::kSysCatalogTableId;
   if (is_ts_tablet && FLAGS_ts_tableinfo_in_rocksdb &&
       data.table_info->table_type == PGSQL_TABLE_TYPE) {
     // kv_store_.initial_primary_table = data.table_info;
     kv_store_.metadata_schema = kv_store_.BuildMetadataSchema();
-  } else {
-    CHECK(data.table_info->schema()
-              .has_column_ids());  // how to do this if metadata in rocksdb for primary table -
-                                   // probably we can check if schema is initialized
-    CHECK_GT(data.table_info->schema().num_key_columns(), 0);
-    kv_store_.tables.emplace(primary_table_id_, data.table_info);
-    kv_store_.UpdateColocationMap(data.table_info);
   }
+    // else {
+    //   CHECK(data.table_info->schema()
+    //             .has_column_ids());  // how to do this if metadata in rocksdb for primary table -
+    //                                  // probably we can check if schema is initialized
+    //   CHECK_GT(data.table_info->schema().num_key_columns(), 0);
+    //   kv_store_.tables.emplace(primary_table_id_, data.table_info);
+    //   kv_store_.UpdateColocationMap(data.table_info);
+    // }
 }
 
 RaftGroupMetadata::~RaftGroupMetadata() {

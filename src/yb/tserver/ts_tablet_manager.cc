@@ -1471,7 +1471,7 @@ Status TSTabletManager::OpenTabletMeta(const string& tablet_id,
 void TSTabletManager::OpenTablet(
     const RaftGroupMetadataPtr& meta,
     const scoped_refptr<TransitionInProgressDeleter>& deleter,
-    const tablet::TableInfoPtr& table_info) {
+    const tablet::TableInfoPtr& new_table_info) {
   string tablet_id = meta->raft_group_id();
   TRACE_EVENT1("tserver", "TSTabletManager::OpenTablet",
                "tablet_id", tablet_id);
@@ -1574,25 +1574,28 @@ void TSTabletManager::OpenTablet(
       tablet_peer->SetFailed(s);
       return;
     }
-    if (table_info && tablet->metadata()->IsTableMetadataInRocksDB()) {
-      s = tablet->UpsertMetadataDocOperation({table_info});
-      if (!s.ok()) {
-        LOG(ERROR) << kLogPrefix << "Failed to insert metadata in RocksDB: " << s;
-        tablet_peer->SetFailed(s);
-        return;
+    if (tablet->metadata()->IsTableMetadataInRocksDB()) {
+      if (new_table_info) {
+        s = tablet->UpsertMetadataDocOperation({new_table_info});
+        if (!s.ok()) {
+          LOG(ERROR) << kLogPrefix << "Failed to insert metadata in RocksDB: " << s;
+          tablet_peer->SetFailed(s);
+          return;
+        }
+        s = tablet->Flush(tablet::FlushMode::kSync, tablet::FlushFlags::kRegular);
+        if (!s.ok()) {
+          LOG(ERROR) << kLogPrefix << "Failed to flush regular to prefist metadata: " << s;
+          tablet_peer->SetFailed(s);
+          return;
+        }
+      } else {
+        s = tablet->metadata()->LoadTablesFromRocksDB(tablet);
+        if (!s.ok()) {
+          LOG(ERROR) << kLogPrefix << "Failed to load table metadata from RocksDB: " << s;
+          tablet_peer->SetFailed(s);
+          return;
+        }
       }
-      s = tablet->Flush(tablet::FlushMode::kSync, tablet::FlushFlags::kRegular);
-      if (!s.ok()) {
-        LOG(ERROR) << kLogPrefix << "Failed to flush regulardb: " << s;
-        tablet_peer->SetFailed(s);
-        return;
-      }
-    }
-    s = tablet->metadata()->LoadTablesFromRocksDB(tablet);
-    if (!s.ok()) {
-      LOG(ERROR) << kLogPrefix << "Failed to load table metadata from RocksDB: " << s;
-      tablet_peer->SetFailed(s);
-      return;
     }
     tablet->Init(data.tablet_init_data);
     log->SetSchemaForNextLogSegment(*tablet->schema(), tablet->metadata()->schema_version());
