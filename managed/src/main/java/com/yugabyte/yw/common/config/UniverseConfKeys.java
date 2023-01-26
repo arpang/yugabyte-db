@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.List;
 import com.google.common.collect.ImmutableList;
 import com.yugabyte.yw.commissioner.tasks.UniverseTaskBase.VersionCheckMode;
+import com.yugabyte.yw.common.config.ConfKeyInfo.ConfKeyTags;
 import com.yugabyte.yw.forms.RuntimeConfigFormData.ScopedConfig.ScopeType;
 
 public class UniverseConfKeys extends RuntimeConfigKeysModule {
@@ -290,6 +291,15 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
           "Slow Queries Order By Key",
           "TODO - Leave this for feature owners to fill in",
           ConfDataType.StringType,
+          ImmutableList.of(ConfKeyTags.BETA));
+  // TODO(Shashank): Add correct metadata
+  public static final ConfKeyInfo<Boolean> setBatchNestedLoop =
+      new ConfKeyInfo<>(
+          "yb.query_stats.slow_queries.set_batch_nested_loop",
+          ScopeType.UNIVERSE,
+          "Set Batch Nested Loop",
+          "TODO - Leave this for feature owners to fill in",
+          ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.BETA));
   // TODO(Shashank)
   public static final ConfKeyInfo<List> excludedQueries =

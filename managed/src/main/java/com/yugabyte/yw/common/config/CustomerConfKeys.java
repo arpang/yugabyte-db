@@ -11,6 +11,7 @@
 package com.yugabyte.yw.common.config;
 
 import com.google.common.collect.ImmutableList;
+import com.yugabyte.yw.common.config.ConfKeyInfo.ConfKeyTags;
 import com.yugabyte.yw.forms.RuntimeConfigFormData.ScopedConfig.ScopeType;
 import java.time.Duration;
 
@@ -41,4 +42,24 @@ public class CustomerConfKeys extends RuntimeConfigKeysModule {
               + " overwhelming the server",
           ConfDataType.IntegerType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  // Todo shashank
+  public static final ConfKeyInfo<Duration> proxyEndpointTimeout =
+      new ConfKeyInfo<>(
+          "yb.proxy_endpoint_timeout",
+          ScopeType.CUSTOMER,
+          "Proxy Endpoint Timeout",
+          "todo",
+          ConfDataType.DurationType,
+          ImmutableList.of(ConfKeyTags.BETA));
+
+  public static final ConfKeyInfo<Duration> perfRecommendationRetentionDuration =
+      new ConfKeyInfo<>(
+          "yb.perf_advisor.cleanup.rec_retention_duration",
+          ScopeType.CUSTOMER,
+          "Perf Recommendation Collection Retention Duration",
+          "Conf key that represents the duration of time the perf-advisor recommendation is valid. "
+              + "Once this duration is exceeded, the recommendation entry is marked"
+              + " as stale and deleted.",
+          ConfDataType.DurationType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
 }

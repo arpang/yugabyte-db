@@ -1736,10 +1736,10 @@ Status Log::SwitchToAllocatedSegment() {
   {
     SharedLock<decltype(schema_lock_)> l(schema_lock_);
     if (schema_) {
-      SchemaToPB(*schema_, header.mutable_unused_schema());
-      header.set_unused_schema_version(schema_version_);
+      SchemaToPB(*schema_, header.mutable_deprecated_schema());
+      header.set_deprecated_schema_version(schema_version_);
     } else {
-      header.mutable_unused_schema();
+      header.mutable_deprecated_schema();
       // header.set_unused_schema_version(schema_version_);
     }
   }
