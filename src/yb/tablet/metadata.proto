@@ -217,7 +217,7 @@ message RaftGroupReplicaSuperBlockPB {
   optional fixed64 cdc_sdk_safe_time = 34;
 
   optional TableType  primary_table_type = 35;
-  
+
   optional bool transactional = 36 [default = false];
 
   optional bool index_table = 37 [default = false];
