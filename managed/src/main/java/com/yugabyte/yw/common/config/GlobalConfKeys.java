@@ -11,8 +11,10 @@
 package com.yugabyte.yw.common.config;
 
 import com.google.common.collect.ImmutableList;
+import com.yugabyte.yw.common.config.ConfKeyInfo.ConfKeyTags;
 import com.yugabyte.yw.forms.RuntimeConfigFormData.ScopedConfig.ScopeType;
 import java.time.Duration;
+import java.util.List;
 
 public class GlobalConfKeys extends RuntimeConfigKeysModule {
 
@@ -275,7 +277,7 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Boolean> cmdOutputDelete =
       new ConfKeyInfo<>(
-          "yb.logs.shell.cmdOutputDelete",
+          "yb.logs.cmdOutputDelete",
           ScopeType.GLOBAL,
           "Delete Output File",
           "Flag to delete temp output file created by the shell command",
@@ -384,7 +386,7 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           ImmutableList.of(ConfKeyTags.UIDriven));
   public static ConfKeyInfo<String> ldapServiceAccountPassword =
       new ConfKeyInfo<>(
-          "yb.security.ldap.ldap_service_acccount_password",
+          "yb.security.ldap.ldap_service_account_password",
           ScopeType.GLOBAL,
           "LDAP Service Account Password",
           "Hidden because this key has dedicated UI",
@@ -400,7 +402,7 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           ImmutableList.of(ConfKeyTags.UIDriven));
   public static ConfKeyInfo<Boolean> enableLdapStartTls =
       new ConfKeyInfo<>(
-          "yb.security.ldap.enalbe_ldap_start_tls",
+          "yb.security.ldap.enable_ldap_start_tls",
           ScopeType.GLOBAL,
           "Enable LDAPS start TLS",
           "Hidden because this key has dedicated UI",
@@ -430,4 +432,54 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Enable detailed security logs",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  // TODO:Subham
+  public static ConfKeyInfo<Boolean> supressError =
+      new ConfKeyInfo<>(
+          "yb.fs_stateless.suppress_error",
+          ScopeType.GLOBAL,
+          "Supress Error",
+          "TODO",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.BETA));
+  public static ConfKeyInfo<Long> maxFileSizeBytes =
+      new ConfKeyInfo<>(
+          "yb.fs_stateless.max_file_size_bytes",
+          ScopeType.GLOBAL,
+          "Max File Size ",
+          "TODO",
+          ConfDataType.BytesType,
+          ImmutableList.of(ConfKeyTags.BETA));
+  public static ConfKeyInfo<Integer> maxFilesCountPersist =
+      new ConfKeyInfo<>(
+          "yb.fs_stateless.max_files_count_persist",
+          ScopeType.GLOBAL,
+          "Max Files Persist",
+          "TODO",
+          ConfDataType.IntegerType,
+          ImmutableList.of(ConfKeyTags.BETA));
+  public static ConfKeyInfo<Duration> taskGcCheckInterval =
+      new ConfKeyInfo<>(
+          "yb.taskGC.gc_check_interval",
+          ScopeType.GLOBAL,
+          "Task Garbage Collector Check Interval",
+          "How frequently do we check for completed tasks in database",
+          ConfDataType.DurationType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  // TODO yury
+  public static ConfKeyInfo<Boolean> editProviderNewEnabled =
+      new ConfKeyInfo<>(
+          "yb.edit_provider.new.enabled",
+          ScopeType.GLOBAL,
+          "Enable New Edit Provider",
+          "TODO",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.BETA));
+  public static final ConfKeyInfo<List> tagList =
+      new ConfKeyInfo<>(
+          "yb.runtime_conf_ui.tag_filter",
+          ScopeType.GLOBAL,
+          "UI Tag Filters",
+          "List of tags to filter which keys are displayed",
+          ConfDataType.TagListType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
 }
