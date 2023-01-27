@@ -255,9 +255,9 @@ class Log : public RefCountedThreadSafe<Log> {
   // Returns 0 if the log is shut down.
   uint64_t OnDiskSize();
 
-  // // Set the schema for the _next_ log segment.
-  // //
-  // // This method is thread-safe.
+  // Set the schema for the _next_ log segment.
+  //
+  // This method is thread-safe.
   void SetSchemaForNextLogSegment(const Schema& schema, uint32_t version);
 
   void set_wal_retention_secs(uint32_t wal_retention_secs);

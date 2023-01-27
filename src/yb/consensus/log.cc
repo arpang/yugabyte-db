@@ -1424,7 +1424,8 @@ uint64_t Log::OnDiskSize() {
   return ret;
 }
 
-void Log::SetSchemaForNextLogSegment(const Schema& schema, uint32_t version) {
+void Log::SetSchemaForNextLogSegment(const Schema& schema,
+                                     uint32_t version) {
   std::lock_guard<rw_spinlock> l(schema_lock_);
   *schema_ = schema;
   schema_version_ = version;
