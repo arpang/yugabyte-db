@@ -186,8 +186,8 @@ class LogTestBase : public YBTest {
                        kTestTablet,
                        tablet_wal_path_,
                        fs_manager_->uuid(),
-                      //  schema_with_ids,
-                      //  0, // schema_version
+                       schema_with_ids,
+                       0, // schema_version
                        table_metric_entity_.get(),
                        tablet_metric_entity_.get(),
                        log_thread_pool_.get(),

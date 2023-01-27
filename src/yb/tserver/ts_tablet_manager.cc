@@ -1588,8 +1588,6 @@ void TSTabletManager::OpenTablet(
         return;
       }
     }
-    // TODO: Undo the changes to log class
-    // log->SetSchemaForNextLogSegment(*tablet->schema(), tablet->metadata()->schema_version());
   }
 
   MonoTime start(MonoTime::Now());

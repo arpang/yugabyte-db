@@ -139,8 +139,8 @@ class RaftConsensusQuorumTest : public YBTest {
                               kTestTablet,
                               fs_manager->GetFirstTabletWalDirOrDie(kTestTable, kTestTablet),
                               fs_manager->uuid(),
-                              // schema_,
-                              // 0, // schema_version
+                              schema_,
+                              0, // schema_version
                               nullptr, // table_metric_entity
                               nullptr, // tablet_metric_entity
                               log_thread_pool_.get(),

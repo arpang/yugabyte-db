@@ -89,8 +89,8 @@ class ConsensusQueueTest : public YBTest {
                             kTestTablet,
                             fs_manager_->GetFirstTabletWalDirOrDie(kTestTable, kTestTablet),
                             fs_manager_->uuid(),
-                            // schema_,
-                            // 0, // schema_version
+                            schema_,
+                            0, // schema_version
                             nullptr,
                             nullptr,
                             log_thread_pool_.get(),
