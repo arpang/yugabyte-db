@@ -113,8 +113,6 @@
 #include "yb/util/stopwatch.h"
 #include "yb/util/trace.h"
 
-#include "yb/util/logging.h"
-
 using namespace std::literals;
 using namespace std::placeholders;
 
@@ -1576,30 +1574,20 @@ void TSTabletManager::OpenTablet(
       tablet_peer->SetFailed(s);
       return;
     }
-    if (tablet->metadata()->IsTableMetadataInRocksDB()) {
-      if (new_table_info) {
-        s = tablet->UpsertMetadataDocOperation({new_table_info});
-        if (!s.ok()) {
-          LOG(ERROR) << kLogPrefix << "Failed to insert metadata in RocksDB: " << s;
-          tablet_peer->SetFailed(s);
-          return;
-        }
-        s = tablet->Flush(tablet::FlushMode::kSync, tablet::FlushFlags::kRegular);
-        if (!s.ok()) {
-          LOG(ERROR) << kLogPrefix << "Failed to flush regular to prefist metadata: " << s;
-          tablet_peer->SetFailed(s);
-          return;
-        }
-      } else {
-        s = tablet->metadata()->LoadTablesFromRocksDB(tablet);
-        if (!s.ok()) {
-          LOG(ERROR) << kLogPrefix << "Failed to load table metadata from RocksDB: " << s;
-          tablet_peer->SetFailed(s);
-          return;
-        }
+    if (tablet->metadata()->IsTableMetadataInRocksDB() && new_table_info) {
+      s = tablet->UpsertMetadataDocOperation({new_table_info});
+      if (!s.ok()) {
+        LOG(ERROR) << kLogPrefix << "Failed to insert metadata in RocksDB: " << s;
+        tablet_peer->SetFailed(s);
+        return;
+      }
+      s = tablet->Flush(tablet::FlushMode::kSync, tablet::FlushFlags::kRegular);
+      if (!s.ok()) {
+        LOG(ERROR) << kLogPrefix << "Failed to flush regular to prefist metadata: " << s;
+        tablet_peer->SetFailed(s);
+        return;
       }
     }
-    // tablet->Init();
     // TODO: Undo the changes to log class
     // log->SetSchemaForNextLogSegment(*tablet->schema(), tablet->metadata()->schema_version());
   }

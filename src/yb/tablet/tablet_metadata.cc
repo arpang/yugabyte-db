@@ -79,8 +79,6 @@
 #include "yb/util/status_log.h"
 #include "yb/util/trace.h"
 
-#include "yb/util/logging.h"
-
 DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 
 DEFINE_RUNTIME_AUTO_bool(
