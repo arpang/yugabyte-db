@@ -257,6 +257,7 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
 
   const TableId table_id = resp.superblock().primary_table_id();
   const bool colocated = resp.superblock().colocated();
+  const bool has_metadata_schema = resp.superblock().kv_store().has_metadata_schema();
   const tablet::TableInfoPB* table_ptr = nullptr;
   for (auto& table_pb : kv_store->tables()) {
     if (table_pb.table_id() == table_id) {
@@ -264,16 +265,11 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
       break;
     }
   }
-  // TODO
-  // if (!table_ptr && kv_store->has_initial_primary_table()) {
-  //   table_ptr = &kv_store->initial_primary_table();
-  // }
-  if (!table_ptr) {
+  if (!table_ptr && !has_metadata_schema) {
     return STATUS(InvalidArgument, Format(
         "Tablet $0: Superblock's KV-store doesn't contain primary table $1", tablet_id_,
         table_id));
   }
-  const auto& table = *table_ptr;
 
   downloader_.Start(
       proxy_, resp.session_id(), MonoDelta::FromMilliseconds(resp.session_idle_timeout_millis()));
@@ -296,9 +292,6 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
   }
   remote_committed_cstate_.reset(resp.release_initial_committed_cstate());
 
-  Schema schema;
-  RETURN_NOT_OK_PREPEND(SchemaFromPB(
-      table.schema(), &schema), "Cannot deserialize schema from remote superblock");
   string data_root_dir;
   string wal_root_dir;
   if (replace_tombstoned_tablet_) {
@@ -341,8 +334,6 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
   } else {
     Partition partition;
     Partition::FromPB(superblock_->partition(), &partition);
-    PartitionSchema partition_schema;
-    RETURN_NOT_OK(PartitionSchema::FromPB(table.partition_schema(), schema, &partition_schema));
     // Create the superblock on disk.
     if (ts_manager != nullptr) {
       ts_manager->GetAndRegisterDataAndWalDir(&fs_manager(),
@@ -351,24 +342,39 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
                                               &data_root_dir,
                                               &wal_root_dir);
     }
-    auto table_info = std::make_shared<tablet::TableInfo>(
-        consensus::MakeTabletLogPrefix(tablet_id_, fs_manager().uuid()),
-        tablet::Primary::kTrue, table_id, table.namespace_name(), table.table_name(),
-        table.table_type(), schema, IndexMap(table.indexes()),
-        table.has_index_info() ? boost::optional<IndexInfo>(table.index_info()) : boost::none,
-        table.schema_version(), partition_schema);
+
     fs_manager().SetTabletPathByDataPath(tablet_id_, data_root_dir);
-    auto create_result = RaftGroupMetadata::CreateNew(
-        tablet::RaftGroupMetadataData {
-            .fs_manager = &fs_manager(),
-            .table_info = table_info,
-            .raft_group_id = tablet_id_,
-            .partition = partition,
-            .tablet_data_state = tablet::TABLET_DATA_COPYING,
-            .colocated = colocated,
-            .snapshot_schedules = {},
-        },
-        data_root_dir, wal_root_dir);
+
+    tablet::RaftGroupMetadataData metadata_data;
+    if (table_ptr) {
+      const auto& table = *table_ptr;
+      Schema schema;
+      RETURN_NOT_OK_PREPEND(
+          SchemaFromPB(table.schema(), &schema),
+          "Cannot deserialize schema from remote superblock");
+      PartitionSchema partition_schema;
+      RETURN_NOT_OK(PartitionSchema::FromPB(table.partition_schema(), schema, &partition_schema));
+      auto table_info = std::make_shared<tablet::TableInfo>(
+          consensus::MakeTabletLogPrefix(tablet_id_, fs_manager().uuid()), tablet::Primary::kTrue,
+          table_id, table.namespace_name(), table.table_name(), table.table_type(), schema,
+          IndexMap(table.indexes()),
+          table.has_index_info() ? boost::optional<IndexInfo>(table.index_info()) : boost::none,
+          table.schema_version(), partition_schema);
+      metadata_data = tablet::RaftGroupMetadataData{
+          &fs_manager(), table_info, tablet_id_, partition, tablet::TABLET_DATA_COPYING, colocated};
+    } else {
+      DCHECK(resp.superblock().has_primary_table_type());
+      DCHECK(resp.superblock().has_transactional());
+      DCHECK(resp.superblock().has_index_table());
+      auto primary_table_type = resp.superblock().primary_table_type();
+      auto transactional = resp.superblock().transactional();
+      auto index_table = resp.superblock().index_table();
+      metadata_data = tablet::RaftGroupMetadataData{
+          &fs_manager(), table_id,  primary_table_type,          transactional, index_table,
+          tablet_id_,    partition, tablet::TABLET_DATA_COPYING, colocated};
+    }
+
+    auto create_result = RaftGroupMetadata::CreateNew(metadata_data, data_root_dir, wal_root_dir);
     if (ts_manager != nullptr && !create_result.ok()) {
       ts_manager->UnregisterDataWalDir(table_id, tablet_id_, data_root_dir, wal_root_dir);
     }
@@ -376,15 +382,19 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
     meta_ = std::move(*create_result);
 
     vector<DeletedColumn> deleted_cols;
-    for (const DeletedColumnPB& col_pb : table.deleted_cols()) {
-      DeletedColumn col;
-      RETURN_NOT_OK(DeletedColumn::FromPB(col_pb, &col));
-      deleted_cols.push_back(col);
+    if (table_ptr) {
+      const auto& table = *table_ptr;
+      Schema schema;
+      RETURN_NOT_OK_PREPEND(
+          SchemaFromPB(table.schema(), &schema),
+          "Cannot deserialize schema from remote superblock");
+      for (const DeletedColumnPB& col_pb : table.deleted_cols()) {
+        DeletedColumn col;
+        RETURN_NOT_OK(DeletedColumn::FromPB(col_pb, &col));
+        deleted_cols.push_back(col);
+      }
+      meta_->SetSchema(schema, IndexMap(table.indexes()), deleted_cols, table.schema_version());
     }
-    meta_->SetSchema(schema,
-                     IndexMap(table.indexes()),
-                     deleted_cols,
-                     table.schema_version());
 
     // Replace rocksdb_dir in the received superblock with our rocksdb_dir.
     kv_store->set_rocksdb_dir(meta_->rocksdb_dir());

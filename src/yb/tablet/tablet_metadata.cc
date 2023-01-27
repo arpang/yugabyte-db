@@ -544,6 +544,39 @@ std::string MakeTabletDirName(const TabletId& tablet_id) {
 
 // ============================================================================
 
+RaftGroupMetadataData::RaftGroupMetadataData(
+    FsManager* fs_manager_, TableInfoPtr table_info_, RaftGroupId raft_group_id_,
+    Partition partition_, TabletDataState tablet_data_state_, bool colocated_,
+    std::vector<SnapshotScheduleId> snapshot_schedules_)
+    : fs_manager(DCHECK_NOTNULL(fs_manager_)),
+      table_info(DCHECK_NOTNULL(table_info_)),
+      raft_group_id(raft_group_id_),
+      partition(partition_),
+      tablet_data_state(tablet_data_state_),
+      colocated(colocated_),
+      snapshot_schedules(snapshot_schedules_) {
+  primary_table_id = table_info->table_id;
+  primary_table_type = table_info->table_type;
+  is_transactional = table_info->schema().table_properties().is_transactional();
+  is_index_table = table_info->index_info != nullptr;
+}
+
+RaftGroupMetadataData::RaftGroupMetadataData(
+    FsManager* fs_manager_, TableId primary_table_id_, TableType primary_table_type_,
+    bool is_transactional_, bool is_index_table_, RaftGroupId raft_group_id_, Partition partition_,
+    TabletDataState tablet_data_state_, bool colocated_,
+    std::vector<SnapshotScheduleId> snapshot_schedules_)
+    : fs_manager(DCHECK_NOTNULL(fs_manager_)),
+      primary_table_id(primary_table_id_),
+      primary_table_type(primary_table_type_),
+      is_transactional(is_transactional_),
+      is_index_table(is_index_table_),
+      raft_group_id(raft_group_id_),
+      partition(partition_),
+      tablet_data_state(tablet_data_state_),
+      colocated(colocated_),
+      snapshot_schedules(snapshot_schedules_) {}
+
 Result<RaftGroupMetadataPtr> RaftGroupMetadata::CreateNew(
     const RaftGroupMetadataData& data, const std::string& data_root_dir,
     const std::string& wal_root_dir) {
@@ -569,11 +602,11 @@ Result<RaftGroupMetadataPtr> RaftGroupMetadata::CreateNew(
     wal_top_dir = wal_root_dirs[0];
   }
 
-  const string table_dir_name = Substitute("table-$0", data.table_info->table_id);
+  const string table_dir_name = Substitute("table-$0", data.primary_table_id);
   const string tablet_dir_name = MakeTabletDirName(data.raft_group_id);
   const string wal_dir = JoinPathSegments(wal_top_dir, table_dir_name, tablet_dir_name);
-  const string rocksdb_dir = JoinPathSegments(
-      data_top_dir, FsManager::kRocksDBDirName, table_dir_name, tablet_dir_name);
+  const string rocksdb_dir =
+      JoinPathSegments(data_top_dir, FsManager::kRocksDBDirName, table_dir_name, tablet_dir_name);
 
   RaftGroupMetadataPtr ret(new RaftGroupMetadata(data, rocksdb_dir, wal_dir));
   RETURN_NOT_OK(ret->Flush());
@@ -782,10 +815,14 @@ RaftGroupMetadata::RaftGroupMetadata(
     : state_(kNotWrittenYet),
       raft_group_id_(data.raft_group_id),
       partition_(std::make_shared<Partition>(data.partition)),
-      primary_table_id_(data.table_info->table_id),
-      primary_table_type_(data.table_info->table_type),
-      is_transactional_(data.table_info->schema().table_properties().is_transactional()),
-      is_index_table_(data.table_info->index_info),
+      // primary_table_id_(data.table_info->table_id),
+      // primary_table_type_(data.table_info->table_type),
+      // is_transactional_(data.table_info->schema().table_properties().is_transactional()),
+      // is_index_table_(data.table_info->index_info),
+      primary_table_id_(data.primary_table_id),
+      primary_table_type_(data.primary_table_type),
+      is_transactional_(data.is_transactional),
+      is_index_table_(data.is_index_table),
       kv_store_(KvStoreId(raft_group_id_), data_dir, data.snapshot_schedules),
       fs_manager_(data.fs_manager),
       wal_dir_(wal_dir),
@@ -795,26 +832,17 @@ RaftGroupMetadata::RaftGroupMetadata(
       cdc_sdk_min_checkpoint_op_id_(OpId::Invalid()),
       cdc_sdk_safe_time_(HybridTime::kInvalid),
       log_prefix_(consensus::MakeTabletLogPrefix(raft_group_id_, fs_manager_->uuid())) {
-  CHECK(data.table_info->schema()
-            .has_column_ids());  // how to do this if metadata in rocksdb for primary table -
-                                 // probably we can check if schema is initialized
-  CHECK_GT(data.table_info->schema().num_key_columns(), 0);
-  kv_store_.tables.emplace(primary_table_id_, data.table_info);
-  kv_store_.UpdateColocationMap(data.table_info);
-  bool is_ts_tablet = data.table_info->table_id != master::kSysCatalogTableId;
-  if (is_ts_tablet && FLAGS_ts_tableinfo_in_rocksdb &&
-      data.table_info->table_type == PGSQL_TABLE_TYPE) {
+  if (data.table_info) {
+    CHECK(data.table_info->schema().has_column_ids());
+    CHECK_GT(data.table_info->schema().num_key_columns(), 0);
+    kv_store_.tables.emplace(primary_table_id_, data.table_info);
+    kv_store_.UpdateColocationMap(data.table_info);
+  }
+  bool is_ts_tablet = primary_table_id_ != master::kSysCatalogTableId;
+  if (is_ts_tablet && FLAGS_ts_tableinfo_in_rocksdb && primary_table_type_ == PGSQL_TABLE_TYPE) {
     // kv_store_.initial_primary_table = data.table_info;
     kv_store_.metadata_schema = kv_store_.BuildMetadataSchema();
   }
-    // else {
-    //   CHECK(data.table_info->schema()
-    //             .has_column_ids());  // how to do this if metadata in rocksdb for primary table -
-    //                                  // probably we can check if schema is initialized
-    //   CHECK_GT(data.table_info->schema().num_key_columns(), 0);
-    //   kv_store_.tables.emplace(primary_table_id_, data.table_info);
-    //   kv_store_.UpdateColocationMap(data.table_info);
-    // }
 }
 
 RaftGroupMetadata::~RaftGroupMetadata() {

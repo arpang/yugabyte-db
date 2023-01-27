@@ -749,13 +749,13 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
       fs_manager_, table_info->table_id, tablet_id, &data_root_dir, &wal_root_dir);
   fs_manager_->SetTabletPathByDataPath(tablet_id, data_root_dir);
   auto create_result = RaftGroupMetadata::CreateNew(tablet::RaftGroupMetadataData {
-    .fs_manager = fs_manager_,
-    .table_info = table_info,
-    .raft_group_id = tablet_id,
-    .partition = partition,
-    .tablet_data_state = TABLET_DATA_READY,
-    .colocated = colocated,
-    .snapshot_schedules = snapshot_schedules,
+    fs_manager_,
+    table_info,
+    tablet_id,
+    partition,
+    TABLET_DATA_READY,
+    colocated,
+    snapshot_schedules,
   }, data_root_dir, wal_root_dir);
   if (!create_result.ok()) {
     UnregisterDataWalDir(table_info->table_id, tablet_id, data_root_dir, wal_root_dir);

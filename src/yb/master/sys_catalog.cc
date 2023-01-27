@@ -343,12 +343,11 @@ Status SysCatalogTable::CreateNew(FsManager *fs_manager) {
   string data_root_dir = fs_manager->GetDataRootDirs()[0];
   fs_manager->SetTabletPathByDataPath(kSysCatalogTabletId, data_root_dir);
   auto metadata = VERIFY_RESULT(tablet::RaftGroupMetadata::CreateNew(tablet::RaftGroupMetadataData {
-    .fs_manager = fs_manager,
-    .table_info = table_info,
-    .raft_group_id = kSysCatalogTabletId,
-    .partition = partitions[0],
-    .tablet_data_state = tablet::TABLET_DATA_READY,
-    .snapshot_schedules = {},
+    fs_manager,
+    table_info,
+    kSysCatalogTabletId,
+    partitions[0],
+    tablet::TABLET_DATA_READY
   }, data_root_dir));
 
   RaftConfigPB config;

@@ -117,7 +117,7 @@ message KvStoreInfoPB {
   // optional TableInfoPB initial_primary_table = 11;
 
   // Table metadata schema. Set only when the metadata is in RocksDB.
-  optional SchemaPB metadata_schema = 12;
+  optional SchemaPB metadata_schema = 11;
 }
 
 // The super-block keeps track of the Raft group.

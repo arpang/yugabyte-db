@@ -182,12 +182,11 @@ class BootstrapTest : public LogTestBase {
         "TEST: ", Primary::kTrue, log::kTestTable, log::kTestNamespace, log::kTestTable, kTableType,
         schema, IndexMap(), boost::none /* index_info */, 0 /* schema_version */, partition.first);
     auto result = VERIFY_RESULT(RaftGroupMetadata::TEST_LoadOrCreate(RaftGroupMetadataData {
-      .fs_manager = fs_manager_.get(),
-      .table_info = table_info,
-      .raft_group_id = log::kTestTablet,
-      .partition = partition.second,
-      .tablet_data_state = TABLET_DATA_READY,
-      .snapshot_schedules = {},
+      fs_manager_.get(),
+      table_info,
+      log::kTestTablet,
+      partition.second,
+      TABLET_DATA_READY
     }));
     RETURN_NOT_OK(result->Flush());
     return result;

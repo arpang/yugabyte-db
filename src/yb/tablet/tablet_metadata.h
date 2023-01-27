@@ -255,11 +255,28 @@ struct KvStoreInfo {
 struct RaftGroupMetadataData {
   FsManager* fs_manager;
   TableInfoPtr table_info;
+  TableId primary_table_id;
+  TableType primary_table_type;
+  bool is_transactional;
+  bool is_index_table;
   RaftGroupId raft_group_id;
   Partition partition;
   TabletDataState tablet_data_state;
   bool colocated = false;
   std::vector<SnapshotScheduleId> snapshot_schedules;
+
+  RaftGroupMetadataData(
+      FsManager* fs_manager_, TableInfoPtr table_info_, RaftGroupId raft_group_id_,
+      Partition partition_, TabletDataState tablet_data_state_, bool colocated_ = false,
+      std::vector<SnapshotScheduleId> snapshot_schedules_ = {});
+
+  RaftGroupMetadataData(
+      FsManager* fs_manager_, TableId primary_table_id_, TableType primary_table_type_,
+      bool is_transactional_, bool is_index_table_, RaftGroupId raft_group_id_,
+      Partition partition_, TabletDataState tablet_data_state_, bool colocated_ = false,
+      std::vector<SnapshotScheduleId> snapshot_schedules_ = {});
+
+  RaftGroupMetadataData(){}
 };
 
 // At startup, the TSTabletManager will load a RaftGroupMetadata for each
