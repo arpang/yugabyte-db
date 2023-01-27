@@ -521,6 +521,7 @@ class TabletBootstrap {
       TabletPtr* rebuilt_tablet,
       scoped_refptr<log::Log>* rebuilt_log,
       consensus::ConsensusBootstrapInfo* consensus_info) {
+    LOG_WITH_FUNC(INFO) << "Starting bootstrap function";
     const string tablet_id = meta_->raft_group_id();
 
     // Replay requires a valid Consensus metadata file to exist in order to compare the committed
@@ -588,6 +589,7 @@ class TabletBootstrap {
                                             tablet_id));
     }
 
+    RETURN_NOT_OK(tablet_->metadata()->LoadTablesFromRocksDB(tablet_));
     RETURN_NOT_OK_PREPEND(PlaySegments(consensus_info), "Failed log replay. Reason");
 
     if (cmeta_->current_term() < consensus_info->last_id.term()) {
@@ -613,9 +615,9 @@ class TabletBootstrap {
       RETURN_NOT_OK(tablet_->ModifyFlushedFrontier(
           new_consensus_frontier, rocksdb::FrontierModificationMode::kForce));
     }
-
+    tablet_->Init();
     RETURN_NOT_OK(FinishBootstrap("Bootstrap complete.", rebuilt_log, rebuilt_tablet));
-
+    LOG_WITH_FUNC(INFO) << "Ending bootstrap function";
     return Status::OK();
   }
 
@@ -1501,7 +1503,7 @@ class TabletBootstrap {
     RETURN_NOT_OK(operation.Prepare(IsLeaderSide::kTrue));
 
     if (tablet_->metadata()->IsTableMetadataInRocksDB()) {
-      LOG_WITH_FUNC(INFO) << "Playing ChangeMetadataRequest";
+      LOG_WITH_FUNC(INFO) << "Playing ChangeMetadataRequest ";
       operation.set_op_id(OpId::FromPB(replicate_msg->id()));
       HybridTime hybrid_time(replicate_msg->hybrid_time());
       operation.set_hybrid_time(hybrid_time);

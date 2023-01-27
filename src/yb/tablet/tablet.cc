@@ -436,8 +436,8 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
   const std::string log_prefix_;
 };
 
-void Tablet::Init(const TabletInitData& data) {
-  key_schema_ = std::make_unique<Schema>(data.metadata->schema()->CreateKeyProjection());
+void Tablet::Init() {
+  key_schema_ = std::make_unique<Schema>(metadata_->schema()->CreateKeyProjection());
   CHECK(schema()->has_column_ids());
   LOG_WITH_PREFIX(INFO) << "Schema version for " << metadata_->table_name() << " is "
                         << metadata_->schema_version();

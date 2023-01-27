@@ -599,7 +599,7 @@ Status SysCatalogTable::OpenTablet(const scoped_refptr<tablet::RaftGroupMetadata
       .retryable_requests = nullptr,
   };
   RETURN_NOT_OK(BootstrapTablet(data, &tablet, &log, &consensus_info));
-  tablet->Init(data.tablet_init_data);
+  // tablet->Init();
   log->SetSchemaForNextLogSegment(*tablet->schema(), tablet->metadata()->schema_version());
 
   // TODO: Do we have a setSplittable(false) or something from the outside is

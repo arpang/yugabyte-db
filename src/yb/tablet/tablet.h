@@ -153,7 +153,7 @@ class Tablet : public AbstractTablet,
 
   ~Tablet();
 
-  void Init(const TabletInitData& data);
+  void Init();
 
   // Open the tablet.
   // Upon completion, the tablet enters the kBootstrapping state.

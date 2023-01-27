@@ -79,6 +79,8 @@
 #include "yb/util/status_log.h"
 #include "yb/util/trace.h"
 
+#include "yb/util/logging.h"
+
 DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 
 DEFINE_RUNTIME_AUTO_bool(
@@ -367,12 +369,13 @@ Status KvStoreInfo::LoadTablesFromPB(
 Status KvStoreInfo::LoadTablesFromRocksDB(
     const std::string& tablet_log_prefix, const TabletPtr& tablet,
     const TableId& primary_table_id) {
-  LOG(INFO) << "Inside KvStoreInfo::LoadTablesFromRocksDB";
+  LOG_WITH_FUNC(INFO) << tablet->tablet_id() << " Starting";
   ColumnId metadata_col_id =
       VERIFY_RESULT(metadata_schema.ColumnIdByName(kSysCatalogTableColMetadata));
   const docdb::DocReadContext doc_read_context(tablet_log_prefix, metadata_schema, 0);
   auto iter = VERIFY_RESULT(tablet->NewRowIterator(
-      metadata_schema.CopyWithoutColumnIds(), metadata_schema, doc_read_context));
+      metadata_schema.CopyWithoutColumnIds(), metadata_schema, doc_read_context,
+      ReadHybridTime::Max(), CoarseTimePoint::max(), AllowBootstrappingState::kTrue));
 
   {
     auto doc_iter = down_cast<docdb::DocRowwiseIterator*>(iter.get());
@@ -387,7 +390,7 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
     docdb::DocPgsqlScanSpec spec(metadata_schema, rocksdb::kDefaultQueryId, doc_key);
     RETURN_NOT_OK(doc_iter->Init(spec));
   }
-  LOG(INFO) << "Starting while loop";
+  LOG_WITH_FUNC(INFO) << tablet->tablet_id() << " Starting while loop";
   while (VERIFY_RESULT(iter->HasNext())) {
     QLTableRow row;
     RETURN_NOT_OK(iter->NextRow(&row));
@@ -398,11 +401,12 @@ Status KvStoreInfo::LoadTablesFromRocksDB(
     const string& serialized_table_info = table_info_ql_value->binary_value();
     TableInfoPtr table_info = VERIFY_RESULT(
         TableInfo::LoadFromString(tablet_log_prefix, primary_table_id, serialized_table_info));
-    LOG(INFO) << "Loaded table from rocksdb " << table_info->ShortDebugString();
+    LOG_WITH_FUNC(INFO) << tablet->tablet_id() << " Loaded table from rocksdb "
+                        << table_info->ShortDebugString();
     tables.emplace(table_info->table_id, table_info);
     UpdateColocationMap(table_info);
   }
-  LOG(INFO) << "Outside while loop";
+  LOG_WITH_FUNC(INFO) << tablet->tablet_id() << " Outside while loop";
   return Status::OK();
 }
 
