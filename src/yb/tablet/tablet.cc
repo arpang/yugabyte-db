@@ -445,9 +445,12 @@ void Tablet::Init() {
 
   auto table_info = metadata_->primary_table_info();
   if (table_metrics_entity_) {
-    LOG_WITH_FUNC(INFO) << "Setting attribute table_name " << table_info->table_name;
     table_metrics_entity_->SetAttribute("table_name", table_info->table_name);
     table_metrics_entity_->SetAttribute("namespace_name", table_info->namespace_name);
+  }
+  if (tablet_metrics_entity_) {
+    tablet_metrics_entity_->SetAttribute("table_name", table_info->table_name);
+    tablet_metrics_entity_->SetAttribute("namespace_name", table_info->namespace_name);
   }
 
   bool has_index = !table_info->index_map->empty();
@@ -500,10 +503,6 @@ Tablet::Tablet(const TabletInitData& data)
     MetricEntity::AttributeMap attrs;
     // TODO(KUDU-745): table_id is apparently not set in the metadata.
     attrs["table_id"] = metadata_->table_id();
-    if (metadata_->has_primary_table_info()) {
-      attrs["table_name"] = metadata_->table_name();
-      attrs["namespace_name"] = metadata_->namespace_name();
-    }
     table_metrics_entity_ =
         METRIC_ENTITY_table.Instantiate(data.metric_registry, metadata_->table_id(), attrs);
     tablet_metrics_entity_ =
