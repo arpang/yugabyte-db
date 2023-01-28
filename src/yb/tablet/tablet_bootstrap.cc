@@ -567,6 +567,7 @@ class TabletBootstrap {
     if (!has_blocks && !needs_recovery) {
       LOG_WITH_PREFIX(INFO) << "No blocks or log segments found. Creating new log.";
       RETURN_NOT_OK_PREPEND(OpenLog(CreateNewSegment::kTrue), "Failed to open new log");
+      tablet_->Init();
       RETURN_NOT_OK(FinishBootstrap("No bootstrap required, opened a new log",
                                     rebuilt_log,
                                     rebuilt_tablet));
