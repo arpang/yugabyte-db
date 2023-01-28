@@ -437,6 +437,7 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
 };
 
 void Tablet::Init() {
+  LOG_WITH_FUNC(INFO) << "Inside init";
   key_schema_ = std::make_unique<Schema>(metadata_->schema()->CreateKeyProjection());
   CHECK(schema()->has_column_ids());
   LOG_WITH_PREFIX(INFO) << "Schema version for " << metadata_->table_name() << " is "
@@ -444,6 +445,7 @@ void Tablet::Init() {
 
   auto table_info = metadata_->primary_table_info();
   if (table_metrics_entity_) {
+    LOG_WITH_FUNC(INFO) << "Setting attribute table_name " << table_info->table_name;
     table_metrics_entity_->SetAttribute("table_name", table_info->table_name);
     table_metrics_entity_->SetAttribute("namespace_name", table_info->namespace_name);
   }
@@ -498,8 +500,10 @@ Tablet::Tablet(const TabletInitData& data)
     MetricEntity::AttributeMap attrs;
     // TODO(KUDU-745): table_id is apparently not set in the metadata.
     attrs["table_id"] = metadata_->table_id();
-    // attrs["table_name"] = metadata_->table_name();
-    // attrs["namespace_name"] = metadata_->namespace_name();
+    if (metadata_->has_primary_table_info()) {
+      attrs["table_name"] = metadata_->table_name();
+      attrs["namespace_name"] = metadata_->namespace_name();
+    }
     table_metrics_entity_ =
         METRIC_ENTITY_table.Instantiate(data.metric_registry, metadata_->table_id(), attrs);
     tablet_metrics_entity_ =
