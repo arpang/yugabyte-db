@@ -2092,15 +2092,18 @@ void TSTabletManager::CreateReportedTabletPB(const TabletPeerPtr& tablet_peer,
     AppStatusPB* error_status = reported_tablet->mutable_error();
     StatusToPB(tablet_peer->error(), error_status);
   }
-  reported_tablet->set_schema_version(tablet_peer->tablet_metadata()->schema_version());
-  // reported_tablet->set_schema_version(0);
+  if (tablet_peer->tablet_metadata()->has_primary_table_info()) {
+    reported_tablet->set_schema_version(tablet_peer->tablet_metadata()->schema_version());
+  } else {
+    LOG(INFO)
+        << "Primary table metadata not loaded yet, not setting the schema version in heartbeat";
+  }
 
   auto& id_to_version = *reported_tablet->mutable_table_to_version();
   // Attach schema versions of all tables including the colocated ones.
   for (const auto& table_id : tablet_peer->tablet_metadata()->GetAllColocatedTables()) {
     if (id_to_version.find(table_id) == id_to_version.end()) {
       id_to_version[table_id] = tablet_peer->tablet_metadata()->schema_version(table_id);
-      // id_to_version[table_id] = 0;
     }
   }
 

@@ -591,6 +591,13 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return primary_table_info_unlocked();
   }
 
+  bool has_primary_table_info() const {
+    std::lock_guard<MutexType> lock(data_mutex_);
+    const auto& tables = kv_store_.tables;
+    const auto itr = tables.find(primary_table_id_);
+    return itr != tables.end();
+  }
+
   bool IsTableMetadataInRocksDB() const {
     std::lock_guard<MutexType> lock(data_mutex_);
     return kv_store_.IsTableMetadataInRocksDB();
