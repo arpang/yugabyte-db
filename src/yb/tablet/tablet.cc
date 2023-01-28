@@ -3583,7 +3583,7 @@ void Tablet::TEST_DocDBDumpToLog(IncludeIntents include_intents) {
   }
 }
 
-size_t Tablet::TEST_CountRegularDBRecords() {
+size_t Tablet::TEST_CountRegularDBRecords(bool skip_metadata_entries) {
   if (!regular_db_) return 0;
   rocksdb::ReadOptions read_opts;
   read_opts.query_id = rocksdb::kDefaultQueryId;
@@ -3591,6 +3591,10 @@ size_t Tablet::TEST_CountRegularDBRecords() {
 
   size_t result = 0;
   for (iter.SeekToFirst(); iter.Valid(); iter.Next()) {
+    if (skip_metadata_entries &&
+        iter.key().starts_with(docdb::KeyEntryTypeAsChar::kTabletMetadata)) {
+      continue;
+    }
     ++result;
   }
   return result;

@@ -272,7 +272,11 @@ TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(Random)) {
     for (const auto& line : sorted_values) {
       LOG(INFO) << "Record: " << line;
     }
-    ASSERT_EQ(values.size(), key_state.size());
+    int metadata_entries = 0;
+    if (FLAGS_ts_tableinfo_in_rocksdb) {
+      metadata_entries = 1;  // additional metadata entry for the table
+    }
+    ASSERT_EQ(values.size(), key_state.size() + metadata_entries);
   }
 }
 
@@ -424,9 +428,6 @@ void PgPackedRowTest::TestColocated(int num_keys, int num_expected_records) {
   auto conn = ASSERT_RESULT(Connect());
   ASSERT_OK(conn.Execute("CREATE DATABASE test WITH colocated = true"));
   TestCompaction(num_keys, "WITH (colocated = true)");
-  if (FLAGS_ts_tableinfo_in_rocksdb) {
-    num_expected_records += 2;  // an additional metadata entry per table
-  }
   CheckNumRecords(cluster_.get(), num_expected_records);
 }
 
@@ -456,23 +457,18 @@ TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(ColocatedPackRowDisabled)) {
   ASSERT_OK(conn.Execute(
       "CREATE TABLE t1 (key INT PRIMARY KEY, value TEXT, payload TEXT) WITH (colocated = true)"));
 
-  int metadata_entries = 0;
-  if (FLAGS_ts_tableinfo_in_rocksdb) {
-    metadata_entries = 1;  // an additional metadata entry for the table
-  }
-
   ASSERT_OK(conn.Execute("INSERT INTO t1 (key, value, payload) VALUES (1, '', '')"));
   // The only row should not be packed.
-  CheckNumRecords(cluster_.get(), 3 + metadata_entries);
+  CheckNumRecords(cluster_.get(), 3);
   // Trigger full row update.
   ASSERT_OK(conn.Execute("UPDATE t1 SET value = '1', payload = '1' WHERE key = 1"));
   // The updated row should not be packed.
-  CheckNumRecords(cluster_.get(), 5 + metadata_entries);
+  CheckNumRecords(cluster_.get(), 5);
 
   // Enable pack row for colocated table and trigger compaction.
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_enable_packed_row_for_colocated_table) = true;
   ASSERT_OK(cluster_->CompactTablets());
-  CheckNumRecords(cluster_.get(), 1 + metadata_entries);
+  CheckNumRecords(cluster_.get(), 1);
 }
 
 TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(CompactAfterTransaction)) {

@@ -623,7 +623,7 @@ class Tablet : public AbstractTablet,
   // Dumps DocDB contents to log, every record as a separate log message, with the given prefix.
   void TEST_DocDBDumpToLog(IncludeIntents include_intents);
 
-  size_t TEST_CountRegularDBRecords();
+  size_t TEST_CountRegularDBRecords(bool skip_metadata_entries = true);
 
   Status CreateReadIntents(
       const TransactionMetadataPB& transaction_metadata,
