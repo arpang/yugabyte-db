@@ -443,8 +443,10 @@ void Tablet::Init() {
                         << metadata_->schema_version();
 
   auto table_info = metadata_->primary_table_info();
-  table_metrics_entity_->SetAttribute("table_name", table_info->table_name);
-  table_metrics_entity_->SetAttribute("namespace_name", table_info->namespace_name);
+  if (table_metrics_entity_) {
+    table_metrics_entity_->SetAttribute("table_name", table_info->table_name);
+    table_metrics_entity_->SetAttribute("namespace_name", table_info->namespace_name);
+  }
 
   bool has_index = !table_info->index_map->empty();
 
