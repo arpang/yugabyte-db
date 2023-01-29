@@ -363,12 +363,12 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
       metadata_data = tablet::RaftGroupMetadataData{
           &fs_manager(), table_info, tablet_id_, partition, tablet::TABLET_DATA_COPYING, colocated};
     } else {
-      DCHECK(resp.superblock().has_primary_table_type());
-      DCHECK(resp.superblock().has_transactional());
-      DCHECK(resp.superblock().has_index_table());
-      auto primary_table_type = resp.superblock().primary_table_type();
-      auto transactional = resp.superblock().transactional();
-      auto index_table = resp.superblock().index_table();
+      DCHECK(superblock_->has_primary_table_type());
+      DCHECK(superblock_->has_transactional());
+      DCHECK(superblock_->has_index_table());
+      auto primary_table_type = superblock_->primary_table_type();
+      auto transactional = superblock_->transactional();
+      auto index_table = superblock_->index_table();
       metadata_data = tablet::RaftGroupMetadataData{
           &fs_manager(), table_id,  primary_table_type,          transactional, index_table,
           tablet_id_,    partition, tablet::TABLET_DATA_COPYING, colocated};
