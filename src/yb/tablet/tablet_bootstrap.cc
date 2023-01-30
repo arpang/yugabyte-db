@@ -1493,13 +1493,14 @@ class TabletBootstrap {
     LOG_WITH_FUNC(INFO) << "Inside PlayChangeMetadataRequest";
     ChangeMetadataOperation operation(tablet_, log_.get(), request);
 
-    // If table id isn't in metadata, ignore the replay as the table might've been dropped.
-    // auto table_info = meta_->GetTableInfo(operation.table_id().ToBuffer());
-    // if (!table_info.ok()) {
-    //   LOG_WITH_PREFIX(WARNING) << "Table ID " << operation.table_id()
-    //       << " not found in metadata, skipping this ChangeMetadataRequest";
-    //   return Status::OK();
-    // }
+    // TODO: Once table metadata is stored in RocksDB, this check should not be required.
+    // If table id isn't in metadata, ignore the replay as the table might've been dropped
+    auto table_info = meta_->GetTableInfo(operation.table_id().ToBuffer());
+    if (!table_info.ok()) {
+      LOG_WITH_PREFIX(WARNING) << "Table ID " << operation.table_id()
+          << " not found in metadata, skipping this ChangeMetadataRequest";
+      return Status::OK();
+    }
 
     RETURN_NOT_OK(operation.Prepare(IsLeaderSide::kTrue));
 
