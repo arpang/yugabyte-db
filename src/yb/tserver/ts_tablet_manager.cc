@@ -2092,6 +2092,7 @@ void TSTabletManager::CreateReportedTabletPB(const TabletPeerPtr& tablet_peer,
     AppStatusPB* error_status = reported_tablet->mutable_error();
     StatusToPB(tablet_peer->error(), error_status);
   }
+  // TODO: We should wait till bootstraping is finished to avoid populating the stale schema version
   if (tablet_peer->tablet_metadata()->has_primary_table_info()) {
     reported_tablet->set_schema_version(tablet_peer->tablet_metadata()->schema_version());
   } else {
