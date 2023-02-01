@@ -88,9 +88,11 @@ using std::unordered_map;
 using google::protobuf::RepeatedPtrField;
 
 using client::YBTableName;
+using common::SysRowEntryType;
 using pb_util::ParseFromSlice;
 using rpc::RpcController;
 
+using master::BackupRowEntryPB;
 using master::ChangeEncryptionInfoRequestPB;
 using master::ChangeEncryptionInfoResponsePB;
 using master::CreateSnapshotRequestPB;
@@ -113,10 +115,8 @@ using master::RestoreSnapshotResponsePB;
 using master::SnapshotInfoPB;
 using master::SysNamespaceEntryPB;
 using master::SysRowEntry;
-using master::SysRowEntryType;
-using master::BackupRowEntryPB;
-using master::SysTablesEntryPB;
 using master::SysSnapshotEntryPB;
+using master::SysTablesEntryPB;
 using master::SysUDTypeEntryPB;
 
 PB_ENUM_FORMATTERS(yb::master::SysSnapshotEntryPB::State);

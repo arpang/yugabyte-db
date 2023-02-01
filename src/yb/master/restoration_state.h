@@ -23,6 +23,8 @@
 #include "yb/util/async_task_util.h"
 #include "yb/util/tostring.h"
 
+using yb::common::SysRowEntryType;
+
 DECLARE_int64(max_concurrent_restoration_rpcs);
 DECLARE_int64(max_concurrent_restoration_rpcs_per_tserver);
 
