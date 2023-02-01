@@ -470,7 +470,6 @@ void Tablet::Init() {
 }
 
 Tablet::Tablet(const TabletInitData& data)
-    // : key_schema_(std::make_unique<Schema>(data.metadata->schema()->CreateKeyProjection())),
     : metadata_(data.metadata),
       table_type_(data.metadata->table_type()),
       log_anchor_registry_(data.log_anchor_registry),
@@ -495,10 +494,6 @@ Tablet::Tablet(const TabletInitData& data)
           clock_, data.allowed_history_cutoff_provider, metadata_.get())),
       full_compaction_pool_(data.full_compaction_pool),
       ts_post_split_compaction_added_(std::move(data.post_split_compaction_added)) {
-  // CHECK(schema()->has_column_ids());
-  // LOG_WITH_PREFIX(INFO) << "Schema version for " << metadata_->table_name() << " is "
-  //                       << metadata_->schema_version();
-
   if (data.metric_registry) {
     MetricEntity::AttributeMap attrs;
     // TODO(KUDU-745): table_id is apparently not set in the metadata.
@@ -520,9 +515,6 @@ Tablet::Tablet(const TabletInitData& data)
     mem_tracker_->SetMetricEntity(tablet_metrics_entity_);
   }
 
-  // auto table_info = metadata_->primary_table_info();
-  // bool has_index = !table_info->index_map->empty();
-  // bool transactional = data.metadata->schema()->table_properties().is_transactional();
   bool transactional = data.metadata->is_transactional();
   if (transactional) {
     server::HybridClock::EnableClockSkewControl();
@@ -539,19 +531,6 @@ Tablet::Tablet(const TabletInitData& data)
         DCHECK_NOTNULL(data.wait_queue_pool)->NewToken(ThreadPool::ExecutionMode::SERIAL));
     }
   }
-
-  // // Create index table metadata cache for secondary index update.
-  // if (has_index) {
-  //   CreateNewYBMetaDataCache();
-  // }
-
-  // // If this is a unique index tablet, set up the index primary key schema.
-  // if (table_info->index_info && table_info->index_info->is_unique()) {
-  //   unique_index_key_schema_ = std::make_unique<Schema>();
-  //   const auto ids = table_info->index_info->index_key_column_ids();
-  //   CHECK_OK(table_info->schema().CreateProjectionByIdsIgnoreMissing(
-  //       ids, unique_index_key_schema_.get()));
-  // }
 
   if (data.transaction_coordinator_context &&
       table_type_ == TableType::TRANSACTION_STATUS_TABLE_TYPE) {
@@ -599,7 +578,6 @@ Status Tablet::Open() {
   TRACE_EVENT0("tablet", "Tablet::Open");
   std::lock_guard<rw_spinlock> lock(component_lock_);
   CHECK_EQ(state_, kInitialized) << "already open";
-  // CHECK(schema()->has_column_ids());
 
   switch (table_type_) {
     case TableType::PGSQL_TABLE_TYPE: FALLTHROUGH_INTENDED;

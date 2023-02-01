@@ -112,10 +112,6 @@ message KvStoreInfoPB {
   // compacted. Defaults to 0 (i.e. HybridTime::kMin).
   optional uint64 last_full_compaction_time = 10;
 
-  // // Initial version of the primary table. Set only when the tablet metadata is in RocksDB.
-  // // Any subsequent version goes to RocksDB.
-  // optional TableInfoPB initial_primary_table = 11;
-
   // Table metadata schema. Set only when the metadata is in RocksDB.
   optional SchemaPB metadata_schema = 11;
 }

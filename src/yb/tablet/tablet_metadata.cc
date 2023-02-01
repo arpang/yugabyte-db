@@ -426,11 +426,6 @@ Status KvStoreInfo::LoadFromPB(const std::string& tablet_log_prefix,
   }
   RETURN_NOT_OK(LoadTablesFromPB(tablet_log_prefix, pb.tables(), primary_table_id));
   if (pb.has_metadata_schema()) {
-    // initial_primary_table = VERIFY_RESULT(
-    //     TableInfo::LoadFromPB(tablet_log_prefix, primary_table_id, pb.initial_primary_table()));
-    // tables.emplace(primary_table_id, initial_primary_table);
-    // UpdateColocationMap(initial_primary_table);
-    // DCHECK(pb.has_metadata_schema());
     RETURN_NOT_OK(SchemaFromPB(pb.metadata_schema(), &metadata_schema));
   }
   return Status::OK();
@@ -492,7 +487,6 @@ void KvStoreInfo::ToPB(const TableId& primary_table_id, KvStoreInfoPB* pb) const
   pb->set_last_full_compaction_time(last_full_compaction_time);
 
   if (IsTableMetadataInRocksDB()) {
-    // initial_primary_table->ToPB(pb->mutable_initial_primary_table());
     SchemaToPB(metadata_schema, pb->mutable_metadata_schema());
   } else {
     // Putting primary table first, then all other tables.
@@ -815,10 +809,6 @@ RaftGroupMetadata::RaftGroupMetadata(
     : state_(kNotWrittenYet),
       raft_group_id_(data.raft_group_id),
       partition_(std::make_shared<Partition>(data.partition)),
-      // primary_table_id_(data.table_info->table_id),
-      // primary_table_type_(data.table_info->table_type),
-      // is_transactional_(data.table_info->schema().table_properties().is_transactional()),
-      // is_index_table_(data.table_info->index_info),
       primary_table_id_(data.primary_table_id),
       primary_table_type_(data.primary_table_type),
       is_transactional_(data.is_transactional),
@@ -840,7 +830,6 @@ RaftGroupMetadata::RaftGroupMetadata(
   }
   bool is_ts_tablet = primary_table_id_ != master::kSysCatalogTableId;
   if (is_ts_tablet && FLAGS_ts_tableinfo_in_rocksdb && primary_table_type_ == PGSQL_TABLE_TYPE) {
-    // kv_store_.initial_primary_table = data.table_info;
     kv_store_.metadata_schema = kv_store_.BuildMetadataSchema();
   }
 }
@@ -906,21 +895,18 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
     } else {
       primary_table_type_ = primary_table_info()->table_type;
     }
-    LOG_WITH_FUNC(INFO) << "primary_table_type_ " << primary_table_type_;
 
     if (superblock.has_transactional()) {
       is_transactional_ = superblock.transactional();
     } else {
       is_transactional_ = primary_table_info()->schema().table_properties().is_transactional();
     }
-    LOG_WITH_FUNC(INFO) << "is_transactional_ " << is_transactional_;
 
     if (superblock.has_index_table()) {
       is_index_table_ = superblock.index_table();
     } else {
       is_index_table_ = primary_table_info()->index_info != nullptr;
     }
-    LOG_WITH_FUNC(INFO) << "is_index_table_ " << is_index_table_;
 
     wal_dir_ = superblock.wal_dir();
     tablet_data_state_ = superblock.tablet_data_state();

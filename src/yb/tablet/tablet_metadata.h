@@ -225,8 +225,6 @@ struct KvStoreInfo {
   // See KvStoreInfoPB field with the same name.
   uint64_t last_full_compaction_time = kNoLastFullCompactionTime;
 
-  // TableInfoPtr initial_primary_table = nullptr;
-
   // Map of tables sharing this KV-store indexed by the table id.
   // If pieces of the same table live in the same Raft group they should be located in different
   // KV-stores.

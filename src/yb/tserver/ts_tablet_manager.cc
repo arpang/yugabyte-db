@@ -774,10 +774,6 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
   TabletPeerPtr new_peer = VERIFY_RESULT(CreateAndRegisterTabletPeer(meta, NEW_PEER));
 
   // We can run this synchronously since there is nothing to bootstrap.
-  // RETURN_NOT_OK(
-  //     open_tablet_pool_->SubmitFunc(std::bind(&TSTabletManager::OpenTablet, this, meta,
-  //     deleter)));
-
   OpenTablet(meta, deleter, table_info);
 
   return new_peer;
@@ -2125,7 +2121,6 @@ void TSTabletManager::CreateReportedTabletPB(const TabletPeerPtr& tablet_peer,
 
   // Set the hide status of the tablet.
   reported_tablet->set_is_hidden(tablet_peer->tablet_metadata()->hidden());
-  // LOG_WITH_FUNC(INFO) << "reported_tablet " << reported_tablet->ShortDebugString();
 }
 
 void TSTabletManager::GenerateTabletReport(TabletReportPB* report, bool include_bootstrap) {
