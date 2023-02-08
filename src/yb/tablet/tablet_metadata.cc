@@ -830,14 +830,15 @@ Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
   {
     std::lock_guard<MutexType> lock(data_mutex_);
     if (last_applied_op_id.valid()) {
-      // TODO: Add a dcheck that last_applied_op_id >= last metadata op
       DCHECK(last_applied_op_id > last_applied_op_id_);
-      last_applied_op_id_ = last_applied_op_id;
+      if (last_applied_op_id > last_change_metadata_op_id_) {
+        last_applied_op_id_ = last_applied_op_id;
+      } else {
+        last_applied_op_id_ = last_change_metadata_op_id_;
+      }
+    } else if (last_change_metadata_op_id_ > last_applied_op_id_) {
+      last_applied_op_id_ = last_change_metadata_op_id_;
     }
-    // TODO: Add
-    // else {
-    //   last_applied_op_id_ = last metadata op
-    // }
     ToSuperBlockUnlocked(&pb);
     // is_dirty_ = false;
   }
