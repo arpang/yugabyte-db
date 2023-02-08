@@ -268,6 +268,16 @@ DECLARE_int64(cdc_intent_retention_ms);
 DEFINE_test_flag(uint64, inject_sleep_before_applying_intents_ms, 0,
                  "Sleep before applying intents to docdb after transaction commit");
 
+DEFINE_RUNTIME_AUTO_bool(
+    ts_tableinfo_in_rocksdb, kLocalPersisted, false, true,
+    "Stores the TableInfoPB in RocksDB for tserver tables");
+
+DEFINE_RUNTIME_int32(
+    superblock_flush_interval_min, 2,
+    "The interval at which the superblock if flushed to disk. Applicable only when "
+    "ts_tableinfo_in_rocksdb is true. 0 indicates that the background task "
+    "is fully disabled.");
+
 using namespace std::placeholders;
 
 using std::shared_ptr;
@@ -2023,7 +2033,12 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 
 Status Tablet::AddTable(const TableInfoPB& table_info) {
   RETURN_NOT_OK(AddTableInMemory(table_info));
-  return metadata_->Flush();
+  if (FLAGS_ts_tableinfo_in_rocksdb) {
+    metadata_->SetDirty();
+    return Status::OK();
+  } else {
+    return metadata_->Flush();
+  }
 }
 
 Status Tablet::AddMultipleTables(

@@ -60,6 +60,7 @@
 #include "yb/tablet/write_query_context.h"
 
 #include "yb/util/atomic.h"
+#include "yb/util/background_task.h"
 #include "yb/util/semaphore.h"
 
 using yb::consensus::StateChangeContext;
@@ -552,11 +553,16 @@ class TabletPeer : public std::enable_shared_from_this<TabletPeer>,
 
   void PollWaitQueue() const;
 
+  // Initializes background task to flush superblock to disk.
+  Status InitSuperBlockFlushBgTask();
+
   TabletSplitter* tablet_splitter_;
 
   std::shared_future<client::YBClient*> client_future_;
 
   rpc::Messenger* messenger_;
+
+  std::unique_ptr<BackgroundTask> superblock_flush_bg_task_;
 
   DISALLOW_COPY_AND_ASSIGN(TabletPeer);
 };

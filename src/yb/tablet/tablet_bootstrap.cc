@@ -1494,6 +1494,7 @@ class TabletBootstrap {
 
     ChangeMetadataOperation operation(request);
 
+    // TODO: This is problematic
     // If table id isn't in metadata, ignore the replay as the table might've been dropped.
     auto table_info = meta_->GetTableInfo(operation.table_id().ToBuffer());
     if (!table_info.ok()) {

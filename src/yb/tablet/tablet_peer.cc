@@ -120,6 +120,10 @@ DECLARE_int32(ysql_transaction_abort_timeout_ms);
 
 DECLARE_int64(cdc_intent_retention_ms);
 
+DECLARE_bool(ts_tableinfo_in_rocksdb);
+
+DECLARE_int32(superblock_flush_interval_min);
+
 namespace yb {
 namespace tablet {
 
@@ -343,6 +347,8 @@ Status TabletPeer::InitTabletPeer(
   }
 
   RETURN_NOT_OK(set_cdc_min_replicated_index(meta_->cdc_min_replicated_index()));
+
+  RETURN_NOT_OK(InitSuperBlockFlushBgTask());
 
   TRACE("TabletPeer::Init() finished");
   VLOG_WITH_PREFIX(2) << "Peer Initted";
@@ -1632,6 +1638,25 @@ void TabletPeer::PollWaitQueue() const {
     DCHECK_NOTNULL(tablet->wait_queue());
     tablet->wait_queue()->Poll(clock_->Now());
   }
+}
+
+Status TabletPeer::InitSuperBlockFlushBgTask() {
+  const int32_t superblock_flush_interval_min = FLAGS_superblock_flush_interval_min;
+  if (FLAGS_ts_tableinfo_in_rocksdb) {
+    superblock_flush_bg_task_.reset(new BackgroundTask(
+        std::function<void()>([this]() {
+          if (meta_->IsDirty()) {
+            auto s = meta_->Flush(consensus_->GetLastAppliedOpId());
+            if (!s.ok()) {
+              LOG_WITH_PREFIX(FATAL) << "Failed flush superblock to disk " << s;
+            }
+          }
+        }),
+        "tablet manager", "scheduled full compactions",
+        MonoDelta::FromMinutes(superblock_flush_interval_min).ToChronoMilliseconds()));
+    RETURN_NOT_OK(superblock_flush_bg_task_->Init());
+  }
+  return Status::OK();
 }
 
 }  // namespace tablet

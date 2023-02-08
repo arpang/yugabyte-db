@@ -1573,6 +1573,7 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
   MonoTime start(MonoTime::Now());
   LOG_TIMING_PREFIX(INFO, kLogPrefix, "starting tablet") {
     TRACE("Initializing tablet peer");
+
     auto s = tablet_peer->InitTabletPeer(
         tablet,
         server_->mem_tracker(),

@@ -802,12 +802,16 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
         active_restorations_.push_back(VERIFY_RESULT(FullyDecodeTxnSnapshotRestorationId(id)));
       }
     }
+
+    if (superblock.has_last_applied_op_id()) {
+      last_applied_op_id_ = OpId::FromPB(superblock.last_applied_op_id());
+    }
   }
 
   return Status::OK();
 }
 
-Status RaftGroupMetadata::Flush() {
+Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
   TRACE_EVENT1("raft_group", "RaftGroupMetadata::Flush",
                "raft_group_id", raft_group_id_);
 
@@ -815,7 +819,17 @@ Status RaftGroupMetadata::Flush() {
   RaftGroupReplicaSuperBlockPB pb;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
+    if (last_applied_op_id.valid()) {
+      // TODO: Add a dcheck that last_applied_op_id >= last metadata op
+      DCHECK(last_applied_op_id > last_applied_op_id_);
+      last_applied_op_id_ = last_applied_op_id;
+    }
+    // TODO: Add
+    // else {
+    //   last_applied_op_id_ = last metadata op
+    // }
     ToSuperBlockUnlocked(&pb);
+    is_dirty_ = false;
   }
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
   TRACE("Metadata flushed");
@@ -935,6 +949,8 @@ void RaftGroupMetadata::ToSuperBlockUnlocked(RaftGroupReplicaSuperBlockPB* super
       active_restorations.Add()->assign(id.AsSlice().cdata(), id.size());
     }
   }
+
+  last_applied_op_id_.ToPB(pb.mutable_last_applied_op_id());
 
   superblock->Swap(&pb);
 }

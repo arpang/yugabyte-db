@@ -460,7 +460,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   void SetRestorationHybridTime(HybridTime value);
   HybridTime restoration_hybrid_time() const;
 
-  Status Flush();
+  Status Flush(OpId last_applied_op_id = OpId::Invalid());
 
   Status SaveTo(const std::string& path);
 
@@ -572,6 +572,16 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   Result<docdb::CompactionSchemaInfo> ColocationPacking(
       ColocationId colocation_id, uint32_t schema_version, HybridTime history_cutoff) override;
 
+  void SetDirty() {
+    std::lock_guard<MutexType> lock(data_mutex_);
+    is_dirty_ = true;
+  }
+
+  bool IsDirty() const {
+    std::lock_guard<MutexType> lock(data_mutex_);
+    return is_dirty_;
+  }
+
   const KvStoreInfo& TEST_kv_store() const {
     return kv_store_;
   }
@@ -680,6 +690,10 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   std::vector<TxnSnapshotRestorationId> active_restorations_;
 
   const std::string log_prefix_;
+
+  bool is_dirty_ GUARDED_BY(data_mutex_) = false;
+
+  OpId last_applied_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
 
   DISALLOW_COPY_AND_ASSIGN(RaftGroupMetadata);
 };
