@@ -2033,12 +2033,13 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 
 Status Tablet::AddTable(const TableInfoPB& table_info) {
   RETURN_NOT_OK(AddTableInMemory(table_info));
-  if (FLAGS_add_table_delay_superblock_flush) {
-    metadata_->SetDirty();
-    return Status::OK();
-  } else {
-    return metadata_->Flush();
+  if (!FLAGS_add_table_delay_superblock_flush) {
+    //   metadata_->SetDirty();
+    //   return Status::OK();
+    // } else {
+    RETURN_NOT_OK(metadata_->Flush());
   }
+  return Status::OK();
 }
 
 Status Tablet::AddMultipleTables(

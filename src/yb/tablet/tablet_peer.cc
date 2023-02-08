@@ -1645,12 +1645,12 @@ Status TabletPeer::InitSuperBlockFlushBgTask() {
   if (FLAGS_add_table_delay_superblock_flush) {
     superblock_flush_bg_task_.reset(new BackgroundTask(
         std::function<void()>([this]() {
-          if (meta_->IsDirty()) {
+          // if (meta_->IsDirty()) {
             auto s = meta_->Flush(consensus_->GetLastAppliedOpId());
             if (!s.ok()) {
               LOG_WITH_PREFIX(FATAL) << "Failed flush superblock to disk " << s;
             }
-          }
+          // }
         }),
         "tablet manager", "scheduled full compactions",
         MonoDelta::FromMinutes(superblock_flush_interval_min).ToChronoMilliseconds()));

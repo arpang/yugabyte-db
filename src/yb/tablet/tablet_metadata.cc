@@ -829,7 +829,7 @@ Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
     //   last_applied_op_id_ = last metadata op
     // }
     ToSuperBlockUnlocked(&pb);
-    is_dirty_ = false;
+    // is_dirty_ = false;
   }
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
   TRACE("Metadata flushed");
