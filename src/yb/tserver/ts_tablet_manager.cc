@@ -756,6 +756,7 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
     .tablet_data_state = TABLET_DATA_READY,
     .colocated = colocated,
     .snapshot_schedules = snapshot_schedules,
+    .last_change_metadata_op_id = OpId::Invalid(),
   }, data_root_dir, wal_root_dir);
   if (!create_result.ok()) {
     UnregisterDataWalDir(table_info->table_id, tablet_id, data_root_dir, wal_root_dir);
