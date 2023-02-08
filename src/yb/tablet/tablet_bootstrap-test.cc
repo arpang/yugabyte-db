@@ -188,6 +188,7 @@ class BootstrapTest : public LogTestBase {
       .partition = partition.second,
       .tablet_data_state = TABLET_DATA_READY,
       .snapshot_schedules = {},
+      .last_change_metadata_op_id = OpId::Invalid(),
     }));
     RETURN_NOT_OK(result->Flush());
     return result;
