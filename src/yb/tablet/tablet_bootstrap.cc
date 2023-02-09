@@ -1493,7 +1493,6 @@ class TabletBootstrap {
   }
 
   Status PlayChangeMetadataRequestDeprecated(consensus::LWReplicateMsg* replicate_msg) {
-    LOG_WITH_FUNC(INFO) << "Starting PlayChangeMetadataRequestDeprecated";
     LOG(INFO) << "last_change_metadata_op_id not set, replaying change metadata request"
               << " as before D19063";
     auto* request = replicate_msg->mutable_change_metadata_request();
@@ -1566,15 +1565,10 @@ class TabletBootstrap {
     ChangeMetadataOperation operation(tablet_, log_.get(), request);
     operation.set_op_id(OpId::FromPB(replicate_msg->id()));
 
-    LOG_WITH_FUNC(INFO) << "Inside PlayChangeMetadataRequest " << request->ShortDebugString();
-
     // If current metadata is already more recent then skip this replay.
     if (ShouldSkipChangeMetadataReplay(&operation)) {
-      LOG_WITH_FUNC(INFO) << "Skippng replay";
       return Status::OK();
     }
-
-    LOG_WITH_FUNC(INFO) << "Performing replay";
 
     // Otherwise play.
     Status s;

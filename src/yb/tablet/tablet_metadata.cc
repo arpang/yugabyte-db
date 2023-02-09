@@ -825,7 +825,6 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
 }
 
 Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
-  LOG_WITH_FUNC(INFO) << "Flush called with " << last_applied_op_id;
   TRACE_EVENT1("raft_group", "RaftGroupMetadata::Flush",
                "raft_group_id", raft_group_id_);
 
@@ -839,11 +838,7 @@ Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
     } else {
       op_id_at_last_flush_ = std::max(op_id_at_last_flush_, last_change_metadata_op_id_);
     }
-    LOG_WITH_FUNC(INFO) << "op_id_at_last_flush_ " << op_id_at_last_flush_;
-    LOG_WITH_FUNC(INFO) << "last_change_metadata_op_id_ " << last_change_metadata_op_id_;
     ToSuperBlockUnlocked(&pb);
-    LOG_WITH_FUNC(INFO) << "pb.kv_store().tables_size() " << pb.kv_store().tables_size();
-    // is_dirty_ = false;
   }
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
   TRACE("Metadata flushed");
