@@ -1027,9 +1027,12 @@ Result<int64_t> TabletPeer::GetEarliestNeededLogIndex(std::string* details) cons
     }
   }
 
-  auto op_id_at_last_superblock_flush = meta_->LastAppliedOpId();
+  auto op_id_at_last_superblock_flush = meta_->OpIdAtLastFlush();
   if (op_id_at_last_superblock_flush.valid()) {
     min_index = std::min(min_index, op_id_at_last_superblock_flush.index);
+    if (details) {
+      *details += Format("OpId at last superblock flush: $0\n", op_id_at_last_superblock_flush);
+    }
   }
 
   if (details) {
@@ -1650,14 +1653,12 @@ Status TabletPeer::InitSuperBlockFlushBgTask() {
   if (FLAGS_add_table_delay_superblock_flush) {
     superblock_flush_bg_task_.reset(new BackgroundTask(
         std::function<void()>([this]() {
-          // if (meta_->IsDirty()) {
-            auto s = meta_->Flush(consensus_->GetLastAppliedOpId());
-            if (!s.ok()) {
-              LOG_WITH_PREFIX(FATAL) << "Failed flush superblock to disk " << s;
-            }
-          // }
+          auto s = meta_->Flush(consensus_->GetLastAppliedOpId());
+          if (!s.ok()) {
+            LOG_WITH_PREFIX(FATAL) << "Failed to flush superblock to disk " << s;
+          }
         }),
-        "tablet manager", "scheduled full compactions",
+        "tablet", "superblock flush",
         MonoDelta::FromMinutes(superblock_flush_interval_min).ToChronoMilliseconds()));
     RETURN_NOT_OK(superblock_flush_bg_task_->Init());
   }

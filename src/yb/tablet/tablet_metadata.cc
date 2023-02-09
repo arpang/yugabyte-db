@@ -707,7 +707,7 @@ RaftGroupMetadata::RaftGroupMetadata(
       cdc_sdk_safe_time_(HybridTime::kInvalid),
       log_prefix_(consensus::MakeTabletLogPrefix(raft_group_id_, fs_manager_->uuid())),
       last_change_metadata_op_id_(data.last_change_metadata_op_id),
-      last_applied_op_id_(data.op_id_at_last_flush) {
+      op_id_at_last_flush_(data.op_id_at_last_flush) {
   CHECK(data.table_info->schema().has_column_ids());
   CHECK_GT(data.table_info->schema().num_key_columns(), 0);
   kv_store_.tables.emplace(primary_table_id_, data.table_info);
@@ -806,8 +806,10 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
       }
     }
 
-    if (superblock.has_last_applied_op_id()) {
-      last_applied_op_id_ = OpId::FromPB(superblock.last_applied_op_id());
+    if (superblock.has_op_id_at_last_flush()) {
+      op_id_at_last_flush_ = OpId::FromPB(superblock.op_id_at_last_flush());
+    } else {
+      op_id_at_last_flush_ = OpId::Invalid();
     }
 
     // If new code is reading old data then this field won't exist. In such cases,
@@ -832,12 +834,12 @@ Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
   {
     std::lock_guard<MutexType> lock(data_mutex_);
     if (last_applied_op_id.valid()) {
-      DCHECK(last_applied_op_id > last_applied_op_id_);
-      last_applied_op_id_ = std::max(last_applied_op_id, last_change_metadata_op_id_);
+      DCHECK(last_applied_op_id > op_id_at_last_flush_);
+      op_id_at_last_flush_ = std::max(last_applied_op_id, last_change_metadata_op_id_);
     } else {
-      last_applied_op_id_ = std::max(last_applied_op_id_, last_change_metadata_op_id_);
+      op_id_at_last_flush_ = std::max(op_id_at_last_flush_, last_change_metadata_op_id_);
     }
-    LOG_WITH_FUNC(INFO) << "last_applied_op_id_ " << last_applied_op_id_;
+    LOG_WITH_FUNC(INFO) << "op_id_at_last_flush_ " << op_id_at_last_flush_;
     LOG_WITH_FUNC(INFO) << "last_change_metadata_op_id_ " << last_change_metadata_op_id_;
     ToSuperBlockUnlocked(&pb);
     LOG_WITH_FUNC(INFO) << "pb.kv_store().tables_size() " << pb.kv_store().tables_size();
@@ -962,8 +964,8 @@ void RaftGroupMetadata::ToSuperBlockUnlocked(RaftGroupReplicaSuperBlockPB* super
     }
   }
 
-  if (last_applied_op_id_.valid()) {
-    last_applied_op_id_.ToPB(pb.mutable_last_applied_op_id());
+  if (op_id_at_last_flush_.valid()) {
+    op_id_at_last_flush_.ToPB(pb.mutable_op_id_at_last_flush());
   }
 
   if (last_change_metadata_op_id_.valid()) {

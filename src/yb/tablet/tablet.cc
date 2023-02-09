@@ -270,7 +270,7 @@ DEFINE_test_flag(uint64, inject_sleep_before_applying_intents_ms, 0,
 
 DEFINE_RUNTIME_AUTO_bool(
     add_table_delay_superblock_flush, kLocalPersisted, false, true,
-    "Stores the TableInfoPB in RocksDB for tserver tables");
+    "Delays the superblock flush on table creation");
 
 DEFINE_RUNTIME_int32(
     superblock_flush_interval_min, 2,
@@ -2037,9 +2037,6 @@ Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
   LOG_WITH_FUNC(INFO) << "Adding table " << table_info.ShortDebugString();
   RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
   if (!FLAGS_add_table_delay_superblock_flush) {
-    //   metadata_->SetDirty();
-    //   return Status::OK();
-    // } else {
     RETURN_NOT_OK(metadata_->Flush());
   } else {
     LOG_WITH_FUNC(INFO) << "Delaying flush";
@@ -2047,6 +2044,7 @@ Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
   return Status::OK();
 }
 
+// TODO: Should we do it here? Who uses this?
 Status Tablet::AddMultipleTables(
     const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos, const OpId& op_id) {
   // If nothing has changed then return.

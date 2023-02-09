@@ -1497,6 +1497,7 @@ class TabletBootstrap {
     LOG(INFO) << "last_change_metadata_op_id not set, replaying change metadata request"
               << " as before D19063";
     auto* request = replicate_msg->mutable_change_metadata_request();
+
     // Decode schema
     Schema schema;
     if (request->has_schema()) {
@@ -1504,10 +1505,10 @@ class TabletBootstrap {
     }
 
     ChangeMetadataOperation operation(request);
+
     // If table id isn't in metadata, ignore the replay as the table might've been dropped.
     auto table_info = meta_->GetTableInfo(operation.table_id().ToBuffer());
     if (!table_info.ok()) {
-      LOG_WITH_FUNC(INFO) << "Table not found";
       LOG_WITH_PREFIX(WARNING) << "Table ID " << operation.table_id()
           << " not found in metadata, skipping this ChangeMetadataRequest";
       return Status::OK();

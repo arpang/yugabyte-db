@@ -65,7 +65,6 @@
 
 #include "yb/tserver/tserver_fwd.h"
 
-#include "yb/util/background_task.h"
 #include "yb/util/status_fwd.h"
 #include "yb/util/enums.h"
 #include "yb/util/locks.h"
