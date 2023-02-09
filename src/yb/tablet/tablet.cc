@@ -274,7 +274,7 @@ DEFINE_RUNTIME_AUTO_bool(
 
 DEFINE_RUNTIME_int32(
     superblock_flush_interval_min, 2,
-    "The interval at which the superblock if flushed to disk. Applicable only when "
+    "The interval at which the superblock is flushed to disk in background. Applicable only when "
     "add_table_delay_superblock_flush is true. 0 indicates that the background task "
     "is fully disabled.");
 
