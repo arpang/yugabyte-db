@@ -215,6 +215,7 @@ message RaftGroupReplicaSuperBlockPB {
   optional OpIdPB last_change_metadata_op_id = 35;
 
   // The last applied OpId at the time of flush.
+  // TODO: Can rename to op_id_at_last_flush
   optional OpIdPB last_applied_op_id = 36;
 }
 

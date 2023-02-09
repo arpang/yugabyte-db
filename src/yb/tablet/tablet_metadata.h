@@ -233,6 +233,7 @@ struct RaftGroupMetadataData {
   bool colocated = false;
   std::vector<SnapshotScheduleId> snapshot_schedules;
   OpId last_change_metadata_op_id;
+  OpId op_id_at_last_flush;
 };
 
 // At startup, the TSTabletManager will load a RaftGroupMetadata for each
@@ -576,14 +577,19 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   Result<docdb::CompactionSchemaInfo> ColocationPacking(
       ColocationId colocation_id, uint32_t schema_version, HybridTime history_cutoff) override;
 
-  void SetDirty() {
-    std::lock_guard<MutexType> lock(data_mutex_);
-    is_dirty_ = true;
-  }
+  // void SetDirty() {
+  //   std::lock_guard<MutexType> lock(data_mutex_);
+  //   is_dirty_ = true;
+  // }
 
-  bool IsDirty() const {
+  // bool IsDirty() const {
+  //   std::lock_guard<MutexType> lock(data_mutex_);
+  //   return is_dirty_;
+  // }
+
+  OpId LastAppliedOpId() const {
     std::lock_guard<MutexType> lock(data_mutex_);
-    return is_dirty_;
+    return last_applied_op_id_;
   }
 
   const KvStoreInfo& TEST_kv_store() const {
@@ -702,7 +708,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // of local tablet bootstrap we should replay a particular change_metadata op.
   OpId last_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
 
-  bool is_dirty_ GUARDED_BY(data_mutex_) = false;
+  // bool is_dirty_ GUARDED_BY(data_mutex_) = false;
 
   OpId last_applied_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
 

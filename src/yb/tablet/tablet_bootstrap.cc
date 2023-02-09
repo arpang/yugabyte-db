@@ -1493,10 +1493,10 @@ class TabletBootstrap {
   }
 
   Status PlayChangeMetadataRequestDeprecated(consensus::LWReplicateMsg* replicate_msg) {
+    LOG_WITH_FUNC(INFO) << "Starting PlayChangeMetadataRequestDeprecated";
     LOG(INFO) << "last_change_metadata_op_id not set, replaying change metadata request"
               << " as before D19063";
     auto* request = replicate_msg->mutable_change_metadata_request();
-
     // Decode schema
     Schema schema;
     if (request->has_schema()) {
@@ -1504,11 +1504,10 @@ class TabletBootstrap {
     }
 
     ChangeMetadataOperation operation(request);
-
-    // TODO: This is problematic
     // If table id isn't in metadata, ignore the replay as the table might've been dropped.
     auto table_info = meta_->GetTableInfo(operation.table_id().ToBuffer());
     if (!table_info.ok()) {
+      LOG_WITH_FUNC(INFO) << "Table not found";
       LOG_WITH_PREFIX(WARNING) << "Table ID " << operation.table_id()
           << " not found in metadata, skipping this ChangeMetadataRequest";
       return Status::OK();
@@ -1566,10 +1565,15 @@ class TabletBootstrap {
     ChangeMetadataOperation operation(tablet_, log_.get(), request);
     operation.set_op_id(OpId::FromPB(replicate_msg->id()));
 
+    LOG_WITH_FUNC(INFO) << "Inside PlayChangeMetadataRequest " << request->ShortDebugString();
+
     // If current metadata is already more recent then skip this replay.
     if (ShouldSkipChangeMetadataReplay(&operation)) {
+      LOG_WITH_FUNC(INFO) << "Skippng replay";
       return Status::OK();
     }
+
+    LOG_WITH_FUNC(INFO) << "Performing replay";
 
     // Otherwise play.
     Status s;

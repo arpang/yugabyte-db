@@ -1027,6 +1027,11 @@ Result<int64_t> TabletPeer::GetEarliestNeededLogIndex(std::string* details) cons
     }
   }
 
+  auto op_id_at_last_superblock_flush = meta_->LastAppliedOpId();
+  if (op_id_at_last_superblock_flush.valid()) {
+    min_index = std::min(min_index, op_id_at_last_superblock_flush.index);
+  }
+
   if (details) {
     *details += Format("Earliest needed log index: $0\n", min_index);
   }

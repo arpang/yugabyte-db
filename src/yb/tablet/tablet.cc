@@ -2034,12 +2034,15 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info, const OpId& op_id
 }
 
 Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
+  LOG_WITH_FUNC(INFO) << "Adding table " << table_info.ShortDebugString();
   RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
   if (!FLAGS_add_table_delay_superblock_flush) {
     //   metadata_->SetDirty();
     //   return Status::OK();
     // } else {
     RETURN_NOT_OK(metadata_->Flush());
+  } else {
+    LOG_WITH_FUNC(INFO) << "Delaying flush";
   }
   return Status::OK();
 }
@@ -2049,6 +2052,7 @@ Status Tablet::AddMultipleTables(
   // If nothing has changed then return.
   RSTATUS_DCHECK_GT(table_infos.size(), 0, Ok, "No table to add to metadata");
   for (const auto& table_info : table_infos) {
+    LOG_WITH_FUNC(INFO) << "Adding multiple table " << table_info.ShortDebugString();
     RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
   }
   return metadata_->Flush();

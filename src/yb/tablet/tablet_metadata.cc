@@ -706,7 +706,8 @@ RaftGroupMetadata::RaftGroupMetadata(
       cdc_sdk_min_checkpoint_op_id_(OpId::Invalid()),
       cdc_sdk_safe_time_(HybridTime::kInvalid),
       log_prefix_(consensus::MakeTabletLogPrefix(raft_group_id_, fs_manager_->uuid())),
-      last_change_metadata_op_id_(data.last_change_metadata_op_id) {
+      last_change_metadata_op_id_(data.last_change_metadata_op_id),
+      last_applied_op_id_(data.op_id_at_last_flush) {
   CHECK(data.table_info->schema().has_column_ids());
   CHECK_GT(data.table_info->schema().num_key_columns(), 0);
   kv_store_.tables.emplace(primary_table_id_, data.table_info);
@@ -822,6 +823,7 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
 }
 
 Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
+  LOG_WITH_FUNC(INFO) << "Flush called with " << last_applied_op_id;
   TRACE_EVENT1("raft_group", "RaftGroupMetadata::Flush",
                "raft_group_id", raft_group_id_);
 
@@ -831,15 +833,14 @@ Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
     std::lock_guard<MutexType> lock(data_mutex_);
     if (last_applied_op_id.valid()) {
       DCHECK(last_applied_op_id > last_applied_op_id_);
-      if (last_applied_op_id > last_change_metadata_op_id_) {
-        last_applied_op_id_ = last_applied_op_id;
-      } else {
-        last_applied_op_id_ = last_change_metadata_op_id_;
-      }
-    } else if (last_change_metadata_op_id_ > last_applied_op_id_) {
-      last_applied_op_id_ = last_change_metadata_op_id_;
+      last_applied_op_id_ = std::max(last_applied_op_id, last_change_metadata_op_id_);
+    } else {
+      last_applied_op_id_ = std::max(last_applied_op_id_, last_change_metadata_op_id_);
     }
+    LOG_WITH_FUNC(INFO) << "last_applied_op_id_ " << last_applied_op_id_;
+    LOG_WITH_FUNC(INFO) << "last_change_metadata_op_id_ " << last_change_metadata_op_id_;
     ToSuperBlockUnlocked(&pb);
+    LOG_WITH_FUNC(INFO) << "pb.kv_store().tables_size() " << pb.kv_store().tables_size();
     // is_dirty_ = false;
   }
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
