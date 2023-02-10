@@ -832,6 +832,11 @@ Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
   RaftGroupReplicaSuperBlockPB pb;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
+
+    // TODO: Can we change the below if-else to simply
+    // op_id_at_last_flush_ = std::max(last_applied_op_id, last_change_metadata_op_id_,
+    // op_id_at_last_flush_);
+
     if (last_applied_op_id.valid()) {
       DCHECK(last_applied_op_id > op_id_at_last_flush_);
       op_id_at_last_flush_ = std::max(last_applied_op_id, last_change_metadata_op_id_);
@@ -840,6 +845,11 @@ Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
     }
     ToSuperBlockUnlocked(&pb);
   }
+  // TODO: There is a potential race condition here.
+  // 1. At this point op_id_at_last_flush_ has been updated but not flushed to disk.
+  // 2. WAL GC reads op_id_at_last_flush_ and cleans up the wal entries up till there.
+  // 3. Machine restarts
+  // Perhaps, this can be fixed by holding a lock on flush_lock_ to read op_id_at_last_flush_
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
   TRACE("Metadata flushed");
 

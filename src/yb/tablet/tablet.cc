@@ -2033,6 +2033,7 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info, const OpId& op_id
   return Status::OK();
 }
 
+// TODO: Check if it not a cotable.
 Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
   RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
   if (!FLAGS_add_table_delay_superblock_flush) {
