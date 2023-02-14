@@ -120,7 +120,7 @@ DECLARE_int32(ysql_transaction_abort_timeout_ms);
 
 DECLARE_int64(cdc_intent_retention_ms);
 
-DECLARE_bool(add_table_delay_superblock_flush);
+DECLARE_bool(delay_superblock_flush);
 
 DECLARE_int32(superblock_flush_interval_min);
 
@@ -1650,7 +1650,7 @@ void TabletPeer::PollWaitQueue() const {
 
 Status TabletPeer::InitSuperBlockFlushBgTask() {
   const int32_t superblock_flush_interval_min = FLAGS_superblock_flush_interval_min;
-  if (FLAGS_add_table_delay_superblock_flush) {
+  if (FLAGS_delay_superblock_flush) {
     superblock_flush_bg_task_.reset(new BackgroundTask(
         std::function<void()>([this]() {
           auto s = meta_->Flush(consensus_->GetLastAppliedOpId());

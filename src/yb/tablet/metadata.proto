@@ -213,7 +213,7 @@ message RaftGroupReplicaSuperBlockPB {
   // during local tablet bootstrap of the tablet.
   optional OpIdPB last_change_metadata_op_id = 35;
 
-  // The latest applied OpId at the time of the last superblock flush.
+  // The latest applied OpId as of the last superblock flush.
   optional OpIdPB op_id_at_last_flush = 36;
 }
 

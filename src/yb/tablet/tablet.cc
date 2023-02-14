@@ -268,14 +268,13 @@ DECLARE_int64(cdc_intent_retention_ms);
 DEFINE_test_flag(uint64, inject_sleep_before_applying_intents_ms, 0,
                  "Sleep before applying intents to docdb after transaction commit");
 
-DEFINE_RUNTIME_AUTO_bool(
-    add_table_delay_superblock_flush, kLocalPersisted, false, true,
-    "Delays the superblock flush on table creation");
+DEFINE_RUNTIME_bool(
+    delay_superblock_flush, true, "Delays the superblock flush on colocated table creation");
 
 DEFINE_RUNTIME_int32(
     superblock_flush_interval_min, 2,
     "The interval at which the superblock is flushed to disk in background. Applicable only when "
-    "add_table_delay_superblock_flush is true. 0 indicates that the background task "
+    "delay_superblock_flush is true. 0 indicates that the background task "
     "is fully disabled.");
 
 DECLARE_bool(TEST_no_update_last_change_metadata_op);
@@ -2036,7 +2035,7 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info, const OpId& op_id
 // TODO: Check if it not a cotable.
 Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
   RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
-  if (!FLAGS_add_table_delay_superblock_flush) {
+  if (!FLAGS_delay_superblock_flush) {
     RETURN_NOT_OK(metadata_->Flush());
   }
   return Status::OK();

@@ -832,17 +832,8 @@ Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
   RaftGroupReplicaSuperBlockPB pb;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
-
-    // TODO: Can we change the below if-else to simply
-    // op_id_at_last_flush_ = std::max(last_applied_op_id, last_change_metadata_op_id_,
-    // op_id_at_last_flush_);
-
-    if (last_applied_op_id.valid()) {
-      DCHECK(last_applied_op_id > op_id_at_last_flush_);
-      op_id_at_last_flush_ = std::max(last_applied_op_id, last_change_metadata_op_id_);
-    } else {
-      op_id_at_last_flush_ = std::max(op_id_at_last_flush_, last_change_metadata_op_id_);
-    }
+    op_id_at_last_flush_ =
+        std::max(std::max(last_applied_op_id, last_change_metadata_op_id_), op_id_at_last_flush_);
     ToSuperBlockUnlocked(&pb);
   }
   // TODO: There is a potential race condition here.
