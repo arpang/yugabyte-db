@@ -792,6 +792,8 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
 
   std::string LogPrefix() const;
 
+  bool DelaySuperblockFlush();
+
  private:
   friend class Iterator;
   friend class TabletPeerTest;

@@ -56,6 +56,8 @@
 #include "yb/gutil/macros.h"
 #include "yb/gutil/ref_counted.h"
 
+#include "yb/master/sys_catalog_constants.h"
+
 #include "yb/tablet/tablet_fwd.h"
 #include "yb/tablet/metadata.pb.h"
 
@@ -535,6 +537,11 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   TableInfoPtr primary_table_info() const {
     std::lock_guard<MutexType> lock(data_mutex_);
     return primary_table_info_unlocked();
+  }
+
+  bool IsSysCatalog() const {
+    std::lock_guard<MutexType> lock(data_mutex_);
+    return primary_table_id_ == master::kSysCatalogTableId;
   }
 
   bool colocated() const;

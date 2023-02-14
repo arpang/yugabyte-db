@@ -1027,11 +1027,13 @@ Result<int64_t> TabletPeer::GetEarliestNeededLogIndex(std::string* details) cons
     }
   }
 
-  auto op_id_at_last_superblock_flush = meta_->OpIdAtLastFlush();
-  if (op_id_at_last_superblock_flush.valid()) {
-    min_index = std::min(min_index, op_id_at_last_superblock_flush.index);
-    if (details) {
-      *details += Format("OpId at last superblock flush: $0\n", op_id_at_last_superblock_flush);
+  if (tablet_->DelaySuperblockFlush()) {
+    auto op_id_at_last_superblock_flush = meta_->OpIdAtLastFlush();
+    if (op_id_at_last_superblock_flush.valid()) {
+      min_index = std::min(min_index, op_id_at_last_superblock_flush.index);
+      if (details) {
+        *details += Format("OpId at last superblock flush: $0\n", op_id_at_last_superblock_flush);
+      }
     }
   }
 
@@ -1649,8 +1651,8 @@ void TabletPeer::PollWaitQueue() const {
 }
 
 Status TabletPeer::InitSuperBlockFlushBgTask() {
-  const int32_t superblock_flush_interval_min = FLAGS_superblock_flush_interval_min;
-  if (FLAGS_delay_superblock_flush) {
+  if (tablet_->DelaySuperblockFlush()) {
+    const int32_t superblock_flush_interval_min = FLAGS_superblock_flush_interval_min;
     superblock_flush_bg_task_.reset(new BackgroundTask(
         std::function<void()>([this]() {
           auto s = meta_->Flush(consensus_->GetLastAppliedOpId());

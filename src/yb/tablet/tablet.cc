@@ -2035,7 +2035,7 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info, const OpId& op_id
 // TODO: Check if it not a cotable.
 Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
   RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
-  if (!FLAGS_delay_superblock_flush) {
+  if (!DelaySuperblockFlush()) {
     RETURN_NOT_OK(metadata_->Flush());
   }
   return Status::OK();
@@ -4148,6 +4148,11 @@ Status Tablet::ApplyAutoFlagsConfig(const AutoFlagsConfigPB& config) {
 
   return auto_flags_manager_->LoadFromConfig(config, ApplyNonRuntimeAutoFlags::kFalse);
 }
+
+bool Tablet::DelaySuperblockFlush() {
+  return FLAGS_delay_superblock_flush && metadata_->colocated() && !metadata_->IsSysCatalog();
+}
+
 // ------------------------------------------------------------------------------------------------
 
 Result<ScopedReadOperation> ScopedReadOperation::Create(
