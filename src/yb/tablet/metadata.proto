@@ -213,9 +213,9 @@ message RaftGroupReplicaSuperBlockPB {
   // during local tablet bootstrap of the tablet.
   optional OpIdPB last_change_metadata_op_id = 35;
 
-  // The latest applied OpId as of the last superblock flush. Used with delayed superblock flush to
-  // prevent metadata WAL entry GC.
-  optional OpIdPB op_id_at_last_flush = 36;
+  // The latest OpId upto which metadata operations are flushed to disk. Used with delayed
+  // superblock flush to prevent metadata WAL entry GC.
+  optional OpIdPB persistent_checkpoint = 36;
 }
 
 message FilePB {

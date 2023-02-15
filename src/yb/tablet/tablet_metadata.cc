@@ -707,7 +707,7 @@ RaftGroupMetadata::RaftGroupMetadata(
       cdc_sdk_safe_time_(HybridTime::kInvalid),
       log_prefix_(consensus::MakeTabletLogPrefix(raft_group_id_, fs_manager_->uuid())),
       last_change_metadata_op_id_(data.last_change_metadata_op_id),
-      op_id_at_last_flush_(data.op_id_at_last_flush) {
+      persistent_checkpoint_(data.persistent_checkpoint) {
   CHECK(data.table_info->schema().has_column_ids());
   CHECK_GT(data.table_info->schema().num_key_columns(), 0);
   kv_store_.tables.emplace(primary_table_id_, data.table_info);
@@ -806,10 +806,10 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
       }
     }
 
-    if (superblock.has_op_id_at_last_flush()) {
-      op_id_at_last_flush_ = OpId::FromPB(superblock.op_id_at_last_flush());
+    if (superblock.has_persistent_checkpoint()) {
+      persistent_checkpoint_ = OpId::FromPB(superblock.persistent_checkpoint());
     } else {
-      op_id_at_last_flush_ = OpId::Invalid();
+      persistent_checkpoint_ = OpId::Invalid();
     }
 
     // If new code is reading old data then this field won't exist. In such cases,
@@ -824,7 +824,7 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
   return Status::OK();
 }
 
-Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
+Status RaftGroupMetadata::Flush(OpId latest_applied_op_id) {
   TRACE_EVENT1("raft_group", "RaftGroupMetadata::Flush",
                "raft_group_id", raft_group_id_);
 
@@ -832,15 +832,21 @@ Status RaftGroupMetadata::Flush(OpId last_applied_op_id) {
   RaftGroupReplicaSuperBlockPB pb;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
-    op_id_at_last_flush_ =
-        std::max(std::max(last_applied_op_id, last_change_metadata_op_id_), op_id_at_last_flush_);
+    auto dirty = last_change_metadata_op_id_ > persistent_checkpoint_;
+    persistent_checkpoint_ = std::max(
+        std::max(latest_applied_op_id, last_change_metadata_op_id_), persistent_checkpoint_);
+    if (latest_applied_op_id.valid() && !dirty) {
+      return Status::OK();
+    }
     ToSuperBlockUnlocked(&pb);
   }
-  // TODO: There is a potential race condition here.
-  // 1. At this point op_id_at_last_flush_ has been updated but not flushed to disk.
-  // 2. WAL GC reads op_id_at_last_flush_ and cleans up the wal entries up till there.
-  // 3. Machine restarts
-  // Perhaps, this can be fixed by holding a lock on flush_lock_ to read op_id_at_last_flush_
+  // There is a potential race condition here.
+  // 1. At this point persistent_checkpoint_ is updated but the superblock is not yet flushed to
+  // disk.
+  // 2. WAL GC reads persistent_checkpoint_ and cleans up the wal entries up till there.
+  // 3. Node restarts
+  // We loose both the in-memory metadata and WAL entry. To prevent this, flush_lock_ must be held
+  // to read persistent_checkpoint_.
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
   TRACE("Metadata flushed");
 
@@ -960,8 +966,8 @@ void RaftGroupMetadata::ToSuperBlockUnlocked(RaftGroupReplicaSuperBlockPB* super
     }
   }
 
-  if (op_id_at_last_flush_.valid()) {
-    op_id_at_last_flush_.ToPB(pb.mutable_op_id_at_last_flush());
+  if (persistent_checkpoint_.valid()) {
+    persistent_checkpoint_.ToPB(pb.mutable_persistent_checkpoint());
   }
 
   if (last_change_metadata_op_id_.valid()) {

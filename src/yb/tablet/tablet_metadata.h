@@ -235,7 +235,7 @@ struct RaftGroupMetadataData {
   bool colocated = false;
   std::vector<SnapshotScheduleId> snapshot_schedules;
   OpId last_change_metadata_op_id;
-  OpId op_id_at_last_flush;  // TODO: Add appropriate constructor values in other usages
+  OpId persistent_checkpoint;  // TODO: Add appropriate constructor values in other usages
 };
 
 // At startup, the TSTabletManager will load a RaftGroupMetadata for each
@@ -467,7 +467,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   void SetRestorationHybridTime(HybridTime value);
   HybridTime restoration_hybrid_time() const;
 
-  Status Flush(OpId last_applied_op_id = OpId::Invalid());
+  Status Flush(OpId latest_applied_op_id = OpId::Invalid());
 
   Status SaveTo(const std::string& path);
 
@@ -584,9 +584,11 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   Result<docdb::CompactionSchemaInfo> ColocationPacking(
       ColocationId colocation_id, uint32_t schema_version, HybridTime history_cutoff) override;
 
-  OpId OpIdAtLastFlush() const {
-    std::lock_guard<MutexType> lock(data_mutex_);
-    return op_id_at_last_flush_;
+  // The latest OpId upto which metadata changes have been persisted.
+  // See Flush as to why flush_lock_ is held here.
+  OpId PersistentCheckpoint() const {
+    MutexLock l_flush(flush_lock_);
+    return persistent_checkpoint_;
   }
 
   const KvStoreInfo& TEST_kv_store() const {
@@ -705,7 +707,9 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // of local tablet bootstrap we should replay a particular change_metadata op.
   OpId last_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
 
-  OpId op_id_at_last_flush_ GUARDED_BY(data_mutex_) = OpId::Invalid();
+  // The latest OpId upto which metadata operations have been flushed to disk. Used with
+  // delayed superblock flush to prevent WAL GC.
+  OpId persistent_checkpoint_ = OpId::Invalid();
 
   DISALLOW_COPY_AND_ASSIGN(RaftGroupMetadata);
 };

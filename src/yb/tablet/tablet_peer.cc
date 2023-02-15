@@ -1028,11 +1028,11 @@ Result<int64_t> TabletPeer::GetEarliestNeededLogIndex(std::string* details) cons
   }
 
   if (tablet_->DelaySuperblockFlush()) {
-    auto op_id_at_last_superblock_flush = meta_->OpIdAtLastFlush();
-    if (op_id_at_last_superblock_flush.valid()) {
-      min_index = std::min(min_index, op_id_at_last_superblock_flush.index);
+    auto metadata_persistent_checkpoint = meta_->PersistentCheckpoint();
+    if (metadata_persistent_checkpoint.valid()) {
+      min_index = std::min(min_index, metadata_persistent_checkpoint.index);
       if (details) {
-        *details += Format("OpId at last superblock flush: $0\n", op_id_at_last_superblock_flush);
+        *details += Format("Metadata persistent checkpoint: $0\n", metadata_persistent_checkpoint);
       }
     }
   }
