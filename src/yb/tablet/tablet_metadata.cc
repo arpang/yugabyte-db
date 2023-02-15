@@ -707,7 +707,7 @@ RaftGroupMetadata::RaftGroupMetadata(
       cdc_sdk_safe_time_(HybridTime::kInvalid),
       log_prefix_(consensus::MakeTabletLogPrefix(raft_group_id_, fs_manager_->uuid())),
       last_change_metadata_op_id_(data.last_change_metadata_op_id),
-      persistent_checkpoint_(data.persistent_checkpoint) {
+      persistent_checkpoint_(data.last_change_metadata_op_id) {
   CHECK(data.table_info->schema().has_column_ids());
   CHECK_GT(data.table_info->schema().num_key_columns(), 0);
   kv_store_.tables.emplace(primary_table_id_, data.table_info);
@@ -806,18 +806,20 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
       }
     }
 
-    if (superblock.has_persistent_checkpoint()) {
-      persistent_checkpoint_ = OpId::FromPB(superblock.persistent_checkpoint());
-    } else {
-      persistent_checkpoint_ = OpId::Invalid();
-    }
+    // if (superblock.has_persistent_checkpoint()) {
+    //   persistent_checkpoint_ = OpId::FromPB(superblock.persistent_checkpoint());
+    // } else {
+    //   persistent_checkpoint_ = OpId::Invalid();
+    // }
 
     // If new code is reading old data then this field won't exist. In such cases,
     // we start with an invalid value of -1.-1.
     if (superblock.has_last_change_metadata_op_id()) {
       last_change_metadata_op_id_ = OpId::FromPB(superblock.last_change_metadata_op_id());
+      persistent_checkpoint_ = OpId::FromPB(superblock.last_change_metadata_op_id());
     } else {
       last_change_metadata_op_id_ = OpId::Invalid();
+      persistent_checkpoint_ = OpId::Invalid();
     }
   }
 
@@ -966,9 +968,9 @@ void RaftGroupMetadata::ToSuperBlockUnlocked(RaftGroupReplicaSuperBlockPB* super
     }
   }
 
-  if (persistent_checkpoint_.valid()) {
-    persistent_checkpoint_.ToPB(pb.mutable_persistent_checkpoint());
-  }
+  // if (persistent_checkpoint_.valid()) {
+  //   persistent_checkpoint_.ToPB(pb.mutable_persistent_checkpoint());
+  // }
 
   if (last_change_metadata_op_id_.valid()) {
     last_change_metadata_op_id_.ToPB(pb.mutable_last_change_metadata_op_id());

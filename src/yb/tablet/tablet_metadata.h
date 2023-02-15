@@ -235,7 +235,7 @@ struct RaftGroupMetadataData {
   bool colocated = false;
   std::vector<SnapshotScheduleId> snapshot_schedules;
   OpId last_change_metadata_op_id;
-  OpId persistent_checkpoint;  // TODO: Add appropriate constructor values in other usages
+  // OpId persistent_checkpoint;  // TODO: Add appropriate constructor values in other usages
 };
 
 // At startup, the TSTabletManager will load a RaftGroupMetadata for each

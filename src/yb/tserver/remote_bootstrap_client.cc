@@ -364,7 +364,7 @@ Status RemoteBootstrapClient::Start(const string& bootstrap_peer_uuid,
             .colocated = colocated,
             .snapshot_schedules = {},
             .last_change_metadata_op_id = OpId::Invalid(),  // TODO
-            .persistent_checkpoint = OpId::Invalid()         // TODO
+            // .persistent_checkpoint = OpId::Invalid()         // TODO
         },
         data_root_dir, wal_root_dir);
     if (ts_manager != nullptr && !create_result.ok()) {
