@@ -268,7 +268,7 @@ DECLARE_int64(cdc_intent_retention_ms);
 DEFINE_test_flag(uint64, inject_sleep_before_applying_intents_ms, 0,
                  "Sleep before applying intents to docdb after transaction commit");
 
-DEFINE_RUNTIME_bool(
+DEFINE_bool(
     delay_superblock_flush, true, "Delays the superblock flush on colocated table creation");
 
 DEFINE_RUNTIME_int32(
