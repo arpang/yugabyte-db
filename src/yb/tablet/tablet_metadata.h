@@ -708,7 +708,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   OpId last_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
 
   // The latest OpId upto which metadata operations have been flushed to disk. Used with
-  // delayed superblock flush to prevent WAL GC.
+  // delayed superblock flush to prevent GC of metadata WAL entry.
   OpId persistent_checkpoint_ = OpId::Invalid();
 
   DISALLOW_COPY_AND_ASSIGN(RaftGroupMetadata);
