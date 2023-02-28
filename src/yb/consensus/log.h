@@ -57,6 +57,8 @@
 #include "yb/gutil/ref_counted.h"
 #include "yb/gutil/spinlock.h"
 
+#include "yb/tablet/tablet_metadata.h"
+
 #include "yb/util/status_fwd.h"
 #include "yb/util/locks.h"
 #include "yb/util/monotime.h"
@@ -138,20 +140,22 @@ class Log : public RefCountedThreadSafe<Log> {
 
   // Opens or continues a log and sets 'log' to the newly built Log.
   // After a successful Open() the Log is ready to receive entries, if create_new_segment is true.
-  static Status Open(const LogOptions &options,
-                             const std::string& tablet_id,
-                             const std::string& wal_dir,
-                             const std::string& peer_uuid,
-                             const Schema& schema,
-                             uint32_t schema_version,
-                             const scoped_refptr<MetricEntity>& table_metric_entity,
-                             const scoped_refptr<MetricEntity>& tablet_metric_entity,
-                             ThreadPool *append_thread_pool,
-                             ThreadPool* allocation_thread_pool,
-                             ThreadPool* background_sync_threadpool,
-                             int64_t cdc_min_replicated_index,
-                             scoped_refptr<Log> *log,
-                             CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
+  static Status Open(
+      const LogOptions& options,
+      const std::string& tablet_id,
+      const std::string& wal_dir,
+      const std::string& peer_uuid,
+      const Schema& schema,
+      uint32_t schema_version,
+      const scoped_refptr<MetricEntity>& table_metric_entity,
+      const scoped_refptr<MetricEntity>& tablet_metric_entity,
+      ThreadPool* append_thread_pool,
+      ThreadPool* allocation_thread_pool,
+      ThreadPool* background_sync_threadpool,
+      int64_t cdc_min_replicated_index,
+      scoped_refptr<Log>* log,
+      tablet::RaftGroupMetadata* metadata = nullptr,
+      CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   ~Log();
 
@@ -360,6 +364,7 @@ class Log : public RefCountedThreadSafe<Log> {
       ThreadPool* append_thread_pool,
       ThreadPool* allocation_thread_pool,
       ThreadPool* background_sync_threadpool,
+      tablet::RaftGroupMetadata* metadata,
       CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   Env* get_env() {
@@ -640,6 +645,8 @@ class Log : public RefCountedThreadSafe<Log> {
   int64_t log_copy_min_index_ GUARDED_BY(state_lock_) = std::numeric_limits<int64_t>::max();
 
   CreateNewSegment create_new_segment_at_start_;
+
+  tablet::RaftGroupMetadata* metadata_;
 
   DISALLOW_COPY_AND_ASSIGN(Log);
 };

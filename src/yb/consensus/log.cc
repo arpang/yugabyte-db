@@ -213,6 +213,8 @@ DEFINE_UNKNOWN_int64(reuse_unclosed_segment_threshold, 512_KB,
             "Otherwise, Log will create a new segment. If the value is negative, it means"
             "reuse unclosed segment feature is disabled");
 
+DECLARE_bool(lazy_superblock_flush);
+
 // Validate that log_min_segments_to_retain >= 1
 static bool ValidateLogsToRetain(const char* flagname, int value) {
   if (value >= 1) {
@@ -552,39 +554,42 @@ void Log::SegmentAllocationTask() {
 const Status Log::kLogShutdownStatus(
     STATUS(ServiceUnavailable, "WAL is shutting down", "", Errno(ESHUTDOWN)));
 
-Status Log::Open(const LogOptions &options,
-                 const std::string& tablet_id,
-                 const std::string& wal_dir,
-                 const std::string& peer_uuid,
-                 const Schema& schema,
-                 uint32_t schema_version,
-                 const scoped_refptr<MetricEntity>& table_metric_entity,
-                 const scoped_refptr<MetricEntity>& tablet_metric_entity,
-                 ThreadPool* append_thread_pool,
-                 ThreadPool* allocation_thread_pool,
-                 ThreadPool* background_sync_threadpool,
-                 int64_t cdc_min_replicated_index,
-                 scoped_refptr<Log>* log,
-                 CreateNewSegment create_new_segment) {
-
+Status Log::Open(
+    const LogOptions& options,
+    const std::string& tablet_id,
+    const std::string& wal_dir,
+    const std::string& peer_uuid,
+    const Schema& schema,
+    uint32_t schema_version,
+    const scoped_refptr<MetricEntity>& table_metric_entity,
+    const scoped_refptr<MetricEntity>& tablet_metric_entity,
+    ThreadPool* append_thread_pool,
+    ThreadPool* allocation_thread_pool,
+    ThreadPool* background_sync_threadpool,
+    int64_t cdc_min_replicated_index,
+    scoped_refptr<Log>* log,
+    tablet::RaftGroupMetadata* metadata,
+    CreateNewSegment create_new_segment) {
   RETURN_NOT_OK_PREPEND(env_util::CreateDirIfMissing(options.env, DirName(wal_dir)),
                         Substitute("Failed to create table wal dir $0", DirName(wal_dir)));
 
   RETURN_NOT_OK_PREPEND(env_util::CreateDirIfMissing(options.env, wal_dir),
                         Substitute("Failed to create tablet wal dir $0", wal_dir));
 
-  scoped_refptr<Log> new_log(new Log(options,
-                                     wal_dir,
-                                     tablet_id,
-                                     peer_uuid,
-                                     schema,
-                                     schema_version,
-                                     table_metric_entity,
-                                     tablet_metric_entity,
-                                     append_thread_pool,
-                                     allocation_thread_pool,
-                                     background_sync_threadpool,
-                                     create_new_segment));
+  scoped_refptr<Log> new_log(new Log(
+      options,
+      wal_dir,
+      tablet_id,
+      peer_uuid,
+      schema,
+      schema_version,
+      table_metric_entity,
+      tablet_metric_entity,
+      append_thread_pool,
+      allocation_thread_pool,
+      background_sync_threadpool,
+      metadata,
+      create_new_segment));
   RETURN_NOT_OK(new_log->Init());
   log->swap(new_log);
   return Status::OK();
@@ -602,6 +607,7 @@ Log::Log(
     ThreadPool* append_thread_pool,
     ThreadPool* allocation_thread_pool,
     ThreadPool* background_sync_threadpool,
+    tablet::RaftGroupMetadata* metadata,
     CreateNewSegment create_new_segment)
     : options_(std::move(options)),
       wal_dir_(std::move(wal_dir)),
@@ -628,7 +634,8 @@ Log::Log(
       tablet_metric_entity_(tablet_metric_entity),
       on_disk_size_(0),
       log_prefix_(consensus::MakeTabletLogPrefix(tablet_id_, peer_uuid_)),
-      create_new_segment_at_start_(create_new_segment) {
+      create_new_segment_at_start_(create_new_segment),
+      metadata_(metadata) {
   set_wal_retention_secs(options.retention_secs);
   if (table_metric_entity_ && tablet_metric_entity_) {
     metrics_.reset(new LogMetrics(table_metric_entity_, tablet_metric_entity_));
@@ -1793,6 +1800,11 @@ Status Log::PreAllocateNewSegment() {
     // TODO (perf) zero the new segments -- this could result in additional performance
     // improvements.
     RETURN_NOT_OK(next_segment_file_->PreAllocate(next_segment_size));
+  }
+
+  if (FLAGS_lazy_superblock_flush) {
+    DCHECK(metadata_ != nullptr);
+    RETURN_NOT_OK(metadata_->Flush());  // replace it with FlushIfDirty()
   }
 
   allocation_state_.store(SegmentAllocationState::kAllocationFinished, std::memory_order_release);

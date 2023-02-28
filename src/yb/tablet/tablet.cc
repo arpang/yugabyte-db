@@ -267,6 +267,9 @@ DECLARE_int64(apply_intents_task_injected_delay_ms);
 DECLARE_string(regular_tablets_data_block_key_value_encoding);
 DECLARE_int64(cdc_intent_retention_ms);
 
+DEFINE_RUNTIME_bool(
+    lazy_superblock_flush, true, "Flushes the superblock lazily on colocated table creation");
+
 DEFINE_test_flag(uint64, inject_sleep_before_applying_intents_ms, 0,
                  "Sleep before applying intents to docdb after transaction commit");
 
@@ -2031,7 +2034,10 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 
 Status Tablet::AddTable(const TableInfoPB& table_info) {
   RETURN_NOT_OK(AddTableInMemory(table_info));
-  return metadata_->Flush();
+  if (!(FLAGS_lazy_superblock_flush && metadata_->colocated() && !metadata_->IsSysCatalog())) {
+    RETURN_NOT_OK(metadata_->Flush());
+  }
+  return Status::OK();
 }
 
 Status Tablet::AddMultipleTables(
