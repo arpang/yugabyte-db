@@ -1863,6 +1863,10 @@ Status Tablet::Flush(FlushMode mode, FlushFlags flags, int64_t ignore_if_flushed
     RETURN_NOT_OK(intents_db_->WaitForFlush());
   }
 
+  if (LazilyFlushSuperblock()) {
+    RETURN_NOT_OK(metadata_->Flush());
+  }
+
   return Status::OK();
 }
 
@@ -2036,11 +2040,13 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
   return Status::OK();
 }
 
+bool Tablet::LazilyFlushSuperblock() {
+  return FLAGS_lazily_flush_superblock && metadata_->colocated() && !metadata_->IsSysCatalog();
+}
+
 Status Tablet::AddTable(const TableInfoPB& table_info) {
   RETURN_NOT_OK(AddTableInMemory(table_info));
-  auto lazy_flush =
-      FLAGS_lazily_flush_superblock && metadata_->colocated() && !metadata_->IsSysCatalog();
-  if (!lazy_flush) {
+  if (!LazilyFlushSuperblock()) {
     RETURN_NOT_OK(metadata_->Flush());
   }
   return Status::OK();
