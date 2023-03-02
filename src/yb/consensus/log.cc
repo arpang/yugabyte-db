@@ -1270,8 +1270,18 @@ Status Log::GetSegmentsToGCUnlocked(int64_t min_op_idx, SegmentSequence* segment
   RETURN_NOT_OK(reader_->GetSegmentPrefixNotIncluding(
       min_op_idx, cdc_min_replicated_index_.load(std::memory_order_acquire), segments_to_gc));
 
-  auto max_to_delete = std::max<ssize_t>(
-      reader_->num_segments() - FLAGS_log_min_segments_to_retain, 0);
+  auto min_segments_to_retain = FLAGS_log_min_segments_to_retain;
+
+  // See PreAllocateNewSegment() for why a minimum of two segments must be retained with lazy
+  // superblock flush.
+  if (min_segments_to_retain < 2 && FLAGS_lazily_flush_superblock) {
+    DCHECK(metadata_ != nullptr);
+    if (metadata_->LazilyFlushSuperblock()) {
+      min_segments_to_retain = 2;
+    }
+  }
+
+  auto max_to_delete = std::max<ssize_t>(reader_->num_segments() - min_segments_to_retain, 0);
   ssize_t segments_to_gc_size = segments_to_gc->size();
   if (segments_to_gc_size > max_to_delete) {
     VLOG_WITH_PREFIX(2)
@@ -1802,9 +1812,13 @@ Status Log::PreAllocateNewSegment() {
     RETURN_NOT_OK(next_segment_file_->PreAllocate(next_segment_size));
   }
 
+  // TODO: Add why we flush here and that unflushed metadata entries will be limited to last two
+  // segments.
   if (FLAGS_lazily_flush_superblock) {
     DCHECK(metadata_ != nullptr);
-    RETURN_NOT_OK(metadata_->FlushIfDirty());
+    if (metadata_->LazilyFlushSuperblock()) {
+      RETURN_NOT_OK(metadata_->FlushIfDirty());
+    }
   }
 
   allocation_state_.store(SegmentAllocationState::kAllocationFinished, std::memory_order_release);

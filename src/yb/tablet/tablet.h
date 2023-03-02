@@ -892,7 +892,7 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
   template <class PB>
   Result<IsolationLevel> DoGetIsolationLevel(const PB& transaction);
 
-  bool LazilyFlushSuperblock();
+  // bool LazilyFlushSuperblock();
 
   std::unique_ptr<const Schema> key_schema_;
 

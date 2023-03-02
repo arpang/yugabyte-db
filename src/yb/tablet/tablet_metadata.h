@@ -536,12 +536,11 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return primary_table_info_unlocked();
   }
 
-  bool IsSysCatalog() const {
-    std::lock_guard<MutexType> lock(data_mutex_);
-    return primary_table_id_ == master::kSysCatalogTableId;
-  }
+  bool IsSysCatalog() const;
 
   bool colocated() const;
+
+  bool LazilyFlushSuperblock() const;
 
   Result<std::string> TopSnapshotsDir() const;
 

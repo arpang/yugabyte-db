@@ -1185,9 +1185,16 @@ class TabletBootstrap {
     // Time point of the first entry of the last WAL segment, and how far back in time from it we
     // should retain other entries.
     boost::optional<RestartSafeCoarseTimePoint> replay_from_this_or_earlier_time;
-    const RestartSafeCoarseDuration min_seconds_to_retain_logs = data_.bootstrap_retryable_requests
-        ? std::chrono::seconds(GetAtomicFlag(&FLAGS_retryable_request_timeout_secs))
-        : 0s;
+    RestartSafeCoarseDuration min_seconds_to_retain_logs =
+        data_.bootstrap_retryable_requests
+            ? std::chrono::seconds(GetAtomicFlag(&FLAGS_retryable_request_timeout_secs))
+            : 0s;
+
+    if (min_seconds_to_retain_logs == 0s && meta_->LazilyFlushSuperblock()) {
+      // The below ensures we replay atleast two segments. See PreAllocateNewSegment() for why a
+      // minimum of two segments must be replayed with lazy superblock flush.
+      min_seconds_to_retain_logs = 1s;
+    }
 
     auto iter = segments.end();
     while (iter != segments.begin()) {

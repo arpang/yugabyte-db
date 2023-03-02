@@ -154,7 +154,7 @@ class Log : public RefCountedThreadSafe<Log> {
       ThreadPool* background_sync_threadpool,
       int64_t cdc_min_replicated_index,
       scoped_refptr<Log>* log,
-      tablet::RaftGroupMetadata* metadata = nullptr,
+      tablet::RaftGroupMetadata* metadata = nullptr,  // TODO: Can we the default null value?
       CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   ~Log();
