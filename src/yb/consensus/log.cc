@@ -213,7 +213,7 @@ DEFINE_UNKNOWN_int64(reuse_unclosed_segment_threshold, 512_KB,
             "Otherwise, Log will create a new segment. If the value is negative, it means"
             "reuse unclosed segment feature is disabled");
 
-DECLARE_bool(lazy_superblock_flush);
+DECLARE_bool(lazily_flush_superblock);
 
 // Validate that log_min_segments_to_retain >= 1
 static bool ValidateLogsToRetain(const char* flagname, int value) {
@@ -1808,7 +1808,7 @@ Status Log::PreAllocateNewSegment() {
   // 2. A colocated table is created, superblock isn't flushed
   // 3. Flag is set to false before a new segment is allocated, so this flush is not triggered
   // In this scenario, we cannot guarantee that the table will persist.
-  if (FLAGS_lazy_superblock_flush) {
+  if (FLAGS_lazily_flush_superblock) {
     DCHECK(metadata_ != nullptr);
     RETURN_NOT_OK(metadata_->Flush());  // replace it with FlushIfDirty()
   }
