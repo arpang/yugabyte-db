@@ -844,6 +844,10 @@ Status RaftGroupMetadata::Flush() {
   return Status::OK();
 }
 
+Status RaftGroupMetadata::FlushIfDirty() {
+  return Flush();  // TODO
+}
+
 Status RaftGroupMetadata::SaveTo(const std::string& path) {
   RaftGroupReplicaSuperBlockPB pb;
   {

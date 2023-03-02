@@ -268,7 +268,10 @@ DECLARE_string(regular_tablets_data_block_key_value_encoding);
 DECLARE_int64(cdc_intent_retention_ms);
 
 // Only used for colocated table creation for now.
-DEFINE_RUNTIME_bool(
+// It needs to be non-runtime because if the flag is changed to false from true, the tserver should
+// restart and all the unflushed committed metadata WAL entries should be applied and flushed
+// synchronously in the bootstrap step.
+DEFINE_NON_RUNTIME_bool(
     lazily_flush_superblock, true, "Flushes the superblock lazily on metadata update");
 
 DEFINE_test_flag(uint64, inject_sleep_before_applying_intents_ms, 0,

@@ -464,6 +464,8 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   Status Flush();
 
+  Status FlushIfDirty();
+
   Status SaveTo(const std::string& path);
 
   // Merge this metadata with restored metadata located at specified path.
