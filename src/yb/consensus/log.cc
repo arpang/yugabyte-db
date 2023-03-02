@@ -1802,6 +1802,12 @@ Status Log::PreAllocateNewSegment() {
     RETURN_NOT_OK(next_segment_file_->PreAllocate(next_segment_size));
   }
 
+  // TODO: Improve the explaination
+  // If we want keep lazy_superblock_flush as runtime, we shouldn't check the flag value. Why:
+  // 1. Flag is set to true
+  // 2. A colocated table is created, superblock isn't flushed
+  // 3. Flag is set to false before a new segment is allocated, so this flush is not triggered
+  // In this scenario, we cannot guarantee that the table will persist.
   if (FLAGS_lazy_superblock_flush) {
     DCHECK(metadata_ != nullptr);
     RETURN_NOT_OK(metadata_->Flush());  // replace it with FlushIfDirty()
