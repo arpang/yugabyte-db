@@ -267,14 +267,6 @@ DECLARE_int64(apply_intents_task_injected_delay_ms);
 DECLARE_string(regular_tablets_data_block_key_value_encoding);
 DECLARE_int64(cdc_intent_retention_ms);
 
-// // Only used for colocated table creation for now.
-// // It needs to be non-runtime because if the flag is changed to false from true, the tserver
-// should
-// // restart and all the unflushed committed metadata WAL entries should be applied and flushed
-// // synchronously in the bootstrap step.
-// DEFINE_NON_RUNTIME_bool(
-//     lazily_flush_superblock, true, "Flushes the superblock lazily on metadata update");
-
 DEFINE_test_flag(uint64, inject_sleep_before_applying_intents_ms, 0,
                  "Sleep before applying intents to docdb after transaction commit");
 
@@ -2041,10 +2033,6 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
   return Status::OK();
 }
 
-// bool Tablet::LazilyFlushSuperblock() {
-//   return FLAGS_lazily_flush_superblock && metadata_->colocated() && !metadata_->IsSysCatalog();
-// }
-
 Status Tablet::AddTable(const TableInfoPB& table_info) {
   RETURN_NOT_OK(AddTableInMemory(table_info));
   if (!metadata_->LazilyFlushSuperblock()) {
@@ -2053,7 +2041,7 @@ Status Tablet::AddTable(const TableInfoPB& table_info) {
   return Status::OK();
 }
 
-// TODO(arpan): Perform superblock lazy flush here when extending the functionality to cotables.
+// TODO(arpan): Lazily flush the superblock here when extending the feature to cotables.
 Status Tablet::AddMultipleTables(
     const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos) {
   // If nothing has changed then return.

@@ -79,9 +79,9 @@
 DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 
 // Only used for colocated table creation for now.
-// It needs to be non-runtime because if the flag is changed to false from true, the tserver should
-// restart and all the unflushed committed metadata WAL entries should be applied and flushed
-// synchronously in the bootstrap step.
+// The flag is non-runtime so that if it is changed from true to false, the tserver can
+// restart and apply and flush all the unflushed committed CHANGE_METADATA_OP WAL entries during the
+// tablet bootstrap.
 DEFINE_NON_RUNTIME_bool(
     lazily_flush_superblock, true, "Flushes the superblock lazily on metadata update");
 
