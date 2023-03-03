@@ -554,42 +554,40 @@ void Log::SegmentAllocationTask() {
 const Status Log::kLogShutdownStatus(
     STATUS(ServiceUnavailable, "WAL is shutting down", "", Errno(ESHUTDOWN)));
 
-Status Log::Open(
-    const LogOptions& options,
-    const std::string& tablet_id,
-    const std::string& wal_dir,
-    const std::string& peer_uuid,
-    const Schema& schema,
-    uint32_t schema_version,
-    const scoped_refptr<MetricEntity>& table_metric_entity,
-    const scoped_refptr<MetricEntity>& tablet_metric_entity,
-    ThreadPool* append_thread_pool,
-    ThreadPool* allocation_thread_pool,
-    ThreadPool* background_sync_threadpool,
-    int64_t cdc_min_replicated_index,
-    scoped_refptr<Log>* log,
-    tablet::RaftGroupMetadata* metadata,
-    CreateNewSegment create_new_segment) {
+Status Log::Open(const LogOptions& options,
+                 const std::string& tablet_id,
+                 const std::string& wal_dir,
+                 const std::string& peer_uuid,
+                 const Schema& schema,
+                 uint32_t schema_version,
+                 const scoped_refptr<MetricEntity>& table_metric_entity,
+                 const scoped_refptr<MetricEntity>& tablet_metric_entity,
+                 ThreadPool* append_thread_pool,
+                 ThreadPool* allocation_thread_pool,
+                 ThreadPool* background_sync_threadpool,
+                 int64_t cdc_min_replicated_index,
+                 scoped_refptr<Log>* log,
+                 tablet::RaftGroupMetadata* metadata,
+                 CreateNewSegment create_new_segment) {
   RETURN_NOT_OK_PREPEND(env_util::CreateDirIfMissing(options.env, DirName(wal_dir)),
                         Substitute("Failed to create table wal dir $0", DirName(wal_dir)));
 
   RETURN_NOT_OK_PREPEND(env_util::CreateDirIfMissing(options.env, wal_dir),
                         Substitute("Failed to create tablet wal dir $0", wal_dir));
 
-  scoped_refptr<Log> new_log(new Log(
-      options,
-      wal_dir,
-      tablet_id,
-      peer_uuid,
-      schema,
-      schema_version,
-      table_metric_entity,
-      tablet_metric_entity,
-      append_thread_pool,
-      allocation_thread_pool,
-      background_sync_threadpool,
-      metadata,
-      create_new_segment));
+  scoped_refptr<Log> new_log(new Log(options,
+                                     wal_dir,
+                                     tablet_id,
+                                     peer_uuid,
+                                     schema,
+                                     schema_version,
+                                     table_metric_entity,
+                                     tablet_metric_entity,
+                                     append_thread_pool,
+                                     allocation_thread_pool,
+                                     background_sync_threadpool,
+                                     metadata,
+                                     create_new_segment));
   RETURN_NOT_OK(new_log->Init());
   log->swap(new_log);
   return Status::OK();
