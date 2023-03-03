@@ -554,7 +554,7 @@ void Log::SegmentAllocationTask() {
 const Status Log::kLogShutdownStatus(
     STATUS(ServiceUnavailable, "WAL is shutting down", "", Errno(ESHUTDOWN)));
 
-Status Log::Open(const LogOptions& options,
+Status Log::Open(const LogOptions &options,
                  const std::string& tablet_id,
                  const std::string& wal_dir,
                  const std::string& peer_uuid,
@@ -1270,10 +1270,10 @@ Status Log::GetSegmentsToGCUnlocked(int64_t min_op_idx, SegmentSequence* segment
 
   auto min_segments_to_retain = FLAGS_log_min_segments_to_retain;
 
-  // See PreAllocateNewSegment() for why a minimum of two segments must be retained with lazy
+  // See PreAllocateNewSegment() why a minimum of two segments must be retained with lazy
   // superblock flush.
   if (min_segments_to_retain < 2 && FLAGS_lazily_flush_superblock) {
-    DCHECK(metadata_ != nullptr);
+    DCHECK_NOTNULL(metadata_);
     if (metadata_->LazilyFlushSuperblock()) {
       min_segments_to_retain = 2;
     }
@@ -1810,8 +1810,13 @@ Status Log::PreAllocateNewSegment() {
     RETURN_NOT_OK(next_segment_file_->PreAllocate(next_segment_size));
   }
 
-  // TODO: Add why we flush here and that unflushed metadata entries will be limited to last two
-  // segments.
+  // When lazily_flush_superblock is true, instead of flushing the superblock on every metadata
+  // update, we flush it on a new segment allocation. This ensures that the committed unflushed
+  // CHANGE_METADATA_OP entries in WAL remain limited to the last two segments. If this feature is
+  // enabled we ensure that a minimum of two WAL segments are retained and replayed on tablet
+  // bootstrap. This feature is currently enabled only for colocated table creation.
+  // Internal reference:
+  // https://docs.google.com/document/d/1ePdpVp_ogdXMO5zBrrDSNmt8Z6ngNswLPae-TXQwdyc
   if (FLAGS_lazily_flush_superblock) {
     DCHECK(metadata_ != nullptr);
     if (metadata_->LazilyFlushSuperblock()) {
