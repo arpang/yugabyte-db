@@ -1273,7 +1273,7 @@ Status Log::GetSegmentsToGCUnlocked(int64_t min_op_idx, SegmentSequence* segment
   // See PreAllocateNewSegment() why a minimum of two segments must be retained with lazy
   // superblock flush.
   if (min_segments_to_retain < 2 && FLAGS_lazily_flush_superblock) {
-    DCHECK_NOTNULL(metadata_);
+    DCHECK(metadata_ != nullptr);
     if (metadata_->LazilyFlushSuperblock()) {
       min_segments_to_retain = 2;
     }
