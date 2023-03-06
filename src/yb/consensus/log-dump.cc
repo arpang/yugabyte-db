@@ -96,8 +96,6 @@ DEFINE_UNKNOWN_int64(max_op_index_to_omit, yb::OpId::Invalid().index,
 
 DEFINE_UNKNOWN_string(output_wal_dir, "", "WAL directory for the output of --filter_log_segment");
 
-DECLARE_bool(lazily_flush_superblock);
-
 namespace yb {
 namespace log {
 
@@ -408,7 +406,6 @@ Status FilterLogSegment(const string& segment_path) {
     LOG(INFO) << "Will include all records of the source WAL in the output";
   }
 
-  FLAGS_lazily_flush_superblock = false;
   scoped_refptr<Log> log;
   RETURN_NOT_OK(Log::Open(
       log_options,
