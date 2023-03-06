@@ -1823,7 +1823,7 @@ Status Log::PreAllocateNewSegment() {
   if (FLAGS_lazily_flush_superblock) {
     DCHECK(metadata_ != nullptr);
     if (metadata_->LazilyFlushSuperblock()) {
-      RETURN_NOT_OK(metadata_->FlushIfDirty());
+      RETURN_NOT_OK(metadata_->Flush(/* only_if_dirty */ true));
     }
   }
 

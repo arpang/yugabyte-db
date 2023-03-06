@@ -849,12 +849,14 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
     } else {
       last_change_metadata_op_id_ = OpId::Invalid();
     }
+
+    last_change_metadata_op_id_on_disk_ = last_change_metadata_op_id_;
   }
 
   return Status::OK();
 }
 
-Status RaftGroupMetadata::Flush() {
+Status RaftGroupMetadata::Flush(bool only_if_dirty) {
   TRACE_EVENT1("raft_group", "RaftGroupMetadata::Flush",
                "raft_group_id", raft_group_id_);
 
@@ -862,16 +864,17 @@ Status RaftGroupMetadata::Flush() {
   RaftGroupReplicaSuperBlockPB pb;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
+    if (only_if_dirty && last_change_metadata_op_id_on_disk_ == last_change_metadata_op_id_) {
+      // Skipping flush as in-memory metadata is not dirty.
+      return Status::OK();
+    }
     ToSuperBlockUnlocked(&pb);
+    last_change_metadata_op_id_on_disk_ = last_change_metadata_op_id_;
   }
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
   TRACE("Metadata flushed");
 
   return Status::OK();
-}
-
-Status RaftGroupMetadata::FlushIfDirty() {
-  return Flush();  // TODO
 }
 
 Status RaftGroupMetadata::SaveTo(const std::string& path) {
