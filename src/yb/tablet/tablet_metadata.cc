@@ -1151,7 +1151,7 @@ void RaftGroupMetadata::AddTable(const std::string& table_id,
   }
   std::lock_guard<MutexType> lock(data_mutex_);
   auto& tables = kv_store_.tables;
-  auto [iter, inserted] = tables.emplace(table_id, new_table_info);
+  auto[iter, inserted] = tables.emplace(table_id, new_table_info);
   if (inserted) {
     VLOG_WITH_PREFIX(1) << "Added table with schema version " << schema_version << "\n"
                         << AsString(new_table_info);
