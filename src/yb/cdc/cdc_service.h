@@ -63,6 +63,7 @@ static const char* const kNamespaceId = "NAMESPACEID";
 static const char* const kTableId = "TABLEID";
 static const char* const kCDCSDKSafeTime = "cdc_sdk_safe_time";
 static const char* const kCDCSDKActiveTime = "active_time";
+static const char* const kCDCSDKSnapshotKey = "snapshot_key";
 struct TabletCheckpoint {
   OpId op_id;
   // Timestamp at which the op ID was last updated.
@@ -113,6 +114,7 @@ class CDCServiceImpl : public CDCServiceIf {
       const ListTabletsRequestPB* req, ListTabletsResponsePB* resp, rpc::RpcContext rpc) override;
   void GetChanges(
       const GetChangesRequestPB* req, GetChangesResponsePB* resp, rpc::RpcContext rpc) override;
+  bool IsReplicationPausedForStream(const std::string& stream_id) const EXCLUDES(mutex_);
   void GetCheckpoint(
       const GetCheckpointRequestPB* req,
       GetCheckpointResponsePB* resp,
@@ -197,6 +199,17 @@ class CDCServiceImpl : public CDCServiceIf {
   // Marks the CDC enable flag as true.
   void SetCDCServiceEnabled();
 
+  static bool IsCDCSDKSnapshotRequest(const CDCSDKCheckpointPB& req_checkpoint);
+
+  static bool IsCDCSDKSnapshotBootstrapRequest(const CDCSDKCheckpointPB& req_checkpoint);
+
+  // Sets paused producer XCluster streams.
+  void SetPausedXClusterProducerStreams(
+      const ::google::protobuf::Map<std::string, bool>& paused_producer_stream_ids,
+      uint32_t xcluster_config_version);
+
+  uint32_t GetXClusterConfigVersion() const;
+
  private:
   FRIEND_TEST(CDCServiceTest, TestMetricsOnDeletedReplication);
   FRIEND_TEST(CDCServiceTestMultipleServersOneTablet, TestMetricsAfterServerFailure);
@@ -217,6 +230,9 @@ class CDCServiceImpl : public CDCServiceIf {
   Result<OpId> GetLastCheckpoint(
       const ProducerTabletInfo& producer_tablet, const client::YBSessionPtr& session);
 
+  Result<CDCSDKCheckpointPB> GetLastCDCSDKCheckpoint(
+      const ProducerTabletInfo& producer_tablet, const client::YBSessionPtr& session);
+
   Result<std::vector<std::pair<std::string, std::string>>> GetDBStreamInfo(
       const std::string& db_stream_id, const client::YBSessionPtr& session);
 
@@ -231,7 +247,9 @@ class CDCServiceImpl : public CDCServiceIf {
       uint64_t last_record_hybrid_time,
       const CDCRequestSource& request_source = CDCRequestSource::CDCSDK,
       bool force_update = false,
-      const HybridTime& cdc_sdk_safe_time = HybridTime::kInvalid);
+      const HybridTime& cdc_sdk_safe_time = HybridTime::kInvalid,
+      const bool is_snapshot = false,
+      const std::string& snapshot_key = "");
 
   Result<google::protobuf::RepeatedPtrField<master::TabletLocationsPB>> GetTablets(
       const CDCStreamId& stream_id);
@@ -455,6 +473,10 @@ class CDCServiceImpl : public CDCServiceIf {
 
   // True when the server is a producer of a valid replication stream.
   std::atomic<bool> cdc_enabled_{false};
+
+  std::unordered_set<std::string> paused_xcluster_producer_streams_ GUARDED_BY(mutex_);
+
+  uint32_t xcluster_config_version_ GUARDED_BY(mutex_) = 0;
 };
 
 }  // namespace cdc

@@ -188,11 +188,24 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
                                   AlterUniverseReplicationResponsePB* resp,
                                   rpc::RpcContext* rpc);
 
+  Status UpdateProducerAddress(
+      scoped_refptr<UniverseReplicationInfo> universe,
+      const AlterUniverseReplicationRequestPB* req);
+
+  Status RemoveTablesFromReplication(
+      scoped_refptr<UniverseReplicationInfo> universe,
+      const AlterUniverseReplicationRequestPB* req);
+
+  Status AddTablesToReplication(
+      scoped_refptr<UniverseReplicationInfo> universe,
+      const AlterUniverseReplicationRequestPB* req,
+      AlterUniverseReplicationResponsePB* resp,
+      rpc::RpcContext* rpc);
+
   // Rename an existing Universe Replication.
-  Status RenameUniverseReplication(scoped_refptr<UniverseReplicationInfo> universe,
-                                   const AlterUniverseReplicationRequestPB* req,
-                                   AlterUniverseReplicationResponsePB* resp,
-                                   rpc::RpcContext* rpc);
+  Status RenameUniverseReplication(
+      scoped_refptr<UniverseReplicationInfo> universe,
+      const AlterUniverseReplicationRequestPB* req);
 
   Status ChangeXClusterRole(const ChangeXClusterRoleRequestPB* req,
                             ChangeXClusterRoleResponsePB* resp,
@@ -202,6 +215,11 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
   Status SetUniverseReplicationEnabled(const SetUniverseReplicationEnabledRequestPB* req,
                                        SetUniverseReplicationEnabledResponsePB* resp,
                                        rpc::RpcContext* rpc);
+
+  Status PauseResumeXClusterProducerStreams(
+      const PauseResumeXClusterProducerStreamsRequestPB* req,
+      PauseResumeXClusterProducerStreamsResponsePB* resp,
+      rpc::RpcContext* rpc);
 
   // Get Universe Replication.
   Status GetUniverseReplication(const GetUniverseReplicationRequestPB* req,
@@ -276,6 +294,9 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
       std::shared_ptr<yb::client::TableHandle> cdc_state_table_result,
       std::shared_ptr<client::YBSession> session, const TabletId& tablet_id,
       const CDCStreamId& stream_id);
+
+  // Remove deleted xcluster stream IDs from producer stream Id map.
+  Status RemoveStreamFromXClusterProducerConfig(const std::vector<CDCStreamInfo*>& streams);
 
   // Delete specified CDC streams metadata.
   Status CleanUpCDCStreamsMetadata(const std::vector<scoped_refptr<CDCStreamInfo>>& streams);
@@ -366,7 +387,7 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
 
     ImportSnapshotMetaResponsePB_TableMetaPB* table_meta = nullptr;
   };
-  typedef std::map<TableId, ExternalTableSnapshotData> ExternalTableSnapshotDataMap;
+  typedef std::unordered_map<TableId, ExternalTableSnapshotData> ExternalTableSnapshotDataMap;
 
   struct ExternalNamespaceSnapshotData {
     ExternalNamespaceSnapshotData() : db_type(YQL_DATABASE_UNKNOWN), just_created(false) {}
@@ -376,7 +397,7 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
     bool just_created;
   };
   // Map: old_namespace_id (key) -> new_namespace_id + db_type + created-flag.
-  typedef std::map<NamespaceId, ExternalNamespaceSnapshotData> NamespaceMap;
+  typedef std::unordered_map<NamespaceId, ExternalNamespaceSnapshotData> NamespaceMap;
 
   struct ExternalUDTypeSnapshotData {
     ExternalUDTypeSnapshotData() : just_created(false) {}
@@ -386,7 +407,7 @@ class CatalogManager : public yb::master::CatalogManager, SnapshotCoordinatorCon
     bool just_created;
   };
   // Map: old_type_id (key) -> new_type_id + type_entry_pb + created-flag.
-  typedef std::map<UDTypeId, ExternalUDTypeSnapshotData> UDTypeMap;
+  typedef std::unordered_map<UDTypeId, ExternalUDTypeSnapshotData> UDTypeMap;
 
   Status ImportSnapshotPreprocess(const SnapshotInfoPB& snapshot_pb,
                                   ImportSnapshotMetaResponsePB* resp,

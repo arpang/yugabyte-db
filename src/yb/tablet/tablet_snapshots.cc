@@ -282,7 +282,8 @@ Status TabletSnapshots::Restore(SnapshotOperation* operation) {
 }
 
 Status TabletSnapshots::RestorePartialRows(SnapshotOperation* operation) {
-  docdb::DocWriteBatch write_batch(tablet().doc_db(), docdb::InitMarkerBehavior::kOptional);
+  docdb::DocWriteBatch write_batch(
+      tablet().doc_db(), docdb::InitMarkerBehavior::kOptional, nullptr);
 
   auto restore_patch = VERIFY_RESULT(GenerateRestoreWriteBatch(
       operation->request()->ToGoogleProtobuf(), &write_batch));
@@ -386,9 +387,11 @@ Status TabletSnapshots::RestoreCheckpoint(
 
   if (restore_metadata.schema) {
     // TODO(pitr) check deleted columns
+    // OpId::Invalid() is used to indicate the callee to not
+    // set last_change_metadata_op_id field of tablet metadata.
     tablet().metadata()->SetSchema(
         *restore_metadata.schema, *restore_metadata.index_map, {} /* deleted_columns */,
-        restore_metadata.schema_version);
+        restore_metadata.schema_version, OpId::Invalid());
     tablet().metadata()->SetHidden(restore_metadata.hide);
     need_flush = true;
   }
@@ -396,10 +399,13 @@ Status TabletSnapshots::RestoreCheckpoint(
   for (const auto& colocated_table_metadata : restore_metadata.colocated_tables_metadata) {
     LOG(INFO) << "Setting schema, index information and schema version for table "
               << colocated_table_metadata.table_id;
+    // OpId::Invalid() is used to indicate the callee to not
+    // set last_change_metadata_op_id field of tablet metadata.
     tablet().metadata()->SetSchema(
         *colocated_table_metadata.schema, *colocated_table_metadata.index_map,
         {} /* deleted_columns */,
-        colocated_table_metadata.schema_version, colocated_table_metadata.table_id);
+        colocated_table_metadata.schema_version, OpId::Invalid(),
+        colocated_table_metadata.table_id);
     need_flush = true;
   }
 

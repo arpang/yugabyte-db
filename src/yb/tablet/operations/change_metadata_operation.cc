@@ -48,6 +48,8 @@
 #include "yb/tserver/tserver_error.h"
 
 #include "yb/util/async_util.h"
+#include "yb/util/debug-util.h"
+#include "yb/util/flags/flag_tags.h"
 #include "yb/util/logging.h"
 #include "yb/util/status_format.h"
 #include "yb/util/trace.h"
@@ -57,6 +59,10 @@ DEFINE_test_flag(bool, ignore_apply_change_metadata_on_followers, false,
                  " on followers.");
 
 using std::string;
+
+DEFINE_test_flag(bool, no_update_last_change_metadata_op, false,
+                 "Used in tests to not update last_change_metadata_op_id to simulate "
+                 "behavior of old code");
 
 namespace yb {
 namespace tablet {
@@ -191,6 +197,9 @@ Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* comple
     }
   }
 
+  // Get the op id corresponding to this raft op.
+  const OpId id = op_id();
+
   switch (metadata_change) {
     case MetadataChange::NONE:
       return STATUS_FORMAT(
@@ -211,24 +220,24 @@ Status ChangeMetadataOperation::DoReplicated(int64_t leader_term, Status* comple
     case MetadataChange::ADD_TABLE:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
-      RETURN_NOT_OK(tablet->AddTable(request()->add_table().ToGoogleProtobuf()));
+      RETURN_NOT_OK(tablet->AddTable(request()->add_table().ToGoogleProtobuf(), id));
       break;
     case MetadataChange::REMOVE_TABLE:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
-      RETURN_NOT_OK(tablet->RemoveTable(request()->remove_table_id().ToBuffer()));
+      RETURN_NOT_OK(tablet->RemoveTable(request()->remove_table_id().ToBuffer(), id));
       break;
     case MetadataChange::BACKFILL_DONE:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
       RETURN_NOT_OK(tablet->MarkBackfillDone(
-          request()->backfill_done_table_id().ToBuffer()));
+          id, request()->backfill_done_table_id().ToBuffer()));
       break;
     case MetadataChange::ADD_MULTIPLE_TABLES:
       DCHECK_EQ(1, num_operations) << "Invalid number of change metadata operations: "
                                    << num_operations;
       RETURN_NOT_OK(tablet->AddMultipleTables(
-          ToRepeatedPtrField(request()->add_multiple_tables())));
+          ToRepeatedPtrField(request()->add_multiple_tables()), id));
       break;
   }
 
