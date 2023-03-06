@@ -153,7 +153,7 @@ class Log : public RefCountedThreadSafe<Log> {
                              ThreadPool* background_sync_threadpool,
                              int64_t cdc_min_replicated_index,
                              scoped_refptr<Log> *log,
-                             tablet::RaftGroupMetadata* metadata = nullptr, // TODO
+                             tablet::RaftGroupMetadata* metadata,
                              CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   ~Log();

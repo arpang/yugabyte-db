@@ -76,6 +76,7 @@
 METRIC_DECLARE_entity(table);
 METRIC_DECLARE_entity(tablet);
 
+DECLARE_bool(lazily_flush_superblock);
 DECLARE_int32(log_min_seconds_to_retain);
 
 namespace yb {
@@ -183,6 +184,7 @@ class LogTestBase : public YBTest {
 
   void BuildLog() {
     Schema schema_with_ids = SchemaBuilder(schema_).Build();
+    FLAGS_lazily_flush_superblock = false;
     ASSERT_OK(Log::Open(options_,
                        kTestTablet,
                        tablet_wal_path_,
@@ -195,7 +197,8 @@ class LogTestBase : public YBTest {
                        log_thread_pool_.get(),
                        log_thread_pool_.get(),
                        std::numeric_limits<int64_t>::max(), // cdc_min_replicated_index
-                       &log_));
+                       &log_,
+                       nullptr));
     LOG(INFO) << "Sucessfully opened the log at " << tablet_wal_path_;
   }
 

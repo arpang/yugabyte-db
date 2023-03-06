@@ -55,6 +55,7 @@
 #include "yb/util/test_macros.h"
 #include "yb/util/test_util.h"
 
+DECLARE_bool(lazily_flush_superblock);
 DECLARE_bool(enable_leader_failure_detection);
 DECLARE_bool(never_fsync);
 
@@ -223,7 +224,7 @@ class RaftConsensusTest : public YBTest {
 
   void SetUp() override {
     YBTest::SetUp();
-
+    FLAGS_lazily_flush_superblock = false;
     LogOptions options;
     string test_path = GetTestPath("test-peer-root");
 
@@ -246,7 +247,8 @@ class RaftConsensusTest : public YBTest {
                        log_thread_pool_.get(),
                        log_thread_pool_.get(),
                        std::numeric_limits<int64_t>::max(), // cdc_min_replicated_index
-                       &log_));
+                       &log_,
+                       nullptr));
 
     log_->TEST_SetAllOpIdsSafe(true);
 
