@@ -412,13 +412,12 @@ struct ReplayDecision {
   }
 };
 
-// TODO: For CHANGE_METADATA_OP REPLAY IF index > last_change_metadata_op_id_.index
-// We will not need if (op_id <= meta_->LastChangeMetadataOperationOpId()) check in Sanket's code
 ReplayDecision ShouldReplayOperation(
     consensus::OperationType op_type,
     const int64_t index,
     const int64_t regular_flushed_index,
     const int64_t intents_flushed_index,
+    const int64_t metadata_flushed_index,
     TransactionStatus txn_status,
     bool write_op_has_transaction) {
   if (op_type == consensus::UPDATE_TRANSACTION_OP) {
@@ -436,6 +435,12 @@ ReplayDecision ShouldReplayOperation(
     VLOG_WITH_FUNC(3) << "index: " << index << " > "
                       << "regular_flushed_index: " << regular_flushed_index;
     return {index > regular_flushed_index};
+  }
+
+  if (op_type == consensus::CHANGE_METADATA_OP) {
+    VLOG_WITH_FUNC(3) << "CHANGE_METADATA_OP - index: " << index
+                      << " metadata_flushed_index: " << metadata_flushed_index;
+    return {index > metadata_flushed_index};
   }
 
   // In most cases we assume that intents_flushed_index <= regular_flushed_index but here we are
@@ -1079,6 +1084,7 @@ class TabletBootstrap {
         replicate.id().index(),
         replay_state_->stored_op_ids.regular.index,
         replay_state_->stored_op_ids.intents.index,
+        meta_->LastChangeMetadataOperationOpId().index,
         // txn_status
         replicate.has_transaction_state()
             ? replicate.transaction_state().status()
@@ -1561,6 +1567,8 @@ class TabletBootstrap {
     // If last_change_metadata_op_id is valid then new code gets executed
     // wherein we replay everything.
     const auto op_id = OpId::FromPB(replicate_msg->id());
+
+    // TODO: The below check shouldn't be required.
     // If current metadata is already more recent then skip this replay.
     if (op_id <= meta_->LastChangeMetadataOperationOpId()) {
       LOG_WITH_PREFIX(INFO) << "Skipping replay of operation with op id " << op_id

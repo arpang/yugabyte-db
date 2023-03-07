@@ -185,7 +185,8 @@ class TabletPeerTest : public YBTabletTest {
                         *tablet()->schema(), tablet()->metadata()->schema_version(),
                         table_metric_entity_.get(), tablet_metric_entity_.get(),
                         log_thread_pool_.get(), log_thread_pool_.get(), log_thread_pool_.get(),
-                        tablet()->metadata()->cdc_min_replicated_index(), &log));
+                        tablet()->metadata()->cdc_min_replicated_index(), &log,
+                        tablet()->metadata()));
 
     ASSERT_OK(tablet_peer_->SetBootstrapping());
     ASSERT_OK(tablet_peer_->InitTabletPeer(tablet(),

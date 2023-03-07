@@ -76,7 +76,8 @@ void RemoteBootstrapSessionTest::SetUpTabletPeer() {
                      log_thread_pool_.get(),
                      log_thread_pool_.get(),
                      std::numeric_limits<int64_t>::max(), // cdc_min_replicated_index
-                     &log));
+                     &log,
+                     tablet()->metadata()));
 
   scoped_refptr<MetricEntity> table_metric_entity =
     METRIC_ENTITY_table.Instantiate(&metric_registry_, Format("table-$0", CURRENT_TEST_NAME()));

@@ -569,6 +569,7 @@ Status Log::Open(const LogOptions &options,
                  scoped_refptr<Log>* log,
                  tablet::RaftGroupMetadata* metadata,
                  CreateNewSegment create_new_segment) {
+
   RETURN_NOT_OK_PREPEND(env_util::CreateDirIfMissing(options.env, DirName(wal_dir)),
                         Substitute("Failed to create table wal dir $0", DirName(wal_dir)));
 
@@ -1822,7 +1823,7 @@ Status Log::PreAllocateNewSegment() {
   if (FLAGS_lazily_flush_superblock) {
     DCHECK(metadata_ != nullptr);
     if (metadata_->LazilyFlushSuperblock()) {
-      RETURN_NOT_OK(metadata_->FlushIfDirty());
+      RETURN_NOT_OK(metadata_->Flush(/* only_if_dirty */ true));
     }
   }
 
