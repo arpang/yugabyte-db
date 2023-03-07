@@ -213,6 +213,8 @@ DEFINE_UNKNOWN_int64(reuse_unclosed_segment_threshold, 512_KB,
             "Otherwise, Log will create a new segment. If the value is negative, it means"
             "reuse unclosed segment feature is disabled");
 
+DECLARE_bool(lazily_flush_superblock);
+
 // Validate that log_min_segments_to_retain >= 1
 static bool ValidateLogsToRetain(const char* flagname, int value) {
   if (value >= 1) {
@@ -565,8 +567,8 @@ Status Log::Open(const LogOptions &options,
                  ThreadPool* background_sync_threadpool,
                  int64_t cdc_min_replicated_index,
                  scoped_refptr<Log>* log,
+                 tablet::RaftGroupMetadata* metadata,
                  CreateNewSegment create_new_segment) {
-
   RETURN_NOT_OK_PREPEND(env_util::CreateDirIfMissing(options.env, DirName(wal_dir)),
                         Substitute("Failed to create table wal dir $0", DirName(wal_dir)));
 
@@ -584,6 +586,7 @@ Status Log::Open(const LogOptions &options,
                                      append_thread_pool,
                                      allocation_thread_pool,
                                      background_sync_threadpool,
+                                     metadata,
                                      create_new_segment));
   RETURN_NOT_OK(new_log->Init());
   log->swap(new_log);
@@ -602,6 +605,7 @@ Log::Log(
     ThreadPool* append_thread_pool,
     ThreadPool* allocation_thread_pool,
     ThreadPool* background_sync_threadpool,
+    tablet::RaftGroupMetadata* metadata,
     CreateNewSegment create_new_segment)
     : options_(std::move(options)),
       wal_dir_(std::move(wal_dir)),
@@ -628,7 +632,8 @@ Log::Log(
       tablet_metric_entity_(tablet_metric_entity),
       on_disk_size_(0),
       log_prefix_(consensus::MakeTabletLogPrefix(tablet_id_, peer_uuid_)),
-      create_new_segment_at_start_(create_new_segment) {
+      create_new_segment_at_start_(create_new_segment),
+      metadata_(metadata) {
   set_wal_retention_secs(options.retention_secs);
   if (table_metric_entity_ && tablet_metric_entity_) {
     metrics_.reset(new LogMetrics(table_metric_entity_, tablet_metric_entity_));
@@ -1263,8 +1268,18 @@ Status Log::GetSegmentsToGCUnlocked(int64_t min_op_idx, SegmentSequence* segment
   RETURN_NOT_OK(reader_->GetSegmentPrefixNotIncluding(
       min_op_idx, cdc_min_replicated_index_.load(std::memory_order_acquire), segments_to_gc));
 
-  auto max_to_delete = std::max<ssize_t>(
-      reader_->num_segments() - FLAGS_log_min_segments_to_retain, 0);
+  auto min_segments_to_retain = FLAGS_log_min_segments_to_retain;
+
+  // See PreAllocateNewSegment() why a minimum of two segments must be retained with lazy
+  // superblock flush.
+  if (min_segments_to_retain < 2 && FLAGS_lazily_flush_superblock) {
+    DCHECK(metadata_ != nullptr);
+    if (metadata_->LazilyFlushSuperblock()) {
+      min_segments_to_retain = 2;
+    }
+  }
+
+  auto max_to_delete = std::max<ssize_t>(reader_->num_segments() - min_segments_to_retain, 0);
   ssize_t segments_to_gc_size = segments_to_gc->size();
   if (segments_to_gc_size > max_to_delete) {
     VLOG_WITH_PREFIX(2)
@@ -1793,6 +1808,22 @@ Status Log::PreAllocateNewSegment() {
     // TODO (perf) zero the new segments -- this could result in additional performance
     // improvements.
     RETURN_NOT_OK(next_segment_file_->PreAllocate(next_segment_size));
+  }
+
+  // When lazily_flush_superblock is true, instead of flushing the superblock on every metadata
+  // update we perform the update only in-memory and flush it on a new segment allocation. The
+  // motivation was reduce the latency of applying a CHANGE_METADATA_OP. Flushing the superblock
+  // here ensures that the committed unflushed CHANGE_METADATA_OP WAL entries are limited to
+  // the last two segments. To ensure the persistence of such entries, we ensure that a minimum of
+  // two WAL segments are retained and replayed on tablet bootstrap if this feature is enabled. This
+  // feature is currently enabled only for colocated table creation.
+  // Internal reference:
+  // https://docs.google.com/document/d/1ePdpVp_ogdXMO5zBrrDSNmt8Z6ngNswLPae-TXQwdyc
+  if (FLAGS_lazily_flush_superblock) {
+    DCHECK(metadata_ != nullptr);
+    if (metadata_->LazilyFlushSuperblock()) {
+      RETURN_NOT_OK(metadata_->FlushIfDirty());
+    }
   }
 
   allocation_state_.store(SegmentAllocationState::kAllocationFinished, std::memory_order_release);

@@ -78,6 +78,13 @@
 
 DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 
+// Only used for colocated table creation for now.
+// The flag is non-runtime so that if it is changed from true to false, the node restarts and the
+// unflushed committed CHANGE_METADATA_OP WAL entries are applied and flushed during the tablet
+// bootstrap.
+DEFINE_NON_RUNTIME_bool(
+    lazily_flush_superblock, true, "Flushes the superblock lazily on metadata update");
+
 using std::shared_ptr;
 using std::string;
 
@@ -854,6 +861,10 @@ Status RaftGroupMetadata::Flush() {
   return Status::OK();
 }
 
+Status RaftGroupMetadata::FlushIfDirty() {
+  return Flush();  // TODO
+}
+
 Status RaftGroupMetadata::SaveTo(const std::string& path) {
   RaftGroupReplicaSuperBlockPB pb;
   {
@@ -1307,9 +1318,18 @@ OpId RaftGroupMetadata::tombstone_last_logged_opid() const {
   return tombstone_last_logged_opid_;
 }
 
+bool RaftGroupMetadata::IsSysCatalog() const {
+  std::lock_guard<MutexType> lock(data_mutex_);
+  return primary_table_id_ == master::kSysCatalogTableId;
+}
+
 bool RaftGroupMetadata::colocated() const {
   std::lock_guard<MutexType> lock(data_mutex_);
   return colocated_;
+}
+
+bool RaftGroupMetadata::LazilyFlushSuperblock() const {
+  return FLAGS_lazily_flush_superblock && colocated() && !IsSysCatalog();
 }
 
 TabletDataState RaftGroupMetadata::tablet_data_state() const {

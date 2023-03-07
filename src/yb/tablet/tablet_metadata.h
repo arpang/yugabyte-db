@@ -56,6 +56,7 @@
 #include "yb/gutil/macros.h"
 #include "yb/gutil/ref_counted.h"
 
+#include "yb/master/sys_catalog_constants.h"
 #include "yb/tablet/tablet_fwd.h"
 #include "yb/tablet/metadata.pb.h"
 
@@ -465,6 +466,8 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   Status Flush();
 
+  Status FlushIfDirty();
+
   Status SaveTo(const std::string& path);
 
   // Merge this metadata with restored metadata located at specified path.
@@ -535,7 +538,11 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return primary_table_info_unlocked();
   }
 
+  bool IsSysCatalog() const;
+
   bool colocated() const;
+
+  bool LazilyFlushSuperblock() const;
 
   Result<std::string> TopSnapshotsDir() const;
 

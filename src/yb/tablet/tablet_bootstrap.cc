@@ -412,6 +412,8 @@ struct ReplayDecision {
   }
 };
 
+// TODO: For CHANGE_METADATA_OP REPLAY IF index > last_change_metadata_op_id_.index
+// We will not need if (op_id <= meta_->LastChangeMetadataOperationOpId()) check in Sanket's code
 ReplayDecision ShouldReplayOperation(
     consensus::OperationType op_type,
     const int64_t index,
@@ -810,8 +812,8 @@ class TabletBootstrap {
   // whether to create new log or open existing.
   Status OpenLog(log::CreateNewSegment create_new_segment) {
     auto log_options = LogOptions();
-    const auto& metadata = *tablet_->metadata();
-    log_options.retention_secs = metadata.wal_retention_secs();
+    const auto metadata = tablet_->metadata();
+    log_options.retention_secs = metadata->wal_retention_secs();
     log_options.env = GetEnv();
     if (tablet_->metadata()->table_type() == TableType::TRANSACTION_STATUS_TABLE_TYPE) {
       auto log_segment_size = FLAGS_transaction_status_tablet_log_segment_size_bytes;
@@ -822,17 +824,18 @@ class TabletBootstrap {
     RETURN_NOT_OK(Log::Open(
         log_options,
         tablet_->tablet_id(),
-        metadata.wal_dir(),
-        metadata.fs_manager()->uuid(),
+        metadata->wal_dir(),
+        metadata->fs_manager()->uuid(),
         *tablet_->schema(),
-        metadata.schema_version(),
+        metadata->schema_version(),
         tablet_->GetTableMetricsEntity(),
         tablet_->GetTabletMetricsEntity(),
         append_pool_,
         allocation_pool_,
         log_sync_pool_,
-        metadata.cdc_min_replicated_index(),
+        metadata->cdc_min_replicated_index(),
         &log_,
+        metadata,
         create_new_segment));
     // Disable sync temporarily in order to speed up appends during the bootstrap process.
     log_->DisableSync();
@@ -1182,9 +1185,15 @@ class TabletBootstrap {
     // Time point of the first entry of the last WAL segment, and how far back in time from it we
     // should retain other entries.
     boost::optional<RestartSafeCoarseTimePoint> replay_from_this_or_earlier_time;
-    const RestartSafeCoarseDuration min_seconds_to_retain_logs = data_.bootstrap_retryable_requests
-        ? std::chrono::seconds(GetAtomicFlag(&FLAGS_retryable_request_timeout_secs))
-        : 0s;
+    RestartSafeCoarseDuration min_seconds_to_retain_logs = data_.bootstrap_retryable_requests
+          ? std::chrono::seconds(GetAtomicFlag(&FLAGS_retryable_request_timeout_secs))
+          : 0s;
+
+    if (min_seconds_to_retain_logs == 0s && meta_->LazilyFlushSuperblock()) {
+      // The below ensures we replay atleast two segments. See PreAllocateNewSegment() why a
+      // minimum of two segments must be replayed with lazy superblock flush.
+      min_seconds_to_retain_logs = 1s;
+    }
 
     auto iter = segments.end();
     while (iter != segments.begin()) {

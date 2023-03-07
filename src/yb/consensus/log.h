@@ -57,6 +57,8 @@
 #include "yb/gutil/ref_counted.h"
 #include "yb/gutil/spinlock.h"
 
+#include "yb/tablet/tablet_metadata.h"
+
 #include "yb/util/status_fwd.h"
 #include "yb/util/locks.h"
 #include "yb/util/monotime.h"
@@ -151,6 +153,7 @@ class Log : public RefCountedThreadSafe<Log> {
                              ThreadPool* background_sync_threadpool,
                              int64_t cdc_min_replicated_index,
                              scoped_refptr<Log> *log,
+                             tablet::RaftGroupMetadata* metadata = nullptr,  // TODO: Can we the default null value?
                              CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   ~Log();
@@ -360,6 +363,7 @@ class Log : public RefCountedThreadSafe<Log> {
       ThreadPool* append_thread_pool,
       ThreadPool* allocation_thread_pool,
       ThreadPool* background_sync_threadpool,
+      tablet::RaftGroupMetadata* metadata,
       CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   Env* get_env() {
@@ -640,6 +644,8 @@ class Log : public RefCountedThreadSafe<Log> {
   int64_t log_copy_min_index_ GUARDED_BY(state_lock_) = std::numeric_limits<int64_t>::max();
 
   CreateNewSegment create_new_segment_at_start_;
+
+  tablet::RaftGroupMetadata* metadata_;
 
   DISALLOW_COPY_AND_ASSIGN(Log);
 };

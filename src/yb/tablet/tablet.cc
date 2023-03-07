@@ -1856,6 +1856,10 @@ Status Tablet::Flush(FlushMode mode, FlushFlags flags, int64_t ignore_if_flushed
     RETURN_NOT_OK(intents_db_->WaitForFlush());
   }
 
+  if (metadata_->LazilyFlushSuperblock()) {
+    RETURN_NOT_OK(metadata_->Flush());
+  }
+
   return Status::OK();
 }
 
@@ -2031,9 +2035,13 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
 
 Status Tablet::AddTable(const TableInfoPB& table_info) {
   RETURN_NOT_OK(AddTableInMemory(table_info));
-  return metadata_->Flush();
+  if (!metadata_->LazilyFlushSuperblock()) {
+    RETURN_NOT_OK(metadata_->Flush());
+  }
+  return Status::OK();
 }
 
+// TODO(arpan): Lazily flush the superblock here when extending the feature to cotables.
 Status Tablet::AddMultipleTables(
     const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos) {
   // If nothing has changed then return.
