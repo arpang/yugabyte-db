@@ -55,7 +55,6 @@
 #include "yb/util/test_macros.h"
 #include "yb/util/test_util.h"
 
-DECLARE_bool(lazily_flush_superblock);
 DECLARE_bool(enable_leader_failure_detection);
 DECLARE_bool(never_fsync);
 

@@ -76,7 +76,6 @@
 METRIC_DECLARE_entity(table);
 METRIC_DECLARE_entity(tablet);
 
-DECLARE_bool(lazily_flush_superblock);
 DECLARE_int32(log_min_seconds_to_retain);
 
 namespace yb {

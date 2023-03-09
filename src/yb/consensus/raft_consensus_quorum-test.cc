@@ -65,7 +65,6 @@
 
 DECLARE_int32(raft_heartbeat_interval_ms);
 DECLARE_bool(enable_leader_failure_detection);
-DECLARE_bool(lazily_flush_superblock);
 
 METRIC_DECLARE_entity(table);
 METRIC_DECLARE_entity(tablet);

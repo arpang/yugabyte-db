@@ -57,8 +57,6 @@
 
 using namespace std::chrono_literals;
 
-DECLARE_bool(lazily_flush_superblock);
-
 METRIC_DECLARE_entity(tablet);
 
 namespace yb {
