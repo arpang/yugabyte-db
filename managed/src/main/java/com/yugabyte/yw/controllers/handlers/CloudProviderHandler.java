@@ -21,6 +21,7 @@ import static play.mvc.Http.Status.CONFLICT;
 import static play.mvc.Http.Status.INTERNAL_SERVER_ERROR;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimap;
@@ -83,6 +84,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.Random;
+
 import javax.persistence.PersistenceException;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -391,6 +394,19 @@ public class CloudProviderHandler {
         provider.uuid, () -> doUpdateKubeConfigForZone(provider, region, zone, config, edit));
   }
 
+  public static String generateRandomString(int length, String prefix, String suffix) {
+    String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    StringBuilder sb = new StringBuilder(length);
+    sb.append(prefix);
+    Random random = new Random();
+    for (int i = 0; i < length; i++) {
+      int index = random.nextInt(chars.length());
+      sb.append(chars.charAt(index));
+    }
+    sb.append(suffix);
+    return sb.toString();
+  }
+
   private boolean doUpdateKubeConfigForZone(
       Provider provider,
       Region region,
@@ -524,11 +540,15 @@ public class CloudProviderHandler {
 
       KubernetesProviderFormData formData = new KubernetesProviderFormData();
       formData.code = kubernetes;
+      formData.name = generateRandomString(5, "k8s", "provider");
+
       if (pullSecret != null) {
         formData.config =
             ImmutableMap.of(
                 "KUBECONFIG_IMAGE_PULL_SECRET_NAME",
                 pullSecretName,
+                "KUBECONFIG_PROVIDER",
+                getCloudProvider(),
                 "KUBECONFIG_PULL_SECRET_NAME",
                 pullSecretName, // filename
                 "KUBECONFIG_PULL_SECRET_CONTENT",
@@ -634,6 +654,29 @@ public class CloudProviderHandler {
       metadata.getAnnotations().remove("kubectl.kubernetes.io/last-applied-configuration");
     }
     return pullSecret;
+  }
+
+  public String getCloudProvider() {
+    String cloudProvider = kubernetesManagerFactory.getManager().getCloudProvider(null);
+    if (StringUtils.isEmpty(cloudProvider)) {
+      return "CUSTOM";
+    }
+    String retVal;
+    switch (cloudProvider) {
+      case "gce":
+        retVal = "GKE";
+        break;
+      case "aws":
+        retVal = "EKS";
+        break;
+      case "azure":
+        retVal = "AKS";
+        break;
+      default:
+        retVal = "CUSTOM";
+        break;
+    }
+    return retVal;
   }
 
   public String getKubernetesImageRepository() {
@@ -970,6 +1013,17 @@ public class CloudProviderHandler {
         GCPCloudInfo gcpCloudInfo = CloudInfoInterface.get(provider);
         if (gcpCloudInfo == null) {
           return;
+        }
+
+        if (StringUtils.isBlank(gcpCloudInfo.getGceProject())) {
+          /**
+           * Preferences for GCP Project. 1. User provided project name. 2. `project_id` present in
+           * gcp credentials user provided. 3. Metadata query to fetch the same.
+           */
+          ObjectNode credentialJSON = (ObjectNode) gcpCloudInfo.gceApplicationCredentials;
+          if (credentialJSON != null && credentialJSON.has("project_id")) {
+            gcpCloudInfo.setGceProject(credentialJSON.get("project_id").asText());
+          }
         }
 
         if (gcpCloudInfo.getUseHostCredentials() != null

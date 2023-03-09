@@ -270,6 +270,8 @@ DECLARE_int64(cdc_intent_retention_ms);
 DEFINE_test_flag(uint64, inject_sleep_before_applying_intents_ms, 0,
                  "Sleep before applying intents to docdb after transaction commit");
 
+DECLARE_bool(TEST_invalidate_last_change_metadata_op);
+
 using namespace std::placeholders;
 
 using std::shared_ptr;
@@ -491,7 +493,8 @@ Tablet::Tablet(const TabletInitData& data)
       data.transaction_participant_context &&
       (is_sys_catalog_ || transactional)) {
     transaction_participant_ = std::make_unique<TransactionParticipant>(
-        data.transaction_participant_context, this, DCHECK_NOTNULL(tablet_metrics_entity_));
+        data.transaction_participant_context, this, DCHECK_NOTNULL(tablet_metrics_entity_),
+        data.parent_mem_tracker);
     if (data.waiting_txn_registry) {
       wait_queue_ = std::make_unique<docdb::WaitQueue>(
         transaction_participant_.get(), metadata_->fs_manager()->uuid(), data.waiting_txn_registry,
@@ -2018,7 +2021,7 @@ Status Tablet::CreatePreparedChangeMetadata(
   return Status::OK();
 }
 
-Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
+Status Tablet::AddTableInMemory(const TableInfoPB& table_info, const OpId& op_id) {
   Schema schema;
   RETURN_NOT_OK(SchemaFromPB(table_info.schema(), &schema));
 
@@ -2028,13 +2031,13 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info) {
   metadata_->AddTable(
       table_info.table_id(), table_info.namespace_name(), table_info.table_name(),
       table_info.table_type(), schema, IndexMap(), partition_schema, boost::none,
-      table_info.schema_version());
+      table_info.schema_version(), op_id);
 
   return Status::OK();
 }
 
-Status Tablet::AddTable(const TableInfoPB& table_info) {
-  RETURN_NOT_OK(AddTableInMemory(table_info));
+Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
+  RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
   if (!metadata_->LazilyFlushSuperblock()) {
     RETURN_NOT_OK(metadata_->Flush());
   }
@@ -2043,22 +2046,22 @@ Status Tablet::AddTable(const TableInfoPB& table_info) {
 
 // TODO(arpan): Lazily flush the superblock here when extending the feature to cotables.
 Status Tablet::AddMultipleTables(
-    const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos) {
+    const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos, const OpId& op_id) {
   // If nothing has changed then return.
   RSTATUS_DCHECK_GT(table_infos.size(), 0, Ok, "No table to add to metadata");
   for (const auto& table_info : table_infos) {
-    RETURN_NOT_OK(AddTableInMemory(table_info));
+    RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
   }
   return metadata_->Flush();
 }
 
-Status Tablet::RemoveTable(const std::string& table_id) {
-  metadata_->RemoveTable(table_id);
+Status Tablet::RemoveTable(const std::string& table_id, const OpId& op_id) {
+  metadata_->RemoveTable(table_id, op_id);
   RETURN_NOT_OK(metadata_->Flush());
   return Status::OK();
 }
 
-Status Tablet::MarkBackfillDone(const TableId& table_id) {
+Status Tablet::MarkBackfillDone(const OpId& op_id, const TableId& table_id) {
   auto table_info = table_id.empty() ?
     metadata_->primary_table_info() : VERIFY_RESULT(metadata_->GetTableInfo(table_id));
   LOG_WITH_PREFIX(INFO) << "Setting backfill as done. Current schema  "
@@ -2067,7 +2070,8 @@ Status Tablet::MarkBackfillDone(const TableId& table_id) {
   Schema new_schema = table_info->schema();
   new_schema.SetRetainDeleteMarkers(false);
   metadata_->SetSchema(
-      new_schema, *table_info->index_map, empty_deleted_cols, table_info->schema_version, table_id);
+      new_schema, *table_info->index_map, empty_deleted_cols, table_info->schema_version,
+      op_id, table_id);
   return metadata_->Flush();
 }
 
@@ -2108,7 +2112,9 @@ Status Tablet::AlterSchema(ChangeMetadataOperation *operation) {
     metadata_->SetSchemaAndTableName(
         *operation->schema(), operation->index_map(), deleted_cols,
         operation->schema_version(), current_table_info->namespace_name,
-        operation->new_table_name().ToBuffer(), current_table_info->table_id);
+        operation->new_table_name().ToBuffer(),
+        operation->op_id(),
+        current_table_info->table_id);
     if (table_metrics_entity_) {
       table_metrics_entity_->SetAttribute("table_name", operation->new_table_name().ToBuffer());
       table_metrics_entity_->SetAttribute("namespace_name", current_table_info->namespace_name);
@@ -2118,8 +2124,11 @@ Status Tablet::AlterSchema(ChangeMetadataOperation *operation) {
       tablet_metrics_entity_->SetAttribute("namespace_name", current_table_info->namespace_name);
     }
   } else {
-    metadata_->SetSchema(*operation->schema(), operation->index_map(), deleted_cols,
-                         operation->schema_version(), current_table_info->table_id);
+    metadata_->SetSchema(
+        *operation->schema(), operation->index_map(), deleted_cols,
+        operation->schema_version(),
+        operation->op_id(),
+        current_table_info->table_id);
   }
 
   // Clear old index table metadata cache.
@@ -2140,6 +2149,20 @@ Status Tablet::AlterWalRetentionSecs(ChangeMetadataOperation* operation) {
                           << metadata_->wal_retention_secs()
                           << " to " << operation->wal_retention_secs();
     metadata_->set_wal_retention_secs(operation->wal_retention_secs());
+    // Update OpId of the last change metadata operation.
+    // It can happen that we change the wal_retention without modifying
+    // the schema in which case the alter table will return early
+    // without modifying the RaftGroupMetadata but we
+    // still need to persist the op id corresponding to this operation
+    // so as to avoid replaying during tablet bootstrap.
+    // We don't update if the passed op id is invalid. One case when this will happen:
+    // If we are replaying during tablet bootstrap and last_change_metadata_op_id
+    // was invalid - For e.g. after upgrade when new code reads old data.
+    // In such a case, we ensure that we are no worse than old code's behavior
+    // which essentially implies that we mute this new logic for the entire
+    // duration of the bootstrap. However, once bootstrap finishes we set this
+    // field so that subsequent restarts can start leveraging this feature.
+    metadata_->SetLastChangeMetadataOperationOpId(operation->op_id());
     // Flush the updated schema metadata to disk.
     return metadata_->Flush();
   }

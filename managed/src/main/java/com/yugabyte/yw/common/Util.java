@@ -113,6 +113,8 @@ public class Util {
 
   public static final String YBC_COMPATIBLE_DB_VERSION = "2.15.0.0-b1";
 
+  public static final String AUTO_FLAG_FILENAME = "auto_flags.json";
+
   public static final String LIVE_QUERY_TIMEOUTS = "yb.query_stats.live_queries.ws";
 
   public static final String YB_RELEASES_PATH = "yb.releases.path";
@@ -863,15 +865,8 @@ public class Util {
   }
 
   public static String getYbcNodeIp(Universe universe) {
-    HostAndPort hostPort = universe.getMasterLeader();
-    String nodeIp = hostPort.getHost();
-    if (universe.getUniverseDetails().getPrimaryCluster().userIntent.dedicatedNodes) {
-      List<NodeDetails> nodeList = universe.getLiveTServersInPrimaryCluster();
-      if (CollectionUtils.isNotEmpty(nodeList)) {
-        nodeIp = nodeList.get(0).cloudInfo.private_ip;
-      }
-    }
-    return nodeIp;
+    List<NodeDetails> nodeList = universe.getLiveTServersInPrimaryCluster();
+    return nodeList.get(0).cloudInfo.private_ip;
   }
 
   public static String computeFileChecksum(Path filePath, String checksumAlgorithm)
