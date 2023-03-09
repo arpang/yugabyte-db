@@ -153,6 +153,7 @@ class Log : public RefCountedThreadSafe<Log> {
                              ThreadPool* background_sync_threadpool,
                              int64_t cdc_min_replicated_index,
                              scoped_refptr<Log> *log,
+                             // lazy superblock flush will be disabled if metadata is null
                              tablet::RaftGroupMetadata* metadata,
                              CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 

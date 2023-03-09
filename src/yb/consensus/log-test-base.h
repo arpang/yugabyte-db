@@ -184,7 +184,6 @@ class LogTestBase : public YBTest {
 
   void BuildLog() {
     Schema schema_with_ids = SchemaBuilder(schema_).Build();
-    FLAGS_lazily_flush_superblock = false;
     ASSERT_OK(Log::Open(options_,
                        kTestTablet,
                        tablet_wal_path_,

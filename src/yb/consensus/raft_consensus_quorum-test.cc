@@ -135,7 +135,6 @@ class RaftConsensusQuorumTest : public YBTest {
       RETURN_NOT_OK(fs_manager->CreateInitialFileSystemLayout());
       RETURN_NOT_OK(fs_manager->CheckAndOpenFileSystemRoots());
 
-      FLAGS_lazily_flush_superblock = false;
       scoped_refptr<Log> log;
       RETURN_NOT_OK(Log::Open(LogOptions(),
                               kTestTablet,

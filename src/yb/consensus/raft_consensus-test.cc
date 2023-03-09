@@ -224,7 +224,6 @@ class RaftConsensusTest : public YBTest {
 
   void SetUp() override {
     YBTest::SetUp();
-    FLAGS_lazily_flush_superblock = false;
     LogOptions options;
     string test_path = GetTestPath("test-peer-root");
 

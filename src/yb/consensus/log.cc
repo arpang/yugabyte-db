@@ -1273,11 +1273,8 @@ Status Log::GetSegmentsToGCUnlocked(int64_t min_op_idx, SegmentSequence* segment
 
   // See PreAllocateNewSegment() why a minimum of two segments must be retained with lazy
   // superblock flush.
-  if (min_segments_to_retain < 2 && FLAGS_lazily_flush_superblock) {
-    DCHECK(metadata_ != nullptr);
-    if (metadata_->LazilyFlushSuperblock()) {
-      min_segments_to_retain = 2;
-    }
+  if (min_segments_to_retain < 2 && metadata_ && metadata_->LazilyFlushSuperblock()) {
+    min_segments_to_retain = 2;
   }
 
   auto max_to_delete = std::max<ssize_t>(reader_->num_segments() - min_segments_to_retain, 0);
@@ -1811,7 +1808,7 @@ Status Log::PreAllocateNewSegment() {
     RETURN_NOT_OK(next_segment_file_->PreAllocate(next_segment_size));
   }
 
-  // When lazily_flush_superblock is true, instead of flushing the superblock on every metadata
+  // When lazy superblock is enabled, instead of flushing the superblock on every metadata
   // update we perform the update only in-memory and flush it on a new segment allocation. The
   // motivation was reduce the latency of applying a CHANGE_METADATA_OP. Flushing the superblock
   // here ensures that the committed unflushed CHANGE_METADATA_OP WAL entries are limited to
@@ -1820,11 +1817,8 @@ Status Log::PreAllocateNewSegment() {
   // feature is currently enabled only for colocated table creation.
   // Internal reference:
   // https://docs.google.com/document/d/1ePdpVp_ogdXMO5zBrrDSNmt8Z6ngNswLPae-TXQwdyc
-  if (FLAGS_lazily_flush_superblock) {
-    DCHECK(metadata_ != nullptr);
-    if (metadata_->LazilyFlushSuperblock()) {
-      RETURN_NOT_OK(metadata_->Flush(/* only_if_dirty */ true));
-    }
+  if (metadata_ && metadata_->LazilyFlushSuperblock()) {
+    RETURN_NOT_OK(metadata_->Flush(/* only_if_dirty */ true));
   }
 
   allocation_state_.store(SegmentAllocationState::kAllocationFinished, std::memory_order_release);

@@ -94,7 +94,6 @@ class ConsensusPeersTest : public YBTest {
     ASSERT_OK(ThreadPoolBuilder("log").Build(&log_thread_pool_));
     fs_manager_.reset(new FsManager(env_.get(), GetTestPath("fs_root"), "tserver_test"));
 
-    FLAGS_lazily_flush_superblock = false;
     ASSERT_OK(fs_manager_->CreateInitialFileSystemLayout());
     ASSERT_OK(fs_manager_->CheckAndOpenFileSystemRoots());
     ASSERT_OK(Log::Open(options_,
