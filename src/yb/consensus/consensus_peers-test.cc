@@ -57,6 +57,8 @@
 
 using namespace std::chrono_literals;
 
+DECLARE_bool(lazily_flush_superblock);
+
 METRIC_DECLARE_entity(tablet);
 
 namespace yb {
@@ -92,6 +94,7 @@ class ConsensusPeersTest : public YBTest {
     ASSERT_OK(ThreadPoolBuilder("log").Build(&log_thread_pool_));
     fs_manager_.reset(new FsManager(env_.get(), GetTestPath("fs_root"), "tserver_test"));
 
+    FLAGS_lazily_flush_superblock = false;
     ASSERT_OK(fs_manager_->CreateInitialFileSystemLayout());
     ASSERT_OK(fs_manager_->CheckAndOpenFileSystemRoots());
     ASSERT_OK(Log::Open(options_,
@@ -106,7 +109,8 @@ class ConsensusPeersTest : public YBTest {
                        log_thread_pool_.get(),
                        log_thread_pool_.get(),
                        std::numeric_limits<int64_t>::max(), // cdc_min_replicated_index
-                       &log_));
+                       &log_,
+                       nullptr));
     clock_.reset(new server::HybridClock());
     ASSERT_OK(clock_->Init());
 

@@ -468,9 +468,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   void SetRestorationHybridTime(HybridTime value);
   HybridTime restoration_hybrid_time() const;
 
-  Status Flush();
-
-  Status FlushIfDirty();
+  Status Flush(bool only_if_dirty = false);
 
   Status SaveTo(const std::string& path);
 
@@ -709,6 +707,10 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // OpId of the last change metadata operation. Used to determine if at the time
   // of local tablet bootstrap we should replay a particular change_metadata op.
   OpId last_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
+
+  // OpId of the last change metadata operation as on disk. Used to determine if the in-memory
+  // metadata state is dirty.
+  OpId last_change_metadata_op_id_on_disk_ GUARDED_BY(data_mutex_) = OpId::Invalid();
 
   DISALLOW_COPY_AND_ASSIGN(RaftGroupMetadata);
 };

@@ -81,6 +81,7 @@ class ConsensusQueueTest : public YBTest {
 
   void SetUp() override {
     YBTest::SetUp();
+    FLAGS_lazily_flush_superblock = false;
     fs_manager_.reset(new FsManager(env_.get(), GetTestPath("fs_root"), "tserver_test"));
     ASSERT_OK(fs_manager_->CreateInitialFileSystemLayout());
     ASSERT_OK(fs_manager_->CheckAndOpenFileSystemRoots());
@@ -97,7 +98,8 @@ class ConsensusQueueTest : public YBTest {
                             log_thread_pool_.get(),
                             log_thread_pool_.get(),
                             std::numeric_limits<int64_t>::max(), // cdc_min_replicated_index
-                            &log_));
+                            &log_,
+                            nullptr));
     clock_.reset(new server::HybridClock());
     ASSERT_OK(clock_->Init());
 

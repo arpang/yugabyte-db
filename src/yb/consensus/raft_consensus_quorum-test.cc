@@ -65,6 +65,7 @@
 
 DECLARE_int32(raft_heartbeat_interval_ms);
 DECLARE_bool(enable_leader_failure_detection);
+DECLARE_bool(lazily_flush_superblock);
 
 METRIC_DECLARE_entity(table);
 METRIC_DECLARE_entity(tablet);
@@ -134,6 +135,7 @@ class RaftConsensusQuorumTest : public YBTest {
       RETURN_NOT_OK(fs_manager->CreateInitialFileSystemLayout());
       RETURN_NOT_OK(fs_manager->CheckAndOpenFileSystemRoots());
 
+      FLAGS_lazily_flush_superblock = false;
       scoped_refptr<Log> log;
       RETURN_NOT_OK(Log::Open(LogOptions(),
                               kTestTablet,
@@ -147,7 +149,8 @@ class RaftConsensusQuorumTest : public YBTest {
                               log_thread_pool_.get(),
                               log_thread_pool_.get(),
                               std::numeric_limits<int64_t>::max(), // cdc_min_replicated_index
-                              &log));
+                              &log,
+                              nullptr));
       logs_.push_back(log.get());
       fs_managers_.push_back(fs_manager.release());
     }

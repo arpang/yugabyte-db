@@ -849,12 +849,14 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
     } else {
       last_change_metadata_op_id_ = OpId::Invalid();
     }
+
+    last_change_metadata_op_id_on_disk_ = last_change_metadata_op_id_;
   }
 
   return Status::OK();
 }
 
-Status RaftGroupMetadata::Flush() {
+Status RaftGroupMetadata::Flush(bool only_if_dirty) {
   TRACE_EVENT1("raft_group", "RaftGroupMetadata::Flush",
                "raft_group_id", raft_group_id_);
 
@@ -862,16 +864,17 @@ Status RaftGroupMetadata::Flush() {
   RaftGroupReplicaSuperBlockPB pb;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
+    if (only_if_dirty && last_change_metadata_op_id_on_disk_ == last_change_metadata_op_id_) {
+      // Skipping flush as in-memory metadata is not dirty.
+      return Status::OK();
+    }
     ToSuperBlockUnlocked(&pb);
+    last_change_metadata_op_id_on_disk_ = last_change_metadata_op_id_;
   }
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
   TRACE("Metadata flushed");
 
   return Status::OK();
-}
-
-Status RaftGroupMetadata::FlushIfDirty() {
-  return Flush();  // TODO
 }
 
 Status RaftGroupMetadata::SaveTo(const std::string& path) {
@@ -1140,7 +1143,7 @@ void RaftGroupMetadata::AddTable(const std::string& table_id,
   }
   std::lock_guard<MutexType> lock(data_mutex_);
   auto& tables = kv_store_.tables;
-  auto [iter, inserted] = tables.emplace(table_id, new_table_info);
+  auto[iter, inserted] = tables.emplace(table_id, new_table_info);
   if (inserted) {
     VLOG_WITH_PREFIX(1) << "Added table with schema version " << schema_version << "\n"
                         << AsString(new_table_info);
@@ -1747,6 +1750,8 @@ Status CheckCanServeTabletData(const RaftGroupMetadata& metadata) {
   return Status::OK();
 }
 
+// TODO: This can be renamed to LastFlushedChangeMetadataOperationOpId and should return
+// last_change_metadata_op_id_on_disk_
 OpId RaftGroupMetadata::LastChangeMetadataOperationOpId() const {
   std::lock_guard<MutexType> lock(data_mutex_);
   return last_change_metadata_op_id_;
