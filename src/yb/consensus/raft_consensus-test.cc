@@ -223,6 +223,7 @@ class RaftConsensusTest : public YBTest {
 
   void SetUp() override {
     YBTest::SetUp();
+
     LogOptions options;
     string test_path = GetTestPath("test-peer-root");
 
