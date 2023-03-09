@@ -157,6 +157,8 @@ class PgLibPqTest : public LibPqTestBase {
       GetParentTableTabletLocation getParentTableTabletLocation);
 
   Status TestDuplicateCreateTableRequest(PGConn conn);
+  void TestLazySuperblockFlushTablePersistence(int num_tables);
+
  private:
   Result<PGConn> RestartTSAndConnectToPostgres(int ts_idx, const std::string& db_name);
 };
@@ -1665,6 +1667,34 @@ TEST_F(PgLibPqTest, YB_DISABLE_TEST_IN_TSAN(ReplayDeletedTableInTablegroups)) {
       true /* colocated */,
       false /* test_backward_compatibility */,
       "test_tgroup" /* tablegroup_name */);
+}
+
+void PgLibPqTest::TestLazySuperblockFlushTablePersistence(int num_tables) {
+  const string database = "test_db";
+  const string tablegroup = "test_tg";
+  const string table_prefix = "foo";
+  PGConn conn = ASSERT_RESULT(Connect());
+  ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0", database));
+  PGConn db_conn = ASSERT_RESULT(ConnectToDB(database));
+  ASSERT_OK(db_conn.ExecuteFormat("CREATE TABLEGROUP $0", tablegroup));
+  for (int i = 0; i < num_tables; ++i) {
+    ASSERT_OK(db_conn.ExecuteFormat(
+        "CREATE TABLE $0$1 (i int) TABLEGROUP $2", table_prefix, i, tablegroup));
+  }
+  auto new_conn = ASSERT_RESULT(RestartTSAndConnectToPostgres(0, database));
+  for (int i = 0; i < num_tables; ++i) {
+    auto res = ASSERT_RESULT(
+        new_conn.FetchValue<int64_t>(Format("SELECT COUNT(*) FROM $0$1", table_prefix, i)));
+    ASSERT_EQ(res, 0);
+  }
+}
+
+TEST_F(PgLibPqTest, YB_DISABLE_TEST_IN_TSAN(LazySuperblockFlushSingleTablePersistence)) {
+  TestLazySuperblockFlushTablePersistence(1);
+}
+
+TEST_F(PgLibPqTest, YB_DISABLE_TEST_IN_TSAN(LazySuperblockFlushMultiTablePersistence)) {
+  TestLazySuperblockFlushTablePersistence(1000);
 }
 
 class PgLibPqDuplicateClientCreateTableTest : public PgLibPqTest {
