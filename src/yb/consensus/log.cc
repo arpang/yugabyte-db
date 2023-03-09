@@ -213,8 +213,6 @@ DEFINE_UNKNOWN_int64(reuse_unclosed_segment_threshold, 512_KB,
             "Otherwise, Log will create a new segment. If the value is negative, it means"
             "reuse unclosed segment feature is disabled");
 
-DECLARE_bool(lazily_flush_superblock);
-
 // Validate that log_min_segments_to_retain >= 1
 static bool ValidateLogsToRetain(const char* flagname, int value) {
   if (value >= 1) {
