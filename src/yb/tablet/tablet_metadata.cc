@@ -1364,7 +1364,8 @@ bool RaftGroupMetadata::colocated() const {
 }
 
 bool RaftGroupMetadata::LazilyFlushSuperblock() const {
-  return FLAGS_lazily_flush_superblock && colocated() && !IsSysCatalog();
+  return !FLAGS_TEST_invalidate_last_change_metadata_op && FLAGS_lazily_flush_superblock &&
+         colocated() && !IsSysCatalog();
 }
 
 TabletDataState RaftGroupMetadata::tablet_data_state() const {
