@@ -64,6 +64,8 @@ class CreateTableITest : public CreateTableITestBase {
       .dbname = dbname
     }).Connect(simple_query_protocol);
   }
+
+  void TestLazySuperblockFlushBasicPersistence(int num_tables);
 };
 
 // TODO(bogdan): disabled until ENG-2687
@@ -1022,6 +1024,50 @@ TEST_F(CreateTableITest, OnlyMajorityReplicasWithPlacement) {
     }
     return true;
   }, 120s * kTimeMultiplier, "Are tablets running", 1s));
+}
+
+void CreateTableITest::TestLazySuperblockFlushBasicPersistence(int num_tables) {
+  const string database = "test_db";
+  const string tablegroup = "test_tg";
+  const string table_prefix = "foo";
+  auto conn = ASSERT_RESULT(ConnectToDB(std::string()));
+  ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0", database));
+  auto db_conn = ASSERT_RESULT(ConnectToDB(database));
+  ASSERT_OK(db_conn.ExecuteFormat("CREATE TABLEGROUP $0", tablegroup));
+  for (int i = 0; i < num_tables; ++i) {
+    ASSERT_OK(db_conn.ExecuteFormat(
+        "CREATE TABLE $0$1 (i int) TABLEGROUP $2", table_prefix, i, tablegroup));
+    ASSERT_OK(db_conn.Execute("BEGIN"));
+    ASSERT_OK(db_conn.ExecuteFormat("INSERT INTO $0$1 values (1)", table_prefix, i));
+    ASSERT_OK(db_conn.Execute("COMMIT"));
+  }
+  ASSERT_OK(cluster_->WaitForAllIntentsApplied(30s));
+
+  auto client = ASSERT_RESULT(cluster_->CreateClient());
+  auto table_id = ASSERT_RESULT(GetTableIdByTableName(client.get(), database, table_prefix + "0"));
+  // ASSERT_OK(
+  //     client->FlushTables({table_id}, false /* add_indexes */, 30, false /* is_compaction */));
+  cluster_->Shutdown();
+  ASSERT_OK(cluster_->Restart());
+  auto new_conn = ASSERT_RESULT(ConnectToDB(database));
+  for (int i = 0; i < num_tables; ++i) {
+    auto res = ASSERT_RESULT(
+        new_conn.FetchValue<int64_t>(Format("SELECT COUNT(*) FROM $0$1", table_prefix, i)));
+    ASSERT_EQ(res, 1);
+  }
+}
+
+TEST_F(CreateTableITest, MyTest) {
+  vector<string> ts_flags;
+  vector<string> master_flags;
+
+  // ts_flags.push_back("--TEST_skip_force_superblock_flush=true");
+  ts_flags.push_back("--log_min_segments_to_retain=1");
+  ts_flags.push_back("--retryable_request_timeout_secs=0");
+  ts_flags.push_back("--initial_log_segment_size_bytes=2048");
+  ts_flags.push_back("--log_segment_size_bytes=2048");
+  ASSERT_NO_FATALS(StartCluster(ts_flags, master_flags, 3, 1, true));
+  TestLazySuperblockFlushBasicPersistence(100);
 }
 
 }  // namespace yb

@@ -1364,6 +1364,15 @@ bool RaftGroupMetadata::colocated() const {
 }
 
 bool RaftGroupMetadata::LazilyFlushSuperblock() const {
+  LOG_WITH_FUNC(INFO) << "Table name " << primary_table_info()->table_name;
+  LOG_WITH_FUNC(INFO) << "!FLAGS_TEST_invalidate_last_change_metadata_op "
+                      << !FLAGS_TEST_invalidate_last_change_metadata_op;
+  LOG_WITH_FUNC(INFO) << "FLAGS_lazily_flush_superblock "
+                      << FLAGS_lazily_flush_superblock;
+  LOG_WITH_FUNC(INFO) << "colocated() "
+                      << colocated();
+  LOG_WITH_FUNC(INFO) << "!IsSysCatalog() "
+                      << !IsSysCatalog();
   return !FLAGS_TEST_invalidate_last_change_metadata_op && FLAGS_lazily_flush_superblock &&
          colocated() && !IsSysCatalog();
 }

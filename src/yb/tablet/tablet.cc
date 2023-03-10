@@ -258,6 +258,10 @@ DEFINE_test_flag(bool, disable_adding_last_compaction_to_tablet_metadata, false,
                  "Prevents adding the last full compaction time to tablet metadata upon "
                  "full compaction completion.");
 
+DEFINE_test_flag(
+    bool, skip_force_superblock_flush, false,
+    "Used in tests to skip superblock flush on force flushing tablet.");
+
 DECLARE_int32(client_read_write_timeout_ms);
 DECLARE_bool(consistent_restore);
 DECLARE_int32(rocksdb_level0_slowdown_writes_trigger);
@@ -1859,8 +1863,10 @@ Status Tablet::Flush(FlushMode mode, FlushFlags flags, int64_t ignore_if_flushed
     RETURN_NOT_OK(intents_db_->WaitForFlush());
   }
 
-  if (metadata_->LazilyFlushSuperblock()) {
+  if (metadata_->LazilyFlushSuperblock() && !FLAGS_TEST_skip_force_superblock_flush) {
     RETURN_NOT_OK(metadata_->Flush());
+  } else if (FLAGS_TEST_skip_force_superblock_flush) {
+    LOG_WITH_FUNC(INFO) << "Skipped force flush";
   }
 
   return Status::OK();
@@ -2040,6 +2046,8 @@ Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
   RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
   if (!metadata_->LazilyFlushSuperblock()) {
     RETURN_NOT_OK(metadata_->Flush());
+  } else {
+    LOG_WITH_FUNC(INFO) << "Skipping flush for opid " << op_id;
   }
   return Status::OK();
 }
