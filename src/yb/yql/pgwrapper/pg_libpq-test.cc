@@ -1696,7 +1696,8 @@ TEST_F(PgLibPqTest, YB_DISABLE_TEST_IN_TSAN(ReplayDeletedTableInTablegroups)) {
 //   }
 
 //   auto client = ASSERT_RESULT(cluster_->CreateClient());
-//   auto table_id = ASSERT_RESULT(GetTableIdByTableName(client.get(), database, table_prefix + "0"));
+//   auto table_id = ASSERT_RESULT (GetTableIdByTableName(client.get(), database, table_prefix +
+//   "0"));
 //   ASSERT_OK(
 //       client->FlushTables({table_id}, false /* add_indexes */, 30, false /* is_compaction */));
 //   ASSERT_OK(RestartCluster());
