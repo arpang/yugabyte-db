@@ -471,8 +471,6 @@ TEST_F(TabletPeerTest, TestAddTableUpdatesLastChangeMetadataOpId) {
   table_info.set_table_id("00004000000030008000000000004020");
   table_info.set_table_name("test");
   table_info.set_table_type(PGSQL_TABLE_TYPE);
-  Schema empty_schema;
-  SchemaToPB(empty_schema, table_info.mutable_schema());
   OpId op_id(100, 5);
   ASSERT_OK(tablet->AddTable(table_info, op_id));
   ASSERT_EQ(tablet->metadata()->LastChangeMetadataOperationOpId(), op_id);
