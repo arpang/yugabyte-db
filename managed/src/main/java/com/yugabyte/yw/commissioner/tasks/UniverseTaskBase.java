@@ -2276,6 +2276,7 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
     }
 
     backup.setTaskUUID(userTaskUUID);
+    backup.save();
     backupTableParams = backup.getBackupInfo();
     backupTableParams.backupUuid = backup.backupUUID;
     backupTableParams.baseBackupUUID = backup.baseBackupUUID;
@@ -2553,6 +2554,27 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
     params.universeUUID = universeUUID;
     params.ybcVersion = ybcVersion;
     params.validateOnlyMasterLeader = validateOnlyMasterLeader;
+    task.initialize(params);
+    task.setUserTaskUUID(userTaskUUID);
+    subTaskGroup.addSubTask(task);
+    getRunnableTask().addSubTaskGroup(subTaskGroup);
+    return subTaskGroup;
+  }
+
+  /**
+   * Creates a task to upgrade desired ybc version on a universe.
+   *
+   * @param universeUUID universe on which ybc need to be upgraded
+   * @param ybcVersion desired ybc version
+   * @param validateOnlyMasterLeader flag to check only if master leader node's ybc is upgraded or
+   *     not
+   */
+  public SubTaskGroup createUpgradeYbcTaskOnK8s(UUID universeUUID, String ybcSoftwareVersion) {
+    SubTaskGroup subTaskGroup = getTaskExecutor().createSubTaskGroup("UpgradeYbc", executor);
+    InstallYbcSoftwareOnK8s task = createTask(InstallYbcSoftwareOnK8s.class);
+    UniverseDefinitionTaskParams params = new UniverseDefinitionTaskParams();
+    params.universeUUID = universeUUID;
+    params.ybcSoftwareVersion = ybcSoftwareVersion;
     task.initialize(params);
     task.setUserTaskUUID(userTaskUUID);
     subTaskGroup.addSubTask(task);

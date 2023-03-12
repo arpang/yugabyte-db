@@ -196,6 +196,23 @@ public class EditKubernetesUniverse extends KubernetesTaskBase {
     boolean isMultiAZ = PlacementInfoUtil.isMultiAZ(provider);
     boolean newNamingStyle = taskParams().useNewHelmNamingStyle;
 
+    // Update disk size if there is a change
+    boolean diskSizeChanged =
+        !curIntent.deviceInfo.volumeSize.equals(newIntent.deviceInfo.volumeSize);
+    if (diskSizeChanged) {
+      log.info(
+          "Creating task for disk size change from {} to {}",
+          curIntent.deviceInfo.volumeSize,
+          newIntent.deviceInfo.volumeSize);
+      createResizeDiskTask(
+          universe.name,
+          curPlacement,
+          masterAddresses,
+          newIntent,
+          isReadOnlyCluster,
+          newNamingStyle);
+    }
+
     boolean instanceTypeChanged = false;
     if (!curIntent.instanceType.equals(newIntent.instanceType)) {
       List<String> masterResourceChangeInstances = Arrays.asList("dev", "xsmall");
@@ -274,7 +291,14 @@ public class EditKubernetesUniverse extends KubernetesTaskBase {
           isReadOnlyCluster,
           masterAddresses,
           newPlacement,
-          curPlacement);
+          curPlacement,
+          taskParams().enableYbc);
+
+      if (taskParams().enableYbc) {
+        installYbcOnThePods(
+            universe.name, tserversToAdd, isReadOnlyCluster, taskParams().ybcSoftwareVersion);
+        createWaitForYbcServerTask(tserversToAdd);
+      }
     }
 
     // Update the blacklist servers on master leader.
@@ -353,23 +377,6 @@ public class EditKubernetesUniverse extends KubernetesTaskBase {
           .setSubTaskGroupType(SubTaskGroupType.ConfigureUniverse);
     }
 
-    // Finally, update disk size if there is a change
-    boolean diskSizeChanged =
-        !curIntent.deviceInfo.volumeSize.equals(newIntent.deviceInfo.volumeSize);
-    if (diskSizeChanged) {
-      log.info(
-          "Creating task for disk size change from {} to {}",
-          curIntent.deviceInfo.volumeSize,
-          newIntent.deviceInfo.volumeSize);
-      createResizeDiskTask(
-          universe.name,
-          newPlacement,
-          masterAddresses,
-          newIntent,
-          isReadOnlyCluster,
-          newNamingStyle);
-    }
-
     // Update the universe to the new state.
     createSingleKubernetesExecutorTask(
         universe.name, KubernetesCommandExecutor.CommandType.POD_INFO, newPI, isReadOnlyCluster);
@@ -432,6 +439,27 @@ public class EditKubernetesUniverse extends KubernetesTaskBase {
     createWaitForMasterLeaderTask().setSubTaskGroupType(SubTaskGroupType.ConfigureUniverse);
   }
 
+  public void startNewPods(
+      String universeName,
+      Set<NodeDetails> podsToAdd,
+      ServerType serverType,
+      PlacementInfo activeZones,
+      boolean isReadOnlyCluster,
+      String masterAddresses,
+      KubernetesPlacement newPlacement,
+      KubernetesPlacement currPlacement) {
+    startNewPods(
+        universeName,
+        podsToAdd,
+        serverType,
+        activeZones,
+        isReadOnlyCluster,
+        masterAddresses,
+        newPlacement,
+        currPlacement,
+        false);
+  }
+
   /*
   Starts up the new pods as requested by the user.
   */
@@ -443,7 +471,8 @@ public class EditKubernetesUniverse extends KubernetesTaskBase {
       boolean isReadOnlyCluster,
       String masterAddresses,
       KubernetesPlacement newPlacement,
-      KubernetesPlacement currPlacement) {
+      KubernetesPlacement currPlacement,
+      boolean enableYbc) {
     createPodsTask(
         universeName,
         newPlacement,
@@ -451,7 +480,8 @@ public class EditKubernetesUniverse extends KubernetesTaskBase {
         currPlacement,
         serverType,
         activeZones,
-        isReadOnlyCluster);
+        isReadOnlyCluster,
+        enableYbc);
 
     createSingleKubernetesExecutorTask(
         universeName,
