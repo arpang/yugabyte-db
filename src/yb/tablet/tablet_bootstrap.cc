@@ -1196,9 +1196,6 @@ class TabletBootstrap {
           ? std::chrono::seconds(GetAtomicFlag(&FLAGS_retryable_request_timeout_secs))
           : 0s;
 
-    LOG(INFO) << "duration_to_retain_logs " << duration_to_retain_logs.count();
-    LOG(INFO) << "meta_->LazilyFlushSuperblock() " << meta_->LazilyFlushSuperblock();
-    LOG(INFO) << "segments.size() > 1 " << (segments.size() > 1);
     if (duration_to_retain_logs == 0s && meta_->LazilyFlushSuperblock() && segments.size() > 1) {
       LOG_WITH_FUNC(INFO) << "Enforcing minimum replay for 2 segments";
       // The below ensures we replay atleast two segments. See PreAllocateNewSegment() why a
@@ -1207,8 +1204,6 @@ class TabletBootstrap {
     }
 
     const RestartSafeCoarseDuration min_duration_to_retain_logs = duration_to_retain_logs;
-
-    LOG_WITH_FUNC(INFO) << "min_duration_to_retain_logs " << min_duration_to_retain_logs.count();
 
     auto iter = segments.end();
     int i = 0;
