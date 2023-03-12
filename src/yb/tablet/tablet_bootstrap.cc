@@ -1176,7 +1176,6 @@ class TabletBootstrap {
   // This functionality was originally introduced in
   // https://github.com/yugabyte/yugabyte-db/commit/41ef3f75e3c68686595c7613f53b649823b84fed
   SegmentSequence::const_iterator SkipFlushedEntries(SegmentSequence* segments_ptr) {
-    LOG_WITH_FUNC(INFO) << "Inside SkipFlushedEntries";
     static const char* kBootstrapOptimizerLogPrefix =
         "Bootstrap optimizer (skip_flushed_entries): ";
 
@@ -1197,7 +1196,6 @@ class TabletBootstrap {
           : 0s;
 
     if (duration_to_retain_logs == 0s && meta_->LazilyFlushSuperblock() && segments.size() > 1) {
-      LOG_WITH_FUNC(INFO) << "Enforcing minimum replay for 2 segments";
       // The below ensures we replay atleast two segments. See PreAllocateNewSegment() why a
       // minimum of two segments must be replayed with lazy superblock flush.
       duration_to_retain_logs = std::chrono::nanoseconds(1);
@@ -1206,9 +1204,7 @@ class TabletBootstrap {
     const RestartSafeCoarseDuration min_duration_to_retain_logs = duration_to_retain_logs;
 
     auto iter = segments.end();
-    int i = 0;
     while (iter != segments.begin()) {
-      i++;
       --iter;
       ReadableLogSegment& segment = **iter;
       const std::string& segment_path = segment.path();
@@ -1235,12 +1231,8 @@ class TabletBootstrap {
       const auto replay_from_this_or_earlier_time_was_initialized =
           replay_from_this_or_earlier_time.is_initialized();
 
-      LOG_WITH_FUNC(INFO) << "first_op_time " << first_op_time.ToString();
-
       if (!replay_from_this_or_earlier_time_was_initialized) {
-        LOG_WITH_FUNC(INFO) << "Initializing replay_from_this_or_earlier_time";
         replay_from_this_or_earlier_time = first_op_time - min_duration_to_retain_logs;
-        LOG_WITH_FUNC(INFO) << replay_from_this_or_earlier_time->ToString();
       }
 
       const auto is_first_op_id_low_enough = op_id <= op_id_replay_lowest;
@@ -1253,12 +1245,8 @@ class TabletBootstrap {
            << EXPR_VALUE_FOR_LOG(min_duration_to_retain_logs) << ", "
            << EXPR_VALUE_FOR_LOG(replay_from_this_or_earlier_time_was_initialized) << ", "
            << EXPR_VALUE_FOR_LOG(*replay_from_this_or_earlier_time);
-        LOG_WITH_FUNC(INFO) << "Replaying segments " << i;
         return ss.str();
       };
-
-      LOG_WITH_FUNC(INFO) << "is_first_op_id_low_enough " << is_first_op_id_low_enough;
-      LOG_WITH_FUNC(INFO) << "is_first_op_time_early_enough " << is_first_op_time_early_enough;
 
       if (is_first_op_id_low_enough && is_first_op_time_early_enough) {
         LOG_WITH_PREFIX(INFO)
@@ -1266,7 +1254,6 @@ class TabletBootstrap {
             << "found first mandatory segment op id: " << op_id << ", "
             << common_details_str() << ", "
             << "number of segments to be skipped: " << (iter - segments.begin());
-        LOG_WITH_FUNC(INFO) << "Replaying segments " << i;
         return iter;
       }
 
@@ -1282,8 +1269,6 @@ class TabletBootstrap {
           << EXPR_VALUE_FOR_LOG(is_first_op_id_low_enough) << ", "
           << EXPR_VALUE_FOR_LOG(is_first_op_time_early_enough);
     }
-
-    LOG_WITH_FUNC(INFO) << "Replaying segments " << i;
 
     LOG_WITH_PREFIX(INFO)
         << kBootstrapOptimizerLogPrefix
@@ -1354,9 +1339,6 @@ class TabletBootstrap {
                                  << "we need to scan all segments when any cdc stream is active "
                                  << "for this tablet.";
       }
-    }
-    if (meta_->LazilyFlushSuperblock()) {
-      LOG(INFO) << "LastChangeMetadataOperationOpId() " << meta_->LastChangeMetadataOperationOpId();
     }
     // Find the earliest log segment we need to read, so the rest can be ignored.
     auto iter = should_skip_flushed_entries ? SkipFlushedEntries(&segments) : segments.begin();

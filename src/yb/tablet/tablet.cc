@@ -260,7 +260,7 @@ DEFINE_test_flag(bool, disable_adding_last_compaction_to_tablet_metadata, false,
 
 DEFINE_test_flag(
     bool, skip_force_superblock_flush, false,
-    "Used in tests to skip superblock flush on force flushing tablet.");
+    "Used in tests to skip superblock flush on tablet flush.");
 
 DECLARE_int32(client_read_write_timeout_ms);
 DECLARE_bool(consistent_restore);
@@ -1865,8 +1865,6 @@ Status Tablet::Flush(FlushMode mode, FlushFlags flags, int64_t ignore_if_flushed
 
   if (metadata_->LazilyFlushSuperblock() && !FLAGS_TEST_skip_force_superblock_flush) {
     RETURN_NOT_OK(metadata_->Flush());
-  } else if (FLAGS_TEST_skip_force_superblock_flush) {
-    LOG_WITH_FUNC(INFO) << "Skipped force flush";
   }
 
   return Status::OK();
@@ -2048,7 +2046,8 @@ Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
   if (!metadata_->LazilyFlushSuperblock()) {
     RETURN_NOT_OK(metadata_->Flush());
   } else {
-    LOG_WITH_FUNC(INFO) << "Skipping flush for opid " << op_id;
+    VLOG_WITH_PREFIX(1) << "Skipping superblock flush on " << table_info.table_name()
+                        << " table creation, will be done lazily";
   }
   return Status::OK();
 }

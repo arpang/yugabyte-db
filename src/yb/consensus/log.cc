@@ -1806,14 +1806,16 @@ Status Log::PreAllocateNewSegment() {
     RETURN_NOT_OK(next_segment_file_->PreAllocate(next_segment_size));
   }
 
-  // When lazy superblock is enabled, instead of flushing the superblock on every metadata
-  // update we perform the update only in-memory and flush it on a new segment allocation. The
-  // motivation was reduce the latency of applying a CHANGE_METADATA_OP. Flushing the superblock
-  // here ensures that the committed unflushed CHANGE_METADATA_OP WAL entries are limited to
-  // the last two segments. To ensure the persistence of such entries, we ensure that a minimum of
-  // two WAL segments are retained and replayed on tablet bootstrap if this feature is enabled. This
-  // feature is currently enabled only for colocated table creation.
-  // Internal reference:
+  // When lazy superblock flush is enabled, instead of flushing the superblock on every
+  // CHANGE_METADATA_OP, we update the metadata only in-memory and flush it to disk when a new WAL
+  // segment is allocated. This reduces the latency of applying a CHANGE_METADATA_OP.
+  //
+  // Flushing the superblock on a new segment allocation limits the committed unflushed
+  // CHANGE_METADATA_OP WAL entries to the last two segments. To ensure persistence
+  // of these operations, we retain and replay a minimum of two WAL segments on
+  // tablet bootstrap.
+  //
+  // Currently, this feature only covers colocated table creation. Internal reference:
   // https://docs.google.com/document/d/1ePdpVp_ogdXMO5zBrrDSNmt8Z6ngNswLPae-TXQwdyc
   if (metadata_ && metadata_->LazilyFlushSuperblock()) {
     RETURN_NOT_OK(metadata_->Flush(/* only_if_dirty */ true));

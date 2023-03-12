@@ -76,11 +76,6 @@ using std::string;
 using namespace std::literals;
 
 DECLARE_int64(external_mini_cluster_max_log_bytes);
-DECLARE_bool(TEST_skip_force_superblock_flush);
-DECLARE_int32(log_min_segments_to_retain);
-DECLARE_int32(retryable_request_timeout_secs);
-DECLARE_uint64(log_segment_size_bytes);
-DECLARE_uint64(initial_log_segment_size_bytes);
 
 METRIC_DECLARE_entity(tablet);
 METRIC_DECLARE_counter(transaction_not_found);
@@ -162,12 +157,9 @@ class PgLibPqTest : public LibPqTestBase {
       GetParentTableTabletLocation getParentTableTabletLocation);
 
   Status TestDuplicateCreateTableRequest(PGConn conn);
-  // void TestLazySuperblockFlushBasicPersistence(int num_tables);
-  // void TestLazySuperblockFlushAdvancedPersistence();
 
  private:
   Result<PGConn> RestartTSAndConnectToPostgres(int ts_idx, const std::string& db_name);
-  Status RestartCluster();
 };
 
 static Result<PgOid> GetDatabaseOid(PGConn* conn, const std::string& db_name) {
@@ -1566,12 +1558,7 @@ Result<PGConn> PgLibPqTest::RestartTSAndConnectToPostgres(
 
   pg_ts = cluster_->tablet_server(ts_idx);
   return ConnectToDB(db_name);
-}
-
-Status PgLibPqTest::RestartCluster() {
-  cluster_->Shutdown();
-  return cluster_->Restart();
-}
+}`
 
 void PgLibPqTest::FlushTablesAndCreateData(
     const string database_name,
@@ -1680,63 +1667,6 @@ TEST_F(PgLibPqTest, YB_DISABLE_TEST_IN_TSAN(ReplayDeletedTableInTablegroups)) {
       false /* test_backward_compatibility */,
       "test_tgroup" /* tablegroup_name */);
 }
-
-// void PgLibPqTest::TestLazySuperblockFlushBasicPersistence(int num_tables) {
-//   const string database = "test_db";
-//   const string tablegroup = "test_tg";
-//   const string table_prefix = "foo";
-//   PGConn conn = ASSERT_RESULT(Connect());
-//   ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0", database));
-//   PGConn db_conn = ASSERT_RESULT(ConnectToDB(database));
-//   ASSERT_OK(db_conn.ExecuteFormat("CREATE TABLEGROUP $0", tablegroup));
-//   for (int i = 0; i < num_tables; ++i) {
-//     ASSERT_OK(db_conn.ExecuteFormat(
-//         "CREATE TABLE $0$1 (i int) TABLEGROUP $2", table_prefix, i, tablegroup));
-//     ASSERT_OK(db_conn.ExecuteFormat("INSERT INTO $0$1 values (1)", table_prefix, i));
-//   }
-
-//   auto client = ASSERT_RESULT(cluster_->CreateClient());
-//   auto table_id = ASSERT_RESULT (GetTableIdByTableName(client.get(), database, table_prefix +
-//   "0"));
-//   ASSERT_OK(
-//       client->FlushTables({table_id}, false /* add_indexes */, 30, false /* is_compaction */));
-//   ASSERT_OK(RestartCluster());
-//   PGConn new_conn = ASSERT_RESULT(ConnectToDB(database));
-//   for (int i = 0; i < num_tables; ++i) {
-//     auto res = ASSERT_RESULT(
-//         new_conn.FetchValue<int64_t>(Format("SELECT COUNT(*) FROM $0$1", table_prefix, i)));
-//     ASSERT_EQ(res, 1);
-//   }
-// }
-
-// class PgLibPqLazySuperblockFlushTest : public PgLibPqTest {
-//   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
-//     options->extra_tserver_flags.push_back("--TEST_skip_force_superblock_flush=false");
-//     options->extra_tserver_flags.push_back("--log_min_segments_to_retain=1");
-//     options->extra_tserver_flags.push_back("--retryable_request_timeout_secs=0");
-//     options->extra_tserver_flags.push_back("--initial_log_segment_size_bytes=2048");
-//     options->extra_tserver_flags.push_back("--log_segment_size_bytes=2048");
-//   }
-// };
-
-// TEST_F(PgLibPqLazySuperblockFlushTest, YB_DISABLE_TEST_IN_TSAN(SingleTablePersistence)) {
-//   // FLAGS_TEST_skip_force_superblock_flush = true;
-//   TestLazySuperblockFlushBasicPersistence(1);
-// }
-
-// TEST_F(PgLibPqLazySuperblockFlushTest, YB_DISABLE_TEST_IN_TSAN(MultiTablePersistence)) {
-//   // ASSERT_OK(cluster_->SetFlagOnTServers("TEST_skip_force_superblock_flush", "true"));
-//   // ASSERT_OK(cluster_->SetFlagOnTServers("log_min_segments_to_retain", "1"));
-//   // ASSERT_OK(cluster_->SetFlagOnTServers("retryable_request_timeout_secs", "0"));
-//   // ASSERT_OK(cluster_->SetFlagOnTServers("initial_log_segment_size_bytes", "2048"));
-//   // ASSERT_OK(cluster_->SetFlagOnTServers("log_segment_size_bytes", "2048"));
-//   // FLAGS_TEST_skip_force_superblock_flush = true;
-//   // FLAGS_log_min_segments_to_retain = 1;
-//   // FLAGS_retryable_request_timeout_secs = 0;
-//   // FLAGS_initial_log_segment_size_bytes = 2 * 1024;
-//   // FLAGS_log_segment_size_bytes = 2 * 1024;
-//   TestLazySuperblockFlushBasicPersistence(100);
-// }
 
 class PgLibPqDuplicateClientCreateTableTest : public PgLibPqTest {
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {

@@ -79,7 +79,7 @@
 DEPRECATE_FLAG(bool, enable_tablet_orphaned_block_deletion, "10_2022");
 DECLARE_bool(TEST_invalidate_last_change_metadata_op);
 
-// Only used for colocated table creation for now.
+// Only used for colocated table creation currently.
 // The flag is non-runtime so that if it is changed from true to false, the node restarts and the
 // unflushed committed CHANGE_METADATA_OP WAL entries are applied and flushed during the tablet
 // bootstrap.
