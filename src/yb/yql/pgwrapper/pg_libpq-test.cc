@@ -157,7 +157,6 @@ class PgLibPqTest : public LibPqTestBase {
       GetParentTableTabletLocation getParentTableTabletLocation);
 
   Status TestDuplicateCreateTableRequest(PGConn conn);
-
  private:
   Result<PGConn> RestartTSAndConnectToPostgres(int ts_idx, const std::string& db_name);
 };
@@ -1558,7 +1557,7 @@ Result<PGConn> PgLibPqTest::RestartTSAndConnectToPostgres(
 
   pg_ts = cluster_->tablet_server(ts_idx);
   return ConnectToDB(db_name);
-}`
+}
 
 void PgLibPqTest::FlushTablesAndCreateData(
     const string database_name,
