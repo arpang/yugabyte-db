@@ -1065,8 +1065,8 @@ TEST_F(CreateTableITest, LazySuperblockFlushMultiTablePersistence) {
   vector<string> ts_flags;
   ts_flags.push_back("--log_min_segments_to_retain=1");
   ts_flags.push_back("--retryable_request_timeout_secs=0");
-  ts_flags.push_back("--initial_log_segment_size_bytes=2048");
-  ts_flags.push_back("--log_segment_size_bytes=2048");
+  ts_flags.push_back("--initial_log_segment_size_bytes=1024");
+  ts_flags.push_back("--log_segment_size_bytes=1024");
   ASSERT_NO_FATALS(StartCluster(ts_flags, {} /* master_flags */, 3, 1, true));
   TestLazySuperblockFlushPersistence(20, 10);
 }
