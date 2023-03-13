@@ -706,7 +706,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   std::unordered_set<StatefulServiceKind> hosted_services_;
 
   // OpId of the last applied change metadata operation. Used to determine if the in-memory metadata
-  // state is dirty.
+  // state is dirty and set last_flushed_change_metadata_op_id_ on flush.
   OpId last_applied_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
 
   // OpId of the last flushed change metadata operation. Used to determine if at the time
