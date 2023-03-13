@@ -1044,13 +1044,19 @@ void CreateTableITest::TestLazySuperblockFlushPersistence(int num_tables, int it
       ASSERT_OK(db_conn.Execute("COMMIT"));
     }
     ASSERT_OK(cluster_->WaitForAllIntentsApplied(30s));
+
+    // Flush rocksdb (but not superblock) so that it doesn't prevent WAL GC.
     auto client = ASSERT_RESULT(cluster_->CreateClient());
     auto table_id =
         ASSERT_RESULT(GetTableIdByTableName(client.get(), database, table_prefix + "0"));
     ASSERT_OK(
         client->FlushTables({table_id}, false /* add_indexes */, 30, false /* is_compaction */));
+
+    // Restart tservers.
     cluster_->Shutdown(ExternalMiniCluster::NodeSelectionMode::TS_ONLY);
     ASSERT_OK(cluster_->Restart());
+
+    // Check persistence after restart.
     auto new_conn = ASSERT_RESULT(ConnectToDB(database));
     for (int i = 0; i < num_tables; ++i) {
       auto res = ASSERT_RESULT(
@@ -1062,6 +1068,7 @@ void CreateTableITest::TestLazySuperblockFlushPersistence(int num_tables, int it
 
 TEST_F(CreateTableITest, LazySuperblockFlushSingleTablePersistence) {
   vector<string> ts_flags;
+  // Enable lazy superblock flush.
   ts_flags.push_back("--lazily_flush_superblock=true");
   ASSERT_NO_FATALS(StartCluster(ts_flags /* ts_flags */, {} /* master_flags */, 3, 1, true));
   TestLazySuperblockFlushPersistence(1, 1);
@@ -1069,13 +1076,23 @@ TEST_F(CreateTableITest, LazySuperblockFlushSingleTablePersistence) {
 
 TEST_F(CreateTableITest, LazySuperblockFlushMultiTablePersistence) {
   vector<string> ts_flags;
+  // Enable lazy superblock flush.
   ts_flags.push_back("--lazily_flush_superblock=true");
+
+  // Minimize log retention.
   ts_flags.push_back("--log_min_segments_to_retain=1");
   ts_flags.push_back("--log_min_seconds_to_retain=0");
+
+  // Minimize log replay.
   ts_flags.push_back("--retryable_request_timeout_secs=0");
+
+  // Reduce the WAL segment size so that the number of WAL segments are > 1.
   ts_flags.push_back("--initial_log_segment_size_bytes=1024");
   ts_flags.push_back("--log_segment_size_bytes=1024");
+
+  // Skip flushing superblock on table flush.
   ts_flags.push_back("--TEST_skip_force_superblock_flush=true");
+
   ASSERT_NO_FATALS(StartCluster(ts_flags, {} /* master_flags */, 3, 1, true));
   TestLazySuperblockFlushPersistence(20, 10);
 }
