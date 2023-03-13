@@ -1815,7 +1815,7 @@ Status Log::PreAllocateNewSegment() {
   // of these operations, we retain and replay a minimum of two WAL segments on
   // tablet bootstrap.
   //
-  // Currently, this feature only covers colocated table creation. Internal reference:
+  // Currently, this feature is applicable only on colocated table creation. Internal reference:
   // https://docs.google.com/document/d/1ePdpVp_ogdXMO5zBrrDSNmt8Z6ngNswLPae-TXQwdyc
   if (metadata_ && metadata_->LazilyFlushSuperblock()) {
     RETURN_NOT_OK(metadata_->Flush(/* if_dirty */ true));
