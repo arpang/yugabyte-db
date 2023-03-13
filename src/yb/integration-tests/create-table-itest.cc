@@ -1061,12 +1061,15 @@ void CreateTableITest::TestLazySuperblockFlushPersistence(int num_tables, int it
 }
 
 TEST_F(CreateTableITest, LazySuperblockFlushSingleTablePersistence) {
-  ASSERT_NO_FATALS(StartCluster({} /* ts_flags */, {} /* master_flags */, 3, 1, true));
+  vector<string> ts_flags;
+  ts_flags.push_back("--lazily_flush_superblock=true");
+  ASSERT_NO_FATALS(StartCluster(ts_flags /* ts_flags */, {} /* master_flags */, 3, 1, true));
   TestLazySuperblockFlushPersistence(1, 1);
 }
 
 TEST_F(CreateTableITest, LazySuperblockFlushMultiTablePersistence) {
   vector<string> ts_flags;
+  ts_flags.push_back("--lazily_flush_superblock=true");
   ts_flags.push_back("--log_min_segments_to_retain=1");
   ts_flags.push_back("--log_min_seconds_to_retain=0");
   ts_flags.push_back("--retryable_request_timeout_secs=0");

@@ -84,7 +84,7 @@ DECLARE_bool(TEST_invalidate_last_change_metadata_op);
 // unflushed committed CHANGE_METADATA_OP WAL entries are applied and flushed during the tablet
 // bootstrap.
 DEFINE_NON_RUNTIME_bool(
-    lazily_flush_superblock, true, "Flushes the superblock lazily on metadata update");
+    lazily_flush_superblock, false, "Flushes the superblock lazily on metadata update");
 
 using std::shared_ptr;
 using std::string;
