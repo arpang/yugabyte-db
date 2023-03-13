@@ -58,6 +58,8 @@
 #include "yb/gutil/stl_util.h"
 #include "yb/gutil/strings/substitute.h"
 
+#include "yb/master/sys_catalog_constants.h"
+
 #include "yb/rocksdb/db.h"
 #include "yb/rocksdb/options.h"
 
@@ -856,7 +858,7 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
   return Status::OK();
 }
 
-Status RaftGroupMetadata::Flush(bool only_if_dirty) {
+Status RaftGroupMetadata::Flush(bool if_dirty) {
   TRACE_EVENT1("raft_group", "RaftGroupMetadata::Flush",
                "raft_group_id", raft_group_id_);
 
@@ -864,8 +866,7 @@ Status RaftGroupMetadata::Flush(bool only_if_dirty) {
   RaftGroupReplicaSuperBlockPB pb;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
-    if (only_if_dirty &&
-        last_flushed_change_metadata_op_id_ == last_applied_change_metadata_op_id_) {
+    if (if_dirty && last_flushed_change_metadata_op_id_ == last_applied_change_metadata_op_id_) {
       // Skipping flush as in-memory metadata is not dirty.
       return Status::OK();
     }

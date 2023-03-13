@@ -1818,7 +1818,7 @@ Status Log::PreAllocateNewSegment() {
   // Currently, this feature only covers colocated table creation. Internal reference:
   // https://docs.google.com/document/d/1ePdpVp_ogdXMO5zBrrDSNmt8Z6ngNswLPae-TXQwdyc
   if (metadata_ && metadata_->LazilyFlushSuperblock()) {
-    RETURN_NOT_OK(metadata_->Flush(/* only_if_dirty */ true));
+    RETURN_NOT_OK(metadata_->Flush(/* if_dirty */ true));
   }
 
   allocation_state_.store(SegmentAllocationState::kAllocationFinished, std::memory_order_release);

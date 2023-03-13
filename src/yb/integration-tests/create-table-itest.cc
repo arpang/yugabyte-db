@@ -1070,7 +1070,7 @@ TEST_F(CreateTableITest, LazySuperblockFlushSingleTablePersistence) {
   vector<string> ts_flags;
   // Enable lazy superblock flush.
   ts_flags.push_back("--lazily_flush_superblock=true");
-  ASSERT_NO_FATALS(StartCluster(ts_flags /* ts_flags */, {} /* master_flags */, 3, 1, true));
+  ASSERT_NO_FATALS(StartCluster(ts_flags, {} /* master_flags */, 3, 1, true));
   TestLazySuperblockFlushPersistence(1, 1);
 }
 

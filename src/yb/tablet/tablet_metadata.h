@@ -56,7 +56,6 @@
 #include "yb/gutil/macros.h"
 #include "yb/gutil/ref_counted.h"
 
-#include "yb/master/sys_catalog_constants.h"
 #include "yb/tablet/tablet_fwd.h"
 #include "yb/tablet/metadata.pb.h"
 
@@ -468,7 +467,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   void SetRestorationHybridTime(HybridTime value);
   HybridTime restoration_hybrid_time() const;
 
-  Status Flush(bool only_if_dirty = false);
+  Status Flush(bool if_dirty = false);
 
   Status SaveTo(const std::string& path);
 
@@ -706,12 +705,12 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   std::unordered_set<StatefulServiceKind> hosted_services_;
 
-  // OpId of the last change metadata operation. Used to determine if at the time
-  // of local tablet bootstrap we should replay a particular change_metadata op.
+  // OpId of the last applied change metadata operation. Used to determine if the in-memory metadata
+  // state is dirty.
   OpId last_applied_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
 
-  // OpId of the last change metadata operation as on disk. Used to determine if the in-memory
-  // metadata state is dirty.
+  // OpId of the last flushed change metadata operation. Used to determine if at the time
+  // of local tablet bootstrap we should replay a particular change_metadata op.
   OpId last_flushed_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
 
   DISALLOW_COPY_AND_ASSIGN(RaftGroupMetadata);

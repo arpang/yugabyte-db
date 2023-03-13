@@ -1087,8 +1087,9 @@ class TabletBootstrap {
         replay_state_->stored_op_ids.intents.index,
         meta_->LastFlushedChangeMetadataOperationOpId().index,
         // txn_status
-        replicate.has_transaction_state() ? replicate.transaction_state().status()
-                                          : TransactionStatus::ABORTED,  // should not be used
+        replicate.has_transaction_state()
+            ? replicate.transaction_state().status()
+            : TransactionStatus::ABORTED,  // should not be used
         // write_op_has_transaction
         WriteOpHasTransaction(replicate));
 
@@ -1191,17 +1192,18 @@ class TabletBootstrap {
     // Time point of the first entry of the last WAL segment, and how far back in time from it we
     // should retain other entries.
     boost::optional<RestartSafeCoarseTimePoint> replay_from_this_or_earlier_time;
-    RestartSafeCoarseDuration duration_to_retain_logs = data_.bootstrap_retryable_requests
+    RestartSafeCoarseDuration min_duration_to_retain_logs = data_.bootstrap_retryable_requests
           ? std::chrono::seconds(GetAtomicFlag(&FLAGS_retryable_request_timeout_secs))
           : 0s;
 
-    if (duration_to_retain_logs == 0s && meta_->LazilyFlushSuperblock() && segments.size() > 1) {
+    if (min_duration_to_retain_logs == 0s && meta_->LazilyFlushSuperblock() &&
+        segments.size() > 1) {
       // The below ensures we replay atleast two segments. See PreAllocateNewSegment() why a
       // minimum of two segments must be replayed with lazy superblock flush.
-      duration_to_retain_logs = std::chrono::nanoseconds(1);
+      min_duration_to_retain_logs = std::chrono::nanoseconds(1);
     }
 
-    const RestartSafeCoarseDuration min_duration_to_retain_logs = duration_to_retain_logs;
+    const RestartSafeCoarseDuration const_min_duration_to_retain_logs = min_duration_to_retain_logs;
 
     auto iter = segments.end();
     while (iter != segments.begin()) {
@@ -1232,7 +1234,7 @@ class TabletBootstrap {
           replay_from_this_or_earlier_time.is_initialized();
 
       if (!replay_from_this_or_earlier_time_was_initialized) {
-        replay_from_this_or_earlier_time = first_op_time - min_duration_to_retain_logs;
+        replay_from_this_or_earlier_time = first_op_time - const_min_duration_to_retain_logs;
       }
 
       const auto is_first_op_id_low_enough = op_id <= op_id_replay_lowest;
@@ -1242,7 +1244,7 @@ class TabletBootstrap {
         std::ostringstream ss;
         ss << EXPR_VALUE_FOR_LOG(op_id_replay_lowest) << ", "
            << EXPR_VALUE_FOR_LOG(first_op_time) << ", "
-           << EXPR_VALUE_FOR_LOG(min_duration_to_retain_logs) << ", "
+           << EXPR_VALUE_FOR_LOG(const_min_duration_to_retain_logs) << ", "
            << EXPR_VALUE_FOR_LOG(replay_from_this_or_earlier_time_was_initialized) << ", "
            << EXPR_VALUE_FOR_LOG(*replay_from_this_or_earlier_time);
         return ss.str();
