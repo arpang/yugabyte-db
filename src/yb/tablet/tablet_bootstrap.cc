@@ -1465,7 +1465,8 @@ class TabletBootstrap {
     if (!tablet_->metadata()->LastFlushedChangeMetadataOperationOpId().valid()) {
       LOG(INFO) << "Updating last_change_metadata_op_id to " << replay_state_->committed_op_id
                 << " so that subsequent bootstraps can start leveraging it";
-      tablet_->metadata()->SetLastChangeMetadataOperationOpId(replay_state_->committed_op_id);
+      tablet_->metadata()->SetLastAppliedChangeMetadataOperationOpId(
+          replay_state_->committed_op_id);
       RETURN_NOT_OK(tablet_->metadata()->Flush());
     }
 

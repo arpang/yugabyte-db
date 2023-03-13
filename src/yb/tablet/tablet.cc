@@ -2170,7 +2170,7 @@ Status Tablet::AlterWalRetentionSecs(ChangeMetadataOperation* operation) {
     // which essentially implies that we mute this new logic for the entire
     // duration of the bootstrap. However, once bootstrap finishes we set this
     // field so that subsequent restarts can start leveraging this feature.
-    metadata_->SetLastChangeMetadataOperationOpId(operation->op_id());
+    metadata_->SetLastAppliedChangeMetadataOperationOpId(operation->op_id());
     // Flush the updated schema metadata to disk.
     return metadata_->Flush();
   }
