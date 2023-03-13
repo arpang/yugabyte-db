@@ -437,11 +437,12 @@ ReplayDecision ShouldReplayOperation(
     return {index > regular_flushed_index};
   }
 
-  if (op_type == consensus::CHANGE_METADATA_OP) {
+  if (metadata_flushed_index >= 0 && op_type == consensus::CHANGE_METADATA_OP) {
     VLOG_WITH_FUNC(3) << "CHANGE_METADATA_OP - index: " << index
                       << " metadata_flushed_index: " << metadata_flushed_index;
     return {index > metadata_flushed_index};
   }
+  // For upgrade scenarios where metadata_flushed_index < 0, follow the pre-existing logic.
 
   // In most cases we assume that intents_flushed_index <= regular_flushed_index but here we are
   // trying to be resilient to violations of that assumption.
