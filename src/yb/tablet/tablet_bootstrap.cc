@@ -1570,16 +1570,6 @@ class TabletBootstrap {
     // wherein we replay everything.
     const auto op_id = OpId::FromPB(replicate_msg->id());
 
-    // TODO: The below check shouldn't be required.
-    // If current metadata is already more recent then skip this replay.
-    if (op_id <= meta_->LastFlushedChangeMetadataOperationOpId()) {
-      LOG_WITH_PREFIX(INFO) << "Skipping replay of operation with op id " << op_id
-                            << ", since tablet metadata is more recent. Op Id of last change"
-                            << " metadata operation flushed is "
-                            << meta_->LastFlushedChangeMetadataOperationOpId();
-      return Status::OK();
-    }
-
     // Otherwise play.
     auto* request = replicate_msg->mutable_change_metadata_request();
 
