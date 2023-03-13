@@ -1750,9 +1750,12 @@ Status CheckCanServeTabletData(const RaftGroupMetadata& metadata) {
   return Status::OK();
 }
 
-// TODO: This can be renamed to LastFlushedChangeMetadataOperationOpId and should return
-// last_change_metadata_op_id_on_disk_
-OpId RaftGroupMetadata::LastChangeMetadataOperationOpId() const {
+OpId RaftGroupMetadata::LastFlushedChangeMetadataOperationOpId() const {
+  std::lock_guard<MutexType> lock(data_mutex_);
+  return last_change_metadata_op_id_on_disk_;
+}
+
+OpId RaftGroupMetadata::LastAppliedChangeMetadataOperationOpId() const {
   std::lock_guard<MutexType> lock(data_mutex_);
   return last_change_metadata_op_id_;
 }

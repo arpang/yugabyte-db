@@ -478,7 +478,7 @@ TEST_F(TabletPeerTest, TestAddTableUpdatesLastChangeMetadataOpId) {
   SchemaToPB(schema, table_info.mutable_schema());
   OpId op_id(100, 5);
   ASSERT_OK(tablet->AddTable(table_info, op_id));
-  ASSERT_EQ(tablet->metadata()->LastChangeMetadataOperationOpId(), op_id);
+  ASSERT_EQ(tablet->metadata()->LastAppliedChangeMetadataOperationOpId(), op_id);
 }
 
 class TabletPeerProtofBufSizeLimitTest : public TabletPeerTest {

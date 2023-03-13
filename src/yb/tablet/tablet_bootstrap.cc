@@ -1084,11 +1084,10 @@ class TabletBootstrap {
         replicate.id().index(),
         replay_state_->stored_op_ids.regular.index,
         replay_state_->stored_op_ids.intents.index,
-        meta_->LastChangeMetadataOperationOpId().index,
+        meta_->LastFlushedChangeMetadataOperationOpId().index,
         // txn_status
-        replicate.has_transaction_state()
-            ? replicate.transaction_state().status()
-            : TransactionStatus::ABORTED,  // should not be used
+        replicate.has_transaction_state() ? replicate.transaction_state().status()
+                                          : TransactionStatus::ABORTED,  // should not be used
         // write_op_has_transaction
         WriteOpHasTransaction(replicate));
 
@@ -1463,7 +1462,7 @@ class TabletBootstrap {
     // takes advantage of the feature. After bootstrap, when orphaned replicates are applied,
     // we are sure that we are no worse than existing since their "Apply" goes
     // through the non-tablet-bootstrap change metadata route which is the same before/after.
-    if (!tablet_->metadata()->LastChangeMetadataOperationOpId().valid()) {
+    if (!tablet_->metadata()->LastFlushedChangeMetadataOperationOpId().valid()) {
       LOG(INFO) << "Updating last_change_metadata_op_id to " << replay_state_->committed_op_id
                 << " so that subsequent bootstraps can start leveraging it";
       tablet_->metadata()->SetLastChangeMetadataOperationOpId(replay_state_->committed_op_id);
@@ -1562,7 +1561,7 @@ class TabletBootstrap {
     // This is to handle the upgrade case when new code runs against old data.
     // In such cases, last_change_metadata_op_id won't be set and we want
     // to ensure that we are no worse than the behavior as of the older version.
-    if (!meta_->LastChangeMetadataOperationOpId().valid()) {
+    if (!meta_->LastFlushedChangeMetadataOperationOpId().valid()) {
       return PlayChangeMetadataRequestDeprecated(replicate_msg);
     }
 
@@ -1572,11 +1571,11 @@ class TabletBootstrap {
 
     // TODO: The below check shouldn't be required.
     // If current metadata is already more recent then skip this replay.
-    if (op_id <= meta_->LastChangeMetadataOperationOpId()) {
+    if (op_id <= meta_->LastFlushedChangeMetadataOperationOpId()) {
       LOG_WITH_PREFIX(INFO) << "Skipping replay of operation with op id " << op_id
                             << ", since tablet metadata is more recent. Op Id of last change"
                             << " metadata operation flushed is "
-                            << meta_->LastChangeMetadataOperationOpId();
+                            << meta_->LastFlushedChangeMetadataOperationOpId();
       return Status::OK();
     }
 

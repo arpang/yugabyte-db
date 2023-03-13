@@ -590,7 +590,9 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return kv_store_;
   }
 
-  OpId LastChangeMetadataOperationOpId() const;
+  OpId LastFlushedChangeMetadataOperationOpId() const;
+
+  OpId LastAppliedChangeMetadataOperationOpId() const;
 
   void SetLastChangeMetadataOperationOpIdUnlocked(const OpId& op_id) REQUIRES(data_mutex_);
 
