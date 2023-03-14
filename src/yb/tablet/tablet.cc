@@ -1863,8 +1863,9 @@ Status Tablet::Flush(FlushMode mode, FlushFlags flags, int64_t ignore_if_flushed
     RETURN_NOT_OK(intents_db_->WaitForFlush());
   }
 
+  // TODO: Is this the right place to perform flush?
   if (metadata_->LazilyFlushSuperblock() && !FLAGS_TEST_skip_force_superblock_flush) {
-    RETURN_NOT_OK(metadata_->Flush());
+    RETURN_NOT_OK(metadata_->Flush(/* if_dirty */ true));
   }
 
   return Status::OK();
