@@ -36,6 +36,7 @@
 
 #include "yb/common/doc_hybrid_time.h"
 #include "yb/common/partition.h"
+#include "yb/common/ql_wire_protocol.h"
 #include "yb/common/wire_protocol.h"
 
 #include "yb/master/cdc_rpc_tasks.h"
@@ -1026,6 +1027,18 @@ Result<bool> PersistentTableInfo::is_being_modified_by_ddl_transaction(
   const TransactionId& txn) const {
   return has_ysql_ddl_txn_verifier_state() &&
     txn == VERIFY_RESULT(FullyDecodeTransactionId(pb_transaction_id()));
+}
+
+bool IsReplicationInfoSet(const ReplicationInfoPB& replication_info) {
+  const auto& live_placement_info = replication_info.live_replicas();
+  if (!(live_placement_info.placement_blocks().empty() && live_placement_info.num_replicas() <= 0 &&
+        live_placement_info.placement_uuid().empty()) ||
+      !replication_info.read_replicas().empty() ||
+      !replication_info.affinitized_leaders().empty() ||
+      !replication_info.multi_affinitized_leaders().empty()) {
+    return true;
+  }
+  return false;
 }
 
 // ================================================================================================
