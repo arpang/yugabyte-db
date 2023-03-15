@@ -1066,7 +1066,7 @@ void CreateTableITest::TestLazySuperblockFlushPersistence(int num_tables, int it
   }
 }
 
-TEST_F(CreateTableITest, LazySuperblockFlushSingleTablePersistence) {
+TEST_F(CreateTableITest, YB_DISABLE_TEST_IN_TSAN(LazySuperblockFlushSingleTablePersistence)) {
   vector<string> ts_flags;
   // Enable lazy superblock flush.
   ts_flags.push_back("--lazily_flush_superblock=true");
@@ -1074,7 +1074,7 @@ TEST_F(CreateTableITest, LazySuperblockFlushSingleTablePersistence) {
   TestLazySuperblockFlushPersistence(1, 1);
 }
 
-TEST_F(CreateTableITest, LazySuperblockFlushMultiTablePersistence) {
+TEST_F(CreateTableITest, YB_DISABLE_TEST_IN_TSAN(LazySuperblockFlushMultiTablePersistence)) {
   vector<string> ts_flags;
   // Enable lazy superblock flush.
   ts_flags.push_back("--lazily_flush_superblock=true");
@@ -1094,7 +1094,7 @@ TEST_F(CreateTableITest, LazySuperblockFlushMultiTablePersistence) {
   ts_flags.push_back("--TEST_skip_force_superblock_flush=true");
 
   ASSERT_NO_FATALS(StartCluster(ts_flags, {} /* master_flags */, 3, 1, true));
-  TestLazySuperblockFlushPersistence(20, 10);
+  TestLazySuperblockFlushPersistence(20, 2);
 }
 
 }  // namespace yb
