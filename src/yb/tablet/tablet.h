@@ -417,6 +417,8 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
 
   Status WaitForFlush();
 
+  Status FlushSuperblock(bool if_dirty);
+
   // Prepares the transaction context for the alter schema operation.
   // An error will be returned if the specified schema is invalid (e.g.
   // key mismatch, or missing IDs)
