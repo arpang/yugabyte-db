@@ -112,6 +112,8 @@ YB_DEFINE_ENUM(
 
 YB_STRONGLY_TYPED_BOOL(SkipWalWrite);
 
+using SuperblockFlushCB = std::optional<std::function<Status(bool)>>;
+
 // Log interface, inspired by Raft's (logcabin) Log. Provides durability to YugaByte as a normal
 // Write Ahead Log and also plays the role of persistent storage for the consensus state machine.
 //
@@ -153,8 +155,8 @@ class Log : public RefCountedThreadSafe<Log> {
                              ThreadPool* background_sync_threadpool,
                              int64_t cdc_min_replicated_index,
                              scoped_refptr<Log> *log,
-                             // lazy superblock flush will be disabled if metadata is null
-                             tablet::RaftGroupMetadata* metadata,
+                             bool lazy_sb_flush_enabled,
+                             SuperblockFlushCB flush_cb = {},
                              CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   ~Log();
@@ -364,7 +366,8 @@ class Log : public RefCountedThreadSafe<Log> {
       ThreadPool* append_thread_pool,
       ThreadPool* allocation_thread_pool,
       ThreadPool* background_sync_threadpool,
-      tablet::RaftGroupMetadata* metadata,
+      bool lazy_sb_flush_enabled,
+      SuperblockFlushCB flush_cb,
       CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   Env* get_env() {
@@ -646,7 +649,9 @@ class Log : public RefCountedThreadSafe<Log> {
 
   CreateNewSegment create_new_segment_at_start_;
 
-  tablet::RaftGroupMetadata* metadata_;
+  bool lazy_sb_flush_enabled_;
+
+  SuperblockFlushCB flush_cb_;
 
   DISALLOW_COPY_AND_ASSIGN(Log);
 };

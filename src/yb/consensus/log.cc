@@ -565,9 +565,9 @@ Status Log::Open(const LogOptions &options,
                  ThreadPool* background_sync_threadpool,
                  int64_t cdc_min_replicated_index,
                  scoped_refptr<Log>* log,
-                 tablet::RaftGroupMetadata* metadata,
+                 bool lazy_sb_flush_enabled,
+                 SuperblockFlushCB flush_cb,
                  CreateNewSegment create_new_segment) {
-
   RETURN_NOT_OK_PREPEND(env_util::CreateDirIfMissing(options.env, DirName(wal_dir)),
                         Substitute("Failed to create table wal dir $0", DirName(wal_dir)));
 
@@ -585,7 +585,8 @@ Status Log::Open(const LogOptions &options,
                                      append_thread_pool,
                                      allocation_thread_pool,
                                      background_sync_threadpool,
-                                     metadata,
+                                     lazy_sb_flush_enabled,
+                                     flush_cb,
                                      create_new_segment));
   RETURN_NOT_OK(new_log->Init());
   log->swap(new_log);
@@ -604,7 +605,8 @@ Log::Log(
     ThreadPool* append_thread_pool,
     ThreadPool* allocation_thread_pool,
     ThreadPool* background_sync_threadpool,
-    tablet::RaftGroupMetadata* metadata,
+    bool lazy_sb_flush_enabled,
+    SuperblockFlushCB flush_cb,
     CreateNewSegment create_new_segment)
     : options_(std::move(options)),
       wal_dir_(std::move(wal_dir)),
@@ -632,7 +634,11 @@ Log::Log(
       on_disk_size_(0),
       log_prefix_(consensus::MakeTabletLogPrefix(tablet_id_, peer_uuid_)),
       create_new_segment_at_start_(create_new_segment),
-      metadata_(metadata) {
+      lazy_sb_flush_enabled_(lazy_sb_flush_enabled),
+      flush_cb_(flush_cb) {
+  if (lazy_sb_flush_enabled_) {
+    CHECK(flush_cb_.has_value());
+  }
   set_wal_retention_secs(options.retention_secs);
   if (table_metric_entity_ && tablet_metric_entity_) {
     metrics_.reset(new LogMetrics(table_metric_entity_, tablet_metric_entity_));
@@ -1271,7 +1277,7 @@ Status Log::GetSegmentsToGCUnlocked(int64_t min_op_idx, SegmentSequence* segment
 
   // See PreAllocateNewSegment() why a minimum of two segments must be retained with lazy
   // superblock flush.
-  if (min_segments_to_retain < 2 && metadata_ && metadata_->LazilyFlushSuperblock()) {
+  if (min_segments_to_retain < 2 && lazy_sb_flush_enabled_) {
     min_segments_to_retain = 2;
   }
 
@@ -1817,8 +1823,8 @@ Status Log::PreAllocateNewSegment() {
   //
   // Currently, this feature is applicable only on colocated table creation. Internal reference:
   // https://docs.google.com/document/d/1ePdpVp_ogdXMO5zBrrDSNmt8Z6ngNswLPae-TXQwdyc
-  if (metadata_ && metadata_->LazilyFlushSuperblock()) {
-    RETURN_NOT_OK(metadata_->Flush(/* if_dirty */ true));
+  if (lazy_sb_flush_enabled_) {
+    RETURN_NOT_OK(flush_cb_.value()(true));
   }
 
   allocation_state_.store(SegmentAllocationState::kAllocationFinished, std::memory_order_release);

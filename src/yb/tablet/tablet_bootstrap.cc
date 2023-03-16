@@ -818,8 +818,8 @@ class TabletBootstrap {
   // whether to create new log or open existing.
   Status OpenLog(log::CreateNewSegment create_new_segment) {
     auto log_options = LogOptions();
-    const auto metadata = tablet_->metadata();
-    log_options.retention_secs = metadata->wal_retention_secs();
+    const auto& metadata = *tablet_->metadata();
+    log_options.retention_secs = metadata.wal_retention_secs();
     log_options.env = GetEnv();
     if (tablet_->metadata()->table_type() == TableType::TRANSACTION_STATUS_TABLE_TYPE) {
       auto log_segment_size = FLAGS_transaction_status_tablet_log_segment_size_bytes;
@@ -827,21 +827,23 @@ class TabletBootstrap {
         log_options.segment_size_bytes = log_segment_size;
       }
     }
+    auto flush_cb = std::bind(&RaftGroupMetadata::Flush, tablet_->metadata(), _1);
     RETURN_NOT_OK(Log::Open(
         log_options,
         tablet_->tablet_id(),
-        metadata->wal_dir(),
-        metadata->fs_manager()->uuid(),
+        metadata.wal_dir(),
+        metadata.fs_manager()->uuid(),
         *tablet_->schema(),
-        metadata->schema_version(),
+        metadata.schema_version(),
         tablet_->GetTableMetricsEntity(),
         tablet_->GetTabletMetricsEntity(),
         append_pool_,
         allocation_pool_,
         log_sync_pool_,
-        metadata->cdc_min_replicated_index(),
+        metadata.cdc_min_replicated_index(),
         &log_,
-        metadata,
+        metadata.LazilyFlushSuperblock(),
+        flush_cb,
         create_new_segment));
     // Disable sync temporarily in order to speed up appends during the bootstrap process.
     log_->DisableSync();

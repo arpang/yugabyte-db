@@ -64,6 +64,8 @@ void RemoteBootstrapSessionTest::SetUpTabletPeer() {
   scoped_refptr<Log> log;
   auto tablet_ptr = harness_->tablet();
   auto tablet_id = tablet_ptr->tablet_id();
+  auto flush_cb =
+      std::bind(&tablet::RaftGroupMetadata::Flush, tablet()->metadata(), std::placeholders::_1);
   ASSERT_OK(Log::Open(LogOptions(), tablet_id,
                      fs_manager()->GetFirstTabletWalDirOrDie(tablet_ptr->metadata()->table_id(),
                                                              tablet_id),
@@ -77,7 +79,8 @@ void RemoteBootstrapSessionTest::SetUpTabletPeer() {
                      log_thread_pool_.get(),
                      std::numeric_limits<int64_t>::max(), // cdc_min_replicated_index
                      &log,
-                     tablet()->metadata()));
+                     tablet()->metadata()->LazilyFlushSuperblock(),
+                     flush_cb));
 
   scoped_refptr<MetricEntity> table_metric_entity =
     METRIC_ENTITY_table.Instantiate(&metric_registry_, Format("table-$0", CURRENT_TEST_NAME()));
