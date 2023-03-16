@@ -568,6 +568,7 @@ Status Log::Open(const LogOptions &options,
                  bool lazy_sb_flush_enabled,
                  SuperblockFlushCB flush_cb,
                  CreateNewSegment create_new_segment) {
+
   RETURN_NOT_OK_PREPEND(env_util::CreateDirIfMissing(options.env, DirName(wal_dir)),
                         Substitute("Failed to create table wal dir $0", DirName(wal_dir)));
 

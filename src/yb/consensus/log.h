@@ -57,8 +57,6 @@
 #include "yb/gutil/ref_counted.h"
 #include "yb/gutil/spinlock.h"
 
-#include "yb/tablet/tablet_metadata.h"
-
 #include "yb/util/status_fwd.h"
 #include "yb/util/locks.h"
 #include "yb/util/monotime.h"
