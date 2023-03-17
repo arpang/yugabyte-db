@@ -1853,7 +1853,7 @@ void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterat
         user_tablet_ids.push_back(tablets[0].tablet_status().tablet_id());
       }
     }
-    ASSERT_TRUE(user_tablet_ids.size() == 1);
+    ASSERT_EQ(user_tablet_ids.size(), 1);
     string tablet_id = user_tablet_ids[0];
 
     // Delete tablet and shutdown one tserver.
