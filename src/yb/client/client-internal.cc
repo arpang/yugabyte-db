@@ -105,6 +105,16 @@ DEFINE_test_flag(string, assert_tablet_server_select_is_in_zone, "",
                  "Verify that SelectTServer selected a talet server in the AZ specified by this "
                  "flag.");
 
+DEFINE_RUNTIME_uint32(
+    create_table_backoff_max_jitter_ms, 50,
+    "Max jitter (in ms) in the exponential backoff loop that checks if a colocated table creation "
+    "is finished.");
+
+DEFINE_RUNTIME_uint32(
+    create_table_backoff_init_exponent, 4,
+    "Initial exponent of 2 in the exponential backoff loop that checks if a colocated table "
+    "creation is finished.");
+
 DECLARE_int64(reset_master_leader_timeout_ms);
 
 DECLARE_string(flagfile);
@@ -552,8 +562,10 @@ Status YBClient::Data::WaitForCreateTableToFinish(YBClient* client,
                                                   CoarseTimePoint deadline) {
   return RetryFunc(
       deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
-      std::bind(&YBClient::Data::IsCreateTableInProgress, this, client,
-                table_name, table_id, _1, _2));
+      std::bind(
+          &YBClient::Data::IsCreateTableInProgress, this, client, table_name, table_id, _1, _2),
+      std::chrono::seconds(2), FLAGS_create_table_backoff_max_jitter_ms,
+      FLAGS_create_table_backoff_init_exponent);
 }
 
 Status YBClient::Data::DeleteTable(YBClient* client,
