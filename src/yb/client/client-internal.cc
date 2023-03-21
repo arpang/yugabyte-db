@@ -121,6 +121,7 @@ DECLARE_int64(reset_master_leader_timeout_ms);
 
 DECLARE_string(flagfile);
 DECLARE_bool(ysql_ddl_rollback_enabled);
+DECLARE_bool(lazily_flush_superblock);
 
 namespace yb {
 
@@ -562,12 +563,19 @@ Status YBClient::Data::WaitForCreateTableToFinish(YBClient* client,
                                                   const YBTableName& table_name,
                                                   const string& table_id,
                                                   CoarseTimePoint deadline) {
-  return RetryFunc(
-      deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
-      std::bind(
-          &YBClient::Data::IsCreateTableInProgress, this, client, table_name, table_id, _1, _2),
-      std::chrono::seconds(2), FLAGS_change_metadata_backoff_max_jitter_ms,
-      FLAGS_change_metadata_backoff_init_exponent);
+  if (FLAGS_lazily_flush_superblock) {
+    return RetryFunc(
+        deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
+        std::bind(
+            &YBClient::Data::IsCreateTableInProgress, this, client, table_name, table_id, _1, _2),
+        std::chrono::seconds(2), FLAGS_change_metadata_backoff_max_jitter_ms,
+        FLAGS_change_metadata_backoff_init_exponent);
+  } else {
+    return RetryFunc(
+        deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
+        std::bind(&YBClient::Data::IsCreateTableInProgress, this, client,
+                  table_name, table_id, _1, _2));
+  }
 }
 
 Status YBClient::Data::DeleteTable(YBClient* client,
