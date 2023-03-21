@@ -1814,7 +1814,6 @@ TEST_F(RemoteBootstrapITest, TestClientCrashesBeforeChangeRoleKeyValueTableType)
 
 void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterations) {
   const string database = "test_db";
-  const string tablegroup = "test_tg";
   const string table_prefix = "foo";
   const MonoDelta timeout = MonoDelta::FromSeconds(30);
 
@@ -1822,12 +1821,10 @@ void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterat
     // Create tables and rows.
     auto conn = ASSERT_RESULT(ConnectToDB(std::string()));
     ASSERT_OK(conn.ExecuteFormat("DROP DATABASE IF EXISTS $0", database));
-    ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0", database));
+    ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0 WITH COLOCATION = true", database));
     auto db_conn = ASSERT_RESULT(ConnectToDB(database));
-    ASSERT_OK(db_conn.ExecuteFormat("CREATE TABLEGROUP $0", tablegroup));
     for (int i = 0; i < num_tables; ++i) {
-      ASSERT_OK(db_conn.ExecuteFormat(
-          "CREATE TABLE $0$1 (i int) TABLEGROUP $2", table_prefix, i, tablegroup));
+      ASSERT_OK(db_conn.ExecuteFormat("CREATE TABLE $0$1 (i int)", table_prefix, i));
       ASSERT_OK(db_conn.Execute("BEGIN"));
       ASSERT_OK(db_conn.ExecuteFormat("INSERT INTO $0$1 values (1)", table_prefix, i));
       ASSERT_OK(db_conn.Execute("COMMIT"));
@@ -1849,7 +1846,7 @@ void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterat
     ASSERT_OK(WaitForNumTabletsOnTS(ts, 4, timeout, &tablets));
     vector<string> user_tablet_ids;
     for (auto tablet : tablets) {
-      if (tablet.tablet_status().table_name().ends_with("tablegroup.parent.tablename")) {
+      if (tablet.tablet_status().table_name().ends_with("parent.tablename")) {
         user_tablet_ids.push_back(tablets[0].tablet_status().tablet_id());
       }
     }
@@ -1884,8 +1881,7 @@ void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterat
 
     // Add more entries to WAL so that new segments are generated before downloading the WAL.
     for (int i = 0; i < num_tables; ++i) {
-      ASSERT_OK(db_conn.ExecuteFormat(
-          "CREATE TABLE $0$1 (i int) TABLEGROUP $2", table_prefix, num_tables + i, tablegroup));
+      ASSERT_OK(db_conn.ExecuteFormat("CREATE TABLE $0$1 (i int)", table_prefix, num_tables + i));
       ASSERT_OK(db_conn.Execute("BEGIN"));
       ASSERT_OK(db_conn.ExecuteFormat("INSERT INTO $0$1 values (1)", table_prefix, num_tables + i));
       ASSERT_OK(db_conn.Execute("COMMIT"));
