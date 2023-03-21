@@ -106,14 +106,16 @@ DEFINE_test_flag(string, assert_tablet_server_select_is_in_zone, "",
                  "flag.");
 
 DEFINE_RUNTIME_uint32(
-    create_table_backoff_max_jitter_ms, 50,
-    "Max jitter (in ms) in the exponential backoff loop that checks if a colocated table creation "
-    "is finished.");
+    change_metadata_backoff_max_jitter_ms, 50,
+    "Max jitter (in ms) in the exponential backoff loop that checks if a change metadata operation "
+    "is finished. Applicable when lazily_flush_superblock is enabled. Only used for colocated "
+    "table creation for now.");
 
 DEFINE_RUNTIME_uint32(
-    create_table_backoff_init_exponent, 4,
-    "Initial exponent of 2 in the exponential backoff loop that checks if a colocated table "
-    "creation is finished.");
+    change_metadata_backoff_init_exponent, 4,
+    "Initial exponent of 2 in the exponential backoff loop that checks if a change metadata "
+    "operation is finished. Applicable when lazily_flush_superblock is enabled. Only used for "
+    "colocated table creation for now.");
 
 DECLARE_int64(reset_master_leader_timeout_ms);
 
@@ -564,8 +566,8 @@ Status YBClient::Data::WaitForCreateTableToFinish(YBClient* client,
       deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
       std::bind(
           &YBClient::Data::IsCreateTableInProgress, this, client, table_name, table_id, _1, _2),
-      std::chrono::seconds(2), FLAGS_create_table_backoff_max_jitter_ms,
-      FLAGS_create_table_backoff_init_exponent);
+      std::chrono::seconds(2), FLAGS_change_metadata_backoff_max_jitter_ms,
+      FLAGS_change_metadata_backoff_init_exponent);
 }
 
 Status YBClient::Data::DeleteTable(YBClient* client,
