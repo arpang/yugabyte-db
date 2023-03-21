@@ -1028,17 +1028,14 @@ TEST_F(CreateTableITest, OnlyMajorityReplicasWithPlacement) {
 
 void CreateTableITest::TestLazySuperblockFlushPersistence(int num_tables, int iterations) {
   const string database = "test_db";
-  const string tablegroup = "test_tg";
   const string table_prefix = "foo";
   for (int itr = 0; itr < iterations; ++itr) {
     auto conn = ASSERT_RESULT(ConnectToDB(std::string()));
     ASSERT_OK(conn.ExecuteFormat("DROP DATABASE IF EXISTS $0", database));
-    ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0", database));
+    ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0 WITH COLOCATION = true", database));
     auto db_conn = ASSERT_RESULT(ConnectToDB(database));
-    ASSERT_OK(db_conn.ExecuteFormat("CREATE TABLEGROUP $0", tablegroup));
     for (int i = 0; i < num_tables; ++i) {
-      ASSERT_OK(db_conn.ExecuteFormat(
-          "CREATE TABLE $0$1 (i int) TABLEGROUP $2", table_prefix, i, tablegroup));
+      ASSERT_OK(db_conn.ExecuteFormat("CREATE TABLE $0$1 (i int)", table_prefix, i));
       ASSERT_OK(db_conn.Execute("BEGIN"));
       ASSERT_OK(db_conn.ExecuteFormat("INSERT INTO $0$1 values (1)", table_prefix, i));
       ASSERT_OK(db_conn.Execute("COMMIT"));
