@@ -74,6 +74,9 @@ DEFINE_RUNTIME_bool(ysql_use_flat_doc_reader, true,
 DEFINE_RUNTIME_bool(
     use_offset_based_key_decoding, false, "Use Offset based key decoding for reader.");
 
+DEFINE_test_flag(
+    bool, disable_tombstone_seek, false, "Disables tombstone seek for testing purpose.");
+
 namespace yb {
 namespace docdb {
 
@@ -436,8 +439,13 @@ Result<bool> DocRowwiseIterator::HasNext() {
       doc_reader_ = std::make_unique<DocDBTableReader>(
           db_iter_.get(), deadline_, &projection_subkeys_, table_type_,
           doc_read_context_.schema_packing_storage);
-      // RETURN_NOT_OK(doc_reader_->UpdateTableTombstoneTime(
-      //     VERIFY_RESULT(GetTableTombstoneTime(doc_key))));
+      if (!FLAGS_TEST_disable_tombstone_seek) {
+        LOG_WITH_FUNC(INFO) << "Calling UpdateTableTombstoneTime";
+        RETURN_NOT_OK(doc_reader_->UpdateTableTombstoneTime(
+            VERIFY_RESULT(GetTableTombstoneTime(doc_key))));
+      } else {
+        LOG_WITH_FUNC(INFO) << "Skipping UpdateTableTombstoneTime";
+      }
       if (!ignore_ttl_) {
         doc_reader_->SetTableTtl(doc_read_context_.schema);
       }
