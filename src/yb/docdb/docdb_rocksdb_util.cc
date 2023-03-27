@@ -71,7 +71,7 @@ constexpr int32_t kMaxBlockRestartInterval = 256;
 
 DEFINE_UNKNOWN_int32(rocksdb_max_background_flushes, -1,
     "Number threads to do background flushes.");
-DEFINE_UNKNOWN_bool(rocksdb_disable_compactions, false, "Disable rocksdb compactions.");
+DEFINE_UNKNOWN_bool(rocksdb_disable_compactions, true, "Disable rocksdb compactions.");
 DEFINE_UNKNOWN_bool(rocksdb_compaction_measure_io_stats, false,
     "Measure stats for rocksdb compactions.");
 DEFINE_UNKNOWN_int32(rocksdb_base_background_compactions, -1,

@@ -36,6 +36,8 @@
 #include "yb/util/operation_counter.h"
 #include "yb/docdb/doc_read_context.h"
 
+DECLARE_bool(TEST_disable_tombstone_seek);
+
 namespace yb {
 namespace docdb {
 
@@ -153,8 +155,19 @@ class DocRowwiseIterator : public YQLRowwiseIteratorIf {
   Status DoNextRow(boost::optional<const Schema&> projection, QLTableRow* table_row) override;
 
   Result<DocHybridTime> GetTableTombstoneTime(const Slice& root_doc_key) const {
-    return docdb::GetTableTombstoneTime(
-        root_doc_key, doc_db_, txn_op_context_, deadline_, read_time_);
+    MonoTime now = MonoTime::Now();
+
+    // ********************* DANGER: Hardcoded value *************
+    HybridTime ht = HybridTime::FromMicros(1679554298208419);
+    DocHybridTime dht(ht);
+    auto a = !FLAGS_TEST_disable_tombstone_seek
+                 ? docdb::GetTableTombstoneTime(
+                       root_doc_key, doc_db_, txn_op_context_, deadline_, read_time_)
+                 : dht;
+    auto time = MonoTime::Now() - now;
+    LOG(INFO) << "Time to get tombstone time in microsecond: "
+              << time.ToChronoMicroseconds().count() << " tombstone value " << a;
+    return a;
   }
 
   bool is_initialized_ = false;
