@@ -842,7 +842,7 @@ class TabletBootstrap {
         log_sync_pool_,
         metadata.cdc_min_replicated_index(),
         &log_,
-        metadata.ShouldFlushSuperblockLazily(),
+        metadata.IsLazySuperblockFlushEnabled(),
         flush_cb,
         create_new_segment));
     // Disable sync temporarily in order to speed up appends during the bootstrap process.
@@ -1198,7 +1198,7 @@ class TabletBootstrap {
           ? std::chrono::seconds(GetAtomicFlag(&FLAGS_retryable_request_timeout_secs))
           : 0s;
 
-    if (min_duration_to_retain_logs == 0s && meta_->ShouldFlushSuperblockLazily() &&
+    if (min_duration_to_retain_logs == 0s && meta_->IsLazySuperblockFlushEnabled() &&
         segments.size() > 1) {
       // The below ensures we replay atleast two segments. See PreAllocateNewSegment() why a
       // minimum of two segments must be replayed with lazy superblock flush.

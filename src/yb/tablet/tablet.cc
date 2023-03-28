@@ -2055,7 +2055,7 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info, const OpId& op_id
 
 Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
   RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
-  if (!metadata_->ShouldFlushSuperblockLazily()) {
+  if (!metadata_->IsLazySuperblockFlushEnabled()) {
     RETURN_NOT_OK(metadata_->Flush());
   } else {
     VLOG_WITH_PREFIX(1) << "Skipping superblock flush on " << table_info.table_name()

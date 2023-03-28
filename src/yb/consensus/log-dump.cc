@@ -421,7 +421,7 @@ Status FilterLogSegment(const string& segment_path) {
       log_thread_pool.get(),
       /* cdc_min_replicated_index */ 0,
       &log,
-      /* lazy_sb_flush_enabled */ false));
+      log::LazySuperblockFlushEnabled::kFalse));
 
   auto read_entries = segment->ReadEntries();
   RETURN_NOT_OK(read_entries.status);

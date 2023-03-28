@@ -196,7 +196,7 @@ class LogTestBase : public YBTest {
                        log_thread_pool_.get(),
                        std::numeric_limits<int64_t>::max(), // cdc_min_replicated_index
                        &log_,
-                       /* lazy_sb_flush_enabled */ false));
+                       log::LazySuperblockFlushEnabled::kFalse));
     LOG(INFO) << "Sucessfully opened the log at " << tablet_wal_path_;
   }
 

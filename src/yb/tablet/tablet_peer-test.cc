@@ -187,7 +187,7 @@ class TabletPeerTest : public YBTabletTest {
                         metadata->schema_version(), table_metric_entity_.get(),
                         tablet_metric_entity_.get(), log_thread_pool_.get(), log_thread_pool_.get(),
                         log_thread_pool_.get(), metadata->cdc_min_replicated_index(), &log,
-                        metadata->ShouldFlushSuperblockLazily(), flush_cb));
+                        metadata->IsLazySuperblockFlushEnabled(), flush_cb));
 
     ASSERT_OK(tablet_peer_->SetBootstrapping());
     ASSERT_OK(tablet_peer_->InitTabletPeer(tablet(),

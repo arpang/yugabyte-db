@@ -565,7 +565,7 @@ Status Log::Open(const LogOptions &options,
                  ThreadPool* background_sync_threadpool,
                  int64_t cdc_min_replicated_index,
                  scoped_refptr<Log>* log,
-                 bool lazy_sb_flush_enabled,
+                 LazySuperblockFlushEnabled lazy_superblock_flush_enabled,
                  SuperblockFlushCallback flush_cb,
                  CreateNewSegment create_new_segment) {
 
@@ -586,7 +586,7 @@ Status Log::Open(const LogOptions &options,
                                      append_thread_pool,
                                      allocation_thread_pool,
                                      background_sync_threadpool,
-                                     lazy_sb_flush_enabled,
+                                     lazy_superblock_flush_enabled,
                                      flush_cb,
                                      create_new_segment));
   RETURN_NOT_OK(new_log->Init());
@@ -606,7 +606,7 @@ Log::Log(
     ThreadPool* append_thread_pool,
     ThreadPool* allocation_thread_pool,
     ThreadPool* background_sync_threadpool,
-    bool lazy_sb_flush_enabled,
+    LazySuperblockFlushEnabled lazy_superblock_flush_enabled,
     SuperblockFlushCallback flush_cb,
     CreateNewSegment create_new_segment)
     : options_(std::move(options)),
@@ -635,9 +635,9 @@ Log::Log(
       on_disk_size_(0),
       log_prefix_(consensus::MakeTabletLogPrefix(tablet_id_, peer_uuid_)),
       create_new_segment_at_start_(create_new_segment),
-      lazy_sb_flush_enabled_(lazy_sb_flush_enabled),
+      lazy_superblock_flush_enabled_(lazy_superblock_flush_enabled),
       flush_cb_(flush_cb) {
-  if (lazy_sb_flush_enabled_) {
+  if (lazy_superblock_flush_enabled_) {
     CHECK(flush_cb_);
   }
   set_wal_retention_secs(options.retention_secs);
@@ -1276,7 +1276,7 @@ Status Log::GetSegmentsToGCUnlocked(int64_t min_op_idx, SegmentSequence* segment
 
   // See PreAllocateNewSegment() why a minimum of two segments must be retained with lazy
   // superblock flush.
-  const auto min_segments_to_retain = lazy_sb_flush_enabled_
+  const auto min_segments_to_retain = lazy_superblock_flush_enabled_
                                           ? std::max(FLAGS_log_min_segments_to_retain, 2)
                                           : FLAGS_log_min_segments_to_retain;
 
@@ -1820,9 +1820,9 @@ Status Log::PreAllocateNewSegment() {
   // of these operations, we retain and replay a minimum of two WAL segments on
   // tablet bootstrap.
   //
-  // Currently, this feature is applicable only on colocated table creation. Internal reference:
-  // https://docs.google.com/document/d/1ePdpVp_ogdXMO5zBrrDSNmt8Z6ngNswLPae-TXQwdyc
-  if (lazy_sb_flush_enabled_) {
+  // Currently, this feature is applicable only on colocated table creation.
+  // Reference: https://github.com/yugabyte/yugabyte-db/issues/16116
+  if (lazy_superblock_flush_enabled_) {
     RETURN_NOT_OK(flush_cb_());
   }
 

@@ -247,7 +247,7 @@ class RaftConsensusTest : public YBTest {
                        log_thread_pool_.get(),
                        std::numeric_limits<int64_t>::max(), // cdc_min_replicated_index
                        &log_,
-                       /* lazy_sb_flush_enabled */ false));
+                       log::LazySuperblockFlushEnabled::kFalse));
 
     log_->TEST_SetAllOpIdsSafe(true);
 
