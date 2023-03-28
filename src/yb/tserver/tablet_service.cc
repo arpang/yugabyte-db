@@ -1525,7 +1525,7 @@ void TabletServiceAdminImpl::FlushTablets(const FlushTabletsRequestPB* req,
         resp->set_failed_tablet_id(tablet->tablet_id());
         RETURN_UNKNOWN_ERROR_IF_NOT_OK(tablet->Flush(tablet::FlushMode::kAsync), resp, &context);
         RETURN_UNKNOWN_ERROR_IF_NOT_OK(
-            tablet->FlushSuperblock(/* if_dirty */ true), resp, &context);
+            tablet->FlushSuperblock(tablet::OnlyIfDirty::kTrue), resp, &context);
         resp->clear_failed_tablet_id();
       }
 

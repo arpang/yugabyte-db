@@ -1887,9 +1887,9 @@ Status Tablet::WaitForFlush() {
   return Status::OK();
 }
 
-Status Tablet::FlushSuperblock(bool if_dirty) {
+Status Tablet::FlushSuperblock(OnlyIfDirty only_if_dirty) {
   if (!FLAGS_TEST_skip_force_superblock_flush) {
-    RETURN_NOT_OK(metadata_->Flush(if_dirty));
+    RETURN_NOT_OK(metadata_->Flush(only_if_dirty));
   }
   return Status::OK();
 }
@@ -2055,7 +2055,7 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info, const OpId& op_id
 
 Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
   RETURN_NOT_OK(AddTableInMemory(table_info, op_id));
-  if (!metadata_->LazilyFlushSuperblock()) {
+  if (!metadata_->ShouldFlushSuperblockLazily()) {
     RETURN_NOT_OK(metadata_->Flush());
   } else {
     VLOG_WITH_PREFIX(1) << "Skipping superblock flush on " << table_info.table_name()
@@ -2064,7 +2064,7 @@ Status Tablet::AddTable(const TableInfoPB& table_info, const OpId& op_id) {
   return Status::OK();
 }
 
-// TODO(arpan): Lazily flush the superblock here when extending the feature to cotables.
+// TODO(lazy_sb_flush): Lazily flush the superblock here when extending the feature to cotables.
 Status Tablet::AddMultipleTables(
     const google::protobuf::RepeatedPtrField<TableInfoPB>& table_infos, const OpId& op_id) {
   // If nothing has changed then return.

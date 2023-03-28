@@ -858,15 +858,15 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
   return Status::OK();
 }
 
-Status RaftGroupMetadata::Flush(bool if_dirty) {
+Status RaftGroupMetadata::Flush(OnlyIfDirty only_if_dirty) {
   TRACE_EVENT1("raft_group", "RaftGroupMetadata::Flush",
                "raft_group_id", raft_group_id_);
-
   MutexLock l_flush(flush_lock_);
   RaftGroupReplicaSuperBlockPB pb;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
-    if (if_dirty && last_flushed_change_metadata_op_id_ == last_applied_change_metadata_op_id_) {
+    if (only_if_dirty &&
+        last_flushed_change_metadata_op_id_ == last_applied_change_metadata_op_id_) {
       // Skipping flush as in-memory metadata is not dirty.
       return Status::OK();
     }
@@ -1364,7 +1364,7 @@ bool RaftGroupMetadata::colocated() const {
   return colocated_;
 }
 
-bool RaftGroupMetadata::LazilyFlushSuperblock() const {
+bool RaftGroupMetadata::ShouldFlushSuperblockLazily() const {
   return !FLAGS_TEST_invalidate_last_change_metadata_op && FLAGS_lazily_flush_superblock &&
          colocated() && !IsSysCatalog();
 }

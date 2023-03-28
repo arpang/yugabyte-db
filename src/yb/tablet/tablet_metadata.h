@@ -76,6 +76,7 @@ extern const std::string kSnapshotsDirSuffix;
 const uint64_t kNoLastFullCompactionTime = HybridTime::kMin.ToUint64();
 
 YB_STRONGLY_TYPED_BOOL(Primary);
+YB_STRONGLY_TYPED_BOOL(OnlyIfDirty);
 
 struct TableInfo {
  private:
@@ -467,7 +468,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   void SetRestorationHybridTime(HybridTime value);
   HybridTime restoration_hybrid_time() const;
 
-  Status Flush(bool if_dirty = false);
+  Status Flush(OnlyIfDirty only_if_dirty = OnlyIfDirty::kFalse);
 
   Status SaveTo(const std::string& path);
 
@@ -543,7 +544,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   bool colocated() const;
 
-  bool LazilyFlushSuperblock() const;
+  bool ShouldFlushSuperblockLazily() const;
 
   Result<std::string> TopSnapshotsDir() const;
 

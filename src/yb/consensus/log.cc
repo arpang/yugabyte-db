@@ -566,7 +566,7 @@ Status Log::Open(const LogOptions &options,
                  int64_t cdc_min_replicated_index,
                  scoped_refptr<Log>* log,
                  bool lazy_sb_flush_enabled,
-                 SuperblockFlushCB flush_cb,
+                 SuperblockFlushCallback flush_cb,
                  CreateNewSegment create_new_segment) {
 
   RETURN_NOT_OK_PREPEND(env_util::CreateDirIfMissing(options.env, DirName(wal_dir)),
@@ -607,7 +607,7 @@ Log::Log(
     ThreadPool* allocation_thread_pool,
     ThreadPool* background_sync_threadpool,
     bool lazy_sb_flush_enabled,
-    SuperblockFlushCB flush_cb,
+    SuperblockFlushCallback flush_cb,
     CreateNewSegment create_new_segment)
     : options_(std::move(options)),
       wal_dir_(std::move(wal_dir)),
@@ -638,7 +638,7 @@ Log::Log(
       lazy_sb_flush_enabled_(lazy_sb_flush_enabled),
       flush_cb_(flush_cb) {
   if (lazy_sb_flush_enabled_) {
-    CHECK(flush_cb_.has_value());
+    CHECK(flush_cb_);
   }
   set_wal_retention_secs(options.retention_secs);
   if (table_metric_entity_ && tablet_metric_entity_) {
@@ -1274,15 +1274,13 @@ Status Log::GetSegmentsToGCUnlocked(int64_t min_op_idx, SegmentSequence* segment
   RETURN_NOT_OK(reader_->GetSegmentPrefixNotIncluding(
       min_op_idx, cdc_min_replicated_index_.load(std::memory_order_acquire), segments_to_gc));
 
-  auto min_segments_to_retain = FLAGS_log_min_segments_to_retain;
-
   // See PreAllocateNewSegment() why a minimum of two segments must be retained with lazy
   // superblock flush.
-  if (min_segments_to_retain < 2 && lazy_sb_flush_enabled_) {
-    min_segments_to_retain = 2;
-  }
+  const auto min_segments_to_retain = lazy_sb_flush_enabled_
+                                          ? std::max(FLAGS_log_min_segments_to_retain, 2)
+                                          : FLAGS_log_min_segments_to_retain;
 
-  auto max_to_delete = std::max<ssize_t>(reader_->num_segments() - min_segments_to_retain, 0);
+  const auto max_to_delete = std::max<ssize_t>(reader_->num_segments() - min_segments_to_retain, 0);
   ssize_t segments_to_gc_size = segments_to_gc->size();
   if (segments_to_gc_size > max_to_delete) {
     VLOG_WITH_PREFIX(2)
@@ -1825,7 +1823,7 @@ Status Log::PreAllocateNewSegment() {
   // Currently, this feature is applicable only on colocated table creation. Internal reference:
   // https://docs.google.com/document/d/1ePdpVp_ogdXMO5zBrrDSNmt8Z6ngNswLPae-TXQwdyc
   if (lazy_sb_flush_enabled_) {
-    RETURN_NOT_OK(flush_cb_.value()(true));
+    RETURN_NOT_OK(flush_cb_());
   }
 
   allocation_state_.store(SegmentAllocationState::kAllocationFinished, std::memory_order_release);

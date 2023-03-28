@@ -1042,7 +1042,8 @@ void CreateTableITest::TestLazySuperblockFlushPersistence(int num_tables, int it
     }
     ASSERT_OK(cluster_->WaitForAllIntentsApplied(30s));
 
-    // Flush rocksdb (but not superblock) so that it doesn't prevent WAL GC.
+    // Flush rocksdb (but not superblock) so that the rocksdb flush OpId is ahead of superblock
+    // flush OpId.
     auto client = ASSERT_RESULT(cluster_->CreateClient());
     auto table_id =
         ASSERT_RESULT(GetTableIdByTableName(client.get(), database, table_prefix + "0"));
@@ -1064,7 +1065,7 @@ void CreateTableITest::TestLazySuperblockFlushPersistence(int num_tables, int it
 }
 
 TEST_F(CreateTableITest, YB_DISABLE_TEST_IN_TSAN(LazySuperblockFlushSingleTablePersistence)) {
-  vector<string> ts_flags;
+  std::vector<string> ts_flags;
   // Enable lazy superblock flush.
   ts_flags.push_back("--lazily_flush_superblock=true");
   ASSERT_NO_FATALS(StartCluster(ts_flags, {} /* master_flags */, 3, 1, true));
@@ -1072,7 +1073,7 @@ TEST_F(CreateTableITest, YB_DISABLE_TEST_IN_TSAN(LazySuperblockFlushSingleTableP
 }
 
 TEST_F(CreateTableITest, YB_DISABLE_TEST_IN_TSAN(LazySuperblockFlushMultiTablePersistence)) {
-  vector<string> ts_flags;
+  std::vector<string> ts_flags;
   // Enable lazy superblock flush.
   ts_flags.push_back("--lazily_flush_superblock=true");
 
@@ -1091,7 +1092,7 @@ TEST_F(CreateTableITest, YB_DISABLE_TEST_IN_TSAN(LazySuperblockFlushMultiTablePe
   ts_flags.push_back("--TEST_skip_force_superblock_flush=true");
 
   ASSERT_NO_FATALS(StartCluster(ts_flags, {} /* master_flags */, 3, 1, true));
-  TestLazySuperblockFlushPersistence(20, 2);
+  TestLazySuperblockFlushPersistence(/* num_tables = */ 20, /* num_iterations = */ 2);
 }
 
 }  // namespace yb

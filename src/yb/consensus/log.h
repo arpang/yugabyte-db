@@ -110,7 +110,7 @@ YB_DEFINE_ENUM(
 
 YB_STRONGLY_TYPED_BOOL(SkipWalWrite);
 
-using SuperblockFlushCB = std::optional<std::function<Status(bool)>>;
+using SuperblockFlushCallback = std::function<Status(void)>;
 
 // Log interface, inspired by Raft's (logcabin) Log. Provides durability to YugaByte as a normal
 // Write Ahead Log and also plays the role of persistent storage for the consensus state machine.
@@ -154,7 +154,7 @@ class Log : public RefCountedThreadSafe<Log> {
                              int64_t cdc_min_replicated_index,
                              scoped_refptr<Log> *log,
                              bool lazy_sb_flush_enabled,
-                             SuperblockFlushCB flush_cb = {},
+                             SuperblockFlushCallback flush_cb = {},
                              CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   ~Log();
@@ -365,7 +365,7 @@ class Log : public RefCountedThreadSafe<Log> {
       ThreadPool* allocation_thread_pool,
       ThreadPool* background_sync_threadpool,
       bool lazy_sb_flush_enabled,
-      SuperblockFlushCB flush_cb,
+      SuperblockFlushCallback flush_cb,
       CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   Env* get_env() {
@@ -649,7 +649,7 @@ class Log : public RefCountedThreadSafe<Log> {
 
   bool lazy_sb_flush_enabled_;
 
-  SuperblockFlushCB flush_cb_;
+  SuperblockFlushCallback flush_cb_;
 
   DISALLOW_COPY_AND_ASSIGN(Log);
 };
