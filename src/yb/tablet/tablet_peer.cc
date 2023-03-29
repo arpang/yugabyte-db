@@ -1024,6 +1024,14 @@ Result<int64_t> TabletPeer::GetEarliestNeededLogIndex(std::string* details) cons
     }
   }
 
+  auto min_unflushed_change_metadata_index = meta_->MinUnflushedChangeMetadataOpId().index;
+
+  min_index = std::min(min_index, min_unflushed_change_metadata_index);
+  if (details) {
+    *details +=
+        Format("Min unflushed CHANGE_METADATA_OP index: $0\n", min_unflushed_change_metadata_index);
+  }
+
   if (details) {
     *details += Format("Earliest needed log index: $0\n", min_index);
   }

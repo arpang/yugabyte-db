@@ -1274,13 +1274,8 @@ Status Log::GetSegmentsToGCUnlocked(int64_t min_op_idx, SegmentSequence* segment
   RETURN_NOT_OK(reader_->GetSegmentPrefixNotIncluding(
       min_op_idx, cdc_min_replicated_index_.load(std::memory_order_acquire), segments_to_gc));
 
-  // See TabletBootstrap::OpenLog() why a minimum of two segments must be retained with lazy
-  // superblock flush.
-  const auto min_segments_to_retain = lazy_superblock_flush_enabled_
-                                          ? std::max(FLAGS_log_min_segments_to_retain, 2)
-                                          : FLAGS_log_min_segments_to_retain;
-
-  const auto max_to_delete = std::max<ssize_t>(reader_->num_segments() - min_segments_to_retain, 0);
+  const auto max_to_delete =
+      std::max<ssize_t>(reader_->num_segments() - FLAGS_log_min_segments_to_retain, 0);
   ssize_t segments_to_gc_size = segments_to_gc->size();
   if (segments_to_gc_size > max_to_delete) {
     VLOG_WITH_PREFIX(2)

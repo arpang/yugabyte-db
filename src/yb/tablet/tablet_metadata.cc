@@ -875,6 +875,7 @@ Status RaftGroupMetadata::Flush(OnlyIfDirty only_if_dirty) {
     }
     last_flushed_change_metadata_op_id_ = last_applied_change_metadata_op_id_;
     ToSuperBlockUnlocked(&pb);
+    ResetMinUnflushedChangeMetadataOpIdUnlocked();
   }
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
   TRACE("Metadata flushed");
@@ -1774,12 +1775,23 @@ void RaftGroupMetadata::SetLastAppliedChangeMetadataOperationOpIdUnlocked(const 
   }
   if (op_id.valid()) {
     last_applied_change_metadata_op_id_ = op_id;
+    min_unflushed_change_metadata_op_id_ = std::min(min_unflushed_change_metadata_op_id_, op_id);
   }
 }
 
 void RaftGroupMetadata::SetLastAppliedChangeMetadataOperationOpId(const OpId& op_id) {
   std::lock_guard<MutexType> lock(data_mutex_);
   SetLastAppliedChangeMetadataOperationOpIdUnlocked(op_id);
+}
+
+void RaftGroupMetadata::ResetMinUnflushedChangeMetadataOpIdUnlocked() {
+  min_unflushed_change_metadata_op_id_ = OpId::Max();
+}
+
+OpId RaftGroupMetadata::MinUnflushedChangeMetadataOpId() const {
+  MutexLock l_flush(flush_lock_);
+  std::lock_guard<MutexType> lock(data_mutex_);
+  return min_unflushed_change_metadata_op_id_;
 }
 
 } // namespace tablet

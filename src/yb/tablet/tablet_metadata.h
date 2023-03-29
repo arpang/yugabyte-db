@@ -604,6 +604,8 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   void SetLastAppliedChangeMetadataOperationOpId(const OpId& op_id);
 
+  OpId MinUnflushedChangeMetadataOpId() const;
+
  private:
   typedef simple_spinlock MutexType;
 
@@ -643,6 +645,8 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     CHECK(itr != tables.end());
     return itr->second;
   }
+
+  void ResetMinUnflushedChangeMetadataOpIdUnlocked() REQUIRES(data_mutex_);
 
   enum State {
     kNotLoadedYet,
@@ -719,6 +723,10 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // OpId of the last flushed change metadata operation. Used to determine if at the time
   // of local tablet bootstrap we should replay a particular change_metadata op.
   OpId last_flushed_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
+
+  // OpId of the earliest applied change metadata operation that has not been flushed to disk. Used
+  // to prevent WAL GC.
+  OpId min_unflushed_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Max();
 
   DISALLOW_COPY_AND_ASSIGN(RaftGroupMetadata);
 };
