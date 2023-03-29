@@ -566,7 +566,7 @@ Status Log::Open(const LogOptions &options,
                  int64_t cdc_min_replicated_index,
                  scoped_refptr<Log>* log,
                  LazySuperblockFlushEnabled lazy_superblock_flush_enabled,
-                 SuperblockFlushCallback flush_cb,
+                 NewSegmentAllocationCallback callback,
                  CreateNewSegment create_new_segment) {
 
   RETURN_NOT_OK_PREPEND(env_util::CreateDirIfMissing(options.env, DirName(wal_dir)),
@@ -587,7 +587,7 @@ Status Log::Open(const LogOptions &options,
                                      allocation_thread_pool,
                                      background_sync_threadpool,
                                      lazy_superblock_flush_enabled,
-                                     flush_cb,
+                                     callback,
                                      create_new_segment));
   RETURN_NOT_OK(new_log->Init());
   log->swap(new_log);
@@ -607,7 +607,7 @@ Log::Log(
     ThreadPool* allocation_thread_pool,
     ThreadPool* background_sync_threadpool,
     LazySuperblockFlushEnabled lazy_superblock_flush_enabled,
-    SuperblockFlushCallback flush_cb,
+    NewSegmentAllocationCallback callback,
     CreateNewSegment create_new_segment)
     : options_(std::move(options)),
       wal_dir_(std::move(wal_dir)),
@@ -636,9 +636,9 @@ Log::Log(
       log_prefix_(consensus::MakeTabletLogPrefix(tablet_id_, peer_uuid_)),
       create_new_segment_at_start_(create_new_segment),
       lazy_superblock_flush_enabled_(lazy_superblock_flush_enabled),
-      flush_cb_(flush_cb) {
+      new_segment_allocation_callback_(callback) {
   if (lazy_superblock_flush_enabled_) {
-    CHECK(flush_cb_);
+    CHECK(new_segment_allocation_callback_);
   }
   set_wal_retention_secs(options.retention_secs);
   if (table_metric_entity_ && tablet_metric_entity_) {
@@ -1823,7 +1823,7 @@ Status Log::PreAllocateNewSegment() {
   // Currently, this feature is applicable only on colocated table creation.
   // Reference: https://github.com/yugabyte/yugabyte-db/issues/16116
   if (lazy_superblock_flush_enabled_) {
-    RETURN_NOT_OK(flush_cb_());
+    RETURN_NOT_OK(new_segment_allocation_callback_());
   }
 
   allocation_state_.store(SegmentAllocationState::kAllocationFinished, std::memory_order_release);

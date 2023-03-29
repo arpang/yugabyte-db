@@ -111,7 +111,7 @@ YB_DEFINE_ENUM(
 YB_STRONGLY_TYPED_BOOL(SkipWalWrite);
 YB_STRONGLY_TYPED_BOOL(LazySuperblockFlushEnabled);
 
-using SuperblockFlushCallback = std::function<Status(void)>;
+using NewSegmentAllocationCallback = std::function<Status(void)>;
 
 // Log interface, inspired by Raft's (logcabin) Log. Provides durability to YugaByte as a normal
 // Write Ahead Log and also plays the role of persistent storage for the consensus state machine.
@@ -155,7 +155,7 @@ class Log : public RefCountedThreadSafe<Log> {
                              int64_t cdc_min_replicated_index,
                              scoped_refptr<Log> *log,
                              LazySuperblockFlushEnabled lazy_superblock_flush_enabled,
-                             SuperblockFlushCallback flush_cb = {},
+                             NewSegmentAllocationCallback callback = {},
                              CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   ~Log();
@@ -366,7 +366,7 @@ class Log : public RefCountedThreadSafe<Log> {
       ThreadPool* allocation_thread_pool,
       ThreadPool* background_sync_threadpool,
       LazySuperblockFlushEnabled lazy_superblock_flush_enabled,
-      SuperblockFlushCallback flush_cb,
+      NewSegmentAllocationCallback callback,
       CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
   Env* get_env() {
@@ -650,7 +650,7 @@ class Log : public RefCountedThreadSafe<Log> {
 
   LazySuperblockFlushEnabled lazy_superblock_flush_enabled_;
 
-  SuperblockFlushCallback flush_cb_;
+  NewSegmentAllocationCallback new_segment_allocation_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(Log);
 };
