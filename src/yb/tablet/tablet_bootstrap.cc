@@ -839,8 +839,11 @@ class TabletBootstrap {
     //
     // Currently, this feature is applicable only on colocated table creation.
     // Reference: https://github.com/yugabyte/yugabyte-db/issues/16116
+    log::NewSegmentAllocationCallback noop = {};
     auto new_segment_allocation_callback =
-        std::bind(&RaftGroupMetadata::Flush, tablet_->metadata(), OnlyIfDirty::kTrue);
+        metadata.IsLazySuperblockFlushEnabled()
+            ? std::bind(&RaftGroupMetadata::Flush, tablet_->metadata(), OnlyIfDirty::kTrue)
+            : noop;
     RETURN_NOT_OK(Log::Open(
         log_options,
         tablet_->tablet_id(),
@@ -855,7 +858,6 @@ class TabletBootstrap {
         log_sync_pool_,
         metadata.cdc_min_replicated_index(),
         &log_,
-        metadata.IsLazySuperblockFlushEnabled(),
         new_segment_allocation_callback,
         create_new_segment));
     // Disable sync temporarily in order to speed up appends during the bootstrap process.

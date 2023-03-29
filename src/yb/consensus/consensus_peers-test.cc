@@ -106,8 +106,7 @@ class ConsensusPeersTest : public YBTest {
                        log_thread_pool_.get(),
                        log_thread_pool_.get(),
                        std::numeric_limits<int64_t>::max(), // cdc_min_replicated_index
-                       &log_,
-                       log::LazySuperblockFlushEnabled::kFalse));
+                       &log_));
     clock_.reset(new server::HybridClock());
     ASSERT_OK(clock_->Init());
 

@@ -46,8 +46,6 @@
 #include "yb/common/partition.h"
 #include "yb/common/snapshot.h"
 
-#include "yb/consensus/log.h"
-
 #include "yb/docdb/docdb_fwd.h"
 #include "yb/docdb/docdb_compaction_context.h"
 #include "yb/docdb/schema_packing.h"
@@ -79,6 +77,7 @@ const uint64_t kNoLastFullCompactionTime = HybridTime::kMin.ToUint64();
 
 YB_STRONGLY_TYPED_BOOL(Primary);
 YB_STRONGLY_TYPED_BOOL(OnlyIfDirty);
+YB_STRONGLY_TYPED_BOOL(LazySuperblockFlushEnabled);
 
 struct TableInfo {
  private:
@@ -550,7 +549,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   bool colocated() const;
 
-  log::LazySuperblockFlushEnabled IsLazySuperblockFlushEnabled() const;
+  LazySuperblockFlushEnabled IsLazySuperblockFlushEnabled() const;
 
   Result<std::string> TopSnapshotsDir() const;
 

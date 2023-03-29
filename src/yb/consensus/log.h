@@ -109,7 +109,6 @@ YB_DEFINE_ENUM(
 );
 
 YB_STRONGLY_TYPED_BOOL(SkipWalWrite);
-YB_STRONGLY_TYPED_BOOL(LazySuperblockFlushEnabled);
 
 using NewSegmentAllocationCallback = std::function<Status(void)>;
 
@@ -154,7 +153,6 @@ class Log : public RefCountedThreadSafe<Log> {
                              ThreadPool* background_sync_threadpool,
                              int64_t cdc_min_replicated_index,
                              scoped_refptr<Log> *log,
-                             LazySuperblockFlushEnabled lazy_superblock_flush_enabled,
                              NewSegmentAllocationCallback callback = {},
                              CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
@@ -365,7 +363,6 @@ class Log : public RefCountedThreadSafe<Log> {
       ThreadPool* append_thread_pool,
       ThreadPool* allocation_thread_pool,
       ThreadPool* background_sync_threadpool,
-      LazySuperblockFlushEnabled lazy_superblock_flush_enabled,
       NewSegmentAllocationCallback callback,
       CreateNewSegment create_new_segment = CreateNewSegment::kTrue);
 
@@ -647,8 +644,6 @@ class Log : public RefCountedThreadSafe<Log> {
   int64_t log_copy_min_index_ GUARDED_BY(state_lock_) = std::numeric_limits<int64_t>::max();
 
   CreateNewSegment create_new_segment_at_start_;
-
-  LazySuperblockFlushEnabled lazy_superblock_flush_enabled_;
 
   NewSegmentAllocationCallback new_segment_allocation_callback_;
 

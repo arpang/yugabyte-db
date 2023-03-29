@@ -181,15 +181,17 @@ class TabletPeerTest : public YBTabletTest {
                  .Build(&log_thread_pool_));
     scoped_refptr<Log> log;
     auto metadata = tablet()->metadata();
-    // See TabletBootstrap::OpenLog() for callback details.
+    log::NewSegmentAllocationCallback noop = {};
     auto new_segment_allocation_callback =
-        std::bind(&RaftGroupMetadata::Flush, metadata, OnlyIfDirty::kTrue);
+        metadata->IsLazySuperblockFlushEnabled()
+            ? std::bind(&RaftGroupMetadata::Flush, metadata, OnlyIfDirty::kTrue)
+            : noop;
     ASSERT_OK(Log::Open(LogOptions(), tablet()->tablet_id(), metadata->wal_dir(),
                         metadata->fs_manager()->uuid(), *tablet()->schema(),
                         metadata->schema_version(), table_metric_entity_.get(),
                         tablet_metric_entity_.get(), log_thread_pool_.get(), log_thread_pool_.get(),
                         log_thread_pool_.get(), metadata->cdc_min_replicated_index(), &log,
-                        metadata->IsLazySuperblockFlushEnabled(), new_segment_allocation_callback));
+                        new_segment_allocation_callback));
 
     ASSERT_OK(tablet_peer_->SetBootstrapping());
     ASSERT_OK(tablet_peer_->InitTabletPeer(tablet(),

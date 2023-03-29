@@ -565,7 +565,6 @@ Status Log::Open(const LogOptions &options,
                  ThreadPool* background_sync_threadpool,
                  int64_t cdc_min_replicated_index,
                  scoped_refptr<Log>* log,
-                 LazySuperblockFlushEnabled lazy_superblock_flush_enabled,
                  NewSegmentAllocationCallback callback,
                  CreateNewSegment create_new_segment) {
 
@@ -586,7 +585,6 @@ Status Log::Open(const LogOptions &options,
                                      append_thread_pool,
                                      allocation_thread_pool,
                                      background_sync_threadpool,
-                                     lazy_superblock_flush_enabled,
                                      callback,
                                      create_new_segment));
   RETURN_NOT_OK(new_log->Init());
@@ -606,7 +604,6 @@ Log::Log(
     ThreadPool* append_thread_pool,
     ThreadPool* allocation_thread_pool,
     ThreadPool* background_sync_threadpool,
-    LazySuperblockFlushEnabled lazy_superblock_flush_enabled,
     NewSegmentAllocationCallback callback,
     CreateNewSegment create_new_segment)
     : options_(std::move(options)),
@@ -635,11 +632,7 @@ Log::Log(
       on_disk_size_(0),
       log_prefix_(consensus::MakeTabletLogPrefix(tablet_id_, peer_uuid_)),
       create_new_segment_at_start_(create_new_segment),
-      lazy_superblock_flush_enabled_(lazy_superblock_flush_enabled),
       new_segment_allocation_callback_(callback) {
-  if (lazy_superblock_flush_enabled_) {
-    CHECK(new_segment_allocation_callback_);
-  }
   set_wal_retention_secs(options.retention_secs);
   if (table_metric_entity_ && tablet_metric_entity_) {
     metrics_.reset(new LogMetrics(table_metric_entity_, tablet_metric_entity_));

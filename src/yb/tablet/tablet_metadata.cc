@@ -1368,11 +1368,11 @@ bool RaftGroupMetadata::colocated() const {
   return colocated_;
 }
 
-log::LazySuperblockFlushEnabled RaftGroupMetadata::IsLazySuperblockFlushEnabled() const {
+LazySuperblockFlushEnabled RaftGroupMetadata::IsLazySuperblockFlushEnabled() const {
   bool lazy_superblock_flush_enabled = !FLAGS_TEST_invalidate_last_change_metadata_op &&
                                        FLAGS_lazily_flush_superblock && colocated() &&
                                        !IsSysCatalog();
-  return log::LazySuperblockFlushEnabled(lazy_superblock_flush_enabled);
+  return LazySuperblockFlushEnabled(lazy_superblock_flush_enabled);
 }
 
 TabletDataState RaftGroupMetadata::tablet_data_state() const {
