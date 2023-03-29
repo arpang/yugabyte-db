@@ -470,6 +470,10 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   void SetRestorationHybridTime(HybridTime value);
   HybridTime restoration_hybrid_time() const;
 
+  // Flushes the superblock to disk.
+  // If only_if_dirty is true, flushes only if there are metadata updates that have not been flushed
+  // to disk. This is checked by comparing last_applied_change_metadata_op_id_ and
+  // last_flushed_change_metadata_op_id_.
   Status Flush(OnlyIfDirty only_if_dirty = OnlyIfDirty::kFalse);
 
   Status SaveTo(const std::string& path);

@@ -865,6 +865,9 @@ Status RaftGroupMetadata::Flush(OnlyIfDirty only_if_dirty) {
   RaftGroupReplicaSuperBlockPB pb;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
+    SCHECK(
+        last_flushed_change_metadata_op_id_ <= last_applied_change_metadata_op_id_, IllegalState,
+        "Superblock flush marker ahead of apply marker");
     if (only_if_dirty &&
         last_flushed_change_metadata_op_id_ == last_applied_change_metadata_op_id_) {
       // Skipping flush as in-memory metadata is not dirty.
