@@ -847,12 +847,12 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
     // If new code is reading old data then this field won't exist. In such cases,
     // we start with an invalid value of -1.-1.
     if (superblock.has_last_change_metadata_op_id()) {
-      last_applied_change_metadata_op_id_ = OpId::FromPB(superblock.last_change_metadata_op_id());
+      last_flushed_change_metadata_op_id_ = OpId::FromPB(superblock.last_change_metadata_op_id());
     } else {
-      last_applied_change_metadata_op_id_ = OpId::Invalid();
+      last_flushed_change_metadata_op_id_ = OpId::Invalid();
     }
 
-    last_flushed_change_metadata_op_id_ = last_applied_change_metadata_op_id_;
+    last_applied_change_metadata_op_id_ = last_flushed_change_metadata_op_id_;
   }
 
   return Status::OK();
@@ -870,8 +870,8 @@ Status RaftGroupMetadata::Flush(OnlyIfDirty only_if_dirty) {
       // Skipping flush as in-memory metadata is not dirty.
       return Status::OK();
     }
-    ToSuperBlockUnlocked(&pb);
     last_flushed_change_metadata_op_id_ = last_applied_change_metadata_op_id_;
+    ToSuperBlockUnlocked(&pb);
   }
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
   TRACE("Metadata flushed");
@@ -1001,8 +1001,8 @@ void RaftGroupMetadata::ToSuperBlockUnlocked(RaftGroupReplicaSuperBlockPB* super
     }
   }
 
-  if (last_applied_change_metadata_op_id_.valid()) {
-    last_applied_change_metadata_op_id_.ToPB(pb.mutable_last_change_metadata_op_id());
+  if (last_flushed_change_metadata_op_id_.valid()) {
+    last_flushed_change_metadata_op_id_.ToPB(pb.mutable_last_change_metadata_op_id());
   }
 
   superblock->Swap(&pb);
