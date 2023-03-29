@@ -11,6 +11,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -237,7 +239,8 @@ public class AttachDetachControllerTest extends FakeDBApplication {
             null,
             true,
             CommonTypes.TableType.YQL_TABLE_TYPE,
-            Collections.emptyList());
+            Collections.emptyList(),
+            false);
 
     try {
       lenient()
@@ -264,7 +267,8 @@ public class AttachDetachControllerTest extends FakeDBApplication {
     tableInfoList.add(table1TableInfoBuilder.build());
     try {
       when(mockListTablesResponse.getTableInfoList()).thenReturn(tableInfoList);
-      when(mockClient.getTablesList(null, true, null)).thenReturn(mockListTablesResponse);
+      when(mockClient.getTablesList(eq(null), anyBoolean(), eq(null)))
+          .thenReturn(mockListTablesResponse);
     } catch (Exception e) {
       e.printStackTrace();
     }
@@ -328,6 +332,7 @@ public class AttachDetachControllerTest extends FakeDBApplication {
     String tarFileLocation = tarFileBase + ".tar.gz";
     File tarFile = new File(tarFileLocation);
     FileUtils.writeByteArrayToFile(tarFile, detachUniverseContent);
+    mainUniverse = Universe.getOrBadRequest(mainUniverse.universeUUID);
 
     // Extract tarball and validate required files exist.
     Util.extractFilesFromTarGZ(tarFile, tarFileBase);
@@ -337,6 +342,10 @@ public class AttachDetachControllerTest extends FakeDBApplication {
     assertTrue(specFolder.exists());
     assertTrue(universeJsonFile.exists());
     assertTrue(accessKeyFolder.exists() && accessKeyFolder.isDirectory());
+
+    // Validate that universe is locked.
+    assertEquals(true, mainUniverse.getUniverseDetails().updateInProgress);
+    assertEquals(false, mainUniverse.getUniverseDetails().updateSucceeded);
 
     // Parse json file.
     ObjectMapper mapper = Json.mapper();
@@ -374,6 +383,12 @@ public class AttachDetachControllerTest extends FakeDBApplication {
     assertEquals(
         Boolean.valueOf(mainUniverse.getConfig().get("takeBackups")),
         specJson.get("universeConfig").get("takeBackups").asBoolean());
+    assertEquals(
+        mainUniverse.getUniverseDetails().updateInProgress,
+        universeJson.get("universeDetails").get("updateInProgress").asBoolean());
+    assertEquals(
+        mainUniverse.getUniverseDetails().updateSucceeded,
+        universeJson.get("universeDetails").get("updateSucceeded").asBoolean());
 
     // Assert source platform paths.
     JsonNode oldPlatformPaths = specJson.get("oldPlatformPaths");
@@ -449,6 +464,8 @@ public class AttachDetachControllerTest extends FakeDBApplication {
     assertEquals(
         Boolean.valueOf(mainUniverse.getConfig().get("takeBackups")),
         Boolean.valueOf(importedUniverse.getConfig().get("takeBackups")));
+    assertEquals(false, importedUniverse.getUniverseDetails().updateInProgress);
+    assertEquals(true, importedUniverse.getUniverseDetails().updateSucceeded);
   }
 
   private Result detachUniverse(JsonNode bodyJson) {

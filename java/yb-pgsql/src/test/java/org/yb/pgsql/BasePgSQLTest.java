@@ -44,6 +44,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.TreeMap;
@@ -119,10 +121,6 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
   // Postgres flags.
   private static final String MASTERS_FLAG = "FLAGS_pggate_master_addresses";
   private static final String YB_ENABLED_IN_PG_ENV_VAR_NAME = "YB_ENABLED_IN_POSTGRES";
-
-  // Error message templates
-  private static final String UNEXPECTED_ERR_MESSAGE = "Unexpected Error Message. Got: '%s', "
-      + "Expected to contain one of the error messages: %s.";
 
   // Metric names.
   protected static final String METRIC_PREFIX = "handler_latency_yb_ysqlserver_SQLProcessor_";
@@ -332,13 +330,11 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
   }
 
   protected Connection createTestRole() throws Exception {
-    try (Connection initialConnection = getConnectionBuilder()
-          .withUser(DEFAULT_PG_USER)
-          .connect();
-      Statement statement = initialConnection.createStatement()) {
-      statement.execute(
-        String.format("CREATE ROLE %s SUPERUSER CREATEROLE CREATEDB BYPASSRLS LOGIN ",
-                      TEST_PG_USER));
+    try (Connection initialConnection = getConnectionBuilder().withUser(DEFAULT_PG_USER).connect();
+         Statement statement = initialConnection.createStatement()) {
+        statement.execute(
+            String.format("CREATE ROLE %s SUPERUSER CREATEROLE CREATEDB BYPASSRLS LOGIN ",
+                          TEST_PG_USER));
     }
 
     return getConnectionBuilder().connect();
@@ -1747,47 +1743,58 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
   }
 
   /**
-   * @param statement The statement used to execute the query.
-   * @param query The query string.
-   * @param errorSubstring A (case-insensitive) substring of the expected error message.
+   * @param statement       The statement used to execute the query.
+   * @param query           The query string.
+   * @param errorSubstrings An array of (case-insensitive) substrings of the expected error
+   *                        messages.
    */
-  protected void runInvalidQuery(Statement statement, String query, String errorSubstring) {
-    try {
-      statement.execute(query);
-      fail(String.format("Statement did not fail: %s", query));
-    } catch (SQLException e) {
-      if (StringUtils.containsIgnoreCase(e.getMessage(), errorSubstring)) {
-        LOG.info("Expected exception", e);
-      } else {
-        fail(String.format("Unexpected Error Message. Got: '%s', Expected to contain: '%s'",
-                           e.getMessage(), errorSubstring));
-      }
-    }
+  protected void runInvalidQuery(Statement statement, String query, String... errorSubstrings) {
+    runInvalidQuery(statement, query, false, errorSubstrings);
   }
 
   /**
-   * @param statement The statement used to execute the query.
-   * @param query The query string.
-   * @param errorSubstrings An array of (case-insensitive) substrings of the
-   * expected error messages.
+   * @param statement       The statement used to execute the query.
+   * @param query           The query string.
+   * @param matchAll        A flag to indicate whether all errorSubstrings must be present (true)
+   *                       or if only one is sufficient (false).
+   * @param errorSubstrings An array of (case-insensitive) substrings of the expected error
+   *                        messages.
    */
-  protected void runInvalidQuery(Statement statement, String query, String[] errorSubstrings) {
+  protected void runInvalidQuery(Statement statement, String query, boolean matchAll,
+                                 String... errorSubstrings) {
     try {
       statement.execute(query);
       fail(String.format("Statement did not fail: %s", query));
     } catch (SQLException e) {
-      for (String errorSubstring : errorSubstrings) {
-        if (StringUtils.containsIgnoreCase(e.getMessage(), errorSubstring)) {
-          LOG.info("Expected exception", e);
-          return;
-        }
-      }
+      if (matchAll) {
+        List<String> missingSubstrings = new ArrayList<>();
 
-      final String expectedErrMsg = Arrays.asList(errorSubstrings).stream().map(i -> "'" + i + "'")
-          .collect(Collectors.joining(", "));
-      final String failMessage = String.format(UNEXPECTED_ERR_MESSAGE, e.getMessage(),
-          expectedErrMsg);
-      fail(failMessage);
+        for (String errorSubstring : errorSubstrings) {
+          if (!StringUtils.containsIgnoreCase(e.getMessage(), errorSubstring)) {
+            missingSubstrings.add(errorSubstring);
+          }
+        }
+
+        if (!missingSubstrings.isEmpty()) {
+          String missingSubstringsStr = missingSubstrings.stream().map(s -> "'" + s + "'")
+            .collect(Collectors.joining(", "));
+          fail(String.format("Unexpected Error Message. Got: '%s', Expected to contain: %s",
+            e.getMessage(), missingSubstringsStr));
+        }
+      } else {
+        for (String errorSubstring : errorSubstrings) {
+          if (StringUtils.containsIgnoreCase(e.getMessage(), errorSubstring)) {
+            LOG.info("Expected exception", e);
+            return;
+          }
+        }
+
+        final String expectedErrMsg = Arrays.asList(errorSubstrings).stream().map(i -> "'" + i +
+            "'").collect(Collectors.joining(", "));
+        final String failMessage = String.format("Unexpected Error Message. Got: '%s', Expected " +
+          "to contain one of the error messages: %s.", e.getMessage(), expectedErrMsg);
+        fail(failMessage);
+      }
     }
   }
 
@@ -2132,6 +2139,22 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
     }
   }
 
+  static final Pattern roundtrips_pattern = Pattern.compile("Storage Read Requests: (\\d+)\\s*$");
+
+  protected Long getNumStorageRoundtrips(Statement stmt, String query) throws Exception {
+    try (ResultSet rs = stmt.executeQuery(
+        "EXPLAIN (ANALYZE, DIST, COSTS OFF, TIMING OFF) " + query)) {
+      while (rs.next()) {
+        String line = rs.getString(1);
+        Matcher m = roundtrips_pattern.matcher(line);
+        if (m.find()) {
+          return Long.parseLong(m.group(1));
+        }
+      }
+    }
+    return null;
+  }
+
   protected Long getNumDocdbRequests(Statement stmt, String query) throws Exception {
     // Executing query once just in case if master catalog cache is not refreshed
     stmt.execute(query);
@@ -2143,12 +2166,20 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
     return rpc_count_after - rpc_count_before;
   }
 
+  /** Creates a new tserver and returns its id. **/
+  protected int spawnTServer() throws Exception {
+    int tserverId = miniCluster.getNumTServers();
+    miniCluster.startTServer(getTServerFlags());
+    return tserverId;
+  }
+
+  /** Creates a new tserver with additional flags and returns its id. **/
   protected int spawnTServerWithFlags(Map<String, String> additionalFlags) throws Exception {
     Map<String, String> tserverFlags = getTServerFlags();
     tserverFlags.putAll(additionalFlags);
-    int tserver = miniCluster.getNumTServers();
+    int tserverId = miniCluster.getNumTServers();
     miniCluster.startTServer(tserverFlags);
-    return tserver;
+    return tserverId;
   }
 
   /**

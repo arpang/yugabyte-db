@@ -45,8 +45,13 @@
 #include "yb/util/metrics.h"
 #include "yb/util/sync_point.h"
 #include "yb/util/trace.h"
+#include "yb/util/flags.h"
 
 using namespace std::placeholders;
+using namespace std::literals;
+
+DEFINE_test_flag(bool, writequery_stuck_from_callback_leak, false,
+    "Simulate WriteQuery stuck because of the update index flushed rpc call back leak");
 
 namespace yb {
 namespace tablet {
@@ -457,7 +462,13 @@ docdb::ConflictManagementPolicy GetConflictManagementPolicy(
   if (!pairs.empty() && write_batch.has_wait_policy()) {
     switch (write_batch.wait_policy()) {
       case WAIT_BLOCK:
-        conflict_management_policy = docdb::WAIT_ON_CONFLICT;
+        if (wait_queue) {
+          conflict_management_policy = docdb::WAIT_ON_CONFLICT;
+        } else {
+          YB_LOG_EVERY_N(WARNING, 100)
+              << "Received WAIT_BLOCK request from query layer but wait queues are not enabled at "
+              << "tserver. Reverting to WAIT_ERROR behavior.";
+        }
         break;
       case WAIT_SKIP:
         conflict_management_policy = docdb::SKIP_ON_CONFLICT;
@@ -495,12 +506,18 @@ Status WriteQuery::DoExecute() {
   docdb::PartialRangeKeyIntents partial_range_key_intents(metadata.UsePartialRangeKeyIntents());
   prepare_result_ = VERIFY_RESULT(docdb::PrepareDocWriteOperation(
       doc_ops_, write_batch.read_pairs(), tablet->metrics()->write_lock_latency,
-      isolation_level_, kind(), row_mark_type, transactional_table, write_batch.has_transaction(),
-      deadline(), partial_range_key_intents, tablet->shared_lock_manager()));
+      tablet->metrics()->failed_batch_lock, isolation_level_, kind(), row_mark_type,
+      transactional_table, write_batch.has_transaction(), deadline(), partial_range_key_intents,
+      tablet->shared_lock_manager()));
 
   TEST_SYNC_POINT("WriteQuery::DoExecute::PreparedDocWriteOps");
 
   auto* transaction_participant = tablet->transaction_participant();
+  docdb::WaitQueue* wait_queue = nullptr;
+
+  if (transaction_participant) {
+    wait_queue = transaction_participant->wait_queue();
+  }
 
   if (!tablet->txns_enabled() || !transactional_table) {
     CompleteExecute();
@@ -509,13 +526,12 @@ Status WriteQuery::DoExecute() {
 
   if (isolation_level_ == IsolationLevel::NON_TRANSACTIONAL) {
     auto now = tablet->clock()->Now();
-    auto conflict_management_policy = GetConflictManagementPolicy(
-        tablet->wait_queue(), write_batch);
+    auto conflict_management_policy = GetConflictManagementPolicy(wait_queue, write_batch);
     return docdb::ResolveOperationConflicts(
         doc_ops_, conflict_management_policy, now, tablet->doc_db(),
         partial_range_key_intents, transaction_participant,
         tablet->metrics()->transaction_conflicts.get(), &prepare_result_.lock_batch,
-        tablet->wait_queue(),
+        wait_queue,
         [this, now](const Result<HybridTime>& result) {
           if (!result.ok()) {
             ExecuteDone(result.status());
@@ -546,8 +562,7 @@ Status WriteQuery::DoExecute() {
     }
   }
 
-  auto conflict_management_policy = GetConflictManagementPolicy(
-      tablet->wait_queue(), write_batch);
+  auto conflict_management_policy = GetConflictManagementPolicy(wait_queue, write_batch);
 
   // TODO(wait-queues): Ensure that wait_queue respects deadline() during conflict resolution.
   return docdb::ResolveTransactionConflicts(
@@ -555,7 +570,7 @@ Status WriteQuery::DoExecute() {
       read_time_ ? read_time_.read : HybridTime::kMax,
       tablet->doc_db(), partial_range_key_intents,
       transaction_participant, tablet->metrics()->transaction_conflicts.get(),
-      &prepare_result_.lock_batch, tablet->wait_queue(),
+      &prepare_result_.lock_batch, wait_queue,
       [this](const Result<HybridTime>& result) {
         if (!result.ok()) {
           ExecuteDone(result.status());
@@ -898,6 +913,9 @@ void WriteQuery::UpdateQLIndexes() {
 void WriteQuery::UpdateQLIndexesFlushed(
     const client::YBSessionPtr& session, const client::YBTransactionPtr& txn,
     const IndexOps& index_ops, client::FlushStatus* flush_status) {
+  while (GetAtomicFlag(&FLAGS_TEST_writequery_stuck_from_callback_leak)) {
+    std::this_thread::sleep_for(100ms);
+  }
   std::unique_ptr<WriteQuery> query(std::move(self_));
 
   const auto& status = flush_status->status;

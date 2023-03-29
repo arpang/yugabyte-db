@@ -30,7 +30,14 @@ import {
   VPCSetupTypeLabel
 } from '../../constants';
 import { FieldGroup } from '../components/FieldGroup';
-import { addItem, deleteItem, editItem, handleFormServerError, readFileAsText } from '../utils';
+import {
+  addItem,
+  deleteItem,
+  editItem,
+  handleFormServerError,
+  generateLowerCaseAlphanumericId,
+  readFileAsText
+} from '../utils';
 import { FormContainer } from '../components/FormContainer';
 import { ACCEPTABLE_CHARS } from '../../../../config/constants';
 import { FormField } from '../components/FormField';
@@ -43,6 +50,8 @@ import { getYBAHost } from '../../utils';
 import { YBAHost } from '../../../../../redesign/helpers/constants';
 import { RegionOperation } from '../configureRegion/constants';
 import { toast } from 'react-toastify';
+import { assertUnreachableCase } from '../../../../../utils/errorHandlingUtils';
+import { NTP_SERVER_REGEX } from '../constants';
 
 import { GCPRegionMutation, GCPAvailabilityZoneMutation, YBProviderMutation } from '../../types';
 
@@ -53,7 +62,7 @@ interface GCPProviderCreateFormProps {
 
 interface GCPProviderCreateFormFieldValues {
   dbNodePublicInternetAccess: boolean;
-  customGceNetwork: string;
+  destVpcId: string;
   gceProject: string;
   googleServiceAccount: File;
   ntpServers: string[];
@@ -95,21 +104,7 @@ const KEY_PAIR_MANAGEMENT_OPTIONS: OptionProps[] = [
   }
 ];
 
-const VPC_SETUP_OPTIONS: OptionProps[] = [
-  {
-    value: VPCSetupType.EXISTING,
-    label: VPCSetupTypeLabel[VPCSetupType.EXISTING]
-  },
-  {
-    value: VPCSetupType.HOST_INSTANCE,
-    label: VPCSetupTypeLabel[VPCSetupType.HOST_INSTANCE]
-  },
-  {
-    value: VPCSetupType.NEW,
-    label: VPCSetupTypeLabel[VPCSetupType.NEW],
-    disabled: true
-  }
-];
+const YB_VPC_NAME_BASE = 'yb-gcp-network';
 
 const VALIDATION_SCHEMA = object().shape({
   providerName: string()
@@ -123,7 +118,7 @@ const VALIDATION_SCHEMA = object().shape({
     is: ProviderCredentialType.SPECIFIED_SERVICE_ACCOUNT,
     then: mixed().required('Service account config is required.')
   }),
-  customGceNetwork: string().when('vpcSetupType', {
+  destVpcId: string().when('vpcSetupType', {
     is: (vpcSetupType: VPCSetupType) =>
       ([VPCSetupType.EXISTING, VPCSetupType.NEW] as VPCSetupType[]).includes(vpcSetupType),
     then: string().required('Custom GCE Network is required.')
@@ -138,10 +133,15 @@ const VALIDATION_SCHEMA = object().shape({
     is: KeyPairManagement.CUSTOM_KEY_PAIR,
     then: mixed().required('SSH private key is required.')
   }),
-
   ntpServers: array().when('ntpSetupType', {
     is: NTPSetupType.SPECIFIED,
-    then: array().min(1, 'NTP Servers cannot be empty.')
+    then: array().of(
+      string().matches(
+        NTP_SERVER_REGEX,
+        (testContext) =>
+          `NTP servers must be provided in IPv4, IPv6, or hostname format. '${testContext.originalValue}' is not valid.`
+      )
+    )
   }),
   regions: array().min(1, 'Provider configurations must contain at least one region.')
 });
@@ -183,6 +183,14 @@ export const GCPProviderCreateForm = ({
   const onFormSubmit: SubmitHandler<GCPProviderCreateFormFieldValues> = async (formValues) => {
     formMethods.clearErrors(ASYNC_ERROR);
 
+    if (formValues.ntpSetupType === NTPSetupType.SPECIFIED && !formValues.ntpServers.length) {
+      formMethods.setError('ntpServers', {
+        type: 'min',
+        message: 'Please specify at least one NTP server.'
+      });
+      return;
+    }
+
     let googleServiceAccount = null;
     if (
       formValues.providerCredentialType === ProviderCredentialType.SPECIFIED_SERVICE_ACCOUNT &&
@@ -199,26 +207,37 @@ export const GCPProviderCreateForm = ({
       }
     }
 
+    // Note: Backend expects `useHostVPC` to be true for both host instance VPC and specified VPC for
+    //       backward compatability reasons.
     const vpcConfig =
       formValues.vpcSetupType === VPCSetupType.HOST_INSTANCE
         ? {
             useHostVPC: true
           }
-        : {
+        : formValues.vpcSetupType === VPCSetupType.EXISTING
+        ? {
+            useHostVPC: true,
+            destVpcId: formValues.destVpcId
+          }
+        : formValues.vpcSetupType === VPCSetupType.NEW
+        ? {
             useHostVPC: false,
-            ...(formValues.customGceNetwork && { customGceNetwork: formValues.customGceNetwork })
-          };
+            destVpcId: formValues.destVpcId
+          }
+        : assertUnreachableCase(formValues.vpcSetupType);
 
     const gcpCredentials =
       formValues.providerCredentialType === ProviderCredentialType.HOST_INSTANCE_SERVICE_ACCOUNT
         ? {
             useHostCredentials: true
           }
-        : {
+        : formValues.providerCredentialType === ProviderCredentialType.SPECIFIED_SERVICE_ACCOUNT
+        ? {
             gceApplicationCredentials: googleServiceAccount,
             gceProject: formValues.gceProject ?? googleServiceAccount?.project_id ?? '',
             useHostCredentials: false
-          };
+          }
+        : assertUnreachableCase(formValues.providerCredentialType);
 
     const providerPayload: YBProviderMutation = {
       code: ProviderCode.GCP,
@@ -319,6 +338,23 @@ export const GCPProviderCreateForm = ({
     'sshKeypairManagement',
     defaultValues.sshKeypairManagement
   );
+
+  const vpcSetupOptions: OptionProps[] = [
+    {
+      value: VPCSetupType.EXISTING,
+      label: VPCSetupTypeLabel[VPCSetupType.EXISTING]
+    },
+    {
+      value: VPCSetupType.HOST_INSTANCE,
+      label: VPCSetupTypeLabel[VPCSetupType.HOST_INSTANCE],
+      disabled: providerCredentialType !== ProviderCredentialType.HOST_INSTANCE_SERVICE_ACCOUNT
+    },
+    {
+      value: VPCSetupType.NEW,
+      label: VPCSetupTypeLabel[VPCSetupType.NEW],
+      disabled: true // Disabling 'Create new VPC' until we're able to fully test our support for this.
+    }
+  ];
   const vpcSetupType = formMethods.watch('vpcSetupType', defaultValues.vpcSetupType);
   return (
     <Box display="flex" justifyContent="center">
@@ -361,14 +397,24 @@ export const GCPProviderCreateForm = ({
                 <YBRadioGroupField
                   name="vpcSetupType"
                   control={formMethods.control}
-                  options={VPC_SETUP_OPTIONS}
+                  options={vpcSetupOptions}
                   orientation={RadioGroupOrientation.HORIZONTAL}
+                  onRadioChange={(_event, value) => {
+                    if (value === VPCSetupType.NEW) {
+                      formMethods.setValue(
+                        'destVpcId',
+                        `${YB_VPC_NAME_BASE}-${generateLowerCaseAlphanumericId()}`
+                      );
+                    } else {
+                      formMethods.setValue('destVpcId', '');
+                    }
+                  }}
                 />
               </FormField>
               {(vpcSetupType === VPCSetupType.EXISTING || vpcSetupType === VPCSetupType.NEW) && (
                 <FormField>
                   <FieldLabel>Custom GCE Network Name</FieldLabel>
-                  <YBInputField control={formMethods.control} name="customGceNetwork" fullWidth />
+                  <YBInputField control={formMethods.control} name="destVpcId" fullWidth />
                 </FormField>
               )}
             </FieldGroup>
@@ -488,6 +534,7 @@ export const GCPProviderCreateForm = ({
       </FormProvider>
       {isRegionFormModalOpen && (
         <ConfigureRegionModal
+          configuredRegions={regions}
           onClose={hideRegionFormModal}
           onRegionSubmit={onRegionFormSubmit}
           open={isRegionFormModalOpen}

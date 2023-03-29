@@ -220,6 +220,8 @@ public class AccessManager extends DevopsBase {
     keyInfo.deleteRemote = deleteRemote;
     keyInfo.keyPairName = keyCode;
     keyInfo.sshPrivateKeyContent = new String(Files.readAllBytes(destination));
+    // In case of upload, keys will be user provided.
+    keyInfo.setManagementState(AccessKey.KeyInfo.KeyManagementState.SelfManaged);
 
     // TODO: Move this code for ProviderDetails update elsewhere
     ProviderDetails details = provider.details;
@@ -295,13 +297,15 @@ public class AccessManager extends DevopsBase {
       log.error(ioe.getMessage(), ioe);
       throw new RuntimeException("Could not create AccessKey", ioe);
     } finally {
-      try {
-        File tmpKeyFile = new File(tempFile.toString());
-        if (tmpKeyFile.exists()) {
-          Files.delete(tempFile);
+      if (tempFile != null) {
+        try {
+          File tmpKeyFile = new File(tempFile.toString());
+          if (tmpKeyFile.exists()) {
+            Files.delete(tempFile);
+          }
+        } catch (IOException e) {
+          log.error(e.getMessage(), e);
         }
-      } catch (IOException e) {
-        log.error(e.getMessage(), e);
       }
     }
 
@@ -422,6 +426,8 @@ public class AccessManager extends DevopsBase {
       keyInfo.vaultFile = vaultResponse.get("vault_file").asText();
       keyInfo.vaultPasswordFile = vaultResponse.get("vault_password").asText();
       keyInfo.keyPairName = keyCode;
+      // In case of add, keys will be YBA managed.
+      keyInfo.setManagementState(AccessKey.KeyInfo.KeyManagementState.YBAManaged);
       try {
         Path privateKeyPath = Paths.get(keyInfo.privateKey);
         keyInfo.sshPrivateKeyContent = new String(Files.readAllBytes(privateKeyPath));

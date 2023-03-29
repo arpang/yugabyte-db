@@ -23,6 +23,7 @@ import com.yugabyte.yw.models.Customer;
 import com.yugabyte.yw.models.Provider;
 import com.yugabyte.yw.models.Universe;
 import com.yugabyte.yw.models.Users;
+import com.yugabyte.yw.models.Universe.UniverseUpdater;
 import com.yugabyte.yw.models.extended.UserWithFeatures;
 import com.yugabyte.yw.models.helpers.NodeDetails;
 import io.swagger.annotations.ApiModel;
@@ -35,6 +36,7 @@ import java.math.BigDecimal;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
+import java.net.Socket;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
@@ -111,6 +113,8 @@ public class Util {
 
   public static final String YBC_COMPATIBLE_DB_VERSION = "2.15.0.0-b1";
 
+  public static final String K8S_YBC_COMPATIBLE_DB_VERSION = "2.17.3.0-b62";
+
   public static final String AUTO_FLAG_FILENAME = "auto_flags.json";
 
   public static final String LIVE_QUERY_TIMEOUTS = "yb.query_stats.live_queries.ws";
@@ -151,13 +155,6 @@ public class Util {
       inetAddrs.add(new InetSocketAddress(privateIp, yqlRPCPort));
     }
     return inetAddrs;
-  }
-
-  public static String redactString(String input) {
-    String length = ((Integer) input.length()).toString();
-    String regex = "(.)" + "{" + length + "}";
-    String output = input.replaceAll(regex, REDACT);
-    return output;
   }
 
   public static String redactYsqlQuery(String input) {
@@ -898,5 +895,36 @@ public class Util {
             .map(Object::toString)
             .orElse("Unknown");
     return userEmail;
+  }
+
+  public static Universe lockUniverse(Universe universe) {
+    UniverseUpdater updater =
+        u -> {
+          UniverseDefinitionTaskParams universeDetails = u.getUniverseDetails();
+          universeDetails.updateInProgress = true;
+          universeDetails.updateSucceeded = false;
+          u.setUniverseDetails(universeDetails);
+        };
+    return Universe.saveDetails(universe.universeUUID, updater, false);
+  }
+
+  public static Universe unlockUniverse(Universe universe) {
+    UniverseUpdater updater =
+        u -> {
+          UniverseDefinitionTaskParams universeDetails = u.getUniverseDetails();
+          universeDetails.updateInProgress = false;
+          universeDetails.updateSucceeded = true;
+          u.setUniverseDetails(universeDetails);
+        };
+    return Universe.saveDetails(universe.universeUUID, updater, false);
+  }
+
+  public static boolean isAddressReachable(String host, int port) {
+    try (Socket socket = new Socket()) {
+      socket.connect(new InetSocketAddress(host, port), 3000);
+      return true;
+    } catch (IOException e) {
+    }
+    return false;
   }
 }

@@ -12,12 +12,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.net.HostAndPort;
 import com.yugabyte.yw.commissioner.Commissioner;
@@ -29,6 +31,7 @@ import com.yugabyte.yw.common.ModelFactory;
 import com.yugabyte.yw.common.PlacementInfoUtil;
 import com.yugabyte.yw.common.ShellResponse;
 import com.yugabyte.yw.common.TestHelper;
+import com.yugabyte.yw.common.TestUtils;
 import com.yugabyte.yw.forms.CertificateParams;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams;
 import com.yugabyte.yw.forms.UpgradeTaskParams;
@@ -61,6 +64,7 @@ import org.yb.client.GetMasterClusterConfigResponse;
 import org.yb.master.CatalogEntityInfo;
 import org.yb.master.MasterClusterOuterClass.GetAutoFlagsConfigResponsePB;
 import org.yb.master.MasterClusterOuterClass.PromoteAutoFlagsResponsePB;
+import play.libs.Json;
 import org.yb.client.IsServerReadyResponse;
 import org.yb.client.PromoteAutoFlagsResponse;
 import org.yb.client.YBClient;
@@ -211,6 +215,9 @@ public abstract class UpgradeTaskTest extends CommissionerBaseTest {
               0, null, GetAutoFlagsConfigResponsePB.getDefaultInstance());
       lenient().when(mockClient.autoFlagsConfig()).thenReturn(resp);
       lenient().when(mockClient.ping(anyString(), anyInt())).thenReturn(true);
+      lenient()
+          .when(mockClient.getStatus(anyString(), anyInt()))
+          .thenReturn(TestUtils.prepareGetStatusResponse("2.17.0.0", "1"));
       lenient()
           .when(mockClient.promoteAutoFlags(anyString(), anyBoolean(), anyBoolean()))
           .thenReturn(

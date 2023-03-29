@@ -75,6 +75,7 @@
 #include "yb/client/schema.h"
 #include "yb/client/universe_key_client.h"
 
+#include "yb/common/colocated_util.h"
 #include "yb/common/common.pb.h"
 #include "yb/common/common_flags.h"
 #include "yb/common/constants.h"
@@ -2776,7 +2777,7 @@ Status CatalogManager::CompactSysCatalog(
     const CompactSysCatalogRequestPB* req,
     CompactSysCatalogResponsePB* resp,
     rpc::RpcContext* context) {
-  return PerformOnSysCatalogTablet(req, resp, [](auto shared_tablet) {
+  return PerformOnSysCatalogTablet(req, resp, [&](auto shared_tablet) {
     return shared_tablet->ForceFullRocksDBCompact(rocksdb::CompactionReason::kManualCompaction);
   });
 }
@@ -4896,6 +4897,32 @@ Status CatalogManager::CreateTestEchoService() {
   }
 
   service_created = true;
+  return Status::OK();
+}
+
+Status CatalogManager::CreatePgAutoAnalyzeService() {
+  static bool pg_auto_analyze_service_created = false;
+  if (pg_auto_analyze_service_created) {
+    return Status::OK();
+  }
+
+  client::YBSchemaBuilder schema_builder;
+  schema_builder.AddColumn(kPgAutoAnalyzeTableId)->HashPrimaryKey()->Type(DataType::STRING);
+  schema_builder.AddColumn(kPgAutoAnalyzeMutations)->Type(DataType::INT64);
+  schema_builder.AddColumn(kPgAutoAnalyzeLastAnalyzeInfo)->Type(DataType::JSONB);
+  schema_builder.AddColumn(kPgAutoAnalyzeCurrentAnalyzeInfo)->Type(DataType::JSONB);
+
+  client::YBSchema yb_schema;
+  CHECK_OK(schema_builder.Build(&yb_schema));
+
+  auto s = CreateStatefulService(StatefulServiceKind::PG_AUTO_ANALYZE, yb_schema);
+  // It is possible that the table was already created. If so, there is nothing to do so we just
+  // ignore the "AlreadyPresent" error.
+  if (!s.ok() && !s.IsAlreadyPresent()) {
+    return s;
+  }
+
+  pg_auto_analyze_service_created = true;
   return Status::OK();
 }
 
@@ -7624,9 +7651,9 @@ bool CatalogManager::ReplicaMapDiffersFromConsensusState(const scoped_refptr<Tab
     return true;
   }
   for (auto iter = cstate.config().peers().begin(); iter != cstate.config().peers().end(); iter++) {
-      if (locs->find(iter->permanent_uuid()) == locs->end()) {
-        return true;
-      }
+    if (locs->find(iter->permanent_uuid()) == locs->end()) {
+      return true;
+    }
   }
   return false;
 }
@@ -7673,6 +7700,23 @@ bool CatalogManager::ProcessCommittedConsensusState(
                  << " on TS " << ts_desc->permanent_uuid()
                  << " cstate=" << cstate.ShortDebugString()
                  << ", prev_cstate=" << prev_cstate.ShortDebugString();
+    return false;
+  }
+
+  // We do not expect reports from a TS for a config that it is not part of. This can happen if a
+  // TS is removed from the config while it is remote bootstrapping. In this case, we must ignore
+  // the heartbeats to avoid incorrectly adding this TS to the config in
+  // UpdateTabletReplicaInLocalMemory.
+  bool found_ts_in_config = false;
+  for (const auto& peer : cstate.config().peers()) {
+    if (peer.permanent_uuid() == ts_desc->permanent_uuid()) {
+      found_ts_in_config = true;
+      break;
+    }
+  }
+  if (!found_ts_in_config) {
+    LOG(WARNING) << Format("Ignoring heartbeat from tablet server that is not part of reported "
+        "consensus config. ts_desc: $0, cstate: $1.", *ts_desc, cstate);
     return false;
   }
 
@@ -7781,7 +7825,7 @@ bool CatalogManager::ProcessCommittedConsensusState(
     // replica is reporting the same consensus configuration we already know about, but we
     // haven't yet heard from all the tservers in the config, update the in-memory
     // ReplicaLocations.
-    LOG(INFO) << "Peer " << ts_desc->permanent_uuid() << " sent "
+    LOG(INFO) << "Tablet server " << ts_desc->permanent_uuid() << " sent "
               << (is_incremental ? "incremental" : "full tablet")
               << " report for " << tablet->tablet_id()
               << ", prev state op id: " << prev_cstate.config().opid_index()
@@ -7790,8 +7834,11 @@ bool CatalogManager::ProcessCommittedConsensusState(
               << ". Consensus state: " << cstate.ShortDebugString();
     if (GetAtomicFlag(&FLAGS_enable_register_ts_from_raft) &&
         ReplicaMapDiffersFromConsensusState(tablet, cstate)) {
-       ReconcileTabletReplicasInLocalMemoryWithReport(
-         tablet, ts_desc->permanent_uuid(), cstate, report);
+      LOG(INFO) << Format("Tablet replica map differs from reported consensus state. Replica map: "
+          "$0. Reported consensus state: $1.", *tablet->GetReplicaLocations(),
+          cstate.ShortDebugString());
+      ReconcileTabletReplicasInLocalMemoryWithReport(
+          tablet, ts_desc->permanent_uuid(), cstate, report);
     } else {
       UpdateTabletReplicaInLocalMemory(ts_desc, &cstate, report, tablet);
     }
@@ -12082,6 +12129,17 @@ Status CatalogManager::SetClusterConfig(
   return Status::OK();
 }
 
+Status CatalogManager::GetXClusterConfig(GetMasterXClusterConfigResponsePB* resp) {
+  return GetXClusterConfig(resp->mutable_xcluster_config());
+}
+
+Status CatalogManager::GetXClusterConfig(SysXClusterConfigEntryPB* config) {
+  auto xcluster_config = XClusterConfig();
+  DCHECK(xcluster_config) << "Missing xcluster config for master!";
+  *config = xcluster_config->LockForRead()->pb;
+  return Status::OK();
+}
+
 Result<uint32_t> CatalogManager::GetXClusterConfigVersion() const {
   auto xcluster_config = XClusterConfig();
   SCHECK(xcluster_config, IllegalState, "XCluster config is not initialized");
@@ -13074,6 +13132,24 @@ void CatalogManager::SysCatalogLoaded(int64_t term) {
   StartXClusterSafeTimeServiceIfStopped();
 
   snapshot_coordinator_.SysCatalogLoaded(term);
+}
+
+Status CatalogManager::UpdateLastFullCompactionRequestTime(const TableId& table_id) {
+  auto table_info = VERIFY_RESULT(FindTableById(table_id));
+  const auto request_time = CoarseMonoClock::now().time_since_epoch().count();
+  auto lock = table_info->LockForWrite();
+  lock.mutable_data()->pb.set_last_full_compaction_time(request_time);
+  RETURN_NOT_OK(sys_catalog_->Upsert(leader_ready_term(), table_info));
+  lock.Commit();
+  return Status::OK();
+}
+
+Status CatalogManager::GetCompactionStatus(
+    const GetCompactionStatusRequestPB* req, GetCompactionStatusResponsePB* resp) {
+  auto table_info = VERIFY_RESULT(FindTableById(req->table().table_id()));
+  auto lock = table_info->LockForRead();
+  resp->set_last_request_time(lock->pb.last_full_compaction_time());
+  return Status::OK();
 }
 
 }  // namespace master

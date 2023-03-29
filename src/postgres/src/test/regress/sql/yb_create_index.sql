@@ -375,6 +375,7 @@ CREATE INDEX ON test_method ((h2) HASH);
 \d test_method
 EXPLAIN (COSTS OFF) SELECT * FROM test_method WHERE h2 = 258;
 SELECT * FROM test_method WHERE h2 = 258;
+DROP TABLE test_method;
 
 -- Test more HASH key cases in PRIMARY KEY
 CREATE TABLE test_hash (
@@ -472,6 +473,17 @@ INSERT INTO test_index_nonconcurrently VALUES (1, 'b');
 CREATE UNIQUE INDEX NONCONCURRENTLY ON test_index_nonconcurrently (i);
 
 DROP TABLE test_index_nonconcurrently;
+
+-- Verify that creating indexes on a YB table does not update table stats.
+CREATE TABLE test_stats (i INT);
+INSERT INTO test_stats VALUES (1), (2), (3);
+ANALYZE test_stats;
+SELECT reltuples FROM pg_class WHERE relname = 'test_stats';
+CREATE INDEX CONCURRENTLY ON test_stats(i);
+SELECT reltuples FROM pg_class WHERE relname = 'test_stats';
+CREATE INDEX NONCONCURRENTLY ON test_stats(i);
+SELECT reltuples FROM pg_class WHERE relname = 'test_stats';
+DROP TABLE test_stats;
 
 -- Test creating temp index using lsm.
 CREATE TEMP TABLE test_temp_lsm (i int);

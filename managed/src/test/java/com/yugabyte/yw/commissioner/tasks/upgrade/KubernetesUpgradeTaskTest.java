@@ -19,6 +19,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.net.HostAndPort;
 import com.yugabyte.yw.commissioner.Commissioner;
@@ -52,6 +53,7 @@ import org.yb.client.YBClient;
 import org.yb.master.CatalogEntityInfo;
 import org.yb.master.MasterClusterOuterClass.GetAutoFlagsConfigResponsePB;
 import org.yb.master.MasterClusterOuterClass.PromoteAutoFlagsResponsePB;
+import play.libs.Json;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodList;
 import io.fabric8.kubernetes.api.model.PodStatus;
@@ -124,7 +126,6 @@ public abstract class KubernetesUpgradeTaskTest extends CommissionerBaseTest {
           .thenReturn(
               new PromoteAutoFlagsResponse(
                   0, "uuid", PromoteAutoFlagsResponsePB.getDefaultInstance()));
-
       String masterLeaderName = "yb-master-0.yb-masters.demo-universe.svc.cluster.local";
       if (placementInfo.cloudList.get(0).regionList.get(0).azList.size() > 1) {
         masterLeaderName = "yb-master-0.yb-masters.demo-universe-az-2.svc.cluster.local";

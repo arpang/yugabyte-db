@@ -69,6 +69,7 @@ import play.mvc.Http;
 public class CommonUtils {
 
   public static final String DEFAULT_YB_HOME_DIR = "/home/yugabyte";
+  public static final String DEFAULT_YBC_DIR = "/tmp/yugabyte";
 
   private static final Pattern RELEASE_REGEX =
       Pattern.compile("^(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+).*$");
@@ -727,7 +728,7 @@ public class CommonUtils {
       Scanner scanner = new Scanner(shellResponse.message);
       int i = 0;
       while (scanner.hasNextLine()) {
-        data = new String(scanner.nextLine());
+        data = scanner.nextLine();
         if (i++ == 3) {
           break;
         }

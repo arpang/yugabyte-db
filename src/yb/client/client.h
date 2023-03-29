@@ -298,6 +298,8 @@ class YBClient {
                      int timeout_secs,
                      bool is_compaction);
 
+  Result<MonoTime> GetCompactionStatus(const YBTableName& table_name);
+
   std::unique_ptr<YBTableAlterer> NewTableAlterer(const YBTableName& table_name);
   std::unique_ptr<YBTableAlterer> NewTableAlterer(const std::string id);
 
@@ -564,10 +566,14 @@ class YBClient {
                                        const master::ProducerSplitTabletInfoPB& split_info);
 
   // Update after a producer DDL change. Returns if caller should wait for a similar Consumer DDL.
-  Status UpdateConsumerOnProducerMetadata(const std::string& producer_id,
-                                          const TableId& table_id,
-                                          const tablet::ChangeMetadataRequestPB& meta_info,
-                                          master::UpdateConsumerOnProducerMetadataResponsePB *resp);
+  Status UpdateConsumerOnProducerMetadata(
+      const std::string& producer_id,
+      const CDCStreamId& stream_id,
+      const tablet::ChangeMetadataRequestPB& meta_info,
+      uint32_t colocation_id,
+      uint32_t producer_schema_version,
+      uint32_t consumer_schema_version,
+      master::UpdateConsumerOnProducerMetadataResponsePB *resp);
 
   void GetTableLocations(
       const TableId& table_id, int32_t max_tablets, RequireTabletsRunning require_tablets_running,

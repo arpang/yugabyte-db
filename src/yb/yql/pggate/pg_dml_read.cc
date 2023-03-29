@@ -189,6 +189,8 @@ Status PgDmlRead::ProcessEmptyPrimaryBinds() {
   // Collecting column indexes that are involved in a tuple
   std::vector<size_t> tuple_col_ids;
 
+  bool preceding_key_column_missed = false;
+
   for (size_t index = 0; index != bind_->num_hash_key_columns(); ++index) {
     auto expr = bind_.ColumnForIndex(index).bind_pb();
     auto colid = bind_.ColumnForIndex(index).id();
@@ -204,6 +206,9 @@ Status PgDmlRead::ProcessEmptyPrimaryBinds() {
     }
 
     if (expr && expr->has_condition()) {
+      // Move any range column binds into the 'condition_expr' field if
+      // we are batching hash columns.
+      preceding_key_column_missed = pg_session_->IsHashBatchingEnabled();
       const auto& lhs = *expr->condition().operands().begin();
       if (lhs.has_tuple()) {
         const auto& tuple = lhs.tuple();
@@ -216,8 +221,6 @@ Status PgDmlRead::ProcessEmptyPrimaryBinds() {
 
   SCHECK(!has_partition_columns || !miss_partition_columns, InvalidArgument,
       "Partition key must be fully specified");
-
-  bool preceding_key_column_missed = false;
 
   if (miss_partition_columns) {
     VLOG(1) << "Full scan is needed";
@@ -289,6 +292,31 @@ bool PgDmlRead::IsConcreteRowRead() const {
                                   read_req_->range_column_values().size())));
 }
 
+void PgDmlRead::SetDistinctScan(const PgExecParameters *exec_params) {
+  if (exec_params && exec_params->is_select_distinct) {
+    // If we have a nested index requested (due to a colocated index scan), we want
+    // to set prefix length based on that nested index scan, not the higher level scan.
+    if (secondary_index_query_) {
+      return;
+    }
+
+    // Prefix length is determined by the (1-based) index of the last column referenced
+    // in the request.
+    size_t prefix_length = 0;
+    for (const auto& col_ref : read_req_->col_refs()) {
+      if (col_ref.has_column_id()) {
+        auto col_idx = CHECK_RESULT(bind_->FindColumn(col_ref.attno()));
+        if (col_idx >= bind_->schema().num_key_columns()) {
+          continue;
+        }
+
+        prefix_length = std::max(prefix_length, col_idx + 1);
+      }
+    }
+    read_req_->set_prefix_length(prefix_length);
+  }
+}
+
 Status PgDmlRead::Exec(const PgExecParameters *exec_params) {
   // Save IN/OUT parameters from Postgres.
   pg_exec_params_ = exec_params;
@@ -303,6 +331,7 @@ Status PgDmlRead::Exec(const PgExecParameters *exec_params) {
       CanBuildYbctidsFromPrimaryBinds()) {
     RETURN_NOT_OK(SubstitutePrimaryBindsWithYbctids(exec_params));
   } else {
+    SetDistinctScan(exec_params);
     RETURN_NOT_OK(ProcessEmptyPrimaryBinds());
     if (has_doc_op()) {
       if (row_mark_type == RowMarkType::ROW_MARK_KEYSHARE && !IsConcreteRowRead()) {

@@ -536,4 +536,20 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
               + "API fields and only return newer date fields.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> attachDetachEnabled =
+      new ConfKeyInfo<>(
+          "yb.attach_detach.enabled",
+          ScopeType.GLOBAL,
+          "Allow universes to be detached/attached",
+          "Allow universes to be detached from a source platform and attached to dest platform",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> transactionalXClusterEnabled =
+      new ConfKeyInfo<>(
+          "yb.xcluster.transactional.enabled",
+          ScopeType.GLOBAL,
+          "Whether YBA supports transactional xCluster configs",
+          "It indicates whether YBA should support transactional xCluster configs",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
 }

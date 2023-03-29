@@ -16,6 +16,7 @@
 #include "yb/client/transaction.h"
 
 #include <atomic>
+#include <unordered_map>
 #include <unordered_set>
 #include <boost/atomic.hpp>
 
@@ -194,12 +195,12 @@ Status YBSubTransaction::RollbackToSubTransaction(SubTransactionId id) {
   return sub_txn_.aborted.SetRange(id, highest_subtransaction_id_);
 }
 
-const SubTransactionMetadata& YBSubTransaction::get() { return sub_txn_; }
+const SubTransactionMetadata& YBSubTransaction::get() const { return sub_txn_; }
 
 class YBTransaction::Impl final : public internal::TxnBatcherIf {
  public:
   Impl(TransactionManager* manager, YBTransaction* transaction, TransactionLocality locality)
-      : trace_(Trace::NewTrace()),
+      : trace_(Trace::MaybeGetNewTrace()),
         manager_(manager),
         transaction_(transaction),
         read_point_(manager->clock()),
@@ -214,7 +215,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
   }
 
   Impl(TransactionManager* manager, YBTransaction* transaction, const TransactionMetadata& metadata)
-      : trace_(Trace::NewTrace()),
+      : trace_(Trace::MaybeGetNewTrace()),
         manager_(manager),
         transaction_(transaction),
         metadata_(metadata),
@@ -225,7 +226,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
   }
 
   Impl(TransactionManager* manager, YBTransaction* transaction, ChildTransactionData data)
-      : trace_(Trace::NewTrace()),
+      : trace_(Trace::MaybeGetNewTrace()),
         manager_(manager),
         transaction_(transaction),
         read_point_(manager->clock()),
@@ -277,6 +278,13 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
       priority = FLAGS_TEST_override_transaction_priority;
     }
     metadata_.priority = priority;
+  }
+
+  void EnsureTraceCreated() {
+    if (!trace_) {
+      trace_ = new Trace;
+      TRACE_TO(trace_, "Ensure Trace Created");
+    }
   }
 
   uint64_t GetPriority() const {
@@ -993,6 +1001,31 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
                         << "; subtransaction_=" << subtransaction_.ToString();
 
     return Status::OK();
+  }
+
+  void IncreaseMutationCounts(
+      SubTransactionId subtxn_id, const TableId& table_id, uint64_t mutation_count) {
+    auto it = subtxn_table_mutation_counter_map_.find(subtxn_id);
+    if (it != subtxn_table_mutation_counter_map_.end()) {
+      it->second[table_id] += mutation_count;
+      return;
+    }
+    subtxn_table_mutation_counter_map_[subtxn_id].insert({table_id, mutation_count});
+  }
+
+  std::unordered_map<TableId, uint64_t> GetTableMutationCounts() const {
+    auto& aborted_sub_txn_set = subtransaction_.get().aborted;
+    std::unordered_map<TableId, uint64_t> table_mutation_counts;
+    for (const auto& [sub_txn_id, table_mutation_cnt_map] : subtxn_table_mutation_counter_map_) {
+      if (aborted_sub_txn_set.Test(sub_txn_id)) {
+        continue;
+      }
+
+      for (const auto& [table_id, mutation_count] : table_mutation_cnt_map) {
+        table_mutation_counts[table_id] += mutation_count;
+      }
+    }
+    return table_mutation_counts;
   }
 
   void SetLogPrefixTag(const LogPrefixName& name, uint64_t id) {
@@ -2034,6 +2067,13 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
   // Metadata tracking savepoint-related state for the scope of this transaction.
   YBSubTransaction subtransaction_;
 
+  // Map to track number of mutations to different tables in each sub-transaction. On transaction
+  // commit, this helps count the total mutations per table which is aggregated to the node level
+  // mutation counter that is in turn sent to the auto analyze service that maintains the cluster
+  // level mutations (see PgMutationCounter).
+  std::unordered_map<SubTransactionId, std::unordered_map<TableId, uint64_t>>
+      subtxn_table_mutation_counter_map_;
+
   std::atomic<bool> requested_status_tablet_{false};
   internal::RemoteTabletPtr status_tablet_ GUARDED_BY(mutex_);
   internal::RemoteTabletPtr old_status_tablet_ GUARDED_BY(mutex_);
@@ -2245,6 +2285,10 @@ Trace* YBTransaction::trace() {
   return impl_->trace();
 }
 
+void YBTransaction::EnsureTraceCreated() {
+  return impl_->EnsureTraceCreated();
+}
+
 void YBTransaction::SetActiveSubTransaction(SubTransactionId id) {
   return impl_->SetActiveSubTransaction(id);
 }
@@ -2255,6 +2299,15 @@ Status YBTransaction::RollbackToSubTransaction(SubTransactionId id, CoarseTimePo
 
 bool YBTransaction::HasSubTransaction(SubTransactionId id) {
   return impl_->HasSubTransaction(id);
+}
+
+void YBTransaction::IncreaseMutationCounts(
+    SubTransactionId subtxn_id, const TableId& table_id, uint64_t mutation_count) {
+  return impl_->IncreaseMutationCounts(subtxn_id, table_id, mutation_count);
+}
+
+std::unordered_map<TableId, uint64_t> YBTransaction::GetTableMutationCounts() const {
+  return impl_->GetTableMutationCounts();
 }
 
 void YBTransaction::SetLogPrefixTag(const LogPrefixName& name, uint64_t value) {
