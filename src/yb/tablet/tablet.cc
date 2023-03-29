@@ -258,10 +258,6 @@ DEFINE_test_flag(bool, disable_adding_last_compaction_to_tablet_metadata, false,
                  "Prevents adding the last full compaction time to tablet metadata upon "
                  "full compaction completion.");
 
-DEFINE_test_flag(
-    bool, skip_force_superblock_flush, false,
-    "Used in tests to skip superblock flush on tablet flush.");
-
 DECLARE_int32(client_read_write_timeout_ms);
 DECLARE_bool(consistent_restore);
 DECLARE_int32(rocksdb_level0_slowdown_writes_trigger);
@@ -1888,10 +1884,7 @@ Status Tablet::WaitForFlush() {
 }
 
 Status Tablet::FlushSuperblock(OnlyIfDirty only_if_dirty) {
-  if (!FLAGS_TEST_skip_force_superblock_flush) {
-    RETURN_NOT_OK(metadata_->Flush(only_if_dirty));
-  }
-  return Status::OK();
+  return metadata_->Flush(only_if_dirty);
 }
 
 Status Tablet::ImportData(const std::string& source_dir) {
