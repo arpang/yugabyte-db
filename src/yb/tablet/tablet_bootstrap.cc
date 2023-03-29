@@ -827,7 +827,20 @@ class TabletBootstrap {
         log_options.segment_size_bytes = log_segment_size;
       }
     }
-    auto flush_cb = std::bind(&RaftGroupMetadata::Flush, tablet_->metadata(), OnlyIfDirty::kTrue);
+
+    // When lazy superblock flush is enabled, instead of flushing the superblock on every
+    // CHANGE_METADATA_OP, we update the metadata only in-memory and flush it to disk when a new WAL
+    // segment is allocated. This reduces the latency of applying a CHANGE_METADATA_OP.
+    //
+    // Flushing the superblock on a new segment allocation limits the committed unflushed
+    // CHANGE_METADATA_OP WAL entries to the last two segments. To ensure persistence
+    // of these operations, we retain and replay a minimum of two WAL segments on
+    // tablet bootstrap.
+    //
+    // Currently, this feature is applicable only on colocated table creation.
+    // Reference: https://github.com/yugabyte/yugabyte-db/issues/16116
+    auto new_segment_allocation_callback =
+        std::bind(&RaftGroupMetadata::Flush, tablet_->metadata(), OnlyIfDirty::kTrue);
     RETURN_NOT_OK(Log::Open(
         log_options,
         tablet_->tablet_id(),
@@ -843,7 +856,7 @@ class TabletBootstrap {
         metadata.cdc_min_replicated_index(),
         &log_,
         metadata.IsLazySuperblockFlushEnabled(),
-        flush_cb,
+        new_segment_allocation_callback,
         create_new_segment));
     // Disable sync temporarily in order to speed up appends during the bootstrap process.
     log_->DisableSync();

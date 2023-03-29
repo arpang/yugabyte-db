@@ -1274,7 +1274,7 @@ Status Log::GetSegmentsToGCUnlocked(int64_t min_op_idx, SegmentSequence* segment
   RETURN_NOT_OK(reader_->GetSegmentPrefixNotIncluding(
       min_op_idx, cdc_min_replicated_index_.load(std::memory_order_acquire), segments_to_gc));
 
-  // See PreAllocateNewSegment() why a minimum of two segments must be retained with lazy
+  // See TabletBootstrap::OpenLog() why a minimum of two segments must be retained with lazy
   // superblock flush.
   const auto min_segments_to_retain = lazy_superblock_flush_enabled_
                                           ? std::max(FLAGS_log_min_segments_to_retain, 2)
@@ -1811,20 +1811,7 @@ Status Log::PreAllocateNewSegment() {
     RETURN_NOT_OK(next_segment_file_->PreAllocate(next_segment_size));
   }
 
-  // When lazy superblock flush is enabled, instead of flushing the superblock on every
-  // CHANGE_METADATA_OP, we update the metadata only in-memory and flush it to disk when a new WAL
-  // segment is allocated. This reduces the latency of applying a CHANGE_METADATA_OP.
-  //
-  // Flushing the superblock on a new segment allocation limits the committed unflushed
-  // CHANGE_METADATA_OP WAL entries to the last two segments. To ensure persistence
-  // of these operations, we retain and replay a minimum of two WAL segments on
-  // tablet bootstrap.
-  //
-  // Currently, this feature is applicable only on colocated table creation.
-  // Reference: https://github.com/yugabyte/yugabyte-db/issues/16116
-  if (lazy_superblock_flush_enabled_) {
-    RETURN_NOT_OK(new_segment_allocation_callback_());
-  }
+  RETURN_NOT_OK(new_segment_allocation_callback_());
 
   allocation_state_.store(SegmentAllocationState::kAllocationFinished, std::memory_order_release);
   return Status::OK();
