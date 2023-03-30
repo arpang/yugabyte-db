@@ -1210,8 +1210,8 @@ class TabletBootstrap {
 
     // When lazy superblock flush is enabled, superblock is flushed on a new segment allocation
     // instead of doing it for every CHANGE_METADATA_OP. This reduces the latency of applying
-    // a CHANGE_METADATA_OP. The applied but unflushed CHANGE_METADATA_OP WAL entries are limited
-    // to the last two segments:
+    // a CHANGE_METADATA_OP. The committed but unflushed CHANGE_METADATA_OP WAL entries will be
+    // limited to the last two segments:
     //  1. Say there are two wal segments: seg0, seg1 (active segment).
     //  2. When seg1 is about to exceed the max size, seg2 is asynchronously allocated. Writes
     //     continue to go seg1 in the meantime.
@@ -1220,12 +1220,11 @@ class TabletBootstrap {
     //     can't say the same about seg1 because it is still open and potentially appending
     //     entries).
     //  4. Log rolls over, seg1 is closed and writes now go to seg2.
-    //  At this point, uncomitted flushed metadata entries are limited to seg1 and seg2.
+    //  At this point, the committed unflushed metadata entries are limited to seg1 and seg2.
     //
-    // To ensure persistence of these operations, we retain and replay a minimum of two
-    // WAL segments on tablet bootstrap.
-    // Currently, this feature is applicable only on colocated
-    // table creation. Reference: https://github.com/yugabyte/yugabyte-db/issues/16116
+    // To ensure persistence of these operations, we replay a minimum of two WAL segments on tablet
+    // bootstrap (if present). Currently, this feature is applicable only on colocated table
+    // creation. Reference: https://github.com/yugabyte/yugabyte-db/issues/16116
     if (min_duration_to_retain_logs == 0s && meta_->IsLazySuperblockFlushEnabled() &&
         segments.size() > 1) {
       // This below ensures atleast two segments are replayed. Please refer to the function comment

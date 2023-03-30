@@ -1430,10 +1430,10 @@ bool RaftGroupMetadata::colocated() const {
   return colocated_;
 }
 
-// Returns if lazy superblock flush is enabled for the tablet. Checks if lazily_flush_superblock
-// flag is true and the tablet is colocated (currently this feature is only applicable on
-// colocated table creation). This feature depends on last_change_metadata_op to be valid. Hence,
-// additionally checks for FLAGS_TEST_invalidate_last_change_metadata_op to be false.
+// Returns whether lazy superblock flush is enabled for the tablet. Checks if
+// lazily_flush_superblock flag is true and the tablet is colocated (currently this feature is only
+// applicable on colocated table creation). This feature depends on last_change_metadata_op to be
+// valid. Hence, additionally checks for FLAGS_TEST_invalidate_last_change_metadata_op to be false.
 LazySuperblockFlushEnabled RaftGroupMetadata::IsLazySuperblockFlushEnabled() const {
   bool lazy_superblock_flush_enabled = !FLAGS_TEST_invalidate_last_change_metadata_op &&
                                        FLAGS_lazily_flush_superblock && colocated() &&
