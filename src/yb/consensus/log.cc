@@ -1799,7 +1799,9 @@ Status Log::PreAllocateNewSegment() {
     RETURN_NOT_OK(next_segment_file_->PreAllocate(next_segment_size));
   }
 
-  RETURN_NOT_OK(new_segment_allocation_callback_());
+  if (new_segment_allocation_callback_) {
+    RETURN_NOT_OK(new_segment_allocation_callback_());
+  }
 
   allocation_state_.store(SegmentAllocationState::kAllocationFinished, std::memory_order_release);
   return Status::OK();
