@@ -1004,8 +1004,8 @@ Result<int64_t> TabletPeer::GetEarliestNeededLogIndex(std::string* details) cons
     }
   }
 
+  // TODO: Only when lazy flush is on
   auto min_unflushed_change_metadata_index = meta_->MinUnflushedChangeMetadataOpId().index;
-
   min_index = std::min(min_index, min_unflushed_change_metadata_index);
   if (details) {
     *details +=
