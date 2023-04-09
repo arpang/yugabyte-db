@@ -618,7 +618,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   OpId LastFlushedChangeMetadataOperationOpId() const;
 
-  OpId LastAppliedChangeMetadataOperationOpId() const;
+  OpId TEST_LastAppliedChangeMetadataOperationOpId() const;
 
   void SetLastAppliedChangeMetadataOperationOpId(const OpId& op_id);
 

@@ -1842,7 +1842,7 @@ OpId RaftGroupMetadata::LastFlushedChangeMetadataOperationOpId() const {
   return last_flushed_change_metadata_op_id_;
 }
 
-OpId RaftGroupMetadata::LastAppliedChangeMetadataOperationOpId() const {
+OpId RaftGroupMetadata::TEST_LastAppliedChangeMetadataOperationOpId() const {
   std::lock_guard<MutexType> lock(data_mutex_);
   return last_applied_change_metadata_op_id_;
 }
