@@ -90,7 +90,9 @@ DEFINE_test_flag(bool, invalidate_last_change_metadata_op, false,
 // unflushed committed CHANGE_METADATA_OP WAL entries are applied and flushed during the tablet
 // bootstrap.
 DEFINE_NON_RUNTIME_bool(
-    lazily_flush_superblock, false, "Flushes the superblock lazily on metadata update");
+    lazily_flush_superblock, false,
+    "Flushes the superblock lazily on metadata update. Only used for colocated table creation "
+    "currently.");
 
 using std::shared_ptr;
 using std::string;
@@ -915,6 +917,7 @@ Status RaftGroupMetadata::LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB&
 Status RaftGroupMetadata::Flush(OnlyIfDirty only_if_dirty) {
   TRACE_EVENT1("raft_group", "RaftGroupMetadata::Flush",
                "raft_group_id", raft_group_id_);
+
   MutexLock l_flush(flush_lock_);
   RaftGroupReplicaSuperBlockPB pb;
   OpId last_applied_change_metadata_op_id;
@@ -1437,10 +1440,11 @@ bool RaftGroupMetadata::colocated() const {
   return colocated_;
 }
 
-// Returns whether lazy superblock flush is enabled for the tablet. Checks if
-// lazily_flush_superblock flag is true and the tablet is colocated (currently this feature is only
-// applicable on colocated table creation). This feature depends on last_change_metadata_op to be
-// valid. Hence, additionally checks for FLAGS_TEST_invalidate_last_change_metadata_op to be false.
+// Returns whether lazy superblock flush is enabled for the tablet. It requires
+// lazily_flush_superblock flag to be true and the tablet to be colocated (currently this feature is
+// only applicable on colocated table creation). This feature depends on last_change_metadata_op_id
+// to be valid. Hence, additionally requires FLAGS_TEST_invalidate_last_change_metadata_op to be
+// false.
 LazySuperblockFlushEnabled RaftGroupMetadata::IsLazySuperblockFlushEnabled() const {
   bool lazy_superblock_flush_enabled = !FLAGS_TEST_invalidate_last_change_metadata_op &&
                                        FLAGS_lazily_flush_superblock && colocated() &&
@@ -1833,7 +1837,7 @@ Status CheckCanServeTabletData(const RaftGroupMetadata& metadata) {
 
 OpId RaftGroupMetadata::LastFlushedChangeMetadataOperationOpId() const {
   // Since last_flushed_change_metadata_op_id_ is updated only after the superblock is persisted
-  // to disk, holding flush_lock_ is not required to read it.
+  // to disk, flush_lock_ is not required to read it.
   std::lock_guard<MutexType> lock(data_mutex_);
   return last_flushed_change_metadata_op_id_;
 }
@@ -1862,7 +1866,6 @@ void RaftGroupMetadata::OnChangeMetadataOperationAppliedUnlocked(const OpId& app
   SetLastAppliedChangeMetadataOperationOpIdUnlocked(applied_op_id);
   if (applied_op_id.valid()) {
     // If min_unflushed_change_metadata_op_id_ == OpId::Max(), set it to applied_op_id.
-    // On a flush, min_unflushed_change_metadata_op_id_ is reset to OpId::Max().
     min_unflushed_change_metadata_op_id_ =
         std::min(min_unflushed_change_metadata_op_id_, applied_op_id);
   }
@@ -1874,6 +1877,7 @@ void RaftGroupMetadata::OnChangeMetadataOperationApplied(const OpId& applied_op_
 }
 
 void RaftGroupMetadata::ResetMinUnflushedChangeMetadataOpIdUnlocked() {
+  // On a flush, min_unflushed_change_metadata_op_id_ is reset to OpId::Max().
   min_unflushed_change_metadata_op_id_ = OpId::Max();
 }
 

@@ -1210,21 +1210,21 @@ class TabletBootstrap {
 
     // When lazy superblock flush is enabled, superblock is flushed on a new segment allocation
     // instead of doing it for every CHANGE_METADATA_OP. This reduces the latency of applying
-    // a CHANGE_METADATA_OP. The committed but unflushed CHANGE_METADATA_OP WAL entries will be
-    // limited to the last two segments:
+    // a CHANGE_METADATA_OP. In this approach, the committed but unflushed CHANGE_METADATA_OP WAL
+    // entries are guaranteed to be limited to the last two segments:
     //  1. Say there are two wal segments: seg0, seg1 (active segment).
     //  2. When seg1 is about to exceed the max size, seg2 is asynchronously allocated. Writes
     //     continue to go seg1 in the meantime.
     //  3. Before completing the seg2 allocation, we flush the superblock. This guarantees
-    //     that all the CHANGE_METADATA_OP entries in seg0 are flushed to superblock on disk (we
-    //     can't say the same about seg1 because it is still open and potentially appending
-    //     entries).
+    //     that all the CHANGE_METADATA_OPsq in seg0 are flushed to superblock on disk (as
+    //     seg0 closed). We can't say the same about seg1 as it is still open and potentially
+    //     appending entries.
     //  4. Log rolls over, seg1 is closed and writes now go to seg2.
     //  At this point, the committed unflushed metadata entries are limited to seg1 and seg2.
     //
-    // To ensure persistence of these operations, we replay a minimum of two WAL segments on tablet
-    // bootstrap (if present). Currently, this feature is applicable only on colocated table
-    // creation. Reference: https://github.com/yugabyte/yugabyte-db/issues/16116.
+    // To ensure persistence of such unflushed operations, we replay a minimum of two WAL segments
+    // (if present) on tablet bootstrap. Currently, this feature is applicable only on colocated
+    // table creation. Reference: https://github.com/yugabyte/yugabyte-db/issues/16116.
     //
     // We should be able to get rid of this requirement when we address:
     // https://github.com/yugabyte/yugabyte-db/issues/16684.
