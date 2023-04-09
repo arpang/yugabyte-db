@@ -1861,6 +1861,8 @@ void RaftGroupMetadata::SetLastAppliedChangeMetadataOperationOpId(const OpId& op
 void RaftGroupMetadata::OnChangeMetadataOperationAppliedUnlocked(const OpId& applied_op_id) {
   SetLastAppliedChangeMetadataOperationOpIdUnlocked(applied_op_id);
   if (applied_op_id.valid()) {
+    // If min_unflushed_change_metadata_op_id_ == OpId::Max(), set it to applied_op_id.
+    // On a flush, min_unflushed_change_metadata_op_id_ is reset to OpId::Max().
     min_unflushed_change_metadata_op_id_ =
         std::min(min_unflushed_change_metadata_op_id_, applied_op_id);
   }
