@@ -620,9 +620,10 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   OpId LastAppliedChangeMetadataOperationOpId() const;
 
-  void SetLastAppliedChangeMetadataOperationOpIdUnlocked(const OpId& op_id) REQUIRES(data_mutex_);
-
   void SetLastAppliedChangeMetadataOperationOpId(const OpId& op_id);
+
+  // Takes OpId of the change metadata operation applied as argument.
+  void OnChangeMetadataOperationApplied(const OpId& applied_opid);
 
   OpId MinUnflushedChangeMetadataOpId() const;
 
@@ -667,6 +668,10 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   }
 
   void ResetMinUnflushedChangeMetadataOpIdUnlocked() REQUIRES(data_mutex_);
+
+  void SetLastAppliedChangeMetadataOperationOpIdUnlocked(const OpId& op_id) REQUIRES(data_mutex_);
+
+  void OnChangeMetadataOperationAppliedUnlocked(const OpId& applied_op_id) REQUIRES(data_mutex_);
 
   enum State {
     kNotLoadedYet,
@@ -745,7 +750,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   OpId last_flushed_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
 
   // OpId of the earliest applied change metadata operation that has not been flushed to disk. Used
-  // to prevent WAL GC.
+  // to prevent WAL GC of such operations.
   OpId min_unflushed_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Max();
 
   DISALLOW_COPY_AND_ASSIGN(RaftGroupMetadata);

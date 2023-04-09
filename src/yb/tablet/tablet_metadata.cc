@@ -917,21 +917,28 @@ Status RaftGroupMetadata::Flush(OnlyIfDirty only_if_dirty) {
                "raft_group_id", raft_group_id_);
   MutexLock l_flush(flush_lock_);
   RaftGroupReplicaSuperBlockPB pb;
+  OpId last_applied_change_metadata_op_id;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
     SCHECK(
         last_flushed_change_metadata_op_id_ <= last_applied_change_metadata_op_id_, IllegalState,
         "Superblock flush marker ahead of apply marker");
-    if (only_if_dirty &&
-        last_flushed_change_metadata_op_id_ == last_applied_change_metadata_op_id_) {
+    bool is_drty = last_flushed_change_metadata_op_id_ < last_applied_change_metadata_op_id_;
+    if (only_if_dirty && !is_drty) {
       // Skipping flush as in-memory metadata is not dirty.
       return Status::OK();
     }
-    last_flushed_change_metadata_op_id_ = last_applied_change_metadata_op_id_;
     ToSuperBlockUnlocked(&pb);
+    last_applied_change_metadata_op_id = last_applied_change_metadata_op_id_;
     ResetMinUnflushedChangeMetadataOpIdUnlocked();
   }
   RETURN_NOT_OK(SaveToDiskUnlocked(pb));
+  {
+    // Update last_flushed_change_metadata_op_id_ only after disk write is complete. This removes
+    // the need to hold flush_lock_ for reading last_flushed_change_metadata_op_id_.
+    std::lock_guard<MutexType> lock(data_mutex_);
+    last_flushed_change_metadata_op_id_ = last_applied_change_metadata_op_id;
+  }
   TRACE("Metadata flushed");
 
   return Status::OK();
@@ -1067,8 +1074,8 @@ void RaftGroupMetadata::ToSuperBlockUnlocked(RaftGroupReplicaSuperBlockPB* super
     }
   }
 
-  if (last_flushed_change_metadata_op_id_.valid()) {
-    last_flushed_change_metadata_op_id_.ToPB(pb.mutable_last_change_metadata_op_id());
+  if (last_applied_change_metadata_op_id_.valid()) {
+    last_applied_change_metadata_op_id_.ToPB(pb.mutable_last_change_metadata_op_id());
   }
 
   superblock->Swap(&pb);
@@ -1138,7 +1145,7 @@ void RaftGroupMetadata::SetSchemaUnlocked(const Schema& schema,
   // which essentially implies that we mute this new logic until
   // we get a new change metadata operation request post tablet bootstrap.
   // 2. During remote bootstrap in RemoteBootstrapClient::Start.
-  SetLastAppliedChangeMetadataOperationOpIdUnlocked(op_id);
+  OnChangeMetadataOperationAppliedUnlocked(op_id);
 }
 
 void RaftGroupMetadata::SetPartitionSchema(const PartitionSchema& partition_schema) {
@@ -1166,7 +1173,7 @@ void RaftGroupMetadata::SetTableNameUnlocked(
   DCHECK(it != tables.end());
   it->second->namespace_name = namespace_name;
   it->second->table_name = table_name;
-  SetLastAppliedChangeMetadataOperationOpIdUnlocked(op_id);
+  OnChangeMetadataOperationAppliedUnlocked(op_id);
 }
 
 void RaftGroupMetadata::SetSchemaAndTableName(
@@ -1212,7 +1219,7 @@ void RaftGroupMetadata::AddTable(const std::string& table_id,
   std::lock_guard<MutexType> lock(data_mutex_);
   auto& tables = kv_store_.tables;
   auto[iter, inserted] = tables.emplace(table_id, new_table_info);
-  SetLastAppliedChangeMetadataOperationOpIdUnlocked(op_id);
+  OnChangeMetadataOperationAppliedUnlocked(op_id);
   if (inserted) {
     VLOG_WITH_PREFIX(1) << "Added table with schema version " << schema_version << "\n"
                         << AsString(new_table_info);
@@ -1260,7 +1267,7 @@ void RaftGroupMetadata::RemoveTable(const TableId& table_id, const OpId& op_id) 
     }
     tables.erase(it);
   }
-  SetLastAppliedChangeMetadataOperationOpIdUnlocked(op_id);
+  OnChangeMetadataOperationAppliedUnlocked(op_id);
 }
 
 string RaftGroupMetadata::data_root_dir() const {
@@ -1825,6 +1832,8 @@ Status CheckCanServeTabletData(const RaftGroupMetadata& metadata) {
 }
 
 OpId RaftGroupMetadata::LastFlushedChangeMetadataOperationOpId() const {
+  // Since last_flushed_change_metadata_op_id_ is updated only after the superblock is persisted
+  // to disk, holding flush_lock_ is not required to read it.
   std::lock_guard<MutexType> lock(data_mutex_);
   return last_flushed_change_metadata_op_id_;
 }
@@ -1841,7 +1850,6 @@ void RaftGroupMetadata::SetLastAppliedChangeMetadataOperationOpIdUnlocked(const 
   }
   if (op_id.valid()) {
     last_applied_change_metadata_op_id_ = op_id;
-    min_unflushed_change_metadata_op_id_ = std::min(min_unflushed_change_metadata_op_id_, op_id);
   }
 }
 
@@ -1850,11 +1858,26 @@ void RaftGroupMetadata::SetLastAppliedChangeMetadataOperationOpId(const OpId& op
   SetLastAppliedChangeMetadataOperationOpIdUnlocked(op_id);
 }
 
+void RaftGroupMetadata::OnChangeMetadataOperationAppliedUnlocked(const OpId& applied_op_id) {
+  SetLastAppliedChangeMetadataOperationOpIdUnlocked(applied_op_id);
+  if (applied_op_id.valid()) {
+    min_unflushed_change_metadata_op_id_ =
+        std::min(min_unflushed_change_metadata_op_id_, applied_op_id);
+  }
+}
+
+void RaftGroupMetadata::OnChangeMetadataOperationApplied(const OpId& applied_op_id) {
+  std::lock_guard<MutexType> lock(data_mutex_);
+  OnChangeMetadataOperationAppliedUnlocked(applied_op_id);
+}
+
 void RaftGroupMetadata::ResetMinUnflushedChangeMetadataOpIdUnlocked() {
   min_unflushed_change_metadata_op_id_ = OpId::Max();
 }
 
 OpId RaftGroupMetadata::MinUnflushedChangeMetadataOpId() const {
+  // flush_lock_ is required because min_unflushed_change_metadata_op_id_ is updated during
+  // superblock flush.
   MutexLock l_flush(flush_lock_);
   std::lock_guard<MutexType> lock(data_mutex_);
   return min_unflushed_change_metadata_op_id_;

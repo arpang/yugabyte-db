@@ -1224,7 +1224,10 @@ class TabletBootstrap {
     //
     // To ensure persistence of these operations, we replay a minimum of two WAL segments on tablet
     // bootstrap (if present). Currently, this feature is applicable only on colocated table
-    // creation. Reference: https://github.com/yugabyte/yugabyte-db/issues/16116
+    // creation. Reference: https://github.com/yugabyte/yugabyte-db/issues/16116.
+    //
+    // We should be able to get rid of this requirement when we address:
+    // https://github.com/yugabyte/yugabyte-db/issues/16684.
     if (min_duration_to_retain_logs == 0s && meta_->IsLazySuperblockFlushEnabled() &&
         segments.size() > 1) {
       // This below ensures atleast two segments are replayed. Please refer to the function comment
