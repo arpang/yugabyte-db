@@ -779,6 +779,9 @@ RaftGroupMetadata::RaftGroupMetadata(
   CHECK_GT(data.table_info->schema().num_key_columns(), 0);
   kv_store_.tables.emplace(primary_table_id_, data.table_info);
   kv_store_.UpdateColocationMap(data.table_info);
+  if (FLAGS_TEST_invalidate_last_change_metadata_op) {
+    last_applied_change_metadata_op_id_ = OpId::Invalid();
+  }
 }
 
 RaftGroupMetadata::~RaftGroupMetadata() {
@@ -923,9 +926,10 @@ Status RaftGroupMetadata::Flush(OnlyIfDirty only_if_dirty) {
   OpId last_applied_change_metadata_op_id;
   {
     std::lock_guard<MutexType> lock(data_mutex_);
-    SCHECK(
+    SCHECK_FORMAT(
         last_flushed_change_metadata_op_id_ <= last_applied_change_metadata_op_id_, IllegalState,
-        "Superblock flush marker ahead of apply marker");
+        "Superblock flush marker $0 ahead of apply marker $1", last_flushed_change_metadata_op_id_,
+        last_applied_change_metadata_op_id_);
     bool is_drty = last_flushed_change_metadata_op_id_ < last_applied_change_metadata_op_id_;
     if (only_if_dirty && !is_drty) {
       // Skipping flush as in-memory metadata is not dirty.
