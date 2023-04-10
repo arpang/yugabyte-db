@@ -1216,7 +1216,7 @@ class TabletBootstrap {
     //  2. When seg1 is about to exceed the max size, seg2 is asynchronously allocated. Writes
     //     continue to go seg1 in the meantime.
     //  3. Before completing the seg2 allocation, we flush the superblock. This guarantees
-    //     that all the CHANGE_METADATA_OPsq in seg0 are flushed to superblock on disk (as
+    //     that all the CHANGE_METADATA_OPs in seg0 are flushed to superblock on disk (as
     //     seg0 closed). We can't say the same about seg1 as it is still open and potentially
     //     appending entries.
     //  4. Log rolls over, seg1 is closed and writes now go to seg2.
@@ -1230,8 +1230,11 @@ class TabletBootstrap {
     // https://github.com/yugabyte/yugabyte-db/issues/16684.
     if (min_duration_to_retain_logs == 0s && meta_->IsLazySuperblockFlushEnabled() &&
         segments.size() > 1) {
-      // This below ensures atleast two segments are replayed. Please refer to the function comment
-      // for reason.
+      // The below ensures atleast two segments are replayed. This is because to find the segment to
+      // start replay from we take the last segment's first operation's restart-safe time, subtract
+      // min_duration_to_retain_logs from it, and find the segment that has that time or earlier as
+      // its first operation's restart-safe time. Please refer to the function comment for more
+      // details.
       min_duration_to_retain_logs = std::chrono::nanoseconds(1);
     }
 
