@@ -1835,8 +1835,8 @@ void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterat
     auto client = ASSERT_RESULT(cluster_->CreateClient());
     auto table_id =
         ASSERT_RESULT(GetTableIdByTableName(client.get(), database, table_prefix + "0"));
-    ASSERT_OK(
-        client->FlushTables({table_id}, false /* add_indexes */, 30, false /* is_compaction */));
+    ASSERT_OK(client->FlushTables(
+        {table_id}, /* add_indexes = */ false, 30, /* is_compaction = */ false));
 
     const auto ts_idx_to_bootstrap = 2;
 
@@ -1936,7 +1936,8 @@ TEST_F(RemoteBootstrapITest, YB_DISABLE_TEST_IN_TSAN(TestRBSWithLazySuperblockFl
   // Skip flushing superblock on table flush.
   ts_flags.push_back("--TEST_skip_force_superblock_flush=true");
 
-  ASSERT_NO_FATALS(StartCluster(ts_flags, {} /* master_flags */, 3, true));
+  ASSERT_NO_FATALS(StartCluster(
+      ts_flags, /* master_flags = */ {}, /* num_tablet_servers = */ 3, /* enable_ysql = */ true));
   RBSWithLazySuperblockFlush(20, 4);
 }
 
