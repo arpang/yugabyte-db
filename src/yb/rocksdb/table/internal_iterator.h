@@ -28,6 +28,11 @@ namespace rocksdb {
 
 class Comparator;
 
+struct ScanForwardResult {
+  bool reached_upperbound = false;
+  uint64_t number_of_keys_visited = 0;
+};
+
 class InternalIterator : public Cleanable {
  public:
   InternalIterator() {}
@@ -35,7 +40,14 @@ class InternalIterator : public Cleanable {
 
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.
+  // It is mandatory to check status() to distinguish between absence of entry vs read error.
   virtual bool Valid() const = 0;
+
+  // Same as Valid(), but returns error if there was a read error.
+  // For hot paths consider using Valid() in a loop and checking status after the loop.
+  yb::Result<bool> CheckedValid() const {
+    return Valid() ? true : (status().ok() ? yb::Result<bool>(false) : status());
+  }
 
   // Position at the first key in the source.  The iterator is Valid()
   // after this call iff the source is not empty.
@@ -117,11 +129,12 @@ class InternalIterator : public Cleanable {
   // Output: Returns bool when the upperbound is reached, otherwise returns false when either
   //  callback failed (i.e. returned false) or lower layer ran into some issue when reading data.
   //  status() call should be used to figure out the callback failure vs lower layer failure.
-  virtual bool ScanForward(
+  //  Result also includes the number of keys which were visited.
+  virtual ScanForwardResult ScanForward(
       const Comparator* user_key_comparator, const Slice& upperbound,
       KeyFilterCallback* key_filter_callback, ScanCallback* scan_callback) {
     LOG(FATAL) << "ScanForward is not supported yet";
-    return false;
+    return ScanForwardResult();
   }
 
  private:

@@ -37,6 +37,7 @@
 #include "nodes/execnodes.h"
 #include "nodes/nodeFuncs.h"
 #include "commands/dbcommands.h"
+#include "executor/executor.h"
 #include "executor/tuptable.h"
 #include "executor/ybcExpr.h"
 #include "executor/ybcModifyTable.h"
@@ -317,6 +318,7 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 	if (!is_single_row_txn)
 		YBCPgAddIntoForeignKeyReferenceCache(relid, tuple->t_ybctid);
 
+	bms_free(pkey);
 	return HeapTupleGetOid(tuple);
 }
 
@@ -564,7 +566,8 @@ bool YBCExecuteDelete(Relation rel,
 					  List *returning_columns,
 					  bool target_tuple_fetched,
 					  bool is_single_row_txn,
-					  bool changingPart)
+					  bool changingPart,
+					  EState *estate)
 {
 	TupleDesc		tupleDesc = RelationGetDescr(rel);
 	Oid				dboid = YBCGetDatabaseOid(rel);
@@ -600,14 +603,18 @@ bool YBCExecuteDelete(Relation rel,
 	if (ybctid == 0)
 	{
 		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_COLUMN), errmsg(
-					"Missing column ybctid in DELETE request to YugaByte database")));
+				(errcode(ERRCODE_UNDEFINED_COLUMN),
+				 errmsg("Missing column ybctid in DELETE request")));
 	}
+
+	MemoryContext oldContext = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
 
 	/* Bind ybctid to identify the current row. */
 	YBCPgExpr ybctid_expr = YBCNewConstant(delete_stmt, BYTEAOID, InvalidOid, ybctid,
 										   false /* is_null */);
 	HandleYBStatus(YBCPgDmlBindColumn(delete_stmt, YBTupleIdAttributeNumber, ybctid_expr));
+
+	MemoryContextSwitchTo(oldContext);
 
 	/* Delete row from foreign key cache */
 	YBCPgDeleteFromForeignKeyReferenceCache(relid, ybctid);
@@ -821,8 +828,8 @@ bool YBCExecuteUpdate(Relation rel,
 
 	if (ybctid == 0)
 		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_COLUMN), errmsg(
-					"Missing column ybctid in UPDATE request")));
+				(errcode(ERRCODE_UNDEFINED_COLUMN),
+				 errmsg("Missing column ybctid in UPDATE request")));
 
 	YBCBindTupleId(update_stmt, ybctid);
 
@@ -831,7 +838,7 @@ bool YBCExecuteUpdate(Relation rel,
 	bool		whole_row	= bms_is_member(InvalidAttrNumber, updatedCols);
 	ListCell   *pushdown_lc	= list_head(mt_plan->ybPushdownTlist);
 
-	Bitmapset *pkey PG_USED_FOR_ASSERTS_ONLY = YBGetTablePrimaryKeyBms(rel);
+	Bitmapset *pkey = YBGetTablePrimaryKeyBms(rel);
 
 	for (int idx = 0; idx < outputTupleDesc->natts; idx++)
 	{
@@ -853,6 +860,7 @@ bool YBCExecuteUpdate(Relation rel,
 		 */
 		Assert(!bms_is_member(attnum - minattr, pkey));
 
+		MemoryContext oldContext = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
 		/* Assign this attr's value, handle expression pushdown if needed. */
 		if (pushdown_lc != NULL &&
 			((TargetEntry *) lfirst(pushdown_lc))->resno == attnum)
@@ -879,7 +887,9 @@ bool YBCExecuteUpdate(Relation rel,
 
 			HandleYBStatus(YBCPgDmlAssignColumn(update_stmt, attnum, ybc_expr));
 		}
+		MemoryContextSwitchTo(oldContext);
 	}
+	bms_free(pkey);
 
 	/*
 	 * Instruct DocDB to return data from the columns required to evaluate
@@ -1082,8 +1092,8 @@ YBCExecuteUpdateLoginAttempts(Oid roleid,
 
 	if (ybctid == 0)
 		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_COLUMN), errmsg(
-					"Missing column ybctid in UPDATE request")));
+				(errcode(ERRCODE_UNDEFINED_COLUMN),
+				 errmsg("Missing column ybctid in UPDATE request")));
 
 	YBCBindTupleId(update_stmt, ybctid);
 
@@ -1125,14 +1135,16 @@ YBCExecuteUpdateLoginAttempts(Oid roleid,
 
 Oid YBCExecuteUpdateReplace(Relation rel,
 							TupleTableSlot *slot,
-							HeapTuple tuple)
+							HeapTuple tuple,
+							EState *estate)
 {
 	YBCExecuteDelete(rel,
 					 slot,
 					 NIL /* returning_columns */,
 					 true /* target_tuple_fetched */,
 					 false /* is_single_row_txn */,
-					 false /* changingPart */);
+					 false /* changingPart */,
+					 estate);
 
 	return YBCExecuteInsert(rel,
 							RelationGetDescr(rel),
@@ -1148,8 +1160,8 @@ void YBCDeleteSysCatalogTuple(Relation rel, HeapTuple tuple)
 
 	if (tuple->t_ybctid == 0)
 		ereport(ERROR,
-		        (errcode(ERRCODE_UNDEFINED_COLUMN), errmsg(
-				        "Missing column ybctid in DELETE request to YugaByte database")));
+				(errcode(ERRCODE_UNDEFINED_COLUMN),
+				 errmsg("Missing column ybctid in DELETE request")));
 
 	/* Prepare DELETE statement. */
 	HandleYBStatus(YBCPgNewDelete(dboid,

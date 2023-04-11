@@ -41,8 +41,6 @@
 #include "yb/rocksdb/options.h"
 #include "yb/rocksdb/statistics.h"
 #include "yb/rocksdb/types.h"
-#undef TEST_SYNC_POINT
-#include "yb/rocksdb/util/sync_point.h"
 #include "yb/rocksdb/util/task_metrics.h"
 
 #include "yb/server/hybrid_clock.h"
@@ -65,6 +63,7 @@
 #include "yb/util/result.h"
 #include "yb/util/size_literals.h"
 #include "yb/util/strongly_typed_bool.h"
+#include "yb/util/sync_point.h"
 #include "yb/util/test_util.h"
 #include "yb/util/threadpool.h"
 #include "yb/util/tsan_util.h"
@@ -179,7 +178,9 @@ class CompactionTest : public YBTest {
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_rocksdb_level0_file_num_compaction_trigger) = 3;
     // Patch tablet options inside tablet manager, will be applied to newly created tablets.
     for (int i = 0 ; i < NumTabletServers(); i++) {
+      ANNOTATE_IGNORE_WRITES_BEGIN();
       cluster_->GetTabletManager(i)->TEST_tablet_options()->listeners.push_back(rocksdb_listener_);
+      ANNOTATE_IGNORE_WRITES_END();
     }
 
     client_ = ASSERT_RESULT(cluster_->CreateClient());
@@ -198,8 +199,7 @@ class CompactionTest : public YBTest {
     YBTest::TearDown();
   }
 
-  void SetupWorkload(IsolationLevel isolation_level,
-      int num_tablets = kNumTablets) {
+  void SetupWorkload(IsolationLevel isolation_level, int num_tablets = kNumTablets) {
     workload_.reset(new TestWorkload(cluster_.get()));
     workload_->set_timeout_allowed(true);
     workload_->set_payload_bytes(kPayloadBytes);
@@ -551,11 +551,11 @@ TEST_F(CompactionTest, ManualCompactionTaskMetrics) {
 
 TEST_F(CompactionTest, FilesOverMaxSizeWithTableTTLDoNotGetAutoCompacted) {
   #ifndef NDEBUG
-    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+    yb::SyncPoint::GetInstance()->LoadDependency({
         {"UniversalCompactionPicker::PickCompaction:SkippingCompaction",
             "CompactionTest::FilesOverMaxSizeDoNotGetAutoCompacted:WaitNoCompaction"}}
     );
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    yb::SyncPoint::GetInstance()->EnableProcessing();
   #endif // NDEBUG
 
   const int kNumFilesToWrite = 10;
@@ -576,8 +576,8 @@ TEST_F(CompactionTest, FilesOverMaxSizeWithTableTTLDoNotGetAutoCompacted) {
   }
 
   #ifndef NDEBUG
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->ClearTrace();
+    yb::SyncPoint::GetInstance()->DisableProcessing();
+    yb::SyncPoint::GetInstance()->ClearTrace();
   #endif // NDEBUG
 }
 
@@ -612,6 +612,24 @@ TEST_F(CompactionTest, MaxFileSizeIgnoredIfNoTableTTL) {
   auto dbs = GetAllRocksDbs(cluster_.get(), false);
   for (auto* db : dbs) {
     ASSERT_LT(db->GetCurrentVersionNumSSTFiles(), kNumFilesToWrite);
+  }
+}
+
+TEST_F(CompactionTest, UpdateLastFullCompactionTimeForTableWithoutWrites) {
+  SetupWorkload(IsolationLevel::NON_TRANSACTIONAL);
+
+  ASSERT_OK(ExecuteManualCompaction());
+  const auto table_info = FindTable(cluster_.get(), workload_->table_name());
+  ASSERT_OK(table_info);
+
+  for (int i = 0; i < NumTabletServers(); ++i) {
+    auto ts_tablet_manager = cluster_->GetTabletManager(i);
+
+    for (const auto& peer : ts_tablet_manager->GetTabletPeers()) {
+      if (peer->tablet_metadata()->table_id() == (*table_info)->id()) {
+        ASSERT_NE(peer->shared_tablet()->metadata()->last_full_compaction_time(), 0);
+      }
+    }
   }
 }
 
@@ -744,11 +762,14 @@ TEST_F(ScheduledFullCompactionsTest, ScheduleWhenExpected) {
   // Manually set the last compaction time for one tablet, and verify that only it gets scheduled.
   auto ts_tablet_manager = cluster_->GetTabletManager(0);
   auto compact_manager = ts_tablet_manager->full_compaction_manager();
-  tablet::TabletPeerPtr peer_with_early_compaction;
+  // Pick an arbitrary DB to assign an earlier compaction time.
+  rocksdb::DB* db_with_early_compaction = dbs[0];
+  bool found_tablet_peer = false;
   for (auto peer : ts_tablet_manager->GetTabletPeers()) {
-    if (peer->shared_tablet()->GetCurrentVersionNumSSTFiles() != 0) {
-      peer_with_early_compaction = peer;
-      auto metadata = peer_with_early_compaction->shared_tablet()->metadata();
+    auto tablet = peer->shared_tablet();
+    // Find the tablet peer with the db for early compaction (matching pointers)
+    if (tablet && tablet->TEST_db() == db_with_early_compaction) {
+      auto metadata = tablet->metadata();
       // Previous compaction time set to 30 days prior to now.
       auto now = clock_->Now();
       metadata->set_last_full_compaction_time(
@@ -756,12 +777,13 @@ TEST_F(ScheduledFullCompactionsTest, ScheduleWhenExpected) {
       ASSERT_OK(metadata->Flush());
       // Next compaction time should be "now" after the reset
       auto next_compact_time =
-          compact_manager->TEST_DetermineNextCompactTime(peer_with_early_compaction, now);
+          compact_manager->TEST_DetermineNextCompactTime(peer, now);
       ASSERT_GE(next_compact_time, now);
+      found_tablet_peer = true;
       break;
     }
   }
-  ASSERT_NE(peer_with_early_compaction, nullptr);
+  ASSERT_TRUE(found_tablet_peer);
 
   // Write more files, then schedule full compactions. Only the peer with the reset metadata
   // should be scheduled.
@@ -781,15 +803,14 @@ TEST_F(ScheduledFullCompactionsTest, ScheduleWhenExpected) {
 
   // Verify that exactly one compaction was scheduled.
   ASSERT_EQ(compact_manager->num_scheduled_last_execution(), 1);
-  for (auto peer : ts_tablet_manager->GetTabletPeers()) {
-    auto num_ssts = peer->shared_tablet()->GetCurrentVersionNumSSTFiles();
-    if (num_ssts == 0) {
-      continue;
-    }
-    if (peer->tablet_id() == peer_with_early_compaction->tablet_id()) {
+  for (auto* db : dbs) {
+    auto num_ssts = db->GetCurrentVersionNumSSTFiles();
+    if (db == db_with_early_compaction) {
+      // The tablet with an early compaction time should only have 1 file.
       ASSERT_EQ(num_ssts, 1);
     } else {
-      ASSERT_GE(num_ssts, kNumFilesToWrite + 1);
+      // All other tablets should have at least 10 files (number originally written).
+      ASSERT_GE(num_ssts, kNumFilesToWrite);
     }
   }
 }

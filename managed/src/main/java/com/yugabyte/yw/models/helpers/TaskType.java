@@ -51,6 +51,8 @@ public enum TaskType {
 
   CreatePitrConfig(com.yugabyte.yw.commissioner.tasks.CreatePitrConfig.class),
 
+  DeletePitrConfig(com.yugabyte.yw.commissioner.tasks.DeletePitrConfig.class),
+
   RestoreSnapshotSchedule(com.yugabyte.yw.commissioner.tasks.RestoreSnapshotSchedule.class),
 
   EditUniverse(com.yugabyte.yw.commissioner.tasks.EditUniverse.class),
@@ -156,8 +158,8 @@ public enum TaskType {
 
   UpdateKubernetesDiskSize(com.yugabyte.yw.commissioner.tasks.UpdateKubernetesDiskSize.class),
 
-  KubernetesCheckStorageClass(
-      com.yugabyte.yw.commissioner.tasks.subtasks.KubernetesCheckStorageClass.class),
+  KubernetesCheckVolumeExpansion(
+      com.yugabyte.yw.commissioner.tasks.subtasks.KubernetesCheckVolumeExpansion.class),
 
   StartMasterOnNode(com.yugabyte.yw.commissioner.tasks.StartMasterOnNode.class),
 
@@ -313,6 +315,8 @@ public enum TaskType {
 
   SetReplicationPaused(
       com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.SetReplicationPaused.class),
+
+  ChangeXClusterRole(com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.ChangeXClusterRole.class),
 
   SetRestoreTime(com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.SetRestoreTime.class),
 

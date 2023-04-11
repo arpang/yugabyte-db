@@ -5,9 +5,9 @@
  * http://github.com/YugaByte/yugabyte-db/blob/master/licenses/POLYFORM-FREE-TRIAL-LICENSE-1.0.0.txt
  */
 import { AxiosError } from 'axios';
-import { FieldValues, Path, UseFormSetError } from 'react-hook-form';
 
-import { YBBeanValidationError, YBPError } from '../../../../redesign/helpers/dtos';
+import { YBPError, YBPStructuredError } from '../../../../redesign/helpers/dtos';
+import { isYBPBeanValidationError, isYBPError } from '../../../../utils/errorHandlingUtils';
 
 export const readFileAsText = (sshKeyFile: File) => {
   const reader = new FileReader();
@@ -60,27 +60,27 @@ export const deleteItem = <TFieldItem extends FieldItem>(
   }
 };
 
-/**
- * Handle server errors on the form component.
- */
-export const handleFormServerError = <TFieldValues extends FieldValues, TFormError>(
-  error: Error | AxiosError<TFormError>,
-  asyncErrorField: Path<TFieldValues>,
-  setError: UseFormSetError<TFieldValues>
+export const getMutateProviderErrorMessage = (
+  error: AxiosError<YBPStructuredError | YBPError>,
+  errorLabel = 'Mutate provider request failed'
 ) => {
-  // Currently we handle server errors by setting an error on a form field
-  // provided by the caller. This will cause the form submission to fail since a field
-  // has an error.
-  // It is the responsisbility of the caller to clear this error when they wish to resubmit.
-  setError(asyncErrorField, { type: 'server', message: error.message });
+  if (isYBPError(error)) {
+    const errorMessageDetails = error.response?.data.error;
+    return `${errorLabel}${errorMessageDetails ? `: ${errorMessageDetails}` : '.'}`;
+  }
+  if (isYBPBeanValidationError(error)) {
+    return `${errorLabel}: Form validation failed.`;
+  }
+  const errorMessageDetails =
+    (error as AxiosError<YBPStructuredError>).response?.data.error?.['message'] ?? error.message;
+  return `${errorLabel}${errorMessageDetails ? `: ${errorMessageDetails}` : '.'}`;
 };
 
-export const getCreateProviderErrorMessage = (
-  error: AxiosError<YBBeanValidationError | YBPError>
-) =>
-  typeof error.response?.data.error === 'string' || error.response?.data.error instanceof String
-    ? `Create provider request failed: ${error.response.data.error as string}`
-    : 'Form validation failed.';
+export const getCreateProviderErrorMessage = (error: AxiosError<YBPStructuredError | YBPError>) =>
+  getMutateProviderErrorMessage(error, 'Create provider request failed');
+
+export const getEditProviderErrorMessage = (error: AxiosError<YBPStructuredError | YBPError>) =>
+  getMutateProviderErrorMessage(error, 'Edit provider request failed');
 
 export const generateLowerCaseAlphanumericId = (stringLength = 14) =>
   Array.from(Array(stringLength), () => Math.floor(Math.random() * 36).toString(36)).join('');

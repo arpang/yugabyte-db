@@ -11,6 +11,7 @@ package com.yugabyte.yw.common;
 
 import com.google.inject.Inject;
 import com.typesafe.config.Config;
+import com.yugabyte.yw.common.inject.StaticInjectorHolder;
 import io.ebean.Ebean;
 import play.Environment;
 
@@ -22,7 +23,11 @@ public class YBALifeCycle {
   private final Environment environment;
 
   @Inject
-  public YBALifeCycle(Config config, ConfigHelper configHelper, Environment environment) {
+  public YBALifeCycle(
+      Config config,
+      ConfigHelper configHelper,
+      Environment environment,
+      StaticInjectorHolder staticInjectorHolder) {
     this.config = config;
     this.configHelper = configHelper;
     this.environment = environment;

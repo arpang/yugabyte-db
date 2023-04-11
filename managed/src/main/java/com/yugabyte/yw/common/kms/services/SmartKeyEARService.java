@@ -18,13 +18,13 @@ import com.google.common.collect.ImmutableMap;
 import com.yugabyte.yw.common.ApiHelper;
 import com.yugabyte.yw.common.Util;
 import com.yugabyte.yw.common.config.RuntimeConfGetter;
+import com.yugabyte.yw.common.inject.StaticInjectorHolder;
 import com.yugabyte.yw.common.kms.algorithms.SmartKeyAlgorithm;
 import com.yugabyte.yw.common.kms.util.KeyProvider;
 import com.yugabyte.yw.forms.EncryptionAtRestConfig;
 import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
-import play.api.Play;
 import play.libs.Json;
 
 /**
@@ -38,15 +38,14 @@ public class SmartKeyEARService extends EncryptionAtRestService<SmartKeyAlgorith
 
   public SmartKeyEARService(RuntimeConfGetter confGetter) {
     super(KeyProvider.SMARTKEY);
-    this.apiHelper = Play.current().injector().instanceOf(ApiHelper.class);
+    this.apiHelper = StaticInjectorHolder.injector().instanceOf(ApiHelper.class);
     this.confGetter = confGetter;
   }
 
   /**
    * A method to retrieve a SmartKey API session token from the inputted api token
    *
-   * @param customerUUID is the customer that the authentication configuration should be retrieved
-   *     for
+   * @param authConfig
    * @return a session token to be used to authorize subsequent requests
    */
   public String retrieveSessionAuthorization(ObjectNode authConfig) {
@@ -167,6 +166,12 @@ public class SmartKeyEARService extends EncryptionAtRestService<SmartKeyAlgorith
     if (errors != null) throw new RuntimeException(errors.toString());
     keyVal = Base64.getDecoder().decode(response.get("value").asText());
     return keyVal;
+  }
+
+  @Override
+  public void refreshKmsWithService(UUID configUUID, ObjectNode authConfig) throws Exception {
+    // Smart key is deprecated - will not be adding new features to it.
+    throw new UnsupportedOperationException("Unimplemented method 'refreshKmsWithService'");
   }
 
   @Override

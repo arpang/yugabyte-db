@@ -7,6 +7,7 @@ import com.yugabyte.yw.common.AccessManager;
 import com.yugabyte.yw.common.Util;
 import com.yugabyte.yw.common.config.GlobalConfKeys;
 import com.yugabyte.yw.common.config.RuntimeConfGetter;
+import com.yugabyte.yw.common.inject.StaticInjectorHolder;
 import io.ebean.Finder;
 import io.ebean.Model;
 import io.ebean.annotation.CreatedTimestamp;
@@ -34,7 +35,6 @@ import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import play.api.Play;
 import play.data.validation.Constraints;
 
 @Entity
@@ -49,14 +49,9 @@ public class FileData extends Model {
   private static final String UUID_PATTERN =
       "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 
-  @EmbeddedId public FileDataId file;
+  @EmbeddedId private FileDataId file;
 
   @Constraints.Required private UUID parentUUID;
-
-  public UUID getParentUUID() {
-    return this.parentUUID;
-  }
-
   // The task creation time.
   @CreatedTimestamp private Date timestamp;
 
@@ -111,12 +106,13 @@ public class FileData extends Model {
   }
 
   public static String getStoragePath() {
-    Config appConfig = Play.current().injector().instanceOf(Config.class);
+    Config appConfig = StaticInjectorHolder.injector().instanceOf(Config.class);
     return appConfig.getString(YB_STORAGE_PATH);
   }
 
   public static void writeFileToDB(String file) {
-    RuntimeConfGetter confGetter = Play.current().injector().instanceOf(RuntimeConfGetter.class);
+    RuntimeConfGetter confGetter =
+        StaticInjectorHolder.injector().instanceOf(RuntimeConfGetter.class);
     writeFileToDB(file, getStoragePath(), confGetter);
   }
 
@@ -189,7 +185,7 @@ public class FileData extends Model {
       Files.write(absoluteFilePath, fileContent);
       Set<PosixFilePermission> permissions =
           PosixFilePermissions.fromString(AccessManager.PEM_PERMISSIONS);
-      if (fileData.file.fileExtension.equals(PUBLIC_KEY_EXTENSION)) {
+      if (fileData.getFile().fileExtension.equals(PUBLIC_KEY_EXTENSION)) {
         permissions = PosixFilePermissions.fromString(AccessManager.PUB_PERMISSIONS);
       }
       Files.setPosixFilePermissions(absoluteFilePath, permissions);

@@ -95,7 +95,7 @@ export const useSectionStyles = makeStyles((theme) => ({
   sectionContainer: {
     display: 'flex',
     padding: theme.spacing(5, 0),
-    borderBottom: `1px solid ${theme.palette.ybacolors.ybGrayHover}`
+    borderBottom: `1px solid ${theme.palette.ybacolors.ybBorderGray}`
   },
   sectionHeaderFont: {
     fontFamily: 'Inter',
@@ -125,7 +125,8 @@ export const useFormFieldStyles = makeStyles((theme) => ({
   },
   advancedConfigLabel: {
     maxWidth: theme.spacing(28),
-    minWidth: theme.spacing(27)
+    minWidth: theme.spacing(27),
+    zIndex: 2
   },
   advancedConfigTextBox: {
     maxWidth: theme.spacing(58.5),

@@ -5,6 +5,7 @@ package com.yugabyte.yw.commissioner;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,7 @@ import com.yugabyte.yw.common.ModelFactory;
 import com.yugabyte.yw.common.NodeUniverseManager;
 import com.yugabyte.yw.common.PlatformScheduler;
 import com.yugabyte.yw.common.ReleaseManager;
+import com.yugabyte.yw.common.ShellResponse;
 import com.yugabyte.yw.common.Util;
 import com.yugabyte.yw.common.config.GlobalConfKeys;
 import com.yugabyte.yw.common.config.RuntimeConfGetter;
@@ -70,7 +72,7 @@ public class YbcUpgradeTest extends FakeDBApplication {
         ModelFactory.createUniverse(
             "Test-Universe-1",
             UUID.randomUUID(),
-            defaultCustomer.getCustomerId(),
+            defaultCustomer.getId(),
             CloudType.aws,
             null,
             null,
@@ -81,6 +83,9 @@ public class YbcUpgradeTest extends FakeDBApplication {
             any(Universe.class), eq(UniverseConfKeys.ybcAllowScheduledUpgrade)))
         .thenReturn(true);
     when(mockYbcManager.getStableYbcVersion()).thenReturn(NEW_YBC_VERSION);
+
+    ShellResponse response = new ShellResponse();
+    when(mockNodeUniverseManager.runCommand(any(), any(), anyList(), any())).thenReturn(response);
     mockYbcClient = mock(YbcClient.class);
     mockYbcClient2 = mock(YbcClient.class);
     ybcUpgrade =
@@ -117,22 +122,22 @@ public class YbcUpgradeTest extends FakeDBApplication {
     ybcUpgrade.scheduleRunner();
     assertEquals(
         NEW_YBC_VERSION,
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
   }
 
   @Test
   public void testUpgradeRequestFailure() {
     when(mockYbcClient.Upgrade(any())).thenReturn(null);
     when(mockYbcClientService.getNewClient(any(), anyInt(), any())).thenReturn(mockYbcClient);
-    String oldYbcVersion = defaultUniverse.getUniverseDetails().ybcSoftwareVersion;
+    String oldYbcVersion = defaultUniverse.getUniverseDetails().getYbcSoftwareVersion();
     ybcUpgrade.scheduleRunner();
     assertEquals(
         oldYbcVersion,
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
   }
 
   @Test
@@ -141,12 +146,12 @@ public class YbcUpgradeTest extends FakeDBApplication {
         ModelFactory.createUniverse(
             "Test-Universe-2",
             UUID.randomUUID(),
-            defaultCustomer.getCustomerId(),
+            defaultCustomer.getId(),
             CloudType.aws,
             null,
             null,
             true);
-    String oldYbcVersion = universe.getUniverseDetails().ybcSoftwareVersion;
+    String oldYbcVersion = universe.getUniverseDetails().getYbcSoftwareVersion();
     UpgradeResponse resp =
         UpgradeResponse.newBuilder()
             .setStatus(RpcControllerStatus.newBuilder().setCode(ControllerStatus.OK).build())
@@ -168,11 +173,13 @@ public class YbcUpgradeTest extends FakeDBApplication {
         .scheduleRunner();
     Set<String> universeYbcVersions = new HashSet<>();
     universeYbcVersions.add(
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
     universeYbcVersions.add(
-        Universe.getOrBadRequest(universe.universeUUID).getUniverseDetails().ybcSoftwareVersion);
+        Universe.getOrBadRequest(universe.getUniverseUUID())
+            .getUniverseDetails()
+            .getYbcSoftwareVersion());
     Set<String> expectedUniversesYbcVersions = new HashSet<>();
     expectedUniversesYbcVersions.add(oldYbcVersion);
     expectedUniversesYbcVersions.add(NEW_YBC_VERSION);
@@ -185,12 +192,12 @@ public class YbcUpgradeTest extends FakeDBApplication {
         ModelFactory.createUniverse(
             "Test-Universe-2",
             UUID.randomUUID(),
-            defaultCustomer.getCustomerId(),
+            defaultCustomer.getId(),
             CloudType.aws,
             null,
             null,
             true);
-    String oldYbcVersion = universe.getUniverseDetails().ybcSoftwareVersion;
+    String oldYbcVersion = universe.getUniverseDetails().getYbcSoftwareVersion();
     UpgradeResponse resp =
         UpgradeResponse.newBuilder()
             .setStatus(RpcControllerStatus.newBuilder().setCode(ControllerStatus.OK).build())
@@ -214,11 +221,13 @@ public class YbcUpgradeTest extends FakeDBApplication {
         .scheduleRunner();
     Set<String> universeYbcVersions = new HashSet<>();
     universeYbcVersions.add(
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
     universeYbcVersions.add(
-        Universe.getOrBadRequest(universe.universeUUID).getUniverseDetails().ybcSoftwareVersion);
+        Universe.getOrBadRequest(universe.getUniverseUUID())
+            .getUniverseDetails()
+            .getYbcSoftwareVersion());
     Set<String> expectedUniversesYbcVersions = new HashSet<>();
     expectedUniversesYbcVersions.add(oldYbcVersion);
     expectedUniversesYbcVersions.add(NEW_YBC_VERSION);
@@ -231,7 +240,7 @@ public class YbcUpgradeTest extends FakeDBApplication {
         ModelFactory.createUniverse(
             "Test-Universe-3",
             UUID.randomUUID(),
-            defaultCustomer.getCustomerId(),
+            defaultCustomer.getId(),
             CloudType.aws,
             null,
             null,
@@ -259,31 +268,33 @@ public class YbcUpgradeTest extends FakeDBApplication {
         .scheduleRunner();
     assertEquals(
         NEW_YBC_VERSION,
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
     assertEquals(
         NEW_YBC_VERSION,
-        Universe.getOrBadRequest(universe.universeUUID).getUniverseDetails().ybcSoftwareVersion);
+        Universe.getOrBadRequest(universe.getUniverseUUID())
+            .getUniverseDetails()
+            .getYbcSoftwareVersion());
   }
 
   @Test
   public void testUpgradeFailedUniverse() {
     when(mockYbcClient.Upgrade(any())).thenReturn(null);
     when(mockYbcClientService.getNewClient(any(), anyInt(), any())).thenReturn(mockYbcClient);
-    String oldYbcVersion = defaultUniverse.getUniverseDetails().ybcSoftwareVersion;
+    String oldYbcVersion = defaultUniverse.getUniverseDetails().getYbcSoftwareVersion();
     ybcUpgrade.scheduleRunner();
     assertEquals(
         oldYbcVersion,
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
     ybcUpgrade.scheduleRunner();
     assertEquals(
         oldYbcVersion,
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
     UpgradeResponse resp =
         UpgradeResponse.newBuilder()
             .setStatus(RpcControllerStatus.newBuilder().setCode(ControllerStatus.OK).build())
@@ -296,9 +307,9 @@ public class YbcUpgradeTest extends FakeDBApplication {
     ybcUpgrade.scheduleRunner();
     assertEquals(
         NEW_YBC_VERSION,
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
   }
 
   @Test
@@ -323,13 +334,13 @@ public class YbcUpgradeTest extends FakeDBApplication {
             defaultUniverse.getUniverseDetails().communicationPorts.ybControllerrRpcPort,
             defaultUniverse.getCertificateNodetoNode()))
         .thenReturn(mockYbcClient2);
-    String oldYbcVersion = defaultUniverse.getUniverseDetails().ybcSoftwareVersion;
+    String oldYbcVersion = defaultUniverse.getUniverseDetails().getYbcSoftwareVersion();
     ybcUpgrade.scheduleRunner();
     assertEquals(
         oldYbcVersion,
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
     when(mockYbcClient2.Upgrade(any())).thenReturn(resp);
     when(mockYbcClient2.UpgradeResult(any())).thenReturn(upgradeResultResponse);
     when(mockYbcClientService.getNewClient(
@@ -340,9 +351,9 @@ public class YbcUpgradeTest extends FakeDBApplication {
     ybcUpgrade.scheduleRunner();
     assertEquals(
         NEW_YBC_VERSION,
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
   }
 
   @Test
@@ -350,13 +361,13 @@ public class YbcUpgradeTest extends FakeDBApplication {
     when(mockConfGetter.getConfForScope(
             any(Universe.class), eq(UniverseConfKeys.ybcAllowScheduledUpgrade)))
         .thenReturn(false);
-    String oldYbcVersion = defaultUniverse.getUniverseDetails().ybcSoftwareVersion;
+    String oldYbcVersion = defaultUniverse.getUniverseDetails().getYbcSoftwareVersion();
     ybcUpgrade.scheduleRunner();
     assertEquals(
         oldYbcVersion,
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
 
     UpgradeResponse resp =
         UpgradeResponse.newBuilder()
@@ -373,8 +384,8 @@ public class YbcUpgradeTest extends FakeDBApplication {
     ybcUpgrade.scheduleRunner();
     assertEquals(
         NEW_YBC_VERSION,
-        Universe.getOrBadRequest(defaultUniverse.universeUUID)
+        Universe.getOrBadRequest(defaultUniverse.getUniverseUUID())
             .getUniverseDetails()
-            .ybcSoftwareVersion);
+            .getYbcSoftwareVersion());
   }
 }

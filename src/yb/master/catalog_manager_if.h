@@ -115,6 +115,9 @@ class CatalogManagerIf {
   virtual Status GetClusterConfig(GetMasterClusterConfigResponsePB* resp) = 0;
   virtual Status GetClusterConfig(SysClusterConfigEntryPB* config) = 0;
 
+  virtual Status GetXClusterConfig(GetMasterXClusterConfigResponsePB* resp) = 0;
+  virtual Status GetXClusterConfig(SysXClusterConfigEntryPB* config) = 0;
+
   virtual Status SetClusterConfig(
     const ChangeMasterClusterConfigRequestPB* req, ChangeMasterClusterConfigResponsePB* resp) = 0;
 
@@ -223,8 +226,6 @@ class CatalogManagerIf {
       const IsInitDbDoneRequestPB* req, IsInitDbDoneResponsePB* resp) = 0;
 
   virtual void DumpState(std::ostream* out, bool on_disk_dump = false) const = 0;
-
-  virtual Status VisitSysCatalog(int64_t term) = 0;
 
   virtual scoped_refptr<TableInfo> NewTableInfo(TableId id, bool colocated) = 0;
 

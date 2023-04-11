@@ -38,6 +38,10 @@
 
 #include "yb/server/skewed_clock.h"
 
+#include "yb/tserver/mini_tablet_server.h"
+#include "yb/tserver/pg_client_service.h"
+#include "yb/tserver/tablet_server.h"
+
 #include "yb/tablet/tablet.h"
 #include "yb/tablet/tablet_peer.h"
 #include "yb/tablet/transaction_participant.h"
@@ -49,6 +53,7 @@
 #include "yb/util/debug-util.h"
 #include "yb/util/enums.h"
 #include "yb/util/random_util.h"
+#include "yb/util/range.h"
 #include "yb/util/scope_exit.h"
 #include "yb/util/status_log.h"
 #include "yb/util/stopwatch.h"
@@ -67,6 +72,7 @@ DECLARE_bool(TEST_force_master_leader_resolution);
 DECLARE_bool(TEST_timeout_non_leader_master_rpcs);
 DECLARE_bool(enable_automatic_tablet_splitting);
 DECLARE_bool(enable_pg_savepoints);
+DECLARE_bool(enable_tracing);
 DECLARE_bool(flush_rocksdb_on_shutdown);
 DECLARE_bool(rocksdb_use_logging_iterator);
 
@@ -96,10 +102,14 @@ DECLARE_int64(tablet_split_low_phase_size_threshold_bytes);
 
 DECLARE_uint64(max_clock_skew_usec);
 
+DECLARE_string(time_source);
+
 DECLARE_bool(ysql_enable_packed_row);
 DECLARE_bool(ysql_enable_packed_row_for_colocated_table);
 
 DECLARE_bool(rocksdb_disable_compactions);
+DECLARE_uint64(pg_client_session_expiration_ms);
+DECLARE_uint64(pg_client_heartbeat_interval_ms);
 
 namespace yb {
 namespace pgwrapper {
@@ -240,6 +250,36 @@ class PgMiniMasterFailoverTest : public PgMiniTest {
     return 3;
   }
 };
+
+class PgMiniPgClientServiceCleanupTest : public PgMiniTest {
+ public:
+  void SetUp() override {
+    FLAGS_pg_client_session_expiration_ms = 5000;
+    FLAGS_pg_client_heartbeat_interval_ms = 2000;
+    PgMiniTestBase::SetUp();
+  }
+
+  size_t NumTabletServers() override {
+    return 1;
+  }
+};
+
+TEST_F_EX(PgMiniTest, VerifyPgClientServiceCleanupQueue, PgMiniPgClientServiceCleanupTest) {
+  constexpr size_t kTotalConnections = 30;
+  std::vector<PGConn> connections;
+  connections.reserve(kTotalConnections);
+  for (size_t i = 0; i < kTotalConnections; ++i) {
+    connections.push_back(ASSERT_RESULT(Connect()));
+  }
+  auto* client_service =
+      cluster_->mini_tablet_server(0)->server()->TEST_GetPgClientService();
+  ASSERT_EQ(connections.size(), client_service->TEST_SessionsCount());
+
+  connections.erase(connections.begin() + connections.size() / 2, connections.end());
+  ASSERT_OK(WaitFor([client_service, expected_count = connections.size()]() {
+    return client_service->TEST_SessionsCount() == expected_count;
+  }, 4 * FLAGS_pg_client_session_expiration_ms * 1ms, "client session cleanup", 1s));
+}
 
 // Try to change this to test follower reads.
 TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(FollowerReads)) {
@@ -486,6 +526,46 @@ TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(Simple)) {
   ASSERT_EQ(value, "hello");
 }
 
+TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(Tracing)) {
+  FLAGS_enable_tracing = false;
+  auto conn = ASSERT_RESULT(Connect());
+
+  ASSERT_OK(conn.Execute("CREATE TABLE t (key INT PRIMARY KEY, value TEXT, value2 TEXT)"));
+  LOG(INFO) << "Setting yb_enable_docdb_tracing";
+  ASSERT_OK(conn.Execute("SET yb_enable_docdb_tracing = true"));
+
+  LOG(INFO) << "Doing Insert";
+  ASSERT_OK(conn.Execute("INSERT INTO t (key, value, value2) VALUES (1, 'hello', 'world')"));
+  LOG(INFO) << "Done Insert";
+
+  LOG(INFO) << "Doing Select";
+  auto value = ASSERT_RESULT(conn.FetchValue<std::string>("SELECT value FROM t WHERE key = 1"));
+  ASSERT_EQ(value, "hello");
+  LOG(INFO) << "Done Select";
+
+  LOG(INFO) << "Doing block transaction";
+  ASSERT_OK(conn.Execute("BEGIN TRANSACTION"));
+  ASSERT_OK(conn.Execute("INSERT INTO t (key, value, value2) VALUES (2, 'good', 'morning')"));
+  ASSERT_OK(conn.Execute("INSERT INTO t (key, value, value2) VALUES (3, 'good', 'morning')"));
+  value = ASSERT_RESULT(conn.FetchValue<std::string>("SELECT value FROM t WHERE key = 1"));
+  ASSERT_OK(conn.Execute("ABORT"));
+  LOG(INFO) << "Done block transaction";
+}
+
+TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(TracingSushant)) {
+  FLAGS_enable_tracing = false;
+  auto conn = ASSERT_RESULT(Connect());
+
+  LOG(INFO) << "Setting yb_enable_docdb_tracing";
+  ASSERT_OK(conn.Execute("SET yb_enable_docdb_tracing = true"));
+  LOG(INFO) << "Doing Create";
+  ASSERT_OK(conn.Execute("create table t (h int, r int, v int, primary key (h, r));"));
+  LOG(INFO) << "Done Create";
+  LOG(INFO) << "Doing Insert";
+  ASSERT_OK(conn.Execute("insert into t  values (1,3,1), (1,4,1);"));
+  LOG(INFO) << "Done Insert";
+}
+
 TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(RowLockWithoutTransaction)) {
   auto conn = ASSERT_RESULT(Connect());
 
@@ -615,6 +695,8 @@ void PgMiniTest::TestReadRestart(const bool deferrable) {
 class PgMiniLargeClockSkewTest : public PgMiniTest {
  public:
   void SetUp() override {
+    server::SkewedClock::Register();
+    FLAGS_time_source = server::SkewedClock::kName;
     SetAtomicFlag(250000ULL, &FLAGS_max_clock_skew_usec);
     PgMiniTestBase::SetUp();
   }
@@ -836,6 +918,8 @@ TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(SerializableReadOnly)) {
     ASSERT_TRUE(result.status().IsNetworkError()) << result.status();
     ASSERT_EQ(PgsqlError(result.status()), YBPgErrorCode::YB_PG_T_R_SERIALIZATION_FAILURE)
         << result.status();
+    ASSERT_STR_CONTAINS(
+        result.status().ToString(), "could not serialize access due to concurrent update");
     ASSERT_STR_CONTAINS(result.status().ToString(), "conflicts with higher priority transaction");
   }
 }
@@ -1869,6 +1953,40 @@ TEST_F_EX(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(ManyRowsInsert), PgMiniSingleTServ
   LOG(INFO) << "Time: " << finish - start;
 }
 
+template <class Base>
+class PgMiniNoPrefetchTest : public Base {
+ public:
+  void SetUp() override {
+    FLAGS_ysql_prefetch_limit = 1;
+    Base::SetUp();
+  }
+};
+
+TEST_F_EX(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(ColocatedJoinPerformance),
+          PgMiniNoPrefetchTest<PgMiniSingleTServerTest>) {
+  const std::string kDatabaseName = "testdb";
+  constexpr int kNumRows = RegularBuildVsDebugVsSanitizers(10000, 1000, 100);
+  auto conn = ASSERT_RESULT(Connect());
+
+  ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0 with colocated=true", kDatabaseName));
+
+  conn = ASSERT_RESULT(ConnectToDB(kDatabaseName));
+
+  ASSERT_OK(conn.Execute("CREATE TABLE t1(k INT PRIMARY KEY, v1 INT)"));
+  ASSERT_OK(conn.Execute("CREATE TABLE t2(k INT PRIMARY KEY, v2 INT)"));
+  ASSERT_OK(conn.ExecuteFormat(
+      "INSERT INTO t2 SELECT s, s FROM generate_series(1, $0) AS s", kNumRows));
+  ASSERT_OK(conn.ExecuteFormat(
+      "INSERT INTO t1 SELECT s, s FROM generate_series(1, $0) AS s", kNumRows));
+
+  auto start = MonoTime::Now();
+  auto res = ASSERT_RESULT(conn.FetchValue<int32_t>(
+      "SELECT v1 + v2 FROM t1 INNER JOIN t2 ON (t1.k = t2.k) WHERE v2 < 2 OR v1 < 2"));
+  auto finish = MonoTime::Now();
+  ASSERT_EQ(res, 2);
+  LOG(INFO) << "Time: " << finish - start;
+}
+
 TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(MoveMaster)) {
   ShutdownAllMasters(cluster_.get());
   cluster_->mini_master(0)->set_pass_master_addresses(false);
@@ -1980,20 +2098,42 @@ TEST_F_EX(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(SmallRead), PgMiniBigPrefetchTest)
   Run(kRows, kBlockSize, kReads);
 }
 
-TEST_F_EX(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(Scan), PgMiniBigPrefetchTest) {
-  constexpr int kRows = RegularBuildVsDebugVsSanitizers(1000000, 100000, 10000);
-  constexpr int kBlockSize = 1000;
-  constexpr int kReads = 3;
+namespace {
 
-  Run(kRows, kBlockSize, kReads, /* compact= */ false, /*select*/ true);
+constexpr int kScanRows = RegularBuildVsDebugVsSanitizers(1000000, 100000, 10000);
+constexpr int kScanBlockSize = 1000;
+constexpr int kScanReads = 3;
+
+}
+
+TEST_F_EX(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(Scan), PgMiniBigPrefetchTest) {
+  FLAGS_ysql_enable_packed_row = false;
+  FLAGS_ysql_enable_packed_row_for_colocated_table = false;
+  Run(kScanRows, kScanBlockSize, kScanReads, /* compact= */ false, /* select= */ true);
+}
+
+TEST_F_EX(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(ScanWithPackedRow), PgMiniBigPrefetchTest) {
+  constexpr int kNumColumns = 10;
+
+  FLAGS_ysql_enable_packed_row = true;
+  FLAGS_ysql_enable_packed_row_for_colocated_table = true;
+
+  std::string create_cmd = "CREATE TABLE t (a int PRIMARY KEY";
+  std::string insert_cmd = "INSERT INTO t VALUES (generate_series($0, $1)";
+  for (auto column : Range(kNumColumns)) {
+    create_cmd += Format(", c$0 INT", column);
+    insert_cmd += ", trunc(random()*100000000)";
+  }
+  create_cmd += ")";
+  insert_cmd += ")";
+  const std::string select_cmd = "SELECT * FROM t";
+  SetupColocatedTableAndRunBenchmark(
+      create_cmd, insert_cmd, select_cmd, kScanRows, kScanBlockSize, kScanReads,
+      /* compact= */ false, /* aggregate = */ false);
 }
 
 TEST_F_EX(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(ScanWithCompaction), PgMiniBigPrefetchTest) {
-  constexpr int kRows = RegularBuildVsDebugVsSanitizers(1000000, 100000, 10000);
-  constexpr int kBlockSize = 1000;
-  constexpr int kReads = 3;
-
-  Run(kRows, kBlockSize, kReads, /* compact= */ true, /*select*/ true);
+  Run(kScanRows, kScanBlockSize, kScanReads, /* compact= */ true, /* select= */ true);
 }
 
 TEST_F_EX(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(BigValue), PgMiniSingleTServerTest) {
@@ -2309,7 +2449,7 @@ void PgMiniTest::TestBigInsert(bool restart) {
     read_opts.query_id = rocksdb::kDefaultQueryId;
     std::unique_ptr<rocksdb::Iterator> iter(db->NewIterator(read_opts));
 
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
       Slice key = iter->key();
       ASSERT_FALSE(key.TryConsumeByte(docdb::KeyEntryTypeAsChar::kTransactionApplyState))
           << "Key: " << iter->key().ToDebugString() << ", value: " << iter->value().ToDebugString();
@@ -2350,6 +2490,8 @@ void PgMiniTest::TestConcurrentDeleteRowAndUpdateColumn(bool select_before_updat
   auto status = conn1.Execute("UPDATE t SET j = 21 WHERE i = 2");
   if (select_before_update) {
     ASSERT_NOK(status);
+    ASSERT_STR_CONTAINS(
+        status.message().ToBuffer(), "could not serialize access due to concurrent update");
     ASSERT_STR_CONTAINS(status.message().ToBuffer(), "Value write after transaction start");
     return;
   }
@@ -3186,20 +3328,5 @@ TEST_F_EX(PgMiniTest, YB_DISABLE_TEST(PerfScanG7RangePK100Columns), PgMiniRf1Pac
     LOG(INFO) << kNumScansPerIteration << " scan(s) took: " << AsString(s.elapsed());
   }
 }
-
-class PgMiniTestNoSavePoints : public PgMiniTest {
- public:
-  void SetUp() override {
-    FLAGS_enable_pg_savepoints = 0;
-    PgMiniTest::SetUp();
-  }
-};
-
-TEST_F(PgMiniTestNoSavePoints, YB_DISABLE_TEST_IN_TSAN(TestSavePointCanBeDisabled)) {
-  auto conn1 = ASSERT_RESULT(Connect());
-  ASSERT_NOK(conn1.Execute("SAVEPOINT A"))
-      << "setting FLAGS_enable_pg_savepoints to false should have made SAVEPOINT produce an error";
-}
-
 } // namespace pgwrapper
 } // namespace yb

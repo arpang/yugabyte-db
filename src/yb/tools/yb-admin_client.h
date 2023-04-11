@@ -128,6 +128,8 @@ Status ResponseStatus(
   return Status::OK();
 }
 
+class ImportSnapshotTableFilter;
+
 class ClusterAdminClient {
  public:
   enum PeerMode {
@@ -273,6 +275,8 @@ class ClusterAdminClient {
 
   Status GetUniverseConfig();
 
+  Status GetXClusterConfig();
+
   Status ChangeBlacklist(const std::vector<HostPort>& servers, bool add,
       bool blacklist_leader);
 
@@ -348,7 +352,8 @@ class ClusterAdminClient {
                                 const std::string& file_name);
   Status ImportSnapshotMetaFile(const std::string& file_name,
                                 const TypedNamespaceName& keyspace,
-                                const std::vector<client::YBTableName>& tables);
+                                const std::vector<client::YBTableName>& tables,
+                                bool selective_import);
   Status ListReplicaTypeCounts(const client::YBTableName& table_name);
 
   Status SetPreferredZones(const std::vector<std::string>& preferred_zones);
@@ -542,6 +547,8 @@ class ClusterAdminClient {
 
   Result<master::GetMasterClusterConfigResponsePB> GetMasterClusterConfig();
 
+  Result<master::GetMasterXClusterConfigResponsePB> GetMasterXClusterConfig();
+
   // Perform RPC call without checking Response structure for error
   template<class Response, class Request, class Object>
   Result<Response> InvokeRpcNoResponseCheck(
@@ -580,6 +587,9 @@ class ClusterAdminClient {
   typedef std::unordered_map<NamespaceName, NamespaceName> NSNameToNameMap;
   Status UpdateUDTypes(
       QLTypePB* pb_type, bool* update_meta, const NSNameToNameMap& ns_name_to_name);
+
+  Status ProcessSnapshotInfoPBFile(const std::string& file_name, const TypedNamespaceName& keyspace,
+      ImportSnapshotTableFilter *table_filter);
 
   NamespaceMap namespace_map_;
 

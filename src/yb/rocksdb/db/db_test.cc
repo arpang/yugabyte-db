@@ -56,7 +56,6 @@
 #include "yb/rocksdb/util/logging.h"
 #include "yb/rocksdb/util/mutexlock.h"
 #include "yb/rocksdb/util/rate_limiter.h"
-#include "yb/rocksdb/util/sync_point.h"
 
 #include "yb/rocksutil/yb_rocksdb_logger.h"
 
@@ -66,6 +65,7 @@
 #include "yb/util/random_util.h"
 #include "yb/util/slice.h"
 #include "yb/util/string_util.h"
+#include "yb/util/sync_point.h"
 #include "yb/util/test_macros.h"
 #include "yb/util/test_thread_holder.h"
 #include "yb/util/tsan_util.h"
@@ -142,12 +142,12 @@ TEST_F(DBTest, MockEnvTest) {
   Iterator* iterator = db->NewIterator(ReadOptions());
   iterator->SeekToFirst();
   for (size_t i = 0; i < 3; ++i) {
-    ASSERT_TRUE(iterator->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iterator->CheckedValid()));
     ASSERT_TRUE(keys[i] == iterator->key());
     ASSERT_TRUE(vals[i] == iterator->value());
     iterator->Next();
   }
-  ASSERT_TRUE(!iterator->Valid());
+  ASSERT_TRUE(!ASSERT_RESULT(iterator->CheckedValid()));
   delete iterator;
 
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
@@ -186,12 +186,12 @@ TEST_F(DBTest, MemEnvTest) {
   Iterator* iterator = db->NewIterator(ReadOptions());
   iterator->SeekToFirst();
   for (size_t i = 0; i < 3; ++i) {
-    ASSERT_TRUE(iterator->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iterator->CheckedValid()));
     ASSERT_TRUE(keys[i] == iterator->key());
     ASSERT_TRUE(vals[i] == iterator->value());
     iterator->Next();
   }
-  ASSERT_TRUE(!iterator->Valid());
+  ASSERT_TRUE(!ASSERT_RESULT(iterator->CheckedValid()));
   delete iterator;
 
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
@@ -247,8 +247,7 @@ TEST_F(DBTest, ReadOnlyDB) {
   ASSERT_EQ("v2", Get("bar"));
   Iterator* iter = db_->NewIterator(ReadOptions());
   int count = 0;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ASSERT_OK(iter->status());
+  for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
     ++count;
   }
   ASSERT_EQ(count, 2);
@@ -632,6 +631,7 @@ TEST_F(DBTest, IteratorProperty) {
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("0", prop_value);
     iter->Next();
+    ASSERT_FALSE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("Iterator is not valid.", prop_value);
   }
@@ -951,8 +951,7 @@ TEST_F(DBTest, NonBlockingIteration) {
     // it is in memtable.
     Iterator* iter = db_->NewIterator(non_blocking_opts, handles_[1]);
     int count = 0;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_OK(iter->status());
+    for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
       count++;
     }
     ASSERT_EQ(count, 1);
@@ -985,8 +984,7 @@ TEST_F(DBTest, NonBlockingIteration) {
     cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     iter = db_->NewIterator(non_blocking_opts, handles_[1]);
     count = 0;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_OK(iter->status());
+    for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
       count++;
     }
     ASSERT_EQ(count, 1);
@@ -1014,8 +1012,7 @@ TEST_F(DBTest, ManagedNonBlockingIteration) {
     // it is in memtable.
     Iterator* iter = db_->NewIterator(non_blocking_opts, handles_[1]);
     int count = 0;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_OK(iter->status());
+    for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
       count++;
     }
     ASSERT_EQ(count, 1);
@@ -1048,8 +1045,7 @@ TEST_F(DBTest, ManagedNonBlockingIteration) {
     cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     iter = db_->NewIterator(non_blocking_opts, handles_[1]);
     count = 0;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_OK(iter->status());
+    for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
       count++;
     }
     ASSERT_EQ(count, 1);
@@ -1192,13 +1188,13 @@ TEST_F(DBTest, IterEmpty) {
     Iterator* iter = db_->NewIterator(ReadOptions(), handles_[1]);
 
     iter->SeekToFirst();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     iter->SeekToLast();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     iter->Seek("foo");
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     delete iter;
   } while (ChangeCompactOptions());
@@ -1213,33 +1209,33 @@ TEST_F(DBTest, IterSingle) {
     iter->SeekToFirst();
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Next();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
     iter->SeekToFirst();
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Prev();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     iter->SeekToLast();
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Next();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
     iter->SeekToLast();
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Prev();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     iter->Seek("");
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Next();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     iter->Seek("a");
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Next();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     iter->Seek("b");
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     delete iter;
   } while (ChangeCompactOptions());
@@ -1260,11 +1256,11 @@ TEST_F(DBTest, IterMulti) {
     iter->Next();
     ASSERT_EQ(IterStatus(iter), "c->vc");
     iter->Next();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
     iter->SeekToFirst();
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Prev();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     iter->SeekToLast();
     ASSERT_EQ(IterStatus(iter), "c->vc");
@@ -1273,11 +1269,11 @@ TEST_F(DBTest, IterMulti) {
     iter->Prev();
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Prev();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
     iter->SeekToLast();
     ASSERT_EQ(IterStatus(iter), "c->vc");
     iter->Next();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     iter->Seek("");
     ASSERT_EQ(IterStatus(iter), "a->va");
@@ -1289,7 +1285,7 @@ TEST_F(DBTest, IterMulti) {
     iter->Seek("b");
     ASSERT_EQ(IterStatus(iter), "b->vb");
     iter->Seek("z");
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     // Switch from reverse to forward
     iter->SeekToLast();
@@ -1318,7 +1314,7 @@ TEST_F(DBTest, IterMulti) {
     iter->Next();
     ASSERT_EQ(IterStatus(iter), "c->vc");
     iter->Next();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
     iter->SeekToLast();
     ASSERT_EQ(IterStatus(iter), "c->vc");
     iter->Prev();
@@ -1326,7 +1322,7 @@ TEST_F(DBTest, IterMulti) {
     iter->Prev();
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Prev();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     delete iter;
   } while (ChangeCompactOptions());
@@ -1441,7 +1437,7 @@ TEST_F(DBTest, IterSmallAndLargeMix) {
     iter->Next();
     ASSERT_EQ(IterStatus(iter), "e->" + std::string(100000, 'e'));
     iter->Next();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     iter->SeekToLast();
     ASSERT_EQ(IterStatus(iter), "e->" + std::string(100000, 'e'));
@@ -1454,7 +1450,7 @@ TEST_F(DBTest, IterSmallAndLargeMix) {
     iter->Prev();
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Prev();
-    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    ASSERT_EQ(IterStatus(iter), "(invalid) OK");
 
     delete iter;
   } while (ChangeCompactOptions());
@@ -1511,7 +1507,7 @@ TEST_F(DBTest, IterPrevMaxSkip) {
     VerifyIterLast("key1->v1", 1);
 
     ASSERT_OK(Delete(1, "key1"));
-    VerifyIterLast("(invalid)", 1);
+    VerifyIterLast("(invalid) OK", 1);
   } while (ChangeOptions(kSkipMergePut | kSkipNoSeekToLast));
 }
 
@@ -1552,7 +1548,7 @@ TEST_F(DBTest, IterWithSnapshot) {
         ASSERT_EQ(IterStatus(iter), "key5->val5");
       }
       iter->Next();
-      ASSERT_TRUE(!iter->Valid());
+      ASSERT_TRUE(!ASSERT_RESULT(iter->CheckedValid()));
     }
     db_->ReleaseSnapshot(snapshot);
     delete iter;
@@ -2594,11 +2590,11 @@ TEST_F(DBTest, IteratorPinsRef) {
     ASSERT_OK(Put(1, "foo", "newvalue2"));
 
     iter->SeekToFirst();
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ("foo", iter->key().ToString());
     ASSERT_EQ("hello", iter->value().ToString());
     iter->Next();
-    ASSERT_TRUE(!iter->Valid());
+    ASSERT_TRUE(!ASSERT_RESULT(iter->CheckedValid()));
     delete iter;
   } while (ChangeCompactOptions());
 }
@@ -4428,12 +4424,12 @@ TEST_F(DBTest, GroupCommitTest) {
     Iterator* itr = db_->NewIterator(ReadOptions());
     itr->SeekToFirst();
     for (auto x : expected_db) {
-      ASSERT_TRUE(itr->Valid());
+      ASSERT_TRUE(ASSERT_RESULT(itr->CheckedValid()));
       ASSERT_EQ(itr->key().ToString(), x);
       ASSERT_EQ(itr->value().ToString(), x);
       itr->Next();
     }
-    ASSERT_TRUE(!itr->Valid());
+    ASSERT_TRUE(!ASSERT_RESULT(itr->CheckedValid()));
     delete itr;
 
     HistogramData hist_data = {0, 0, 0, 0, 0};
@@ -4832,6 +4828,17 @@ static bool CompareIterators(int step,
       ok = false;
     }
   }
+
+  if (!miter->status().ok()) {
+    LOG(ERROR) << "miter->status(): " << miter->status();
+    ok = false;
+  }
+
+  if (!dbiter->status().ok()) {
+    LOG(ERROR) << "dbiter->status(): " << dbiter->status();
+    ok = false;
+  }
+
   delete miter;
   delete dbiter;
   return ok;
@@ -5377,15 +5384,15 @@ TEST_F(DBTest, DBIteratorBoundTest) {
 
     iter->Seek("foo");
 
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(Slice("foo")), 0);
 
     iter->Next();
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(Slice("foo1")), 0);
 
     iter->Next();
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(Slice("g1")), 0);
   }
 
@@ -5401,16 +5408,16 @@ TEST_F(DBTest, DBIteratorBoundTest) {
 
     iter->Seek("foo");
 
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(Slice("foo")), 0);
 
     iter->Next();
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(("foo1")), 0);
 
     iter->Next();
     // should stop here...
-    ASSERT_TRUE(!iter->Valid());
+    ASSERT_TRUE(!ASSERT_RESULT(iter->CheckedValid()));
   }
   // Testing SeekToLast with iterate_upper_bound set
   {
@@ -5422,7 +5429,7 @@ TEST_F(DBTest, DBIteratorBoundTest) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
 
     iter->SeekToLast();
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(Slice("a")), 0);
   }
 
@@ -5447,15 +5454,15 @@ TEST_F(DBTest, DBIteratorBoundTest) {
 
     iter->Seek("foo");
 
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ("foo", iter->key().ToString());
 
     iter->Next();
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ("foo1", iter->key().ToString());
 
     iter->Next();
-    ASSERT_TRUE(!iter->Valid());
+    ASSERT_TRUE(!ASSERT_RESULT(iter->CheckedValid()));
   }
 
   // testing that iterate_upper_bound prevents iterating over deleted items
@@ -5479,17 +5486,17 @@ TEST_F(DBTest, DBIteratorBoundTest) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
 
     iter->Seek("b");
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(Slice("b")), 0);
 
     iter->Next();
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(("b1")), 0);
 
     perf_context.Reset();
     iter->Next();
 
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 2);
 
     // now testing with iterate_bound
@@ -5501,18 +5508,18 @@ TEST_F(DBTest, DBIteratorBoundTest) {
     perf_context.Reset();
 
     iter->Seek("b");
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(Slice("b")), 0);
 
     iter->Next();
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(("b1")), 0);
 
     iter->Next();
     // the iteration should stop as soon as the the bound key is reached
     // even though the key is deleted
     // hence internal_delete_skipped_count should be 0
-    ASSERT_TRUE(!iter->Valid());
+    ASSERT_TRUE(!ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 0);
   }
 }
@@ -5638,10 +5645,10 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   int count = 0;
   Random rnd(301);
 
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  yb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DelayWrite:Wait",
       [&](void* arg) { sleeping_task_low.WakeUp(); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  yb::SyncPoint::GetInstance()->EnableProcessing();
 
   while (!sleeping_task_low.WokenUp() && count < 256) {
     ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), WriteOptions()));
@@ -5699,7 +5706,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
 #endif
   sleeping_task_low.WaitUntilDone();
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  yb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest, FlushOnDestroy) {
@@ -5783,10 +5790,9 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
 
   int num_keys = 0;
   std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+  for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
     num_keys++;
   }
-  ASSERT_OK(iter->status());
   ASSERT_GT(SizeAtLevel(0) + SizeAtLevel(3), num_keys * 4000U);
 }
 
@@ -5836,7 +5842,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   std::atomic<int> num_zlib(0);
   std::atomic<int> num_lz4(0);
   std::atomic<int> num_no(0);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  yb::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
         if (compaction->output_level() == 4) {
@@ -5844,13 +5850,13 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
           num_lz4.fetch_add(1);
         }
       });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  yb::SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table:output_compression", [&](void* arg) {
         auto* compression = reinterpret_cast<CompressionType*>(arg);
         ASSERT_TRUE(*compression == kNoCompression);
         num_no.fetch_add(1);
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  yb::SyncPoint::GetInstance()->EnableProcessing();
 
   for (int i = 0; i < 100; i++) {
     ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
@@ -5863,8 +5869,8 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  yb::SyncPoint::GetInstance()->DisableProcessing();
+  yb::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
@@ -5877,7 +5883,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   // After base level turn L4->L3, L3 becomes LZ4 and L4 becomes Zlib
   num_lz4.store(0);
   num_no.store(0);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  yb::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
         if (compaction->output_level() == 4 && compaction->start_level() == 3) {
@@ -5888,13 +5894,13 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
           num_lz4.fetch_add(1);
         }
       });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  yb::SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table:output_compression", [&](void* arg) {
         auto* compression = reinterpret_cast<CompressionType*>(arg);
         ASSERT_TRUE(*compression == kNoCompression);
         num_no.fetch_add(1);
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  yb::SyncPoint::GetInstance()->EnableProcessing();
 
   for (int i = 101; i < 500; i++) {
     ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
@@ -5904,8 +5910,8 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
     }
   }
 
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  yb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  yb::SyncPoint::GetInstance()->DisableProcessing();
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
   ASSERT_GT(NumTableFilesAtLevel(3), 0);
@@ -6210,10 +6216,10 @@ TEST_F(DBTest, DynamicMiscOptions) {
     ASSERT_OK(Put(Key(key2), RandomString(&rnd, 8)));
     std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
     iter->Seek(Key(key1));
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(Key(key1)), 0);
     iter->Next();
-    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(ASSERT_RESULT(iter->CheckedValid()));
     ASSERT_EQ(iter->key().compare(Key(key2)), 0);
     ASSERT_EQ(num_reseek,
               TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION));
@@ -6354,7 +6360,7 @@ TEST_F(DBTest, CloseSpeedup) {
   ASSERT_OK(DeleteRecursively(env_, dbname_));
   DestroyAndReopen(options);
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  yb::SyncPoint::GetInstance()->EnableProcessing();
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
   Random rnd(301);
@@ -6434,8 +6440,7 @@ TEST_F(DBTest, MergeTestTime) {
   ReadOptions read_options;
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
   int count = 0;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ASSERT_OK(iter->status());
+  for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
     ++count;
   }
 
@@ -6493,6 +6498,7 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
 
   Iterator* itr = db_->NewIterator(ReadOptions());
   itr->SeekToFirst();
+  ASSERT_OK(itr->status());
   // Stopwatch has been removed from compaction iterator. Disable assert below.
   // ASSERT_NE(TestGetTickerCount(options, FILTER_OPERATION_TOTAL_TIME), 0);
   delete itr;
@@ -6732,15 +6738,15 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
   }
 
   std::atomic<int> callback_count(0);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  yb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::RunManualCompaction()::Conflict",
       [&](void* arg) { callback_count.fetch_add(1); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  yb::SyncPoint::GetInstance()->EnableProcessing();
   CompactRangeOptions croptions;
   croptions.exclusive_manual_compaction = false;
   ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
   ASSERT_GE(callback_count.load(), 1);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  yb::SyncPoint::GetInstance()->DisableProcessing();
   for (int i = 0; i < 300000; ++i) {
     ASSERT_NE("NOT_FOUND", Get(Key(i)));
   }
@@ -6806,19 +6812,19 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
     }
 
     if (iter == 1) {
-    rocksdb::SyncPoint::GetInstance()->LoadDependency(
+    yb::SyncPoint::GetInstance()->LoadDependency(
         {{"DBImpl::RunManualCompaction()::1",
           "DBTest::FlushesInParallelWithCompactRange:1"},
          {"DBTest::FlushesInParallelWithCompactRange:2",
           "DBImpl::RunManualCompaction()::2"}});
     } else {
-      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      yb::SyncPoint::GetInstance()->LoadDependency(
           {{"CompactionJob::Run():Start",
             "DBTest::FlushesInParallelWithCompactRange:1"},
            {"DBTest::FlushesInParallelWithCompactRange:2",
             "CompactionJob::Run():End"}});
     }
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    yb::SyncPoint::GetInstance()->EnableProcessing();
 
     std::vector<std::thread> threads;
     threads.emplace_back([&]() { Compact("a", "z"); });
@@ -6837,7 +6843,7 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
     for (auto& t : threads) {
       t.join();
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    yb::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
@@ -6904,7 +6910,7 @@ TEST_F(DBTest, DelayedWriteRate) {
             static_cast<int64_t>(estimated_sleep_time * 2));
 
   env_->no_sleep_ = false;
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  yb::SyncPoint::GetInstance()->DisableProcessing();
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
 }
@@ -6934,12 +6940,12 @@ TEST_F(DBTest, HardLimit) {
   CreateAndReopenWithCF({"pikachu"}, options);
 
   std::atomic<int> callback_count(0);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack("DBImpl::DelayWrite:Wait",
+  yb::SyncPoint::GetInstance()->SetCallBack("DBImpl::DelayWrite:Wait",
                                                  [&](void* arg) {
                                                    callback_count.fetch_add(1);
                                                    sleeping_task_low.WakeUp();
                                                  });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  yb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);
   int key_idx = 0;
@@ -6955,7 +6961,7 @@ TEST_F(DBTest, HardLimit) {
   }
   ASSERT_GE(callback_count.load(), 1);
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  yb::SyncPoint::GetInstance()->DisableProcessing();
   sleeping_task_low.WaitUntilDone();
 }
 
@@ -7006,7 +7012,7 @@ TEST_F(DBTest, SoftLimit) {
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
 
   // Only allow one compactin going through.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  yb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl:BackgroundCompaction:SmallCompaction", [&](void* arg) {
         // Schedule a sleeping task.
         sleeping_task_low.Reset();
@@ -7014,7 +7020,7 @@ TEST_F(DBTest, SoftLimit) {
                        &sleeping_task_low, Env::Priority::LOW);
       });
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  yb::SyncPoint::GetInstance()->EnableProcessing();
 
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
@@ -7076,7 +7082,7 @@ TEST_F(DBTest, SoftLimit) {
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
 
   sleeping_task_low.WaitUntilSleeping();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  yb::SyncPoint::GetInstance()->DisableProcessing();
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
 }
@@ -7173,21 +7179,21 @@ TEST_F(DBTest, PrevAfterMerge) {
   std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
 
   it->Seek("2");
-  ASSERT_TRUE(it->Valid());
+  ASSERT_TRUE(ASSERT_RESULT(it->CheckedValid()));
   ASSERT_EQ("2", it->key().ToString());
 
   it->Prev();
-  ASSERT_TRUE(it->Valid());
+  ASSERT_TRUE(ASSERT_RESULT(it->CheckedValid()));
   ASSERT_EQ("1", it->key().ToString());
 }
 
 TEST_F(DBTest, DeletingOldWalAfterDrop) {
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  yb::SyncPoint::GetInstance()->LoadDependency(
       { { "Test:AllowFlushes", "DBImpl::BGWorkFlush" },
         { "DBImpl::BGWorkFlush:done", "Test:WaitForFlush"} });
-  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+  yb::SyncPoint::GetInstance()->ClearTrace();
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  yb::SyncPoint::GetInstance()->DisableProcessing();
   Options options = CurrentOptions();
   options.max_total_wal_size = 8192;
   options.compression = kNoCompression;
@@ -7197,7 +7203,7 @@ TEST_F(DBTest, DeletingOldWalAfterDrop) {
   options.level0_stop_writes_trigger = (1<<30);
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  yb::SyncPoint::GetInstance()->EnableProcessing();
 
   CreateColumnFamilies({"cf1", "cf2"}, options);
   ASSERT_OK(Put(0, "key1", DummyString(8192)));
@@ -7431,7 +7437,7 @@ TEST_F(DBTest, AddExternalSstFilePurgeObsoleteFilesBug) {
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
 
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  yb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::AddFile:FileCopied", [&](void* arg) {
         ASSERT_OK(Put("aaa", "bbb"));
         ASSERT_OK(Flush());
@@ -7439,7 +7445,7 @@ TEST_F(DBTest, AddExternalSstFilePurgeObsoleteFilesBug) {
         ASSERT_OK(Flush());
         ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  yb::SyncPoint::GetInstance()->EnableProcessing();
 
   s = db_->AddFile(sst_file_path);
   ASSERT_OK(s);
@@ -7450,7 +7456,7 @@ TEST_F(DBTest, AddExternalSstFilePurgeObsoleteFilesBug) {
     ASSERT_EQ(Get(k), v);
   }
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  yb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest, AddExternalSstFileNoCopy) {
@@ -7811,7 +7817,7 @@ TEST_F(DBTest, PinnedDataIteratorRandomized) {
       std::vector<std::string> true_keys;
       for (auto& k : random_keys) {
         iter->Seek(k);
-        if (!iter->Valid()) {
+        if (!ASSERT_RESULT(iter->CheckedValid())) {
           ASSERT_EQ(true_data.lower_bound(k), true_data.end());
           continue;
         }
@@ -7832,7 +7838,7 @@ TEST_F(DBTest, PinnedDataIteratorRandomized) {
       // Test iterating all data forward
       printf("Testing iterating forward on all keys\n");
       std::vector<Slice> all_keys;
-      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
         std::string prop_value;
         ASSERT_OK(
             iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
@@ -7853,7 +7859,7 @@ TEST_F(DBTest, PinnedDataIteratorRandomized) {
       // Test iterating all data backward
       printf("Testing iterating backward on all keys\n");
       std::vector<Slice> all_keys;
-      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      for (iter->SeekToLast(); ASSERT_RESULT(iter->CheckedValid()); iter->Prev()) {
         std::string prop_value;
         ASSERT_OK(
             iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
@@ -7926,7 +7932,7 @@ TEST_F(DBTest, PinnedDataIteratorMultipleFiles) {
   auto iter = db_->NewIterator(ro);
 
   std::vector<std::pair<Slice, std::string>> results;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+  for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
     std::string prop_value;
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
@@ -7980,7 +7986,7 @@ TEST_F(DBTest, PinnedDataIteratorMergeOperator) {
   auto iter = db_->NewIterator(ro);
 
   std::vector<std::pair<Slice, std::string>> results;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+  for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
     std::string prop_value;
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
@@ -8037,7 +8043,7 @@ TEST_F(DBTest, PinnedDataIteratorReadAfterUpdate) {
   }
 
   std::vector<std::pair<Slice, std::string>> results;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+  for (iter->SeekToFirst(); ASSERT_RESULT(iter->CheckedValid()); iter->Next()) {
     std::string prop_value;
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);

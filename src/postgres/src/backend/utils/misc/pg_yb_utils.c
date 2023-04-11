@@ -40,6 +40,7 @@
 #include "access/tupdesc.h"
 #include "access/xact.h"
 #include "executor/ybcExpr.h"
+#include "catalog/catalog.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_am.h"
 #include "catalog/pg_amop.h"
@@ -60,14 +61,14 @@
 #include "catalog/pg_policy.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_rewrite.h"
+#include "catalog/pg_tablespace.h"
 #include "catalog/pg_trigger.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_yb_catalog_version.h"
-#include "catalog/catalog.h"
-#include "catalog/yb_catalog_version.h"
-#include "catalog/yb_type.h"
 #include "catalog/pg_yb_profile.h"
 #include "catalog/pg_yb_role_profile.h"
+#include "catalog/yb_catalog_version.h"
+#include "catalog/yb_type.h"
 #include "commands/dbcommands.h"
 #include "commands/defrem.h"
 #include "commands/variable.h"
@@ -166,6 +167,7 @@ int ybc_disable_pg_locking = -1;
 /* Forward declarations */
 static void YBCInstallTxnDdlHook();
 
+bool yb_enable_docdb_tracing = false;
 bool yb_read_from_followers = false;
 int32_t yb_follower_read_staleness_ms = 0;
 
@@ -509,15 +511,47 @@ FetchUniqueConstraintName(Oid relation_id)
  * message arguments.
  */
 void
-GetStatusMsgAndArgumentsByCode(const uint32_t pg_err_code, YBCStatus s,
-							   const char **msg, size_t *nargs, const char ***args)
+GetStatusMsgAndArgumentsByCode(const uint32_t pg_err_code,
+							   uint16_t txn_err_code, YBCStatus s,
+							   const char **msg_buf, size_t *msg_nargs,
+							   const char ***msg_args, const char **detail_buf,
+							   size_t *detail_nargs, const char ***detail_args)
 {
-	if (pg_err_code == ERRCODE_UNIQUE_VIOLATION)
+	const char	*status_msg = YBCMessageAsCString(s);
+	size_t		 status_nargs;
+	const char **status_args = YBCStatusArguments(s, &status_nargs);
+
+
+	// Initialize message and detail buffers with default values
+	*msg_buf = status_msg;
+	*msg_nargs = status_nargs;
+	*msg_args = status_args;
+	*detail_buf = NULL;
+	*detail_nargs = 0;
+	*detail_args = NULL;
+
+	switch(pg_err_code)
 	{
-		*msg = "duplicate key value violates unique constraint \"%s\"";
-		*nargs = 1;
-		*args = (const char **) palloc(sizeof(const char **));
-		*args[0] = FetchUniqueConstraintName(YBCStatusRelationOid(s));
+		case ERRCODE_T_R_SERIALIZATION_FAILURE:
+			if(YBCIsTxnConflictError(txn_err_code))
+			{
+				*msg_buf = "could not serialize access due to concurrent update";
+				*msg_nargs = 0;
+				*msg_args = NULL;
+
+				*detail_buf = status_msg;
+				*detail_nargs = status_nargs;
+				*detail_args = status_args;
+			}
+			break;
+		case ERRCODE_UNIQUE_VIOLATION:
+			*msg_buf = "duplicate key value violates unique constraint \"%s\"";
+			*msg_nargs = 1;
+			*msg_args = (const char **) palloc(sizeof(const char *));
+			(*msg_args)[0] = FetchUniqueConstraintName(YBCStatusRelationOid(s));
+			break;
+		default:
+			break;
 	}
 }
 
@@ -1094,6 +1128,9 @@ static ProcessUtility_hook_type prev_ProcessUtility = NULL;
 typedef struct DdlTransactionState {
 	int nesting_level;
 	MemoryContext mem_context;
+	bool is_catalog_version_increment;
+	bool is_breaking_catalog_change;
+	NodeTag original_node_tag;
 } DdlTransactionState;
 
 static DdlTransactionState ddl_transaction_state = {0};
@@ -1161,7 +1198,8 @@ YBGetDdlNestingLevel()
 }
 
 void
-YBIncrementDdlNestingLevel()
+YBIncrementDdlNestingLevel(bool is_catalog_version_increment,
+						   bool is_breaking_catalog_change)
 {
 	if (ddl_transaction_state.nesting_level == 0)
 	{
@@ -1173,11 +1211,16 @@ YBIncrementDdlNestingLevel()
 		HandleYBStatus(YBCPgEnterSeparateDdlTxnMode());
 	}
 	++ddl_transaction_state.nesting_level;
+	/*
+	* The is_catalog_version_increment and is_breaking_catalog_change flags
+	* should only be set if it is not already true.
+	*/
+	ddl_transaction_state.is_catalog_version_increment |= is_catalog_version_increment;
+	ddl_transaction_state.is_breaking_catalog_change |= is_breaking_catalog_change;
 }
 
 void
-YBDecrementDdlNestingLevel(bool is_catalog_version_increment,
-						   bool is_breaking_catalog_change)
+YBDecrementDdlNestingLevel()
 {
 	--ddl_transaction_state.nesting_level;
 	if (ddl_transaction_state.nesting_level == 0)
@@ -1198,10 +1241,20 @@ YBDecrementDdlNestingLevel(bool is_catalog_version_increment,
 		ddl_transaction_state.mem_context = NULL;
 
 		YBResetEnableNonBreakingDDLMode();
+		bool is_catalog_version_increment = ddl_transaction_state.is_catalog_version_increment;
+		bool is_breaking_catalog_change = ddl_transaction_state.is_breaking_catalog_change;
+		/*
+		 * Reset the two flags to false prior to executing
+		 * YbIncrementMasterCatalogVersionTableEntry() such that
+		 * even when it throws an exception we still reset the flags.
+		 */
+		ddl_transaction_state.is_catalog_version_increment = false;
+		ddl_transaction_state.is_breaking_catalog_change = false;
 		const bool increment_done =
 			is_catalog_version_increment &&
 			YBCPgHasWriteOperationsInDdlTxnMode() &&
-			YbIncrementMasterCatalogVersionTableEntry(is_breaking_catalog_change);
+			YbIncrementMasterCatalogVersionTableEntry(
+					is_breaking_catalog_change);
 
 		HandleYBStatus(YBCPgExitSeparateDdlTxnMode());
 
@@ -1267,23 +1320,44 @@ GetActualStmtNode(PlannedStmt *pstmt)
 
 bool IsTransactionalDdlStatement(PlannedStmt *pstmt,
 								 bool *is_catalog_version_increment,
-								 bool *is_breaking_catalog_change)
+								 bool *is_breaking_catalog_change,
+								 ProcessUtilityContext context)
 {
-	/* Assume the worst. */
-	*is_catalog_version_increment = true;
-	*is_breaking_catalog_change = true;
+	Node *parsetree = GetActualStmtNode(pstmt);
+	NodeTag node_tag = nodeTag(parsetree);
+
+	if (context == PROCESS_UTILITY_TOPLEVEL ||
+		context == PROCESS_UTILITY_QUERY)
+	{
+		/* Assume the worst. */
+		*is_catalog_version_increment = true;
+		*is_breaking_catalog_change = true;
+
+		/*
+		 * The node tag from the top-level or atomic process utility must
+		 * be persisted so that DDL commands with multiple nested
+		 * subcommands can determine whether catalog version should
+		 * be incremented.
+		 */
+		ddl_transaction_state.original_node_tag = node_tag;
+	}
+	else
+	{
+		Assert(context == PROCESS_UTILITY_SUBCOMMAND ||
+			   context == PROCESS_UTILITY_QUERY_NONATOMIC);
+
+		*is_catalog_version_increment = false;
+		*is_breaking_catalog_change = false;
+	}
 
 	bool is_ddl = true;
-	Node *parsetree = GetActualStmtNode(pstmt);
 
-	NodeTag node_tag = nodeTag(parsetree);
 	switch (node_tag) {
 		// The lists of tags here have been generated using e.g.:
 		// cat $( find src/postgres -name "nodes.h" ) | grep "T_Create" | sort | uniq |
 		//   sed 's/,//g' | while read s; do echo -e "\t\tcase $s:"; done
 		// All T_Create... tags from nodes.h:
 
-		case T_YbCreateProfileStmt:
 		case T_CreateTableGroupStmt:
 		case T_CreateTableSpaceStmt:
 		case T_CreatedbStmt:
@@ -1292,6 +1366,7 @@ bool IsTransactionalDdlStatement(PlannedStmt *pstmt,
 		case T_DiscardStmt: // DISCARD ALL/SEQUENCES/TEMP affects only objects of current connection
 		case T_RuleStmt: // CREATE RULE
 		case T_TruncateStmt: // TRUNCATE changes system catalog in case of non-YB (i.e. TEMP) tables
+		case T_YbCreateProfileStmt:
 		{
 			/*
 			 * Simple add objects are not breaking changes, and they do not even require
@@ -1364,7 +1439,6 @@ bool IsTransactionalDdlStatement(PlannedStmt *pstmt,
 		case T_CreateStmt:
 		{
 			CreateStmt *stmt = castNode(CreateStmt, parsetree);
-			ListCell *lc = NULL;
 			/*
 			 * If a partition table is being created, this means pg_inherits
 			 * table that is being cached should be invalidated. If the cache
@@ -1392,29 +1466,6 @@ bool IsTransactionalDdlStatement(PlannedStmt *pstmt,
 				break;
 			}
 
-			foreach (lc, stmt->constraints)
-			{
-				Constraint *con = lfirst(lc);
-				if (con->contype == CONSTR_FOREIGN)
-				{
-					/*
-					 * Increment catalog version as it effectively alters the referenced table.
-					 * TODO Technically this could also be a breaking change in case we have
-					 * ongoing transactions affecting the referenced table.
-					 * But we do not support consistent FK checks (w.r.t concurrent
-					 * writes) yet anyway and the (upcoming) online, async
-					 * implementation should wait for ongoing transactions so we do not
-					 * have to force a transaction abort on PG side.
-					 */
-					*is_breaking_catalog_change = false;
-					break;
-				}
-			}
-
-			/*
-			 * If no FK constraints, this is a simple add object so nothing to
-			 * do (due to no negative caching).
-			 */
 			*is_catalog_version_increment = false;
 			*is_breaking_catalog_change = false;
 			break;
@@ -1450,8 +1501,8 @@ bool IsTransactionalDdlStatement(PlannedStmt *pstmt,
 		case T_DropUserMappingStmt:
 			break;
 
-		case T_YbDropProfileStmt:
 		case T_DropStmt:
+		case T_YbDropProfileStmt:
 			*is_breaking_catalog_change = false;
 			break;
 
@@ -1504,6 +1555,28 @@ bool IsTransactionalDdlStatement(PlannedStmt *pstmt,
 		case T_AlterTableStmt:
 		{
 			*is_breaking_catalog_change = false;
+			/*
+			 * Must increment catalog version when creating table with foreign
+			 * key reference and refresh PG cache on ongoing transactions.
+			 */
+			if ((context == PROCESS_UTILITY_SUBCOMMAND ||
+				 context == PROCESS_UTILITY_QUERY_NONATOMIC) &&
+				ddl_transaction_state.original_node_tag == T_CreateStmt &&
+				node_tag == T_AlterTableStmt)
+			{
+				AlterTableStmt *stmt = castNode(AlterTableStmt, parsetree);
+				ListCell   *lcmd;
+				foreach(lcmd, stmt->cmds)
+				{
+					AlterTableCmd *cmd = (AlterTableCmd *) lfirst(lcmd);
+					if (IsA(cmd->def, Constraint) &&
+						((Constraint *) cmd->def)->contype == CONSTR_FOREIGN)
+					{
+						*is_catalog_version_increment = true;
+						break;
+					}
+				}
+			}
 			break;
 		}
 
@@ -1597,10 +1670,12 @@ static void YBTxnDdlProcessUtility(
 	bool is_breaking_catalog_change = true;
 	bool is_txn_ddl = IsTransactionalDdlStatement(pstmt,
 												  &is_catalog_version_increment,
-												  &is_breaking_catalog_change);
+												  &is_breaking_catalog_change,
+												  context);
 
 	if (is_txn_ddl) {
-		YBIncrementDdlNestingLevel();
+		YBIncrementDdlNestingLevel(is_catalog_version_increment,
+								   is_breaking_catalog_change);
 	}
 	PG_TRY();
 	{
@@ -1626,7 +1701,7 @@ static void YBTxnDdlProcessUtility(
 	}
 	PG_END_TRY();
 	if (is_txn_ddl) {
-		YBDecrementDdlNestingLevel(is_catalog_version_increment, is_breaking_catalog_change);
+		YBDecrementDdlNestingLevel();
 	}
 }
 
@@ -1665,6 +1740,10 @@ void YBFlushBufferedOperations() {
 
 void YBGetAndResetOperationFlushRpcStats(uint64_t *count, uint64_t *wait_time) {
 	YBCPgGetAndResetOperationFlushRpcStats(count, wait_time);
+}
+
+bool YBEnableTracing() {
+  return yb_enable_docdb_tracing;
 }
 
 bool YBReadFromFollowersEnabled() {
@@ -2913,6 +2992,7 @@ void YbRegisterSysTableForPrefetching(int sys_table_id) {
 			break;
 
 		case DbRoleSettingRelationId:    switch_fallthrough(); // pg_db_role_setting
+		case TableSpaceRelationId:       switch_fallthrough(); // pg_tablespace
 		case YBCatalogVersionRelationId: switch_fallthrough(); // pg_yb_catalog_version
 		case YbProfileRelationId:        switch_fallthrough(); // pg_yb_profile
 		case YbRoleProfileRelationId:                          // pg_yb_role_profile

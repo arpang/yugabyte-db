@@ -85,6 +85,7 @@ set_python_executable() {
 # -------------------------------------------------------------------------------------------------
 readonly PYTHON2_EXECUTABLES=('python2' 'python2.7')
 readonly PYTHON3_EXECUTABLES=('python3.6' 'python3' 'python3.7' 'python3.8')
+readonly PYTHON2_VERSIONS=('python2.7')
 readonly PYTHON3_VERSIONS=('python3.6' 'python3.7' 'python3.8' 'python3.9' 'python3.10' \
                            'python3.11')
 readonly LINUX_PLATFORMS=('manylinux2014_x86_64-cp-36-cp36m' 'manylinux2014_x86_64-cp-37-cp37m' \
@@ -614,7 +615,7 @@ activate_pex() {
   ansible_module_path=$($PYTHON_EXECUTABLE $PEX_PATH -c \
                 "import sys; print([x for x in sys.path if x.find('ansible-') >= 0][0])")
   PEX_ANSIBLE_PLAYBOOK_PATH="$ansible_module_path"/.prefix/bin
-  SITE_PACKAGES="$yb_devops_home/pex/$mitogen_path"
+  SITE_PACKAGES="$mitogen_path"
   export SITE_PACKAGES
   export ANSIBLE_CONFIG="$yb_devops_home/ansible.cfg"
 }

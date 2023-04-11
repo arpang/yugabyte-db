@@ -7,16 +7,17 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/fluxcd/pkg/tar"
-	"github.com/jimmidyson/pemtokeystore"
 	"github.com/spf13/viper"
 
 	"github.com/yugabyte/yugabyte-db/managed/yba-installer/common"
+	"github.com/yugabyte/yugabyte-db/managed/yba-installer/common/shell"
 	"github.com/yugabyte/yugabyte-db/managed/yba-installer/config"
 	log "github.com/yugabyte/yugabyte-db/managed/yba-installer/logging"
 	"github.com/yugabyte/yugabyte-db/managed/yba-installer/systemd"
@@ -28,6 +29,7 @@ type platformDirectories struct {
 	templateFileName    string
 	DataDir             string
 	cronScript          string
+	PgBin								string
 }
 
 func newPlatDirectories() platformDirectories {
@@ -38,6 +40,7 @@ func newPlatDirectories() platformDirectories {
 		DataDir:             common.GetBaseInstall() + "/data/yb-platform",
 		cronScript: filepath.Join(
 			common.GetInstallerSoftwareDir(), common.CronDir, "managePlatform.sh"),
+		PgBin: 							 common.GetSoftwareRoot() + "/pgsql/bin",
 	}
 }
 
@@ -98,7 +101,10 @@ func (plat Platform) Install() error {
 	plat.copyYbcPackages()
 	plat.copyNodeAgentPackages()
 	plat.renameAndCreateSymlinks()
-	convertCertsToKeyStoreFormat()
+	err := createPemFormatKeyAndCert()
+	if err != nil {
+		return err
+	}
 
 	//Create the platform.log file so that we can start platform as
 	//a background process for non-root.
@@ -108,7 +114,7 @@ func (plat Platform) Install() error {
 	if !common.HasSudoAccess() {
 		plat.CreateCronJob()
 	} else {
-		// Allow yugabyte user to fully manage this installation (GetSoftwareRoot() to be safe)
+		// Allow yugabyte user to fully manage this installation (GetBaseInstall() to be safe)
 		userName := viper.GetString("service_username")
 		common.Chown(common.GetBaseInstall(), userName, userName, true)
 	}
@@ -132,7 +138,7 @@ func (plat Platform) createNecessaryDirectories() {
 
 func (plat Platform) untarDevopsAndYugawarePackages() {
 
-	log.Info("Extracting devops and yugaware pacakges.")
+	log.Info("Extracting devops and yugaware packages.")
 
 	packageFolderPath := plat.yugabyteDir()
 
@@ -263,23 +269,26 @@ func (plat Platform) renameAndCreateSymlinks() {
 // Start the YBA platform service.
 func (plat Platform) Start() error {
 	if common.HasSudoAccess() {
-		common.RunBash(common.Systemctl,
-			[]string{"daemon-reload"})
-		common.RunBash(common.Systemctl,
-			[]string{"enable", filepath.Base(plat.SystemdFileLocation)})
-		common.RunBash(common.Systemctl,
-			[]string{"start", filepath.Base(plat.SystemdFileLocation)})
-		common.RunBash(common.Systemctl,
-			[]string{"status", filepath.Base(plat.SystemdFileLocation)})
+		if out := shell.Run(common.Systemctl, "daemon-reload"); !out.SucceededOrLog() {
+			return out.Error
+		}
+		if out := shell.Run(common.Systemctl, "enable",
+			filepath.Base(plat.SystemdFileLocation)); !out.SucceededOrLog() {
+			return out.Error
+		}
+		if out := shell.Run(common.Systemctl, "start",
+			filepath.Base(plat.SystemdFileLocation)); !out.SucceededOrLog() {
+			return out.Error
+		}
 	} else {
 		containerExposedPort := config.GetYamlPathData("platform.port")
 		restartSeconds := config.GetYamlPathData("platform.restartSeconds")
 
-		command1 := "bash"
-		arg1 := []string{"-c", plat.cronScript + " " + common.GetSoftwareRoot() + " " +
-			common.GetDataRoot() + " " + containerExposedPort + " " + restartSeconds +
-			" > /dev/null 2>&1 &"}
-		common.RunBash(command1, arg1)
+		arg1 := []string{common.GetSoftwareRoot(), common.GetDataRoot(), containerExposedPort,
+			restartSeconds, " > /dev/null 2>&1 &"}
+		if out := shell.RunShell(plat.cronScript, arg1...); !out.SucceededOrLog() {
+			return out.Error
+		}
 	}
 	return nil
 }
@@ -295,29 +304,33 @@ func (plat Platform) Stop() error {
 		return nil
 	}
 	if common.HasSudoAccess() {
-		arg1 := []string{"stop", filepath.Base(plat.SystemdFileLocation)}
-		common.RunBash(common.Systemctl, arg1)
 
+		if out := shell.Run(common.Systemctl, "stop",
+			filepath.Base(plat.SystemdFileLocation)); !out.SucceededOrLog() {
+			return out.Error
+		}
 	} else {
 
 		// Delete the file used by the crontab bash script for monitoring.
 		common.RemoveAll(common.GetSoftwareRoot() + "/yb-platform/testfile")
 
-		commandCheck0 := "bash"
-		argCheck0 := []string{"-c", "pgrep -fl yb-platform"}
-		out0, _ := common.RunBash(commandCheck0, argCheck0)
-
+		out := shell.Run("pgrep", "-fl", "yb-platform")
+		if !out.SucceededOrLog() {
+			return out.Error
+		}
+		result := out.StdoutString()
 		// Need to stop the binary if it is running, can just do kill -9 PID (will work as the
 		// process itself was started by a non-root user.)
 
 		// Java check because pgrep will count the execution of yba-ctl as a process itself.
-		if strings.TrimSuffix(string(out0), "\n") != "" {
-			pids := strings.Split(string(out0), "\n")
+		if strings.TrimSuffix(string(result), "\n") != "" {
+			pids := strings.Split(string(result), "\n")
 			for _, pid := range pids {
 				if strings.Contains(pid, "java") {
 					log.Debug("kill platform pid: " + pid)
-					argStop := []string{"-c", "kill -9 " + strings.TrimSuffix(pid, "\n")}
-					common.RunBash(commandCheck0, argStop)
+					if out := shell.Run("kill", "-9", pid); !out.SucceededOrLog() {
+						return out.Error
+					}
 				}
 			}
 		}
@@ -330,12 +343,11 @@ func (plat Platform) Restart() error {
 	log.Info("Restarting YBA..")
 
 	if common.HasSudoAccess() {
-
-		arg1 := []string{"restart", "yb-platform.service"}
-		common.RunBash(common.Systemctl, arg1)
-
+		out := shell.Run(common.Systemctl, "restart", "yb-platform.service")
+		if !out.SucceededOrLog() {
+			return out.Error
+		}
 	} else {
-
 		if err := plat.Stop(); err != nil {
 			return err
 		}
@@ -366,7 +378,9 @@ func (plat Platform) Uninstall(removeData bool) error {
 			}
 		}
 		// reload systemd daemon
-		common.RunBash(common.Systemctl, []string{"daemon-reload"})
+		if out := shell.Run(common.Systemctl, "daemon-reload"); !out.SucceededOrLog() {
+			return out.Error
+		}
 	}
 
 	// Optionally remove data
@@ -410,14 +424,14 @@ func (plat Platform) Status() (common.Status, error) {
 			status.Status = common.StatusErrored
 		}
 	} else {
-		command := "bash"
-		args := []string{"-c", "pgrep -f yb-platform"}
-		out0, _ := common.RunBash(command, args)
-
-		if strings.TrimSuffix(string(out0), "\n") != "" {
+		out := shell.Run("pgrep", "-f", "yb-platform")
+		if out.Succeeded() {
 			status.Status = common.StatusRunning
-		} else {
+		} else if out.ExitCode == 1 {
 			status.Status = common.StatusStopped
+		} else {
+			out.SucceededOrLog()
+			return status, out.Error
 		}
 	}
 	return status, nil
@@ -435,7 +449,10 @@ func (plat Platform) Upgrade() error {
 	plat.deleteNodeAgentPackages()
 	plat.copyNodeAgentPackages()
 	plat.renameAndCreateSymlinks()
-
+	pemErr := createPemFormatKeyAndCert()
+	if pemErr != nil {
+		return pemErr
+	}
 	//Create the platform.log file so that we can start platform as
 	//a background process for non-root.
 	common.Create(common.GetSoftwareRoot() + "/yb-platform/yugaware/bin/platform.log")
@@ -444,45 +461,71 @@ func (plat Platform) Upgrade() error {
 	if !common.HasSudoAccess() {
 		plat.CreateCronJob()
 	} else {
-		// Allow yugabyte user to fully manage this installation (GetSoftwareRoot() to be safe)
+		// Allow yugabyte user to fully manage this installation (GetBaseInstall() to be safe)
 		userName := viper.GetString("service_username")
-		common.Chown(common.GetSoftwareRoot(), userName, userName, true)
+		common.Chown(common.GetBaseInstall(), userName, userName, true)
 	}
 	err := plat.Start()
 	return err
 }
 
-func convertCertsToKeyStoreFormat() {
+func createPemFormatKeyAndCert() error {
+	keyFile := viper.GetString("server_key_path")
+	certFile := viper.GetString("server_cert_path")
+	log.Info(fmt.Sprintf("Generating concatenated PEM from %s %s ", keyFile, certFile))
 
-	keyStorePath := filepath.Join(common.GetSelfSignedCertsDir(), common.ServerKeyStorePath)
-	// ignore errors if the file doesn't exist
-	os.Remove(keyStorePath)
-
-	log.Info(fmt.Sprintf("Generating key store from %s %s ", viper.GetString("server_cert_path"), viper.GetString("server_key_path")))
-	var opts pemtokeystore.Options
-	opts.KeystorePath = keyStorePath
-	opts.KeystorePassword = viper.GetString("platform.keyStorePassword")
-	opts.CertFiles = map[string]string{"myserver": viper.GetString("server_cert_path")}
-	opts.PrivateKeyFiles = map[string]string{"myserver": viper.GetString("server_key_path")}
-	err := pemtokeystore.CreateKeystore(opts)
+	// Open and read the key file.
+	keyIn, err := os.Open(keyFile)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("failed to convert cert to keystore: %s", err))
-		return
+		log.Error(fmt.Sprintf("Failed to open server.key for reading with error: %s", err))
+		return err
 	}
+	defer keyIn.Close()
+
+	// Open and read the cert file.
+	certIn, err := os.Open(certFile)
+	if err != nil {
+		log.Error(fmt.Sprintf("Failed to open server.cert for reading with error: %s", err))
+		return err
+	}
+	defer certIn.Close()
+
+	// Create this new concatenated PEM file to write key and cert in order.
+	serverPemPath := filepath.Join(common.GetSelfSignedCertsDir(), common.ServerPemPath)
+	pemFile, err := os.OpenFile(serverPemPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Error(fmt.Sprintf("Failed to open server.pem with error: %s", err))
+		return err
+	}
+	defer pemFile.Close()
+
+	// Append the key file into server.pem file.
+	n, err := io.Copy(pemFile, keyIn)
+	if err != nil {
+		log.Error(fmt.Sprintf("Failed to append server.key to server.pem with error: %s", err))
+		return err
+	}
+	log.Debug(fmt.Sprintf("Wrote %d bytes of %s to %s\n", n, keyFile, serverPemPath))
+	// Append the cert file into server.pem file.
+	n1, err := io.Copy(pemFile, certIn)
+	if err != nil {
+		log.Error(fmt.Sprintf("Failed to append server.cert to server.pem with error: %s", err))
+		return err
+	}
+	log.Debug(fmt.Sprintf("Wrote %d bytes of %s to %s\n", n1, certFile, serverPemPath))
 
 	if common.HasSudoAccess() {
 		userName := viper.GetString("service_username")
 		common.Chown(common.GetSelfSignedCertsDir(), userName, userName, true)
-
 	}
+	return nil
 }
 
 // CreateCronJob creates the cron job for managing YBA platform with cron script in non-root.
 func (plat Platform) CreateCronJob() {
 	containerExposedPort := config.GetYamlPathData("platform.port")
 	restartSeconds := config.GetYamlPathData("platform.restartSeconds")
-	common.RunBash("bash", []string{"-c",
-		"(crontab -l 2>/dev/null; echo \"@reboot " + plat.cronScript + " " +
-			common.GetSoftwareRoot() + " " + common.GetDataRoot() + " " + containerExposedPort + " " +
-			restartSeconds + "\") | sort - | uniq - | crontab - "})
+	shell.RunShell("(crontab", "-l", "2>/dev/null;", "echo", "\"@reboot", plat.cronScript,
+		common.GetSoftwareRoot(), common.GetDataRoot(), containerExposedPort, restartSeconds, ")\"", "|",
+		"sort", "-", "|", "uniq", "-", "|", "crontab", "-")
 }

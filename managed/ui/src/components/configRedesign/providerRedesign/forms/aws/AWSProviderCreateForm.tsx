@@ -6,11 +6,12 @@
  */
 import React, { useState } from 'react';
 import { AxiosError } from 'axios';
-import { Box, CircularProgress, FormHelperText, makeStyles, Typography } from '@material-ui/core';
+import { Box, CircularProgress, FormHelperText, Typography } from '@material-ui/core';
 import { FormProvider, SubmitHandler, useForm } from 'react-hook-form';
 import { array, mixed, object, string } from 'yup';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { useSelector } from 'react-redux';
+import { toast } from 'react-toastify';
 
 import {
   OptionProps,
@@ -27,12 +28,12 @@ import {
 } from '../configureRegion/ConfigureRegionModal';
 import {
   YBImageType,
-  ASYNC_ERROR,
   DEFAULT_SSH_PORT,
   NTPSetupType,
   ProviderCode,
   VPCSetupType,
-  VPCSetupTypeLabel
+  KeyPairManagement,
+  KEY_PAIR_MANAGEMENT_OPTIONS
 } from '../../constants';
 import { RegionList } from '../../components/RegionList';
 import { DeleteRegionModal } from '../../components/DeleteRegionModal';
@@ -51,14 +52,14 @@ import { YBAHost } from '../../../../../redesign/helpers/constants';
 import { CreateInfraProvider } from '../../InfraProvider';
 import { RegionOperation } from '../configureRegion/constants';
 import { NTP_SERVER_REGEX } from '../constants';
+import { AWSProviderCredentialType, VPC_SETUP_OPTIONS } from './constants';
 import { YBBanner, YBBannerVariant } from '../../../../common/descriptors';
 import { YBButton as YBRedesignedButton } from '../../../../../redesign/components';
-import { isAxiosError } from '../../../../../utils/errorHandlingUtils';
-import { isNonEmptyObject } from '../../../../../utils/ObjectUtils';
-import { getInvalidFields } from './utils';
+import { isAxiosError, isYBPBeanValidationError } from '../../../../../utils/errorHandlingUtils';
+import { getInvalidFields, useValidationStyles } from './utils';
 
-import { AWSRegionMutation, YBProviderMutation, AWSAvailabilityZoneMutation } from '../../types';
-import { YBBeanValidationError, YBPError } from '../../../../../redesign/helpers/dtos';
+import { YBPError, YBPStructuredError } from '../../../../../redesign/helpers/dtos';
+import { AWSAvailabilityZoneMutation, AWSRegionMutation, YBProviderMutation } from '../../types';
 
 interface AWSProviderCreateFormProps {
   createInfraProvider: CreateInfraProvider;
@@ -72,7 +73,7 @@ export interface AWSProviderCreateFormFieldValues {
   hostedZoneId: string;
   ntpServers: string[];
   ntpSetupType: NTPSetupType;
-  providerCredentialType: ProviderCredentialType;
+  providerCredentialType: AWSProviderCredentialType;
   providerName: string;
   regions: CloudVendorRegionField[];
   secretAccessKey: string;
@@ -82,64 +83,12 @@ export interface AWSProviderCreateFormFieldValues {
   sshPrivateKeyContent: File;
   sshUser: string;
   vpcSetupType: VPCSetupType;
-  ybImage: string;
   ybImageType: YBImageType;
-
-  [ASYNC_ERROR]: string;
 }
 
 export type QuickValidationErrorKeys = {
   [keyString: string]: string[];
 };
-
-const useStyles = makeStyles(() => ({
-  errorList: {
-    '& li': {
-      listStyle: 'disc',
-      '&:not(:first-child)': {
-        marginTop: '12px'
-      }
-    }
-  },
-  loadingIcon: {
-    color: '#1890FF'
-  }
-}));
-
-const ProviderCredentialType = {
-  HOST_INSTANCE_IAM_ROLE: 'hostInstanceIAMRole',
-  ACCESS_KEY: 'accessKey'
-} as const;
-type ProviderCredentialType = typeof ProviderCredentialType[keyof typeof ProviderCredentialType];
-
-const KeyPairManagement = {
-  YBA_MANAGED: 'YBAManaged',
-  CUSTOM_KEY_PAIR: 'customKeyPair'
-} as const;
-type KeyPairManagement = typeof KeyPairManagement[keyof typeof KeyPairManagement];
-
-const KEY_PAIR_MANAGEMENT_OPTIONS: OptionProps[] = [
-  {
-    value: KeyPairManagement.YBA_MANAGED,
-    label: 'Use YugabyteDB Anywhere to manage key pairs'
-  },
-  {
-    value: KeyPairManagement.CUSTOM_KEY_PAIR,
-    label: 'Provide custom key pair information'
-  }
-];
-
-const VPC_SETUP_OPTIONS: OptionProps[] = [
-  {
-    value: VPCSetupType.EXISTING,
-    label: VPCSetupTypeLabel[VPCSetupType.EXISTING]
-  },
-  {
-    value: VPCSetupType.NEW,
-    label: VPCSetupTypeLabel[VPCSetupType.NEW],
-    disabled: true
-  }
-];
 
 const YBImageTypeLabel = {
   [YBImageType.ARM64]: 'Default AArch64 AMI',
@@ -167,43 +116,35 @@ const VALIDATION_SCHEMA = object().shape({
     ),
   // Specified provider credential types
   accessKeyId: string().when('providerCredentialType', {
-    is: ProviderCredentialType.ACCESS_KEY,
+    is: AWSProviderCredentialType.ACCESS_KEY,
     then: string().required('Access key id is required.')
   }),
   secretAccessKey: string().when('providerCredentialType', {
-    is: ProviderCredentialType.ACCESS_KEY,
+    is: AWSProviderCredentialType.ACCESS_KEY,
     then: string().required('Secret access key id is required.')
   }),
-  // Specified ssh keys
-  sshKeypairName: string().when('sshKeypairManagement', {
-    is: KeyPairManagement.CUSTOM_KEY_PAIR,
-    then: string().required('SSH keypair name is required.')
-  }),
   sshPrivateKeyContent: mixed().when('sshKeypairManagement', {
-    is: KeyPairManagement.CUSTOM_KEY_PAIR,
+    is: KeyPairManagement.SELF_MANAGED,
     then: mixed().required('SSH private key is required.')
   }),
   hostedZoneId: string().when('enableHostedZone', {
     is: true,
     then: string().required('Route 53 zone id is required.')
   }),
-  ybImage: string().when('ybImageType', {
-    is: YBImageType.CUSTOM_AMI,
-    then: string().required('Custom AMI type is required.')
-  }),
   ntpServers: array().when('ntpSetupType', {
     is: NTPSetupType.SPECIFIED,
-    then: array()
-      .min(1, 'NTP Servers cannot be empty.')
-      .of(
-        string().matches(
-          NTP_SERVER_REGEX,
-          'NTP servers must be provided in IPv4, IPv6, or hostname format.'
-        )
+    then: array().of(
+      string().matches(
+        NTP_SERVER_REGEX,
+        (testContext) =>
+          `NTP servers must be provided in IPv4, IPv6, or hostname format. '${testContext.originalValue}' is not valid.`
       )
+    )
   }),
   regions: array().min(1, 'Provider configurations must contain at least one region.')
 });
+
+const FORM_NAME = 'AWSProviderCreateForm';
 
 export const AWSProviderCreateForm = ({
   onBack,
@@ -218,14 +159,14 @@ export const AWSProviderCreateForm = ({
     quickValidationErrors,
     setQuickValidationErrors
   ] = useState<QuickValidationErrorKeys | null>(null);
-  const classes = useStyles();
+  const validationClasses = useValidationStyles();
 
   const defaultValues: Partial<AWSProviderCreateFormFieldValues> = {
     dbNodePublicInternetAccess: true,
     enableHostedZone: false,
     ntpServers: [] as string[],
     ntpSetupType: NTPSetupType.CLOUD_VENDOR,
-    providerCredentialType: ProviderCredentialType.ACCESS_KEY,
+    providerCredentialType: AWSProviderCredentialType.ACCESS_KEY,
     regions: [] as CloudVendorRegionField[],
     sshKeypairManagement: KeyPairManagement.YBA_MANAGED,
     sshPort: DEFAULT_SSH_PORT,
@@ -237,77 +178,6 @@ export const AWSProviderCreateForm = ({
     resolver: yupResolver(VALIDATION_SCHEMA)
   });
 
-  const constructProviderPayload = async (
-    formValues: AWSProviderCreateFormFieldValues
-  ): Promise<YBProviderMutation> => ({
-    code: ProviderCode.AWS,
-    name: formValues.providerName,
-    ...(formValues.sshKeypairManagement === KeyPairManagement.CUSTOM_KEY_PAIR && {
-      ...(formValues.sshKeypairName && { keyPairName: formValues.sshKeypairName }),
-      ...(formValues.sshPrivateKeyContent && {
-        sshPrivateKeyContent: (await readFileAsText(formValues.sshPrivateKeyContent)) ?? ''
-      })
-    }),
-    details: {
-      airGapInstall: !formValues.dbNodePublicInternetAccess,
-      cloudInfo: {
-        [ProviderCode.AWS]: {
-          ...(formValues.providerCredentialType === ProviderCredentialType.ACCESS_KEY && {
-            awsAccessKeyID: formValues.accessKeyId,
-            awsAccessKeySecret: formValues.secretAccessKey
-          }),
-          ...(formValues.enableHostedZone && { awsHostedZoneId: formValues.hostedZoneId })
-        }
-      },
-      ntpServers: formValues.ntpServers,
-      setUpChrony: formValues.ntpSetupType !== NTPSetupType.NO_NTP,
-      sshPort: formValues.sshPort,
-      sshUser: formValues.sshUser
-    },
-    regions: formValues.regions.map<AWSRegionMutation>((regionFormValues) => ({
-      code: regionFormValues.code,
-      details: {
-        cloudInfo: {
-          [ProviderCode.AWS]: {
-            ...(formValues.ybImageType === YBImageType.CUSTOM_AMI
-              ? {
-                  ybImage: regionFormValues.ybImage ? regionFormValues.ybImage : formValues.ybImage
-                }
-              : { arch: formValues.ybImageType }),
-            securityGroupId: regionFormValues.securityGroupId,
-            vnet: regionFormValues.vnet
-          }
-        }
-      },
-      zones: regionFormValues.zones?.map<AWSAvailabilityZoneMutation>((azFormValues) => ({
-        code: azFormValues.code,
-        name: azFormValues.code,
-        subnet: azFormValues.subnet
-      }))
-    }))
-  });
-
-  const clearErrors = () => {
-    formMethods.clearErrors(ASYNC_ERROR);
-    setQuickValidationErrors(null);
-  };
-  const onFormSubmit = async (
-    formValues: AWSProviderCreateFormFieldValues,
-    shouldValidate = true
-  ) => {
-    clearErrors();
-    const providerPayload = await constructProviderPayload(formValues);
-    await createInfraProvider(providerPayload, {
-      shouldValidate: shouldValidate,
-      mutateOptions: { onError: handleFormServerError }
-    });
-  };
-  const onFormValidateAndSubmit: SubmitHandler<AWSProviderCreateFormFieldValues> = async (
-    formValues
-  ) => await onFormSubmit(formValues, !!featureFlags.test.enableAWSProviderValidation);
-  const onFormForceSubmit: SubmitHandler<AWSProviderCreateFormFieldValues> = async (formValues) =>
-    await onFormSubmit(formValues, false);
-
   const hostInfoQuery = useQuery(hostInfoQueryKey.ALL, () => api.fetchHostInfo());
 
   if (hostInfoQuery.isLoading || hostInfoQuery.isIdle) {
@@ -317,13 +187,75 @@ export const AWSProviderCreateForm = ({
     return <YBErrorIndicator customErrorMessage="Error fetching host info." />;
   }
 
+  const handleFormSubmitServerError = (
+    error: Error | AxiosError<YBPStructuredError | YBPError>
+  ) => {
+    if (
+      featureFlags.test.enableAWSProviderValidation &&
+      isAxiosError<YBPStructuredError | YBPError>(error) &&
+      isYBPBeanValidationError(error) &&
+      error.response?.data.error
+    ) {
+      // Handle YBBeanValidationError
+      const { errorSource, ...validationErrors } = error.response?.data.error;
+      const invalidFields = validationErrors ? getInvalidFields(validationErrors) : [];
+      if (invalidFields) {
+        setQuickValidationErrors(validationErrors ?? null);
+      }
+      invalidFields.forEach((fieldName) =>
+        formMethods.setError(fieldName, {
+          type: 'server',
+          message:
+            'Validation Error. See the field validation failure at the bottom of the page for more details.'
+        })
+      );
+    }
+  };
+
+  const clearErrors = () => {
+    formMethods.clearErrors();
+    setQuickValidationErrors(null);
+  };
+  const onFormSubmit = async (
+    formValues: AWSProviderCreateFormFieldValues,
+    shouldValidate = true
+  ) => {
+    clearErrors();
+
+    if (formValues.ntpSetupType === NTPSetupType.SPECIFIED && !formValues.ntpServers.length) {
+      formMethods.setError('ntpServers', {
+        type: 'min',
+        message: 'Please specify at least one NTP server.'
+      });
+      return;
+    }
+    try {
+      const providerPayload = await constructProviderPayload(formValues);
+      try {
+        await createInfraProvider(providerPayload, {
+          shouldValidate: shouldValidate,
+          mutateOptions: { onError: handleFormSubmitServerError }
+        });
+      } catch (_) {
+        // Request errors are handled by the onError callback
+      }
+    } catch (error: any) {
+      toast.error(error.message ?? error);
+    }
+  };
+  const onFormValidateAndSubmit: SubmitHandler<AWSProviderCreateFormFieldValues> = async (
+    formValues
+  ) => await onFormSubmit(formValues, !!featureFlags.test.enableAWSProviderValidation);
+  const onFormForceSubmit: SubmitHandler<AWSProviderCreateFormFieldValues> = async (formValues) =>
+    await onFormSubmit(formValues, false);
+
   const showAddRegionFormModal = () => {
     setRegionSelection(undefined);
     setRegionOperation(RegionOperation.ADD);
     setIsRegionFormModalOpen(true);
   };
   const showEditRegionFormModal = () => {
-    setRegionOperation(RegionOperation.EDIT);
+    setRegionOperation(RegionOperation.EDIT_NEW);
     setIsRegionFormModalOpen(true);
   };
   const showDeleteRegionModal = () => {
@@ -336,51 +268,8 @@ export const AWSProviderCreateForm = ({
     setIsRegionFormModalOpen(false);
   };
   const skipValidationAndSubmit = () => {
-    onFormForceSubmit(formMethods.getValues());
+    formMethods.handleSubmit(onFormForceSubmit);
   };
-
-  const handleFormServerError = (error: Error | AxiosError<YBBeanValidationError | YBPError>) => {
-    if (
-      featureFlags.test.enableAWSProviderValidation &&
-      isAxiosError<YBBeanValidationError | YBPError>(error) &&
-      !(
-        typeof error.response?.data.error === 'string' ||
-        error.response?.data.error instanceof String
-      ) &&
-      isNonEmptyObject(error.response?.data.error)
-    ) {
-      // Handle YBBeanValidationError
-      setQuickValidationErrors(error.response?.data.error ?? null);
-      const invalidFields = error.response?.data.error
-        ? getInvalidFields(error.response?.data.error)
-        : [];
-      invalidFields.forEach((fieldName) =>
-        formMethods.setError(fieldName, {
-          type: 'server',
-          message:
-            'Validation Error. See the field validation failure at the bottom of the page for more details.'
-        })
-      );
-    }
-
-    // Set form error to fail form submission.
-    formMethods.setError(ASYNC_ERROR, {
-      type: 'server',
-      message: error.message ?? 'Server reported error.'
-    });
-  };
-
-  const credentialOptions: OptionProps[] = [
-    {
-      value: ProviderCredentialType.ACCESS_KEY,
-      label: 'Specify Access ID and Secret Key'
-    },
-    {
-      value: ProviderCredentialType.HOST_INSTANCE_IAM_ROLE,
-      label: `Use IAM Role from this YBA host's instance`,
-      disabled: getYBAHost(hostInfoQuery.data) !== YBAHost.AWS
-    }
-  ];
 
   const regions = formMethods.watch('regions', defaultValues.regions);
   const setRegions = (regions: CloudVendorRegionField[]) =>
@@ -393,6 +282,18 @@ export const AWSProviderCreateForm = ({
   const onDeleteRegionSubmit = (currentRegion: CloudVendorRegionField) =>
     deleteItem(currentRegion, regions, setRegions);
 
+  const credentialOptions: OptionProps[] = [
+    {
+      value: AWSProviderCredentialType.ACCESS_KEY,
+      label: 'Specify Access ID and Secret Key'
+    },
+    {
+      value: AWSProviderCredentialType.HOST_INSTANCE_IAM_ROLE,
+      label: `Use IAM Role from this YBA host's instance`,
+      disabled: getYBAHost(hostInfoQuery.data) !== YBAHost.AWS
+    }
+  ];
+
   const providerCredentialType = formMethods.watch(
     'providerCredentialType',
     defaultValues.providerCredentialType
@@ -404,6 +305,7 @@ export const AWSProviderCreateForm = ({
   const enableHostedZone = formMethods.watch('enableHostedZone', defaultValues.enableHostedZone);
   const vpcSetupType = formMethods.watch('vpcSetupType', defaultValues.vpcSetupType);
   const ybImageType = formMethods.watch('ybImageType', defaultValues.ybImageType);
+  const isFormDisabled = formMethods.formState.isValidating || formMethods.formState.isSubmitting;
   return (
     <Box display="flex" justifyContent="center">
       <FormProvider {...formMethods}>
@@ -414,15 +316,24 @@ export const AWSProviderCreateForm = ({
           <Typography variant="h3">Create AWS Provider Configuration</Typography>
           <FormField providerNameField={true}>
             <FieldLabel>Provider Name</FieldLabel>
-            <YBInputField control={formMethods.control} name="providerName" fullWidth />
+            <YBInputField
+              control={formMethods.control}
+              name="providerName"
+              disabled={isFormDisabled}
+              fullWidth
+            />
           </FormField>
           <Box width="100%" display="flex" flexDirection="column" gridGap="32px">
             <FieldGroup
               heading="Cloud Info"
+              infoTitle="Cloud Info"
               infoContent="Enter your cloud credentials and specify how Yugabyte should leverage cloud services."
             >
               <FormField>
-                <FieldLabel infoContent="For public cloud Providers YBA creates compute instances, and therefore requires sufficient permissions to do so.">
+                <FieldLabel
+                  infoTitle="Credential Type"
+                  infoContent="For public cloud Providers YBA creates compute instances, and therefore requires sufficient permissions to do so."
+                >
                   Credential Type
                 </FieldLabel>
                 <YBRadioGroupField
@@ -432,41 +343,60 @@ export const AWSProviderCreateForm = ({
                   orientation={RadioGroupOrientation.HORIZONTAL}
                 />
               </FormField>
-              {providerCredentialType === ProviderCredentialType.ACCESS_KEY && (
+              {providerCredentialType === AWSProviderCredentialType.ACCESS_KEY && (
                 <>
                   <FormField>
                     <FieldLabel>Access Key ID</FieldLabel>
-                    <YBInputField control={formMethods.control} name="accessKeyId" fullWidth />
+                    <YBInputField
+                      control={formMethods.control}
+                      name="accessKeyId"
+                      disabled={isFormDisabled}
+                      fullWidth
+                    />
                   </FormField>
                   <FormField>
                     <FieldLabel>Secret Access Key</FieldLabel>
-                    <YBInputField control={formMethods.control} name="secretAccessKey" fullWidth />
+                    <YBInputField
+                      control={formMethods.control}
+                      name="secretAccessKey"
+                      disabled={isFormDisabled}
+                      fullWidth
+                    />
                   </FormField>
                 </>
               )}
               <FormField>
-                <FieldLabel>{`Use AWS Route 53 DNS Server`}</FieldLabel>
+                <FieldLabel>Use AWS Route 53 DNS Server</FieldLabel>
                 <YBToggleField name="enableHostedZone" control={formMethods.control} />
               </FormField>
               {enableHostedZone && (
                 <FormField>
                   <FieldLabel>Hosted Zone ID</FieldLabel>
-                  <YBInputField control={formMethods.control} name="hostedZoneId" fullWidth />
+                  <YBInputField
+                    control={formMethods.control}
+                    name="hostedZoneId"
+                    disabled={isFormDisabled}
+                    fullWidth
+                  />
                 </FormField>
               )}
             </FieldGroup>
             <FieldGroup
               heading="Regions"
+              infoTitle="Regions"
               infoContent="Which regions would you like to allow DB nodes to be deployed into?"
               headerAccessories={
-                <YBButton
-                  btnIcon="fa fa-plus"
-                  btnText="Add Region"
-                  btnClass="btn btn-default"
-                  btnType="button"
-                  onClick={showAddRegionFormModal}
-                  disabled={formMethods.formState.isSubmitting}
-                />
+                regions.length > 0 ? (
+                  <YBButton
+                    btnIcon="fa fa-plus"
+                    btnText="Add Region"
+                    btnClass="btn btn-default"
+                    btnType="button"
+                    onClick={showAddRegionFormModal}
+                    disabled={isFormDisabled}
+                    data-testid={`${FORM_NAME}-AddRegionButton`}
+                  />
+                ) : null
               }
             >
               <FormField>
@@ -478,14 +408,6 @@ export const AWSProviderCreateForm = ({
                   orientation={RadioGroupOrientation.HORIZONTAL}
                 />
               </FormField>
-              {ybImageType === YBImageType.CUSTOM_AMI && (
-                <FormField>
-                  <FieldLabel infoContent="This AMI will be used for all regions. A per-region override is available in the 'Add region' modal.">
-                    Custom Default AMI
-                  </FieldLabel>
-                  <YBInputField control={formMethods.control} name="ybImage" fullWidth />
-                </FormField>
-              )}
               <FormField>
                 <FieldLabel>VPC Setup</FieldLabel>
                 <YBRadioGroupField
@@ -502,7 +424,7 @@ export const AWSProviderCreateForm = ({
                 showAddRegionFormModal={showAddRegionFormModal}
                 showEditRegionFormModal={showEditRegionFormModal}
                 showDeleteRegionModal={showDeleteRegionModal}
-                disabled={formMethods.formState.isSubmitting}
+                disabled={isFormDisabled}
                 isError={!!formMethods.formState.errors.regions}
               />
               {formMethods.formState.errors.regions?.message ? (
@@ -513,11 +435,17 @@ export const AWSProviderCreateForm = ({
             </FieldGroup>
             <FieldGroup
               heading="SSH Key Pairs"
+              infoTitle="SSH Key Pairs"
               infoContent="YBA requires SSH access to DB nodes. For public clouds, YBA provisions the VM instances as part of the DB node provisioning. The OS images come with a preprovisioned user."
             >
               <FormField>
                 <FieldLabel>SSH User</FieldLabel>
-                <YBInputField control={formMethods.control} name="sshUser" fullWidth />
+                <YBInputField
+                  control={formMethods.control}
+                  name="sshUser"
+                  disabled={isFormDisabled}
+                  fullWidth
+                />
               </FormField>
               <FormField>
                 <FieldLabel>SSH Port</FieldLabel>
@@ -526,6 +454,7 @@ export const AWSProviderCreateForm = ({
                   name="sshPort"
                   type="number"
                   inputProps={{ min: 0, max: 65535 }}
+                  disabled={isFormDisabled}
                   fullWidth
                 />
               </FormField>
@@ -538,11 +467,16 @@ export const AWSProviderCreateForm = ({
                   orientation={RadioGroupOrientation.HORIZONTAL}
                 />
               </FormField>
-              {keyPairManagement === KeyPairManagement.CUSTOM_KEY_PAIR && (
+              {keyPairManagement === KeyPairManagement.SELF_MANAGED && (
                 <>
                   <FormField>
                     <FieldLabel>SSH Keypair Name</FieldLabel>
-                    <YBInputField control={formMethods.control} name="sshKeypairName" fullWidth />
+                    <YBInputField
+                      control={formMethods.control}
+                      name="sshKeypairName"
+                      disabled={isFormDisabled}
+                      fullWidth
+                    />
                   </FormField>
                   <FormField>
                     <FieldLabel>SSH Private Key Content</FieldLabel>
@@ -559,23 +493,27 @@ export const AWSProviderCreateForm = ({
             </FieldGroup>
             <FieldGroup heading="Advanced">
               <FormField>
-                <FieldLabel infoContent="If yes, YBA will install some software packages on the DB nodes by downloading from the public internet. If not, all installation of software on the nodes will download from only this YBA instance.">
+                <FieldLabel
+                  infoTitle="DB Nodes have public internet access?"
+                  infoContent="If yes, YBA will install some software packages on the DB nodes by downloading from the public internet. If not, all installation of software on the nodes will download from only this YBA instance."
+                >
                   DB Nodes have public internet access?
                 </FieldLabel>
-                <YBToggleField name="dbNodePublicInternetAccess" control={formMethods.control} />
+                <YBToggleField
+                  name="dbNodePublicInternetAccess"
+                  control={formMethods.control}
+                  disabled={isFormDisabled}
+                />
               </FormField>
               <FormField>
                 <FieldLabel>NTP Setup</FieldLabel>
-                <NTPConfigField
-                  isDisabled={formMethods.formState.isSubmitting}
-                  providerCode={ProviderCode.AWS}
-                />
+                <NTPConfigField isDisabled={isFormDisabled} providerCode={ProviderCode.AWS} />
               </FormField>
             </FieldGroup>
             {!!featureFlags.test.enableAWSProviderValidation && !!quickValidationErrors && (
               <YBBanner variant={YBBannerVariant.DANGER}>
                 <Typography variant="body1">Fields failed validation:</Typography>
-                <ul className={classes.errorList}>
+                <ul className={validationClasses.errorList}>
                   {Object.entries(quickValidationErrors).map(([keyString, errors]) => {
                     return (
                       <li key={keyString}>
@@ -592,7 +530,7 @@ export const AWSProviderCreateForm = ({
                 <YBRedesignedButton
                   variant="secondary"
                   onClick={skipValidationAndSubmit}
-                  data-testid="AWSProviderCreateForm-SkipValidationButton"
+                  data-testid={`${FORM_NAME}-SkipValidationButton`}
                 >
                   Ignore and save provider configuration anyway
                 </YBRedesignedButton>
@@ -618,19 +556,20 @@ export const AWSProviderCreateForm = ({
               }
               btnClass="btn btn-default save-btn"
               btnType="submit"
-              disabled={formMethods.formState.isSubmitting}
-              data-testid="AWSProviderCreateForm-SubmitButton"
+              disabled={isFormDisabled}
+              data-testid={`${FORM_NAME}-SubmitButton`}
             />
             <YBButton
               btnText="Back"
               btnClass="btn btn-default"
               onClick={onBack}
-              disabled={formMethods.formState.isSubmitting}
-              data-testid="AWSProviderCreateForm-BackButton"
+              disabled={isFormDisabled}
+              data-testid={`${FORM_NAME}-BackButton`}
             />
           </Box>
         </FormContainer>
       </FormProvider>
+      {/* Modals */}
       {isRegionFormModalOpen && (
         <ConfigureRegionModal
           onClose={hideRegionFormModal}
@@ -652,4 +591,67 @@ export const AWSProviderCreateForm = ({
       />
     </Box>
   );
+};
+
+const constructProviderPayload = async (
+  formValues: AWSProviderCreateFormFieldValues
+): Promise<YBProviderMutation> => {
+  let sshPrivateKeyContent = '';
+  try {
+    sshPrivateKeyContent =
+      formValues.sshKeypairManagement === KeyPairManagement.SELF_MANAGED &&
+      formValues.sshPrivateKeyContent
+        ? (await readFileAsText(formValues.sshPrivateKeyContent)) ?? ''
+        : '';
+  } catch (error) {
+    throw new Error(`An error occurred while processing the SSH private key file: ${error}`);
+  }
+
+  return {
+    code: ProviderCode.AWS,
+    name: formValues.providerName,
+    ...(formValues.sshKeypairManagement === KeyPairManagement.SELF_MANAGED && {
+      ...(formValues.sshKeypairName && { keyPairName: formValues.sshKeypairName }),
+      ...(formValues.sshPrivateKeyContent && {
+        sshPrivateKeyContent: sshPrivateKeyContent
+      })
+    }),
+    details: {
+      airGapInstall: !formValues.dbNodePublicInternetAccess,
+      cloudInfo: {
+        [ProviderCode.AWS]: {
+          ...(formValues.providerCredentialType === AWSProviderCredentialType.ACCESS_KEY && {
+            awsAccessKeyID: formValues.accessKeyId,
+            awsAccessKeySecret: formValues.secretAccessKey
+          }),
+          ...(formValues.enableHostedZone && { awsHostedZoneId: formValues.hostedZoneId })
+        }
+      },
+      ntpServers: formValues.ntpServers,
+      setUpChrony: formValues.ntpSetupType !== NTPSetupType.NO_NTP,
+      sshPort: formValues.sshPort,
+      sshUser: formValues.sshUser
+    },
+    regions: formValues.regions.map<AWSRegionMutation>((regionFormValues) => ({
+      code: regionFormValues.code,
+      details: {
+        cloudInfo: {
+          [ProviderCode.AWS]: {
+            ...(formValues.ybImageType === YBImageType.CUSTOM_AMI
+              ? {
+                  ybImage: regionFormValues.ybImage
+                }
+              : { arch: formValues.ybImageType }),
+            securityGroupId: regionFormValues.securityGroupId,
+            vnet: regionFormValues.vnet
+          }
+        }
+      },
+      zones: regionFormValues.zones?.map<AWSAvailabilityZoneMutation>((azFormValues) => ({
+        code: azFormValues.code,
+        name: azFormValues.code,
+        subnet: azFormValues.subnet
+      }))
+    }))
+  };
 };

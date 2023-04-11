@@ -52,6 +52,7 @@ import com.yugabyte.yw.common.config.impl.SettableRuntimeConfigFactory;
 import com.yugabyte.yw.common.gflags.GFlagsValidation;
 import com.yugabyte.yw.common.ha.PlatformReplicationHelper;
 import com.yugabyte.yw.common.ha.PlatformReplicationManager;
+import com.yugabyte.yw.common.inject.StaticInjectorHolder;
 import com.yugabyte.yw.common.kms.EncryptionAtRestManager;
 import com.yugabyte.yw.common.kms.util.EncryptionAtRestUniverseKeyCache;
 import com.yugabyte.yw.common.kms.util.GcpEARServiceUtil;
@@ -78,7 +79,6 @@ import org.pac4j.core.client.Clients;
 import org.pac4j.core.http.url.DefaultUrlResolver;
 import org.pac4j.oidc.client.OidcClient;
 import org.pac4j.oidc.config.OidcConfiguration;
-import org.pac4j.oidc.profile.OidcProfile;
 import org.pac4j.play.store.PlayCacheSessionStore;
 import org.pac4j.play.store.PlaySessionStore;
 import org.yb.perf_advisor.module.PerfAdvisor;
@@ -104,6 +104,7 @@ public class Module extends AbstractModule {
 
   @Override
   public void configure() {
+    bind(StaticInjectorHolder.class).asEagerSingleton();
     bind(Long.class)
         .annotatedWith(Names.named("AppStartupTimeMs"))
         .toInstance(System.currentTimeMillis());
@@ -195,7 +196,7 @@ public class Module extends AbstractModule {
   }
 
   @Provides
-  protected OidcClient<OidcProfile, OidcConfiguration> provideOidcClient(
+  protected OidcClient<OidcConfiguration> provideOidcClient(
       RuntimeConfigFactory runtimeConfigFactory) {
     com.typesafe.config.Config config = runtimeConfigFactory.globalRuntimeConf();
     String securityType = config.getString("yb.security.type");
@@ -217,7 +218,7 @@ public class Module extends AbstractModule {
 
   @Provides
   protected org.pac4j.core.config.Config providePac4jConfig(
-      OidcClient<OidcProfile, OidcConfiguration> oidcClient) {
+      OidcClient<OidcConfiguration> oidcClient) {
     final Clients clients = new Clients("/api/v1/callback", oidcClient);
     clients.setUrlResolver(new DefaultUrlResolver(true));
     final org.pac4j.core.config.Config config = new org.pac4j.core.config.Config(clients);

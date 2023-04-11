@@ -44,6 +44,7 @@ add_dependencies(
   gen_src_yb_master_master_types_proto
   gen_src_yb_tserver_tserver_service_proto
   gen_src_yb_rpc_any_proto
+  gen_src_yb_consensus_consensus_types_proto
   )
 
 set(PQ_UTILS_SRCS
@@ -91,6 +92,7 @@ ADD_YB_LIBRARY(ysql_upgrade
 
 set(YB_TEST_LINK_LIBS yb_pgwrapper ql-dml-test-base pg_wrapper_test_base tools_test_utils
     geo_transactions_test_base rocksdb_tools ${YB_MIN_TEST_LIBS})
+ADD_YB_TEST(pg_auto_analyze-test)
 ADD_YB_TEST(pg_catalog_perf-test)
 ADD_YB_TEST(pg_clock_skew-test)
 ADD_YB_TEST(pg_conn-test)
@@ -118,6 +120,7 @@ ADD_YB_TEST(alter_schema_abort_txn-test)
 ADD_YB_TEST(pg_cache_refresh-test)
 ADD_YB_TEST(pg_ddl_atomicity-test)
 ADD_YB_TEST(colocation-test)
+ADD_YB_TEST(pg_namespace-test)
 
 # This is really a tool, not a test, but uses a lot of existing test infrastructure.
 ADD_YB_TEST(create_initial_sys_catalog_snapshot)

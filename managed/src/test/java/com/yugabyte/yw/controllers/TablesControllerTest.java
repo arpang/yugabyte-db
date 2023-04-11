@@ -19,6 +19,7 @@ import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.core.StringContains.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertThrows;
@@ -38,7 +39,6 @@ import static org.mockito.Mockito.when;
 import static play.mvc.Http.Status.BAD_REQUEST;
 import static play.mvc.Http.Status.OK;
 import static play.test.Helpers.contentAsString;
-import static play.test.Helpers.contextComponents;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -225,12 +225,14 @@ public class TablesControllerTest extends FakeDBApplication {
     tableInfoList.add(ti2);
     tableInfoList.add(ti3);
     when(mockListTablesResponse.getTableInfoList()).thenReturn(tableInfoList);
-    when(mockClient.getTablesList()).thenReturn(mockListTablesResponse);
-    Universe u1 = createUniverse(customer.getCustomerId());
-    u1 = Universe.saveDetails(u1.universeUUID, ApiUtils.mockUniverseUpdater());
+    when(mockClient.getTablesList(null, false, null)).thenReturn(mockListTablesResponse);
+    Universe u1 = createUniverse(customer.getId());
+    u1 = Universe.saveDetails(u1.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
 
-    LOG.info("Created customer " + customer.uuid + " with universe " + u1.universeUUID);
-    Result r = tablesController.listTables(customer.uuid, u1.universeUUID, false);
+    LOG.info("Created customer " + customer.getUuid() + " with universe " + u1.getUniverseUUID());
+    Result r =
+        tablesController.listTables(
+            customer.getUuid(), u1.getUniverseUUID(), false, false); // modify mock
     JsonNode json = Json.parse(contentAsString(r));
     LOG.info("Fetched table list from universe, response: " + contentAsString(r));
     assertEquals(OK, r.status());
@@ -262,28 +264,30 @@ public class TablesControllerTest extends FakeDBApplication {
     }
     LOG.info("Processed " + numTables + " tables");
     assertEquals(numTables, tableNames.size());
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
   public void testUniverseListMastersNotQueryable() {
-    Universe u1 = createUniverse("Universe-1", customer.getCustomerId());
+    Universe u1 = createUniverse("Universe-1", customer.getId());
     Result r =
         assertThrows(
                 PlatformServiceException.class,
-                () -> tablesController.listTables(customer.uuid, u1.universeUUID, false))
-            .buildResult();
+                () ->
+                    tablesController.listTables(
+                        customer.getUuid(), u1.getUniverseUUID(), false, false)) // modify mock
+            .buildResult(fakeRequest);
     assertEquals(503, r.status());
     assertEquals(
         "Expected error. Masters are not currently queryable.",
         Json.parse(contentAsString(r)).get("error").asText());
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
   public void testListTablesFromYbClientLeaderMasterNotAvailable() throws Exception {
-    Universe u1 = createUniverse("Universe-1", customer.getCustomerId());
-    u1 = Universe.saveDetails(u1.universeUUID, ApiUtils.mockUniverseUpdater());
+    Universe u1 = createUniverse("Universe-1", customer.getId());
+    u1 = Universe.saveDetails(u1.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
     final Universe u2 = u1;
     doThrow(new RuntimeException("Timed out waiting for Master Leader after 10000 ms"))
         .when(mockClient)
@@ -292,12 +296,14 @@ public class TablesControllerTest extends FakeDBApplication {
     Result r =
         assertThrows(
                 PlatformServiceException.class,
-                () -> tablesController.listTables(customer.uuid, u2.universeUUID, false))
-            .buildResult();
+                () ->
+                    tablesController.listTables(
+                        customer.getUuid(), u2.getUniverseUUID(), false, false)) // modify mock
+            .buildResult(fakeRequest);
     assertEquals(500, r.status());
     assertEquals(
         "Could not find the master leader", Json.parse(contentAsString(r)).get("error").asText());
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
@@ -307,7 +313,7 @@ public class TablesControllerTest extends FakeDBApplication {
 
     UUID badUUID = UUID.randomUUID();
     String method = "POST";
-    String url = "/api/customers/" + customer.uuid + "/universes/" + badUUID + "/tables";
+    String url = "/api/customers/" + customer.getUuid() + "/universes/" + badUUID + "/tables";
     ObjectNode emptyJson = Json.newObject();
 
     Result r =
@@ -316,18 +322,22 @@ public class TablesControllerTest extends FakeDBApplication {
     assertEquals(BAD_REQUEST, r.status());
     String errMsg = "Cannot find universe " + badUUID;
     assertThat(Json.parse(contentAsString(r)).get("error").asText(), containsString(errMsg));
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
   public void testCreateCassandraTableWithInvalidParams() {
     String authToken = user.createAuthToken();
-    Universe universe = createUniverse(customer.getCustomerId());
-    universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
+    Universe universe = createUniverse(customer.getId());
+    universe = Universe.saveDetails(universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
 
     String method = "POST";
     String url =
-        "/api/customers/" + customer.uuid + "/universes/" + universe.universeUUID + "/tables";
+        "/api/customers/"
+            + customer.getUuid()
+            + "/universes/"
+            + universe.getUniverseUUID()
+            + "/tables";
     ObjectNode emptyJson = Json.newObject();
     String errorString = "Table details can not be null.";
 
@@ -336,7 +346,7 @@ public class TablesControllerTest extends FakeDBApplication {
             () -> doRequestWithAuthTokenAndBody(method, url, authToken, emptyJson));
     assertEquals(BAD_REQUEST, result.status());
     assertThat(contentAsString(result), containsString(errorString));
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
@@ -346,18 +356,22 @@ public class TablesControllerTest extends FakeDBApplication {
             Matchers.any(TaskType.class), Matchers.any(TableDefinitionTaskParams.class)))
         .thenReturn(fakeTaskUUID);
     String authToken = user.createAuthToken();
-    Universe universe = createUniverse(customer.getCustomerId());
-    universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
+    Universe universe = createUniverse(customer.getId());
+    universe = Universe.saveDetails(universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
 
     String method = "POST";
     String url =
-        "/api/customers/" + customer.uuid + "/universes/" + universe.universeUUID + "/tables";
+        "/api/customers/"
+            + customer.getUuid()
+            + "/universes/"
+            + universe.getUniverseUUID()
+            + "/tables";
     JsonNode topJson =
         Json.parse(
             "{"
                 + "\"cloud\":\"aws\","
                 + "\"universeUUID\":\""
-                + universe.universeUUID.toString()
+                + universe.getUniverseUUID().toString()
                 + "\","
                 + "\"expectedUniverseVersion\":-1,"
                 + "\"tableUUID\":null,"
@@ -406,13 +420,13 @@ public class TablesControllerTest extends FakeDBApplication {
 
     CustomerTask task = CustomerTask.find.query().where().eq("task_uuid", fakeTaskUUID).findOne();
     assertNotNull(task);
-    assertThat(task.getCustomerUUID(), allOf(notNullValue(), equalTo(customer.uuid)));
+    assertThat(task.getCustomerUUID(), allOf(notNullValue(), equalTo(customer.getUuid())));
     assertThat(task.getTargetName(), allOf(notNullValue(), equalTo("test_table")));
     assertThat(task.getType(), allOf(notNullValue(), equalTo(CustomerTask.TaskType.Create)));
     // TODO: Ideally i think the targetUUID for tables should be tableUUID, but currently
     // we don't control the UUID generation for tables from middleware side.
-    assertThat(task.getTargetUUID(), allOf(notNullValue(), equalTo(universe.universeUUID)));
-    assertAuditEntry(1, customer.uuid);
+    assertThat(task.getTargetUUID(), allOf(notNullValue(), equalTo(universe.getUniverseUUID())));
+    assertAuditEntry(1, customer.getUuid());
   }
 
   @Test
@@ -429,10 +443,11 @@ public class TablesControllerTest extends FakeDBApplication {
     when(mockSchemaResponse.getTableId()).thenReturn(tableUUID.toString().replace("-", ""));
 
     // Creating fake authentication
-    Universe universe = createUniverse(customer.getCustomerId());
-    universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
+    Universe universe = createUniverse(customer.getId());
+    universe = Universe.saveDetails(universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
 
-    Result result = tablesController.describe(customer.uuid, universe.universeUUID, tableUUID);
+    Result result =
+        tablesController.describe(customer.getUuid(), universe.getUniverseUUID(), tableUUID);
     assertEquals(OK, result.status());
     JsonNode json = Json.parse(contentAsString(result));
     assertEquals(tableUUID.toString(), json.get("tableUUID").asText());
@@ -440,7 +455,7 @@ public class TablesControllerTest extends FakeDBApplication {
     assertEquals("mock_table", json.at("/tableDetails/tableName").asText());
     assertEquals("mock_ks", json.at("/tableDetails/keyspace").asText());
     assertEquals("mock_column", json.at("/tableDetails/columns/0/name").asText());
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
@@ -453,12 +468,14 @@ public class TablesControllerTest extends FakeDBApplication {
     when(mockClient.getTableSchemaByUUID(any(String.class))).thenReturn(mockSchemaResponse);
 
     // Creating fake authentication
-    Universe universe = createUniverse(customer.getCustomerId());
-    final Universe u = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
+    Universe universe = createUniverse(customer.getId());
+    final Universe u =
+        Universe.saveDetails(universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
 
     Result result =
         assertPlatformException(
-            () -> tablesController.describe(customer.uuid, u.universeUUID, mockTableUUID2));
+            () ->
+                tablesController.describe(customer.getUuid(), u.getUniverseUUID(), mockTableUUID2));
     assertEquals(BAD_REQUEST, result.status());
     // String errMsg = "Invalid Universe UUID: " + universe.universeUUID;
     String errMsg =
@@ -468,7 +485,7 @@ public class TablesControllerTest extends FakeDBApplication {
             + mockTableUUID1
             + ").";
     assertEquals(errMsg, Json.parse(contentAsString(result)).get("error").asText());
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
@@ -526,15 +543,15 @@ public class TablesControllerTest extends FakeDBApplication {
 
     ModelFactory.awsProvider(customer);
     String authToken = user.createAuthToken();
-    Universe universe = createUniverse(customer.getCustomerId());
-    universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater(aws));
+    Universe universe = createUniverse(customer.getId());
+    universe = Universe.saveDetails(universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater(aws));
 
     String method = "PUT";
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/tables/"
             + UUID.randomUUID()
             + "/bulk_import";
@@ -545,7 +562,7 @@ public class TablesControllerTest extends FakeDBApplication {
 
     Result result = doRequestWithAuthTokenAndBody(method, url, authToken, topJson);
     assertEquals(OK, result.status());
-    assertAuditEntry(1, customer.uuid);
+    assertAuditEntry(1, customer.getUuid());
   }
 
   @Test
@@ -556,15 +573,15 @@ public class TablesControllerTest extends FakeDBApplication {
         .thenReturn(fakeTaskUUID);
     ModelFactory.awsProvider(customer);
     String authToken = user.createAuthToken();
-    Universe universe = createUniverse(customer.getCustomerId());
-    universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater(aws));
+    Universe universe = createUniverse(customer.getId());
+    universe = Universe.saveDetails(universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater(aws));
 
     String method = "PUT";
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/tables/"
             + UUID.randomUUID()
             + "/bulk_import";
@@ -578,17 +595,17 @@ public class TablesControllerTest extends FakeDBApplication {
             () -> doRequestWithAuthTokenAndBody(method, url, authToken, topJson));
     assertEquals(BAD_REQUEST, result.status());
     assertThat(contentAsString(result), containsString("Invalid S3 Bucket provided: foobar"));
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
   public void testCreateBackupWithInvalidParams() {
-    Universe universe = ModelFactory.createUniverse(customer.getCustomerId());
+    Universe universe = ModelFactory.createUniverse(customer.getId());
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/tables/"
             + UUID.randomUUID()
             + "/create_backup";
@@ -600,17 +617,17 @@ public class TablesControllerTest extends FakeDBApplication {
     JsonNode resultJson = Json.parse(contentAsString(result));
     assertEquals(BAD_REQUEST, result.status());
     assertErrorNodeValue(resultJson, "storageConfigUUID", "This field is required");
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
   public void testCreateBackupWithInvalidStorageConfig() {
-    Universe universe = ModelFactory.createUniverse(customer.getCustomerId());
+    Universe universe = ModelFactory.createUniverse(customer.getId());
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/tables/"
             + UUID.randomUUID()
             + "/create_backup";
@@ -625,19 +642,19 @@ public class TablesControllerTest extends FakeDBApplication {
         assertPlatformException(
             () -> doRequestWithAuthTokenAndBody("PUT", url, user.createAuthToken(), bodyJson));
     assertBadRequest(result, "Invalid StorageConfig UUID: " + randomUUID);
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
   public void testCreateBackupWithReadOnlyUser() {
     user.delete();
     user = ModelFactory.testUser(customer, Users.Role.ReadOnly);
-    Universe universe = ModelFactory.createUniverse(customer.getCustomerId());
+    Universe universe = ModelFactory.createUniverse(customer.getId());
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/tables/"
             + UUID.randomUUID()
             + "/create_backup";
@@ -650,21 +667,21 @@ public class TablesControllerTest extends FakeDBApplication {
 
     Result result = doRequestWithAuthTokenAndBody("PUT", url, user.createAuthToken(), bodyJson);
     assertForbidden(result, "User doesn't have access");
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
   public void testCreateBackupWithBackupAdminUser() {
     user.delete();
     user = ModelFactory.testUser(customer, Users.Role.BackupAdmin);
-    Universe universe = ModelFactory.createUniverse(customer.getCustomerId());
+    Universe universe = ModelFactory.createUniverse(customer.getId());
     UUID tableUUID = UUID.randomUUID();
     CustomerConfig customerConfig = ModelFactory.createS3StorageConfig(customer, "TEST17");
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/tables/"
             + tableUUID
             + "/create_backup";
@@ -672,7 +689,7 @@ public class TablesControllerTest extends FakeDBApplication {
     bodyJson.put("keyspace", "foo");
     bodyJson.put("tableName", "bar");
     bodyJson.put("actionType", "CREATE");
-    bodyJson.put("storageConfigUUID", customerConfig.configUUID.toString());
+    bodyJson.put("storageConfigUUID", customerConfig.getConfigUUID().toString());
 
     ArgumentCaptor<TaskType> taskType = ArgumentCaptor.forClass(TaskType.class);
 
@@ -687,18 +704,18 @@ public class TablesControllerTest extends FakeDBApplication {
     assertValue(resultJson, "taskUUID", fakeTaskUUID.toString());
     CustomerTask ct = CustomerTask.findByTaskUUID(fakeTaskUUID);
     assertNotNull(ct);
-    assertAuditEntry(1, customer.uuid);
+    assertAuditEntry(1, customer.getUuid());
   }
 
   @Test
   public void testCreateBackupWithValidParams() {
-    Universe universe = ModelFactory.createUniverse(customer.getCustomerId());
+    Universe universe = ModelFactory.createUniverse(customer.getId());
     UUID tableUUID = UUID.randomUUID();
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/tables/"
             + tableUUID
             + "/create_backup";
@@ -707,7 +724,7 @@ public class TablesControllerTest extends FakeDBApplication {
     bodyJson.put("keyspace", "foo");
     bodyJson.put("tableName", "bar");
     bodyJson.put("actionType", "CREATE");
-    bodyJson.put("storageConfigUUID", customerConfig.configUUID.toString());
+    bodyJson.put("storageConfigUUID", customerConfig.getConfigUUID().toString());
 
     ArgumentCaptor<TaskType> taskType = ArgumentCaptor.forClass(TaskType.class);
 
@@ -723,14 +740,15 @@ public class TablesControllerTest extends FakeDBApplication {
     assertValue(resultJson, "taskUUID", fakeTaskUUID.toString());
     CustomerTask ct = CustomerTask.findByTaskUUID(fakeTaskUUID);
     assertNotNull(ct);
-    assertAuditEntry(1, customer.uuid);
+    assertAuditEntry(1, customer.getUuid());
   }
 
   @Test
   @Ignore
   public void testCreateBackupOnDisabledTableFails() {
-    Universe universe = createUniverse(customer.getCustomerId());
-    final Universe u = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
+    Universe universe = createUniverse(customer.getId());
+    final Universe u =
+        Universe.saveDetails(universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
 
     TablesController mockTablesController = spy(tablesController);
 
@@ -741,7 +759,9 @@ public class TablesControllerTest extends FakeDBApplication {
     UUID uuid = UUID.randomUUID();
     Result r =
         assertPlatformException(
-            () -> mockTablesController.createBackup(customer.uuid, u.universeUUID, uuid));
+            () ->
+                mockTablesController.createBackup(
+                    customer.getUuid(), u.getUniverseUUID(), uuid, fakeRequest));
 
     assertBadRequest(r, "bad request");
   }
@@ -749,14 +769,15 @@ public class TablesControllerTest extends FakeDBApplication {
   @Test
   public void testCreateBackupFailureInProgress() {
     UUID tableUUID = UUID.randomUUID();
-    Universe universe = createUniverse(customer.getCustomerId());
+    Universe universe = createUniverse(customer.getId());
     universe =
-        Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater("host", null));
+        Universe.saveDetails(
+            universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater("host", null));
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/tables/"
             + tableUUID
             + "/create_backup";
@@ -765,7 +786,7 @@ public class TablesControllerTest extends FakeDBApplication {
     bodyJson.put("keyspace", "foo");
     bodyJson.put("tableName", "bar");
     bodyJson.put("actionType", "CREATE");
-    bodyJson.put("storageConfigUUID", customerConfig.configUUID.toString());
+    bodyJson.put("storageConfigUUID", customerConfig.getConfigUUID().toString());
 
     Result result =
         assertPlatformException(
@@ -774,19 +795,19 @@ public class TablesControllerTest extends FakeDBApplication {
     String errMsg =
         String.format(
             "Cannot run Backup task since the " + "universe %s is currently in a locked state.",
-            universe.universeUUID.toString());
+            universe.getUniverseUUID().toString());
     assertBadRequest(result, errMsg);
   }
 
   @Test
   public void testCreateBackupCronExpression() {
-    Universe universe = ModelFactory.createUniverse(customer.getCustomerId());
+    Universe universe = ModelFactory.createUniverse(customer.getId());
     UUID tableUUID = UUID.randomUUID();
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/tables/"
             + tableUUID
             + "/create_backup";
@@ -795,7 +816,7 @@ public class TablesControllerTest extends FakeDBApplication {
     bodyJson.put("keyspace", "foo");
     bodyJson.put("tableName", "bar");
     bodyJson.put("actionType", "CREATE");
-    bodyJson.put("storageConfigUUID", customerConfig.configUUID.toString());
+    bodyJson.put("storageConfigUUID", customerConfig.getConfigUUID().toString());
     bodyJson.put("cronExpression", "5 * * * *");
     Result result = doRequestWithAuthTokenAndBody("PUT", url, user.createAuthToken(), bodyJson);
     assertOk(result);
@@ -804,23 +825,23 @@ public class TablesControllerTest extends FakeDBApplication {
     Schedule schedule = Schedule.getOrBadRequest(scheduleUUID);
     assertNotNull(schedule);
     assertEquals(schedule.getCronExpression(), "5 * * * *");
-    assertAuditEntry(1, customer.uuid);
+    assertAuditEntry(1, customer.getUuid());
   }
 
   @Test
   @Ignore
   public void testCreateMultiBackup() throws Exception {
-    Universe universe = ModelFactory.createUniverse(customer.getCustomerId());
+    Universe universe = ModelFactory.createUniverse(customer.getId());
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/multi_table_backup";
     ObjectNode bodyJson = Json.newObject();
     CustomerConfig customerConfig = ModelFactory.createS3StorageConfig(customer, "TEST21");
     bodyJson.put("actionType", "CREATE");
-    bodyJson.put("storageConfigUUID", customerConfig.configUUID.toString());
+    bodyJson.put("storageConfigUUID", customerConfig.getConfigUUID().toString());
 
     ArgumentCaptor<TaskType> taskType = ArgumentCaptor.forClass(TaskType.class);
 
@@ -838,24 +859,25 @@ public class TablesControllerTest extends FakeDBApplication {
     assertValue(resultJson, "taskUUID", fakeTaskUUID.toString());
     CustomerTask ct = CustomerTask.findByTaskUUID(fakeTaskUUID);
     assertNotNull(ct);
-    assertAuditEntry(1, customer.uuid);
+    assertAuditEntry(1, customer.getUuid());
   }
 
   @Test
   public void testCreateMultiBackupFailureInProgress() {
-    Universe universe = createUniverse(customer.getCustomerId());
+    Universe universe = createUniverse(customer.getId());
     universe =
-        Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater("host", null));
+        Universe.saveDetails(
+            universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater("host", null));
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/multi_table_backup";
     ObjectNode bodyJson = Json.newObject();
     CustomerConfig customerConfig = ModelFactory.createS3StorageConfig(customer, "TEST22");
     bodyJson.put("actionType", "CREATE");
-    bodyJson.put("storageConfigUUID", customerConfig.configUUID.toString());
+    bodyJson.put("storageConfigUUID", customerConfig.getConfigUUID().toString());
 
     Result result =
         assertPlatformException(
@@ -863,23 +885,23 @@ public class TablesControllerTest extends FakeDBApplication {
     String errMsg =
         String.format(
             "Cannot run Backup task since the " + "universe %s is currently in a locked state.",
-            universe.universeUUID.toString());
+            universe.getUniverseUUID().toString());
     assertBadRequest(result, errMsg);
   }
 
   @Test
   public void testCreateMultiBackupScheduleCronNoTables() {
-    Universe universe = ModelFactory.createUniverse(customer.getCustomerId());
+    Universe universe = ModelFactory.createUniverse(customer.getId());
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/multi_table_backup";
     ObjectNode bodyJson = Json.newObject();
     CustomerConfig customerConfig = ModelFactory.createS3StorageConfig(customer, "TEST23");
     bodyJson.put("actionType", "CREATE");
-    bodyJson.put("storageConfigUUID", customerConfig.configUUID.toString());
+    bodyJson.put("storageConfigUUID", customerConfig.getConfigUUID().toString());
     bodyJson.put("cronExpression", "5 * * * *");
     bodyJson.put("keyspace", "$$$Default");
 
@@ -892,17 +914,17 @@ public class TablesControllerTest extends FakeDBApplication {
 
   @Test
   public void testCreateMultiBackupScheduleFrequencyEmptyKeyspace() {
-    Universe universe = ModelFactory.createUniverse(customer.getCustomerId());
+    Universe universe = ModelFactory.createUniverse(customer.getId());
     String url =
         "/api/customers/"
-            + customer.uuid
+            + customer.getUuid()
             + "/universes/"
-            + universe.universeUUID
+            + universe.getUniverseUUID()
             + "/multi_table_backup";
     ObjectNode bodyJson = Json.newObject();
     CustomerConfig customerConfig = ModelFactory.createS3StorageConfig(customer, "TEST24");
     bodyJson.put("actionType", "CREATE");
-    bodyJson.put("storageConfigUUID", customerConfig.configUUID.toString());
+    bodyJson.put("storageConfigUUID", customerConfig.getConfigUUID().toString());
     bodyJson.put("schedulingFrequency", "6000");
     bodyJson.put("keyspace", "$$$Default");
 
@@ -916,8 +938,6 @@ public class TablesControllerTest extends FakeDBApplication {
   public void testDeleteTableWithValidParams() throws Exception {
     Http.Request request =
         new Http.RequestBuilder().method("DELETE").path("/api/customer/test/universe/test").build();
-    Http.Context context = new Http.Context(request, contextComponents());
-    Http.Context.current.set(context);
     RequestContext.put(TokenAuthenticator.USER, new UserWithFeatures().setUser(user));
     tablesController.commissioner = mockCommissioner;
     UUID fakeTaskUUID = UUID.randomUUID();
@@ -934,28 +954,32 @@ public class TablesControllerTest extends FakeDBApplication {
     when(mockSchemaResponse.getTableType()).thenReturn(TableType.YQL_TABLE_TYPE);
     when(mockSchemaResponse.getTableId()).thenReturn(tableUUID.toString().replace("-", ""));
 
-    Universe universe = createUniverse(customer.getCustomerId());
-    universe = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
+    Universe universe = createUniverse(customer.getId());
+    universe = Universe.saveDetails(universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
 
-    Result result = tablesController.drop(customer.uuid, universe.universeUUID, tableUUID);
+    Result result =
+        tablesController.drop(customer.getUuid(), universe.getUniverseUUID(), tableUUID, request);
     assertEquals(OK, result.status());
-    assertAuditEntry(1, customer.uuid);
+    assertAuditEntry(1, customer.getUuid());
   }
 
   @Test
   public void testDeleteTableWithInvalidparams() {
-    Universe universe = createUniverse(customer.getCustomerId());
-    final Universe u = Universe.saveDetails(universe.universeUUID, ApiUtils.mockUniverseUpdater());
+    Universe universe = createUniverse(customer.getId());
+    final Universe u =
+        Universe.saveDetails(universe.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
 
     UUID badTableUUID = UUID.randomUUID();
     String errorString = "No table for UUID: " + badTableUUID;
 
     Result result =
         assertPlatformException(
-            () -> tablesController.drop(customer.uuid, u.universeUUID, badTableUUID));
+            () ->
+                tablesController.drop(
+                    customer.getUuid(), u.getUniverseUUID(), badTableUUID, fakeRequest));
     assertEquals(BAD_REQUEST, result.status());
     assertThat(contentAsString(result), containsString(errorString));
-    assertAuditEntry(0, customer.uuid);
+    assertAuditEntry(0, customer.getUuid());
   }
 
   @Test
@@ -1039,7 +1063,7 @@ public class TablesControllerTest extends FakeDBApplication {
     when(mockNodeUniverseManager.runYsqlCommand(any(), any(), anyString(), any()))
         .thenReturn(shellResponse1);
 
-    Result r = tablesController.listTableSpaces(customer.uuid, u1.universeUUID);
+    Result r = tablesController.listTableSpaces(customer.getUuid(), u1.getUniverseUUID());
     assertEquals(OK, r.status());
     JsonNode json = Json.parse(contentAsString(r));
     ObjectMapper objectMapper = new ObjectMapper();
@@ -1092,14 +1116,14 @@ public class TablesControllerTest extends FakeDBApplication {
 
     CreateTablespaceParams params =
         generateTablespaceParams(
-            universe.universeUUID, provider.code, 3, "r1-az1-1;r1-az2-1;r1-az3-1");
+            universe.getUniverseUUID(), provider.getCode(), 3, "r1-az1-1;r1-az2-1;r1-az3-1");
     Result result =
         doRequestWithAuthTokenAndBody(
             "POST",
             "/api/customers/"
                 + customer.getUuid()
                 + "/universes/"
-                + universe.universeUUID
+                + universe.getUniverseUUID()
                 + "/tablespaces",
             authToken,
             Json.toJson(params));
@@ -1118,9 +1142,9 @@ public class TablesControllerTest extends FakeDBApplication {
 
     CreateTablespaceParams params =
         generateTablespaceParams(
-            universe.universeUUID, provider.code, 0, "r1-az1-1;r1-az2-1;r1-az3-1");
+            universe.getUniverseUUID(), provider.getCode(), 0, "r1-az1-1;r1-az2-1;r1-az3-1");
     assertCreateTableSpacesError(
-        universe.universeUUID,
+        universe.getUniverseUUID(),
         authToken,
         params,
         "{\"tablespaceInfos[0].numReplicas\":[\"must be greater than or equal to 1\"]}");
@@ -1128,34 +1152,34 @@ public class TablesControllerTest extends FakeDBApplication {
     params = new CreateTablespaceParams();
     params.tablespaceInfos = new ArrayList<>();
     assertCreateTableSpacesError(
-        universe.universeUUID,
+        universe.getUniverseUUID(),
         authToken,
         params,
         "{\"tablespaceInfos\":[\"size must be between 1 and 2147483647\"]}");
 
     params =
         generateTablespaceParams(
-            universe.universeUUID, provider.code, 3, "r1-az1-1;r1-az2-1;r1-az3-1");
+            universe.getUniverseUUID(), provider.getCode(), 3, "r1-az1-1;r1-az2-1;r1-az3-1");
     params.tablespaceInfos.get(0).name = "";
     assertCreateTableSpacesError(
-        universe.universeUUID,
+        universe.getUniverseUUID(),
         authToken,
         params,
         "{\"tablespaceInfos[0].name\":[\"size must be between 1 and 2147483647\"]}");
 
-    params = generateTablespaceParams(universe.universeUUID, provider.code, 3, "");
+    params = generateTablespaceParams(universe.getUniverseUUID(), provider.getCode(), 3, "");
     assertCreateTableSpacesError(
-        universe.universeUUID,
+        universe.getUniverseUUID(),
         authToken,
         params,
         "{\"tablespaceInfos[0].placementBlocks\":[\"size must be between 1 and 2147483647\"]}");
 
     params =
         generateTablespaceParams(
-            universe.universeUUID, provider.code, 3, "r1-az1-1;r1-az2-1;r1-az3-1");
+            universe.getUniverseUUID(), provider.getCode(), 3, "r1-az1-1;r1-az2-1;r1-az3-1");
     params.tablespaceInfos.get(0).placementBlocks.get(0).cloud = "";
     assertCreateTableSpacesError(
-        universe.universeUUID,
+        universe.getUniverseUUID(),
         authToken,
         params,
         "{\"tablespaceInfos[0].placementBlocks[0].cloud\":[\"size must be between"
@@ -1225,11 +1249,11 @@ public class TablesControllerTest extends FakeDBApplication {
     tableNames.add("Table2");
 
     when(mockListTablesResponse.getTableInfoList()).thenReturn(tableInfoList);
-    when(mockClient.getTablesList()).thenReturn(mockListTablesResponse);
+    when(mockClient.getTablesList(null, true, null)).thenReturn(mockListTablesResponse);
 
     Customer customer = ModelFactory.testCustomer();
-    Universe u1 = createUniverse(customer.getCustomerId());
-    u1 = Universe.saveDetails(u1.universeUUID, ApiUtils.mockUniverseUpdater());
+    Universe u1 = createUniverse(customer.getId());
+    u1 = Universe.saveDetails(u1.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
 
     ShellResponse shellResponse =
         ShellResponse.create(
@@ -1243,8 +1267,8 @@ public class TablesControllerTest extends FakeDBApplication {
             anyObject(), anyObject(), eq("system"), anyObject()))
         .thenReturn(ShellResponse.create(ShellResponse.ERROR_CODE_SUCCESS, ""));
 
-    LOG.info("Created customer " + customer.uuid + " with universe " + u1.universeUUID);
-    Result r = tablesController.listTables(customer.uuid, u1.universeUUID, true);
+    LOG.info("Created customer " + customer.getUuid() + " with universe " + u1.getUniverseUUID());
+    Result r = tablesController.listTables(customer.getUuid(), u1.getUniverseUUID(), true, false);
     JsonNode json = Json.parse(contentAsString(r));
 
     ObjectMapper objectMapper = new ObjectMapper();
@@ -1365,10 +1389,10 @@ public class TablesControllerTest extends FakeDBApplication {
     tableNames.add("Table1");
 
     when(mockListTablesResponse.getTableInfoList()).thenReturn(tableInfoList);
-    when(mockClient.getTablesList()).thenReturn(mockListTablesResponse);
+    when(mockClient.getTablesList(null, true, null)).thenReturn(mockListTablesResponse);
     Customer customer = ModelFactory.testCustomer();
-    Universe u1 = createUniverse(customer.getCustomerId());
-    u1 = Universe.saveDetails(u1.universeUUID, ApiUtils.mockUniverseUpdater());
+    Universe u1 = createUniverse(customer.getId());
+    u1 = Universe.saveDetails(u1.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
 
     ShellResponse shellResponse1 =
         ShellResponse.create(
@@ -1390,8 +1414,10 @@ public class TablesControllerTest extends FakeDBApplication {
             anyObject(), anyObject(), eq("system"), anyObject()))
         .thenReturn(ShellResponse.create(ShellResponse.ERROR_CODE_SUCCESS, ""));
 
-    LOG.info("Created customer " + customer.uuid + " with universe " + u1.universeUUID);
-    Result r = tablesController.listTables(customer.uuid, u1.universeUUID, true);
+    LOG.info("Created customer " + customer.getUuid() + " with universe " + u1.getUniverseUUID());
+    Result r =
+        tablesController.listTables(
+            customer.getUuid(), u1.getUniverseUUID(), true, false); // modify mock
     JsonNode json = Json.parse(contentAsString(r));
 
     ObjectMapper objectMapper = new ObjectMapper();
@@ -1449,5 +1475,145 @@ public class TablesControllerTest extends FakeDBApplication {
             .collect(Collectors.toList());
     Assert.assertEquals(1, db3.size());
     Assert.assertEquals("db3.table1", db3.get(0).tableName);
+  }
+
+  @Test
+  public void testExcludeColocatedTables() throws Exception {
+    List<TableInfo> tableInfoList = new ArrayList<>();
+    Set<String> tableNames = new HashSet<>();
+
+    // Colocated db old naming style.
+    ByteString keyspaceOldColocatedId = ByteString.copyFromUtf8("0000401b000030008000000000000000");
+    String keyspaceOldColocatedName = "db-col-old";
+    TableInfo ti1 =
+        TableInfo.newBuilder()
+            .setName("0000401b000030008000000000000000.colocated.parent.tablename")
+            .setNamespace(
+                MasterTypes.NamespaceIdentifierPB.newBuilder()
+                    .setName(keyspaceOldColocatedName)
+                    .setId(keyspaceOldColocatedId))
+            .setId(
+                ByteString.copyFromUtf8("0000401b000030008000000000000000.colocated.parent.uuid"))
+            .setTableType(TableType.YQL_TABLE_TYPE)
+            .setRelationType(RelationType.SYSTEM_TABLE_RELATION)
+            .build();
+    TableInfo ti2 =
+        TableInfo.newBuilder()
+            .setName("house")
+            .setNamespace(
+                MasterTypes.NamespaceIdentifierPB.newBuilder()
+                    .setName(keyspaceOldColocatedName)
+                    .setId(keyspaceOldColocatedId))
+            .setId(ByteString.copyFromUtf8("0000401b00003000800000000000401c"))
+            .setTableType(TableType.YQL_TABLE_TYPE)
+            .setRelationType(RelationType.USER_TABLE_RELATION)
+            .build();
+    // Create index.
+    TableInfo ti3 =
+        TableInfo.newBuilder()
+            .setName("house_name_idx")
+            .setNamespace(
+                MasterTypes.NamespaceIdentifierPB.newBuilder()
+                    .setName(keyspaceOldColocatedName)
+                    .setId(keyspaceOldColocatedId))
+            .setId(ByteString.copyFromUtf8("0000401b000030008000000000004029"))
+            .setTableType(TableType.YQL_TABLE_TYPE)
+            .setRelationType(RelationType.INDEX_TABLE_RELATION)
+            .build();
+
+    // Colocated db new naming style.
+    ByteString keyspaceNewColocatedId = ByteString.copyFromUtf8("0000203c000030008000000000000000");
+    String keyspaceNewColocatedName = "db-col-new";
+    TableInfo ti4 =
+        TableInfo.newBuilder()
+            .setName("0000203c000030008000000000000000.colocation.parent.tablename")
+            .setNamespace(
+                MasterTypes.NamespaceIdentifierPB.newBuilder()
+                    .setName(keyspaceNewColocatedName)
+                    .setId(keyspaceNewColocatedId))
+            .setId(
+                ByteString.copyFromUtf8("0000203c000030008000000000000000.colocation.parent.uuid"))
+            .setTableType(TableType.YQL_TABLE_TYPE)
+            .setRelationType(RelationType.COLOCATED_PARENT_TABLE_RELATION)
+            .build();
+    TableInfo ti5 =
+        TableInfo.newBuilder()
+            .setName("people")
+            .setNamespace(
+                MasterTypes.NamespaceIdentifierPB.newBuilder()
+                    .setName(keyspaceNewColocatedName)
+                    .setId(keyspaceNewColocatedId))
+            .setId(ByteString.copyFromUtf8("0000203c00003000800000000000502d"))
+            .setTableType(TableType.YQL_TABLE_TYPE)
+            .setRelationType(RelationType.USER_TABLE_RELATION)
+            .build();
+
+    // Database/keyspace with colocation=false.
+    String keyspaceNonColocatedName = "db1";
+    ByteString keyspaceNonColocatedId = ByteString.copyFromUtf8("000033e8000030008000000000000000");
+    TableInfo ti6 =
+        TableInfo.newBuilder()
+            .setName("company")
+            .setNamespace(
+                MasterTypes.NamespaceIdentifierPB.newBuilder()
+                    .setName(keyspaceNonColocatedName)
+                    .setId(keyspaceNonColocatedId))
+            .setId(ByteString.copyFromUtf8("000033e8000030008000000000004005"))
+            .setTableType(TableType.YQL_TABLE_TYPE)
+            .setRelationType(RelationType.USER_TABLE_RELATION)
+            .build();
+    TableInfo ti7 =
+        TableInfo.newBuilder()
+            .setName("company_name_idx")
+            .setNamespace(
+                MasterTypes.NamespaceIdentifierPB.newBuilder()
+                    .setName(keyspaceNonColocatedName)
+                    .setId(keyspaceNonColocatedId))
+            .setId(ByteString.copyFromUtf8("000033e800003000800000000000400f"))
+            .setTableType(TableType.YQL_TABLE_TYPE)
+            .setRelationType(RelationType.INDEX_TABLE_RELATION)
+            .build();
+
+    tableInfoList.add(ti1);
+    tableInfoList.add(ti2);
+    tableInfoList.add(ti3);
+    tableInfoList.add(ti4);
+    tableInfoList.add(ti5);
+    tableInfoList.add(ti6);
+    tableInfoList.add(ti7);
+
+    when(mockListTablesResponse.getTableInfoList()).thenReturn(tableInfoList);
+    when(mockClient.getTablesList(null, false, null)).thenReturn(mockListTablesResponse);
+    Universe u1 = createUniverse(customer.getId());
+    u1 = Universe.saveDetails(u1.getUniverseUUID(), ApiUtils.mockUniverseUpdater());
+
+    LOG.info("Created customer " + customer.getUuid() + " with universe " + u1.getUniverseUUID());
+    Result r = tablesController.listTables(customer.getUuid(), u1.getUniverseUUID(), false, true);
+    JsonNode json = Json.parse(contentAsString(r));
+    LOG.info("Fetched table list from universe, response: " + contentAsString(r));
+    assertEquals(OK, r.status());
+    assertTrue(json.isArray());
+    Iterator<JsonNode> it = json.elements();
+    int numTables = 0;
+    while (it.hasNext()) {
+      JsonNode table = it.next();
+      String tableName = table.get("tableName").asText();
+      String relationType = table.get("relationType").asText();
+      String keySpace = table.get("keySpace").asText();
+      if (tableName.equals("company")) {
+        assertEquals(RelationType.USER_TABLE_RELATION.toString(), relationType);
+      } else if (tableName.equals("company_name_idx")) {
+        assertEquals(RelationType.INDEX_TABLE_RELATION.toString(), relationType);
+      }
+      // No system tables, colocated parent tables, or tables in db where colocation=true should be
+      // displayed.
+      assertEquals(keyspaceNonColocatedName, keySpace);
+      assertNotEquals(RelationType.COLOCATED_PARENT_TABLE_RELATION.toString(), relationType);
+      assertNotEquals(RelationType.SYSTEM_TABLE_RELATION.toString(), relationType);
+      numTables++;
+    }
+    LOG.info("Processed " + numTables + " tables");
+    assertEquals(tableInfoList.size() - 5, numTables);
+    assertAuditEntry(0, customer.getUuid());
   }
 }

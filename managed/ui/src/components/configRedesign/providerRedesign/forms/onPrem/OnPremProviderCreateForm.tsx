@@ -3,8 +3,15 @@ import { Box, FormHelperText, Typography } from '@material-ui/core';
 import { FormProvider, SubmitHandler, useForm } from 'react-hook-form';
 import { array, mixed, object, string } from 'yup';
 import { yupResolver } from '@hookform/resolvers/yup';
+import { toast } from 'react-toastify';
 
-import { ASYNC_ERROR, DEFAULT_SSH_PORT, NTPSetupType, ProviderCode } from '../../constants';
+import {
+  DEFAULT_NODE_EXPORTER_PORT,
+  DEFAULT_NODE_EXPORTER_USER,
+  DEFAULT_SSH_PORT,
+  NTPSetupType,
+  ProviderCode
+} from '../../constants';
 import { NTP_SERVER_REGEX } from '../constants';
 import {
   ConfigureOnPremRegionModal,
@@ -23,7 +30,7 @@ import { RegionOperation } from '../configureRegion/constants';
 import { YBButton } from '../../../../common/forms/fields';
 import { YBDropZoneField } from '../../components/YBDropZone/YBDropZoneField';
 import { YBInputField, YBToggleField } from '../../../../../redesign/components';
-import { addItem, deleteItem, editItem, handleFormServerError, readFileAsText } from '../utils';
+import { addItem, deleteItem, editItem, readFileAsText } from '../utils';
 
 import { OnPremRegionMutation, YBProviderMutation } from '../../types';
 
@@ -34,36 +41,21 @@ interface OnPremProviderCreateFormProps {
 
 interface OnPremProviderCreateFormFieldValues {
   dbNodePublicInternetAccess: boolean;
+  installNodeExporter: boolean;
   ntpServers: string[];
   ntpSetupType: NTPSetupType;
-  providerCredentialType: ProviderCredentialType;
   providerName: string;
   regions: ConfigureOnPremRegionFormValues[];
+  skipProvisioning: boolean;
   sshKeypairName: string;
   sshPort: number;
   sshPrivateKeyContent: File;
   sshUser: string;
 
-  ybFirewallTags?: string;
-  ybHomeDir?: string;
-  installNodeExporter?: boolean;
   nodeExporterPort?: number;
   nodeExporterUser?: string;
-
-  [ASYNC_ERROR]: string;
+  ybHomeDir?: string;
 }
-
-const ProviderCredentialType = {
-  INSTANCE_SERVICE_ACCOUNT: 'instanceServiceAccount',
-  SPECIFIED_SERVICE_ACCOUNT: 'specifiedServiceAccount'
-} as const;
-type ProviderCredentialType = typeof ProviderCredentialType[keyof typeof ProviderCredentialType];
-
-const KeyPairManagement = {
-  YBA_MANAGED: 'ybaManaged',
-  CUSTOM_KEY_PAIR: 'customKeyPair'
-} as const;
-type KeyPairManagement = typeof KeyPairManagement[keyof typeof KeyPairManagement];
 
 const VALIDATION_SCHEMA = object().shape({
   providerName: string()
@@ -72,31 +64,22 @@ const VALIDATION_SCHEMA = object().shape({
       ACCEPTABLE_CHARS,
       'Provider name cannot contain special characters other than "-", and "_"'
     ),
-  sshUser: string().when('sshKeypairManagement', {
-    is: KeyPairManagement.CUSTOM_KEY_PAIR,
-    then: string().required('SSH user is required.')
-  }),
-  sshKeypairName: string().when('sshKeypairManagement', {
-    is: KeyPairManagement.CUSTOM_KEY_PAIR,
-    then: string().required('SSH keypair name is required.')
-  }),
-  sshPrivateKeyContent: mixed().when('sshKeypairManagement', {
-    is: KeyPairManagement.CUSTOM_KEY_PAIR,
-    then: mixed().required('SSH private key is required.')
-  }),
+  sshUser: string().required('SSH user is required.'),
+  sshPrivateKeyContent: mixed().required('SSH private key is required.'),
   ntpServers: array().when('ntpSetupType', {
     is: NTPSetupType.SPECIFIED,
-    then: array()
-      .min(1, 'NTP Servers cannot be empty.')
-      .of(
-        string().matches(
-          NTP_SERVER_REGEX,
-          'NTP servers must be provided in IPv4, IPv6, or hostname format.'
-        )
+    then: array().of(
+      string().matches(
+        NTP_SERVER_REGEX,
+        (testContext) =>
+          `NTP servers must be provided in IPv4, IPv6, or hostname format. '${testContext.originalValue}' is not valid.`
       )
+    )
   }),
   regions: array().min(1, 'Provider configurations must contain at least one region.')
 });
+
+const FORM_NAME = 'OnPremProviderCreateForm';
 
 export const OnPremProviderCreateForm = ({
   onBack,
@@ -109,12 +92,14 @@ export const OnPremProviderCreateForm = ({
 
   const defaultValues = {
     dbNodePublicInternetAccess: true,
-    installNodeExporter: false,
+    installNodeExporter: true,
+    nodeExporterPort: DEFAULT_NODE_EXPORTER_PORT,
+    nodeExporterUser: DEFAULT_NODE_EXPORTER_USER,
     ntpServers: [] as string[],
     ntpSetupType: NTPSetupType.SPECIFIED,
     providerName: '',
     regions: [] as ConfigureOnPremRegionFormValues[],
-    sshKeypairManagement: KeyPairManagement.CUSTOM_KEY_PAIR,
+    skipProvisioning: false,
     sshPort: DEFAULT_SSH_PORT,
     ybHomeDir: ''
   };
@@ -124,45 +109,23 @@ export const OnPremProviderCreateForm = ({
   });
 
   const onFormSubmit: SubmitHandler<OnPremProviderCreateFormFieldValues> = async (formValues) => {
-    formMethods.clearErrors(ASYNC_ERROR);
-
-    const providerPayload: YBProviderMutation = {
-      code: ProviderCode.ON_PREM,
-      name: formValues.providerName,
-      allAccessKeys: [
-        {
-          keyInfo: {
-            ...(formValues.sshKeypairName && { keyPairName: formValues.sshKeypairName }),
-            ...(formValues.sshPrivateKeyContent && {
-              sshPrivateKeyContent: (await readFileAsText(formValues.sshPrivateKeyContent)) ?? ''
-            })
-          }
-        }
-      ],
-      details: {
-        airGapInstall: !formValues.dbNodePublicInternetAccess,
-        cloudInfo: {
-          [ProviderCode.ON_PREM]: {
-            ybHomeDir: formValues.ybHomeDir
-          }
-        },
-        ntpServers: formValues.ntpServers,
-        setUpChrony: formValues.ntpSetupType !== NTPSetupType.NO_NTP,
-        sshPort: formValues.sshPort,
-        sshUser: formValues.sshUser
-      },
-      regions: formValues.regions.map<OnPremRegionMutation>((regionFormValues) => ({
-        code: regionFormValues.code,
-        name: regionFormValues.code,
-        zones: regionFormValues.zones.map((zone) => ({ code: zone.code, name: zone.code }))
-      }))
-    };
-
-    await createInfraProvider(providerPayload, {
-      mutateOptions: {
-        onError: (error) => handleFormServerError(error, ASYNC_ERROR, formMethods.setError)
+    if (formValues.ntpSetupType === NTPSetupType.SPECIFIED && !formValues.ntpServers.length) {
+      formMethods.setError('ntpServers', {
+        type: 'min',
+        message: 'Please specify at least one NTP server.'
+      });
+      return;
+    }
+    try {
+      const providerPayload = await constructProviderPayload(formValues);
+      try {
+        await createInfraProvider(providerPayload);
+      } catch (_) {
+        // Handled with `mutateOptions.onError`
       }
-    });
+    } catch (error: any) {
+      toast.error(error.message ?? error);
+    }
   };
 
   const showAddRegionFormModal = () => {
@@ -171,7 +134,7 @@ export const OnPremProviderCreateForm = ({
     setIsRegionFormModalOpen(true);
   };
   const showEditRegionFormModal = () => {
-    setRegionOperation(RegionOperation.EDIT);
+    setRegionOperation(RegionOperation.EDIT_NEW);
     setIsRegionFormModalOpen(true);
   };
   const hideRegionFormModal = () => {
@@ -200,11 +163,11 @@ export const OnPremProviderCreateForm = ({
     defaultValues.installNodeExporter
   );
 
-  const isProviderFormReadOnly = formMethods.formState.isSubmitting;
+  const isFormDisabled = formMethods.formState.isValidating || formMethods.formState.isSubmitting;
   return (
     <Box display="flex" justifyContent="center">
       <FormProvider {...formMethods}>
-        <FormContainer name="OnPremProviderForm" onSubmit={formMethods.handleSubmit(onFormSubmit)}>
+        <FormContainer name={FORM_NAME} onSubmit={formMethods.handleSubmit(onFormSubmit)}>
           <Typography variant="h3">OnPrem Provider Configuration</Typography>
           <FormField providerNameField={true}>
             <FieldLabel>Provider Name</FieldLabel>
@@ -212,21 +175,24 @@ export const OnPremProviderCreateForm = ({
               control={formMethods.control}
               name="providerName"
               fullWidth
-              disabled={isProviderFormReadOnly}
+              disabled={isFormDisabled}
             />
           </FormField>
           <Box width="100%" display="flex" flexDirection="column" gridGap="32px">
             <FieldGroup
               heading="Regions"
               headerAccessories={
-                <YBButton
-                  btnIcon="fa fa-plus"
-                  btnText="Add Region"
-                  btnClass="btn btn-default"
-                  btnType="button"
-                  onClick={showAddRegionFormModal}
-                  disabled={isProviderFormReadOnly}
-                />
+                regions.length > 0 ? (
+                  <YBButton
+                    btnIcon="fa fa-plus"
+                    btnText="Add Region"
+                    btnClass="btn btn-default"
+                    btnType="button"
+                    onClick={showAddRegionFormModal}
+                    disabled={isFormDisabled}
+                    data-testid={`${FORM_NAME}-AddRegionButton`}
+                  />
+                ) : null
               }
             >
               <RegionList
@@ -236,7 +202,7 @@ export const OnPremProviderCreateForm = ({
                 showAddRegionFormModal={showAddRegionFormModal}
                 showEditRegionFormModal={showEditRegionFormModal}
                 showDeleteRegionModal={showDeleteRegionModal}
-                disabled={isProviderFormReadOnly}
+                disabled={isFormDisabled}
                 isError={!!formMethods.formState.errors.regions}
               />
               {formMethods.formState.errors.regions?.message ? (
@@ -252,7 +218,7 @@ export const OnPremProviderCreateForm = ({
                   control={formMethods.control}
                   name="sshUser"
                   fullWidth
-                  disabled={isProviderFormReadOnly}
+                  disabled={isFormDisabled}
                 />
               </FormField>
               <FormField>
@@ -261,8 +227,9 @@ export const OnPremProviderCreateForm = ({
                   control={formMethods.control}
                   name="sshPort"
                   type="number"
+                  inputProps={{ min: 0, max: 65535 }}
                   fullWidth
-                  disabled={isProviderFormReadOnly}
+                  disabled={isFormDisabled}
                 />
               </FormField>
               <FormField>
@@ -271,7 +238,7 @@ export const OnPremProviderCreateForm = ({
                   control={formMethods.control}
                   name="sshKeypairName"
                   fullWidth
-                  disabled={isProviderFormReadOnly}
+                  disabled={isFormDisabled}
                 />
               </FormField>
               <FormField>
@@ -282,17 +249,44 @@ export const OnPremProviderCreateForm = ({
                   actionButtonText="Upload SSH Key PEM File"
                   multipleFiles={false}
                   showHelpText={false}
-                  disabled={isProviderFormReadOnly}
+                  disabled={isFormDisabled}
                 />
               </FormField>
             </FieldGroup>
             <FieldGroup heading="Advanced">
               <FormField>
-                <FieldLabel>DB Nodes have public internet access?</FieldLabel>
+                <FieldLabel
+                  infoTitle="DB Nodes have public internet access?"
+                  infoContent="If yes, YBA will install some software packages on the DB nodes by downloading from the public internet. If not, all installation of software on the nodes will download from only this YBA instance."
+                >
+                  DB Nodes have public internet access?
+                </FieldLabel>
                 <YBToggleField
                   name="dbNodePublicInternetAccess"
                   control={formMethods.control}
-                  disabled={isProviderFormReadOnly}
+                  disabled={isFormDisabled}
+                />
+              </FormField>
+              <FormField>
+                <FieldLabel
+                  infoTitle="Manually Provision Nodes"
+                  infoContent="If enabled, node provisioning will not be done when the universe is created. A pre-provision script will be provided to be run manually instead."
+                >
+                  Manually Provision Nodes
+                </FieldLabel>
+                <YBToggleField
+                  name="skipProvisioning"
+                  control={formMethods.control}
+                  disabled={isFormDisabled}
+                />
+              </FormField>
+              <FormField>
+                <FieldLabel>YB Nodes Home Directory (Optional)</FieldLabel>
+                <YBInputField
+                  control={formMethods.control}
+                  name="ybHomeDir"
+                  fullWidth
+                  disabled={isFormDisabled}
                 />
               </FormField>
               <FormField>
@@ -300,7 +294,7 @@ export const OnPremProviderCreateForm = ({
                 <YBToggleField
                   name="installNodeExporter"
                   control={formMethods.control}
-                  disabled={isProviderFormReadOnly}
+                  disabled={isFormDisabled}
                 />
               </FormField>
               {installNodeExporter && (
@@ -310,7 +304,7 @@ export const OnPremProviderCreateForm = ({
                     control={formMethods.control}
                     name="nodeExporterUser"
                     fullWidth
-                    disabled={isProviderFormReadOnly}
+                    disabled={isFormDisabled}
                   />
                 </FormField>
               )}
@@ -321,15 +315,12 @@ export const OnPremProviderCreateForm = ({
                   name="nodeExporterPort"
                   type="number"
                   fullWidth
-                  disabled={isProviderFormReadOnly}
+                  disabled={isFormDisabled}
                 />
               </FormField>
               <FormField>
                 <FieldLabel>NTP Setup</FieldLabel>
-                <NTPConfigField
-                  isDisabled={isProviderFormReadOnly}
-                  providerCode={ProviderCode.ON_PREM}
-                />
+                <NTPConfigField isDisabled={isFormDisabled} providerCode={ProviderCode.ON_PREM} />
               </FormField>
             </FieldGroup>
           </Box>
@@ -338,14 +329,15 @@ export const OnPremProviderCreateForm = ({
               btnText="Create Provider Configuration"
               btnClass="btn btn-default save-btn"
               btnType="submit"
-              loading={formMethods.formState.isSubmitting}
-              disabled={isProviderFormReadOnly}
+              disabled={isFormDisabled}
+              data-testid={`${FORM_NAME}-SubmitButton`}
             />
             <YBButton
               btnText="Back"
               btnClass="btn btn-default"
               onClick={onBack}
-              disabled={formMethods.formState.isSubmitting}
+              disabled={isFormDisabled}
+              data-testid={`${FORM_NAME}-BackButton`}
             />
           </Box>
         </FormContainer>
@@ -369,4 +361,55 @@ export const OnPremProviderCreateForm = ({
       )}
     </Box>
   );
+};
+
+const constructProviderPayload = async (
+  formValues: OnPremProviderCreateFormFieldValues
+): Promise<YBProviderMutation> => {
+  let sshPrivateKeyContent = '';
+  try {
+    sshPrivateKeyContent = formValues.sshPrivateKeyContent
+      ? (await readFileAsText(formValues.sshPrivateKeyContent)) ?? ''
+      : '';
+  } catch (error) {
+    throw new Error(`An error occurred while processing the SSH private key file: ${error}`);
+  }
+
+  return {
+    code: ProviderCode.ON_PREM,
+    name: formValues.providerName,
+    allAccessKeys: [
+      {
+        keyInfo: {
+          ...(formValues.sshKeypairName && { keyPairName: formValues.sshKeypairName }),
+          ...(formValues.sshPrivateKeyContent && {
+            sshPrivateKeyContent: sshPrivateKeyContent
+          })
+        }
+      }
+    ],
+    details: {
+      airGapInstall: !formValues.dbNodePublicInternetAccess,
+      cloudInfo: {
+        [ProviderCode.ON_PREM]: {
+          ybHomeDir: formValues.ybHomeDir
+        }
+      },
+      installNodeExporter: formValues.installNodeExporter,
+      nodeExporterPort: formValues.nodeExporterPort,
+      nodeExporterUser: formValues.nodeExporterUser,
+      ntpServers: formValues.ntpServers,
+      setUpChrony: formValues.ntpSetupType !== NTPSetupType.NO_NTP,
+      skipProvisioning: formValues.skipProvisioning,
+      sshPort: formValues.sshPort,
+      sshUser: formValues.sshUser
+    },
+    regions: formValues.regions.map<OnPremRegionMutation>((regionFormValues) => ({
+      code: regionFormValues.code,
+      name: regionFormValues.code,
+      latitude: regionFormValues.location.value.latitude,
+      longitude: regionFormValues.location.value.longitude,
+      zones: regionFormValues.zones.map((zone) => ({ code: zone.code, name: zone.code }))
+    }))
+  };
 };

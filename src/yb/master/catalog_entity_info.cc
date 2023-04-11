@@ -34,6 +34,7 @@
 
 #include <string>
 
+#include "yb/common/colocated_util.h"
 #include "yb/common/doc_hybrid_time.h"
 #include "yb/common/partition.h"
 #include "yb/common/ql_wire_protocol.h"
@@ -95,6 +96,12 @@ void TabletReplica::UpdateFrom(const TabletReplica& source) {
 
 void TabletReplica::UpdateDriveInfo(const TabletReplicaDriveInfo& info) {
   drive_info = info;
+}
+
+void TabletReplica::UpdateLeaderLeaseInfo(const TabletLeaderLeaseInfo& info) {
+  bool initialized = leader_lease_info.initialized;
+  leader_lease_info = info;
+  leader_lease_info.initialized = initialized || info.initialized;
 }
 
 bool TabletReplica::IsStale() const {
@@ -217,6 +224,18 @@ Result<TabletReplicaDriveInfo> TabletInfo::GetLeaderReplicaDriveInfo() const {
   return GetLeaderNotFoundStatus();
 }
 
+// Return leader lease info of the replica with ts_uuid if it's is the current leader.
+Result<TabletLeaderLeaseInfo> TabletInfo::GetLeaderLeaseInfoIfLeader(
+    const std::string& ts_uuid) const {
+  std::lock_guard<simple_spinlock> l(lock_);
+
+  auto it = replica_locations_->find(ts_uuid);
+  if (it == replica_locations_->end() || it->second.role != PeerRole::LEADER) {
+    return GetLeaderNotFoundStatus();
+  }
+  return it->second.leader_lease_info;
+}
+
 TSDescriptor* TabletInfo::GetLeaderUnlocked() const {
   for (const auto& pair : *replica_locations_) {
     if (pair.second.role == PeerRole::LEADER) {
@@ -240,14 +259,17 @@ void TabletInfo::UpdateReplicaLocations(const TabletReplica& replica) {
   replica_locations_ = std::make_shared<TabletReplicaMap>(*replica_locations_);
   auto it = replica_locations_->find(replica.ts_desc->permanent_uuid());
   if (it == replica_locations_->end()) {
-    replica_locations_->emplace(replica.ts_desc->permanent_uuid(), replica);
+    LOG(INFO) << Format("TS $0 reported replica $1 but it does not exist in the replica map. "
+        "Adding it to the map. Replica map before adding new replica: $2",
+        replica.ts_desc->permanent_uuid(), replica, replica_locations_);
     return;
   }
   it->second.UpdateFrom(replica);
 }
 
-void TabletInfo::UpdateReplicaDriveInfo(const std::string& ts_uuid,
-                                        const TabletReplicaDriveInfo& drive_info) {
+void TabletInfo::UpdateReplicaInfo(const std::string& ts_uuid,
+                                   const TabletReplicaDriveInfo& drive_info,
+                                   const TabletLeaderLeaseInfo& leader_lease_info) {
   std::lock_guard<simple_spinlock> l(lock_);
   // Make a new shared_ptr, copying the data, to ensure we don't race against access to data from
   // clients that already have the old shared_ptr.
@@ -257,6 +279,7 @@ void TabletInfo::UpdateReplicaDriveInfo(const std::string& ts_uuid,
     return;
   }
   it->second.UpdateDriveInfo(drive_info);
+  it->second.UpdateLeaderLeaseInfo(leader_lease_info);
 }
 
 std::unordered_map<CDCStreamId, uint64_t>  TabletInfo::GetReplicationStatus() {
@@ -361,6 +384,10 @@ bool TableInfo::is_running() const {
 
 bool TableInfo::is_deleted() const {
   return LockForRead()->is_deleted();
+}
+
+bool TableInfo::IsPreparing() const {
+  return LockForRead()->IsPreparing();
 }
 
 string TableInfo::ToString() const {
@@ -693,14 +720,35 @@ Status TableInfo::CheckAllActiveTabletsRunning() const {
 }
 
 bool TableInfo::IsCreateInProgress() const {
-  SharedLock<decltype(lock_)> l(lock_);
-  for (const auto& e : partitions_) {
-    auto tablet_info_lock = e.second->LockForRead();
-    if (!tablet_info_lock->is_running() && tablet_info_lock->pb.split_depth() == 0) {
-      return true;
+  auto l = LockForRead();
+  return l->pb.state() == SysTablesEntryPB::PREPARING;
+}
+
+bool TableInfo::TransitionTableFromPreparingToRunning(
+    const std::unordered_map<TabletId, const TabletInfo::WriteLock*>& new_running_tablets) {
+  auto* mutable_table_info = mutable_metadata()->mutable_dirty();
+  if (!mutable_table_info->IsPreparing()) {
+    return false;
+  }
+
+  SharedLock l(lock_);
+  for (const auto& [key, tablet_info] : partitions_) {
+    TabletInfo::ReadLock read_lock;
+    const PersistentTabletInfo* persisted_tablet_info = nullptr;
+    if (new_running_tablets.contains(tablet_info->id())) {
+      persisted_tablet_info = new_running_tablets.at(tablet_info->id())->mutable_data();
+    } else {
+      read_lock = tablet_info->LockForRead();
+      persisted_tablet_info = &read_lock.data();
+    }
+
+    if (!persisted_tablet_info->is_running() && persisted_tablet_info->pb.split_depth() == 0) {
+      return false;
     }
   }
-  return false;
+
+  mutable_table_info->pb.set_state(SysTablesEntryPB::RUNNING);
+  return true;
 }
 
 Status TableInfo::SetIsBackfilling() {

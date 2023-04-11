@@ -51,6 +51,7 @@
 #include "yb/client/table_alterer.h"
 #include "yb/client/table_info.h"
 
+#include "yb/common/colocated_util.h"
 #include "yb/common/json_util.h"
 #include "yb/common/ql_type_util.h"
 #include "yb/common/redis_constants_common.h"
@@ -187,6 +188,7 @@ using master::SysRowEntry;
 using master::SysRowEntryType;
 using master::SysSnapshotEntryPB;
 using master::SysTablesEntryPB;
+using master::SysTabletsEntryPB;
 using master::SysUDTypeEntryPB;
 using master::TabletLocationsPB;
 using master::TSInfoPB;
@@ -2114,6 +2116,24 @@ Status ClusterAdminClient::GetUniverseConfig() {
   return Status::OK();
 }
 
+Status ClusterAdminClient::GetXClusterConfig() {
+  const auto xcluster_config = VERIFY_RESULT(GetMasterXClusterConfig());
+  const auto cluster_config = VERIFY_RESULT(GetMasterClusterConfig());
+  std::string producer_registry_output;
+  std::string consumer_registry_output;
+  MessageToJsonString(
+      xcluster_config.xcluster_config().xcluster_producer_registry(), &producer_registry_output);
+  MessageToJsonString(
+      cluster_config.cluster_config().consumer_registry(), &consumer_registry_output);
+  cout << Format(
+              "{\"version\":$0,\"xcluster_producer_registry\":$1,consumer_"
+              "registry:$2}",
+              xcluster_config.xcluster_config().version(), producer_registry_output,
+              consumer_registry_output)
+       << endl;
+  return Status::OK();
+}
+
 Status ClusterAdminClient::GetYsqlCatalogVersion() {
   uint64_t version = 0;
   RETURN_NOT_OK(yb_client_->GetYsqlCatalogMasterVersion(&version));
@@ -2261,6 +2281,12 @@ Result<master::GetMasterClusterConfigResponsePB> ClusterAdminClient::GetMasterCl
   return InvokeRpc(&master::MasterClusterProxy::GetMasterClusterConfig,
                    *master_cluster_proxy_, master::GetMasterClusterConfigRequestPB(),
                    "MasterServiceImpl::GetMasterClusterConfig call failed.");
+}
+
+Result<master::GetMasterXClusterConfigResponsePB> ClusterAdminClient::GetMasterXClusterConfig() {
+  return InvokeRpc(&master::MasterClusterProxy::GetMasterXClusterConfig,
+                   *master_cluster_proxy_, master::GetMasterXClusterConfigRequestPB(),
+                   "MasterServiceImpl::GetMasterXClusterConfig call failed.");
 }
 
 Status ClusterAdminClient::SplitTablet(const std::string& tablet_id) {
@@ -2892,36 +2918,137 @@ Status ClusterAdminClient::UpdateUDTypes(
       });
 }
 
-Status ClusterAdminClient::ImportSnapshotMetaFile(
+class ImportSnapshotTableFilter {
+ public:
+  typedef std::unique_ptr<ImportSnapshotTableFilter> Ptr;
+
+  explicit ImportSnapshotTableFilter(SnapshotInfoPB* req_snapshot_info) :
+    req_snapshot_info_(req_snapshot_info), table_index_(0) {}
+  virtual ~ImportSnapshotTableFilter() {}
+
+  virtual YBTableName CurrentInputTable() const { return YBTableName(); }
+  virtual bool IsDatabaseTypeSupported(YQLDatabase type) const { return true; }
+  virtual bool ShouldProcessTable(const string &table_name, const string &table_id) {
+    // Default is to process all tables
+    table_index_++;
+    return true;
+  }
+  virtual Status UpdateRequestSnapshotInfo() { return Status::OK(); }
+  virtual SnapshotInfoPB* WorkingSnapshotInfo() { return req_snapshot_info_; }
+  virtual size_t CurrentTableIndex() const { return table_index_; }
+ protected:
+  SnapshotInfoPB* req_snapshot_info_;
+  size_t table_index_;
+};
+
+class ImportSnapshotRenameAllTables : public ImportSnapshotTableFilter {
+ public:
+  ImportSnapshotRenameAllTables(
+      SnapshotInfoPB* req_snapshot_info, const vector<YBTableName> tables) :
+    ImportSnapshotTableFilter(req_snapshot_info), tables_(tables) {}
+
+  virtual YBTableName CurrentInputTable() const {
+    return table_index_ < tables_.size() ? tables_[table_index_] : YBTableName();
+  }
+ protected:
+  std::vector<YBTableName> tables_;
+};
+
+class ImportSnapshotSelectiveTableFilter : public ImportSnapshotTableFilter {
+ public:
+  ImportSnapshotSelectiveTableFilter(
+      SnapshotInfoPB* req_snapshot_info, const vector<YBTableName> tables) :
+    ImportSnapshotTableFilter(req_snapshot_info) {
+    for (auto &t : tables) {
+      table_name_map_[t.table_name()] = t;
+    }
+  }
+  virtual bool IsDatabaseTypeSupported(YQLDatabase type) const {
+    return type == YQL_DATABASE_CQL ? true : false;
+  }
+
+  virtual bool ShouldProcessTable(const string &table_name, const string &table_id) {
+    auto table_it = table_name_map_.find(table_name);
+    if (table_it == table_name_map_.end()) {
+      return false;
+    }
+    table_it->second.set_table_id(table_id);
+    table_id_map_[table_id] = table_name;
+    table_index_++;
+    return true;
+  }
+  virtual SnapshotInfoPB* WorkingSnapshotInfo() { return &snapshot_info_; }
+  virtual Status UpdateRequestSnapshotInfo();
+ private:
+  std::unordered_map<string, YBTableName> table_name_map_;
+  std::unordered_map<string, string> table_id_map_;
+  master::SnapshotInfoPB snapshot_info_;
+};
+
+Status ImportSnapshotSelectiveTableFilter::UpdateRequestSnapshotInfo() {
+  // Do sanity checks
+  for (auto& it : table_name_map_) {
+    if (!it.second.has_table_id()) {
+      return STATUS_FORMAT(
+          InvalidArgument, "Table $0 not found in backup", it.second.table_name());
+    }
+    auto id_it = table_id_map_.find(it.second.table_id());
+    if (id_it == table_id_map_.end()) {
+      return STATUS_FORMAT(
+          InvalidArgument, "Table id $0 not found in map", it.second.table_id());
+    }
+    CHECK_EQ(id_it->second, it.second.table_name());
+  }
+
+  for (BackupRowEntryPB& backup_entry : *snapshot_info_.mutable_backup_entries()) {
+    SysRowEntry& entry = *backup_entry.mutable_entry();
+    if (entry.type() == SysRowEntryType::TABLET) {
+      auto meta = VERIFY_RESULT(ParseFromSlice<SysTabletsEntryPB>(entry.data()));
+      auto id_it = table_id_map_.find(meta.table_id());
+      if (id_it == table_id_map_.end()) {
+        entry.set_data("");
+      }
+    }
+    if (entry.data().length()) {
+      req_snapshot_info_->add_backup_entries()->CopyFrom(backup_entry);
+    }
+  }
+  if (snapshot_info_.has_id()) {
+    req_snapshot_info_->set_id(snapshot_info_.id());
+  }
+  if (snapshot_info_.has_entry()) {
+    req_snapshot_info_->mutable_entry()->CopyFrom(snapshot_info_.entry());
+  }
+  if (snapshot_info_.has_format_version()) {
+    req_snapshot_info_->set_format_version(snapshot_info_.format_version());
+  }
+  return Status::OK();
+}
+
+Status ClusterAdminClient::ProcessSnapshotInfoPBFile(
     const string& file_name,
     const TypedNamespaceName& keyspace,
-    const vector<YBTableName>& tables) {
-  cout << "Read snapshot meta file " << file_name << endl;
-
-  ImportSnapshotMetaRequestPB req;
-
-  SnapshotInfoPB* const snapshot_info = req.mutable_snapshot();
-
+    ImportSnapshotTableFilter *table_filter) {
+  SnapshotInfoPB* snapshot_info = table_filter->WorkingSnapshotInfo();
   // Read snapshot protobuf from given path.
   RETURN_NOT_OK(pb_util::ReadPBContainerFromPath(Env::Default(), file_name, snapshot_info));
 
   if (!snapshot_info->has_format_version()) {
-        SCHECK_EQ(
-            0, snapshot_info->backup_entries_size(), InvalidArgument,
-            Format(
-                "Metadata file in Format 1 has backup entries from Format 2: $0",
-                snapshot_info->backup_entries_size()));
+    SCHECK_EQ(
+        0, snapshot_info->backup_entries_size(), InvalidArgument,
+        Format( "Metadata file in Format 1 has backup entries from Format 2: $0",
+          snapshot_info->backup_entries_size()));
 
-        // Repack PB data loaded in the old format.
-        // Init BackupSnapshotPB based on loaded SnapshotInfoPB.
-        SysSnapshotEntryPB& sys_entry = *snapshot_info->mutable_entry();
-        snapshot_info->mutable_backup_entries()->Reserve(sys_entry.entries_size());
-        for (SysRowEntry& entry : *sys_entry.mutable_entries()) {
+    // Repack PB data loaded in the old format.
+    // Init BackupSnapshotPB based on loaded SnapshotInfoPB.
+    SysSnapshotEntryPB& sys_entry = *snapshot_info->mutable_entry();
+    snapshot_info->mutable_backup_entries()->Reserve(sys_entry.entries_size());
+    for (SysRowEntry& entry : *sys_entry.mutable_entries()) {
       snapshot_info->add_backup_entries()->mutable_entry()->Swap(&entry);
-        }
+    }
 
-        sys_entry.clear_entries();
-        snapshot_info->set_format_version(2);
+    sys_entry.clear_entries();
+    snapshot_info->set_format_version(2);
   }
 
   cout << "Importing snapshot " << SnapshotIdToString(snapshot_info->id()) << " ("
@@ -2933,16 +3060,18 @@ Status ClusterAdminClient::ImportSnapshotMetaFile(
   NSIdToNameMap ns_id_to_name;
   NSNameToNameMap ns_name_to_name;
 
-  size_t table_index = 0;
   bool was_table_renamed = false;
   for (BackupRowEntryPB& backup_entry : *snapshot_info->mutable_backup_entries()) {
-        SysRowEntry& entry = *backup_entry.mutable_entry();
-        const YBTableName table_name =
-            table_index < tables.size() ? tables[table_index] : YBTableName();
+    SysRowEntry& entry = *backup_entry.mutable_entry();
+    YBTableName table_name = table_filter->CurrentInputTable();
 
-        switch (entry.type()) {
+    switch (entry.type()) {
       case SysRowEntryType::NAMESPACE: {
         auto meta = VERIFY_RESULT(ParseFromSlice<SysNamespaceEntryPB>(entry.data()));
+        if (!table_filter->IsDatabaseTypeSupported(meta.database_type())) {
+          return STATUS_FORMAT(
+              InvalidArgument, "Selective restore is supported only for YCQL keyspaces");
+        }
         const string db_type = GetDBTypeName(meta);
         cout << "Target imported " << db_type
              << " name: " << (keyspace.name.empty() ? meta.name() : keyspace.name) << endl
@@ -2990,10 +3119,14 @@ Status ClusterAdminClient::ImportSnapshotMetaFile(
           return STATUS_FORMAT(
               InvalidArgument,
               "There is no name for table (including indexes) number: $0",
-              table_index);
+              table_filter->CurrentTableIndex());
         }
 
         auto meta = VERIFY_RESULT(ParseFromSlice<SysTablesEntryPB>(entry.data()));
+        if (!table_filter->ShouldProcessTable(meta.name(), entry.id())) {
+          entry.set_data("");
+          break;
+        }
         const auto colocated_prefix = meta.colocated() ? "colocated " : "";
 
         if (meta.indexed_table_id().empty()) {
@@ -3009,7 +3142,7 @@ Status ClusterAdminClient::ImportSnapshotMetaFile(
           cout << "Target imported " << colocated_prefix << "table name: " << table_name.ToString()
                << endl;
         } else if (!keyspace.name.empty()) {
-          if (master::IsColocatedDbParentTableName(meta.name())) {
+          if (IsColocatedDbParentTableName(meta.name())) {
             // Check whether the import_snapshot command is invoked for a colocation migration.
             // And adjust the output message if a colocation migration happens.
             master::GetNamespaceInfoResponsePB ns_resp;
@@ -3033,7 +3166,7 @@ Status ClusterAdminClient::ImportSnapshotMetaFile(
               DCHECK_EQ(resp.tablegroups().size(), 1);
               cout << "Target imported " << colocated_prefix << "table name: "
                    << keyspace.name << "."
-                   << master::GetColocationParentTableName(resp.tablegroups()[0].id()) << endl;
+                   << GetColocationParentTableName(resp.tablegroups()[0].id()) << endl;
             }
           } else {
             cout << "Target imported " << colocated_prefix << "table name: " << keyspace.name << "."
@@ -3075,13 +3208,37 @@ Status ClusterAdminClient::ImportSnapshotMetaFile(
           entry.set_data(meta.SerializeAsString());
         }
 
-        ++table_index;
         break;
       }
       default:
         break;
-        }
+    }
   }
+
+  RETURN_NOT_OK(table_filter->UpdateRequestSnapshotInfo());
+  return Status::OK();
+}
+
+Status ClusterAdminClient::ImportSnapshotMetaFile(
+    const string& file_name,
+    const TypedNamespaceName& keyspace,
+    const vector<YBTableName>& tables,
+    bool selective_import) {
+  ImportSnapshotMetaRequestPB req;
+  SnapshotInfoPB* snapshot_info = req.mutable_snapshot();
+
+  ImportSnapshotTableFilter::Ptr table_filter_ptr;
+  if (!tables.size()) {
+    table_filter_ptr = std::make_unique<ImportSnapshotTableFilter>(snapshot_info);
+  } else if (!selective_import) {
+    table_filter_ptr = std::make_unique<ImportSnapshotRenameAllTables>(snapshot_info, tables);
+  } else {
+    table_filter_ptr = std::make_unique<ImportSnapshotSelectiveTableFilter>(snapshot_info, tables);
+  }
+  cout << "Read snapshot meta file " << file_name << endl;
+
+  RETURN_NOT_OK(ProcessSnapshotInfoPBFile(file_name, keyspace, table_filter_ptr.get()));
+  size_t table_index = table_filter_ptr->CurrentTableIndex();
 
   // RPC timeout is a function of the number of tables that needs to be imported.
   ImportSnapshotMetaResponsePB resp;
@@ -3112,7 +3269,8 @@ Status ClusterAdminClient::ImportSnapshotMetaFile(
              << kColumnSep << table_meta.namespace_ids().new_id() << endl;
 
         if (!ImportSnapshotMetaResponsePB_TableType_IsValid(table_meta.table_type())) {
-      return STATUS_FORMAT(InternalError, "Found unknown table type: ", table_meta.table_type());
+          return STATUS_FORMAT(InternalError, "Found unknown table type: ",
+              table_meta.table_type());
         }
 
         const string table_type = AllCapsToCamelCase(
@@ -3122,16 +3280,16 @@ Status ClusterAdminClient::ImportSnapshotMetaFile(
 
         const RepeatedPtrField<IdPairPB>& udts_map = table_meta.ud_types_ids();
         for (int j = 0; j < udts_map.size(); ++j) {
-      const IdPairPB& pair = udts_map.Get(j);
-      cout << pad_object_type("UDType") << kColumnSep << pair.old_id() << kColumnSep
-           << pair.new_id() << endl;
+          const IdPairPB& pair = udts_map.Get(j);
+          cout << pad_object_type("UDType") << kColumnSep << pair.old_id() << kColumnSep
+            << pair.new_id() << endl;
         }
 
         const RepeatedPtrField<IdPairPB>& tablets_map = table_meta.tablets_ids();
         for (int j = 0; j < tablets_map.size(); ++j) {
-      const IdPairPB& pair = tablets_map.Get(j);
-      cout << pad_object_type(Format("Tablet $0", j)) << kColumnSep << pair.old_id() << kColumnSep
-           << pair.new_id() << endl;
+          const IdPairPB& pair = tablets_map.Get(j);
+          cout << pad_object_type(Format("Tablet $0", j)) << kColumnSep << pair.old_id()
+            << kColumnSep << pair.new_id() << endl;
         }
 
         RETURN_NOT_OK(yb_client_->WaitForCreateTableToFinish(

@@ -59,6 +59,7 @@ import org.yb.CommonTypes.TableType;
 import org.yb.CommonTypes.YQLDatabase;
 import org.yb.annotations.InterfaceAudience;
 import org.yb.annotations.InterfaceStability;
+import org.yb.cdc.CdcConsumer.XClusterRole;
 import org.yb.master.CatalogEntityInfo;
 import org.yb.master.MasterBackupOuterClass;
 import org.yb.master.MasterReplicationOuterClass;
@@ -1626,6 +1627,19 @@ public class YBClient implements AutoCloseable {
     return d.join(2*getDefaultAdminOperationTimeoutMs());
   }
 
+  public GetChangesResponse getChangesCDCSDK(YBTable table, String streamId,
+                                             String tabletId, long term,
+                                             long index, byte[] key,
+                                             int write_id, long time,
+                                             boolean needSchemaInfo,
+                                             CdcSdkCheckpoint explicitCheckpoint,
+                                             long safeHybridTime) throws Exception {
+    Deferred<GetChangesResponse> d = asyncClient.getChangesCDCSDK(
+      table, streamId, tabletId, term, index, key, write_id, time, needSchemaInfo,
+      explicitCheckpoint, safeHybridTime);
+    return d.join(2*getDefaultAdminOperationTimeoutMs());
+  }
+
   public GetCheckpointResponse getCheckpoint(YBTable table, String streamId,
                                              String tabletId) throws Exception {
     Deferred<GetCheckpointResponse> d = asyncClient
@@ -1724,6 +1738,18 @@ public class YBClient implements AutoCloseable {
     return d.join(2 * getDefaultAdminOperationTimeoutMs());
   }
 
+  /**
+   * Get the status of current server.
+   * @param host the address to bind to.
+   * @param port the port to bind to (0 means any free port).
+   * @return an object containing the status details of the server.
+   * @throws Exception
+   */
+  public GetStatusResponse getStatus(final String host, int port) throws Exception {
+    Deferred<GetStatusResponse> d = asyncClient.getStatus(HostAndPort.fromParts(host, port));
+    return d.join(2 * getDefaultAdminOperationTimeoutMs());
+  }
+
     /**
    * Get the auto flag config for servers.
    * @return auto flag config for each server if exists, else a MasterErrorException.
@@ -1814,6 +1840,12 @@ public class YBClient implements AutoCloseable {
     final HostAndPort hostAndPort, List<String> tableIds) throws Exception {
     Deferred<BootstrapUniverseResponse> d =
       asyncClient.bootstrapUniverse(hostAndPort, tableIds);
+    return d.join(getDefaultAdminOperationTimeoutMs());
+  }
+
+  /** See {@link AsyncYBClient#changeXClusterRole(org.yb.cdc.CdcConsumer.XClusterRole)} */
+  public ChangeXClusterRoleResponse changeXClusterRole(XClusterRole role) throws Exception {
+    Deferred<ChangeXClusterRoleResponse> d = asyncClient.changeXClusterRole(role);
     return d.join(getDefaultAdminOperationTimeoutMs());
   }
 

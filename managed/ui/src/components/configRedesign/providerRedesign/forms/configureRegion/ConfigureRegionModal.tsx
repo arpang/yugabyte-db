@@ -19,7 +19,10 @@ import {
 import { ProviderCode, VPCSetupType, YBImageType } from '../../constants';
 import { RegionOperation } from './constants';
 import { YBInputField, YBModal, YBModalProps } from '../../../../../redesign/components';
-import { YBReactSelectField } from '../../components/YBReactSelect/YBReactSelectField';
+import {
+  ReactSelectOption,
+  YBReactSelectField
+} from '../../components/YBReactSelect/YBReactSelectField';
 import { getRegionlabel, getRegionOptions, getZoneOptions } from './utils';
 import { generateLowerCaseAlphanumericId } from '../utils';
 
@@ -87,7 +90,7 @@ export const ConfigureRegionModal = ({
       providerCode === ProviderCode.AZU ? 'Security Group Name (Optional)' : 'Security Group ID',
     ybImage:
       providerCode === ProviderCode.AWS
-        ? 'Custom AMI ID (Optional Override)'
+        ? 'Custom AMI ID'
         : providerCode === ProviderCode.AZU
         ? 'Marketplace Image URN/Shared Gallery Image ID (Optional)'
         : 'Custom Machine Image ID (Optional)',
@@ -113,6 +116,10 @@ export const ConfigureRegionModal = ({
       is: () => shouldExposeField.securityGroupId && providerCode === ProviderCode.AWS,
       then: string().required(`${fieldLabel.securityGroupId} is required.`)
     }),
+    ybImage: string().when([], {
+      is: () => shouldExposeField.ybImage && ybImageType === YBImageType.CUSTOM_AMI,
+      then: string().required(`${fieldLabel.ybImage} is required.`)
+    }),
     sharedSubnet: string().when([], {
       is: () => shouldExposeField.sharedSubnet && providerCode === ProviderCode.GCP,
       then: string().required(`${fieldLabel.sharedSubnet} is required.`)
@@ -131,6 +138,9 @@ export const ConfigureRegionModal = ({
     defaultValues: getDefaultFormValue(providerCode, regionSelection),
     resolver: yupResolver(validationSchema)
   });
+  const selectedRegion = formMethods.watch('regionData');
+  const { setValue } = formMethods;
+  const selectedRegionCode = selectedRegion?.value?.code ?? regionSelection?.code;
   const classes = useStyles();
 
   const configuredRegionCodes = configuredRegions.map((configuredRegion) => configuredRegion.code);
@@ -174,7 +184,12 @@ export const ConfigureRegionModal = ({
     onClose();
   };
 
-  const selectedRegion = formMethods.watch('regionData');
+  const onRegionChange = (data: ReactSelectOption) => {
+    if (data.value.code !== selectedRegionCode) {
+      setValue('zones', []);
+    }
+  };
+
   return (
     <FormProvider {...formMethods}>
       <YBModal
@@ -195,6 +210,7 @@ export const ConfigureRegionModal = ({
               control={formMethods.control}
               name="regionData"
               options={regionOptions}
+              onChange={onRegionChange}
             />
           </div>
         )}
@@ -267,10 +283,7 @@ const getDefaultFormValue = (
 ) => {
   if (regionSelection === undefined) {
     return {
-      zones: [] as {
-        code: { value: string; label: string; isDisabled: boolean };
-        subnet: string;
-      }[]
+      zones: [] as Zones
     };
   }
   const { code: currentRegionCode, zones, ...currentRegion } = regionSelection;

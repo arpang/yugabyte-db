@@ -12,7 +12,7 @@ import json
 import logging
 import time
 
-from ybops.cloud.common.cloud import AbstractCloud
+from ybops.cloud.common.cloud import AbstractCloud, InstanceState
 from ybops.cloud.gcp.command import (GcpAccessCommand, GcpInstanceCommand, GcpNetworkCommand,
                                      GcpQueryCommand)
 from ybops.cloud.gcp.utils import (GCP_SCRATCH, GcpMetadata, GoogleCloudAdmin)
@@ -81,7 +81,7 @@ class GcpCloud(AbstractCloud):
 
         self.get_admin().create_instance(
             args.region, args.zone, args.cloud_subnet, args.search_pattern, args.instance_type,
-            server_type, args.use_preemptible, can_ip_forward, machine_image, args.num_volumes,
+            server_type, args.use_spot_instance, can_ip_forward, machine_image, args.num_volumes,
             args.volume_type, args.volume_size, args.boot_disk_size_gb, args.assign_public_ip,
             args.assign_static_public_ip, ssh_keys, boot_script=args.boot_script,
             auto_delete_boot_disk=args.auto_delete_boot_disk, tags=args.instance_tags,
@@ -91,7 +91,8 @@ class GcpCloud(AbstractCloud):
     def create_disk(self, args, body):
         self.get_admin().create_disk(args.zone, args.instance_tags, body)
 
-    def clone_disk(self, args, volume_id, num_disks):
+    def clone_disk(self, args, volume_id, num_disks,
+                   snapshot_creation_delay=15, snapshot_creation_max_attempts=80):
         output = []
         # disk names must match regex https://cloud.google.com/compute/docs/reference/rest/v1/disks
         name = args.search_pattern[:58] if len(args.search_pattern) > 58 else args.search_pattern
@@ -367,3 +368,16 @@ class GcpCloud(AbstractCloud):
     def modify_tags(self, args):
         instance = self.get_host_info(args)
         self.get_admin().modify_tags(args, instance['id'], args.instance_tags, args.remove_tags)
+
+    def normalize_instance_state(self, instance_state):
+        if instance_state:
+            instance_state = instance_state.lower()
+            if instance_state in ("provisioning", "staging", "repairing"):
+                return InstanceState.STARTING
+            if instance_state in ("running"):
+                return InstanceState.RUNNING
+            if instance_state in ("suspending", "suspended", "stopping"):
+                return InstanceState.STOPPING
+            if instance_state in ("terminated"):
+                return InstanceState.STOPPED
+        return InstanceState.UNKNOWN

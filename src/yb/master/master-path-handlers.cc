@@ -39,6 +39,8 @@
 #include <sstream>
 #include <unordered_set>
 
+#include <boost/date_time/posix_time/time_formatters.hpp>
+
 #include "yb/common/common_types_util.h"
 #include "yb/common/hybrid_time.h"
 #include "yb/common/partition.h"
@@ -88,6 +90,9 @@ DEFINE_UNKNOWN_int32(
 
 DEFINE_RUNTIME_bool(master_webserver_require_https, false,
     "Require HTTPS when redirecting master UI requests to the leader.");
+
+DEFINE_RUNTIME_uint64(master_maximum_heartbeats_without_lease, 10,
+    "After this number of heartbeats without a valid lease for a tablet, treat it as leaderless.");
 
 DECLARE_int32(ysql_tablespace_info_refresh_secs);
 
@@ -1554,7 +1559,13 @@ std::vector<TabletInfoPtr> MasterPathHandlers::GetLeaderlessTablets() {
 
     auto has_leader = std::any_of(
       rm->begin(), rm->end(),
-      [](const auto &item) { return item.second.role == PeerRole::LEADER; });
+      [](const auto &item) {
+        auto leader_lease_info = item.second.leader_lease_info;
+        return item.second.role == PeerRole::LEADER &&
+               (leader_lease_info.leader_lease_status == consensus::LeaderLeaseStatus::HAS_LEASE ||
+                    leader_lease_info.heartbeats_without_leader_lease <
+                        GetAtomicFlag(&FLAGS_master_maximum_heartbeats_without_lease));
+      });
 
     if (!has_leader) {
       leaderless_tablets.push_back(t);
@@ -2192,6 +2203,60 @@ void MasterPathHandlers::HandleGetClusterConfigJSON(
   jw.Protobuf(config);
 }
 
+Status MasterPathHandlers::GetClusterAndXClusterConfigStatus(
+    SysXClusterConfigEntryPB* xcluster_config, SysClusterConfigEntryPB* cluster_config) {
+  RETURN_NOT_OK(master_->catalog_manager()->GetXClusterConfig(xcluster_config));
+  return master_->catalog_manager()->GetClusterConfig(cluster_config);
+}
+
+void MasterPathHandlers::HandleGetXClusterConfig(
+    const Webserver::WebRequest& req, Webserver::WebResponse* resp) {
+  std::stringstream* output = &resp->output;
+  master_->catalog_manager()->AssertLeaderLockAcquiredForReading();
+
+  *output << "<h1>Current XCluster Config</h1>\n";
+  SysXClusterConfigEntryPB xcluster_config;
+  SysClusterConfigEntryPB cluster_config;
+  Status s = GetClusterAndXClusterConfigStatus(&xcluster_config, &cluster_config);
+
+  if (!s.ok()) {
+    *output << "<div class=\"alert alert-warning\">" << s.ToString() << "</div>";
+    return;
+  }
+  *output << "<div class=\"alert alert-success\">Successfully got xcluster config!</div>"
+          << "<pre class=\"prettyprint\">" << xcluster_config.DebugString()
+          << "consumer_registry {\n"
+          << cluster_config.consumer_registry().DebugString() << "}</pre>";
+}
+
+void MasterPathHandlers::HandleGetXClusterConfigJSON(
+    const Webserver::WebRequest& req, Webserver::WebResponse* resp) {
+  std::stringstream* output = &resp->output;
+  JsonWriter jw(output, JsonWriter::COMPACT);
+
+  master_->catalog_manager()->AssertLeaderLockAcquiredForReading();
+
+  SysXClusterConfigEntryPB xcluster_config;
+  SysClusterConfigEntryPB cluster_config;
+  Status s = GetClusterAndXClusterConfigStatus(&xcluster_config, &cluster_config);
+  if (!s.ok()) {
+    jw.StartObject();
+    jw.String("error");
+    jw.String(s.ToString());
+    jw.EndObject();
+    return;
+  }
+
+  jw.StartObject();
+  jw.String("version");
+  jw.Int64(xcluster_config.version());
+  jw.String("xcluster_producer_registry");
+  jw.Protobuf(xcluster_config.xcluster_producer_registry());
+  jw.String("consumer_registry");
+  jw.Protobuf(cluster_config.consumer_registry());
+  jw.EndObject();
+}
+
 void MasterPathHandlers::HandleVersionInfoDump(
     const Webserver::WebRequest& req, Webserver::WebResponse* resp) {
   std::stringstream *output = &resp->output;
@@ -2450,6 +2515,15 @@ Status MasterPathHandlers::Register(Webserver* server) {
       "/api/v1/cluster-config", "Cluster Config JSON",
       std::bind(&MasterPathHandlers::CallIfLeaderOrPrintRedirect, this, _1, _2, cb), false,
       false);
+  cb = std::bind(&MasterPathHandlers::HandleGetXClusterConfig, this, _1, _2);
+  server->RegisterPathHandler(
+      "/xcluster-config", "XCluster Config",
+      std::bind(&MasterPathHandlers::CallIfLeaderOrPrintRedirect, this, _1, _2, cb), is_styled,
+      false);
+  cb = std::bind(&MasterPathHandlers::HandleGetXClusterConfigJSON, this, _1, _2);
+  server->RegisterPathHandler(
+      "/api/v1/xcluster-config", "XCluster Config JSON",
+      std::bind(&MasterPathHandlers::CallIfLeaderOrPrintRedirect, this, _1, _2, cb), false, false);
   cb = std::bind(&MasterPathHandlers::HandleTasksPage, this, _1, _2);
   server->RegisterPathHandler(
       "/tasks", "Tasks",
@@ -2516,7 +2590,26 @@ string MasterPathHandlers::RaftConfigToHtml(const std::vector<TabletReplica>& lo
   for (const TabletReplica& location : locations) {
     string location_html = TSDescriptorToHtml(*location.ts_desc, tablet_id);
     if (location.role == PeerRole::LEADER) {
-      html << Format("  <li><b>LEADER: $0</b></li>\n", location_html);
+      auto leader_lease_info = location.leader_lease_info;
+      // The master might haven't received any heartbeats containing this leader yet.
+      // Set the status to UNKNOWN.
+      auto leader_lease_status = leader_lease_info.initialized
+          ? LeaderLeaseStatus_Name(leader_lease_info.leader_lease_status)
+          : "UNKNOWN";
+      html << Format("  <li><b>LEADER: $0 ($1)</b></li>\n", location_html, leader_lease_status);
+      if (leader_lease_info.leader_lease_status == consensus::LeaderLeaseStatus::HAS_LEASE) {
+        // Get the remaining milliseconds of the current valid lease.
+        boost::posix_time::ptime start(boost::gregorian::date(1970, 1, 1));
+        auto now_utc = boost::posix_time::microsec_clock::universal_time();
+        auto ht_lease_usec = boost::posix_time::microseconds(leader_lease_info.ht_lease_expiration);
+        auto diff = ht_lease_usec - (now_utc - start);
+        html << Format("Remaining ht_lease (may be stale): $0 ms<br>\n", diff.total_milliseconds());
+      } else if (leader_lease_info.heartbeats_without_leader_lease >=
+                     GetAtomicFlag(&FLAGS_master_maximum_heartbeats_without_lease)) {
+        html << Format(
+            "Cannot replicate lease for past <b><font color='red'>$0</font></b> heartbeats<br>",
+            leader_lease_info.heartbeats_without_leader_lease);
+      }
     } else {
       html << Format("  <li>$0: $1</li>\n",
                          PeerRole_Name(location.role), location_html);

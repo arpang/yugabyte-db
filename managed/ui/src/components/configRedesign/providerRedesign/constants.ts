@@ -1,3 +1,5 @@
+import { OptionProps } from '../../../redesign/components';
+
 export const CONFIG_ROUTE_PREFIX = 'config';
 
 export const ConfigTabKey = {
@@ -75,11 +77,29 @@ export const NTPSetupType = {
 export type NTPSetupType = typeof NTPSetupType[keyof typeof NTPSetupType];
 
 export const VPCSetupType = {
-  EXISTING: 'existingVPC',
-  HOST_INSTANCE: 'hostInstanceVPC',
-  NEW: 'newVPC'
+  EXISTING: 'EXISTING',
+  HOST_INSTANCE: 'HOST',
+  NEW: 'NEW'
 } as const;
 export type VPCSetupType = typeof VPCSetupType[keyof typeof VPCSetupType];
+
+export const KeyPairManagement = {
+  YBA_MANAGED: 'YBAManaged',
+  SELF_MANAGED: 'SelfManaged',
+  UNKNOWN: 'Unknown'
+} as const;
+export type KeyPairManagement = typeof KeyPairManagement[keyof typeof KeyPairManagement];
+
+export const KEY_PAIR_MANAGEMENT_OPTIONS: OptionProps[] = [
+  {
+    value: KeyPairManagement.YBA_MANAGED,
+    label: 'Use YugabyteDB Anywhere to manage key pairs'
+  },
+  {
+    value: KeyPairManagement.SELF_MANAGED,
+    label: 'Provide custom key pair information'
+  }
+];
 
 export const KubernetesProvider = {
   AKS: 'aks',
@@ -110,12 +130,9 @@ export const InstanceTypeOperation = {
 } as const;
 export type InstanceTypeOperation = typeof InstanceTypeOperation[keyof typeof InstanceTypeOperation];
 
-/**
- * A field name for storing server errors from form submission.
- */
-export const ASYNC_ERROR = 'asyncError';
-
 export const DEFAULT_SSH_PORT = 22;
+export const DEFAULT_NODE_EXPORTER_PORT = 9300;
+export const DEFAULT_NODE_EXPORTER_USER = 'prometheus';
 
 export const AWSValidationKey = {
   ACCESS_KEY_CREDENTIALS: 'KEYS',
@@ -157,7 +174,7 @@ export const KubernetesProviderLabel = {
   [KubernetesProvider.EKS]: 'Elastic Kubernetes Service',
   [KubernetesProvider.GKE]: 'Google Kubernetes Engine',
   [KubernetesProvider.OPEN_SHIFT]: 'Red Hat OpenShift',
-  [KubernetesProvider.PKS]: 'Pivotal Container Service',
+  [KubernetesProvider.PKS]: 'Pivotal Container Service (Deprecated)',
   [KubernetesProvider.TANZU]: 'VMware Tanzu'
 } as const;
 
