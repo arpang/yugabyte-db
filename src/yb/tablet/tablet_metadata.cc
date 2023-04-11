@@ -85,13 +85,7 @@ DEFINE_test_flag(bool, invalidate_last_change_metadata_op, false,
                  "Used in tests to update last_change_metadata_op_id to -1.-1 to simulate "
                  "behavior of old code");
 
-// Only used for colocated table creation currently.
-// The flag is non-runtime so that if it is changed from true to false, the node restarts and the
-// unflushed committed CHANGE_METADATA_OP WAL entries are applied and flushed during the tablet
-// bootstrap.
-DEFINE_NON_RUNTIME_bool(lazily_flush_superblock, false,
-    "Flushes the superblock lazily on metadata update. Only used for colocated table creation "
-    "currently.");
+DECLARE_bool(lazily_flush_superblock);
 
 using std::shared_ptr;
 using std::string;

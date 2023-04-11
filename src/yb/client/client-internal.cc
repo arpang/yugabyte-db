@@ -105,14 +105,20 @@ DEFINE_test_flag(string, assert_tablet_server_select_is_in_zone, "",
                  "Verify that SelectTServer selected a talet server in the AZ specified by this "
                  "flag.");
 
-DEFINE_RUNTIME_uint32(
-    change_metadata_backoff_max_jitter_ms, 50,
+// Only used for colocated table creation currently.
+// The flag is non-runtime so that if it is changed from true to false, the node restarts and the
+// unflushed committed CHANGE_METADATA_OP WAL entries are applied and flushed during the tablet
+// bootstrap.
+DEFINE_NON_RUNTIME_bool(lazily_flush_superblock, false,
+    "Flushes the superblock lazily on metadata update. Only used for colocated table creation "
+    "currently.");
+
+DEFINE_RUNTIME_uint32(change_metadata_backoff_max_jitter_ms, 0,
     "Max jitter (in ms) in the exponential backoff loop that checks if a change metadata operation "
     "is finished. Applicable when lazily_flush_superblock is enabled. Only used for colocated "
     "table creation for now.");
 
-DEFINE_RUNTIME_uint32(
-    change_metadata_backoff_init_exponent, 4,
+DEFINE_RUNTIME_uint32(change_metadata_backoff_init_exponent, 1,
     "Initial exponent of 2 in the exponential backoff loop that checks if a change metadata "
     "operation is finished. Applicable when lazily_flush_superblock is enabled. Only used for "
     "colocated table creation for now.");
@@ -121,7 +127,6 @@ DECLARE_int64(reset_master_leader_timeout_ms);
 
 DECLARE_string(flagfile);
 DECLARE_bool(ysql_ddl_rollback_enabled);
-DECLARE_bool(lazily_flush_superblock);
 
 namespace yb {
 
