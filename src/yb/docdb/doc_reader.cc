@@ -18,6 +18,8 @@
 
 #include "yb/common/doc_hybrid_time.h"
 #include "yb/common/hybrid_time.h"
+#include "yb/common/ql_expr.h"
+#include "yb/common/ql_type.h"
 #include "yb/common/transaction.h"
 
 #include "yb/docdb/docdb_fwd.h"
@@ -51,9 +53,42 @@ constexpr int64_t kNothingFound = -1;
 
 YB_STRONGLY_TYPED_BOOL(CheckExistOnly);
 
+// The struct that stores encoded doc hybrid time and decode it on demand.
+class LazyDocHybridTime {
+ public:
+  void Assign(const EncodedDocHybridTime& value) {
+    encoded_ = value;
+    decoded_ = DocHybridTime();
+  }
+
+  const EncodedDocHybridTime& encoded() const {
+    return encoded_;
+  }
+
+  EncodedDocHybridTime* RawPtr() {
+    decoded_ = DocHybridTime();
+    return &encoded_;
+  }
+
+  Result<DocHybridTime> decoded() const {
+    if (!decoded_.is_valid()) {
+      decoded_ = VERIFY_RESULT(encoded_.Decode());
+    }
+    return decoded_;
+  }
+
+  std::string ToString() const {
+    return encoded_.ToString();
+  }
+
+ private:
+  EncodedDocHybridTime encoded_;
+  mutable DocHybridTime decoded_;
+};
+
 // Shared information about packed row. I.e. common for all columns in this row.
 struct PackedRowData {
-  DocHybridTime doc_ht;
+  LazyDocHybridTime doc_ht;
   ValueControlFields control_fields;
 };
 
@@ -68,14 +103,13 @@ struct PackedColumnData {
 };
 
 Expiration GetNewExpiration(
-    const Expiration& parent_exp, const MonoDelta& ttl,
-    const DocHybridTime& new_write_time) {
+    const Expiration& parent_exp, MonoDelta ttl, HybridTime new_write_ht) {
   Expiration new_exp = parent_exp;
   // We may need to update the TTL in individual columns.
-  if (new_write_time.hybrid_time() >= new_exp.write_ht) {
+  if (new_write_ht >= new_exp.write_ht) {
     // We want to keep the default TTL otherwise.
     if (ttl != ValueControlFields::kMaxTtl) {
-      new_exp.write_ht = new_write_time.hybrid_time();
+      new_exp.write_ht = new_write_ht;
       new_exp.ttl = ttl;
     } else if (new_exp.ttl.IsNegative()) {
       new_exp.ttl = -new_exp.ttl;
@@ -84,7 +118,7 @@ Expiration GetNewExpiration(
 
   // If the hybrid time is kMin, then we must be using default TTL.
   if (new_exp.write_ht == HybridTime::kMin) {
-    new_exp.write_ht = new_write_time.hybrid_time();
+    new_exp.write_ht = new_write_ht;
   }
 
   return new_exp;
@@ -110,6 +144,8 @@ Slice NullSlice() {
   return Slice(&null_column_type, sizeof(null_column_type));
 }
 
+YB_STRONGLY_TYPED_BOOL(NeedValue);
+
 } // namespace
 
 Result<DocHybridTime> GetTableTombstoneTime(
@@ -128,12 +164,11 @@ Result<DocHybridTime> GetTableTombstoneTime(
     iter->Seek(table_id_encoded);
 
     Slice value;
-    DocHybridTime doc_ht = DocHybridTime::kMin;
+    EncodedDocHybridTime doc_ht(EncodedDocHybridTime::kMin);
     RETURN_NOT_OK(iter->FindLatestRecord(table_id_encoded, &doc_ht, &value));
     if (VERIFY_RESULT(Value::IsTombstoned(value))) {
-      SCHECK_NE(doc_ht, DocHybridTime::kInvalid, Corruption,
-                "Invalid hybrid time for table tombstone");
-      return doc_ht;
+      SCHECK(!doc_ht.empty(), Corruption, "Invalid hybrid time for table tombstone");
+      return doc_ht.Decode();
     }
   }
   return DocHybridTime::kInvalid;
@@ -149,14 +184,14 @@ Result<DocHybridTime> GetTableTombstoneTime(
   // Question: what will break if we allow later commit at ht <= scan_ht ? Need to write down
   // detailed example.
 
-Result<boost::optional<SubDocument>> TEST_GetSubDocument(
+Result<std::optional<SubDocument>> TEST_GetSubDocument(
     const Slice& sub_doc_key,
     const DocDB& doc_db,
     const rocksdb::QueryId query_id,
     const TransactionOperationContext& txn_op_context,
     CoarseTimePoint deadline,
     const ReadHybridTime& read_time,
-    const std::vector<KeyEntryValue>* projection) {
+    const ReaderProjection* projection) {
   auto iter = CreateIntentAwareIterator(
       doc_db, BloomFilterMode::USE_BLOOM_FILTER, sub_doc_key, query_id,
       txn_op_context, deadline, read_time);
@@ -164,23 +199,30 @@ Result<boost::optional<SubDocument>> TEST_GetSubDocument(
                   iter->read_time().ToString());
   iter->SeekToLastDocKey();
 
+  iter->Seek(sub_doc_key);
+  if (iter->IsOutOfRecords()) {
+    return std::nullopt;
+  }
+  auto fetched = VERIFY_RESULT(iter->FetchKey());
+  if (!fetched.key.starts_with(sub_doc_key)) {
+    return std::nullopt;
+  }
+
   SchemaPackingStorage schema_packing_storage(TableType::YQL_TABLE_TYPE);
   DocDBTableReader doc_reader(
       iter.get(), deadline, projection, TableType::YQL_TABLE_TYPE, schema_packing_storage);
-  RETURN_NOT_OK(doc_reader.UpdateTableTombstoneTime(VERIFY_RESULT(docdb::GetTableTombstoneTime(
+  RETURN_NOT_OK(doc_reader.UpdateTableTombstoneTime(VERIFY_RESULT(GetTableTombstoneTime(
       sub_doc_key, doc_db, txn_op_context, deadline, read_time))));
-
-  iter->Seek(sub_doc_key);
   SubDocument result;
-  if (VERIFY_RESULT(doc_reader.Get(sub_doc_key, &result))) {
+  if (VERIFY_RESULT(doc_reader.Get(sub_doc_key, &result)) != DocReaderResult::kNotFound) {
     return result;
   }
-  return boost::none;
+  return std::nullopt;
 }
 
 DocDBTableReader::DocDBTableReader(
     IntentAwareIterator* iter, CoarseTimePoint deadline,
-    const std::vector<KeyEntryValue>* projection,
+    const ReaderProjection* projection,
     TableType table_type,
     std::reference_wrapper<const SchemaPackingStorage> schema_packing_storage)
     : iter_(iter),
@@ -192,7 +234,7 @@ DocDBTableReader::DocDBTableReader(
     auto projection_size = projection_->size();
     encoded_projection_.resize(projection_size);
     for (size_t i = 0; i != projection_size; ++i) {
-      (*projection_)[i].AppendToKey(&encoded_projection_[i]);
+      (*projection_)[i].subkey.AppendToKey(&encoded_projection_[i]);
     }
   }
   VLOG_WITH_FUNC(4)
@@ -205,7 +247,7 @@ void DocDBTableReader::SetTableTtl(const Schema& table_schema) {
 
 Status DocDBTableReader::UpdateTableTombstoneTime(DocHybridTime doc_ht) {
   if (doc_ht.is_valid()) {
-    table_tombstone_time_ = doc_ht;
+    table_tombstone_time_.Assign(doc_ht);
   }
   return Status::OK();
 }
@@ -213,7 +255,7 @@ Status DocDBTableReader::UpdateTableTombstoneTime(DocHybridTime doc_ht) {
 // Scan state entry. See state_ description below for details.
 struct StateEntry {
   KeyBytes key_entry; // Represents the part of the key that is related to this state entry.
-  DocHybridTime write_time;
+  LazyDocHybridTime write_time;
   Expiration expiration;
   KeyEntryValue key_value; // Decoded key_entry.
   SubDocument* out;
@@ -223,55 +265,102 @@ struct StateEntry {
   }
 };
 
+// Returns true if value is NOT tombstone, false if value is tombstone.
+Result<bool> TryDecodeValueOnly(
+    const Slice& value_slice, const QLTypePtr& ql_type, QLValuePB* out) {
+  if (DecodeValueEntryType(value_slice) == ValueEntryType::kTombstone) {
+    if (out) {
+      out->Clear();
+    }
+    return false;
+  }
+  if (out) {
+    if (ql_type) {
+      RETURN_NOT_OK(PrimitiveValue::DecodeToQLValuePB(value_slice, ql_type, out));
+    } else {
+      out->Clear();
+    }
+  }
+  return true;
+}
+
+Result<bool> TryDecodeValueOnly(
+    const Slice& value_slice, const QLTypePtr& ql_type, PrimitiveValue* out) {
+  if (DecodeValueEntryType(value_slice) == ValueEntryType::kTombstone) {
+    if (out) {
+      *out = PrimitiveValue::kTombstone;
+    }
+    return false;
+  }
+  if (out) {
+    RETURN_NOT_OK(out->DecodeFromValue(value_slice));
+  }
+  return true;
+}
+
+DocReaderResult FoundResult(bool iter_valid) {
+  return iter_valid ? DocReaderResult::kFoundNotFinished : DocReaderResult::kFoundAndFinished;
+}
+
 // Implements main logic in the reader.
 // Used keep scan state and avoid passing it between methods.
 // It is less performant than FlatGetHelper, but handles the general case of nested documents.
 // Not used for YSQL if FLAGS_ysql_use_flat_doc_reader is true.
+template <bool is_flat_doc, bool ysql>
 class DocDBTableReader::GetHelperBase {
  public:
-  GetHelperBase(DocDBTableReader* reader, const Slice& root_doc_key, IsFlatDoc is_flat_doc)
-      : reader_(*reader), root_doc_key_(root_doc_key), is_flat_doc_(is_flat_doc) {}
+  GetHelperBase(DocDBTableReader* reader, const Slice& root_doc_key)
+      : reader_(*reader), root_doc_key_(root_doc_key) {}
 
   virtual ~GetHelperBase() {}
 
  protected:
-  Result<bool> DoRun(Expiration* root_expiration, DocHybridTime* root_write_time) {
+  Result<DocReaderResult> DoRun(
+      Expiration* root_expiration, LazyDocHybridTime* root_write_time,
+      CheckExistOnly check_exists_only) {
     IntentAwareIteratorPrefixScope prefix_scope(root_doc_key_, reader_.iter_);
 
-    RETURN_NOT_OK(Prepare(root_expiration, root_write_time));
+    auto fetched_key = VERIFY_RESULT(Prepare(root_expiration, root_write_time));
 
     // projection could be null in tests only.
     if (reader_.projection_) {
-      if (reader_.projection_->empty()) {
-        packed_column_data_ = GetPackedColumn(KeyEntryValue::kLivenessColumn.GetColumnId());
-        RETURN_NOT_OK(Scan(CheckExistOnly::kTrue));
-        return Found();
+      if (reader_.projection_->empty() || check_exists_only) {
+        if (schema_packing_) {
+          return FoundResult(/* iter_valid= */ true);
+        }
+        auto iter_valid = VERIFY_RESULT(Scan(CheckExistOnly::kTrue, &fetched_key));
+        return Found() ? FoundResult(iter_valid) : DocReaderResult::kNotFound;
       }
       UpdatePackedColumnData();
     } else {
       cannot_scan_columns_ = true;
     }
-    RETURN_NOT_OK(Scan(CheckExistOnly::kFalse));
+    auto iter_valid = VERIFY_RESULT(Scan(CheckExistOnly::kFalse, &fetched_key));
 
-    if (last_found_ >= 0) {
-      return true;
+    if (last_found_ >= 0 ||
+        CheckForRootValue()) { // Could only happen in tests.
+      return FoundResult(iter_valid);
     }
 
-    if (CheckForRootValue()) { // Could only happen in tests.
-      return true;
-    }
-    if (!reader_.projection_) { // Could only happen in tests.
-      return false;
+    if (ysql || // YSQL always has liveness column, and it is always present in projection.
+        !reader_.projection_) { // Could only happen in tests.
+      return DocReaderResult::kNotFound;
     }
 
     reader_.iter_->Seek(root_doc_key_);
-    RETURN_NOT_OK(Scan(CheckExistOnly::kTrue));
-    if (Found()) {
+    if (reader_.iter_->IsOutOfRecords()) {
+      return DocReaderResult::kNotFound;
+    } else {
+      fetched_key = VERIFY_RESULT(reader_.iter_->FetchKey());
+      iter_valid = VERIFY_RESULT(Scan(CheckExistOnly::kTrue, &fetched_key));
+    }
+    auto result = Found();
+    if (result) {
       EmptyDocFound();
-      return true;
+      return FoundResult(iter_valid);
     }
 
-    return false;
+    return DocReaderResult::kNotFound;
   }
 
   virtual void EmptyDocFound() = 0;
@@ -282,34 +371,47 @@ class DocDBTableReader::GetHelperBase {
   // Scans DocDB for entries related to root_doc_key_.
   // Iterator should already point to the first such entry.
   // Changes nearly all internal state fields.
-  Status Scan(CheckExistOnly check_exist_only) {
-    while (reader_.iter_->valid()) {
+  Result<bool> Scan(CheckExistOnly check_exist_only, FetchKeyResult* fetched_key) {
+    for (;;) {
       if (reader_.deadline_info_.CheckAndSetDeadlinePassed()) {
         return STATUS(Expired, "Deadline for query passed");
       }
 
-      if (!VERIFY_RESULT(HandleRecord(check_exist_only))) {
-        return Status::OK();
+      if (!VERIFY_RESULT(HandleRecord(check_exist_only, *fetched_key))) {
+        return true;
       }
+
+      if (reader_.iter_->IsOutOfRecords()) {
+        break;
+      }
+      *fetched_key = VERIFY_RESULT(reader_.iter_->FetchKey());
+      DVLOG_WITH_PREFIX_AND_FUNC(4)
+          << "(" << check_exist_only << "), new position: "
+          << SubDocKey::DebugSliceToString(fetched_key->key) << ", value: "
+          << Value::DebugSliceToString(reader_.iter_->value());
     }
-    if (!check_exist_only && !cannot_scan_columns_) {
-      while (VERIFY_RESULT(NextColumn())) {}
+    if (!cannot_scan_columns_) {
+      if (!check_exist_only) {
+        while (VERIFY_RESULT(NextColumn())) {}
+      } else if (VERIFY_RESULT(DecodePackedColumn(NeedValue::kFalse))) {
+        last_found_ = column_index_;
+      }
     }
     DVLOG_WITH_PREFIX_AND_FUNC(4)
         << "(" << check_exist_only << "), found: " << last_found_ << ", column index: "
-        << column_index_ << ", finished: " << !reader_.iter_->valid() << ", "
+        << column_index_ << ", finished: " << reader_.iter_->IsOutOfRecords() << ", "
         << GetResultAsString();
-    return Status::OK();
+    return false;
   }
 
   virtual std::string GetResultAsString() const = 0;
 
-  Result<bool> HandleRecord(CheckExistOnly check_exist_only) {
-    auto key_result = VERIFY_RESULT(reader_.iter_->FetchKey());
+  Result<bool> HandleRecord(CheckExistOnly check_exist_only, const FetchKeyResult& key_result) {
     DVLOG_WITH_PREFIX_AND_FUNC(4)
         << "check_exist_only: " << check_exist_only << ", key: "
         << SubDocKey::DebugSliceToString(key_result.key) << ", write time: "
-        << key_result.write_time << ", value: " << reader_.iter_->value().ToDebugHexString();
+        << key_result.write_time.ToString() << ", value: "
+        << reader_.iter_->value().ToDebugHexString();
     DCHECK(key_result.key.starts_with(root_doc_key_));
     auto subkeys = key_result.key.WithoutPrefix(root_doc_key_.size());
 
@@ -323,7 +425,7 @@ class DocDBTableReader::GetHelperBase {
           reader_.encoded_projection_[column_index_].AsSlice();
       int compare_result = subkeys.compare_prefix(projection_column_encoded_key_prefix);
       DVLOG_WITH_PREFIX_AND_FUNC(4) << "Subkeys: " << subkeys.ToDebugHexString()
-                                    << ", column: " << (*reader_.projection_)[column_index_]
+                                    << ", column: " << (*reader_.projection_)[column_index_].subkey
                                     << ", compare_result: " << compare_result;
       if (compare_result < 0) {
         SeekProjectionColumn();
@@ -338,7 +440,7 @@ class DocDBTableReader::GetHelperBase {
         return DoHandleRecord(key_result, subkeys, check_exist_only);
       }
 
-      if (is_flat_doc_) {
+      if (is_flat_doc) {
         SCHECK_EQ(
             subkeys.size(), projection_column_encoded_key_prefix.size(), IllegalState,
             "DocDBTableReader::FlatGetHelper supports at most 1 subkey");
@@ -373,11 +475,11 @@ class DocDBTableReader::GetHelperBase {
   // Process DB entry.
   // Return true if entry value was accepted.
   virtual Result<bool> ProcessEntry(
-      Slice subkeys, Slice value_slice, const DocHybridTime& write_time,
+      Slice subkeys, Slice value_slice, const EncodedDocHybridTime& write_time,
       CheckExistOnly check_exist_only) = 0;
 
   Result<bool> NextColumn() {
-    if (VERIFY_RESULT(DecodePackedColumn())) {
+    if (VERIFY_RESULT(DecodePackedColumn(NeedValue::kTrue))) {
       last_found_ = column_index_;
     } else if (last_found_ < static_cast<int64_t>(column_index_)) {
       NoValueForColumnIndex();
@@ -390,7 +492,7 @@ class DocDBTableReader::GetHelperBase {
     return true;
   }
 
-  virtual Result<bool> DecodePackedColumn() = 0;
+  virtual Result<bool> DecodePackedColumn(NeedValue need_value) = 0;
 
   virtual void NoValueForColumnIndex() = 0;
 
@@ -404,6 +506,14 @@ class DocDBTableReader::GetHelperBase {
       return false;
     }
     Slice value = packed_column_data_.encoded_value;
+    if (ysql) {
+      // Remove buggy intent_doc_ht from start of the column. See #16650 for details.
+      if (value.TryConsumeByte(KeyEntryTypeAsChar::kHybridTime)) {
+        RETURN_NOT_OK(DocHybridTime::EncodedFromStart(&value));
+      }
+      return TryDecodeValueOnly(
+          value, (*reader_.projection_)[column_index_].type, get_value_address());
+    }
     ValueControlFields control_fields;
     if (packed_column_data_.liveness_column) {
       control_fields = packed_column_data_.row->control_fields;
@@ -411,7 +521,8 @@ class DocDBTableReader::GetHelperBase {
       control_fields = VERIFY_RESULT(ValueControlFields::Decode(&value));
     }
     const auto& write_time = packed_column_data_.row->doc_ht;
-    auto expiration = GetNewExpiration(parent_exp, control_fields.ttl, write_time);
+    const auto expiration = GetNewExpiration(
+          parent_exp, control_fields.ttl, VERIFY_RESULT(write_time.decoded()).hybrid_time());
     if (IsObsolete(expiration)) {
       return false;
     }
@@ -419,16 +530,14 @@ class DocDBTableReader::GetHelperBase {
         control_fields.has_timestamp()
             ? control_fields.timestamp
             : packed_column_data_.row->control_fields.timestamp,
-        write_time.hybrid_time(),
-        expiration,
-        value, get_value_address());
+        write_time, expiration, value, get_value_address());
   }
 
   // Updates information about the current column packed data.
   // Before calling, all fields should have correct values, especially column_index_ that points
   // to the current column in projection.
   void UpdatePackedColumnData() {
-    auto& column = (*reader_.projection_)[column_index_];
+    auto& column = (*reader_.projection_)[column_index_].subkey;
     if (column.IsColumnId()) {
       packed_column_data_ = GetPackedColumn(column.GetColumnId());
     } else {
@@ -441,20 +550,23 @@ class DocDBTableReader::GetHelperBase {
 
   virtual bool CheckForRootValue() = 0;
 
-  Status Prepare(Expiration* root_expiration, DocHybridTime* root_write_time) {
+  Result<FetchKeyResult> Prepare(Expiration* root_expiration, LazyDocHybridTime* root_write_time) {
     DVLOG_WITH_PREFIX_AND_FUNC(4) << "Pos: " << reader_.iter_->DebugPosToString();
 
     root_key_entry_->AppendRawBytes(root_doc_key_);
-    reader_.iter_->SeekForward(root_key_entry_);
+
+    auto key_result = VERIFY_RESULT(reader_.iter_->FetchKey());
+    DCHECK(key_result.key.starts_with(root_doc_key_));
 
     Slice value;
-    DocHybridTime doc_ht = reader_.table_tombstone_time_;
-    RETURN_NOT_OK(reader_.iter_->FindLatestRecord(root_doc_key_, &doc_ht, &value));
-
-    if (!reader_.iter_->valid()) {
-      *root_write_time = reader_.table_tombstone_time_;
-      return Status::OK();
+    LazyDocHybridTime doc_ht;
+    doc_ht.Assign(reader_.table_tombstone_time_);
+    if (root_doc_key_.size() == key_result.key.size() &&
+        key_result.write_time >= doc_ht.encoded()) {
+      doc_ht.Assign(key_result.write_time);
+      value = reader_.iter_->value();
     }
+
     auto control_fields = VERIFY_RESULT(ValueControlFields::Decode(&value));
 
     auto value_type = DecodeValueEntryType(value);
@@ -464,16 +576,20 @@ class DocDBTableReader::GetHelperBase {
       packed_row_.Assign(value);
       packed_row_data_.doc_ht = doc_ht;
       packed_row_data_.control_fields = control_fields;
-      *root_expiration = GetNewExpiration(*root_expiration, ValueControlFields::kMaxTtl, doc_ht);
+      if (TtlCheckRequired()) {
+        *root_expiration = GetNewExpiration(
+            *root_expiration, ValueControlFields::kMaxTtl,
+            VERIFY_RESULT(doc_ht.decoded()).hybrid_time());
+      }
     } else if (value_type != ValueEntryType::kTombstone && value_type != ValueEntryType::kInvalid) {
       // Used in tests only
       RETURN_NOT_OK(SetRootValue(value_type, value));
     }
 
     DVLOG_WITH_PREFIX_AND_FUNC(4)
-        << "Write time: " << doc_ht << ", control fields: " << control_fields.ToString();
+        << "Write time: " << doc_ht.ToString() << ", control fields: " << control_fields.ToString();
     *root_write_time = doc_ht;
-    return Status::OK();
+    return key_result;
   }
 
   PackedColumnData GetPackedColumn(ColumnId column_id) {
@@ -507,20 +623,27 @@ class DocDBTableReader::GetHelperBase {
   }
 
   Result<bool> TryDecodeValue(
-      UserTimeMicros timestamp, HybridTime write_time,
-      const Expiration& expiration, const Slice& value_slice, PrimitiveValue* out) {
-    if (!out) {
-      return DecodeValueEntryType(value_slice) != ValueEntryType::kTombstone;
+      UserTimeMicros timestamp, const LazyDocHybridTime& write_time, const Expiration& expiration,
+      const Slice& value_slice, PrimitiveValue* out) {
+    auto has_value = VERIFY_RESULT(TryDecodeValueOnly(value_slice, /* ql_type= */ nullptr, out));
+    if (has_value && out) {
+      auto write_ht = VERIFY_RESULT(write_time.decoded()).hybrid_time();
+      if (timestamp != ValueControlFields::kInvalidTimestamp) {
+        out->SetWriteTime(timestamp);
+      } else {
+        out->SetWriteTime(write_ht.GetPhysicalValueMicros());
+      }
+      out->SetTtl(GetTtlRemainingSeconds(reader_.iter_->read_time().read, write_ht, expiration));
     }
-    RETURN_NOT_OK(out->DecodeFromValue(value_slice));
-    if (timestamp != ValueControlFields::kInvalidTimestamp) {
-      out->SetWriteTime(timestamp);
-    } else {
-      out->SetWriteTime(write_time.GetPhysicalValueMicros());
-    }
-    out->SetTtl(GetTtlRemainingSeconds(reader_.iter_->read_time().read, write_time, expiration));
 
-    return !out->IsTombstone();
+    return has_value;
+  }
+
+  Result<bool> TryDecodeValue(
+      UserTimeMicros timestamp, const LazyDocHybridTime& write_time, const Expiration& expiration,
+      const Slice& value_slice, QLValuePB* out) {
+    return TryDecodeValueOnly(
+        value_slice, (*reader_.projection_)[column_index_].type, out);
   }
 
   bool IsObsolete(const Expiration& expiration) {
@@ -533,6 +656,11 @@ class DocDBTableReader::GetHelperBase {
 
   std::string LogPrefix() const {
     return DocKey::DebugSliceToString(root_doc_key_) + ": ";
+  }
+
+  static constexpr bool TtlCheckRequired() {
+    // TODO(scanperf) also avoid checking TTL for YCQL tables w/o TTL.
+    return !ysql;
   }
 
   DocDBTableReader& reader_;
@@ -557,21 +685,20 @@ class DocDBTableReader::GetHelperBase {
   // Set to true when there is no projection or root is not an object (that only can happen when
   // called from the tests).
   bool cannot_scan_columns_ = false;
-
-  // Whether we expect at most 1 subkey for each DocDB record.
-  // Set to true only by DocDBTableReader::FlatGetHelper.
-  IsFlatDoc is_flat_doc_;
 };
 
 // Implements main logic in the reader.
 // Used keep scan state and avoid passing it between methods.
-class DocDBTableReader::GetHelper : public DocDBTableReader::GetHelperBase {
+class DocDBTableReader::GetHelper :
+    public DocDBTableReader::GetHelperBase</* is_flat_doc = */ false, /* ysql = */ false> {
  public:
+  using Base = DocDBTableReader::GetHelperBase</* is_flat_doc = */ false, /* ysql = */ false>;
+
   GetHelper(DocDBTableReader* reader, const Slice& root_doc_key, SubDocument* result)
-      : DocDBTableReader::GetHelperBase(reader, root_doc_key, IsFlatDoc::kFalse), result_(*result) {
+      : Base(reader, root_doc_key), result_(*result) {
     state_.emplace_back(StateEntry {
       .key_entry = KeyBytes(),
-      .write_time = DocHybridTime(),
+      .write_time = LazyDocHybridTime(),
       .expiration = reader_.table_expiration_,
       .key_value = {},
       .out = &result_,
@@ -579,14 +706,14 @@ class DocDBTableReader::GetHelper : public DocDBTableReader::GetHelperBase {
     root_key_entry_ = &state_.front().key_entry;
   }
 
-  Result<bool> Run() {
+  Result<DocReaderResult> Run() {
     auto& root = state_.front();
-    return DoRun(&root.expiration, &root.write_time);
+    return DoRun(&root.expiration, &root.write_time, CheckExistOnly::kFalse);
   }
 
   void EmptyDocFound() override {
     for (const auto& key : *reader_.projection_) {
-      result_.AllocateChild(key);
+      result_.AllocateChild(key.subkey);
     }
   }
 
@@ -598,10 +725,10 @@ class DocDBTableReader::GetHelper : public DocDBTableReader::GetHelperBase {
 
  private:
   Result<bool> ProcessEntry(
-      Slice subkeys, Slice value_slice, const DocHybridTime& write_time,
+      Slice subkeys, Slice value_slice, const EncodedDocHybridTime& write_time,
       CheckExistOnly check_exist_only) override {
     subkeys = CleanupState(subkeys);
-    if (state_.back().write_time >= write_time) {
+    if (state_.back().write_time.encoded() >= write_time) {
       DVLOG_WITH_PREFIX_AND_FUNC(4)
           << "State: " << AsString(state_) << ", write_time: " << write_time;
       return false;
@@ -626,8 +753,10 @@ class DocDBTableReader::GetHelper : public DocDBTableReader::GetHelperBase {
   }
 
   Status AllocateNewStateEntries(
-      Slice subkeys, const DocHybridTime& write_time, CheckExistOnly check_exist_only,
+      Slice subkeys, const EncodedDocHybridTime& write_time, CheckExistOnly check_exist_only,
       MonoDelta ttl) {
+    LazyDocHybridTime lazy_write_time;
+    lazy_write_time.Assign(write_time);
     while (!subkeys.empty()) {
       auto start = subkeys.data();
       state_.emplace_back();
@@ -635,9 +764,12 @@ class DocDBTableReader::GetHelper : public DocDBTableReader::GetHelperBase {
       auto& entry = state_.back();
       RETURN_NOT_OK(entry.key_value.DecodeFromKey(&subkeys));
       entry.key_entry.AppendRawBytes(Slice(start, subkeys.data()));
-      entry.write_time = subkeys.empty() ? write_time : parent.write_time;
+      entry.write_time = subkeys.empty() ? lazy_write_time : parent.write_time;
       entry.out = check_exist_only ? nullptr : &parent.out->AllocateChild(entry.key_value);
-      entry.expiration = GetNewExpiration(parent.expiration, ttl, write_time);
+      if (TtlCheckRequired()) {
+        entry.expiration = GetNewExpiration(
+            parent.expiration, ttl, VERIFY_RESULT(entry.write_time.decoded()).hybrid_time());
+      }
     }
     return Status::OK();
   }
@@ -650,14 +782,12 @@ class DocDBTableReader::GetHelper : public DocDBTableReader::GetHelperBase {
     DVLOG_WITH_PREFIX_AND_FUNC(4)
         << "State: " << AsString(state_) << ", value: " << value_slice.ToDebugHexString()
         << ", obsolete: " << IsObsolete(current.expiration);
+
     if (!IsObsolete(current.expiration)) {
       if (VERIFY_RESULT(TryDecodeValue(
-              control_fields.timestamp, current.write_time.hybrid_time(), current.expiration,
-              value_slice, current.out))) {
+              control_fields.timestamp, current.write_time, current.expiration, value_slice,
+              current.out))) {
         last_found_ = column_index_;
-        return true;
-      }
-      if (reader_.table_type_ == TableType::PGSQL_TABLE_TYPE) {
         return true;
       }
     }
@@ -674,15 +804,21 @@ class DocDBTableReader::GetHelper : public DocDBTableReader::GetHelperBase {
     DVLOG_WITH_PREFIX_AND_FUNC(4) << Format(
         "Did not have value for column_index $0 ($1), allocate invalid value for it, will be "
         "converted to null value by KeyEntryValue::ToQLValuePB.",
-        column_index_, (*reader_.projection_)[column_index_]);
-    result_.AllocateChild((*reader_.projection_)[column_index_]);
+        column_index_, (*reader_.projection_)[column_index_].subkey);
+    result_.AllocateChild((*reader_.projection_)[column_index_].subkey);
   }
 
-  Result<bool> DecodePackedColumn() override {
+  Result<bool> DecodePackedColumn(NeedValue need_value) override {
     state_.resize(1);
-    return DoDecodePackedColumn(state_.back().expiration, [&] {
-      return &result_.AllocateChild((*reader_.projection_)[column_index_]);
-    });
+    if (need_value) {
+      return DoDecodePackedColumn(state_.back().expiration, [this] {
+        return &result_.AllocateChild((*reader_.projection_)[column_index_].subkey);
+      });
+    } else {
+      return DoDecodePackedColumn(state_.back().expiration, []() -> PrimitiveValue* {
+        return nullptr;
+      });
+    }
   }
 
   Status SetRootValue(ValueEntryType root_value_type, const Slice& root_value) override {
@@ -724,17 +860,20 @@ class DocDBTableReader::GetHelper : public DocDBTableReader::GetHelperBase {
 // It is more performant than DocDBTableReader::GetHelper, but can't handle the general case of
 // nested documents that is possible in YCQL.
 // Used for YSQL if FLAGS_ysql_use_flat_doc_reader is true.
-class DocDBTableReader::FlatGetHelper : public DocDBTableReader::GetHelperBase {
+class DocDBTableReader::FlatGetHelper :
+    public DocDBTableReader::GetHelperBase</* is_flat_doc= */ true, /* ysql= */ true> {
  public:
+  using Base = DocDBTableReader::GetHelperBase</* is_flat_doc= */ true, /* ysql= */ true>;
+
   FlatGetHelper(
-      DocDBTableReader* reader, const Slice& root_doc_key, std::vector<PrimitiveValue>* result)
-      : DocDBTableReader::GetHelperBase(reader, root_doc_key, IsFlatDoc::kTrue), result_(*result) {
+      DocDBTableReader* reader, const Slice& root_doc_key, QLTableRow* result)
+      : Base(reader, root_doc_key), result_(result) {
     row_expiration_ = reader_.table_expiration_;
     root_key_entry_ = &row_key_;
   }
 
-  Result<bool> Run() {
-    return DoRun(&row_expiration_, &row_write_time_);
+  Result<DocReaderResult> Run() {
+    return DoRun(&row_expiration_, &row_write_time_, CheckExistOnly(result_ == nullptr));
   }
 
   void EmptyDocFound() override {}
@@ -743,44 +882,71 @@ class DocDBTableReader::FlatGetHelper : public DocDBTableReader::GetHelperBase {
     return last_found_ >= 0;
   }
 
-  std::string GetResultAsString() const override { return AsString(result_); }
+  std::string GetResultAsString() const override { return result_ ? AsString(*result_) : "<NULL>"; }
 
  private:
+  // Return true if entry is more recent than packed row.
   Result<bool> ProcessEntry(
-      Slice /* subkeys */, Slice value_slice, const DocHybridTime& write_time,
+      Slice /* subkeys */, Slice value_slice, const EncodedDocHybridTime& write_time,
       CheckExistOnly check_exist_only) override {
-    if (row_write_time_ >= write_time) {
-      DVLOG_WITH_PREFIX_AND_FUNC(4) << "write_time: " << write_time;
+    if (row_write_time_.encoded() >= write_time) {
+      DVLOG_WITH_PREFIX_AND_FUNC(4) << "write_time: " << write_time.ToString();
       return false;
     }
 
-    auto control_fields = VERIFY_RESULT(ValueControlFields::Decode(&value_slice));
-    auto* column_value = check_exist_only ? nullptr : &result_[column_index_];
-    auto column_expiration = GetNewExpiration(row_expiration_, control_fields.ttl, write_time);
+    auto* column_value = check_exist_only ? nullptr : &GetValueAddress();
 
-    DVLOG_WITH_PREFIX_AND_FUNC(4) << "column_index_: " << column_index_
-                                  << ", value: " << value_slice.ToDebugHexString();
-    if (!IsObsolete(column_expiration)) {
-      if (VERIFY_RESULT(TryDecodeValue(
-              control_fields.timestamp, write_time.hybrid_time(), column_expiration,
-              value_slice, column_value))) {
-        last_found_ = column_index_;
+    if (TtlCheckRequired()) {
+      auto control_fields = VERIFY_RESULT(ValueControlFields::Decode(&value_slice));
+
+      LazyDocHybridTime lazy_write_time;
+      lazy_write_time.Assign(write_time);
+
+      Expiration column_expiration = GetNewExpiration(
+            row_expiration_, control_fields.ttl,
+            VERIFY_RESULT(lazy_write_time.decoded()).hybrid_time());
+
+        DVLOG_WITH_PREFIX_AND_FUNC(4) << "column_index_: " << column_index_
+                                      << ", value: " << value_slice.ToDebugHexString();
+      if (IsObsolete(column_expiration)) {
         return true;
       }
-      if (reader_.table_type_ == TableType::PGSQL_TABLE_TYPE) {
-        return true;
+
+      if (VERIFY_RESULT(TryDecodeValue(
+              control_fields.timestamp, lazy_write_time, column_expiration, value_slice,
+              column_value))) {
+        last_found_ = column_index_;
+      }
+    } else {
+      if (VERIFY_RESULT(TryDecodeValueOnly(
+              value_slice, (*reader_.projection_)[column_index_].type, column_value))) {
+        last_found_ = column_index_;
       }
     }
 
     return true;
   }
 
-  void NoValueForColumnIndex() override {}
+  void NoValueForColumnIndex() override {
+    if (result_) {
+      result_->MarkTombstoned((*reader_.projection_)[column_index_].subkey.GetColumnId());
+    }
+  }
 
-  Result<bool> DecodePackedColumn() override {
-    return DoDecodePackedColumn(row_expiration_, [&] {
-      return &result_[column_index_];
-    });
+  Result<bool> DecodePackedColumn(NeedValue need_value) override {
+    if (need_value) {
+      return DoDecodePackedColumn(row_expiration_, [this] {
+        return &GetValueAddress();
+      });
+    } else {
+      return DoDecodePackedColumn(row_expiration_, []() -> QLValuePB* {
+        return nullptr;
+      });
+    }
+  }
+
+  QLValuePB& GetValueAddress() {
+    return result_->AllocColumn((*reader_.projection_)[column_index_].subkey.GetColumnId()).value;
   }
 
   Status SetRootValue(ValueEntryType row_value_type, const Slice& row_value) override {
@@ -792,27 +958,25 @@ class DocDBTableReader::FlatGetHelper : public DocDBTableReader::GetHelperBase {
   }
 
   // Owned by the DocDBTableReader::FlatGetHelper user.
-  std::vector<PrimitiveValue>& result_;
+  QLTableRow* result_;
 
   KeyBytes row_key_;
-  DocHybridTime row_write_time_;
+  LazyDocHybridTime row_write_time_;
   Expiration row_expiration_;
 };
 
-Result<bool> DocDBTableReader::Get(const Slice& root_doc_key, SubDocument* result) {
+Result<DocReaderResult> DocDBTableReader::Get(const Slice& root_doc_key, SubDocument* result) {
   GetHelper helper(this, root_doc_key, result);
   return helper.Run();
 }
 
-Result<bool> DocDBTableReader::GetFlat(
-    const Slice& root_doc_key, std::vector<PrimitiveValue>* result) {
-  // FlatGetHelper only works when projection_ is specified.
-  SCHECK_NOTNULL(projection_);
-  result->reserve(projection_->size());
-  result->assign(projection_->size(), PrimitiveValue::kInvalid);
-
+Result<DocReaderResult> DocDBTableReader::GetFlat(const Slice& root_doc_key, QLTableRow* result) {
   FlatGetHelper helper(this, root_doc_key, result);
   return helper.Run();
+}
+
+std::string ProjectedColumn::ToString() const {
+  return YB_STRUCT_TO_STRING(subkey, type);
 }
 
 }  // namespace docdb

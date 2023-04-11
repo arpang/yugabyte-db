@@ -1,7 +1,7 @@
 {
   ".": [
     "ansible.cfg",
-    "ansible_python3_requirements.txt",
+    "ansible_python_requirements.txt",
     "ansible_requirements_prod.yml",
     "configure-cluster-server.yml",
     "destroy-instance.yml",
@@ -18,7 +18,8 @@
     "setup-cgroup.yml",
     "edit_authorized_keys.yml",
     "configure_ssh2.yml",
-    "install-third-party.yml"
+    "install-third-party.yml",
+    "yb_os_package_updates.yml"
   ],
   "bin": [
     "bin/ansible-playbook.sh",

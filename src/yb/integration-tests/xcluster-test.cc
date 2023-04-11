@@ -85,7 +85,6 @@ DECLARE_bool(TEST_xcluster_write_hybrid_time);
 DECLARE_int32(cdc_wal_retention_time_secs);
 DECLARE_int32(replication_failure_delay_exponent);
 DECLARE_double(TEST_respond_write_failed_probability);
-DECLARE_int32(cdc_max_apply_batch_num_records);
 DECLARE_int32(async_replication_idle_delay_ms);
 DECLARE_int32(async_replication_polling_delay_ms);
 DECLARE_int32(async_replication_max_idle_wait);
@@ -139,12 +138,10 @@ using tserver::XClusterConsumer;
 using SessionTransactionPair = std::pair<client::YBSessionPtr, client::YBTransactionPtr>;
 
 struct XClusterTestParams {
-  explicit XClusterTestParams(bool transactional_table_, int batch_size_ = 0)
-      : transactional_table(transactional_table_)
-      , batch_size(batch_size_) {}
+  explicit XClusterTestParams(bool transactional_table_)
+      : transactional_table(transactional_table_) {}
 
-  bool transactional_table; // For XCluster + CQL only. All YSQL tables are transactional.
-  bool batch_size;
+  bool transactional_table;  // For XCluster + CQL only. All YSQL tables are transactional.
 };
 
 class XClusterTest : public XClusterTestBase,
@@ -159,7 +156,6 @@ class XClusterTest : public XClusterTestBase,
     FLAGS_enable_ysql = false;
     FLAGS_transaction_table_num_tablets = 1;
     XClusterTestBase::SetUp();
-    FLAGS_cdc_max_apply_batch_num_records = GetParam().batch_size;
     FLAGS_yb_num_shards_per_tserver = 1;
     bool transactional_table = GetParam().transactional_table;
     num_tservers = std::max(num_tservers, replication_factor);
@@ -1428,7 +1424,7 @@ TEST_P(XClusterTest, PollAndObserveIdleDampening) {
       }
     }
   }
-  ASSERT_NOTNULL(cdc_ts);
+  ASSERT_ONLY_NOTNULL(cdc_ts);
 
   // Find the CDCTabletMetric associated with the above pair.
   auto cdc_service = dynamic_cast<cdc::CDCServiceImpl*>(
@@ -2602,21 +2598,6 @@ TEST_P(XClusterTest, TestAlterDDLWithRestarts) {
   // Verify that the Consumer doesn't have new data even though it has the pending_schema/ALTER.
   LOG(INFO) << "Verify that Consumer doesn't have inserts (before restart).";
   {
-    ASSERT_OK(WaitFor([&]() -> Result<bool> {
-      master::SysClusterConfigEntryPB cluster_info;
-      auto& cm = VERIFY_RESULT(consumer_cluster()->GetLeaderMiniMaster())->catalog_manager();
-      RETURN_NOT_OK(cm.GetClusterConfig(&cluster_info));
-      auto& producer_map = cluster_info.consumer_registry().producer_map();
-      auto producer_entry = FindOrNull(producer_map, kUniverseId);
-      if (producer_entry) {
-        CHECK_EQ(producer_entry->stream_map().size(), 1);
-        auto& stream_entry = producer_entry->stream_map().begin()->second;
-        return (stream_entry.has_producer_schema() &&
-            stream_entry.producer_schema().has_pending_schema());
-      }
-      return false;
-    }, MonoDelta::FromSeconds(20), "IsConsumerHaltedOnDDL"));
-
     auto producer_results = ScanTableToStrings(tables[0]->name(), producer_client());
     auto consumer_results = ScanTableToStrings(tables[1]->name(), consumer_client());
     ASSERT_EQ(producer_results.size(), 10);
@@ -2637,35 +2618,11 @@ TEST_P(XClusterTest, TestAlterDDLWithRestarts) {
       return new_ts != nullptr;
     }, MonoDelta::FromSeconds(10), "FindTabletLeader"));
     ASSERT_NE(old_ts, new_ts);
-
-    // Verify that the new Consumer poller had read the ALTER DDL and stopped polling.
-    auto* tserver = new_ts->server();
-    XClusterConsumer* xcluster_consumer;
-    ASSERT_TRUE(tserver && (xcluster_consumer = tserver->GetXClusterConsumer()));
-    ASSERT_OK(LoggedWaitFor([&]() -> Result<bool> {
-      auto pollers = xcluster_consumer->TEST_ListPollers();
-      return pollers.size() == 1 && !pollers[0]->IsPolling();
-    }, MonoDelta::FromSeconds(10), "ConsumerNotPolling"));
   }
 
   // Verify that the new Consumer TServer is in the same state as before.
   LOG(INFO) << "Verify that Consumer doesn't have inserts (after restart).";
   {
-    ASSERT_OK(WaitFor([&]() -> Result<bool> {
-      master::SysClusterConfigEntryPB cluster_info;
-      auto& cm = VERIFY_RESULT(consumer_cluster()->GetLeaderMiniMaster())->catalog_manager();
-      RETURN_NOT_OK(cm.GetClusterConfig(&cluster_info));
-      auto& producer_map = cluster_info.consumer_registry().producer_map();
-      auto producer_entry = FindOrNull(producer_map, kUniverseId);
-      if (producer_entry) {
-        CHECK_EQ(producer_entry->stream_map().size(), 1);
-        auto& stream_entry = producer_entry->stream_map().begin()->second;
-        return stream_entry.has_producer_schema() &&
-               stream_entry.producer_schema().has_pending_schema();
-      }
-      return false;
-    }, MonoDelta::FromSeconds(20), "IsConsumerHaltedOnDDL"));
-
     auto producer_results = ScanTableToStrings(tables[0]->name(), producer_client());
     auto consumer_results = ScanTableToStrings(tables[1]->name(), consumer_client());
     ASSERT_EQ(producer_results.size(), 10);
@@ -2731,14 +2688,7 @@ TEST_P(XClusterTest, ApplyOperationsRandomFailures) {
   ASSERT_OK(DeleteUniverseReplication(kUniverseId, producer_client(), producer_cluster()));
 }
 
-class XClusterTestToggleBatching : public XClusterTest {};
-
-INSTANTIATE_TEST_CASE_P(
-    XClusterTestParams, XClusterTestToggleBatching,
-    ::testing::Values(XClusterTestParams(false /* transactional_table */, 0 /* batch_size */),
-                      XClusterTestParams(false /* transactional_table */, 1 /* batch_size */)));
-
-TEST_P(XClusterTestToggleBatching, TestInsertDeleteWorkloadWithRestart) {
+TEST_P(XClusterTest, TestInsertDeleteWorkloadWithRestart) {
   // Good test for batching, make sure we can handle operations on the same key with different
   // hybrid times. Then, do a restart and make sure we can successfully bootstrap the batched data.
   // In additional, make sure we write exactly num_total_ops / batch_size batches to the cluster to
@@ -2759,20 +2709,14 @@ TEST_P(XClusterTestToggleBatching, TestInsertDeleteWorkloadWithRestart) {
     WriteWorkload(0, num_ops_per_workload, producer_client(), tables[0]->name());
   }
 
-  // Count the number of ops in total, expect 1 batch if the batch flag is set to 0.
-  uint32_t expected_num_writes = FLAGS_cdc_max_apply_batch_num_records > 0 ?
-      (num_ops_per_workload * (num_runs * 2 + 1)) / FLAGS_cdc_max_apply_batch_num_records : 1;
-
-  LOG(INFO) << "expected num writes: " <<expected_num_writes;
-
   std::vector<std::shared_ptr<client::YBTable>> producer_tables;
   producer_tables.reserve(1);
   producer_tables.push_back(tables[0]);
   ASSERT_OK(SetupUniverseReplication(producer_tables));
 
-  ASSERT_OK(LoggedWaitFor([&]() {
-    return GetSuccessfulWriteOps(consumer_cluster()) == expected_num_writes;
-  }, MonoDelta::FromSeconds(60), "Wait for all batches to finish."));
+  ASSERT_OK(LoggedWaitFor(
+      [&]() { return GetSuccessfulWriteOps(consumer_cluster()) == 1; }, MonoDelta::FromSeconds(60),
+      "Wait for all batches to finish."));
 
   // Verify that both clusters have the same records.
   ASSERT_OK(VerifyWrittenRecords(tables[0]->name(), tables[1]->name()));

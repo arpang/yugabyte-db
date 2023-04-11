@@ -26,6 +26,7 @@ namespace yb {
 
 class OneWayBitmap;
 class RWOperationCounter;
+class Thread;
 
 namespace tablet {
 
@@ -59,6 +60,8 @@ class TransactionLoaderContext {
   virtual void LoadFinished(const ApplyStatesMap& pending_applies) = 0;
 };
 
+YB_DEFINE_ENUM(TransactionLoaderState, (kLoadNotFinished)(kLoadCompleted)(kLoadFailed));
+
 class TransactionLoader {
  public:
   TransactionLoader(TransactionLoaderContext* context, const scoped_refptr<MetricEntity>& entity);
@@ -67,11 +70,11 @@ class TransactionLoader {
   void Start(RWOperationCounter* pending_op_counter, const docdb::DocDB& db);
 
   bool complete() const {
-    return all_loaded_.load(std::memory_order_acquire);
+    return state_.load(std::memory_order_acquire) == TransactionLoaderState::kLoadCompleted;
   }
 
-  void WaitLoaded(const TransactionId& id);
-  void WaitAllLoaded();
+  Status WaitLoaded(const TransactionId& id);
+  Status WaitAllLoaded();
 
   void Shutdown();
 
@@ -87,8 +90,9 @@ class TransactionLoader {
   std::mutex mutex_;
   std::condition_variable load_cond_;
   TransactionId last_loaded_ GUARDED_BY(mutex_) = TransactionId::Nil();
-  std::atomic<bool> all_loaded_{false};
-  std::thread load_thread_;
+  Status load_status_ GUARDED_BY(mutex_);
+  std::atomic<TransactionLoaderState> state_{TransactionLoaderState::kLoadNotFinished};
+  scoped_refptr<Thread> load_thread_;
 };
 
 } // namespace tablet

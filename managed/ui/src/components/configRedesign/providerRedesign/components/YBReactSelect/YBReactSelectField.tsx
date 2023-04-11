@@ -9,13 +9,16 @@ import { FieldValues, useController, UseControllerProps } from 'react-hook-form'
 import { Box, FormHelperText, useTheme } from '@material-ui/core';
 import Select, { Styles } from 'react-select';
 
+export type ReactSelectOption = { value: any; label: string; isDisabled?: boolean };
 type YBReactSelectFieldProps<T extends FieldValues> = {
-  options: readonly { value: any; label: string; isDisabled?: boolean }[] | undefined;
+  options: readonly ReactSelectOption[] | undefined;
   isDisabled?: boolean;
+  onChange?: (value: ReactSelectOption) => void;
 } & UseControllerProps<T>;
 
 export const YBReactSelectField = <T extends FieldValues>({
   options,
+  onChange,
   isDisabled = false,
   ...useControllerProps
 }: YBReactSelectFieldProps<T>) => {
@@ -31,7 +34,16 @@ export const YBReactSelectField = <T extends FieldValues>({
         fieldState.error ? theme.palette.orange[700] : theme.palette.ybacolors.ybGray
       }`,
       backgroundColor: fieldState.error ? theme.palette.error[100] : baseStyles.backgroundColor
+    }),
+    menu: (baseStyles) => ({
+      ...baseStyles,
+      zIndex: 9999
     })
+  };
+
+  const handleChange = (value: any) => {
+    field.onChange(value);
+    onChange && onChange(value);
   };
   return (
     <Box width="100%">
@@ -39,7 +51,7 @@ export const YBReactSelectField = <T extends FieldValues>({
         <Select
           styles={reactSelectStyles}
           name={field.name}
-          onChange={field.onChange}
+          onChange={handleChange}
           onBlur={field.onBlur}
           value={field.value}
           options={options}

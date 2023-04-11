@@ -76,6 +76,8 @@ extern const std::string kSnapshotsDirSuffix;
 const uint64_t kNoLastFullCompactionTime = HybridTime::kMin.ToUint64();
 
 YB_STRONGLY_TYPED_BOOL(Primary);
+YB_STRONGLY_TYPED_BOOL(OnlyIfDirty);
+YB_STRONGLY_TYPED_BOOL(LazySuperblockFlushEnabled);
 
 struct TableInfo {
  private:
@@ -135,6 +137,8 @@ struct TableInfo {
       const std::string& tablet_log_prefix, const TableId& primary_table_id, const TableInfoPB& pb);
   void ToPB(TableInfoPB* pb) const;
 
+  Status MergeSchemaPackings(const TableInfoPB& pb, docdb::OverwriteSchemaPacking overwrite);
+
   std::string ToString() const {
     TableInfoPB pb;
     ToPB(&pb);
@@ -147,7 +151,7 @@ struct TableInfo {
 
   const Schema& schema() const;
 
-  Status MergeWithRestored(const TableInfoPB& pb, docdb::OverwriteSchemaPacking overwrite);
+  Result<SchemaVersion> GetSchemaPackingVersion(const Schema& schema) const;
 
   const std::string& LogPrefix() const {
     return log_prefix;
@@ -159,6 +163,7 @@ struct TableInfo {
 
   // Should account for every field in TableInfo.
   static bool TEST_Equals(const TableInfo& lhs, const TableInfo& rhs);
+
  private:
   Status DoLoadFromPB(Primary primary, const TableInfoPB& pb);
 };
@@ -181,7 +186,19 @@ struct KvStoreInfo {
                     bool local_superblock);
 
   Status MergeWithRestored(
-      const KvStoreInfoPB& pb, bool colocated, docdb::OverwriteSchemaPacking overwrite);
+      const KvStoreInfoPB& snapshot_kvstoreinfo, const TableId& primary_table_id, bool colocated,
+      docdb::OverwriteSchemaPacking overwrite);
+
+  Status MergeTableSchemaPackings(
+      const KvStoreInfoPB& snapshot_kvstoreinfo, const TableId& primary_table_id, bool colocated,
+      docdb::OverwriteSchemaPacking overwrite);
+
+  // Given the table info from the tablet metadata in a snapshot, return the corresponding live
+  // table.  Used to map tables that existed in the snapshot to tables that are live in the current
+  // cluster when restoring a colocated tablet in order to merge schema packings.
+  // If nullptr is returned, the input table can be ignored.
+  Result<TableInfo*> FindMatchingTable(
+      const TableInfoPB& snapshot_table, const TableId& primary_table_id);
 
   Status LoadTablesFromPB(
       const std::string& tablet_log_prefix,
@@ -254,6 +271,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   // Load existing metadata from disk.
   static Result<RaftGroupMetadataPtr> Load(FsManager* fs_manager, const RaftGroupId& raft_group_id);
+  static Result<RaftGroupMetadataPtr> LoadFromPath(FsManager* fs_manager, const std::string& path);
 
   // Try to load an existing Raft group. If it does not exist, create it.
   // If it already existed, verifies that the schema of the Raft group matches the
@@ -467,7 +485,11 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   void SetRestorationHybridTime(HybridTime value);
   HybridTime restoration_hybrid_time() const;
 
-  Status Flush();
+  // Flushes the superblock to disk.
+  // If only_if_dirty is true, flushes only if there are metadata updates that have been applied but
+  // not flushed to disk. This is checked by comparing last_applied_change_metadata_op_id_ and
+  // last_flushed_change_metadata_op_id_.
+  Status Flush(OnlyIfDirty only_if_dirty = OnlyIfDirty::kFalse);
 
   Status SaveTo(const std::string& path);
 
@@ -512,6 +534,9 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   Status ReadSuperBlockFromDisk(
       RaftGroupReplicaSuperBlockPB* superblock, const std::string& path = std::string()) const;
 
+  static Status ReadSuperBlockFromDisk(
+      Env* env, const std::string& path, RaftGroupReplicaSuperBlockPB* superblock);
+
   // Sets *superblock to the serialized form of the current metadata.
   void ToSuperBlock(RaftGroupReplicaSuperBlockPB* superblock) const;
 
@@ -539,7 +564,11 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     return primary_table_info_unlocked();
   }
 
+  bool IsSysCatalog() const;
+
   bool colocated() const;
+
+  LazySuperblockFlushEnabled IsLazySuperblockFlushEnabled() const;
 
   Result<std::string> TopSnapshotsDir() const;
 
@@ -581,15 +610,22 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   std::unordered_set<StatefulServiceKind> GetHostedServiceList() const;
 
+  Result<std::string> FilePath() const;
+
   const KvStoreInfo& TEST_kv_store() const {
     return kv_store_;
   }
 
-  OpId LastChangeMetadataOperationOpId() const;
+  OpId LastFlushedChangeMetadataOperationOpId() const;
 
-  void SetLastChangeMetadataOperationOpIdUnlocked(const OpId& op_id) REQUIRES(data_mutex_);
+  OpId TEST_LastAppliedChangeMetadataOperationOpId() const;
 
-  void SetLastChangeMetadataOperationOpId(const OpId& op_id);
+  void SetLastAppliedChangeMetadataOperationOpId(const OpId& op_id);
+
+  // Takes OpId of the change metadata operation applied as argument.
+  void OnChangeMetadataOperationApplied(const OpId& applied_opid);
+
+  OpId MinUnflushedChangeMetadataOpId() const;
 
  private:
   typedef simple_spinlock MutexType;
@@ -607,7 +643,7 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
   // Constructor for loading an existing Raft group.
   RaftGroupMetadata(FsManager* fs_manager, const RaftGroupId& raft_group_id);
 
-  Status LoadFromDisk();
+  Status LoadFromDisk(const std::string& path = "");
 
   // Update state of metadata to that of the given superblock PB.
   Status LoadFromSuperBlock(const RaftGroupReplicaSuperBlockPB& superblock,
@@ -630,6 +666,12 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
     CHECK(itr != tables.end());
     return itr->second;
   }
+
+  void ResetMinUnflushedChangeMetadataOpIdUnlocked() REQUIRES(data_mutex_);
+
+  void SetLastAppliedChangeMetadataOperationOpIdUnlocked(const OpId& op_id) REQUIRES(data_mutex_);
+
+  void OnChangeMetadataOperationAppliedUnlocked(const OpId& applied_op_id) REQUIRES(data_mutex_);
 
   enum State {
     kNotLoadedYet,
@@ -699,9 +741,17 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   std::unordered_set<StatefulServiceKind> hosted_services_;
 
-  // OpId of the last change metadata operation. Used to determine if at the time
+  // OpId of the last applied change metadata operation. Used to determine if the in-memory metadata
+  // state is dirty and set last_flushed_change_metadata_op_id_ on flush.
+  OpId last_applied_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
+
+  // OpId of the last flushed change metadata operation. Used to determine if at the time
   // of local tablet bootstrap we should replay a particular change_metadata op.
-  OpId last_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
+  OpId last_flushed_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Invalid();
+
+  // OpId of the earliest applied change metadata operation that has not been flushed to disk. Used
+  // to prevent WAL GC of such operations.
+  OpId min_unflushed_change_metadata_op_id_ GUARDED_BY(data_mutex_) = OpId::Max();
 
   DISALLOW_COPY_AND_ASSIGN(RaftGroupMetadata);
 };

@@ -105,6 +105,13 @@ Status GetUniverseConfig(ClusterAdminClient* client,
   return Status::OK();
 }
 
+Status GetXClusterConfig(ClusterAdminClient* client,
+                         const ClusterAdminCli::CLIArguments&) {
+  RETURN_NOT_OK_PREPEND(client->GetXClusterConfig(), "Unable to get xcluster config");
+  return Status::OK();
+}
+
+
 Status ChangeBlacklist(ClusterAdminClient* client,
                        const ClusterAdminCli::CLIArguments& args, bool blacklist_leader,
                        const std::string& errStr) {
@@ -360,6 +367,40 @@ Result<rapidjson::Document> ListSnapshotRestorations(
   }
   result.AddMember("restorations", json_restorations, result.GetAllocator());
   return result;
+}
+
+Status ImportSnapshot(ClusterAdminClient* client, const ClusterAdminCli::CLIArguments& args,
+    bool selective) {
+  if (args.size() < 1) {
+    return ClusterAdminCli::kInvalidArguments;
+  }
+
+  string filename = args[0];
+  size_t num_tables = 0;
+  TypedNamespaceName keyspace;
+  vector<YBTableName> tables;
+
+  if (args.size() >= 2) {
+    keyspace = VERIFY_RESULT(ParseNamespaceName(args[1]));
+    num_tables = args.size() - 2;
+
+    if (num_tables > 0) {
+      LOG_IF(DFATAL, keyspace.name.empty()) << "Uninitialized keyspace: " << keyspace.name;
+      tables.reserve(num_tables);
+
+      for (size_t i = 0; i < num_tables; ++i) {
+        tables.push_back(YBTableName(keyspace.db_type, keyspace.name, args[2 + i]));
+      }
+    }
+  }
+
+  string msg = num_tables > 0 ?
+    Substitute("Unable to import tables $0 from snapshot meta file $1",
+        yb::ToString(tables), filename) :
+    Substitute("Unable to import snapshot meta file $0", filename);
+
+  RETURN_NOT_OK_PREPEND(client->ImportSnapshotMetaFile(filename, keyspace, tables, selective), msg);
+  return Status::OK();
 }
 
 } // namespace
@@ -1033,6 +1074,10 @@ void ClusterAdminCli::RegisterCommandHandlers(ClusterAdminClient* client) {
       std::bind(&GetUniverseConfig, client, _1));
 
   Register(
+      "get_xcluster_info", "",
+      std::bind(&GetXClusterConfig, client, _1));
+
+  Register(
       "change_blacklist", Format(" <$0|$1> <ip_addr>:<port> [<ip_addr>:<port>]...",
           kBlacklistAdd, kBlacklistRemove),
       std::bind(&ChangeBlacklist, client, _1, false, "Unable to change blacklist"));
@@ -1462,37 +1507,14 @@ void ClusterAdminCli::RegisterCommandHandlers(ClusterAdminClient* client) {
   Register(
       "import_snapshot", " <file_name> [<namespace> <table_name> [<table_name>]...]",
       [client](const CLIArguments& args) -> Status {
-        if (args.size() < 1) {
-          return ClusterAdminCli::kInvalidArguments;
-        }
+        return ImportSnapshot(client, args, false);
+      });
 
-        const string file_name = args[0];
-        TypedNamespaceName keyspace;
-        size_t num_tables = 0;
-        vector<YBTableName> tables;
 
-        if (args.size() >= 2) {
-          keyspace = VERIFY_RESULT(ParseNamespaceName(args[1]));
-          num_tables = args.size() - 2;
-
-          if (num_tables > 0) {
-            LOG_IF(DFATAL, keyspace.name.empty()) << "Uninitialized keyspace: " << keyspace.name;
-            tables.reserve(num_tables);
-
-            for (size_t i = 0; i < num_tables; ++i) {
-              tables.push_back(YBTableName(keyspace.db_type, keyspace.name, args[2 + i]));
-            }
-          }
-        }
-
-        const string msg = num_tables > 0
-                               ? Substitute(
-                                     "Unable to import tables $0 from snapshot meta file $1",
-                                     yb::ToString(tables), file_name)
-                               : Substitute("Unable to import snapshot meta file $0", file_name);
-
-        RETURN_NOT_OK_PREPEND(client->ImportSnapshotMetaFile(file_name, keyspace, tables), msg);
-        return Status::OK();
+  Register(
+      "import_snapshot_selective", " <file_name> [<namespace> <table_name> [<table_name>]...]",
+      [client](const CLIArguments& args) -> Status {
+        return ImportSnapshot(client, args, true);
       });
 
   Register("delete_snapshot", " <snapshot_id>", [client](const CLIArguments& args) -> Status {

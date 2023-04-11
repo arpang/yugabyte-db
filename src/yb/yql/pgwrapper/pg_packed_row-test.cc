@@ -12,25 +12,31 @@
 //
 
 #include "yb/docdb/doc_read_context.h"
+#include "yb/docdb/docdb_debug.h"
 
 #include "yb/integration-tests/packed_row_test_base.h"
 
 #include "yb/master/mini_master.h"
 
 #include "yb/rocksdb/db/db_impl.h"
+#include "yb/rocksdb/sst_dump_tool.h"
 
+#include "yb/tablet/kv_formatter.h"
 #include "yb/tablet/tablet.h"
 #include "yb/tablet/tablet_metadata.h"
 #include "yb/tablet/tablet_peer.h"
 
+#include "yb/util/backoff_waiter.h"
 #include "yb/util/countdown_latch.h"
 #include "yb/util/range.h"
+#include "yb/util/string_util.h"
 #include "yb/util/test_thread_holder.h"
 
 #include "yb/yql/pgwrapper/pg_mini_test_base.h"
 
 using namespace std::literals;
 
+DECLARE_bool(TEST_dcheck_for_missing_schema_packing);
 DECLARE_bool(ysql_enable_packed_row);
 DECLARE_int32(history_cutoff_propagation_interval_ms);
 DECLARE_int32(rocksdb_level0_file_num_compaction_trigger);
@@ -48,6 +54,7 @@ class PgPackedRowTest : public PackedRowTestBase<PgMiniTestBase> {
  protected:
   void TestCompaction(int num_keys, const std::string& expr_suffix);
   void TestColocated(int num_keys, int num_expected_records);
+  void TestSstDump(bool specify_metadata, std::string* output);
 };
 
 TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(Simple)) {
@@ -112,6 +119,12 @@ TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(Update)) {
 
 // Alter 2 tables and performs compactions concurrently. See #13846 for details.
 TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(AlterTable)) {
+  static const auto kExpectedErrors = {
+      "Try again",
+      "Snapshot too old",
+      "Network error"
+  };
+
   FLAGS_timestamp_history_retention_interval_sec = 1 * kTimeMultiplier;
 
   auto conn = ASSERT_RESULT(Connect());
@@ -133,24 +146,24 @@ TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(AlterTable)) {
             LOG(INFO) << table_name << ", added column: " << column_idx;
             columns.push_back(column_idx);
           } else {
-            LOG(INFO) << table_name << ", failed to add column " << column_idx << ": " << status;
             auto msg = status.ToString();
-            ASSERT_TRUE(msg.find("Try again") != std::string::npos ||
-                        msg.find("Snapshot too old") != std::string::npos ||
-                        msg.find("Network error") != std::string::npos) << msg;
+            LOG(INFO) << table_name << ", failed to add column " << column_idx << ": " << msg;
+            ASSERT_TRUE(HasSubstring(msg, kExpectedErrors)) << msg;
           }
           ++column_idx;
         } else {
           size_t idx = RandomUniformInt<size_t>(0, columns.size() - 1);
           auto status = conn.ExecuteFormat(
               "ALTER TABLE $0 DROP COLUMN column_$1", table_name, columns[idx]);
-          if (status.ok() || status.ToString().find("The specified column does not exist")) {
+          if (status.ok() ||
+              status.ToString().find("The specified column does not exist") != std::string::npos) {
             LOG(INFO) << table_name << ", dropped column: " << columns[idx] << ", " << status;
             columns[idx] = columns.back();
             columns.pop_back();
           } else {
-            LOG(INFO) << table_name << ", failed to drop column " << columns[idx] << ": " << status;
-            ASSERT_STR_CONTAINS(status.ToString(), "Try again");
+            auto msg = status.ToString();
+            LOG(INFO) << table_name << ", failed to drop column " << columns[idx] << ": " << msg;
+            ASSERT_TRUE(HasSubstring(msg, kExpectedErrors)) << msg;
           }
         }
       }
@@ -354,7 +367,7 @@ TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(SchemaGC)) {
         int idx = 0;
         for (const auto& p : columns) {
           auto is_null = PQgetisnull(res.get(), row, ++idx);
-          ASSERT_EQ(is_null, key < p.second);
+          ASSERT_EQ(is_null, key < p.second) << ", key: " << key << ", p.second: " << p.second;
           if (is_null) {
             continue;
           }
@@ -642,7 +655,7 @@ TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(AddDropColumn)) {
   for (auto key : Range(kKeys)) {
     LOG(INFO) << "Insert key: " << key;
     auto status = conn.ExecuteFormat("INSERT INTO t VALUES ($0)", key);
-    if (!status.ok()) {
+    if (!(status.ok() || IsRetryable(status))) {
       LOG(INFO) << "Insert failed for " << key << ": " << status;
       // TODO temporary workaround for YSQL issue #8096.
       if (status.ToString().find("Invalid column number") != std::string::npos) {
@@ -684,6 +697,36 @@ TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(Transaction)) {
   ASSERT_OK(conn.CommitTransaction());
 
   ASSERT_OK(cluster_->CompactTablets());
+}
+
+TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(CleanupIntentDocHt)) {
+  // Set retention interval to 0, to repack all recently flushed entries.
+  FLAGS_timestamp_history_retention_interval_sec = 0;
+
+  auto conn = ASSERT_RESULT(Connect());
+
+  ASSERT_OK(conn.Execute("CREATE TABLE t (key INT PRIMARY KEY, value INT) SPLIT INTO 1 TABLETS"));
+  ASSERT_OK(conn.Execute("INSERT INTO t VALUES (1, 2)"));
+
+  ASSERT_OK(conn.StartTransaction(IsolationLevel::SNAPSHOT_ISOLATION));
+  ASSERT_OK(conn.Execute("UPDATE t SET value = 3 WHERE key = 1"));
+  ASSERT_OK(conn.CommitTransaction());
+
+  ASSERT_OK(WaitFor([this] {
+    return CountIntents(cluster_.get()) == 0;
+  }, 10s, "Intents cleanup"));
+
+  ASSERT_OK(cluster_->CompactTablets());
+
+  auto peers = ListTabletPeers(cluster_.get(), ListPeersFilter::kLeaders);
+  for (const auto& peer : peers) {
+    if (!peer->tablet()->TEST_db()) {
+      continue;
+    }
+    auto dump = peer->tablet()->TEST_DocDBDumpStr(tablet::IncludeIntents::kTrue);
+    LOG(INFO) << "Dump: " << dump;
+    ASSERT_EQ(dump.find("intent doc ht"), std::string::npos);
+  }
 }
 
 TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(AppliedSchemaVersion)) {
@@ -731,6 +774,114 @@ TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(UpdateToNull)) {
 
   content = ASSERT_RESULT(conn.FetchAllAsString("SELECT v2 FROM test"));
   ASSERT_EQ(content, "NULL");
+}
+
+class TestKVFormatter : public tablet::KVFormatter {
+ public:
+  std::string Format(
+      const Slice& key, const Slice& value, docdb::StorageDbType type) const override {
+    auto result = tablet::KVFormatter::Format(key, value, type);
+    auto b = result.find("HT{");
+    auto e = result.find("}", b);
+    entries_ += result.substr(0, b + 3);
+    entries_ += result.substr(e);
+    entries_ += '\n';
+    return result;
+  }
+
+  const std::string& entries() const {
+    return entries_;
+  }
+
+ private:
+  mutable std::string entries_;
+};
+
+void PgPackedRowTest::TestSstDump(bool specify_metadata, std::string* output) {
+  auto conn = ASSERT_RESULT(Connect());
+
+  ASSERT_OK(conn.Execute("CREATE TABLE test(v1 INT PRIMARY KEY, v2 TEXT) SPLIT INTO 1 TABLETS"));
+
+  ASSERT_OK(conn.Execute("INSERT INTO test VALUES (1, 'one')"));
+  ASSERT_OK(conn.Execute("INSERT INTO test VALUES (2, 'two')"));
+  ASSERT_OK(conn.Execute("ALTER TABLE test ADD COLUMN v3 TEXT"));
+  ASSERT_OK(conn.Execute("INSERT INTO test VALUES (3, 'three', 'tri')"));
+  ASSERT_OK(conn.Execute("ALTER TABLE test DROP COLUMN v2"));
+  ASSERT_OK(conn.Execute("INSERT INTO test VALUES (4, 'chetyre')"));
+
+  ASSERT_OK(cluster_->FlushTablets());
+
+  std::string fname;
+  std::string metapath;
+  for (const auto& peer : ListTabletPeers(cluster_.get(), ListPeersFilter::kLeaders)) {
+    auto tablet = peer->shared_tablet();
+    if (!tablet || !tablet->TEST_db()) {
+      continue;
+    }
+    for (const auto& file : tablet->TEST_db()->GetLiveFilesMetaData()) {
+      fname = file.BaseFilePath();
+      metapath = ASSERT_RESULT(tablet->metadata()->FilePath());
+      LOG(INFO) << "File: " << fname << ", metapath: " << metapath;
+    }
+  }
+
+  ASSERT_FALSE(fname.empty());
+
+  std::vector<std::string> args = {
+    "./sst_dump",
+    Format("--file=$0", fname),
+    "--output_format=decoded_regulardb",
+    "--command=scan",
+  };
+
+  if (specify_metadata) {
+    args.push_back(Format("--formatter_tablet_metadata=$0", metapath));
+  }
+
+  std::vector<char*> usage;
+  for (auto& arg : args) {
+    usage.push_back(arg.data());
+  }
+
+  TestKVFormatter formatter;
+  rocksdb::SSTDumpTool tool(&formatter);
+  ASSERT_FALSE(tool.Run(narrow_cast<int>(usage.size()), usage.data()));
+
+  *output = formatter.entries();
+}
+
+TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(SstDump)) {
+  std::string output;
+  ASSERT_NO_FATALS(TestSstDump(true, &output));
+
+  constexpr auto kV1 = kFirstColumnIdRep + 1;
+  constexpr auto kV2 = kV1 + 1;
+
+  ASSERT_STR_EQ_VERBOSE_TRIMMED(util::ApplyEagerLineContinuation(
+      Format(R"#(
+          SubDocKey(DocKey(0x1210, [1], []), [HT{}]) -> { $0: "one" }
+          SubDocKey(DocKey(0x9eaf, [4], []), [HT{}]) -> { $1: "chetyre" }
+          SubDocKey(DocKey(0xc0c4, [2], []), [HT{}]) -> { $0: "two" }
+          SubDocKey(DocKey(0xfca0, [3], []), [HT{}]) -> { $0: "three" $1: "tri" }
+      )#", kV1, kV2)),
+      output);
+}
+
+TEST_F(PgPackedRowTest, YB_DISABLE_TEST_IN_TSAN(SstDumpNoMetadata)) {
+  FLAGS_TEST_dcheck_for_missing_schema_packing = false;
+
+  std::string output;
+  ASSERT_NO_FATALS(TestSstDump(false, &output));
+
+  ASSERT_STR_EQ_VERBOSE_TRIMMED(util::ApplyEagerLineContinuation(
+      R"#(
+          SubDocKey(DocKey(0x1210, [1], []), [HT{}]) -> PACKED_ROW[0](04000000536F6E65)
+          SubDocKey(DocKey(0x9eaf, [4], []), [HT{}]) -> PACKED_ROW[2](080000005363686574797265)
+          SubDocKey(DocKey(0xc0c4, [2], []), [HT{}]) -> PACKED_ROW[0](040000005374776F)
+          SubDocKey(DocKey(0xfca0, [3], []), [HT{}]) -> \
+              PACKED_ROW[1](060000000A00000053746872656553747269)
+      )#"),
+      output);
 }
 
 } // namespace pgwrapper

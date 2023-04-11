@@ -22,8 +22,25 @@ YB_DEFINE_ENUM(Direction, (kForward)(kBackward));
 
 struct FetchKeyResult {
   Slice key;
-  DocHybridTime write_time;
+  EncodedDocHybridTime write_time;
   bool same_transaction;
+};
+
+struct EncodedReadHybridTime {
+  EncodedDocHybridTime read;
+  EncodedDocHybridTime local_limit;
+  EncodedDocHybridTime global_limit;
+  EncodedDocHybridTime in_txn_limit;
+  bool local_limit_gt_read;
+
+  explicit EncodedReadHybridTime(const ReadHybridTime& read_time);
+
+  // The encoded hybrid time to use to filter records in regular RocksDB. This is the maximum of
+  // read_time and local_limit (in terms of hybrid time comparison), and this slice points to
+  // one of the strings above.
+  Slice regular_limit() const {
+    return local_limit_gt_read ? local_limit.AsSlice() : read.AsSlice();
+  }
 };
 
 // Interface for IntentAwareIterator, this interface only includes methods which
@@ -59,13 +76,15 @@ class IntentAwareIteratorIf {
   virtual void PrevDocKey(const Slice& encoded_doc_key) = 0;
 
   virtual const ReadHybridTime& read_time() const = 0;
-  virtual HybridTime max_seen_ht() const = 0;
+  virtual Result<HybridTime> RestartReadHt() const = 0;
 
   // Fetches currently pointed key and also updates max_seen_ht to ht of this key. The key does not
   // contain the DocHybridTime but is returned separately and optionally.
   virtual Result<FetchKeyResult> FetchKey() = 0;
 
-  virtual bool valid() = 0;
+  // Returns whether we out of records (reached end of data or upper bound).
+  // Returns false in case of error, caller will get specific error on subsequent FetchKey call.
+  virtual bool IsOutOfRecords() = 0;
   virtual Slice value() = 0;
 
   virtual void SetUpperbound(const Slice& upperbound) = 0;

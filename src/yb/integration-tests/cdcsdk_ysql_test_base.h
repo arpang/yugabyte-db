@@ -934,6 +934,42 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
     return tablets;
   }
 
+  Result<GetChangesResponsePB> UpdateSnapshotDone(
+      const CDCStreamId& stream_id,
+      const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
+      const GetChangesResponsePB* change_resp,
+      const TableId table_id = "") {
+    GetChangesRequestPB change_req2;
+    GetChangesResponsePB change_resp2;
+    PrepareChangeRequest(
+        &change_req2, stream_id, tablets, 0, change_resp->cdc_sdk_checkpoint().index(),
+        change_resp->cdc_sdk_checkpoint().term(), kCDCSDKSnapshotDoneKey, 0, 0, table_id);
+    RpcController get_changes_rpc;
+    RETURN_NOT_OK(cdc_proxy_->GetChanges(change_req2, &change_resp2, &get_changes_rpc));
+    if (change_resp2.has_error()) {
+      return StatusFromPB(change_resp2.error().status());
+    }
+
+    return change_resp2;
+  }
+
+  Result<GetChangesResponsePB> UpdateSnapshotDone(
+      const CDCStreamId& stream_id,
+      const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
+      const TableId table_id = "") {
+    GetChangesRequestPB change_req2;
+    GetChangesResponsePB change_resp2;
+    PrepareChangeRequest(
+        &change_req2, stream_id, tablets, 0, -1, -1, kCDCSDKSnapshotDoneKey, 0, 0, table_id);
+    RpcController get_changes_rpc;
+    RETURN_NOT_OK(cdc_proxy_->GetChanges(change_req2, &change_resp2, &get_changes_rpc));
+    if (change_resp2.has_error()) {
+      return StatusFromPB(change_resp2.error().status());
+    }
+
+    return change_resp2;
+  }
+
   Result<GetChangesResponsePB> UpdateCheckpoint(
       const CDCStreamId& stream_id,
       const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
@@ -978,7 +1014,8 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
       GetChangesRequestPB* change_req, const CDCStreamId& stream_id,
       const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
       const int tablet_idx = 0, int64 index = 0, int64 term = 0, std::string key = "",
-      int32_t write_id = 0, int64 snapshot_time = 0, const TableId table_id = "") {
+      int32_t write_id = 0, int64 snapshot_time = 0, const TableId table_id = "",
+      int64 safe_hybrid_time = -1) {
     change_req->set_stream_id(stream_id);
     change_req->set_tablet_id(tablets.Get(tablet_idx).tablet_id());
     change_req->mutable_from_cdc_sdk_checkpoint()->set_index(index);
@@ -989,6 +1026,7 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
     if (!table_id.empty()) {
       change_req->set_table_id(table_id);
     }
+    change_req->set_safe_hybrid_time(safe_hybrid_time);
   }
 
   void PrepareChangeRequest(
@@ -1007,13 +1045,18 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
   void PrepareChangeRequest(
       GetChangesRequestPB* change_req, const CDCStreamId& stream_id,
       const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
-      const CDCSDKCheckpointPB& cp, const int tablet_idx = 0) {
+      const CDCSDKCheckpointPB& cp, const int tablet_idx = 0, const TableId table_id = "",
+      int64 safe_hybrid_time = -1) {
     change_req->set_stream_id(stream_id);
     change_req->set_tablet_id(tablets.Get(tablet_idx).tablet_id());
     change_req->mutable_from_cdc_sdk_checkpoint()->set_term(cp.term());
     change_req->mutable_from_cdc_sdk_checkpoint()->set_index(cp.index());
     change_req->mutable_from_cdc_sdk_checkpoint()->set_key(cp.key());
     change_req->mutable_from_cdc_sdk_checkpoint()->set_write_id(cp.write_id());
+    if (!table_id.empty()) {
+      change_req->set_table_id(table_id);
+    }
+    change_req->set_safe_hybrid_time(safe_hybrid_time);
   }
 
   void PrepareChangeRequest(
@@ -1091,22 +1134,6 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
     return st;
   }
 
-  Result<GetCheckpointForColocatedTableResponsePB> GetCheckpointForColocatedTable(
-      const CDCStreamId& stream_id, const TabletId& tablet_id) {
-    RpcController get_checkpoint_for_colocated_table_rpc;
-    GetCheckpointForColocatedTableRequestPB req;
-    GetCheckpointForColocatedTableResponsePB resp;
-    auto deadline = CoarseMonoClock::now() + test_client()->default_rpc_timeout();
-    get_checkpoint_for_colocated_table_rpc.set_deadline(deadline);
-
-    req.set_stream_id(stream_id);
-    req.set_tablet_id(tablet_id);
-    RETURN_NOT_OK(cdc_proxy_->GetCheckpointForColocatedTable(
-        req, &resp, &get_checkpoint_for_colocated_table_rpc));
-
-    return resp;
-  }
-
   Result<std::vector<OpId>> GetCDCCheckpoint(
       const CDCStreamId& stream_id,
       const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets) {
@@ -1128,14 +1155,18 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
   }
 
   Result<GetCheckpointResponsePB> GetCDCSnapshotCheckpoint(
-      const CDCStreamId& stream_id, const TabletId& tablet_id) {
+      const CDCStreamId& stream_id, const TabletId& tablet_id, const TableId& table_id = "") {
     RpcController get_checkpoint_rpc;
     GetCheckpointRequestPB get_checkpoint_req;
     GetCheckpointResponsePB get_checkpoint_resp;
     auto deadline = CoarseMonoClock::now() + test_client()->default_rpc_timeout();
     get_checkpoint_rpc.set_deadline(deadline);
-
     get_checkpoint_req.set_stream_id(stream_id);
+
+    if (!table_id.empty()) {
+      get_checkpoint_req.set_table_id(table_id);
+    }
+
     get_checkpoint_req.set_tablet_id(tablet_id);
     RETURN_NOT_OK(
         cdc_proxy_->GetCheckpoint(get_checkpoint_req, &get_checkpoint_resp, &get_checkpoint_rpc));
@@ -1426,14 +1457,16 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
       const CDCStreamId& stream_id,
       const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
       const CDCSDKCheckpointPB* cp = nullptr,
-      int tablet_idx = 0) {
+      int tablet_idx = 0,
+      int64 safe_hybrid_time = -1) {
     GetChangesRequestPB change_req;
     GetChangesResponsePB change_resp;
 
     if (cp == nullptr) {
-      PrepareChangeRequest(&change_req, stream_id, tablets, tablet_idx);
+      PrepareChangeRequest(
+          &change_req, stream_id, tablets, tablet_idx, 0, 0, "", 0, 0, "", safe_hybrid_time);
     } else {
-      PrepareChangeRequest(&change_req, stream_id, tablets, *cp, tablet_idx);
+      PrepareChangeRequest(&change_req, stream_id, tablets, *cp, tablet_idx, "", safe_hybrid_time);
     }
 
     // Retry only on LeaderNotReadyToServe errors
@@ -1548,10 +1581,11 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
 
   Result<GetChangesResponsePB> GetChangesFromCDCSnapshot(
       const CDCStreamId& stream_id,
-      const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets) {
+      const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
+      const TableId& colocated_table_id = "") {
     GetChangesRequestPB change_req;
     GetChangesResponsePB change_resp;
-    PrepareChangeRequest(&change_req, stream_id, tablets, 0, 0, 0, "", -1);
+    PrepareChangeRequest(&change_req, stream_id, tablets, 0, 0, 0, "", -1, 0, colocated_table_id);
     RpcController get_changes_rpc;
     RETURN_NOT_OK(cdc_proxy_->GetChanges(change_req, &change_resp, &get_changes_rpc));
 
@@ -1863,7 +1897,7 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
       std::unique_ptr<rocksdb::Iterator> iter(db->NewIterator(read_opts));
       std::unordered_map<std::string, std::string> keys;
 
-      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      for (iter->SeekToFirst(); EXPECT_RESULT(iter->CheckedValid()); iter->Next()) {
         Slice key = iter->key();
         EXPECT_OK(DocHybridTime::DecodeFromEnd(&key));
         LOG(INFO) << "key: " << iter->key().ToDebugString()
@@ -2037,6 +2071,38 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
     }
 
     return std::make_pair(snapshot_time, snapshot_key);
+  }
+
+  Result<int64_t> GetSafeHybridTimeFromCdcStateTable(
+      const CDCStreamId& stream_id, const TabletId& tablet_id, client::YBClient* client) {
+    auto session = client->NewSession();
+    client::TableHandle table;
+    const client::YBTableName cdc_state_table(
+        YQL_DATABASE_CQL, master::kSystemNamespaceName, master::kCdcStateTableName);
+    RETURN_NOT_OK(table.Open(cdc_state_table, client));
+
+    auto read_op = table.NewReadOp();
+    auto* read_req = read_op->mutable_request();
+    QLAddStringHashValue(read_req, tablet_id);
+    auto cond = read_req->mutable_where_expr()->mutable_condition();
+    cond->set_op(QLOperator::QL_OP_AND);
+    QLAddStringCondition(
+        cond, Schema::first_column_id() + master::kCdcStreamIdIdx, QL_OP_EQUAL, stream_id);
+    table.AddColumns({master::kCdcData}, read_req);
+    // TODO(async_flush): https://github.com/yugabyte/yugabyte-db/issues/12173
+    RETURN_NOT_OK(session->TEST_ReadSync(read_op));
+
+    auto row_block = ql::RowsResult(read_op.get()).GetRowBlock();
+    if (row_block->row_count() != 1) {
+      return STATUS(
+          InvalidArgument, "Did not find a row in the cdc_state table for the tablet and stream.");
+    }
+
+    const auto& safe_hybrid_time_string =
+        row_block->row(0).column(0).map_value().values().Get(1).string_value();
+
+    auto safe_hybrid_time = VERIFY_RESULT(CheckedStoInt<int64_t>(safe_hybrid_time_string));
+    return safe_hybrid_time;
   }
 
   void ValidateColumnCounts(const GetChangesResponsePB& resp, uint32_t excepted_column_counts) {
@@ -2294,6 +2360,7 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
   }
 
   void CDCSDKDropColumnsWithRestartTServer(bool packed_row) {
+    FLAGS_enable_load_balancing = false;
     const int num_tservers = 3;
     ASSERT_OK(SET_FLAG(ysql_enable_packed_row, packed_row));
     ASSERT_OK(SetUpWithParams(num_tservers, 1, false));
@@ -3057,6 +3124,18 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
         }
       }
     }
+  }
+
+  TableId GetColocatedTableId(const std::string& req_table_name) {
+    for (const auto& peer : test_cluster()->GetTabletPeers(0)) {
+      for (const auto& table_id : peer->tablet_metadata()->GetAllColocatedTables()) {
+        auto table_name = peer->tablet_metadata()->table_name(table_id);
+        if (table_name == req_table_name) {
+          return table_id;
+        }
+      }
+    }
+    return "";
   }
 };
 

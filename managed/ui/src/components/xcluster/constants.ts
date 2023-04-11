@@ -35,7 +35,8 @@ export const XClusterTableStatus = {
   ERROR: 'Error',
   UPDATING: 'Updating',
   VALIDATED: 'Validated',
-  BOOTSTRAPPING: 'Bootstrapping'
+  BOOTSTRAPPING: 'Bootstrapping',
+  UNABLE_TO_FETCH: 'UnableToFetch'
 } as const;
 export type XClusterTableStatus = typeof XClusterTableStatus[keyof typeof XClusterTableStatus];
 //------------------------------------------------------------------------------------
@@ -53,6 +54,12 @@ export const XClusterConfigAction = {
   EDIT: 'edit'
 } as const;
 export type XClusterConfigAction = typeof XClusterConfigAction[keyof typeof XClusterConfigAction];
+
+export const XClusterConfigType = {
+  BASIC: 'Basic',
+  TXN: 'Txn',
+} as const;
+export type XClusterConfigType = typeof XClusterConfigType[keyof typeof XClusterConfigType];
 
 //------------------------------------------------------------------------------------
 // Table Selection Constants

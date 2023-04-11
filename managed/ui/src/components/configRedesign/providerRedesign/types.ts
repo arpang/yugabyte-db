@@ -4,7 +4,13 @@
  * You may not use this file except in compliance with the License. You may obtain a copy of the License at
  * http://github.com/YugaByte/yugabyte-db/blob/master/licenses/POLYFORM-FREE-TRIAL-LICENSE-1.0.0.txt
  */
-import { ArchitectureType, ProviderCode } from './constants';
+import {
+  ArchitectureType,
+  KeyPairManagement,
+  KubernetesProvider,
+  ProviderCode,
+  VPCSetupType
+} from './constants';
 
 // ---------------------------------------------------------------------------
 // Each data type is exported as <typeName>Mutation and <typeName>.
@@ -87,6 +93,7 @@ interface ProviderBase {
 }
 interface ProviderMutationBase extends ProviderBase {
   allAccessKeys?: AccessKeyMutation[];
+  version?: number; // Only used for edit provider operations
 }
 interface Provider extends ProviderBase {
   active: boolean;
@@ -165,6 +172,7 @@ interface IdKey {
 }
 interface KeyInfo {
   keyPairName: string;
+  managementState: KeyPairManagement;
   publicKey: string;
   privateKey: string;
   sshPrivateKeyContent: string;
@@ -213,6 +221,7 @@ interface AWSCloudInfo extends AWSCloudInfoBase {
   awsAccessKeyID: string;
   awsAccessKeySecret: string;
   awsHostedZoneName: string;
+  vpcType: Exclude<VPCSetupType, typeof VPCSetupType.HOST_INSTANCE>;
 }
 
 interface AZUCloudInfoBase {
@@ -224,7 +233,9 @@ interface AZUCloudInfoBase {
   azuTenantId: string;
 }
 type AZUCloudInfoMutation = AZUCloudInfoBase;
-type AZUCloudInfo = AZUCloudInfoBase;
+interface AZUCloudInfo extends AZUCloudInfoBase {
+  vpcType: Exclude<VPCSetupType, typeof VPCSetupType.HOST_INSTANCE>;
+}
 
 interface GCPCloudInfoBase {
   useHostCredentials: boolean;
@@ -238,25 +249,28 @@ interface GCPCloudInfoMutation extends GCPCloudInfoBase {
   gceApplicationCredentials?: {};
 }
 interface GCPCloudInfo extends GCPCloudInfoBase {
-  gceApplicationCredentialsPath?: string;
+  gceApplicationCredentials: GCPServiceAccount;
+  gceApplicationCredentialsPath: string;
+  vpcType: Exclude<VPCSetupType, typeof VPCSetupType.HOST_INSTANCE>;
 }
 
 interface K8sCloudInfoBase {
-  kubeConfigName: string;
   kubernetesImageRegistry: string;
   kubernetesProvider: string;
-  kubernetesPullSecretName: string;
-  kubernetesServiceAccount: string;
 
+  kubeConfigName?: string;
+  kubernetesPullSecretName?: string;
+  kubernetesServiceAccount?: string;
   kubernetesImagePullSecretName?: string;
-  kubernetesStorageClasses?: string;
+  kubernetesStorageClass?: string;
 }
 interface K8sCloudInfoMutation extends K8sCloudInfoBase {
-  kubernetesPullSecretContent: string;
+  kubernetesPullSecretContent?: string;
 
-  kubeConfigContent: string; // Kube Config can be specified at the Provider, Region and Zone level
+  kubeConfigContent?: string; // Kube Config can be specified at the Provider, Region and Zone level
 }
 interface K8sCloudInfo extends K8sCloudInfoBase {
+  kubernetesProvider: KubernetesProvider;
   kubernetesPullSecret: string; // filepath
 
   kubeConfig?: string; // filepath
@@ -354,7 +368,9 @@ export interface GCPRegion extends Region {
 
 export interface K8sRegionMutation extends RegionMutation {
   name: string; // This is required because the `name` field is not derived on the backend before inserting into the db
-  details: { cloudInfo: { [ProviderCode.KUBERNETES]: K8sRegionCloudInfoMutation } };
+  latitude: number;
+  longitude: number;
+  details?: { cloudInfo: { [ProviderCode.KUBERNETES]: K8sRegionCloudInfoMutation } };
   zones: K8sAvailabilityZoneMutation[];
 }
 export interface K8sRegion extends Region {
@@ -420,7 +436,7 @@ interface K8sRegionCloudInfoMutation
   extends Partial<K8sCloudInfoMutation>,
     K8sRegionCloudInfoBase {}
 // TODO: Check whether the following fields are guaranteed from GET API.
-interface K8sRegionCloudInfo extends K8sCloudInfo, K8sRegionCloudInfoBase {
+export interface K8sRegionCloudInfo extends K8sCloudInfo, K8sRegionCloudInfoBase {
   kubeDomain: string;
   kubeNamespace: string;
   kubePodAddressTemplate: string;
@@ -494,6 +510,19 @@ export interface K8sPullSecretFile {
     '.dockerconfigjson': string;
   };
   type: string;
+}
+
+export interface GCPServiceAccount {
+  type: string;
+  project_id: string;
+  private_key_id: string;
+  private_key: string;
+  client_email: string;
+  client_id: string;
+  auth_uri: string;
+  token_uri: string;
+  auth_provider_x509_cert_url: string;
+  client_x509_cert_url: string;
 }
 
 // ---------------------------------------------------------------------------

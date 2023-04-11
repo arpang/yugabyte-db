@@ -9,11 +9,10 @@
  */
 package com.yugabyte.yw.common;
 
-import static play.test.Helpers.contextComponents;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yugabyte.yw.controllers.RequestContext;
+import com.google.protobuf.ByteString;
 import com.yugabyte.yw.controllers.TokenAuthenticator;
 import com.yugabyte.yw.models.Users;
 import com.yugabyte.yw.models.extended.UserWithFeatures;
@@ -21,9 +20,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import org.apache.commons.io.IOUtils;
+import org.yb.VersionInfo;
+import org.yb.WireProtocol;
+import org.yb.client.GetStatusResponse;
+import org.yb.server.ServerBase;
 import play.libs.Json;
-import play.mvc.Http;
-import play.mvc.Http.Context;
 
 public class TestUtils {
   public static String readResource(String path) {
@@ -60,11 +61,29 @@ public class TestUtils {
 
   public static void setFakeHttpContext(Users user, String email) {
     if (user != null) {
-      user.email = email;
+      user.setEmail(email);
     }
     RequestContext.put(TokenAuthenticator.USER, new UserWithFeatures().setUser(user));
-    Http.Request request = new Http.RequestBuilder().build();
-    Context currentContext = new Context(request, contextComponents());
-    Context.current.set(currentContext);
+  }
+
+  public static GetStatusResponse prepareGetStatusResponse(
+      String versionNumber, String buildNumber) {
+    return new GetStatusResponse(
+        0,
+        "uuid",
+        ServerBase.GetStatusResponsePB.newBuilder()
+            .setStatus(
+                ServerBase.ServerStatusPB.newBuilder()
+                    .setNodeInstance(
+                        WireProtocol.NodeInstancePB.newBuilder()
+                            .setInstanceSeqno(1)
+                            .setPermanentUuid(ByteString.copyFromUtf8("ab")))
+                    .setVersionInfo(
+                        VersionInfo.VersionInfoPB.newBuilder()
+                            .setVersionNumber(versionNumber)
+                            .setBuildNumber(buildNumber)
+                            .build())
+                    .build())
+            .build());
   }
 }

@@ -23,8 +23,8 @@ const initialStateFeatureInTest = {
   enableRunTimeConfig: true,
   enablePITR: true,
   enableNotificationTemplates: false,
-  enableRestore: false,
-  enablePrefillKubeConfig: false,
+  enableRestore: true,
+  enablePrefillKubeConfig: true,
   enableNewUI: true, // feature flag to enable new revamped UI,
   enableCustomEmailTemplates: false,
   enableAWSProviderValidation: false,
@@ -54,8 +54,8 @@ const initialStateFeatureReleased = {
   enableRunTimeConfig: true,
   enablePITR: true,
   enableNotificationTemplates: false,
-  enableRestore: false,
-  enablePrefillKubeConfig: false,
+  enableRestore: true,
+  enablePrefillKubeConfig: true,
   enableCustomEmailTemplates: false
 };
 

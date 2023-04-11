@@ -1022,7 +1022,7 @@ run_postproces_test_result_script() {
     )
   fi
   (
-    export PYTHONPATH=${YB_SRC_ROOT}/python
+    set_pythonpath
     "$VIRTUAL_ENV/bin/python" "${YB_SRC_ROOT}/python/yb/postprocess_test_result.py" \
       "${args[@]}" "$@"
   )
@@ -1703,13 +1703,23 @@ run_java_test() {
   process_tree_supervisor_append_log_to_on_error=$test_log_path
   stop_process_tree_supervisor
 
-  if ! "$process_supervisor_success"; then
-    log "Process tree supervisor script reported an error, marking the test as failed in" \
-        "$junit_xml_path"
-    "$YB_SRC_ROOT"/build-support/update_test_result_xml.py \
-      --result-xml "$junit_xml_path" \
-      --mark-as-failed true \
-      --extra-message "Process supervisor script reported errors (e.g. unterminated processes)."
+  if [[ ${process_supervisor_success} == "false" ]]; then
+    if grep -Eq 'CentOS Linux release 7[.]' /etc/centos-release &&
+       ! python3 -c 'import psutil' &>/dev/null
+    then
+      log "Process tree supervisor script reported an error, but this is CentOS 7 and " \
+          "the psutil module is not available in the VM image that we are using. Ignoring " \
+          "the process supervisor for now. We will revert this temporary workaround after the " \
+          "CentOS 7 image is updated. JUnit XML path: $junit_xml_path"
+      process_supervisor_success=true
+    else
+      log "Process tree supervisor script reported an error, marking the test as failed in" \
+          "$junit_xml_path"
+      "$YB_SRC_ROOT"/build-support/update_test_result_xml.py \
+        --result-xml "$junit_xml_path" \
+        --mark-as-failed true \
+        --extra-message "Process supervisor script reported errors (e.g. unterminated processes)."
+    fi
   fi
 
   if is_jenkins ||
@@ -1752,7 +1762,8 @@ run_java_test() {
   fi
 
   declare -i java_test_exit_code=$mvn_exit_code
-  if [[ $java_test_exit_code -eq 0 ]] && ! "$process_supervisor_success"; then
+  if [[ $java_test_exit_code -eq 0 &&
+        ${process_supervisor_success} == "false" ]]; then
     java_test_exit_code=1
   fi
 
@@ -1864,16 +1875,14 @@ run_all_java_test_methods_separately() {
 }
 
 run_python_doctest() {
-  python_root=$YB_SRC_ROOT/python
-  local PYTHONPATH
-  export PYTHONPATH=$python_root
+  set_pythonpath
 
   local IFS=$'\n'
   local file_list
   file_list=$( cd "$YB_SRC_ROOT" && git ls-files '*.py' )
 
   local python_file
-  for python_file in $file_list; do
+  for python_file in ${file_list}; do
     local basename=${python_file##*/}
     if [[ $python_file == managed/* ||
           $python_file == cloud/* ||

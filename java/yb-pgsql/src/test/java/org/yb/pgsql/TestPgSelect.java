@@ -346,15 +346,19 @@ public class TestPgSelect extends BasePgSQLTest {
     try (Statement statement = connection.createStatement()) {
       createSimpleTable("aggtest");
 
-      // Pushdown COUNT/MAX/MIN/SUM for INTEGER/FLOAT.
+      // Pushdown COUNT/MAX/MIN/SUM/AVG for INTEGER.
       verifyStatementPushdownMetric(
-          statement, "SELECT COUNT(vi), MAX(vi), MIN(vi), SUM(vi) FROM aggtest", true);
+          statement, "SELECT COUNT(vi), MAX(vi), MIN(vi), SUM(vi), AVG(vi) FROM aggtest", true);
+      // Pushdown COUNT/MAX/MIN/SUM for FLOAT.
       verifyStatementPushdownMetric(
           statement, "SELECT COUNT(r), MAX(r), MIN(r), SUM(r) FROM aggtest", true);
-
-      // Don't pushdown if non-supported aggregate is provided (e.g. AVG, at least for now).
+      // Don't pushdown AVG for FLOAT.
       verifyStatementPushdownMetric(
-          statement, "SELECT COUNT(vi), AVG(vi) FROM aggtest", false);
+          statement, "SELECT AVG(r) FROM aggtest", false);
+
+      // Don't pushdown if non-supported aggregate is provided (e.g. BIT_AND, at least for now).
+      verifyStatementPushdownMetric(
+          statement, "SELECT COUNT(vi), BIT_AND(vi) FROM aggtest", false);
 
       // Pushdown COUNT(*).
       verifyStatementPushdownMetric(
@@ -377,6 +381,10 @@ public class TestPgSelect extends BasePgSQLTest {
       // Don't pushdown for BIGINT SUM.
       verifyStatementPushdownMetric(
           statement, "SELECT SUM(h) FROM aggtest", false);
+
+      // Don't pushdown for BIGINT AVG.
+      verifyStatementPushdownMetric(
+          statement, "SELECT AVG(h) FROM aggtest", false);
 
       // Pushdown COUNT/MIN/MAX for text.
       verifyStatementPushdownMetric(
@@ -405,9 +413,9 @@ public class TestPgSelect extends BasePgSQLTest {
       verifyStatementPushdownMetric(
           statement, "SELECT COUNT(n), COUNT(d) FROM aggtest2", true);
 
-      // Don't pushdown SUM/MAX/MIN for NUMERIC/DECIMAL types.
+      // Don't pushdown SUM/MAX/MIN/AVG for NUMERIC/DECIMAL types.
       for (String col : Arrays.asList("n", "d")) {
-        for (String agg : Arrays.asList("SUM", "MAX", "MIN")) {
+        for (String agg : Arrays.asList("SUM", "MAX", "MIN", "AVG")) {
           verifyStatementPushdownMetric(
               statement, "SELECT " + agg + "(" + col + ") FROM aggtest2", false);
         }
@@ -817,7 +825,10 @@ public class TestPgSelect extends BasePgSQLTest {
         // Seek(SubDocKey(DocKey(0x1210, [1], [1, 0, 6]), []))
         // ...
         // Seek(SubDocKey(DocKey(0x1210, [1], [9, 9, 6]), []))
-        assertEquals(101, metrics.seekCount);
+
+        // Actual number of seeks could be lower because there is Next instead of Seek optimisation
+        // in DocDB (see SeekPossiblyUsingNext).
+        assertLessThanOrEqualTo(metrics.seekCount, 101);
 
         // Select where hash code is specified, one range constraint
         // and one option constraint on two separate columns.
@@ -850,7 +861,9 @@ public class TestPgSelect extends BasePgSQLTest {
         // ...
         // Seek(SubDocKey(DocKey(0x1210, [1], [1, 9, 2]), []))
         // Seek(SubDocKey(DocKey(0x1210, [1], [1, 9, kHighest]), []))
-        assertEquals(81, metrics.seekCount);
+        // Actual number of seeks could be lower because there is Next instead of Seek optimisation
+        // in DocDB (see SeekPossiblyUsingNext).
+        assertLessThanOrEqualTo(metrics.seekCount, 81);
 
         // Select where all keys have some sort of discrete constraint
         // on them
@@ -891,7 +904,9 @@ public class TestPgSelect extends BasePgSQLTest {
         // Seek(SubDocKey(DocKey(0x1210, [1], [2, 3, 8]), []))
         // Seek(SubDocKey(DocKey(0x1210, [1], [2, 3, 7]), []))
         // Seek(SubDocKey(DocKey(0x1210, [1], [2, 3, 2]), []))
-        assertEquals(16, metrics.seekCount);
+        // Actual number of seeks could be lower because there is Next instead of Seek optimisation
+        // in DocDB (see SeekPossiblyUsingNext).
+        assertLessThanOrEqualTo(metrics.seekCount, 16);
 
 
         // Select where two out of three columns have discrete constraints
@@ -932,7 +947,9 @@ public class TestPgSelect extends BasePgSQLTest {
         // Seek(SubDocKey(DocKey(0x1210, [1], [1, 2, 25]), []))
         // ...
         // Seek(SubDocKey(DocKey(0x1210, [1], [9, kHighest]), []))
-        assertEquals(91, metrics.seekCount);
+        // Actual number of seeks could be lower because there is Next instead of Seek optimisation
+        // in DocDB (see SeekPossiblyUsingNext).
+        assertLessThanOrEqualTo(metrics.seekCount, 91);
 
         // Select where we have options for the hash code and discrete
         // filters on two out of three range columns
@@ -955,7 +972,7 @@ public class TestPgSelect extends BasePgSQLTest {
         // SELECT * FROM sample_table WHERE h = 1 AND r2 IN (2,3)
         // AND r3 IN (2, 25, 8, 7, 23, 18)
         // We have 91 * 2 = 182 seeks
-        assertEquals(182, metrics.seekCount);
+        assertLessThanOrEqualTo(metrics.seekCount, 182);
     }
   }
 
@@ -978,14 +995,13 @@ public class TestPgSelect extends BasePgSQLTest {
       expectedRows.add(new Row(1));
       expectedRows.add(new Row(2));
       expectedRows.add(new Row(3));
-      query = "SELECT DISTINCT r1 FROM t WHERE r1 <= 3";
+      query = "/*+Set(enable_hashagg false)*/ SELECT DISTINCT r1 FROM t WHERE r1 <= 3";
       assertRowSet(statement, query, expectedRows);
 
       // With DISTINCT pushed down to DocDB, we only to scan three keys:
       // 1. From kLowest, seek to 1.
       // 2. From 1, seek to 2.
       // 3. From 2, seek to 3.
-      // The constraint r1 <= 3 implies we are done after the third seek.
       RocksDBMetrics metrics = assertFullDocDBFilter(statement, query, "t");
       assertEquals(3, metrics.seekCount);
     }
@@ -1018,7 +1034,7 @@ public class TestPgSelect extends BasePgSQLTest {
       expectedRows.add(new Row(3, 1));
       expectedRows.add(new Row(3, 2));
       expectedRows.add(new Row(3, 3));
-      query = "SELECT DISTINCT r1, r2 FROM t WHERE r1 <= 3";
+      query = "/*+Set(enable_hashagg false)*/ SELECT DISTINCT r1, r2 FROM t WHERE r1 <= 3";
       assertRowSet(statement, query, expectedRows);
 
       // We need to do 6 seeks here:
@@ -1056,11 +1072,40 @@ public class TestPgSelect extends BasePgSQLTest {
       expectedRows.add(new Row(1, 1));
       expectedRows.add(new Row(2, 2));
       expectedRows.add(new Row(3, 3));
-      query = "SELECT DISTINCT r1, r3 FROM t WHERE r3 <= 3";
+      query = "/*+Set(enable_hashagg false)*/ SELECT DISTINCT r1, r3 FROM t WHERE r3 <= 3";
       assertRowSet(statement, query, expectedRows);
 
       RocksDBMetrics metrics = assertFullDocDBFilter(statement, query, "t");
-      assertEquals(1, metrics.seekCount);
+      assertEquals(4, metrics.seekCount);
+    }
+  }
+
+  @Test
+  public void testIndexDistinctScanWithNonConsecutiveColumns() throws Exception {
+    String query = "CREATE TABLE t(r1 INT, r2 INT, r3 INT, r4 INT, r5 INT," +
+                    " PRIMARY KEY(r1 ASC, r3 ASC, r5 ASC))";
+
+    try (Statement statement = connection.createStatement()) {
+      statement.execute(query);
+
+      query = "INSERT INTO t (SELECT 1, i, i, i, i FROM GENERATE_SERIES(1, 100) AS i)";
+      statement.execute(query);
+
+      query = "INSERT INTO t (SELECT 2, i, i, i, i FROM GENERATE_SERIES(1, 100) AS i)";
+      statement.execute(query);
+
+      query = "INSERT INTO t (SELECT 3, i, i, i, i FROM GENERATE_SERIES(1, 100) AS i)";
+      statement.execute(query);
+
+      Set<Row> expectedRows = new HashSet<>();
+      expectedRows.add(new Row(1));
+      expectedRows.add(new Row(2));
+      expectedRows.add(new Row(3));
+      query = "/*+Set(enable_hashagg false)*/ SELECT DISTINCT r1 FROM t WHERE r3 <= 1 AND r5 <= 1";
+      assertRowSet(statement, query, expectedRows);
+
+      RocksDBMetrics metrics = assertFullDocDBFilter(statement, query, "t");
+      assertEquals(4, metrics.seekCount);
     }
   }
 
@@ -1079,7 +1124,7 @@ public class TestPgSelect extends BasePgSQLTest {
           expectedRows.add(new Row(i));
         }
 
-        query = "SELECT DISTINCT r1 FROM t WHERE r1 <= 100";
+        query = "/*+Set(enable_hashagg false)*/ SELECT DISTINCT r1 FROM t WHERE r1 <= 100";
         assertRowSet(statement, query, expectedRows);
 
         // Here we do a sequential scan.
@@ -1091,7 +1136,7 @@ public class TestPgSelect extends BasePgSQLTest {
         Set<Row> expectedRows = new HashSet<>();
         expectedRows.add(new Row(100));
 
-        query = "SELECT DISTINCT r1 FROM t WHERE r1 = 100";
+        query = "/*+Set(enable_hashagg false)*/ SELECT DISTINCT r1 FROM t WHERE r1 = 100";
         assertRowSet(statement, query, expectedRows);
 
         // Here we do an index scan.
@@ -1114,7 +1159,8 @@ public class TestPgSelect extends BasePgSQLTest {
         Set<Row> expectedRows = new HashSet<>();
         expectedRows.add(new Row(1, 1));
 
-        query = "SELECT DISTINCT h1, h2 FROM t WHERE h1 = 1 AND h2 = 1";
+        query = "/*+Set(enable_hashagg false)*/ " +
+                "SELECT DISTINCT h1, h2 FROM t WHERE h1 = 1 AND h2 = 1";
         assertRowSet(statement, query, expectedRows);
 
         RocksDBMetrics metrics = assertFullDocDBFilter(statement, query, "t");
@@ -1139,14 +1185,8 @@ public class TestPgSelect extends BasePgSQLTest {
         Set<Row> expectedRows = new HashSet<>();
         expectedRows.add(new Row(1));
 
-        query = "SELECT DISTINCT r3 FROM t WHERE r3 <= 10";
+        query = "/*+Set(enable_hashagg false)*/ SELECT DISTINCT r3 FROM t WHERE r3 <= 10";
         assertRowSet(statement, query, expectedRows);
-
-        // Here we perform the seek on the index table with two seeks:
-        // 1. From kLowest, we seek to 1.
-        // 2. From 1, we seek to the next key, which is not found.
-        // Note that we need to seek on the index table. The main table will result
-        // in zero seeks.
 
         RocksDBMetrics metrics = assertFullDocDBFilter(statement, query, "t");
         assertEquals(0, metrics.seekCount);
@@ -1208,7 +1248,9 @@ public class TestPgSelect extends BasePgSQLTest {
         // at the start of an r1 value to determine what r2 value to start
         // with using a seek to (r1, -Inf)
         // So there are m*(n*(p+1) + 1) = 48 seeks
-        assertEquals(48, metrics.seekCount);
+        // Actual number of seeks could be lower because there is Next instead of Seek optimisation
+        // in DocDB (see SeekPossiblyUsingNext).
+        assertLessThanOrEqualTo(metrics.seekCount, 48);
       }
 
       {
@@ -1238,7 +1280,9 @@ public class TestPgSelect extends BasePgSQLTest {
         // at the start of an r1 value to determine what r2 value to start
         // with using a seek to (r1, 1, +Inf)
         // So there are m*(n*(p+1) + 1) = 48 seeks
-        assertEquals(48, metrics.seekCount);
+        // Actual number of seeks could be lower because there is Next instead of Seek optimisation
+        // in DocDB (see SeekPossiblyUsingNext).
+        assertLessThanOrEqualTo(metrics.seekCount, 48);
       }
 
       {
@@ -1266,7 +1310,9 @@ public class TestPgSelect extends BasePgSQLTest {
         // resulting in p + 1 seeks.
         // For each r1, there are n * (p+1) seeks.
         // So there are m*(n*(p+1)) = 60 seeks
-        assertEquals(60, metrics.seekCount);
+        // Actual number of seeks could be lower because there is Next instead of Seek optimisation
+        // in DocDB (see SeekPossiblyUsingNext).
+        assertLessThanOrEqualTo(metrics.seekCount, 60);
       }
 
       {
@@ -1298,7 +1344,9 @@ public class TestPgSelect extends BasePgSQLTest {
         // with using a seek to (r1, 1, +Inf). The -n is to account for the
         // above note.
         // So there are m*(n*(p+1) + 1 - n) = 60 seeks
-        assertEquals(60, metrics.seekCount);
+        // Actual number of seeks could be lower because there is Next instead of Seek optimisation
+        // in DocDB (see SeekPossiblyUsingNext).
+        assertLessThanOrEqualTo(metrics.seekCount, 60);
       }
 
       {
@@ -1334,7 +1382,9 @@ public class TestPgSelect extends BasePgSQLTest {
         // So there are m*(n*(p+1) + 2) + 1 = 69 seeks
         // Each seek during a reverse scan is implemented with two seeks,
         // so in total there are 69 * 2 = 138 seeks.
-        assertEquals(138, metrics.seekCount);
+        // Actual number of seeks could be lower because there is Next instead of Seek optimisation
+        // in DocDB (see SeekPossiblyUsingNext).
+        assertLessThanOrEqualTo(metrics.seekCount, 138);
       }
     }
   }

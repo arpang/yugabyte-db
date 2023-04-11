@@ -11,7 +11,7 @@ import com.yugabyte.yw.common.ShellResponse;
 import com.yugabyte.yw.models.Universe;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.text.SimpleDateFormat;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -27,7 +27,8 @@ public class SessionHandler {
 
   public static final Logger LOG = LoggerFactory.getLogger(SessionHandler.class);
   public static final String FILTERED_LOGS_SCRIPT = "bin/filtered_logs.sh";
-  public static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
+  public static final DateTimeFormatter DATE_FORMAT =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
   @Inject private Config config;
 
@@ -45,7 +46,7 @@ public class SessionHandler {
 
     List<String> regexBuilder = new ArrayList<>();
     if (universe != null) {
-      regexBuilder.add(universe.universeUUID.toString());
+      regexBuilder.add(universe.getUniverseUUID().toString());
     }
 
     if (queryRegex != null) {

@@ -32,6 +32,8 @@ import javax.persistence.Entity;
 import javax.persistence.GeneratedValue;
 import javax.persistence.GenerationType;
 import javax.persistence.Id;
+import lombok.Getter;
+import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -40,6 +42,8 @@ import play.data.validation.Constraints;
 @Entity
 @ApiModel(
     description = "Customer task information. A customer task has a _target_ and a _task type_.")
+@Getter
+@Setter
 public class CustomerTask extends Model {
   public static final Logger LOG = LoggerFactory.getLogger(CustomerTask.class);
 
@@ -193,6 +197,9 @@ public class CustomerTask extends Model {
     @EnumValue("CreatePitrConfig")
     CreatePitrConfig,
 
+    @EnumValue("DeletePitrConfig")
+    DeletePitrConfig,
+
     @EnumValue("RestoreSnapshotSchedule")
     RestoreSnapshotSchedule,
 
@@ -344,6 +351,8 @@ public class CustomerTask extends Model {
           return completed ? "Restored " : "Restoring ";
         case CreatePitrConfig:
           return completed ? "Created PITR Config" : "Creating PITR Config";
+        case DeletePitrConfig:
+          return completed ? "Deleted PITR Config" : "Deleting PITR Config";
         case RestoreSnapshotSchedule:
           return completed ? "Restored Snapshot Schedule" : "Restoring Snapshot Schedule";
         case Restart:
@@ -453,29 +462,17 @@ public class CustomerTask extends Model {
   @ApiModelProperty(value = "Customer task UUID", accessMode = READ_ONLY)
   private Long id;
 
-  public Long getId() {
-    return id;
-  }
-
   @Constraints.Required
   @Column(nullable = false)
   @ApiModelProperty(value = "Customer UUID", accessMode = READ_ONLY, required = true)
   private UUID customerUUID;
-
-  public UUID getCustomerUUID() {
-    return customerUUID;
-  }
 
   @Constraints.Required
   @Column(nullable = false)
   @ApiModelProperty(value = "Task UUID", accessMode = READ_ONLY, required = true)
   private UUID taskUUID;
 
-  public UUID getTaskUUID() {
-    return taskUUID;
-  }
-
-  public CustomerTask setTaskUUID(UUID newTaskUUID) {
+  public CustomerTask updateTaskUUID(UUID newTaskUUID) {
     this.taskUUID = newTaskUUID;
     save();
     return this;
@@ -486,36 +483,20 @@ public class CustomerTask extends Model {
   @ApiModelProperty(value = "Task type", accessMode = READ_ONLY, required = true)
   private TaskType type;
 
-  public TaskType getType() {
-    return type;
-  }
-
   @Constraints.Required
   @Column(nullable = false)
   @ApiModelProperty(value = "Task target type", accessMode = READ_ONLY, required = true)
   private TargetType targetType;
-
-  public TargetType getTarget() {
-    return targetType;
-  }
 
   @Constraints.Required
   @Column(nullable = false)
   @ApiModelProperty(value = "Task target name", accessMode = READ_ONLY, required = true)
   private String targetName;
 
-  public String getTargetName() {
-    return targetName;
-  }
-
   @Constraints.Required
   @Column(nullable = false)
   @ApiModelProperty(value = "Task target UUID", accessMode = READ_ONLY, required = true)
   private UUID targetUUID;
-
-  public UUID getTargetUUID() {
-    return targetUUID;
-  }
 
   @Constraints.Required
   @Column(nullable = false)
@@ -527,10 +508,6 @@ public class CustomerTask extends Model {
       required = true)
   private Date createTime;
 
-  public Date getCreateTime() {
-    return createTime;
-  }
-
   @Column
   @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'")
   @ApiModelProperty(
@@ -538,10 +515,6 @@ public class CustomerTask extends Model {
       accessMode = READ_ONLY,
       example = "2021-06-17T15:00:05-0400")
   private Date completionTime;
-
-  public Date getCompletionTime() {
-    return completionTime;
-  }
 
   public void resetCompletionTime() {
     this.completionTime = null;
@@ -552,10 +525,6 @@ public class CustomerTask extends Model {
   @ApiModelProperty(value = "Custom type name", accessMode = READ_ONLY, example = "TLS Toggle ON")
   private String customTypeName;
 
-  public String getCustomTypeName() {
-    return customTypeName;
-  }
-
   @Column
   @ApiModelProperty(
       value = "Correlation id",
@@ -563,20 +532,12 @@ public class CustomerTask extends Model {
       example = "3e6ac43a-15d9-46c0-831c-460775ce87ad")
   private String correlationId;
 
-  public String getCorrelationId() {
-    return correlationId;
-  }
-
   @Column
   @ApiModelProperty(
       value = "User triggering task",
       accessMode = READ_ONLY,
       example = "shagarwal@yugabyte.com")
   private String userEmail;
-
-  public String getUserEmail() {
-    return userEmail;
-  }
 
   public void markAsCompleted() {
     markAsCompleted(new Date());
@@ -602,7 +563,7 @@ public class CustomerTask extends Model {
       String targetName,
       @Nullable String customTypeName) {
     CustomerTask th = new CustomerTask();
-    th.customerUUID = customer.uuid;
+    th.customerUUID = customer.getUuid();
     th.targetUUID = targetUUID;
     th.taskUUID = taskUUID;
     th.targetType = targetType;
@@ -712,7 +673,7 @@ public class CustomerTask extends Model {
     Date cutoffDate = new Date(Instant.now().minus(duration).toEpochMilli());
     return find.query()
         .where()
-        .eq("customerUUID", customer.uuid)
+        .eq("customerUUID", customer.getUuid())
         .le("completion_time", cutoffDate)
         .findList();
   }
@@ -721,11 +682,11 @@ public class CustomerTask extends Model {
     return find.query().where().eq("target_uuid", targetUUID).isNull("completion_time").findList();
   }
 
-  public static CustomerTask getLatestByUniverseUuid(UUID universeUUID) {
+  public static CustomerTask getLastTaskByTargetUuid(UUID targetUUID) {
     List<CustomerTask> tasks =
         find.query()
             .where()
-            .eq("target_uuid", universeUUID)
+            .eq("target_uuid", targetUUID)
             .isNotNull("completion_time")
             .orderBy("completion_time desc")
             .setMaxRows(1)
@@ -738,8 +699,8 @@ public class CustomerTask extends Model {
   }
 
   public String getNotificationTargetName() {
-    if (getType().equals(TaskType.Create) && getTarget().equals(TargetType.Backup)) {
-      return Universe.getOrBadRequest(getTargetUUID()).name;
+    if (getType().equals(TaskType.Create) && getTargetType().equals(TargetType.Backup)) {
+      return Universe.getOrBadRequest(getTargetUUID()).getName();
     } else {
       return getTargetName();
     }
@@ -748,7 +709,7 @@ public class CustomerTask extends Model {
   private static String maybeGetEmailFromSchedule() {
     return Schedule.getAllActive()
         .stream()
-        .filter(Schedule::getRunningState)
+        .filter(Schedule::isRunningState)
         .findAny()
         .map(Schedule::getUserEmail)
         .orElse("Unknown");

@@ -1,3 +1,12 @@
+/*
+ * Copyright 2023 YugaByte, Inc. and Contributors
+ *
+ * Licensed under the Polyform Free Trial License 1.0.0 (the "License"); you
+ * may not use this file except in compliance with the License. You
+ * may obtain a copy of the License at
+ *
+ * http://github.com/YugaByte/yugabyte-db/blob/master/licenses/POLYFORM-FREE-TRIAL-LICENSE-1.0.0.txt
+ */
 package com.yugabyte.yw.common.services;
 
 import com.google.common.collect.ImmutableList;
@@ -26,7 +35,7 @@ import org.apache.commons.io.FileUtils;
 public class FileDataService {
 
   private static final List<String> FILE_DIRECTORY_TO_SYNC =
-      ImmutableList.of("keys", "certs", "licenses", "node-agent");
+      ImmutableList.of("keys", "certs", "licenses", "node-agent/certs");
 
   private final RuntimeConfGetter confGetter;
   private final ConfigHelper configHelper;

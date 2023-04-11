@@ -15,6 +15,7 @@
 #include <memory>
 #include <string>
 
+#include "yb/cdc/cdc_util.h"
 #include "yb/client/external_transaction.h"
 
 namespace yb {
@@ -34,14 +35,14 @@ struct ProcessRecordInfo {
   bool enable_replicate_transaction_status_table;
   TabletId status_tablet_id;
 
-  // last compatible consumer schema version
-  SchemaVersion last_compatible_consumer_schema_version;
+  // Map of producer-consumer schema versions for the record.
+  const cdc::XClusterSchemaVersionMap schema_versions_map;
 };
 
 class XClusterWriteInterface {
  public:
   virtual ~XClusterWriteInterface() {}
-  virtual std::unique_ptr<WriteRequestPB> GetNextWriteRequest() = 0;
+  virtual std::unique_ptr<WriteRequestPB> FetchNextRequest() = 0;
   virtual Status ProcessRecord(
       const ProcessRecordInfo& process_record_info, const cdc::CDCRecordPB& record) = 0;
   virtual Status ProcessCreateRecord(

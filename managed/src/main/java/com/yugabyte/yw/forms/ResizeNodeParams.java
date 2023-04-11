@@ -9,6 +9,7 @@ import com.yugabyte.yw.commissioner.Common;
 import com.yugabyte.yw.common.PlatformServiceException;
 import com.yugabyte.yw.common.config.RuntimeConfigFactory;
 import com.yugabyte.yw.common.gflags.GFlagsUtil;
+import com.yugabyte.yw.common.inject.StaticInjectorHolder;
 import com.yugabyte.yw.models.InstanceType;
 import com.yugabyte.yw.models.Provider;
 import com.yugabyte.yw.models.Universe;
@@ -26,7 +27,6 @@ import java.util.function.Function;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
-import play.api.Play;
 import play.mvc.Http.Status;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -58,7 +58,7 @@ public class ResizeNodeParams extends UpgradeTaskParams {
     super.verifyParams(universe, nodeState); // we call verifyParams which will fail
 
     RuntimeConfigFactory runtimeConfigFactory =
-        Play.current().injector().instanceOf(RuntimeConfigFactory.class);
+        StaticInjectorHolder.injector().instanceOf(RuntimeConfigFactory.class);
 
     // Both master and tserver can be null. But if one is provided, both should be provided.
     if ((masterGFlags == null && tserverGFlags != null)
@@ -130,7 +130,7 @@ public class ResizeNodeParams extends UpgradeTaskParams {
       boolean verifyVolumeSize) {
 
     RuntimeConfigFactory runtimeConfigFactory =
-        Play.current().injector().instanceOf(RuntimeConfigFactory.class);
+        StaticInjectorHolder.injector().instanceOf(RuntimeConfigFactory.class);
 
     return checkResizeIsPossible(
         currentUserIntent, newUserIntent, universe, runtimeConfigFactory, verifyVolumeSize);
@@ -299,7 +299,7 @@ public class ResizeNodeParams extends UpgradeTaskParams {
       List<InstanceType> instanceTypes =
           InstanceType.findByProvider(
               Provider.getOrBadRequest(UUID.fromString(provider)),
-              Play.current().injector().instanceOf(Config.class),
+              StaticInjectorHolder.injector().instanceOf(Config.class),
               allowUnsupportedInstances);
       InstanceType newInstanceType =
           instanceTypes

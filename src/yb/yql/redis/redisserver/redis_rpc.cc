@@ -126,9 +126,6 @@ Result<rpc::ProcessCallsResult> RedisConnectionContext::ProcessCalls(
 Status RedisConnectionContext::HandleInboundCall(const rpc::ConnectionPtr& connection,
                                                  size_t commands_in_batch,
                                                  rpc::CallData* data) {
-  auto reactor = connection->reactor();
-  DCHECK(reactor->IsCurrentThread());
-
   auto call = rpc::InboundCall::Create<RedisInboundCall>(connection, data->size(), this);
 
   Status s = call->ParseFrom(call_mem_tracker_, commands_in_batch, data);
@@ -204,13 +201,13 @@ RedisInboundCall::~RedisInboundCall() {
   if (quit_.load(std::memory_order_acquire)) {
     rpc::ConnectionPtr conn = connection();
     rpc::Reactor* reactor = conn->reactor();
-    auto scheduled = reactor->ScheduleReactorTask(
+    auto scheduling_status  = reactor->ScheduleReactorTask(
         MakeFunctorReactorTask(std::bind(&rpc::Reactor::DestroyConnection,
                                          reactor,
                                          conn.get(),
                                          status),
                                conn, SOURCE_LOCATION()));
-    LOG_IF(WARNING, !scheduled) << "Failed to schedule destroy";
+    LOG_IF(DFATAL, !scheduling_status.ok()) << "Failed to schedule destroy";
   }
 }
 
@@ -288,6 +285,7 @@ void RedisInboundCall::LogTrace() const {
   MonoTime now = MonoTime::Now();
   auto total_time = now.GetDeltaSince(timing_.time_received).ToMilliseconds();
 
+  auto trace_ = trace();
   if (PREDICT_FALSE(FLAGS_rpc_dump_all_traces
           || (trace_ && trace_->must_print())
           || total_time > FLAGS_rpc_slow_query_threshold_ms)) {
@@ -307,6 +305,7 @@ string RedisInboundCall::ToString() const {
 
 bool RedisInboundCall::DumpPB(const rpc::DumpRunningRpcsRequestPB& req,
                               rpc::RpcCallInProgressPB* resp) {
+  auto trace_ = trace();
   if (req.include_traces() && trace_) {
     resp->set_trace_buffer(trace_->DumpToString(true));
   }

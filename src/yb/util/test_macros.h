@@ -39,8 +39,10 @@
 
 #include <gtest/gtest.h> // For SUCCEED/FAIL
 
-#include "yb/util/tostring.h"
 #include "yb/gutil/stl_util.h"  // For VectorToSet
+
+#include "yb/util/string_trim.h"
+#include "yb/util/tostring.h"
 
 namespace yb {
 namespace util {
@@ -318,6 +320,16 @@ inline std::string FindFirstDiff(const std::string& lhs, const std::string& rhs)
     } \
     std::move(result); \
   }) \
+  /**/
+
+// Similar to ASSERT_NOTNULL but does not return anything.
+#define ASSERT_ONLY_NOTNULL(expr) \
+  do { \
+    auto&& result = (expr); \
+    if (result == nullptr) { \
+      FAIL() << "Unexpected nullptr"; \
+    } \
+  } while (false)
   /**/
 
 #define ASSERT_QUERY_FAIL(query_exec, expected_failure_substr) \

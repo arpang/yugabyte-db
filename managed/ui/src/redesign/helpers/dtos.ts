@@ -18,6 +18,17 @@ export interface HostInfo {
     | string;
 }
 
+export interface SuggestedKubernetesConfig {
+  config: {
+    KUBECONFIG_PULL_SECRET_NAME: string;
+    KUBECONFIG_PULL_SECRET_CONTENT: any;
+    KUBECONFIG_IMAGE_REGISTRY: string;
+    KUBECONFIG_PROVIDER: string;
+  };
+  regionList: { code: string; zoneList: { config: { STORAGE_CLASS: string }; name: string }[] }[];
+  name: string;
+}
+
 export interface PlacementAZ {
   uuid: string;
   name: string;
@@ -241,7 +252,8 @@ export interface Universe {
 export enum TableType {
   YQL_TABLE_TYPE = 'YQL_TABLE_TYPE',
   REDIS_TABLE_TYPE = 'REDIS_TABLE_TYPE',
-  PGSQL_TABLE_TYPE = 'PGSQL_TABLE_TYPE'
+  PGSQL_TABLE_TYPE = 'PGSQL_TABLE_TYPE',
+  TRANSACTION_STATUS_TABLE_TYPE = 'TRANSACTION_STATUS_TABLE_TYPE'
 }
 
 export interface YBTable {
@@ -381,7 +393,8 @@ export interface HAReplicationSchedule {
 export const TableTypeLabel: Record<TableType, string> = {
   YQL_TABLE_TYPE: 'YCQL',
   PGSQL_TABLE_TYPE: 'YSQL',
-  REDIS_TABLE_TYPE: 'REDIS'
+  REDIS_TABLE_TYPE: 'REDIS',
+  TRANSACTION_STATUS_TABLE_TYPE: 'SYSTEM'
 } as const;
 
 export interface MetricsData {
@@ -432,8 +445,9 @@ export interface MetricQueryParams {
 // src/main/java/com/yugabyte/yw/models/helpers/BaseBeanValidator.java
 // ---------------------------------------------------------------------------
 export interface YBPTask {
-  resourceUUID: string;
   taskUUID: string;
+
+  resourceUUID?: string;
 }
 
 export interface YBPSuccess {
@@ -441,19 +455,27 @@ export interface YBPSuccess {
   success: true;
 }
 
-export interface YBPError {
+export type YBPError = {
   error: string;
   httpMethod: string;
   requestUri: string;
   success: false;
 
-  errorJson?: string;
+  errorJson?: {};
+};
+
+// TODO: Remove when YBPStructuredError is replaced by YBPError(json)
+export interface YBPStructuredError {
+  error: {};
+  success: false;
 }
 
-export interface YBBeanValidationError {
+export interface YBPBeanValidationError extends YBPStructuredError {
   error: {
-    [fieldKey: string]: string[];
+    errorSource: string[];
+    [x: string]: string[];
   };
   success: false;
 }
+
 // ---------------------------------------------------------------------------

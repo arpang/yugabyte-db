@@ -97,7 +97,8 @@ target_link_libraries(rocksdb_dump
 add_executable(sst_dump sst_dump.cc)
 target_link_libraries(sst_dump
   rocksdb_tools
-  yb_docdb)
+  yb_docdb
+  tablet_metadata)
 
 add_executable(yb-fs_list fs_list-tool.cc)
 target_link_libraries(yb-fs_list
@@ -219,7 +220,6 @@ ADD_YB_TEST(yb-admin-snapshot-test)
 ADD_YB_TEST(yb-admin-xcluster-test)
 ADD_YB_TEST(yb-admin_client-test)
 
-set(YB_PCH_PREFIX util)
 add_executable(run-with-timeout run-with-timeout.cc)
 target_link_libraries(run-with-timeout yb_util)
 

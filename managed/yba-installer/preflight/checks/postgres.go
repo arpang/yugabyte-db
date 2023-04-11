@@ -12,7 +12,7 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/spf13/viper"
-	"github.com/yugabyte/yugabyte-db/managed/yba-installer/common"
+	"github.com/yugabyte/yugabyte-db/managed/yba-installer/common/shell"
 	"github.com/yugabyte/yugabyte-db/managed/yba-installer/config"
 	log "github.com/yugabyte/yugabyte-db/managed/yba-installer/logging"
 	"golang.org/x/exp/slices"
@@ -51,8 +51,21 @@ func (p postgresCheck) Execute() Result {
 	install := viper.GetBool("postgres.install.enabled")
 	if (useExisting && install) || (!useExisting && !install) {
 		res.Status = StatusCritical
-		res.Error = fmt.Errorf("Exactly one of postgres.useExisting.enabled and postgres.install.enabled should be set to true.")
+		res.Error = fmt.Errorf(
+			"exactly one of postgres.useExisting.enabled and" +
+			"postgres.install.enabled should be set to true")
 		return res
+	}
+
+	if (useExisting) {
+		pgDumpPath := viper.GetString("postgres.useExisting.pg_dump_path")
+		pgRestorePath := viper.GetString("postgres.useExisting.pg_restore_path")
+		if (pgDumpPath == "" || pgRestorePath == "") {
+			res.Status = StatusCritical
+			res.Error = fmt.Errorf(
+				"both pg_dump_path and pg_restore_path must be set when using existing Postgres server")
+			return res
+		}
 	}
 
 	if install {
@@ -70,9 +83,9 @@ func (p postgresCheck) Execute() Result {
 		return res
 	}
 
-	_, err := common.RunBash("pg_dump", []string{"--help"})
-	if err != nil {
-		res.Error = fmt.Errorf("pg_dump has to be installed on the host (error %w)", err)
+	out := shell.Run("pg_dump", "--help")
+	if !out.SucceededOrLog() {
+		res.Error = fmt.Errorf("pg_dump has to be installed on the host (error %w)", out.Error)
 		res.Status = StatusCritical
 		return res
 	}

@@ -239,7 +239,7 @@ public class TestPgTransparentRestarts extends BasePgSQLTest {
   /**
    * Same as the previous test but uses parameterized PreparedStatements with bindvars.
    */
-  @Ignore // TODO(alex, piyush): Enable after #14772 is fixed.
+  @Test
   public void selectStarShortPreparedParameterized() throws Exception {
     new PreparedStatementTester(
         getConnectionBuilder(),
@@ -568,8 +568,7 @@ public class TestPgTransparentRestarts extends BasePgSQLTest {
   // TODO(Piyush): Find a more robust way to check for kConflict/kAbort/kReadRestart
   private static boolean isConflictError(Exception ex) {
     String lcMsg = ex.getMessage().toLowerCase();
-    // kAborted messages also have the conflict word sometimes.
-    return lcMsg.contains("conflict") && !lcMsg.contains("abort");
+    return lcMsg.contains("could not serialize access due to concurrent update");
   }
 
   private static boolean isAbortError(Exception ex) {
@@ -867,7 +866,7 @@ public class TestPgTransparentRestarts extends BasePgSQLTest {
         ConnectionBuilder cb,
         String valueToInsert,
         boolean expectRestartErrors) {
-      super(cb, valueToInsert, 250 /* numInserts */);
+      super(cb, valueToInsert, 500 /* numInserts */);
       this.expectRestartErrors = expectRestartErrors;
     }
 

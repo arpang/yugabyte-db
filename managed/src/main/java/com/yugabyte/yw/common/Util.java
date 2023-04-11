@@ -38,6 +38,7 @@ import java.math.BigDecimal;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
+import java.net.Socket;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
@@ -66,7 +67,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
-import lombok.Getter;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Value;
+import lombok.extern.jackson.Jacksonized;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
@@ -113,6 +117,8 @@ public class Util {
 
   public static final String YBC_COMPATIBLE_DB_VERSION = "2.15.0.0-b1";
 
+  public static final String K8S_YBC_COMPATIBLE_DB_VERSION = "2.17.3.0-b62";
+
   public static final String AUTO_FLAG_FILENAME = "auto_flags.json";
 
   public static final String LIVE_QUERY_TIMEOUTS = "yb.query_stats.live_queries.ws";
@@ -153,13 +159,6 @@ public class Util {
       inetAddrs.add(new InetSocketAddress(privateIp, yqlRPCPort));
     }
     return inetAddrs;
-  }
-
-  public static String redactString(String input) {
-    String length = ((Integer) input.length()).toString();
-    String regex = "(.)" + "{" + length + "}";
-    String output = input.replaceAll(regex, REDACT);
-    return output;
   }
 
   public static String redactYsqlQuery(String input) {
@@ -214,7 +213,7 @@ public class Util {
     if (c == null) {
       throw new RuntimeException("Invalid Customer Id: " + custId);
     }
-    return String.format("yb-%s-%s", c.code, univName);
+    return String.format("yb-%s-%s", c.getCode(), univName);
   }
 
   /**
@@ -411,22 +410,25 @@ public class Util {
   }
 
   @ApiModel(value = "UniverseDetailSubset", description = "A small subset of universe information")
-  @Getter
+  @Value
+  @Jacksonized
+  @Builder
+  @AllArgsConstructor
   public static class UniverseDetailSubset {
-    final UUID uuid;
-    final String name;
-    final boolean updateInProgress;
-    final boolean updateSucceeded;
-    final long creationDate;
-    final boolean universePaused;
+    UUID uuid;
+    String name;
+    boolean updateInProgress;
+    boolean updateSucceeded;
+    long creationDate;
+    boolean universePaused;
 
     public UniverseDetailSubset(Universe universe) {
       UniverseDefinitionTaskParams universeDetails = universe.getUniverseDetails();
-      uuid = universe.universeUUID;
-      name = universe.name;
+      uuid = universe.getUniverseUUID();
+      name = universe.getName();
       updateInProgress = universeDetails.updateInProgress;
       updateSucceeded = universeDetails.updateSucceeded;
-      creationDate = universe.creationDate.getTime();
+      creationDate = universe.getCreationDate().getTime();
       universePaused = universeDetails.universePaused;
     }
   }
@@ -681,7 +683,7 @@ public class Util {
 
   public static boolean canConvertJsonNode(JsonNode jsonNode, Class<?> toValueType) {
     try {
-      new ObjectMapper().treeToValue(jsonNode, toValueType);
+      Json.mapper().treeToValue(jsonNode, toValueType);
     } catch (JsonProcessingException e) {
       LOG.info(e.getMessage());
       return false;
@@ -719,7 +721,7 @@ public class Util {
     UserIntent userIntent = universe.getUniverseDetails().getPrimaryCluster().userIntent;
     if (userIntent.providerType == Common.CloudType.onprem) {
       Provider provider = Provider.getOrBadRequest(UUID.fromString(userIntent.provider));
-      return provider.details.skipProvisioning;
+      return provider.getDetails().skipProvisioning;
     }
     return false;
   }
@@ -828,11 +830,11 @@ public class Util {
    * @param tarFile the archive we want to sasve to folderPath
    * @param folderPath the directory where we want to extract the archive to
    */
-  public static void extractFilesFromTarGZ(File tarFile, String folderPath) throws IOException {
+  public static void extractFilesFromTarGZ(Path tarFile, String folderPath) throws IOException {
     TarArchiveEntry currentEntry;
     Files.createDirectories(Paths.get(folderPath));
 
-    try (FileInputStream fis = new FileInputStream(tarFile);
+    try (FileInputStream fis = new FileInputStream(tarFile.toFile());
         GZIPInputStream gis = new GZIPInputStream(new BufferedInputStream(fis));
         TarArchiveInputStream tis = new TarArchiveInputStream(gis)) {
       while ((currentEntry = tis.getNextTarEntry()) != null) {
@@ -907,7 +909,7 @@ public class Util {
           universeDetails.updateSucceeded = false;
           u.setUniverseDetails(universeDetails);
         };
-    return Universe.saveDetails(universe.universeUUID, updater, false);
+    return Universe.saveDetails(universe.getUniverseUUID(), updater, false);
   }
 
   public static Universe unlockUniverse(Universe universe) {
@@ -918,6 +920,15 @@ public class Util {
           universeDetails.updateSucceeded = true;
           u.setUniverseDetails(universeDetails);
         };
-    return Universe.saveDetails(universe.universeUUID, updater, false);
+    return Universe.saveDetails(universe.getUniverseUUID(), updater, false);
+  }
+
+  public static boolean isAddressReachable(String host, int port) {
+    try (Socket socket = new Socket()) {
+      socket.connect(new InetSocketAddress(host, port), 3000);
+      return true;
+    } catch (IOException e) {
+    }
+    return false;
   }
 }

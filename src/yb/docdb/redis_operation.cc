@@ -1710,14 +1710,14 @@ Result<boost::optional<Expiration>> GetTtl(
     VERIFY_RESULT(DocKey::EncodedSize(encoded_subdoc_key, DocKeyPart::kWholeDocKey));
   Slice key_slice(encoded_subdoc_key.data(), dockey_size);
   iter->Seek(key_slice);
-  if (!iter->valid())
+  if (iter->IsOutOfRecords())
     return boost::none;
   auto key_data = VERIFY_RESULT(iter->FetchKey());
   if (!key_data.key.compare(key_slice)) {
     Value doc_value = Value(PrimitiveValue(ValueEntryType::kInvalid));
     RETURN_NOT_OK(doc_value.Decode(iter->value()));
     if (doc_value.value_type() != ValueEntryType::kTombstone) {
-      return Expiration(key_data.write_time.hybrid_time(), doc_value.ttl());
+      return Expiration(VERIFY_RESULT(key_data.write_time.Decode()).hybrid_time(), doc_value.ttl());
     }
   }
   return boost::none;
@@ -2031,7 +2031,7 @@ Status RedisReadOperation::ExecuteKeys() {
   bool doc_found;
   SubDocument result;
 
-  while (iterator_->valid()) {
+  while (!iterator_->IsOutOfRecords()) {
     if (deadline_info_.get_ptr() && deadline_info_->CheckAndSetDeadlinePassed()) {
       return STATUS(Expired, "Deadline for query passed.");
     }

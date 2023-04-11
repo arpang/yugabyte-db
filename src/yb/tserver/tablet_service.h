@@ -145,6 +145,10 @@ class TabletServiceImpl : public TabletServerServiceIf, public ReadTabletProvide
                 TruncateResponsePB* resp,
                 rpc::RpcContext context) override;
 
+  void GetCompatibleSchemaVersion(const GetCompatibleSchemaVersionRequestPB* req,
+                                  GetCompatibleSchemaVersionResponsePB* resp,
+                                  rpc::RpcContext context) override;
+
   void GetTabletStatus(const GetTabletStatusRequestPB* req,
                        GetTabletStatusResponsePB* resp,
                        rpc::RpcContext context) override;
@@ -219,10 +223,6 @@ class TabletServiceAdminImpl : public TabletServerAdminServiceIf {
   void AlterSchema(const tablet::ChangeMetadataRequestPB* req,
                    ChangeMetadataResponsePB* resp,
                    rpc::RpcContext context) override;
-
-  void CopartitionTable(const CopartitionTableRequestPB* req,
-                        CopartitionTableResponsePB* resp,
-                        rpc::RpcContext context) override;
 
   void FlushTablets(const FlushTabletsRequestPB* req,
                     FlushTabletsResponsePB* resp,

@@ -27,11 +27,10 @@ import datetime
 import random
 import atexit
 
-from sys_detection import is_macos
-
 from typing import List, Optional, Set, Any, Tuple, Dict
 
-from yb.common_util import init_logging, shlex_join
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from yb.common_util import init_logging, shlex_join  # noqa
 
 UUID_RE_STR = '[0-9a-f]{32}'
 TABLET_OR_PEER_ID_RE_STR = r'\b[T|P] [0-9a-f]{32}\b'
@@ -39,9 +38,9 @@ RUNNING_ON_HOST_PREFIX = 'Running on host'
 RUNNING_ON_HOST_RE_STR = RUNNING_ON_HOST_PREFIX + ':? [a-zA-Z0-9_.-]+$'
 SYS_CATALOG_TABLET_ID = '0' * 32
 
-# E.g. "[m-1]" or "[ts-1]" prefix for C++ tests, and "m1|" or "ts1|" prefix for tests.
+# E.g. "[m-1]" or "[ts-1]" or "[P-m-1]"" prefix for C++ tests, and "m1|" or "ts1|" prefix for tests.
 DAEMON_ID_PREFIX_RE_STR = '|'.join([
-    r'^\[(m|ts)-[0-9]+\]',
+    r'^\[((\w-)*(m|ts))-[0-9]+\]',
     r'(m|ts)[0-9]+[|]'
 ])
 
@@ -64,6 +63,8 @@ def normalize_daemon_id(s: str) -> str:
     'm1'
     >>> normalize_daemon_id('m1|')
     'm1'
+    >>> normalize_daemon_id('[P-m-1]')
+    'Pm1'
     '''
     if s.startswith('['):
         assert s.endswith(']')

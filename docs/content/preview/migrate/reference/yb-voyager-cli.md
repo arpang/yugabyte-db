@@ -337,9 +337,8 @@ The valid *arguments* for import data file are described in the following table:
 | :------- | :------------------------ |
 | [--batch-size](#batch-size) <number> | Size of batches generated for ingestion during [import data]. |
 | [--data-dir](#data-dir) <path> | Path to the directory containing the data files to import. |
-| [--delimiter](#delimiter) | Default: comma (,); can be changed to '\t' (tab), pipe(|), or any other character. |
+| [--delimiter](#delimiter) | Default: comma (,); can be changed to '\t' (tab), pipe(\|), or any other character. |
 | [--disable-pb](#disable-pb) | Hide progress bars. |
-| [--table-list](#table-list) | Comma-separated list of the tables for which data is exported. |
 | [--exclude-table-list](#exclude-table-list) <tableNames> | Comma-separated list of tables to exclude while exporting data. |
 | [--file-opts](#file-opts) <string> | Comma-separated string options for CSV file format. |
 | [--file-table-map](#file-table-map) <filename1:tablename1> | Comma-separated mapping between the files in [data-dir](#data-dir) to the corresponding table in the database. |
@@ -520,7 +519,14 @@ Default: 20,000
 
 ### --data-dir
 
-Path to the directory containing the data files to import.
+Path to the directory containing the data files to import. You can also provide an AWS S3 bucket as a path to the data directory. For example,
+
+```sh
+yb-voyager import data file .... \
+--data-dir s3://voyager-data
+```
+
+Refer to [Configuring the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html) for more details.
 
 ### --file-table-map
 

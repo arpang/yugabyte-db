@@ -64,12 +64,12 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.security.crypto.encrypt.Encryptors;
 import org.springframework.security.crypto.encrypt.TextEncryptor;
 import play.libs.Json;
-import play.mvc.Http;
 
 @Slf4j
 public class CommonUtils {
 
   public static final String DEFAULT_YB_HOME_DIR = "/home/yugabyte";
+  public static final String DEFAULT_YBC_DIR = "/tmp/yugabyte";
 
   private static final Pattern RELEASE_REGEX =
       Pattern.compile("^(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+).*$");
@@ -702,7 +702,7 @@ public class CommonUtils {
             .collect(Collectors.toList());
     if (tserverLiveNodes.isEmpty()) {
       throw new IllegalStateException(
-          "No live TServers found for Universe UUID: " + universe.universeUUID);
+          "No live TServers found for Universe UUID: " + universe.getUniverseUUID());
     }
     return tserverLiveNodes.get(new Random().nextInt(tserverLiveNodes.size()));
   }
@@ -728,7 +728,7 @@ public class CommonUtils {
       Scanner scanner = new Scanner(shellResponse.message);
       int i = 0;
       while (scanner.hasNextLine()) {
-        data = new String(scanner.nextLine());
+        data = scanner.nextLine();
         if (i++ == 3) {
           break;
         }
@@ -768,7 +768,7 @@ public class CommonUtils {
   }
 
   /** Get the user sending the API request from the HTTP context. */
-  public static Users getUserFromContext(Http.Context ctx) {
+  public static Users getUserFromContext() {
     return RequestContext.get(TokenAuthenticator.USER).getUser();
   }
 
