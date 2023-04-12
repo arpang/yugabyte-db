@@ -567,20 +567,24 @@ Status YBClient::Data::IsCreateTableInProgress(YBClient* client,
 Status YBClient::Data::WaitForCreateTableToFinish(YBClient* client,
                                                   const YBTableName& table_name,
                                                   const string& table_id,
+                                                  CoarseTimePoint deadline,
+                                                  const uint32_t max_jitter_ms,
+                                                  const uint32_t init_exponent) {
+  return RetryFunc(
+      deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
+      std::bind(
+          &YBClient::Data::IsCreateTableInProgress, this, client, table_name, table_id, _1, _2),
+      std::chrono::seconds(2), max_jitter_ms, init_exponent);
+}
+
+Status YBClient::Data::WaitForCreateTableToFinish(YBClient* client,
+                                                  const YBTableName& table_name,
+                                                  const string& table_id,
                                                   CoarseTimePoint deadline) {
-  if (FLAGS_lazily_flush_superblock) {
-    return RetryFunc(
-        deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
-        std::bind(
-            &YBClient::Data::IsCreateTableInProgress, this, client, table_name, table_id, _1, _2),
-        std::chrono::seconds(2), FLAGS_change_metadata_backoff_max_jitter_ms,
-        FLAGS_change_metadata_backoff_init_exponent);
-  } else {
-    return RetryFunc(
-        deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
-        std::bind(&YBClient::Data::IsCreateTableInProgress, this, client,
-                  table_name, table_id, _1, _2));
-  }
+  return RetryFunc(
+      deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
+      std::bind(&YBClient::Data::IsCreateTableInProgress, this, client,
+                table_name, table_id, _1, _2));
 }
 
 Status YBClient::Data::DeleteTable(YBClient* client,

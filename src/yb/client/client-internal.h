@@ -129,6 +129,13 @@ class YBClient::Data {
                                  CoarseTimePoint deadline,
                                  bool *create_in_progress);
 
+  Status WaitForCreateTableToFinish(YBClient* client,
+                                    const YBTableName& table_name,
+                                    const std::string& table_id,
+                                    CoarseTimePoint deadline,
+                                    const uint32_t max_jitter_ms,
+                                    const uint32_t init_exponent);
+
   // Take one of table id or name.
   Status WaitForCreateTableToFinish(YBClient* client,
                                     const YBTableName& table_name,

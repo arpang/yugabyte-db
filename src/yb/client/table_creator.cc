@@ -31,6 +31,9 @@
 using std::string;
 
 DECLARE_bool(client_suppress_created_logs);
+DECLARE_bool(lazily_flush_superblock);
+DECLARE_uint32(change_metadata_backoff_max_jitter_ms);
+DECLARE_uint32(change_metadata_backoff_init_exponent);
 
 DEFINE_test_flag(bool, duplicate_create_table_request, false,
                  "Whether a table creator should send duplicate CreateTableRequestPB to master.");
@@ -372,8 +375,15 @@ Status YBTableCreator::Create() {
 
   // Spin until the table is fully created, if requested.
   if (wait_) {
-    RETURN_NOT_OK(client_->data_->WaitForCreateTableToFinish(
-        client_, YBTableName(), table_id_, deadline));
+    if (req.has_tablegroup_id() && FLAGS_lazily_flush_superblock) {
+        RETURN_NOT_OK(client_->data_->WaitForCreateTableToFinish(
+            client_, YBTableName(), table_id_, deadline,
+            FLAGS_change_metadata_backoff_max_jitter_ms,
+            FLAGS_change_metadata_backoff_init_exponent));
+    } else {
+        RETURN_NOT_OK(client_->data_->WaitForCreateTableToFinish(
+            client_, YBTableName(), table_id_, deadline));
+    }
   }
 
   if (s.ok() && !FLAGS_client_suppress_created_logs) {
