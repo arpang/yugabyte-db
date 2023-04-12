@@ -16,6 +16,7 @@
 #include <chrono>
 #include <thread>
 
+#include "yb/common/constants.h"
 #include "yb/util/monotime.h"
 #include "yb/util/random_util.h"
 #include "yb/util/result.h"
@@ -46,7 +47,9 @@ class GenericBackoffWaiter {
     return deadline_ < time + ClockResolution<Clock>();
   }
 
-  bool Wait(uint32_t max_jitter_ms = 50, uint32_t init_exponent = 4) {
+  bool Wait(
+      uint32_t max_jitter_ms = kBackoffWaiterMaxJitterMs,
+      uint32_t init_exponent = kBackoffWaiterInitExponent) {
     auto now = Clock::now();
     if (ExpiredAt(now)) {
       return false;
@@ -67,13 +70,16 @@ class GenericBackoffWaiter {
   }
 
   Duration DelayForTime(
-      TimePoint now, uint32_t max_jitter_ms = 50, uint32_t init_exponent = 4) const {
+      TimePoint now, uint32_t max_jitter_ms = kBackoffWaiterMaxJitterMs,
+      uint32_t init_exponent = kBackoffWaiterInitExponent) const {
     Duration max_wait = std::min(deadline_ - now, max_wait_);
-    // 1st retry delayed 2^4 of base delays, 2nd 2^5 base delays, etc..
+    // 1st retry delayed 2^init_exponent of base delays, 2nd 2^(init_exponent + 1) base delays,
+    // etc..
     Duration attempt_delay = base_delay_ * (attempt_ >= 29 ? std::numeric_limits<int32_t>::max()
                                                            : 1LL << (attempt_ + init_exponent - 1));
     uint32_t min_jitter_ms = 0;
     Duration jitter = std::chrono::milliseconds(RandomUniformInt(min_jitter_ms, max_jitter_ms));
+    LOG(INFO) << "Jitter " << jitter << " attempt_delay " << attempt_delay;
     return std::min(attempt_delay + jitter, max_wait);
   }
 
@@ -112,8 +118,8 @@ Status RetryFunc(
     const std::string& timeout_msg,
     const std::function<Status(CoarseTimePoint, bool*)>& func,
     const CoarseDuration max_wait = std::chrono::seconds(2),
-    const uint32_t max_jitter_ms = 50,
-    const uint32_t init_exponent = 4);
+    const uint32_t max_jitter_ms = kBackoffWaiterMaxJitterMs,
+    const uint32_t init_exponent = kBackoffWaiterInitExponent);
 
 // Waits for the given condition to be true or until the provided deadline happens.
 Status Wait(

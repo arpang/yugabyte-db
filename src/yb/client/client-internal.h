@@ -40,6 +40,7 @@
 #include "yb/client/client.h"
 
 #include "yb/common/common_net.pb.h"
+#include "yb/common/constants.h"
 #include "yb/common/entity_ids.h"
 #include "yb/common/index.h"
 #include "yb/common/transaction.h"
@@ -129,18 +130,13 @@ class YBClient::Data {
                                  CoarseTimePoint deadline,
                                  bool *create_in_progress);
 
-  Status WaitForCreateTableToFinish(YBClient* client,
-                                    const YBTableName& table_name,
-                                    const std::string& table_id,
-                                    CoarseTimePoint deadline,
-                                    const uint32_t max_jitter_ms,
-                                    const uint32_t init_exponent);
-
   // Take one of table id or name.
   Status WaitForCreateTableToFinish(YBClient* client,
                                     const YBTableName& table_name,
                                     const std::string& table_id,
-                                    CoarseTimePoint deadline);
+                                    CoarseTimePoint deadline,
+                                    const uint32_t max_jitter_ms = kBackoffWaiterMaxJitterMs,
+                                    const uint32_t init_exponent = kBackoffWaiterInitExponent);
 
   // Take one of table id or name.
   Status DeleteTable(YBClient* client,

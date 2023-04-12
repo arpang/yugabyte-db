@@ -577,16 +577,6 @@ Status YBClient::Data::WaitForCreateTableToFinish(YBClient* client,
       std::chrono::seconds(2), max_jitter_ms, init_exponent);
 }
 
-Status YBClient::Data::WaitForCreateTableToFinish(YBClient* client,
-                                                  const YBTableName& table_name,
-                                                  const string& table_id,
-                                                  CoarseTimePoint deadline) {
-  return RetryFunc(
-      deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
-      std::bind(&YBClient::Data::IsCreateTableInProgress, this, client,
-                table_name, table_id, _1, _2));
-}
-
 Status YBClient::Data::DeleteTable(YBClient* client,
                                    const YBTableName& table_name,
                                    const string& table_id,
