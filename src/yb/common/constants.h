@@ -40,7 +40,4 @@ static const char* const kObsoleteShortPrimaryTableId = "sys.catalog.uuid";
 
 constexpr auto kPitrFeatureName = "PITR";
 
-constexpr const uint32_t kBackoffWaiterMaxJitterMs = 50;
-constexpr const uint32_t kBackoffWaiterInitExponent = 4;
-
 } // namespace yb

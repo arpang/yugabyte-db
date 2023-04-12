@@ -40,7 +40,6 @@
 #include "yb/client/client.h"
 
 #include "yb/common/common_net.pb.h"
-#include "yb/common/constants.h"
 #include "yb/common/entity_ids.h"
 #include "yb/common/index.h"
 #include "yb/common/transaction.h"
@@ -54,6 +53,7 @@
 #include "yb/server/server_base_options.h"
 
 #include "yb/util/atomic.h"
+#include "yb/util/backoff_waiter.h"
 #include "yb/util/locks.h"
 #include "yb/util/monotime.h"
 #include "yb/util/net/net_util.h"

@@ -16,12 +16,14 @@
 #include <chrono>
 #include <thread>
 
-#include "yb/common/constants.h"
 #include "yb/util/monotime.h"
 #include "yb/util/random_util.h"
 #include "yb/util/result.h"
 
 namespace yb {
+
+constexpr const uint32_t kBackoffWaiterMaxJitterMs = 50;
+constexpr const uint32_t kBackoffWaiterInitExponent = 4;
 
 // Utility class for waiting.
 // It tracks number of attempts and exponentially increase sleep timeout.
