@@ -79,7 +79,6 @@ class GenericBackoffWaiter {
                                                            : 1LL << (attempt_ + init_exponent - 1));
     uint32_t min_jitter_ms = 0;
     Duration jitter = std::chrono::milliseconds(RandomUniformInt(min_jitter_ms, max_jitter_ms));
-    LOG(INFO) << "Jitter " << jitter << " attempt_delay " << attempt_delay;
     return std::min(attempt_delay + jitter, max_wait);
   }
 
