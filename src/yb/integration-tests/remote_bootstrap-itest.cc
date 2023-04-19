@@ -1815,7 +1815,7 @@ TEST_F(RemoteBootstrapITest, TestClientCrashesBeforeChangeRoleKeyValueTableType)
 void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterations) {
   const string database = "test_db";
   const string table_prefix = "foo";
-  const MonoDelta timeout = MonoDelta::FromSeconds(30);
+  const MonoDelta timeout = MonoDelta::FromSeconds(kTimeMultiplier * 10);
 
   for (int itr = 0; itr < iterations; ++itr) {
     // Create tables and rows.
@@ -1843,13 +1843,16 @@ void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterat
     // Figure out the tablet id of the created tablet.
     vector<ListTabletsResponsePB::StatusAndSchemaPB> tablets;
     TServerDetails* ts = ts_map_[cluster_->tablet_server(ts_idx_to_bootstrap)->uuid()].get();
-    ASSERT_OK(WaitForNumTabletsOnTS(ts, 4, timeout, &tablets));
+
+    // Wait for 4 tablets - 3 transactions related and 1 user created colocated tablet.
+    ASSERT_OK(WaitForNumTabletsOnTS(ts, /* count = */ 4, timeout, &tablets));
     vector<string> user_tablet_ids;
     for (auto tablet : tablets) {
       if (tablet.tablet_status().table_name().ends_with("parent.tablename")) {
         user_tablet_ids.push_back(tablets[0].tablet_status().tablet_id());
       }
     }
+
     ASSERT_EQ(user_tablet_ids.size(), 1);
     string tablet_id = user_tablet_ids[0];
 
@@ -1867,7 +1870,7 @@ void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterat
           }
           return s;
         },
-        10s * kTimeMultiplier, Format("Delete parent tablet on $0", ts_to_bootstrap->uuid())));
+        timeout, Format("Delete parent tablet on $0", ts_to_bootstrap->uuid())));
 
     ts_to_bootstrap->Shutdown();
     ASSERT_OK(cluster_->WaitForTSToCrash(ts_to_bootstrap));
@@ -1879,7 +1882,9 @@ void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterat
         {std::make_pair("TEST_pause_rbs_before_download_wal", "true")}));
     ASSERT_OK(log_waiter.WaitFor(timeout));
 
-    // Add more entries to WAL so that new segments are generated before downloading the WAL.
+    // Add more entries to WAL so that new segments are generated before downloading the WAL. New
+    // wal segments are generated as a result of the below operations because the wal size is
+    // very small (log_segment_size_bytes=1024).
     for (int i = 0; i < num_tables; ++i) {
       ASSERT_OK(db_conn.ExecuteFormat("CREATE TABLE $0$1 (i int)", table_prefix, num_tables + i));
       ASSERT_OK(db_conn.Execute("BEGIN"));
@@ -1896,16 +1901,11 @@ void RemoteBootstrapITest::RBSWithLazySuperblockFlush(int num_tables, int iterat
     ASSERT_OK(
         cluster_->AddTServerToLeaderBlacklist(cluster_->master(), cluster_->tablet_server(1)));
 
-    SleepFor(5s);
     ASSERT_OK(WaitFor(
         [&]() -> Result<bool> {
-          bool is_idle = VERIFY_RESULT(client_->IsLoadBalancerIdle());
-          return !is_idle;
+          return VERIFY_RESULT(cluster_->GetTabletLeaderIndex(tablet_id)) == ts_idx_to_bootstrap;
         },
-        timeout, "IsLoadBalancerActive"));
-
-    auto leader_idx = CHECK_RESULT(cluster_->GetTabletLeaderIndex(tablet_id));
-    ASSERT_EQ(leader_idx, ts_idx_to_bootstrap);
+        timeout, "Waiting for ts_idx_to_bootstrap to become leader"));
 
     // Check persistence of previously inserted data.
     auto new_conn = ASSERT_RESULT(ConnectToDB(database));
@@ -1938,7 +1938,7 @@ TEST_F(RemoteBootstrapITest, YB_DISABLE_TEST_IN_TSAN(TestRBSWithLazySuperblockFl
 
   ASSERT_NO_FATALS(StartCluster(
       ts_flags, /* master_flags = */ {}, /* num_tablet_servers = */ 3, /* enable_ysql = */ true));
-  RBSWithLazySuperblockFlush(20, 4);
+  RBSWithLazySuperblockFlush(/* num_tables */ 20, /* iterations */ 4);
 }
 
 }  // namespace yb
