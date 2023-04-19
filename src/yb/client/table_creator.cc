@@ -31,7 +31,6 @@
 using std::string;
 
 DECLARE_bool(client_suppress_created_logs);
-DECLARE_bool(lazily_flush_superblock);
 DECLARE_uint32(change_metadata_backoff_max_jitter_ms);
 DECLARE_uint32(change_metadata_backoff_init_exponent);
 
@@ -375,7 +374,7 @@ Status YBTableCreator::Create() {
 
   // Spin until the table is fully created, if requested.
   if (wait_) {
-    if (req.has_tablegroup_id() && FLAGS_lazily_flush_superblock) {
+    if (req.has_tablegroup_id()) {
         RETURN_NOT_OK(client_->data_->WaitForCreateTableToFinish(
             client_, YBTableName(), table_id_, deadline,
             FLAGS_change_metadata_backoff_max_jitter_ms,
