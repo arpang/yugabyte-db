@@ -131,12 +131,13 @@ class YBClient::Data {
                                  bool *create_in_progress);
 
   // Take one of table id or name.
-  Status WaitForCreateTableToFinish(YBClient* client,
-                                    const YBTableName& table_name,
-                                    const std::string& table_id,
-                                    CoarseTimePoint deadline,
-                                    const uint32_t max_jitter_ms = kBackoffWaiterMaxJitterMs,
-                                    const uint32_t init_exponent = kBackoffWaiterInitExponent);
+  Status WaitForCreateTableToFinish(
+      YBClient* client,
+      const YBTableName& table_name,
+      const std::string& table_id,
+      CoarseTimePoint deadline,
+      const uint32_t max_jitter_ms = CoarseBackoffWaiter::kDefaultMaxJitterMs,
+      const uint32_t init_exponent = CoarseBackoffWaiter::kDefaultInitExponent);
 
   // Take one of table id or name.
   Status DeleteTable(YBClient* client,

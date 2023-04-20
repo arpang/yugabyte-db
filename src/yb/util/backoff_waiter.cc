@@ -31,7 +31,8 @@ Status RetryFunc(
     const uint32_t init_exponent) {
   DCHECK(deadline != CoarseTimePoint());
 
-  CoarseBackoffWaiter waiter(deadline, max_wait);
+  CoarseBackoffWaiter waiter(
+      deadline, max_wait, std::chrono::milliseconds(1), max_jitter_ms, init_exponent);
 
   if (waiter.ExpiredNow()) {
     return STATUS(TimedOut, timeout_msg);
@@ -44,7 +45,7 @@ Status RetryFunc(
     }
 
     VLOG(1) << retry_msg << " attempt=" << waiter.attempt() << " status=" << s.ToString();
-    if (!waiter.Wait(max_jitter_ms, init_exponent)) {
+    if (!waiter.Wait()) {
       break;
     }
   }
