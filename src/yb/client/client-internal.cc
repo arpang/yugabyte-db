@@ -563,7 +563,7 @@ Status YBClient::Data::WaitForCreateTableToFinish(YBClient* client,
       deadline, "Waiting on Create Table to be completed", "Timed out waiting for Table Creation",
       std::bind(
           &YBClient::Data::IsCreateTableInProgress, this, client, table_name, table_id, _1, _2),
-      std::chrono::seconds(2), max_jitter_ms, init_exponent);
+      2s, max_jitter_ms, init_exponent);
 }
 
 Status YBClient::Data::DeleteTable(YBClient* client,
