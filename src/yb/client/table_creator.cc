@@ -380,6 +380,7 @@ Status YBTableCreator::Create() {
             FLAGS_change_metadata_backoff_max_jitter_ms,
             FLAGS_change_metadata_backoff_init_exponent));
     } else {
+        // TODO: Should we make the backoff loop aggresive for regular tables as well?
         RETURN_NOT_OK(client_->data_->WaitForCreateTableToFinish(
             client_, YBTableName(), table_id_, deadline));
     }
