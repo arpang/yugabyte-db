@@ -110,6 +110,7 @@ typedef GenericBackoffWaiter<CoarseMonoClock> CoarseBackoffWaiter;
 constexpr int kDefaultInitialWaitMs = 1;
 constexpr double kDefaultWaitDelayMultiplier = 1.1;
 constexpr int kDefaultMaxWaitDelayMs = 2000;
+
 // Retry helper, takes a function like:
 //     Status funcName(const MonoTime& deadline, bool *retry, ...)
 // The function should set the retry flag (default true) if the function should

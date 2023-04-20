@@ -82,7 +82,6 @@
 #include "yb/rpc/rpc_controller.h"
 
 #include "yb/util/atomic.h"
-#include "yb/util/backoff_waiter.h"
 #include "yb/util/flags.h"
 #include "yb/util/format.h"
 #include "yb/util/logging.h"
