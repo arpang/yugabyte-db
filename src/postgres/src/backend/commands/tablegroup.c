@@ -167,7 +167,9 @@ CreateTableGroup(CreateTableGroupStmt *stmt)
 	 *   values[Anum_pg_yb_tablegroup_oid - 1] = ObjectIdGetDatum(tablegroupoid);
 	 * - Need to verify if following assignments to "values[]" are correct.
 	 */
-	tablegroupoid = YB_HACK_INVALID_OID;
+
+	tablegroupoid = GetNewOidWithIndex(rel, YbTablegroupOidIndexId,
+									   Anum_pg_yb_tablegroup_oid);
 
 	values[Anum_pg_yb_tablegroup_grpname - 1] =
 		DirectFunctionCall1(namein, CStringGetDatum(stmt->tablegroupname));
@@ -233,10 +235,12 @@ CreateTableGroup(CreateTableGroupStmt *stmt)
 			/* YB_TODO(alex) Needs to decide which column should be OID.
 			 * Following code assign oid as 1st column - values[0]
 			 */
-			values[Anum_pg_yb_tablegroup_oid - 1] = binary_upgrade_next_tablegroup_oid;
+			tablegroupoid = binary_upgrade_next_tablegroup_oid;
 			binary_upgrade_next_tablegroup_oid = InvalidOid;
 		}
 	}
+
+	values[Anum_pg_yb_tablegroup_oid - 1] = ObjectIdGetDatum(tablegroupoid);
 
 	tuple = heap_form_tuple(rel->rd_att, values, nulls);
 
