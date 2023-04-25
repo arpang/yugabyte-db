@@ -159,15 +159,6 @@ CreateTableGroup(CreateTableGroupStmt *stmt)
 	rel = table_open(YbTablegroupRelationId, RowExclusiveLock);
 	MemSet(nulls, false, sizeof(nulls));
 
-	/* YB_TODO(alex@yugabyte)
-	 * 
-	 * - Postgres no longer has hidden OID. A column for OID must be included if oid is needed.
-	 * - The following is a suggestion of what to do.
-	 *	 tablegroupoid = GetNewOidWithIndex(rel, TablegroupOidIndexId, Anum_pg_yb_tablegroup_oid);
-	 *   values[Anum_pg_yb_tablegroup_oid - 1] = ObjectIdGetDatum(tablegroupoid);
-	 * - Need to verify if following assignments to "values[]" are correct.
-	 */
-
 	tablegroupoid = GetNewOidWithIndex(rel, YbTablegroupOidIndexId,
 									   Anum_pg_yb_tablegroup_oid);
 
@@ -232,9 +223,6 @@ CreateTableGroup(CreateTableGroupStmt *stmt)
 		 */
 		if (OidIsValid(binary_upgrade_next_tablegroup_oid))
 		{
-			/* YB_TODO(alex) Needs to decide which column should be OID.
-			 * Following code assign oid as 1st column - values[0]
-			 */
 			tablegroupoid = binary_upgrade_next_tablegroup_oid;
 			binary_upgrade_next_tablegroup_oid = InvalidOid;
 		}
