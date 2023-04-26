@@ -250,7 +250,7 @@ DEFINE_test_flag(int32, sleep_after_tombstoning_tablet_secs, 0,
 DEFINE_UNKNOWN_bool(enable_restart_transaction_status_tablets_first, true,
             "Set to true to prioritize bootstrapping transaction status tablets first.");
 
-DEFINE_RUNTIME_int32(bg_superblock_flush_interval_secs, 10,
+DEFINE_RUNTIME_int32(bg_superblock_flush_interval_secs, 60,
     "The interval at which tablet superblocks are flushed to disk (if dirty) by a background "
     "thread. Applicable only when lazily_flush_superblock is enabled. 0 indicates that the "
     "background task is fully disabled.");
@@ -2757,7 +2757,7 @@ HybridTime TSTabletManager::AllowedHistoryCutoff(tablet::RaftGroupMetadata* meta
 
 void TSTabletManager::FlushDirtySuperblocks() {
   for (const auto& peer : GetTabletPeers()) {
-    if (peer->state() == RUNNING) {
+    if (peer->state() == RUNNING && peer->tablet_metadata()->IsLazySuperblockFlushEnabled()) {
       auto s = peer->tablet_metadata()->Flush(tablet::OnlyIfDirty::kTrue);
       if (!s.ok()) {
         LOG(WARNING) << "Failed flushing superblock for tablet " << peer->tablet_id()
