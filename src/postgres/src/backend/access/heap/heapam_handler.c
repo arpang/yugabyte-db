@@ -1156,12 +1156,18 @@ heapam_scan_analyze_next_tuple(TableScanDesc scan, TransactionId OldestXmin,
 }
 
 static double
-heapam_index_build_range_scan(Relation heapRelation, Relation indexRelation,
-							  IndexInfo *indexInfo, bool allow_sync,
-							  bool anyvisible, bool progress,
-							  BlockNumber start_blockno, BlockNumber numblocks,
-							  IndexBuildCallback callback, void *callback_state,
-							  TableScanDesc scan, YbBackfillInfo *bfinfo,
+heapam_index_build_range_scan(Relation heapRelation,
+							  Relation indexRelation,
+							  IndexInfo *indexInfo,
+							  bool allow_sync,
+							  bool anyvisible,
+							  bool progress,
+							  BlockNumber start_blockno,
+							  BlockNumber numblocks,
+							  IndexBuildCallback callback,
+							  void *callback_state,
+							  TableScanDesc scan,
+							  YbBackfillInfo *bfinfo,
 							  YbPgExecOutParam *bfresult)
 {
 	HeapScanDesc hscan;
