@@ -888,23 +888,6 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		64
 	},
-#ifdef YB_TODO
-	/* YB_TODO(alex@yugabyte)
-	 * - Do we need an OID column?
-	 * - Shouldn't we need to define system table for the tablegroup here?
-	 */
-	{YbTablegroupRelationId,		/* TABLEGROUPOID */
-		YbTablegroupOidIndexId,
-		1,
-		{
-			Anum_pg_yb_tablegroup_oid,
-			0,
-			0,
-			0,
-		},
-		4
-	},
-#endif
 	{TableSpaceRelationId,		/* TABLESPACEOID */
 		TablespaceOidIndexId,
 		1,
@@ -1085,7 +1068,7 @@ static const struct cachedesc cacheinfo[] = {
 		YbTablegroupOidIndexId,
 		1,
 		{
-			ObjectIdAttributeNumber,
+			Anum_pg_yb_tablegroup_oid,
 			0,
 			0,
 			0,
@@ -1125,98 +1108,98 @@ static int	SysCacheSupportingRelOidSize;
 
 static int	oid_compare(const void *a, const void *b);
 
-Bitmapset *
-YBSysTablePrimaryKey(Oid relid)
-{
-	Bitmapset *pkey = NULL;
+// Bitmapset *
+// YBSysTablePrimaryKey(Oid relid)
+// {
+// 	Bitmapset *pkey = NULL;
 
-#define YBPkAddAttribute(attid) \
-	do { pkey = bms_add_member(pkey, attid - FirstLowInvalidHeapAttributeNumber); } while (false)
+// #define YBPkAddAttribute(attid) \
+// 	do { pkey = bms_add_member(pkey, attid - FirstLowInvalidHeapAttributeNumber); } while (false)
 
-	switch (relid)
-	{
-		case AccessMethodOperatorRelationId:
-		case AccessMethodProcedureRelationId:
-		case AccessMethodRelationId:
-		case AggregateRelationId:
-		case AttrDefaultRelationId:
-		case AuthIdRelationId:
-		case CastRelationId:
-		case CollationRelationId:
-		case ConstraintRelationId:
-		case ConversionRelationId:
-		case DatabaseRelationId:
-		case DefaultAclRelationId:
-		case EnumRelationId:
-		case EventTriggerRelationId:
-		case ForeignDataWrapperRelationId:
-		case ForeignServerRelationId:
-		case ForeignTableRelationId:
-		case LanguageRelationId:
-		case NamespaceRelationId:
-		case OperatorClassRelationId:
-		case OperatorFamilyRelationId:
-		case OperatorRelationId:
-		case ProcedureRelationId:
-		case PublicationRelRelationId:
-		case PublicationRelationId:
-		case RelationRelationId:
-		case RewriteRelationId:
-		case StatisticExtRelationId:
-		case SubscriptionRelationId:
-		case TSConfigRelationId:
-		case TSDictionaryRelationId:
-		case TSParserRelationId:
-		case TSTemplateRelationId:
-		case TableSpaceRelationId:
-		case TransformRelationId:
-		case TypeRelationId:
-		case UserMappingRelationId:
-		case YbTablegroupRelationId:
-			YBPkAddAttribute(ObjectIdAttributeNumber);
-			break;
-		case AttributeRelationId:
-			YBPkAddAttribute(Anum_pg_attribute_attrelid);
-			YBPkAddAttribute(Anum_pg_attribute_attnum);
-			break;
-		case AuthMemRelationId:
-			YBPkAddAttribute(Anum_pg_auth_members_roleid);
-			YBPkAddAttribute(Anum_pg_auth_members_member);
-			break;
-		case IndexRelationId:
-			YBPkAddAttribute(Anum_pg_index_indexrelid);
-			break;
-		case PartitionedRelationId:
-			YBPkAddAttribute(Anum_pg_partitioned_table_partrelid);
-			break;
-		case RangeRelationId:
-			YBPkAddAttribute(Anum_pg_range_rngtypid);
-			break;
-		case ReplicationOriginRelationId:
-			YBPkAddAttribute(Anum_pg_replication_origin_roident);
-			break;
-		case SequenceRelationId:
-			YBPkAddAttribute(Anum_pg_sequence_seqrelid);
-			break;
-		case StatisticRelationId:
-			YBPkAddAttribute(Anum_pg_statistic_starelid);
-			break;
-		case SubscriptionRelRelationId:
-			YBPkAddAttribute(Anum_pg_subscription_rel_srrelid);
-			YBPkAddAttribute(Anum_pg_subscription_rel_srsubid);
-			break;
-		case TSConfigMapRelationId:
-			YBPkAddAttribute(Anum_pg_ts_config_map_mapcfg);
-			YBPkAddAttribute(Anum_pg_ts_config_map_maptokentype);
-			YBPkAddAttribute(Anum_pg_ts_config_map_mapseqno);
-			break;
-		default: break;
-	}
+// 	switch (relid)
+// 	{
+// 		case AccessMethodOperatorRelationId:
+// 		case AccessMethodProcedureRelationId:
+// 		case AccessMethodRelationId:
+// 		case AggregateRelationId:
+// 		case AttrDefaultRelationId:
+// 		case AuthIdRelationId:
+// 		case CastRelationId:
+// 		case CollationRelationId:
+// 		case ConstraintRelationId:
+// 		case ConversionRelationId:
+// 		case DatabaseRelationId:
+// 		case DefaultAclRelationId:
+// 		case EnumRelationId:
+// 		case EventTriggerRelationId:
+// 		case ForeignDataWrapperRelationId:
+// 		case ForeignServerRelationId:
+// 		case ForeignTableRelationId:
+// 		case LanguageRelationId:
+// 		case NamespaceRelationId:
+// 		case OperatorClassRelationId:
+// 		case OperatorFamilyRelationId:
+// 		case OperatorRelationId:
+// 		case ProcedureRelationId:
+// 		case PublicationRelRelationId:
+// 		case PublicationRelationId:
+// 		case RelationRelationId:
+// 		case RewriteRelationId:
+// 		case StatisticExtRelationId:
+// 		case SubscriptionRelationId:
+// 		case TSConfigRelationId:
+// 		case TSDictionaryRelationId:
+// 		case TSParserRelationId:
+// 		case TSTemplateRelationId:
+// 		case TableSpaceRelationId:
+// 		case TransformRelationId:
+// 		case TypeRelationId:
+// 		case UserMappingRelationId:
+// 		case YbTablegroupRelationId:
+// 			YBPkAddAttribute(ObjectIdAttributeNumber);
+// 			break;
+// 		case AttributeRelationId:
+// 			YBPkAddAttribute(Anum_pg_attribute_attrelid);
+// 			YBPkAddAttribute(Anum_pg_attribute_attnum);
+// 			break;
+// 		case AuthMemRelationId:
+// 			YBPkAddAttribute(Anum_pg_auth_members_roleid);
+// 			YBPkAddAttribute(Anum_pg_auth_members_member);
+// 			break;
+// 		case IndexRelationId:
+// 			YBPkAddAttribute(Anum_pg_index_indexrelid);
+// 			break;
+// 		case PartitionedRelationId:
+// 			YBPkAddAttribute(Anum_pg_partitioned_table_partrelid);
+// 			break;
+// 		case RangeRelationId:
+// 			YBPkAddAttribute(Anum_pg_range_rngtypid);
+// 			break;
+// 		case ReplicationOriginRelationId:
+// 			YBPkAddAttribute(Anum_pg_replication_origin_roident);
+// 			break;
+// 		case SequenceRelationId:
+// 			YBPkAddAttribute(Anum_pg_sequence_seqrelid);
+// 			break;
+// 		case StatisticRelationId:
+// 			YBPkAddAttribute(Anum_pg_statistic_starelid);
+// 			break;
+// 		case SubscriptionRelRelationId:
+// 			YBPkAddAttribute(Anum_pg_subscription_rel_srrelid);
+// 			YBPkAddAttribute(Anum_pg_subscription_rel_srsubid);
+// 			break;
+// 		case TSConfigMapRelationId:
+// 			YBPkAddAttribute(Anum_pg_ts_config_map_mapcfg);
+// 			YBPkAddAttribute(Anum_pg_ts_config_map_maptokentype);
+// 			YBPkAddAttribute(Anum_pg_ts_config_map_mapseqno);
+// 			break;
+// 		default: break;
+// 	}
 
-#undef YBPkAddAttribute
+// #undef YBPkAddAttribute
 
-	return pkey;
-}
+// 	return pkey;
+// }
 
 /*
  * Utility function for YugaByte mode. Is used to automatically add entries

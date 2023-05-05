@@ -135,9 +135,9 @@ std::vector<const PgColumn*> OrderColumns(const std::vector<PgColumn>& cols) {
       case to_underlying(PgSystemAttrNum::kYBTupleId):
         ybctidCol = &c;
         break;
-      case to_underlying(PgSystemAttrNum::kObjectId):
-        objCol = &c;
-        break;
+      // case to_underlying(PgSystemAttrNum::kObjectId):
+      //   objCol = &c;
+      //   break;
       default:
         if (attr > 0) {
           result.push_back(&c);
