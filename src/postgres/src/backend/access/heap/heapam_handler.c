@@ -28,6 +28,7 @@
 #include "access/tableam.h"
 #include "access/tsmapi.h"
 #include "access/xact.h"
+#include "access/yb_scan.h"
 #include "catalog/catalog.h"
 #include "catalog/index.h"
 #include "catalog/storage.h"
@@ -1264,7 +1265,7 @@ heapam_index_build_range_scan(Relation heapRelation, Relation indexRelation,
 				exec_params->is_index_backfill = true;
 			}
 
-			scan->ybscan->exec_params = exec_params;
+			((YbScanDesc) scan)->exec_params = exec_params;
 		}
 	}
 	else
