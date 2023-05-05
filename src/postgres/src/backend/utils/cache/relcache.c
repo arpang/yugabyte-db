@@ -1446,11 +1446,6 @@ YBLoadRelations()
 		relation->rd_partdesc   = NULL;
 		relation->rd_pdcxt      = NULL;
 
-		/* if it's an index, initialize index-related information */
-		/*	if (OidIsValid(relation->rd_rel->relam))
-			In PG15 even non-index relations have non-zero relam. For instance,
-			pg_aggregate has 2 relam
-		*/
 		if (relation->rd_rel->relkind == RELKIND_INDEX ||
 			relation->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
 			RelationInitIndexAccessInfo(relation);

@@ -738,8 +738,8 @@ GetTypeId(int attrNum, TupleDesc tupleDesc)
 	{
 		case SelfItemPointerAttributeNumber:
 			return TIDOID;
-		// case ObjectIdAttributeNumber:
-		// 	return OIDOID;
+		case ObjectIdAttributeNumber:
+			return OIDOID;
 		case MinTransactionIdAttributeNumber:
 			return XIDOID;
 		case MinCommandIdAttributeNumber:
@@ -2923,14 +2923,6 @@ void YBGetCollationInfo(
 	}
 	switch (type_entity->type_oid) {
 		case NAMEOID:
-			/*
-			 * In bootstrap code, postgres 11.2 hard coded to InvalidOid but
-			 * postgres 13.2 hard coded to C_COLLATION_OID. Adjust the assertion
-			 * when we upgrade to postgres 13.2.
-			 */
-			// Assert(collation_id == InvalidOid);
-			// collation_id = C_COLLATION_OID;
-			// break;
 		case TEXTOID:
 		case BPCHAROID:
 		case VARCHAROID:

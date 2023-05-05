@@ -1471,11 +1471,12 @@ heap_create_with_catalog(const char *relname,
 		  relkind == RELKIND_INDEX ||
 		  relkind == RELKIND_PARTITIONED_INDEX))
 		/* && !IsCatalogRelation(new_rel_desc)
-		   The above (now commented) condition was preventing creation of
-		   _pg_statistic row in pg_type relation. As a result
-		   checlpg_statistic_ext_data realtion creation was failing. This
-		   condition is also not present in PG15.
-		*/
+		 * YB_TODO(arpan):
+		 * The above (now commented) condition was preventing creation of
+		 * _pg_statistic row in pg_type relation. As a result
+		 * checlpg_statistic_ext_data realtion creation was failing. This
+		 * condition is also not present in PG15.
+		 */
 	{
 		Oid			new_array_oid;
 		ObjectAddress new_type_addr;
@@ -1512,10 +1513,11 @@ heap_create_with_catalog(const char *relname,
 		relarrayname = makeArrayTypeName(relname, relnamespace);
 
 		/*
-			Due to the below assertion pg_database relation creation fails. It is
-			not present in PG11/PG15/YB master. Why have we added it to pg15 branch?
-		*/
-		// Assert(!shared_relation);
+		 * YB_TODO(arpan):
+		 * Due to the below assertion pg_database relation creation fails. It is
+		 * not present in PG11/PG15. Why have we added it in YB?
+		 * Assert(!shared_relation);
+		 */
 		TypeCreate(new_array_oid,	/* force the type's OID to this */
 				   relarrayname,	/* Array type name */
 				   relnamespace,	/* Same namespace as parent */
