@@ -318,6 +318,7 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 		YBCPgAddIntoForeignKeyReferenceCache(relid, HEAPTUPLE_YBCTID(tuple));
 
 	bms_free(pkey);
+	// TODO(arpan): return void
 	return YbHeapTupleGetOid(tuple);
 }
 
