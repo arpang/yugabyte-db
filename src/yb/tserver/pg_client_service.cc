@@ -478,7 +478,9 @@ class PgClientServiceImpl::Impl {
   }
 
   void Perform(PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context) {
+    // LOG(INFO) << "Received request Perform " << req->ShortDebugString();
     auto status = DoPerform(req, resp, context);
+    // LOG(INFO) << "Returning Received request Perform";
     if (!status.ok()) {
       Respond(status, resp, context);
     }

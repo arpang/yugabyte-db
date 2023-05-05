@@ -179,6 +179,7 @@ PgCreateTable::PgCreateTable(PgSession::ScopedRefPtr pg_session,
                              bool is_matview,
                              const PgObjectId& matview_pg_table_oid)
     : PgDdl(pg_session) {
+  LOG(INFO) << "PgCreateTable for " << *table_name;
   table_id.ToPB(req_.mutable_table_id());
   req_.set_database_name(database_name);
   req_.set_table_name(table_name);

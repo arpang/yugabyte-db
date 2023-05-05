@@ -7629,7 +7629,7 @@ ATExecDropNotNull(Relation rel, const char *colName, LOCKMODE lockmode)
 
 		indexTuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(indexoid));
 		if (!HeapTupleIsValid(indexTuple))
-			elog(ERROR, "cache lookup failed for index %u", indexoid);
+			elog(ERROR, "cache lookup failed for index 13 %u", indexoid);
 		indexStruct = (Form_pg_index) GETSTRUCT(indexTuple);
 
 		/*
@@ -12744,7 +12744,7 @@ transformFkeyGetPrimaryKey(Relation pkrel, Oid *indexOid,
 
 		indexTuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(indexoid));
 		if (!HeapTupleIsValid(indexTuple))
-			elog(ERROR, "cache lookup failed for index %u", indexoid);
+			elog(ERROR, "cache lookup failed for index 14 %u", indexoid);
 		indexStruct = (Form_pg_index) GETSTRUCT(indexTuple);
 		if (indexStruct->indisprimary && indexStruct->indisvalid)
 		{
@@ -12857,7 +12857,7 @@ transformFkeyCheckAttrs(Relation pkrel,
 		indexoid = lfirst_oid(indexoidscan);
 		indexTuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(indexoid));
 		if (!HeapTupleIsValid(indexTuple))
-			elog(ERROR, "cache lookup failed for index %u", indexoid);
+			elog(ERROR, "cache lookup failed for index 15 %u", indexoid);
 		indexStruct = (Form_pg_index) GETSTRUCT(indexTuple);
 
 		/*
@@ -17605,7 +17605,7 @@ relation_mark_replica_identity(Relation rel, char ri_type, Oid indexOid,
 		pg_index_tuple = SearchSysCacheCopy1(INDEXRELID,
 											 ObjectIdGetDatum(thisIndexOid));
 		if (!HeapTupleIsValid(pg_index_tuple))
-			elog(ERROR, "cache lookup failed for index %u", thisIndexOid);
+			elog(ERROR, "cache lookup failed for index 16 %u", thisIndexOid);
 		pg_index_form = (Form_pg_index) GETSTRUCT(pg_index_tuple);
 
 		if (thisIndexOid == indexOid)
@@ -20813,7 +20813,7 @@ validatePartitionedIndex(Relation partedIdx, Relation partedTbl)
 		indTup = SearchSysCache1(INDEXRELID,
 								 ObjectIdGetDatum(inhForm->inhrelid));
 		if (!HeapTupleIsValid(indTup))
-			elog(ERROR, "cache lookup failed for index %u", inhForm->inhrelid);
+			elog(ERROR, "cache lookup failed for index 17 %u", inhForm->inhrelid);
 		indexForm = (Form_pg_index) GETSTRUCT(indTup);
 		if (indexForm->indisvalid)
 			tuples += 1;

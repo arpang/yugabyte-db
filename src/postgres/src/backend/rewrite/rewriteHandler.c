@@ -784,8 +784,8 @@ rewriteTargetListIU(List *targetList,
 			/* Pass system column as-is. */
 			if (IsYsqlUpgrade && attrno < 1)
 			{
-				if (attrno != ObjectIdAttributeNumber)
-					elog(ERROR, "can't reference system columns other than oid");
+				// if (attrno != ObjectIdAttributeNumber)
+				// 	elog(ERROR, "can't reference system columns other than oid");
 
 				if (commandType != CMD_INSERT)
 					elog(ERROR, "can't UPDATE oid");

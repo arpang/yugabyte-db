@@ -403,11 +403,11 @@ void TranslateCtid(Slice *yb_cursor, const PgWireDataHeader& header, int index,
   TranslateSysCol<uint64_t>(yb_cursor, header, &pg_tuple->syscols()->ctid);
 }
 
-void TranslateOid(Slice *yb_cursor, const PgWireDataHeader& header, int index,
-                  const YBCPgTypeEntity *type_entity, const PgTypeAttrs *type_attrs,
-                  PgTuple *pg_tuple) {
-  TranslateSysCol<uint32_t>(yb_cursor, header, &pg_tuple->syscols()->oid);
-}
+// void TranslateOid(Slice *yb_cursor, const PgWireDataHeader& header, int index,
+//                   const YBCPgTypeEntity *type_entity, const PgTypeAttrs *type_attrs,
+//                   PgTuple *pg_tuple) {
+//   TranslateSysCol<uint32_t>(yb_cursor, header, &pg_tuple->syscols()->oid);
+// }
 
 void TranslateTableoid(Slice *yb_cursor, const PgWireDataHeader& header, int index,
                        const YBCPgTypeEntity *type_entity, const PgTypeAttrs *type_attrs,
@@ -808,9 +808,9 @@ PgColumnRef::PgColumnRef(int attr_num,
       case static_cast<int>(PgSystemAttrNum::kSelfItemPointer):
         translate_data_ = TranslateCtid;
         break;
-      case static_cast<int>(PgSystemAttrNum::kObjectId):
-        translate_data_ = TranslateOid;
-        break;
+      // case static_cast<int>(PgSystemAttrNum::kObjectId):
+      //   translate_data_ = TranslateOid;
+      //   break;
       case static_cast<int>(PgSystemAttrNum::kMinTransactionId):
         translate_data_ = TranslateXmin;
         break;

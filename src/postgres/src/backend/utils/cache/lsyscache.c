@@ -3554,7 +3554,7 @@ get_index_isvalid(Oid index_oid)
 
 	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
 	if (!HeapTupleIsValid(tuple))
-		elog(ERROR, "cache lookup failed for index %u", index_oid);
+		elog(ERROR, "cache lookup failed for index 20 %u", index_oid);
 
 	rd_index = (Form_pg_index) GETSTRUCT(tuple);
 	isvalid = rd_index->indisvalid;
@@ -3577,7 +3577,7 @@ get_index_isclustered(Oid index_oid)
 
 	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
 	if (!HeapTupleIsValid(tuple))
-		elog(ERROR, "cache lookup failed for index %u", index_oid);
+		elog(ERROR, "cache lookup failed for index 21 %u", index_oid);
 
 	rd_index = (Form_pg_index) GETSTRUCT(tuple);
 	isclustered = rd_index->indisclustered;

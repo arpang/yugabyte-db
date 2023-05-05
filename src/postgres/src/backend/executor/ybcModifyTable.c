@@ -205,6 +205,7 @@ static void YBCExecWriteStmt(YBCPgStatement ybc_stmt,
 	}
 }
 
+// TODO(arpan): return void
 /*
  * Utility method to insert a tuple into the relation's backing YugaByte table.
  */
@@ -223,17 +224,15 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 	YBCPgStatement insert_stmt = NULL;
 	bool           is_null  = false;
 
-#ifdef YB_TODO
 	/* YB_TODO(neil@yugabyte)
 	 * - OID is now a regular column
 	 * - Generate a new oid for this row if needed
 	 */
-	if (rel->rd_rel->relhasoids)
-	{
-		if (!OidIsValid(HeapTupleGetOid(tuple)))
-			HeapTupleSetOid(tuple, GetNewOid(rel));
-	}
-#endif
+	// if (rel->rd_rel->relhasoids)
+	// {
+	// 	if (!OidIsValid(HeapTupleGetOid(tuple)))
+	// 		HeapTupleSetOid(tuple, GetNewOid(rel));
+	// }
 
 	/* Create the INSERT request and add the values from the tuple. */
 	HandleYBStatus(YBCPgNewInsert(dboid,
@@ -323,9 +322,6 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 		YBCPgAddIntoForeignKeyReferenceCache(relid, HEAPTUPLE_YBCTID(tuple));
 
 	bms_free(pkey);
-#ifdef NEIL_NEED_WORK
-	/* Read typeOid from "values" and "nulls" instead of tuple header */
-#endif
 	return YbHeapTupleGetOid(tuple);
 }
 

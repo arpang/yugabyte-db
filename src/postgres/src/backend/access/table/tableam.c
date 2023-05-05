@@ -111,11 +111,14 @@ table_slot_create(Relation relation, List **reglist)
 TableScanDesc
 table_beginscan_catalog(Relation relation, int nkeys, struct ScanKeyData *key)
 {
+	elog(DEBUG3, "Starting table_beginscan_catalog");
 	uint32		flags = SO_TYPE_SEQSCAN |
 	SO_ALLOW_STRAT | SO_ALLOW_SYNC | SO_ALLOW_PAGEMODE | SO_TEMP_SNAPSHOT;
+	elog(DEBUG3, "table_beginscan_catalog c 1");
 	Oid			relid = RelationGetRelid(relation);
+	elog(DEBUG3, "table_beginscan_catalog c 2");
 	Snapshot	snapshot = RegisterSnapshot(GetCatalogSnapshot(relid));
-
+	elog(DEBUG3, "table_beginscan_catalog c 3");
 	return relation->rd_tableam->scan_begin(relation, snapshot, nkeys, key,
 											NULL, flags);
 }

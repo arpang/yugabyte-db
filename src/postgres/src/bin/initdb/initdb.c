@@ -135,6 +135,7 @@ static char *lc_time = NULL;
 static char *lc_messages = NULL;
 static char locale_provider = COLLPROVIDER_LIBC;
 static char *icu_locale = NULL;
+static char		  *icu_rules = NULL;
 static const char *default_text_search_config = NULL;
 static char *username = NULL;
 static bool pwprompt = false;
@@ -142,7 +143,7 @@ static char *pwfilename = NULL;
 static char *superuser_password = NULL;
 static const char *authmethodhost = NULL;
 static const char *authmethodlocal = NULL;
-static bool debug = false;
+static bool		   debug = true;
 static bool noclean = false;
 static bool noinstructions = false;
 static bool do_sync = true;
@@ -1477,9 +1478,17 @@ bootstrap_template1(void)
 		bki_lines = replace_token(bki_lines, "LC_CTYPE",
 								  escape_quotes_bki(lc_ctype));
 
-		bki_lines = replace_token(bki_lines, "ICU_LOCALE",
-								  locale_provider == COLLPROVIDER_ICU ? escape_quotes_bki(icu_locale) : "_null_");
+		// bki_lines = replace_token(bki_lines, "ICU_LOCALE",
+		// 						  locale_provider == COLLPROVIDER_ICU ?
+		// escape_quotes_bki(icu_locale) : "_null_");
 
+		bki_lines = replace_token(bki_lines, "ICU_LOCALE",
+								  icu_locale ? escape_quotes_bki(icu_locale) :
+											   "_null_");
+
+		bki_lines =
+			replace_token(bki_lines, "ICU_RULES",
+						  icu_rules ? escape_quotes_bki(icu_rules) : "_null_");
 		sprintf(buf, "%c", locale_provider);
 		bki_lines = replace_token(bki_lines, "LOCALE_PROVIDER", buf);
 	}
@@ -1487,29 +1496,29 @@ bootstrap_template1(void)
 	/* Also ensure backend isn't confused by this environment var: */
 	unsetenv("PGCLIENTENCODING");
 
-	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" --boot -X %d %s %s %s %s",
-			 backend_exec,
-			 wal_segment_size_mb * (1024 * 1024),
-			 data_checksums ? "-k" : "",
-			 boot_options, extra_options,
-			 debug ? "-d 5" : "");
-
+	snprintf(cmd, sizeof(cmd), "\"%s\" --boot -X %d %s %s %s %s", backend_exec,
+			 wal_segment_size_mb * (1024 * 1024), data_checksums ? "-k" : "",
+			 boot_options, extra_options, debug ? "-d 2" : "");
 
 	PG_CMD_OPEN;
-
-  for (line = bki_lines; *line != NULL; line++)
-  {
-    if (!IsYugaByteLocalNodeInitdb())
-      PG_CMD_PUTS(*line);
-    free(*line);
-  }
+	pg_log_info("Checkpoint 1.1 (logged via pg_log_info)");
+	pg_log_warning("Checkpoint 1.1 (logged via pg_log_warning)");
+	pg_log_error("Checkpoint 1.1 (logged via pg_log_error)");
+	printf("Checkpoint 1.1\n");
+	for (line = bki_lines; *line != NULL; line++)
+	{
+		if (!IsYugaByteLocalNodeInitdb())
+			PG_CMD_PUTS(*line);
+		free(*line);
+	}
+	printf("Checkpoint 1.2\n");
 
 	PG_CMD_CLOSE;
 
 	free(bki_lines);
-
+	printf("Checkpoint 1.3\n");
 	check_ok();
+	printf("Checkpoint 1.4\n");
 }
 
 /*
@@ -2973,10 +2982,10 @@ initialize_data_directory(void)
 
 	/* Now create all the text config files */
 	setup_config();
-
+	printf("Checkpoint 1\n");
 	/* Bootstrap template1 */
 	bootstrap_template1();
-
+	printf("Checkpoint 2\n");
 	if (IsYugaByteLocalNodeInitdb())
 		return;
 
@@ -2991,43 +3000,43 @@ initialize_data_directory(void)
 	 */
 	fputs(_("performing post-bootstrap initialization ... "), stdout);
 	fflush(stdout);
-
+	printf("Checkpoint 3\n");
 	snprintf(cmd, sizeof(cmd),
 			 "\"%s\" %s %s template1 >%s",
 			 backend_exec, backend_options, extra_options,
 			 DEVNULL);
 
 	PG_CMD_OPEN;
-
+	printf("Checkpoint 4\n");
 	setup_auth(cmdfd);
-
+	printf("Checkpoint 5\n");
 	setup_run_file(cmdfd, system_constraints_file);
-
+	printf("Checkpoint 6\n");
 	setup_run_file(cmdfd, system_functions_file);
-
+	printf("Checkpoint 7\n");
 	setup_depend(cmdfd);
 
 	/*
 	 * Note that no objects created after setup_depend() will be "pinned".
 	 * They are all droppable at the whim of the DBA.
 	 */
-
+	printf("Checkpoint 8\n");
 	setup_run_file(cmdfd, system_views_file);
-
+	printf("Checkpoint 9\n");
 	/* Do not support copy in YB yet */
 	if (!IsYugaByteGlobalClusterInitdb())
 		setup_description(cmdfd);
-
+	printf("Checkpoint 10\n");
 	setup_collation(cmdfd);
-
+	printf("Checkpoint 11\n");
 	setup_run_file(cmdfd, dictionary_file);
-
+	printf("Checkpoint 12\n");
 	setup_privileges(cmdfd);
-
+	printf("Checkpoint 13\n");
 	setup_schema(cmdfd);
-
+	printf("Checkpoint 14\n");
 	load_plpgsql(cmdfd);
-
+	printf("Checkpoint 15\n");
 	/* Enable pg_stat_statements */
 	enable_pg_stat_statements(cmdfd);
 
@@ -3036,7 +3045,7 @@ initialize_data_directory(void)
 		/* Do not need to vacuum in YB */
 		vacuum_db(cmdfd);
 	}
-
+	printf("Checkpoint 16\n");
 	make_template0(cmdfd);
 
 	make_postgres(cmdfd);
@@ -3058,6 +3067,7 @@ initialize_data_directory(void)
 int
 main(int argc, char *argv[])
 {
+	printf("Checkpoint 0\n");
 	if (IsYugaByteGlobalClusterInitdb() || IsYugaByteLocalNodeInitdb())
 		YBSetInitDbModeEnvVar();
 
@@ -3253,6 +3263,9 @@ main(int argc, char *argv[])
 			case 16:
 				icu_locale = pg_strdup(optarg);
 				break;
+			case 17:
+				icu_rules = pg_strdup(optarg);
+				break;
 			default:
 				/* getopt_long already emitted a complaint */
 				pg_log_error_hint("Try \"%s --help\" for more information.", progname);
@@ -3282,6 +3295,11 @@ main(int argc, char *argv[])
 	if (icu_locale && locale_provider != COLLPROVIDER_ICU)
 		pg_fatal("%s cannot be specified unless locale provider \"%s\" is chosen",
 				 "--icu-locale", "icu");
+
+	if (icu_rules && locale_provider != COLLPROVIDER_ICU)
+		pg_fatal("%s cannot be specified unless locale provider \"%s\" is "
+				 "chosen",
+				 "--icu-rules", "icu");
 
 	atexit(cleanup_directories_atexit);
 
@@ -3366,7 +3384,7 @@ main(int argc, char *argv[])
 		get_su_pwd();
 
 	printf("\n");
-
+	printf("Checkpoint 0.1\n");
 	initialize_data_directory();
 
 	if (do_sync)

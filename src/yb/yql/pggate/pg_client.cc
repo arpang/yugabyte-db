@@ -160,6 +160,7 @@ class PgClient::Impl {
     Heartbeat(true);
     session_id_ = VERIFY_RESULT(future.get());
     LOG_WITH_PREFIX(INFO) << "Session id acquired. Postgres backend pid: " << getpid();
+    SleepFor(10s);
     heartbeat_poller_.Start(scheduler, FLAGS_pg_client_heartbeat_interval_ms * 1ms);
     return Status::OK();
   }

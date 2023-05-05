@@ -320,7 +320,7 @@ ExecSeqScanInitializeWorker(SeqScanState *node,
 void
 YbExecUpdateInstrumentSeqScan(SeqScanState *node, Instrumentation *instr)
 {
-	YbScanDesc ybscan = (YbScanDesc)node->ss.ss_currentScanDesc;
+	YbScanDesc ybscan = node->ss.ss_currentScanDesc->ybscan;
 	Assert(PointerIsValid(ybscan));
 	if (ybscan->handle)
 		YbUpdateReadRpcStats(ybscan->handle,

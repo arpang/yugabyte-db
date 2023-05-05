@@ -255,7 +255,7 @@ CheckIndexCompatible(Oid oldId,
 	/* Get the soon-obsolete pg_index tuple. */
 	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(oldId));
 	if (!HeapTupleIsValid(tuple))
-		elog(ERROR, "cache lookup failed for index %u", oldId);
+		elog(ERROR, "cache lookup failed for index 11 %u", oldId);
 	indexForm = (Form_pg_index) GETSTRUCT(tuple);
 
 	/*
@@ -1727,7 +1727,7 @@ DefineIndex(Oid relationId,
 				tup = SearchSysCache1(INDEXRELID,
 									  ObjectIdGetDatum(indexRelationId));
 				if (!HeapTupleIsValid(tup))
-					elog(ERROR, "cache lookup failed for index %u",
+					elog(ERROR, "cache lookup failed for index 12 %u",
 						 indexRelationId);
 				newtup = heap_copytuple(tup);
 				((Form_pg_index) GETSTRUCT(newtup))->indisvalid = false;

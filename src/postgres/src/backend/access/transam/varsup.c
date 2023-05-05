@@ -585,11 +585,11 @@ YbGetMaxAllocatedSystemOid()
 	{
 		/* SELECT * FROM x WHERE oid >= 10000 AND oid < 16384 */
 		ScanKeyInit(&key[0],
-					ObjectIdAttributeNumber,
+					YB_HACK_INVALID_FLAG,
 					BTGreaterEqualStrategyNumber, F_OIDGE,
 					ObjectIdGetDatum((Oid) YbFirstBootstrapObjectId));
 		ScanKeyInit(&key[1],
-					ObjectIdAttributeNumber,
+					YB_HACK_INVALID_FLAG,
 					BTLessStrategyNumber, F_OIDLT,
 					ObjectIdGetDatum((Oid) FirstNormalObjectId));
 

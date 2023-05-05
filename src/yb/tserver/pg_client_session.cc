@@ -538,6 +538,7 @@ uint64_t PgClientSession::id() const {
 
 Status PgClientSession::CreateTable(
     const PgCreateTableRequestPB& req, PgCreateTableResponsePB* resp, rpc::RpcContext* context) {
+  LOG(INFO) << "Received request CreateTable " << req.ShortDebugString();
   PgCreateTable helper(req);
   RETURN_NOT_OK(helper.Prepare());
   const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
@@ -548,6 +549,7 @@ Status PgClientSession::CreateTable(
   if (indexed_table_id.IsValid()) {
     table_cache_.Invalidate(indexed_table_id.GetYbTableId());
   }
+  LOG(INFO) << "Returning Received request CreateTable";
   return Status::OK();
 }
 

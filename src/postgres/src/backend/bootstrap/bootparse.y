@@ -199,24 +199,27 @@ Boot_CreateStmt:
 				{
 					do_start();
 					numattr = 0;
-					elog(DEBUG4, "creating%s%s relation %s %u",
+					elog(DEBUG3, "Arpan creating%s%s relation %s %u",
 						 $4 ? " bootstrap" : "",
 						 $5 ? " shared" : "",
 						 $2,
 						 $3);
+					elog(DEBUG3, "YOLO");
 				}
 		  boot_column_list
 				{
+					elog(DEBUG3, "Arpan boot_column_list");
 					do_end();
 				}
 		  RPAREN Boot_YBIndex
 				{
+					// elog(DEBUG3, "Arpan Boot_YBIndex");
 					TupleDesc	tupdesc;
 					bool		shared_relation;
 					bool		mapped_relation;
-
+					// elog(DEBUG3, "Arpan Boot_YBIndex 1");
 					do_start();
-
+					// elog(DEBUG3, "Arpan Boot_YBIndex 2");
 					tupdesc = CreateTupleDesc(numattr, attrtypes);
 
 					shared_relation = $5;
@@ -230,19 +233,21 @@ Boot_CreateStmt:
 					 * particular that all "nailed" heap rels (see formrdesc
 					 * in relcache.c) must be mapped.
 					 */
+					elog(DEBUG3, "Arpan Boot_YBIndex 3");
 					mapped_relation = ($4 || shared_relation);
-
+					elog(DEBUG3, "Arpan Boot_YBIndex 4");
 					if ($4)
 					{
+						elog(DEBUG3, "Within if");
 						TransactionId relfrozenxid;
 						MultiXactId relminmxid;
 
 						if (boot_reldesc)
 						{
-							elog(DEBUG4, "create bootstrap: warning, open relation exists, closing first");
+							elog(DEBUG3, "create bootstrap: warning, open relation exists, closing first");
 							closerel(NULL);
 						}
-
+						elog(DEBUG3, "before heap_create");
 						boot_reldesc = heap_create($2,
 												   PG_CATALOG_NAMESPACE,
 												   shared_relation ? GLOBALTABLESPACE_OID : 0,
@@ -259,12 +264,14 @@ Boot_CreateStmt:
 												   &relfrozenxid,
 												   &relminmxid,
 												   true);
-						elog(DEBUG4, "bootstrap relation created");
+						elog(DEBUG3, "after heap_create");
+						elog(DEBUG3, "bootstrap relation created");
 					}
 					else
 					{
+						elog(DEBUG3, "Within else");
 						Oid			id;
-
+						elog(DEBUG3, "before heap_create_with_catalog");
 						id = heap_create_with_catalog($2,
 													  PG_CATALOG_NAMESPACE,
 													  shared_relation ? GLOBALTABLESPACE_OID : 0,
@@ -288,7 +295,8 @@ Boot_CreateStmt:
 													  InvalidOid,
 													  NULL,
 													  false);
-						elog(DEBUG4, "relation created with OID %u", id);
+						elog(DEBUG3, "after heap_create_with_catalog");
+						elog(DEBUG3, "relation created with OID %u", id);
 					}
 
 					if (IsYugaByteEnabled())
@@ -325,7 +333,7 @@ Boot_DeclareIndexStmt:
 					IndexStmt  *stmt = makeNode(IndexStmt);
 					Oid			relationId;
 
-					elog(DEBUG4, "creating index \"%s\"", $3);
+					elog(DEBUG3, "creating index \"%s\"", $3);
 
 					do_start();
 
@@ -377,7 +385,7 @@ Boot_DeclareUniqueIndexStmt:
 					IndexStmt  *stmt = makeNode(IndexStmt);
 					Oid			relationId;
 
-					elog(DEBUG4, "creating unique index \"%s\"", $4);
+					elog(DEBUG3, "creating unique index \"%s\"", $4);
 
 					do_start();
 
@@ -472,7 +480,7 @@ Boot_DeclarePrimaryIndexStmt:
 Boot_DeclareToastStmt:
 		  XDECLARE XTOAST oidspec oidspec ON boot_ident
 				{
-					elog(DEBUG4, "creating toast table for table \"%s\"", $6);
+					elog(DEBUG3, "creating toast table for table \"%s\"", $6);
 
 					do_start();
 

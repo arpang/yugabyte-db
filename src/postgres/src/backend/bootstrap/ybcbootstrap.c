@@ -127,6 +127,7 @@ void YBCCreateSysCatalogTable(const char *table_name,
                               bool is_shared_relation,
                               IndexStmt *pkey_idx)
 {
+	elog(INFO, "YBCCreateSysCatalogTable for table %s", table_name);
 	/* Database and schema are fixed when running inidb. */
 	Assert(IsBootstrapProcessingMode());
 	char           *db_name     = "template1";

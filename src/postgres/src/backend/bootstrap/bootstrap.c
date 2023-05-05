@@ -527,6 +527,7 @@ closerel(char *name)
 void
 DefineAttr(char *name, char *type, int attnum, int nullness)
 {
+	elog(DEBUG3, "starting DefineAttr %s", name);
 	Oid			typeoid;
 
 	if (boot_reldesc != NULL)
@@ -540,13 +541,14 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
 	MemSet(attrtypes[attnum], 0, ATTRIBUTE_FIXED_PART_SIZE);
 
 	namestrcpy(&attrtypes[attnum]->attname, name);
-	elog(DEBUG4, "column %s %s", NameStr(attrtypes[attnum]->attname), type);
+	elog(DEBUG3, "column %s %s", NameStr(attrtypes[attnum]->attname), type);
 	attrtypes[attnum]->attnum = attnum + 1;
-
+	elog(DEBUG3, "Checkpoint 1");
 	typeoid = gettype(type);
-
+	elog(DEBUG3, "Checkpoint 2");
 	if (Typ != NIL)
 	{
+		elog(DEBUG3, "If branch");
 		attrtypes[attnum]->atttypid = Ap->am_oid;
 		attrtypes[attnum]->attlen = Ap->am_typ.typlen;
 		attrtypes[attnum]->attbyval = Ap->am_typ.typbyval;
@@ -562,6 +564,7 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
 	}
 	else
 	{
+		elog(DEBUG3, "else branch");
 		attrtypes[attnum]->atttypid = TypInfo[typeoid].oid;
 		attrtypes[attnum]->attlen = TypInfo[typeoid].len;
 		attrtypes[attnum]->attbyval = TypInfo[typeoid].byval;
@@ -576,6 +579,7 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
 		else
 			attrtypes[attnum]->attndims = 0;
 	}
+	elog(DEBUG3, "Checkpoint 3");
 
 	/*
 	 * If a system catalog column is collation-aware, force it to use C
@@ -586,21 +590,27 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
 	if (OidIsValid(attrtypes[attnum]->attcollation))
 		attrtypes[attnum]->attcollation = C_COLLATION_OID;
 
+	elog(DEBUG3, "Checkpoint 4");
 	attrtypes[attnum]->attstattarget = -1;
 	attrtypes[attnum]->attcacheoff = -1;
 	attrtypes[attnum]->atttypmod = -1;
 	attrtypes[attnum]->attislocal = true;
 
+	elog(DEBUG3, "Checkpoint 5");
+
 	if (nullness == BOOTCOL_NULL_FORCE_NOT_NULL)
 	{
+		elog(DEBUG3, "Checkpoint 6");
 		attrtypes[attnum]->attnotnull = true;
 	}
 	else if (nullness == BOOTCOL_NULL_FORCE_NULL)
 	{
+		elog(DEBUG3, "Checkpoint 7");
 		attrtypes[attnum]->attnotnull = false;
 	}
 	else
 	{
+		elog(DEBUG3, "Checkpoint 8");
 		Assert(nullness == BOOTCOL_NULL_AUTO);
 
 		/*
@@ -610,6 +620,7 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
 		 */
 		if (attrtypes[attnum]->attlen > 0)
 		{
+			elog(DEBUG3, "Checkpoint 9");
 			int			i;
 
 			/* check earlier attributes */
@@ -622,7 +633,9 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
 			if (i == attnum)
 				attrtypes[attnum]->attnotnull = true;
 		}
+		elog(DEBUG3, "Checkpoint 10");
 	}
+	elog(DEBUG3, "ending DefineAttr %s", name);
 }
 
 
@@ -738,6 +751,7 @@ cleanup(void)
 static void
 populate_typ_list(void)
 {
+	elog(INFO, "Starting populate_typ_list");
 	Relation	rel;
 	TableScanDesc scan;
 	HeapTuple	tup;
@@ -746,7 +760,9 @@ populate_typ_list(void)
 	Assert(Typ == NIL);
 
 	rel = table_open(TypeRelationId, NoLock);
+	elog(DEBUG3, "Done table_open");
 	scan = table_beginscan_catalog(rel, 0, NULL);
+	elog(DEBUG3, "Done table_beginscan_catalog");
 	old = MemoryContextSwitchTo(TopMemoryContext);
 	while ((tup = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
@@ -778,8 +794,10 @@ populate_typ_list(void)
 static Oid
 gettype(char *type)
 {
+	elog(DEBUG3, "gettype CP 1");
 	if (Typ != NIL)
 	{
+			elog(DEBUG3, "gettype CP 2");
 		ListCell   *lc;
 
 		foreach(lc, Typ)
@@ -816,9 +834,11 @@ gettype(char *type)
 				return app->am_oid;
 			}
 		}
+		elog(DEBUG3, "gettype CP 3");
 	}
 	else
 	{
+		elog(DEBUG3, "gettype CP 4");
 		int			i;
 
 		for (i = 0; i < n_types; i++)
@@ -827,10 +847,12 @@ gettype(char *type)
 				return i;
 		}
 		/* Not in TypInfo, so we'd better be able to read pg_type now */
-		elog(DEBUG4, "external type: %s", type);
+		elog(DEBUG3, "external type: %s", type);
 		populate_typ_list();
+		elog(DEBUG3, "gettype CP 5");
 		return gettype(type);
 	}
+	elog(DEBUG3, "gettype CP 6");
 	elog(ERROR, "unrecognized type \"%s\"", type);
 	/* not reached, here to make compiler happy */
 	return 0;

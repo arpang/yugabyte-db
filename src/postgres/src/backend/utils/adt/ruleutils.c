@@ -1304,7 +1304,7 @@ pg_get_indexdef_worker(Oid indexrelid, int colno,
 	{
 		if (missing_ok)
 			return NULL;
-		elog(ERROR, "cache lookup failed for index %u", indexrelid);
+		elog(ERROR, "cache lookup failed for index 18 %u", indexrelid);
 	}
 	idxrec = (Form_pg_index) GETSTRUCT(ht_idx);
 
@@ -2503,7 +2503,7 @@ pg_get_constraintdef_worker(Oid constraintId, bool fullCommand,
 
 				indtup = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(indexId));
 				if (!HeapTupleIsValid(indtup))
-					elog(ERROR, "cache lookup failed for index %u", indexId);
+					elog(ERROR, "cache lookup failed for index 19 %u", indexId);
 				if (conForm->contype == CONSTRAINT_UNIQUE &&
 					((Form_pg_index) GETSTRUCT(indtup))->indnullsnotdistinct)
 					appendStringInfoString(&buf, "NULLS NOT DISTINCT ");
@@ -12496,7 +12496,7 @@ yb_get_dependent_views(Oid relid, List **view_oids, List **view_queries)
 			(Form_pg_depend) GETSTRUCT(pg_depend_tuple);
 		Oid				view_oid;
 
-		ScanKeyInit(&key, ObjectIdAttributeNumber, BTEqualStrategyNumber,
+		ScanKeyInit(&key, YB_HACK_INVALID_FLAG, BTEqualStrategyNumber,
 					F_OIDEQ, ObjectIdGetDatum(depend_form->objid));
 		pg_rewrite_scan = systable_beginscan(pg_rewrite, RewriteOidIndexId,
 											 true, NULL, 1, &key);

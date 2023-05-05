@@ -2289,7 +2289,8 @@ Status ExternalDaemon::StartProcess(const vector<string>& user_flags) {
   }
 
   RETURN_NOT_OK(BuildServerStateFromInfoPath());
-  LOG(INFO) << "Started " << default_output_prefix << " " << exe_ << " as pid " << p->pid();
+  LOG(INFO) << "\n\n\nStarted " << default_output_prefix << " " << exe_ << " as pid " << p->pid()
+            << "\n\n\n";
   VLOG(1) << exe_ << " instance information:\n" << status_->DebugString();
 
   process_.swap(p);
@@ -2608,6 +2609,7 @@ Status ExternalMaster::Start(bool shell_mode) {
     flags.Add("master_addresses", master_addrs_);
   }
   RETURN_NOT_OK(StartProcess(flags.value()));
+  LOG_WITH_FUNC(INFO) << "\n\n\n Arpan Master: " << process_->pid() << "\n\n\n";
   return Status::OK();
 }
 
@@ -2689,7 +2691,7 @@ Status ExternalTabletServer::Start(
   }
 
   RETURN_NOT_OK(StartProcess(flags.value()));
-
+  LOG_WITH_FUNC(INFO) << "\n\n\n Arpan tserver: " << process_->pid() << "\n\n\n";
   return Status::OK();
 }
 

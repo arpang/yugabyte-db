@@ -133,7 +133,7 @@ triggered_change_notification(PG_FUNCTION_ARGS)
 
 		indexTuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(indexoid));
 		if (!HeapTupleIsValid(indexTuple))	/* should not happen */
-			elog(ERROR, "cache lookup failed for index %u", indexoid);
+			elog(ERROR, "cache lookup failed for index 1 %u", indexoid);
 		index = (Form_pg_index) GETSTRUCT(indexTuple);
 		/* we're only interested if it is the primary key and valid */
 		if (index->indisprimary && index->indisvalid)

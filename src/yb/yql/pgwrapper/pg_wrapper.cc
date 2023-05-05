@@ -595,14 +595,15 @@ Status PgWrapper::InitDb(bool yb_enabled) {
     return STATUS_FORMAT(IOError, "initdb not found at: $0", initdb_program_path);
   }
 
-  vector<string> initdb_args { initdb_program_path, "-D", conf_.data_dir, "-U", "postgres" };
+  vector<string> initdb_args { initdb_program_path, "-D", conf_.data_dir, "-U", "postgres", "-n"};
   LOG(INFO) << "Launching initdb: " << AsString(initdb_args);
 
   Subprocess initdb_subprocess(initdb_program_path, initdb_args);
   initdb_subprocess.InheritNonstandardFd(conf_.tserver_shm_fd);
   SetCommonEnv(&initdb_subprocess, yb_enabled);
   int status = 0;
-  RETURN_NOT_OK(initdb_subprocess.Start());
+  RETURN_NOT_OK(initdb_subprocess.Start(/* sleep */0));
+  LOG(INFO) << "\n\n\n Arpan log pid: " << initdb_subprocess.pid() << "\n\n\n";
   RETURN_NOT_OK(initdb_subprocess.Wait(&status));
   if (status != 0) {
     SCHECK(WIFEXITED(status), InternalError,

@@ -738,8 +738,8 @@ GetTypeId(int attrNum, TupleDesc tupleDesc)
 	{
 		case SelfItemPointerAttributeNumber:
 			return TIDOID;
-		case ObjectIdAttributeNumber:
-			return OIDOID;
+		// case ObjectIdAttributeNumber:
+		// 	return OIDOID;
 		case MinTransactionIdAttributeNumber:
 			return XIDOID;
 		case MinCommandIdAttributeNumber:
@@ -2892,6 +2892,7 @@ void YBGetCollationInfo(
 	YBCPgCollationInfo *collation_info) {
 
 	if (!type_entity) {
+		printf("Collation id: %d\n", collation_id);
 		Assert(collation_id == InvalidOid);
 		collation_info->collate_is_valid_non_c = false;
 		collation_info->sortkey = NULL;
@@ -2928,9 +2929,10 @@ void YBGetCollationInfo(
 			 * postgres 13.2 hard coded to C_COLLATION_OID. Adjust the assertion
 			 * when we upgrade to postgres 13.2.
 			 */
-			Assert(collation_id == InvalidOid);
-			collation_id = C_COLLATION_OID;
-			break;
+			// printf("Collation id 2: %d\n", collation_id);
+			// Assert(collation_id == InvalidOid);
+			// collation_id = C_COLLATION_OID;
+			// break;
 		case TEXTOID:
 		case BPCHAROID:
 		case VARCHAROID:

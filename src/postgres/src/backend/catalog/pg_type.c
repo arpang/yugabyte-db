@@ -362,6 +362,7 @@ TypeCreate(Oid newTypeOid,
 		replaces[i] = true;
 		values[i] = (Datum) 0;
 	}
+	elog(DEBUG3, "Type checkpoint 1");
 
 	/*
 	 * insert data values
@@ -405,6 +406,7 @@ TypeCreate(Oid newTypeOid,
 	else
 		nulls[Anum_pg_type_typdefaultbin - 1] = true;
 
+	elog(DEBUG3, "Type checkpoint 2");
 	/*
 	 * initialize the default value for this type.
 	 */
@@ -439,6 +441,7 @@ TypeCreate(Oid newTypeOid,
 							  ObjectIdGetDatum(typeNamespace));
 	if (HeapTupleIsValid(tup))
 	{
+		elog(DEBUG3, "Type checkpoint 3");
 		Form_pg_type typform = (Form_pg_type) GETSTRUCT(tup);
 
 		/*
@@ -479,6 +482,7 @@ TypeCreate(Oid newTypeOid,
 	}
 	else
 	{
+		elog(DEBUG3, "Type checkpoint 4");
 		/* Force the OID if requested by caller */
 		if (OidIsValid(newTypeOid))
 			typeObjectId = newTypeOid;
@@ -527,12 +531,14 @@ TypeCreate(Oid newTypeOid,
 
 		tup = heap_form_tuple(RelationGetDescr(pg_type_desc),
 							  values, nulls);
+		elog(DEBUG3, "Type checkpoint 5");
 
 		/*
 		 * pg_type has PK(oid), so if row type OID for the shared relation
 		 * is taken in any DB, this step will fail gracefully.
 		 */
 		YBCatalogTupleInsert(pg_type_desc, tup, ybSharedInsert);
+		elog(DEBUG3, "Type checkpoint 6");
 	}
 
 	/*
@@ -562,7 +568,7 @@ TypeCreate(Oid newTypeOid,
 	 * finish up
 	 */
 	table_close(pg_type_desc, RowExclusiveLock);
-
+	elog(DEBUG3, "Type checkpoint 7");
 	return address;
 }
 

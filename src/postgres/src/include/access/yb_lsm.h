@@ -24,6 +24,7 @@
 
 #include "access/amapi.h"
 #include "nodes/execnodes.h"
+#include "access/table.h"
 
 /*
  * external entry points for YugaByte indexes in yb_lsm.c

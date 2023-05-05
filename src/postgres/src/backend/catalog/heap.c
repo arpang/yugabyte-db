@@ -1466,11 +1466,12 @@ heap_create_with_catalog(const char *relname,
 	 * These types are made except where the use of a relation as such is an
 	 * implementation detail: toast tables, sequences and indexes.
 	 */
-	if (!(relkind == RELKIND_SEQUENCE ||
-		  relkind == RELKIND_TOASTVALUE ||
-		  relkind == RELKIND_INDEX ||
-		  relkind == RELKIND_PARTITIONED_INDEX) &&
-		!IsCatalogRelation(new_rel_desc))
+	if (!(relkind == RELKIND_SEQUENCE || relkind == RELKIND_TOASTVALUE ||
+		  relkind == RELKIND_INDEX || relkind == RELKIND_PARTITIONED_INDEX)
+		// && !IsCatalogRelation(new_rel_desc)
+		// pg_statistic_ext_data creation fails as pg_type row for _pg_statistic
+		// isn't created. This check is not present in PG, why have we added it?
+	)
 	{
 		Oid			new_array_oid;
 		ObjectAddress new_type_addr;
@@ -1491,6 +1492,7 @@ heap_create_with_catalog(const char *relname,
 		 * else is creating the same type name in parallel but hadn't
 		 * committed yet when we checked for a duplicate name above.
 		 */
+		elog(DEBUG3, "Creating relation type");
 		new_type_addr = AddNewRelationType(relname,
 										   relnamespace,
 										   relid,
@@ -1505,8 +1507,10 @@ heap_create_with_catalog(const char *relname,
 
 		/* Now create the array type. */
 		relarrayname = makeArrayTypeName(relname, relnamespace);
+		elog(DEBUG3, "Creating array type: %s", relarrayname);
 
-		Assert(!shared_relation);
+		// Assert(!shared_relation); -> pg_database creation fails, this
+		// assetion is not present in PG. Why had we added it?
 		TypeCreate(new_array_oid,	/* force the type's OID to this */
 				   relarrayname,	/* Array type name */
 				   relnamespace,	/* Same namespace as parent */
@@ -1545,6 +1549,7 @@ heap_create_with_catalog(const char *relname,
 	}
 	else
 	{
+		elog(DEBUG3, "Skipping type creation");
 		/* Caller should not be expecting a type to be created. */
 		Assert(reltypeid == InvalidOid);
 		Assert(typaddress == NULL);

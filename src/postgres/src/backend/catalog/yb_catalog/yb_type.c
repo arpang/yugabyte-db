@@ -105,7 +105,7 @@ YbDataTypeFromOidMod(int attnum, Oid type_id)
 			case SelfItemPointerAttributeNumber: /* ctid */
 				type_id = TIDOID;
 				break;
-			case ObjectIdAttributeNumber: /* oid */
+			// case ObjectIdAttributeNumber: /* oid */
 			case TableOidAttributeNumber: /* tableoid */
 				type_id = OIDOID;
 				break;

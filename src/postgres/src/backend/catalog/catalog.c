@@ -860,7 +860,7 @@ IsTableOidUnused(Oid table_oid,
 	collides = DoesOidExistInRelation(table_oid,
 									  pg_class,
 									  oidIndex,
-									  ObjectIdAttributeNumber);
+									  YB_HACK_INVALID_FLAG);
 
 	if (!collides)
 	{

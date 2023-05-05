@@ -107,7 +107,7 @@ class Subprocess {
   // note that if the executable path was incorrect such that
   // exec() fails, this will still return Status::OK. You must
   // use Wait() to check for failure.
-  Status Start();
+  Status Start(int sleep = 0);
 
   // Wait for the subprocess to exit. The return value is the same as
   // that of the waitpid() syscall. Only call after starting.
@@ -199,7 +199,7 @@ class Subprocess {
     int child_stderr[2] = {-1, -1};
   };
 
-  Status StartWithForkExec() REQUIRES(state_lock_);
+  Status StartWithForkExec(int sleep = 0) REQUIRES(state_lock_);
   Status StartWithPosixSpawn() REQUIRES(state_lock_);
 
   void SetFdShared(int stdfd, SubprocessStreamMode mode);

@@ -34,6 +34,7 @@ PgTable::PgTable(const PgTableDescPtr& desc)
 }
 
 Result<PgColumn&> PgTable::ColumnForAttr(int attr_num) {
+  // LOG(INFO) << "FindColumn caller 1";
   return (*columns_)[VERIFY_RESULT(desc_->FindColumn(attr_num))];
 }
 

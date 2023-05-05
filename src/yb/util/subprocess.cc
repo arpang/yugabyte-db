@@ -58,6 +58,7 @@
 #include "yb/util/status.h"
 #include "yb/util/status_format.h"
 #include "yb/util/status_log.h"
+#include "yb/util/monotime.h"
 
 using std::shared_ptr;
 using std::string;
@@ -227,7 +228,7 @@ static int pipe2(int pipefd[2], int flags) {
 }
 #endif
 
-Status Subprocess::Start() {
+Status Subprocess::Start(int sleep) {
   std::lock_guard<std::mutex> l(state_lock_);
   SCHECK_EQ(state_, SubprocessState::kNotStarted, IllegalState,
             "Incorrect state when starting the process");
@@ -235,7 +236,7 @@ Status Subprocess::Start() {
 #if defined(__APPLE__)
   // Closing file descriptors with posix_spawn has some issues on macOS so we still use fork/exec
   // there.
-  Status s = StartWithForkExec();
+  Status s = StartWithForkExec(sleep);
 #else
   Status s = StartWithPosixSpawn();
 #endif
@@ -304,7 +305,7 @@ void CloseNonStandardFDs(DIR* fd_dir, const std::unordered_set<int>& excluding) 
 
 } // anonymous namespace
 
-Status Subprocess::StartWithForkExec() {
+Status Subprocess::StartWithForkExec(int sleep) {
   auto argv_ptrs = VERIFY_RESULT(GetArgvPtrs());
   auto child_pipes = VERIFY_RESULT(CreateChildPipes());
 
@@ -338,7 +339,9 @@ Status Subprocess::StartWithForkExec() {
     for (const auto& env_kv : env_) {
       setenv(env_kv.first.c_str(), env_kv.second.c_str(), /* replace */ true);
     }
-
+    LOG(INFO) << "\n\n\nChild process spawned, starting wait.\n\n\n";
+    SleepFor(MonoDelta::FromSeconds(sleep));
+    LOG(INFO) << "\n\n\nChild process starting execution\n\n\n";
     execvp(program_.c_str(), &argv_ptrs[0]);
     PLOG(WARNING) << "Couldn't exec " << program_;
     _exit(errno);

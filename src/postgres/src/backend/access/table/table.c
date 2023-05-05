@@ -38,6 +38,7 @@
 Relation
 table_open(Oid relationId, LOCKMODE lockmode)
 {
+	elog(DEBUG3, "Starting table_open");
 	Relation	r;
 
 	r = relation_open(relationId, lockmode);

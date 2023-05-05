@@ -352,8 +352,9 @@ static void ybcUpdateFKCache(YbScanDesc ybScan, Datum ybctid)
 	case ROW_MARK_NOKEYEXCLUSIVE:
 	case ROW_MARK_SHARE:
 	case ROW_MARK_KEYSHARE:
-		YBCPgAddIntoForeignKeyReferenceCache(RelationGetRelid(ybScan->rs_base.rs_rd), ybctid);
-		break;
+			YBCPgAddIntoForeignKeyReferenceCache(
+				RelationGetRelid(ybScan->relation), ybctid);
+			break;
 	case ROW_MARK_REFERENCE:
 	case ROW_MARK_COPY:
 		break;
@@ -402,7 +403,7 @@ static HeapTuple ybcFetchNextHeapTuple(YbScanDesc ybScan, bool is_forward_scan)
 			HEAPTUPLE_YBCTID(tuple) = PointerGetDatum(syscols.ybctid);
 			ybcUpdateFKCache(ybScan, HEAPTUPLE_YBCTID(tuple));
 		}
-		tuple->t_tableOid = RelationGetRelid(ybScan->rs_base.rs_rd);
+		tuple->t_tableOid = RelationGetRelid(ybScan->relation);
 	}
 	pfree(values);
 	pfree(nulls);
@@ -510,8 +511,8 @@ static IndexTuple ybcFetchNextIndexTuple(YbScanDesc ybScan, Relation index, bool
 static void
 ybcSetupScanPlan(bool xs_want_itup, YbScanDesc ybScan, YbScanPlan scan_plan)
 {
-	TableScanDesc tsdesc = (TableScanDesc)ybScan;
-	Relation relation = tsdesc->rs_rd;
+	// TableScanDesc tsdesc = (TableScanDesc)ybScan;
+	Relation relation = ybScan->relation;
 	Relation index = ybScan->index;
 	int i;
 	memset(scan_plan, 0, sizeof(*scan_plan));
@@ -811,7 +812,7 @@ static int int_compar_cb(const void *v1, const void *v2)
 static void
 ybcSetupScanKeys(YbScanDesc ybScan, YbScanPlan scan_plan)
 {
-	TableScanDesc tsdesc = (TableScanDesc)ybScan;
+	// TableScanDesc tsdesc = (TableScanDesc)ybScan;
 
 	/*
 	 * Find the scan keys that are the primary key.
@@ -831,7 +832,7 @@ ybcSetupScanKeys(YbScanDesc ybScan, YbScanPlan scan_plan)
 
 		if (is_primary_key &&
 		    YbShouldPushdownScanPrimaryKey(
-				tsdesc->rs_rd, scan_plan, attnum, ybScan->keys[i]))
+				ybScan->relation, scan_plan, attnum, ybScan->keys[i]))
 		{
 			scan_plan->sk_cols = bms_add_member(scan_plan->sk_cols, idx);
 		}
@@ -1175,7 +1176,7 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 	Oid 	   *colids;
 	bool is_row = false;
 	int length_of_key = YbGetLengthOfKey(&ybScan->keys[skey_index]);
-	Relation relation = ((TableScanDesc)ybScan)->rs_rd;
+	Relation relation = ybScan->relation;
 	Relation index = ybScan->index;
 
 	ScanKey key = ybScan->keys[skey_index];
@@ -1335,7 +1336,7 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 static bool
 YbBindScanKeys(YbScanDesc ybScan, YbScanPlan scan_plan)
 {
-	Relation relation = ((TableScanDesc)ybScan)->rs_rd;
+	Relation relation = ybScan->relation;
 
 	HandleYBStatus(YBCPgNewSelect(YBCGetDatabaseOid(relation),
 								  YbGetStorageRelid(relation),
@@ -1957,9 +1958,9 @@ static void
 YbInitColumnFilter(
 	YbColumnFilter *filter, YbScanDesc ybScan, Scan *pg_scan_plan)
 {
-	TableScanDesc tsdesc = (TableScanDesc)ybScan;
+	// TableScanDesc tsdesc = (TableScanDesc)ybScan;
 	const int min_attr = YBGetFirstLowInvalidAttributeNumber(
-		ybScan->index ? ybScan->index : tsdesc->rs_rd);
+		ybScan->index ? ybScan->index : ybScan->relation);
 
 	filter->required_attrs = NULL;
 	filter->ybScan = ybScan;
@@ -2207,10 +2208,10 @@ ybcBeginScan(Relation relation,
 
 	/* Set up YugaByte scan description */
 	YbScanDesc ybScan = (YbScanDesc) palloc0(sizeof(YbScanDescData));
-	TableScanDesc tsdesc = (TableScanDesc)ybScan;
-	tsdesc->rs_rd = relation;
-	tsdesc->rs_key = keys;
-	tsdesc->rs_nkeys = nkeys;
+	// TableScanDesc tsdesc = (TableScanDesc)ybScan;
+	// tsdesc->rs_rd = relation;
+	// tsdesc->rs_key = keys;
+	// tsdesc->rs_nkeys = nkeys;
 
 	/* Reorder the keys to regular key first then yb_hash_code. */
 	ybScan->keys = (ScanKey*) palloc(sizeof(ScanKey) * nkeys);
@@ -2240,6 +2241,7 @@ ybcBeginScan(Relation relation,
 		}
 	}
 	ybScan->exec_params = NULL;
+	ybScan->relation = relation;
 	ybScan->index = index;
 	ybScan->quit_scan = false;
 
@@ -2513,6 +2515,7 @@ TableScanDesc ybc_heap_beginscan(Relation relation,
 								 ScanKey key,
 								 uint32 flags)
 {
+	elog(DEBUG3, "Starting ybc_heap_beginscan");
 	/* Restart should not be prevented if operation caused by system read of system table. */
 	Scan *pg_scan_plan = NULL; /* In current context scan plan is not available */
 	YbScanDesc ybScan = ybcBeginScan(relation,
@@ -2525,21 +2528,27 @@ TableScanDesc ybc_heap_beginscan(Relation relation,
 									 NULL /* idx_remote */);
 
 	/* Set up Postgres sys table scan description */
-	TableScanDesc tsdesc = (TableScanDesc)ybScan;
+	// TableScanDesc tsdesc = (TableScanDesc)ybScan;
+	TableScanDesc tsdesc = (TableScanDesc) palloc0(sizeof(TableScanDescData));
+	tsdesc->rs_rd = relation;
 	tsdesc->rs_snapshot = snapshot;
+	tsdesc->ybscan = ybScan;
 	tsdesc->rs_flags = flags;
-
 	return tsdesc;
 }
 
 HeapTuple ybc_heap_getnext(TableScanDesc tsdesc)
 {
+	// elog(DEBUG3, "Starting ybc_heap_getnext");
 	bool recheck = false;
-	YbScanDesc ybdesc = (YbScanDesc)tsdesc;
-	HeapTuple tuple;
-
-	Assert(PointerIsValid(tsdesc));
-	tuple = ybc_getnext_heaptuple(ybdesc, true /* is_forward_scan */, &recheck);
+	Assert(PointerIsValid(tsdesc->ybscan));
+	// The below was a hack, right?
+	// YbScanDesc ybdesc = (YbScanDesc)tsdesc;
+	// Assert(PointerIsValid(tsdesc));
+	// elog(DEBUG3, "Before calling  ybc_getnext_heaptuple");
+	HeapTuple tuple = ybc_getnext_heaptuple(
+		tsdesc->ybscan, true /* is_forward_scan */, &recheck);
+	// elog(DEBUG3, "After calling  ybc_getnext_heaptuple");
 	Assert(!recheck);
 
 	return tuple;
@@ -2547,11 +2556,12 @@ HeapTuple ybc_heap_getnext(TableScanDesc tsdesc)
 
 void ybc_heap_endscan(TableScanDesc tsdesc)
 {
-	YbScanDesc ybdesc = (YbScanDesc)tsdesc;	
-
+	// The below was a hack, right?
+	// YbScanDesc ybdesc = (YbScanDesc)tsdesc;
+	ybc_free_ybscan(tsdesc->ybscan);
 	if (tsdesc->rs_flags & SO_TEMP_SNAPSHOT)
 		UnregisterSnapshot(tsdesc->rs_snapshot);
-	ybc_free_ybscan(ybdesc);
+	pfree(tsdesc);
 }
 
 /*
@@ -2581,8 +2591,11 @@ ybc_remote_beginscan(Relation relation,
 									 NULL /* idx_remote */);
 
 	/* Set up Postgres sys table scan description */
-	TableScanDesc tsdesc = (TableScanDesc)ybScan;
+	// TableScanDesc tsdesc = (TableScanDesc)ybScan;
+	TableScanDesc tsdesc = (TableScanDesc) palloc0(sizeof(TableScanDescData));
+	tsdesc->rs_rd = relation;
 	tsdesc->rs_snapshot = snapshot;
+	tsdesc->ybscan = ybScan;
 	tsdesc->rs_flags = SO_TYPE_SEQSCAN;
 
 	return tsdesc;

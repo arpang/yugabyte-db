@@ -255,7 +255,7 @@ ybcGetForeignPlan(PlannerInfo *root,
 				case TableOidAttributeNumber:
 					/* Nothing to do in YugaByte: Postgres will handle this. */
 					break;
-				case ObjectIdAttributeNumber:
+				// case ObjectIdAttributeNumber:
 				case YBTupleIdAttributeNumber:
 				default: /* Regular column: attrNum > 0*/
 				{

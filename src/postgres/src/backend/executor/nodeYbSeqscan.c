@@ -96,7 +96,7 @@ YbSeqNext(YbSeqScanState *node)
 	 * However, it is kinda convenient to safely assign ybScan here and use to
 	 * execute and fetch the statement, so we make use of the flag.
 	 */
-	ybScan = (YbScanDesc)tsdesc;
+	ybScan = tsdesc->ybscan;
 	if (!ybScan->is_exec_done)
 	{
 		HandleYBStatus(YBCPgExecSelect(ybScan->handle, ybScan->exec_params));

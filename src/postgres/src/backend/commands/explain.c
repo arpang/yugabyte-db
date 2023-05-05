@@ -3609,7 +3609,7 @@ explain_get_index_name(Oid indexId)
 		/* default behavior: look it up in the catalogs */
 		result = get_rel_name(indexId);
 		if (result == NULL)
-			elog(ERROR, "cache lookup failed for index %u", indexId);
+			elog(ERROR, "cache lookup failed for index explain_get_index_name %u", indexId);
 	}
 	return result;
 }

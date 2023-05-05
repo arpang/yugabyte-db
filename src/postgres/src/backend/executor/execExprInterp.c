@@ -685,7 +685,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			 * care of at compilation time.  But see EEOP_INNER_VAR comments.
 			 */
 			/* Hacky way to allow YSQL upgrade INSERTs to set oid column. */
-			if (IsYsqlUpgrade && resultnum == ObjectIdAttributeNumber - 1)
+			if (IsYsqlUpgrade && resultnum == YB_HACK_INVALID_FLAG - 1)
 			{
 				resultslot->tts_yb_insert_oid = DatumGetObjectId(scanslot->tts_values[attnum]);
 			}
@@ -705,7 +705,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			int			resultnum = op->d.assign_tmp.resultnum;
 
 			/* Hacky way to allow YSQL upgrade INSERTs to set oid column. */
-			if (IsYsqlUpgrade && resultnum == ObjectIdAttributeNumber - 1)
+			if (IsYsqlUpgrade && resultnum == YB_HACK_INVALID_FLAG - 1)
 			{
 				resultslot->tts_yb_insert_oid = DatumGetObjectId(state->resvalue);
 			}

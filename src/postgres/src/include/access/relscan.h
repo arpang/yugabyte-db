@@ -25,10 +25,114 @@
 #include "yb/yql/pggate/ybc_pggate.h"
 #include "pg_yb_utils.h"
 #include "executor/ybcExpr.h"
-
-typedef struct YbScanDescData *YbScanDesc;
+// #include "access/yb_scan.h"
 
 struct ParallelTableScanDescData;
+
+/*
+ * SCAN PLAN - Two structures.
+ * - "struct YbScanPlanData" contains variables that are used during preparing statement.
+ * - "struct YbScanDescData" contains variables that are used thru out the life of the statement.
+ *
+ * YugaByte ScanPlan has two different lists.
+ *   Binding list:
+ *   - This list is used to receive the user-given data for key columns (WHERE clause).
+ *   - "sk_attno" is the INDEX's attnum for the key columns that are used to query data.
+ *     In YugaByte, primary index attnum is the same as column attnum in the UserTable.
+ *   - "bind_desc" is the description of the index columns (count, types, ...).
+ *   - The bind lists don't need to be included in the description as they are only needed
+ *     during setup.
+ *   Target list:
+ *   - This list identifies the user-wanted data to be fetched from the database.
+ *   - "target_desc" contains the description of the target columns (count, types, ...).
+ *   - The target fields are used for double-checking key values after selecting data
+ *     from database. It should be removed once we no longer need to double-check the key values.
+ */
+typedef struct YbScanDescData
+{
+#define YB_MAX_SCAN_KEYS (INDEX_MAX_KEYS * 2) /* A pair of lower/upper bounds per column max */
+
+	// /* Base of a scan descriptor - Currently it is used either by postgres::heap or Yugabyte.
+	//  * It contains basic information that defines a scan.
+	//  * - Relation: Which table to scan.
+	//  * - Keys: Scan conditions.
+	//  *   In YB ScanKey could be one of two types:
+	//  *   o key for regular column
+	//  *   o key which represents the yb_hash_code function.
+	//  *   The keys array holds keys of both types.
+	//  *   All regular keys go before keys for yb_hash_code.
+	//  *   Keys in range [0, nkeys) are regular keys.
+	//  *   Keys in range [nkeys, nkeys + nhash_keys) are keys for yb_hash_code
+	//  *   Such separation allows to process regular and non-regular keys independently.
+	//  */
+	// TableScanDescData rs_base;
+
+	/* The handle for the internal YB Select statement. */
+	YBCPgStatement handle;
+	bool is_exec_done;
+
+	Relation relation;
+	/* Secondary index used in this scan. */
+	Relation index;
+
+	/*
+	 * In YB ScanKey could be one of two types:
+	 *  - key for regular column
+	 *  - key which represents the yb_hash_code function.
+	 * The keys array holds keys of both types.
+	 * All regular keys go before keys for yb_hash_code.
+	 * Keys in range [0, nkeys) are regular keys.
+	 * Keys in range [nkeys, nkeys + nhash_keys) are keys for yb_hash_code
+	 * Such separation allows to process regular and non-regular keys independently.
+	 */
+	/*
+	 * Array of keys that are reordered to regular keys first then yb_hash_code().
+	 * Size and contents are the same as rs_keys in different order.
+	 */
+	ScanKey *keys;
+	/* number of regular keys */
+	int nkeys;
+	/* number of keys which represents the yb_hash_code function */
+	int nhash_keys;
+
+	/* True if all the conditions for this index were bound to pggate. */
+	bool is_full_cond_bound;
+
+	/* Destination for queried data from Yugabyte database */
+	TupleDesc target_desc;
+	AttrNumber target_key_attnums[YB_MAX_SCAN_KEYS];
+
+	/* Kept query-plan control to pass it to PgGate during preparation */
+	YBCPgPrepareParameters prepare_params;
+
+	/*
+	 * Kept execution control to pass it to PgGate.
+	 * - When YBC-index-scan layer is called by Postgres IndexScan functions, it will read the
+	 *   "yb_exec_params" from Postgres IndexScan and kept the info in this attribute.
+	 *
+	 * - YBC-index-scan in-turn will passes this attribute to PgGate to control the index-scan
+	 *   execution in YB tablet server.
+	 */
+	YBCPgExecParameters *exec_params;
+
+	/*
+	 * Flag used for bailing out from scan early. Currently used to bail out
+	 * from scans where one of the bind conditions is:
+	 *   - A comparison operator with null, e.g.: c = null, etc.
+	 *   - A search array and is empty.
+	 *     Consider an example query,
+	 *       select c1,c2 from test
+	 *       where c1 = XYZ AND c2 = ANY(ARRAY[]::integer[]);
+	 *     The second bind condition c2 = ANY(ARRAY[]::integer[]) will never be
+	 *     satisfied.
+	 * Hence when, such condition is detected, we bail out from creating and
+	 * sending a request to docDB.
+	 */
+	bool quit_scan;
+} YbScanDescData;
+
+// TODO(neil) Reorganize code so that description can be placed at appropriate places.
+typedef struct YbScanDescData *YbScanDesc;
 
 /*
  * Generic descriptor for table scans. This is the base-class for table scans,
@@ -54,6 +158,7 @@ typedef struct TableScanDescData
 
 	struct ParallelTableScanDescData *rs_parallel;	/* parallel scan
 													 * information */
+	YbScanDesc	ybscan;			/* only valid in yb-scan case */
 } TableScanDescData;
 typedef struct TableScanDescData *TableScanDesc;
 

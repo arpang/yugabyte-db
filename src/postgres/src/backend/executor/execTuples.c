@@ -896,10 +896,10 @@ tts_buffer_heap_store_tuple(TupleTableSlot *slot, HeapTuple tuple,
 		if (BufferIsValid(bslot->buffer))
 			ReleaseBuffer(bslot->buffer);
 
-		bslot->buffer = buffer;
+		bslot->buffer = InvalidBuffer;
 
-		if (!transfer_pin && BufferIsValid(buffer))
-			IncrBufferRefCount(buffer);
+		// if (!transfer_pin && BufferIsValid(buffer))
+		// 	IncrBufferRefCount(buffer);
 	}
 	else if (transfer_pin && BufferIsValid(buffer))
 	{
@@ -2014,7 +2014,7 @@ ExecTypeFromTLInternal(List *targetList, bool skipjunk)
 			continue;
 
 		/* System columns shouldn't be processed here. */
-		if (IsYsqlUpgrade && tle->resno == ObjectIdAttributeNumber)
+		if (IsYsqlUpgrade && tle->resno == YB_HACK_INVALID_FLAG)
 			continue;
 
 		TupleDescInitEntry(typeInfo,

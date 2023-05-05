@@ -177,7 +177,7 @@ relationHasPrimaryKey(Relation rel)
 
 		indexTuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(indexoid));
 		if (!HeapTupleIsValid(indexTuple))	/* should not happen */
-			elog(ERROR, "cache lookup failed for index %u", indexoid);
+			elog(ERROR, "cache lookup failed for index 2 %u", indexoid);
 		result = ((Form_pg_index) GETSTRUCT(indexTuple))->indisprimary;
 		ReleaseSysCache(indexTuple);
 		if (result)
@@ -1407,7 +1407,7 @@ index_concurrently_create_copy(Relation heapRelation, Oid oldIndexId,
 	/* Get the array of class and column options IDs from index info */
 	indexTuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(oldIndexId));
 	if (!HeapTupleIsValid(indexTuple))
-		elog(ERROR, "cache lookup failed for index %u", oldIndexId);
+		elog(ERROR, "cache lookup failed for index 3 %u", oldIndexId);
 	indclassDatum = SysCacheGetAttr(INDEXRELID, indexTuple,
 									Anum_pg_index_indclass, &isnull);
 	Assert(!isnull);
@@ -2182,7 +2182,7 @@ index_constraint_create(Relation heapRelation,
 		indexTuple = SearchSysCacheCopy1(INDEXRELID,
 										 ObjectIdGetDatum(indexRelationId));
 		if (!HeapTupleIsValid(indexTuple))
-			elog(ERROR, "cache lookup failed for index %u", indexRelationId);
+			elog(ERROR, "cache lookup failed for index 4 %u", indexRelationId);
 		indexForm = (Form_pg_index) GETSTRUCT(indexTuple);
 
 		if (mark_as_primary && !indexForm->indisprimary)
@@ -2454,7 +2454,7 @@ index_drop(Oid indexId, bool concurrent, bool concurrent_lock_mode)
 
 	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(indexId));
 	if (!HeapTupleIsValid(tuple))
-		elog(ERROR, "cache lookup failed for index %u", indexId);
+		elog(ERROR, "cache lookup failed for index 5 %u", indexId);
 
 	hasexprs = !heap_attisnull(tuple, Anum_pg_index_indexprs,
 							   RelationGetDescr(indexRelation));
@@ -3194,7 +3194,7 @@ index_build(Relation heapRelation,
 		indexTuple = SearchSysCacheCopy1(INDEXRELID,
 										 ObjectIdGetDatum(indexId));
 		if (!HeapTupleIsValid(indexTuple))
-			elog(ERROR, "cache lookup failed for index %u", indexId);
+			elog(ERROR, "cache lookup failed for index 6 %u", indexId);
 		indexForm = (Form_pg_index) GETSTRUCT(indexTuple);
 
 		/* If it's a new index, indcheckxmin shouldn't be set ... */
@@ -3354,7 +3354,10 @@ IndexBackfillHeapRangeScan(Relation table_rel,
 														 InvalidBlockNumber /* num_blocks */,
 														 callback,
 														 callback_state,
-														 NULL /* scan */);
+														 NULL, /* scan */
+														 bfinfo,
+														 bfresult
+														 );
 }
 
 /*
@@ -3687,7 +3690,7 @@ index_set_state_flags(Oid indexId, IndexStateFlagsAction action)
 	indexTuple = SearchSysCacheCopy1(INDEXRELID,
 									 ObjectIdGetDatum(indexId));
 	if (!HeapTupleIsValid(indexTuple))
-		elog(ERROR, "cache lookup failed for index %u", indexId);
+		elog(ERROR, "cache lookup failed for index 7 %u", indexId);
 	indexForm = (Form_pg_index) GETSTRUCT(indexTuple);
 
 	/* Perform the requested state change on the copy */
@@ -3766,7 +3769,7 @@ IndexGetRelation(Oid indexId, bool missing_ok)
 	{
 		if (missing_ok)
 			return InvalidOid;
-		elog(ERROR, "cache lookup failed for index %u", indexId);
+		elog(ERROR, "cache lookup failed for index 8 %u", indexId);
 	}
 	index = (Form_pg_index) GETSTRUCT(tuple);
 	Assert(index->indexrelid == indexId);
@@ -4064,7 +4067,7 @@ reindex_index(Oid indexId, bool skip_constraint_checks, char persistence,
 		indexTuple = SearchSysCacheCopy1(INDEXRELID,
 										 ObjectIdGetDatum(indexId));
 		if (!HeapTupleIsValid(indexTuple))
-			elog(ERROR, "cache lookup failed for index %u", indexId);
+			elog(ERROR, "cache lookup failed for index 9 %u", indexId);
 		indexForm = (Form_pg_index) GETSTRUCT(indexTuple);
 
 		index_bad = (!indexForm->indisvalid ||
