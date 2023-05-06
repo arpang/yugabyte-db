@@ -504,17 +504,17 @@ CatalogTuplesMultiInsertWithInfo(Relation heapRel, TupleTableSlot **slot,
 		return;
 	}
 
-	heap_multi_insert(heapRel, slot, ntuples, GetCurrentCommandId(true), 0,
-						NULL);
+	heap_multi_insert(heapRel, slot, ntuples,
+					  GetCurrentCommandId(true), 0, NULL);
 
 	/*
-	 * There is no equivalent to heap_multi_insert for the catalog indexes,
-	 * so we must loop over and insert individually.
+	 * There is no equivalent to heap_multi_insert for the catalog indexes, so
+	 * we must loop over and insert individually.
 	 */
 	for (int i = 0; i < ntuples; i++)
 	{
-		bool	  should_free;
-		HeapTuple tuple;
+		bool		should_free;
+		HeapTuple	tuple;
 
 		tuple = ExecFetchSlotHeapTuple(slot[i], true, &should_free);
 		tuple->t_tableOid = slot[i]->tts_tableOid;
