@@ -208,7 +208,6 @@ yb_get_profile_tuple(Oid prfid)
 	CheckProfileCatalogsExist();
 
 	/*
-	 * TODO(jsonk): shouldn't it be pg_yb_profile?
 	 * Search pg_yb_role_profile.
 	 */
 	rel = table_open(YbProfileRelationId, AccessShareLock);

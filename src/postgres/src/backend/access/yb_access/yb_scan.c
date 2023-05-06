@@ -2536,10 +2536,10 @@ HeapTuple ybc_heap_getnext(TableScanDesc tsdesc)
 {
 	bool recheck = false;
 	YbScanDesc ybdesc = (YbScanDesc) tsdesc;
+	HeapTuple tuple;
 
 	Assert(PointerIsValid(tsdesc));
-	HeapTuple tuple =
-		ybc_getnext_heaptuple(ybdesc, true /* is_forward_scan */, &recheck);
+	tuple = ybc_getnext_heaptuple(ybdesc, true /* is_forward_scan */, &recheck);
 	Assert(!recheck);
 
 	return tuple;

@@ -205,7 +205,6 @@ static void YBCExecWriteStmt(YBCPgStatement ybc_stmt,
 	}
 }
 
-// TODO(arpan): return value is not used, return void instead.
 /*
  * Utility method to insert a tuple into the relation's backing YugaByte table.
  */
@@ -318,7 +317,7 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 		YBCPgAddIntoForeignKeyReferenceCache(relid, HEAPTUPLE_YBCTID(tuple));
 
 	bms_free(pkey);
-	// TODO(arpan): return void
+	// YB_TODO(arpan): return value is unused, return void instead.
 	return YbHeapTupleGetOid(tuple);
 }
 
