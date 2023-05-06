@@ -738,8 +738,8 @@ GetTypeId(int attrNum, TupleDesc tupleDesc)
 	{
 		case SelfItemPointerAttributeNumber:
 			return TIDOID;
-		// case ObjectIdAttributeNumber:
-		// 	return OIDOID;
+		case ObjectIdAttributeNumber:
+			return OIDOID;
 		case MinTransactionIdAttributeNumber:
 			return XIDOID;
 		case MinCommandIdAttributeNumber:
