@@ -28,7 +28,6 @@
 #include "access/tableam.h"
 #include "access/tsmapi.h"
 #include "access/xact.h"
-#include "access/yb_scan.h"
 #include "catalog/catalog.h"
 #include "catalog/index.h"
 #include "catalog/storage.h"
@@ -45,6 +44,9 @@
 #include "storage/smgr.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
+
+/* Yugabyte includes */
+#include "access/yb_scan.h"
 
 static void reform_and_rewrite_tuple(HeapTuple tuple,
 									 Relation OldHeap, Relation NewHeap,
