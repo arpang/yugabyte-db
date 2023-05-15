@@ -126,7 +126,10 @@ void InsertData(DataContainer* container,
 // produced by the ybcSetupTargets function may be changed request targets preload targets are
 // checked at runtime in the PgSysTablePrefetcher::GetData method
 std::vector<const PgColumn*> OrderColumns(const std::vector<PgColumn>& cols) {
+  #ifdef YB_TODO
+  // OID is a regular column PG15 onwards.
   const PgColumn* objCol = nullptr;
+  #endif
   const PgColumn* ybctidCol = nullptr;
   std::vector<const PgColumn*> result;
   result.reserve(cols.size());
@@ -136,9 +139,12 @@ std::vector<const PgColumn*> OrderColumns(const std::vector<PgColumn>& cols) {
       case to_underlying(PgSystemAttrNum::kYBTupleId):
         ybctidCol = &c;
         break;
+      #ifdef YB_TODO
+      // OID is a regular column PG15 onwards.
       case to_underlying(PgSystemAttrNum::kObjectId):
         objCol = &c;
         break;
+      #endif
       default:
         if (attr > 0) {
           result.push_back(&c);
@@ -148,9 +154,12 @@ std::vector<const PgColumn*> OrderColumns(const std::vector<PgColumn>& cols) {
   }
   std::sort(result.begin(), result.end(), [](auto lhs, auto rhs) {
       return lhs->attr_num() < rhs->attr_num(); });
+  #ifdef YB_TODO
+  // OID is a regular column PG15 onwards.
   if (objCol) {
     result.push_back(objCol);
   }
+  #endif
   if (ybctidCol) {
     result.push_back(ybctidCol);
   }
