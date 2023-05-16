@@ -2608,6 +2608,7 @@ Status ExternalMaster::Start(bool shell_mode) {
     flags.Add("master_addresses", master_addrs_);
   }
   RETURN_NOT_OK(StartProcess(flags.value()));
+  LOG_WITH_FUNC(INFO) << "\n\n\nYB Master pid: " << pid() << "\n\n\n";
   return Status::OK();
 }
 

@@ -655,6 +655,9 @@ Status PgWrapper::InitDb(bool yb_enabled) {
   SetCommonEnv(&initdb_subprocess, yb_enabled);
   int status = 0;
   RETURN_NOT_OK(initdb_subprocess.Start());
+  // Not adding any sleep here as it is unlikely that you'll want to conenct to initdb process and
+  // debug it. Most issues are debuged by connecting to the PG backend process it spawns.
+  LOG_WITH_FUNC(INFO) << "\n\n\nInitdb pid: " << initdb_subprocess.pid() << "\n\n\n";
   RETURN_NOT_OK(initdb_subprocess.Wait(&status));
   if (status != 0) {
     SCHECK(WIFEXITED(status), InternalError,

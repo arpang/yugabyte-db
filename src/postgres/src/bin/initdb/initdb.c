@@ -142,7 +142,7 @@ static char *pwfilename = NULL;
 static char *superuser_password = NULL;
 static const char *authmethodhost = NULL;
 static const char *authmethodlocal = NULL;
-static bool debug = false;
+static bool debug = true; /* To enable logging in bootstrap backend process */
 static bool noclean = false;
 static bool noinstructions = false;
 static bool do_sync = true;
@@ -205,7 +205,8 @@ static bool authwarning = false;
  * (no quoting to worry about).
  */
 static const char *boot_options = "-F -c log_checkpoints=false";
-static const char *backend_options = "--single -F -O -j -c search_path=pg_catalog -c exit_on_error=true -c log_checkpoints=false";
+/* To enable looging in regular backend process */
+static const char *backend_options = "--single -F -O -j -c search_path=pg_catalog -c exit_on_error=true -c log_checkpoints=false -d 2";
 
 /* Additional switches to pass to backend (either boot or standalone) */
 static char *extra_options = "";
@@ -1493,7 +1494,7 @@ bootstrap_template1(void)
 			 wal_segment_size_mb * (1024 * 1024),
 			 data_checksums ? "-k" : "",
 			 boot_options, extra_options,
-			 debug ? "-d 5" : "");
+			 debug ? "-d 2" : ""); /* Log level 5 is very noisy. */
 
 
 	PG_CMD_OPEN;

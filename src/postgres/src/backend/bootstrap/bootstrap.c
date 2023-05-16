@@ -640,7 +640,9 @@ InsertOneTuple(void)
 	TupleDesc	tupDesc;
 	int			i;
 
-	elog(DEBUG4, "inserting row with %d columns", numattr);
+	/* Example log in bootstrap backend process. Logging in the regular backend
+	 * process will be in the same manner. */
+	elog(DEBUG2, "inserting row with %d columns", numattr);
 
 	tupDesc = CreateTupleDesc(numattr, attrtypes);
 	tuple = heap_form_tuple(tupDesc, values, Nulls);
