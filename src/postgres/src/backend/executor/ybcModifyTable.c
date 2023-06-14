@@ -236,6 +236,7 @@ static void YBCExecWriteStmt(YBCPgStatement ybc_stmt,
 	}
 }
 
+/* YB_TODO: No need to return Oid. */
 /*
  * Utility method to insert a tuple into the relation's backing YugaByte table.
  */
@@ -253,18 +254,6 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 	Bitmapset      *pkey    = YBGetTablePrimaryKeyBms(rel);
 	YBCPgStatement insert_stmt = NULL;
 	bool           is_null  = false;
-
-#ifdef YB_TODO
-	/* YB_TODO(neil@yugabyte)
-	 * - OID is now a regular column
-	 * - Generate a new oid for this row if needed
-	 */
-	if (rel->rd_rel->relhasoids)
-	{
-		if (!OidIsValid(HeapTupleGetOid(tuple)))
-			HeapTupleSetOid(tuple, GetNewOid(rel));
-	}
-#endif
 
 	/* Create the INSERT request and add the values from the tuple. */
 	HandleYBStatus(YBCPgNewInsert(dboid,
@@ -358,6 +347,7 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 	return YbHeapTupleGetOid(tuple);
 }
 
+/* YB_TODO: No need to return Oid. */
 Oid YBCExecuteInsert(Relation rel,
                      TupleDesc tupleDesc,
                      HeapTuple tuple,
@@ -371,6 +361,7 @@ Oid YBCExecuteInsert(Relation rel,
 	                             NULL /* ybctid */);
 }
 
+/* YB_TODO: No need to return Oid. */
 Oid YBCExecuteInsertForDb(Oid dboid,
                           Relation rel,
                           TupleDesc tupleDesc,
@@ -388,6 +379,7 @@ Oid YBCExecuteInsertForDb(Oid dboid,
 	                                ybctid);
 }
 
+/* YB_TODO: Unused function. */
 Oid YBCExecuteNonTxnInsert(Relation rel,
                            TupleDesc tupleDesc,
                            HeapTuple tuple,
@@ -401,6 +393,7 @@ Oid YBCExecuteNonTxnInsert(Relation rel,
 	                                   NULL /* ybctid */);
 }
 
+/* YB_TODO: No need to return Oid. */
 Oid YBCExecuteNonTxnInsertForDb(Oid dboid,
                                 Relation rel,
                                 TupleDesc tupleDesc,
@@ -456,6 +449,7 @@ Oid YBCHeapInsert(ResultRelInfo *resultRelInfo,
 	return YBCHeapInsertForDb(resultRelInfo, dboid, slot, tuple, estate, NULL /* ybctid */);
 }
 
+/* YB_TODO: No need to return Oid. */
 Oid YBCHeapInsertForDb(ResultRelInfo *resultRelInfo,
 					   Oid dboid,
                        TupleTableSlot* slot,
@@ -662,16 +656,16 @@ bool YBCExecuteDelete(Relation rel,
 		ybctid = YBCGetYBTupleIdFromSlot(slot);
 	else
 	{
-		/*
-		 * YB_TODO(neil@yugabyte) Write Yugabyte API to work with slot.
-		 *
-		 * Current Yugabyte API works with HeapTuple instead of slot.
-		 * - Create tuple as a workaround to compile.
-		 * - Pass slot to Yugabyte call once the API is fixed.
-		 *
-		 * Postgres change ExecMaterializeSlot API.
-		 * HeapTuple tuple = ExecMaterializeSlot(slot);
-		 */
+	   /*
+		* YB_TODO(neil@yugabyte) Write Yugabyte API to work with slot.
+		*
+		* Current Yugabyte API works with HeapTuple instead of slot.
+		* - Create tuple as a workaround to compile.
+		* - Pass slot to Yugabyte call once the API is fixed.
+		*
+		* Postgres change ExecMaterializeSlot API.
+		* HeapTuple tuple = ExecMaterializeSlot(slot);
+		*/
 		bool shouldFree = true;
 		HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
 		ybctid = YBCGetYBTupleIdFromTuple(rel, tuple, slot->tts_tupleDescriptor);
