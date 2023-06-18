@@ -4145,10 +4145,6 @@ ExecPrepareTupleRouting(ModifyTableState *mtstate,
 		slot = execute_attr_map_slot(map->attrMap, slot, new_slot);
 	}
 
-#ifdef YB_TODO
-	/* YB_TODO(neil@yugabyte)
-	 * This code is no longer needed?
-	 */
 	/*
 	 * For a partitioned relation, table constraints (such as FK) are visible on a
 	 * target partition rather than an original insert target.
@@ -4159,7 +4155,6 @@ ExecPrepareTupleRouting(ModifyTableState *mtstate,
 	{
 		estate->yb_es_is_single_row_modify_txn = YBCIsSingleRowTxnCapableRel(partrel);
 	}
-#endif
 
 	*partRelInfo = partrel;
 	return slot;
@@ -4348,7 +4343,6 @@ ExecModifyTable(PlanState *pstate)
 			 * 2. For tables with row triggers we need to pass the old row for
 			 *    trigger execution.
 			 */
-
 			if (IsYBRelation(relation) &&
 				(YBRelHasSecondaryIndices(relation) ||
 				 YBRelHasOldRowTriggers(relation, operation)))
@@ -4792,12 +4786,10 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 			relkind = resultRelInfo->ri_RelationDesc->rd_rel->relkind;
 			if (IsYBRelation(resultRelInfo->ri_RelationDesc))
 			{
-				if (!mtstate->yb_fetch_target_tuple) {
-					resultRelInfo->ri_RowIdAttNo =
-						ExecFindJunkAttributeInTlist(subplan->targetlist, "ybctid");
-					if (!AttributeNumberIsValid(resultRelInfo->ri_RowIdAttNo))
-						elog(ERROR, "could not find junk ybctid column");
-				}
+				resultRelInfo->ri_RowIdAttNo =
+					ExecFindJunkAttributeInTlist(subplan->targetlist, "ybctid");
+				if (!AttributeNumberIsValid(resultRelInfo->ri_RowIdAttNo))
+					elog(ERROR, "could not find junk ybctid column");
 			}
 			else if (relkind == RELKIND_RELATION ||
 				relkind == RELKIND_MATVIEW ||
