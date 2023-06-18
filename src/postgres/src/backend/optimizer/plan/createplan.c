@@ -3756,11 +3756,10 @@ create_modifytable_plan(PlannerInfo *root, ModifyTablePath *best_path)
 	{
 		/* Subplan must produce exactly the specified tlist */
 		subplan = create_plan_recurse(root, subpath, CP_EXACT_TLIST);
-
-		/* Transfer resname/resjunk labeling, too, to keep executor happy */
-		apply_tlist_labeling(subplan->targetlist, root->processed_tlist);
 	}
 
+	/* Transfer resname/resjunk labeling, too, to keep executor happy */
+	apply_tlist_labeling(subplan->targetlist, root->processed_tlist);
 	plan = make_modifytable(root,
 							subplan,
 							best_path->operation,
@@ -4075,16 +4074,6 @@ create_indexscan_plan(PlannerInfo *root,
 	/* it should be a base rel... */
 	Assert(baserelid > 0);
 	Assert(best_path->path.parent->rtekind == RTE_RELATION);
-
-#ifdef YB_TODO
-	/* YB_TODO(neil) Move this code to fix_indexqual_references */
-	stripped_indexquals =
-		!bms_is_empty(root->yb_cur_batched_relids) && IsYugaByteEnabled()
-			? yb_get_actual_batched_clauses(root,
-													  indexquals,
-													  (Path *) best_path)
-		: get_actual_clauses(indexquals);
-#endif
 
 	/*
 	 * Extract the index qual expressions (stripped of RestrictInfos) from the
@@ -6301,8 +6290,9 @@ fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
 	List	   *stripped_indexquals;
 	List	   *fixed_indexquals;
 	ListCell   *lc;
+	List	   *rinfos;
 
-	fixed_indexquals = NIL;
+	stripped_indexquals = fixed_indexquals = NIL;
 
 	List *batched_quals = yb_get_fixed_batched_indexquals(root, index_path);
 	batched_quals = yb_zip_batched_exprs(root, batched_quals, true);
@@ -6314,6 +6304,7 @@ fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
 		fixed_indexquals = lappend(fixed_indexquals, fixed_clause);
 	}
 
+	rinfos = NIL;
 	foreach(lc, index_path->indexclauses)
 	{
 		IndexClause *iclause = lfirst_node(IndexClause, lc);
@@ -6339,7 +6330,13 @@ fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
 			clause = fix_indexqual_clause(root, index, indexcol,
 										  clause, iclause->indexcols);
 			fixed_indexquals = lappend(fixed_indexquals, clause);
+			rinfos = lappend(rinfos, rinfo);
 		}
+	}
+
+	if(!bms_is_empty(root->yb_cur_batched_relids) && IsYugaByteEnabled())
+	{
+		stripped_indexquals = yb_get_actual_batched_clauses(root, rinfos, (Path *) index_path);
 	}
 
 	*stripped_indexquals_p = stripped_indexquals;

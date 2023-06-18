@@ -78,12 +78,7 @@ typedef struct YbScanPlanData
 
 typedef YbScanPlanData *YbScanPlan;
 
-#ifdef YB_TODO
-	/* YB_TODO(ram kannan@yugabyte) Reimplement cost functions.
-	 * - PG13 removed IndexQualInfo.
-	 * - PG13 introduced IndexClause.
-	 * - Yugabyte needs to reimplement the cost calculation using IndexClause.
-	 */
+
 static void ybcAddAttributeColumn(YbScanPlan scan_plan, AttrNumber attnum)
 {
 	const int idx = YBAttnumToBmsIndex(scan_plan->target_relation, attnum);
@@ -91,7 +86,6 @@ static void ybcAddAttributeColumn(YbScanPlan scan_plan, AttrNumber attnum)
 	if (bms_is_member(idx, scan_plan->primary_key))
 		scan_plan->sk_cols = bms_add_member(scan_plan->sk_cols, idx);
 }
-#endif
 
 /*
  * Checks if an attribute is a hash or primary key column and note it in
@@ -2758,6 +2752,7 @@ static double ybcEvalHashSelectivity(List *hashed_qinfos)
 #endif
 	return selectivity;
 }
+#endif
 
 /*
  * Evaluate the selectivity for some qualified cols given the hash and primary key cols.
@@ -2794,7 +2789,6 @@ static double ybcIndexEvalClauseSelectivity(Relation index,
 
 	return YBC_HASH_SCAN_SELECTIVITY;
 }
-#endif
 
 Oid ybc_get_attcollation(TupleDesc desc, AttrNumber attnum)
 {
@@ -2805,7 +2799,6 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 						  Selectivity *selectivity, Cost *startup_cost,
 						  Cost *total_cost)
 {
-#ifdef YB_TODO
 	/* YB_TODO(ram kannan@yugabyte) Reimplement cost functions.
 	 * - PG13 removed IndexQualInfo.
 	 * - PG13 introduced IndexClause.
@@ -2816,13 +2809,14 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 	bool		isprimary = index->rd_index->indisprimary;
 	Relation	relation = isprimary ? RelationIdGetRelation(index->rd_index->indrelid) : NULL;
 	RelOptInfo *baserel = path->path.parent;
-	List	   *qinfos = NIL;
 	ListCell   *lc;
 	bool        is_backwards_scan = path->indexscandir == BackwardScanDirection;
 	bool        is_unique = index->rd_index->indisunique;
 	bool        is_partial_idx = path->indexinfo->indpred != NIL && path->indexinfo->predOK;
 	Bitmapset  *const_quals = NULL;
+	#ifdef YB_TODO
 	List	   *hashed_qinfos = NIL;
+	#endif
 	List	   *clauses = NIL;
 	double 		baserel_rows_estimate;
 
@@ -2838,39 +2832,51 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 	/* Find out the search conditions on the primary key columns */
 	foreach(lc, path->indexclauses)
 	{
-		IndexQualInfo *qinfo = (IndexQualInfo *) lfirst(lc);
-		RestrictInfo *rinfo = qinfo->rinfo;
-		AttrNumber	 attnum = isprimary ? index->rd_index->indkey.values[qinfo->indexcol]
-										: (qinfo->indexcol + 1);
-		Expr	   *clause = rinfo->clause;
-		int			bms_idx = YBAttnumToBmsIndex(scan_plan.target_relation, attnum);
+		IndexClause *iclause = lfirst_node(IndexClause, lc);
+		int			indexcol = iclause->indexcol;
+		ListCell   *lc2;
 
-		if (IsA(clause, NullTest))
+		foreach(lc2, iclause->indexquals)
 		{
-			const_quals = bms_add_member(const_quals, bms_idx);
-			ybcAddAttributeColumn(&scan_plan, attnum);
-		}
-		else
-		{
-			Oid	clause_op = qinfo->clause_op;
+			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc2);
+			AttrNumber	 attnum = isprimary ? index->rd_index->indkey.values[indexcol]
+											: (indexcol + 1);
+			Expr	   *clause = rinfo->clause;
+			int			bms_idx = YBAttnumToBmsIndex(scan_plan.target_relation, attnum);
 
-			if (OidIsValid(clause_op))
+			if (IsA(clause, NullTest))
 			{
+				const_quals = bms_add_member(const_quals, bms_idx);
 				ybcAddAttributeColumn(&scan_plan, attnum);
-				if (qinfo->other_operand && IsA(qinfo->other_operand, Const))
-					const_quals = bms_add_member(const_quals, bms_idx);
 			}
-		}
+			else
+			{
+				OpExpr	   *op = (OpExpr *) clause;
+				Oid	clause_op = op->opno;
+				Node* other_operand = (Node *) lsecond(op->args);
 
-		if (qinfo->is_hashed)
-		{
-			hashed_qinfos = lappend(hashed_qinfos, qinfo);
-		}
-		else
-		{
+				if (OidIsValid(clause_op))
+				{
+					ybcAddAttributeColumn(&scan_plan, attnum);
+					if (other_operand && IsA(other_operand, Const))
+						const_quals = bms_add_member(const_quals, bms_idx);
+				}
+			}
+
+			#ifdef YB_TODO
+			if (qinfo->is_hashed)
+			{
+				hashed_qinfos = lappend(hashed_qinfos, qinfo);
+			}
+			else
+			{
+				clauses = lappend(clauses, rinfo);
+			}
+			#endif
 			clauses = lappend(clauses, rinfo);
 		}
 	}
+	#ifdef YB_TODO
 	if (hashed_qinfos != NIL)
 	{
 		*selectivity = ybcEvalHashSelectivity(hashed_qinfos);
@@ -2878,6 +2884,7 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 	}
 	else
 	{
+	#endif
 		if (yb_enable_optimizer_statistics)
 		{
 			*selectivity = clauselist_selectivity(root /* PlannerInfo */,
@@ -2899,7 +2906,9 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 														scan_plan.primary_key);
 			baserel_rows_estimate = baserel->tuples * (*selectivity);
 		}
+	#ifdef YB_TODO
 	}
+	#endif
 
 	path->path.rows = baserel_rows_estimate;
 
@@ -2943,7 +2952,6 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 		RelationClose(relation);
 
 	RelationClose(index);
-#endif
 }
 
 static bool
