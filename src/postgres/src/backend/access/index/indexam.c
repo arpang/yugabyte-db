@@ -641,7 +641,10 @@ index_fetch_heap(IndexScanDesc scan, TupleTableSlot *slot)
 	if (IsYBRelation(scan->heapRelation))
 	{
 		if (scan->xs_hitup != 0)
-			return scan->xs_hitup;
+		{
+			ExecStoreBufferHeapTuple(scan->xs_hitup, slot, InvalidBuffer);
+			return true;
+		}
 		return YbFetchTableSlot(scan->heapRelation, &scan->xs_heaptid, slot);
 	}
 
