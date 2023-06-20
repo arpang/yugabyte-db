@@ -4327,8 +4327,9 @@ ExecModifyTable(PlanState *pstate)
 		 * tuple in toto.  Keep this in step with the part of
 		 * ExecInitModifyTable that sets up ri_RowIdAttNo.
 		 */
-		if (operation == CMD_UPDATE || operation == CMD_DELETE ||
-			operation == CMD_MERGE)
+		if ((operation == CMD_UPDATE || operation == CMD_DELETE ||
+			operation == CMD_MERGE) &&
+			(!IsYBRelation(relation)|| node->yb_fetch_target_tuple))
 		{
 			char		relkind;
 			Datum		datum;
@@ -4786,10 +4787,13 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 			relkind = resultRelInfo->ri_RelationDesc->rd_rel->relkind;
 			if (IsYBRelation(resultRelInfo->ri_RelationDesc))
 			{
-				resultRelInfo->ri_RowIdAttNo =
-					ExecFindJunkAttributeInTlist(subplan->targetlist, "ybctid");
-				if (!AttributeNumberIsValid(resultRelInfo->ri_RowIdAttNo))
-					elog(ERROR, "could not find junk ybctid column");
+				if (mtstate->yb_fetch_target_tuple)
+				{
+					resultRelInfo->ri_RowIdAttNo =
+						ExecFindJunkAttributeInTlist(subplan->targetlist, "ybctid");
+					if (!AttributeNumberIsValid(resultRelInfo->ri_RowIdAttNo))
+						elog(ERROR, "could not find junk ybctid column");
+				}
 			}
 			else if (relkind == RELKIND_RELATION ||
 				relkind == RELKIND_MATVIEW ||
