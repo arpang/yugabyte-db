@@ -3207,7 +3207,21 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	 * Only UPDATE/DELETE are supported in this particular path. Single row INSERT
 	 * is handled through a separate mechanism.
 	 */
+#ifdef YB_TODO
+	/* The semantic of target list in the UPDATE path has changed. It no longer
+	 * contains all the attributes in the relation, instead just contains the
+	 * attributes being updated and junk columns. The semantics of resno has
+	 * changed as well. Previously, it used to represent the attribute number,
+	 * now it is just a consecutive number. Now, root->update_colnos represents
+	 * the att_nums of attributes being updated. See
+	 * preprocess_targetlist and extract_update_targetlist_colnos for more
+	 * details.  */
 	if (path->operation != CMD_UPDATE && path->operation != CMD_DELETE)
+		return false;
+#endif
+
+	/* YB_TODO: Remove this once the above YB_TODO is resolve.  */
+	if (path->operation != CMD_DELETE)
 		return false;
 
 	/*
