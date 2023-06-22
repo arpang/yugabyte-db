@@ -562,6 +562,7 @@ ExecBuildUpdateProjection(List *targetList,
 		}
 	}
 
+	elog(INFO, "nAssignableCols: %d, list_length(targetColnos): %d", nAssignableCols, list_length(targetColnos));
 	/* We should have one targetColnos entry per non-junk column */
 	if (nAssignableCols != list_length(targetColnos))
 		elog(ERROR, "targetColnos does not match subplan target list");

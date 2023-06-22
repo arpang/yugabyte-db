@@ -4510,26 +4510,33 @@ ExecModifyTable(PlanState *pstate)
 				}
 				else
 				{
-					/* Fetch the most recent version of old tuple. */
-					bool row_found = false;
-					if (IsYBRelation(relation))
+					if (!IsYBRelation(relation))
 					{
-						row_found =
-							YbFetchTableSlot(relation, tupleid, oldSlot);
-					}
-					else
-					{
+						/* Fetch the most recent version of old tuple. */
+						bool row_found = false;
+						// if (IsYBRelation(relation))
+						// {
+						// 	row_found =
+						// 		YbFetchTableSlot(relation, tupleid, oldSlot);
+						// }
+						// else
+						// {
 						row_found = table_tuple_fetch_row_version(
 							relation, tupleid, SnapshotAny, oldSlot);
-					}
+						// }
 
-					if (!row_found)
-						elog(ERROR, "failed to fetch tuple being updated");
+						if (!row_found)
+							elog(ERROR, "failed to fetch tuple being updated");
+					}
 				}
-				slot = internalGetUpdateNewTuple(resultRelInfo, context.planSlot,
-												 oldSlot, NULL);
-				context.GetUpdateNewTuple = internalGetUpdateNewTuple;
-				context.relaction = NULL;
+
+				if (!IsYBRelation(relation))
+				{
+					slot = internalGetUpdateNewTuple(resultRelInfo, context.planSlot,
+													oldSlot, NULL);
+					context.GetUpdateNewTuple = internalGetUpdateNewTuple;
+					context.relaction = NULL;
+				}
 
 				/* Now apply the update. */
 				slot = ExecUpdate(&context, resultRelInfo, tupleid, oldtuple,
@@ -4670,6 +4677,7 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	mtstate->mt_merge_deleted = 0;
 
 	mtstate->yb_fetch_target_tuple = !YbCanSkipFetchingTargetTupleForModifyTable(node);
+	elog(INFO, "mtstate->yb_fetch_target_tuple (expected false): %d", mtstate->yb_fetch_target_tuple);
 
 	/*----------
 	 * Resolve the target relation. This is the same as:

@@ -2211,6 +2211,7 @@ create_gather_merge_plan(PlannerInfo *root, GatherMergePath *best_path)
 static Plan *
 create_projection_plan(PlannerInfo *root, ProjectionPath *best_path, int flags)
 {
+	elog(INFO, "Inside create_projection_plan");
 	Plan	   *plan;
 	Plan	   *subplan;
 	List	   *tlist;
@@ -3300,11 +3301,11 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 		 * columns. If true user write expression is not a supported single row write expression
 		 * then return false.
 		 */
+		int i = 0;
 		foreach(values, build_path_tlist(root, subpath))
 		{
 			TargetEntry *tle = lfirst_node(TargetEntry, values);
-			int resno = tle->resno;
-
+	
 			/* Ignore unspecified columns. */
 			if (IsA(tle->expr, Var))
 			{
@@ -3314,13 +3315,17 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 				 * (added for YB scan in rewrite handler).
 				 */
 				if (var->varattno == InvalidAttrNumber ||
-					var->varattno == resno ||
+					var->varattno == tle->resno ||
 					(var->varattno == YBTupleIdAttributeNumber &&
 						var->varcollid == InvalidOid))
 				{
 					continue;
 				}
 			}
+
+			Assert(root->update_colnos->length > i);
+			int attno = root->update_colnos->elements[i].int_value;
+			i++;
 
 			/*
 			 * Verify if the path target matches a table column.
@@ -3336,22 +3341,22 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			 * check, it is expected that pseudo-columns go after regular
 			 * tables columns listed in the tuple descriptor.
 			 */
-			if (resno <= 0 || resno > tupDesc->natts)
+			if (attno <= 0 || attno > tupDesc->natts)
 			{
-				elog(DEBUG1, "Target expression out of range: %d", resno);
+				elog(DEBUG1, "Target expression out of range: %d", attno);
 				RelationClose(relation);
 				return false;
 			}
 
 			/* Updates involving primary key columns are not single-row. */
-			if (bms_is_member(resno - attr_offset, primary_key_attrs))
+			if (bms_is_member(attno - attr_offset, primary_key_attrs))
 			{
 				RelationClose(relation);
 				return false;
 			}
 
 			subpath_tlist = lappend(subpath_tlist, tle);
-			update_attrs = bms_add_member(update_attrs, resno - attr_offset);
+			update_attrs = bms_add_member(update_attrs, attno - attr_offset);
 
 			/*
 			 * If the expression does not contain any Vars it can be evaluated
@@ -3392,15 +3397,15 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			 * if there are triggers. There is no easy way to tell what columns
 			 * are affected by a trigger, so we should update all indexes.
 			 */
-			if (TupleDescAttr(tupDesc, resno - 1)->attnotnull ||
-				YBIsCollationValidNonC(ybc_get_attcollation(tupDesc, resno)) ||
+			if (TupleDescAttr(tupDesc, attno - 1)->attnotnull ||
+				YBIsCollationValidNonC(ybc_get_attcollation(tupDesc, attno)) ||
 				!YbCanPushdownExpr(tle->expr, &colrefs))
 			{
 				has_unpushable_exprs = true;
 			}
 
 			pushdown_update_attrs = bms_add_member(pushdown_update_attrs,
-												   resno - attr_offset);
+												   attno - attr_offset);
 		}
 	}
 
@@ -3582,31 +3587,78 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	 * no overlap between primary key targets and SET targets (if any).
 	 */
 	subpath_tlist_values = list_head(subpath_tlist);
-
-	for (attr_num = 1; attr_num <= relInfo->max_attr; ++attr_num)
+	if (path->operation == CMD_DELETE)
 	{
-		TargetEntry *subpath_tlist_tle = NULL;
-
-		if (subpath_tlist_values)
-			subpath_tlist_tle = lfirst_node(TargetEntry, subpath_tlist_values);
-
-		if (indexquals[attr_num - 1] != NULL)
+		for (attr_num = 1; attr_num <= relInfo->max_attr; ++attr_num)
 		{
-			/* Use the primary-key indexquals value. */
-			*result_tlist = lappend(*result_tlist, indexquals[attr_num - 1]);
-		}
-		else if (subpath_tlist_values && subpath_tlist_tle->resno == attr_num)
-		{
-			if (bms_is_member(subpath_tlist_tle->resno - attr_offset,
-							  pushdown_update_attrs))
+			TargetEntry *subpath_tlist_tle = NULL;
+
+			if (subpath_tlist_values)
+				subpath_tlist_tle = lfirst_node(TargetEntry, subpath_tlist_values);
+
+			if (indexquals[attr_num - 1] != NULL)
+			{
+				/* Use the primary-key indexquals value. */
+				*result_tlist = lappend(*result_tlist, indexquals[attr_num - 1]);
+			}
+			else if (subpath_tlist_values && subpath_tlist_tle->resno == attr_num)
+			{
+				if (bms_is_member(subpath_tlist_tle->resno - attr_offset,
+								pushdown_update_attrs))
+				{
+					/*
+					* If the expr needs pushdown bypass query-layer evaluation.
+					* We set a dummy tle in the result tlist since it needs to
+					* contain values for all rel columns (see below).
+					* However, we substitute the correct expression during
+					* execution (in ybcModifyTable.c).
+					*/
+					TargetEntry* tle = make_dummy_tle(attr_num, /* is_null = */ false);
+					*result_tlist = lappend(*result_tlist, tle);
+					*modify_tlist = lappend(*modify_tlist, subpath_tlist_tle);
+				}
+				else
+				{
+					/* Use the SET value from the projection target list. */
+					*result_tlist = lappend(*result_tlist, subpath_tlist_tle);
+				}
+
+				subpath_tlist_values = lnext(subpath_tlist, subpath_tlist_values);
+			}
+			else
 			{
 				/*
-				 * If the expr needs pushdown bypass query-layer evaluation.
-				 * We set a dummy tle in the result tlist since it needs to
-				 * contain values for all rel columns (see below).
-				 * However, we substitute the correct expression during
-				 * execution (in ybcModifyTable.c).
-				 */
+				* It is necessary to include the unspecified columns in the final Result target
+				* list as it is expected to contain all rel columns, even those that are not
+				* directly used in the statement, however we substitute in NULL const values so
+				* all expressions are still valid single row write expressions.
+				*/
+				TargetEntry* tle = make_dummy_tle(attr_num, /* is_null = */ true);
+				*result_tlist = lappend(*result_tlist, tle);
+			}
+		}
+	}
+	else if (path->operation == CMD_UPDATE)
+	{
+		foreach(values, root->update_colnos)
+		{
+			attr_num = lfirst_int(values);
+			TargetEntry *subpath_tlist_tle = NULL;
+
+			Assert(subpath_tlist_values);
+			subpath_tlist_tle = lfirst_node(TargetEntry, subpath_tlist_values);
+			subpath_tlist_tle->resno = attr_num;
+
+			if (bms_is_member(attr_num - attr_offset,
+							pushdown_update_attrs))
+			{
+				/*
+				* If the expr needs pushdown bypass query-layer evaluation.
+				* We set a dummy tle in the result tlist since it needs to
+				* contain values for all rel columns (see below).
+				* However, we substitute the correct expression during
+				* execution (in ybcModifyTable.c).
+				*/
 				TargetEntry* tle = make_dummy_tle(attr_num, /* is_null = */ false);
 				*result_tlist = lappend(*result_tlist, tle);
 				*modify_tlist = lappend(*modify_tlist, subpath_tlist_tle);
@@ -3616,20 +3668,17 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 				/* Use the SET value from the projection target list. */
 				*result_tlist = lappend(*result_tlist, subpath_tlist_tle);
 			}
-
 			subpath_tlist_values = lnext(subpath_tlist, subpath_tlist_values);
 		}
-		else
-		{
-			/*
-			 * It is necessary to include the unspecified columns in the final Result target
-			 * list as it is expected to contain all rel columns, even those that are not
-			 * directly used in the statement, however we substitute in NULL const values so
-			 * all expressions are still valid single row write expressions.
-			 */
-			TargetEntry* tle = make_dummy_tle(attr_num, /* is_null = */ true);
-			*result_tlist = lappend(*result_tlist, tle);
-		}
+
+		// for (attr_num = 1; attr_num <= relInfo->max_attr; ++attr_num)
+		// {
+		// 	if (indexquals[attr_num - 1] != NULL)
+		// 	{
+		// 		/* Use the primary-key indexquals value. */
+		// 		*result_tlist = lappend(*result_tlist, indexquals[attr_num - 1]);
+		// 	}
+		// }
 	}
 
 	/*
@@ -3749,11 +3798,13 @@ create_modifytable_plan(PlannerInfo *root, ModifyTablePath *best_path)
 											best_path->operation == CMD_UPDATE ?
 												&no_update_index_list : NULL))
 	{
+		elog(INFO, "yb_single_row_update_or_delete_path true");
 		subplan = (Plan *) make_result(result_tlist, NULL, NULL);
 		copy_generic_path_info(subplan, best_path->subpath);
 	}
 	else
 	{
+		elog(INFO, "yb_single_row_update_or_delete_path false");
 		/* Subplan must produce exactly the specified tlist */
 		subplan = create_plan_recurse(root, subpath, CP_EXACT_TLIST);
 		/* Transfer resname/resjunk labeling, too, to keep executor happy */
