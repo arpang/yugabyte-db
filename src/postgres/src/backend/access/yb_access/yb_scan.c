@@ -82,6 +82,7 @@ typedef YbScanPlanData *YbScanPlan;
 static void ybcAddAttributeColumn(YbScanPlan scan_plan, AttrNumber attnum)
 {
 	const int idx = YBAttnumToBmsIndex(scan_plan->target_relation, attnum);
+
 	if (bms_is_member(idx, scan_plan->primary_key))
 		scan_plan->sk_cols = bms_add_member(scan_plan->sk_cols, idx);
 }

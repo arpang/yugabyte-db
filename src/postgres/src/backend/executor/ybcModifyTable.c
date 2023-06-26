@@ -657,6 +657,16 @@ bool YBCExecuteDelete(Relation rel,
 		ybctid = YBCGetYBTupleIdFromSlot(slot);
 	else
 	{
+	   /*
+		* YB_TODO(neil@yugabyte) Write Yugabyte API to work with slot.
+		*
+		* Current Yugabyte API works with HeapTuple instead of slot.
+		* - Create tuple as a workaround to compile.
+		* - Pass slot to Yugabyte call once the API is fixed.
+		*
+		* Postgres change ExecMaterializeSlot API.
+		* HeapTuple tuple = ExecMaterializeSlot(slot);
+		*/
 		bool shouldFree = true;
 		HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
 		ybctid = YBCGetYBTupleIdFromTuple(rel, tuple, slot->tts_tupleDescriptor);

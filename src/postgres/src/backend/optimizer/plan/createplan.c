@@ -3770,6 +3770,7 @@ create_modifytable_plan(PlannerInfo *root, ModifyTablePath *best_path)
 	{
 		/* Subplan must produce exactly the specified tlist */
 		subplan = create_plan_recurse(root, subpath, CP_EXACT_TLIST);
+
 		/* Transfer resname/resjunk labeling, too, to keep executor happy */
 		apply_tlist_labeling(subplan->targetlist, root->processed_tlist);
 	}

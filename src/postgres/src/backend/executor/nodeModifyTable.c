@@ -4344,6 +4344,7 @@ ExecModifyTable(PlanState *pstate)
 			 * 2. For tables with row triggers we need to pass the old row for
 			 *    trigger execution.
 			 */
+
 			if (IsYBRelation(relation) &&
 				(YBRelHasSecondaryIndices(relation) ||
 				 YBRelHasOldRowTriggers(relation, operation)))
@@ -4514,12 +4515,11 @@ ExecModifyTable(PlanState *pstate)
 					else
 					{
 						/* Fetch the most recent version of old tuple. */
-						bool row_found = false;
+						Relation	relation = resultRelInfo->ri_RelationDesc;
 
-						row_found = table_tuple_fetch_row_version(
-							relation, tupleid, SnapshotAny, oldSlot);
-
-						if (!row_found)
+						if (!table_tuple_fetch_row_version(relation, tupleid,
+														SnapshotAny,
+														oldSlot))
 							elog(ERROR, "failed to fetch tuple being updated");
 					}
 					slot = internalGetUpdateNewTuple(resultRelInfo, context.planSlot,
