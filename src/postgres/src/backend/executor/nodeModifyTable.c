@@ -4328,8 +4328,7 @@ ExecModifyTable(PlanState *pstate)
 		 * ExecInitModifyTable that sets up ri_RowIdAttNo.
 		 */
 		if ((operation == CMD_UPDATE || operation == CMD_DELETE ||
-			operation == CMD_MERGE) &&
-			(!IsYBRelation(relation)|| node->yb_fetch_target_tuple))
+			operation == CMD_MERGE))
 		{
 			char		relkind;
 			Datum		datum;
@@ -4495,38 +4494,50 @@ ExecModifyTable(PlanState *pstate)
 				break;
 
 			case CMD_UPDATE:
-				/* YB_TODO: Should the below block not execute for YB relations? */
-				if (!IsYBRelation(relation))
-				{
-					/* Initialize projection info if first time for this table */
-					if (unlikely(!resultRelInfo->ri_projectNewInfoValid))
-						ExecInitUpdateProjection(node, resultRelInfo);
+				/* Initialize projection info if first time for this table */
+				if (unlikely(!resultRelInfo->ri_projectNewInfoValid))
+					ExecInitUpdateProjection(node, resultRelInfo);
 
-					/*
-					* Make the new tuple by combining plan's output tuple with
-					* the old tuple being updated.
-					*/
-					oldSlot = resultRelInfo->ri_oldTupleSlot;
-					if (oldtuple != NULL)
+				/*
+				* Make the new tuple by combining plan's output tuple with
+				* the old tuple being updated.
+				*/
+				oldSlot = resultRelInfo->ri_oldTupleSlot;
+				if (oldtuple != NULL)
+				{
+					/* Use the wholerow junk attr as the old tuple. */
+					ExecForceStoreHeapTuple(oldtuple, oldSlot, false);
+				}
+				else
+				{
+					/* Fetch the most recent version of old tuple. */
+					Relation	relation = resultRelInfo->ri_RelationDesc;
+
+					bool row_found = false;
+					if (IsYBRelation(relation))
 					{
-						/* Use the wholerow junk attr as the old tuple. */
-						ExecForceStoreHeapTuple(oldtuple, oldSlot, false);
+						row_found =
+							YbFetchTableSlot(relation, tupleid, oldSlot);
 					}
 					else
 					{
-						/* Fetch the most recent version of old tuple. */
-						Relation	relation = resultRelInfo->ri_RelationDesc;
-
-						if (!table_tuple_fetch_row_version(relation, tupleid,
-														SnapshotAny,
-														oldSlot))
-							elog(ERROR, "failed to fetch tuple being updated");
+						row_found = table_tuple_fetch_row_version(
+							relation, tupleid, SnapshotAny, oldSlot);
 					}
-					slot = internalGetUpdateNewTuple(resultRelInfo, context.planSlot,
-													oldSlot, NULL);
-					context.GetUpdateNewTuple = internalGetUpdateNewTuple;
-					context.relaction = NULL;
+
+					if (!row_found)
+						elog(ERROR, "failed to fetch tuple being updated");
 				}
+				if (oldtuple == NULL)
+					elog(INFO, "Null oldtuple");
+				slot = internalGetUpdateNewTuple(resultRelInfo, context.planSlot,
+												oldSlot, NULL);
+				if (oldtuple != NULL)
+					TABLETUPLE_YBCTID(slot) = HEAPTUPLE_YBCTID(oldtuple);
+				else
+					TABLETUPLE_YBCTID(slot) = TABLETUPLE_YBCTID(oldSlot);
+				context.GetUpdateNewTuple = internalGetUpdateNewTuple;
+				context.relaction = NULL;
 
 				/* Now apply the update. */
 				slot = ExecUpdate(&context, resultRelInfo, tupleid, oldtuple,
