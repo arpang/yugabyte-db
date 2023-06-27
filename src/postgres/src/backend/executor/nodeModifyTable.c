@@ -4327,8 +4327,9 @@ ExecModifyTable(PlanState *pstate)
 		 * tuple in toto.  Keep this in step with the part of
 		 * ExecInitModifyTable that sets up ri_RowIdAttNo.
 		 */
-		if (operation == CMD_UPDATE || operation == CMD_DELETE ||
-			operation == CMD_MERGE)
+		if ((operation == CMD_UPDATE || operation == CMD_DELETE ||
+			 operation == CMD_MERGE) &&
+			(!IsYBRelation(relation) || node->yb_fetch_target_tuple))
 		{
 			char		relkind;
 			Datum		datum;
