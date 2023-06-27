@@ -4327,8 +4327,8 @@ ExecModifyTable(PlanState *pstate)
 		 * tuple in toto.  Keep this in step with the part of
 		 * ExecInitModifyTable that sets up ri_RowIdAttNo.
 		 */
-		if ((operation == CMD_UPDATE || operation == CMD_DELETE ||
-			operation == CMD_MERGE))
+		if (operation == CMD_UPDATE || operation == CMD_DELETE ||
+			operation == CMD_MERGE)
 		{
 			char		relkind;
 			Datum		datum;
@@ -4499,9 +4499,9 @@ ExecModifyTable(PlanState *pstate)
 					ExecInitUpdateProjection(node, resultRelInfo);
 
 				/*
-				* Make the new tuple by combining plan's output tuple with
-				* the old tuple being updated.
-				*/
+				 * Make the new tuple by combining plan's output tuple with
+				 * the old tuple being updated.
+				 */
 				oldSlot = resultRelInfo->ri_oldTupleSlot;
 				if (oldtuple != NULL)
 				{
@@ -4528,8 +4528,6 @@ ExecModifyTable(PlanState *pstate)
 					if (!row_found)
 						elog(ERROR, "failed to fetch tuple being updated");
 				}
-				if (oldtuple == NULL)
-					elog(INFO, "Null oldtuple");
 				slot = internalGetUpdateNewTuple(resultRelInfo, context.planSlot,
 												oldSlot, NULL);
 				if (oldtuple != NULL)

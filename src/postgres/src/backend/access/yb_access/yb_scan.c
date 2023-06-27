@@ -78,7 +78,6 @@ typedef struct YbScanPlanData
 
 typedef YbScanPlanData *YbScanPlan;
 
-
 static void ybcAddAttributeColumn(YbScanPlan scan_plan, AttrNumber attnum)
 {
 	const int idx = YBAttnumToBmsIndex(scan_plan->target_relation, attnum);
