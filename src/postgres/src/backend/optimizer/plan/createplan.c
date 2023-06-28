@@ -3204,24 +3204,10 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 		return false;
 
 	/*
-	 * Only UPDATE/DELETE are supported in this particular path. Single row INSERT
-	 * is handled through a separate mechanism.
+	 * Only UPDATE/DELETE are supported in this particular path. Single row
+	 * INSERT is handled through a separate mechanism.
 	 */
-#ifdef YB_TODO
-	/* The semantic of target list in the UPDATE path has changed. It no longer
-	 * contains all the attributes in the relation, instead just contains the
-	 * attributes being updated and junk columns. The semantics of resno has
-	 * changed as well. Previously, it used to represent the attribute number,
-	 * now it is just a consecutive number. Now, root->update_colnos represents
-	 * the att_nums of attributes being updated. See
-	 * preprocess_targetlist and extract_update_targetlist_colnos for more
-	 * details.  */
 	if (path->operation != CMD_UPDATE && path->operation != CMD_DELETE)
-		return false;
-#endif
-
-	/* YB_TODO: Remove this once the above YB_TODO is resolve.  */
-	if (path->operation != CMD_DELETE)
 		return false;
 
 	/*
@@ -3314,10 +3300,10 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 		 * columns. If true user write expression is not a supported single row write expression
 		 * then return false.
 		 */
+		int update_col_index = 0;
 		foreach(values, build_path_tlist(root, subpath))
 		{
 			TargetEntry *tle = lfirst_node(TargetEntry, values);
-			int resno = tle->resno;
 
 			/* Ignore unspecified columns. */
 			if (IsA(tle->expr, Var))
@@ -3328,13 +3314,27 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 				 * (added for YB scan in rewrite handler).
 				 */
 				if (var->varattno == InvalidAttrNumber ||
-					var->varattno == resno ||
+					var->varattno == tle->resno ||
 					(var->varattno == YBTupleIdAttributeNumber &&
 						var->varcollid == InvalidOid))
 				{
 					continue;
 				}
 			}
+			/* The semantic of target list in the UPDATE path has changed in
+			 * PG15. It no longer contains all the attributes in the relation,
+			 * instead just contains the attributes being updated and the junk
+			 * columns. The semantics of resno has changed as well. Previously,
+			 * it used to represent the attribute number, now it is just a
+			 * consecutive number. Now, root->update_colnos represents the
+			 * att_nums of attributes being updated. See preprocess_targetlist
+			 * and extract_update_targetlist_colnos for more details.  */
+			Assert(root->update_colnos->length > update_col_index);
+
+			/* Setting tle resno to attribute number. */
+			int resno = tle->resno =
+				root->update_colnos->elements[update_col_index].int_value;
+			update_col_index++;
 
 			/*
 			 * Verify if the path target matches a table column.
