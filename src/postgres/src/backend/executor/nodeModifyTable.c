@@ -4497,8 +4497,7 @@ ExecModifyTable(PlanState *pstate)
 			case CMD_UPDATE:
 				if (!IsYBRelation(relation) || node->yb_fetch_target_tuple)
 				{
-					/* Initialize projection info if first time for this table
-					 */
+					/* Initialize projection info if first time for this table */
 					if (unlikely(!resultRelInfo->ri_projectNewInfoValid))
 						ExecInitUpdateProjection(node, resultRelInfo);
 
@@ -4531,14 +4530,14 @@ ExecModifyTable(PlanState *pstate)
 						if (!row_found)
 							elog(ERROR, "failed to fetch tuple being updated");
 					}
-					slot = internalGetUpdateNewTuple(
-						resultRelInfo, context.planSlot, oldSlot, NULL);
+					slot = internalGetUpdateNewTuple(resultRelInfo, context.planSlot,
+													 oldSlot, NULL);
+					context.GetUpdateNewTuple = internalGetUpdateNewTuple;
+					context.relaction = NULL;
 					if (oldtuple != NULL)
 						TABLETUPLE_YBCTID(slot) = HEAPTUPLE_YBCTID(oldtuple);
 					else
 						TABLETUPLE_YBCTID(slot) = TABLETUPLE_YBCTID(oldSlot);
-					context.GetUpdateNewTuple = internalGetUpdateNewTuple;
-					context.relaction = NULL;
 				}
 
 				/* Now apply the update. */
