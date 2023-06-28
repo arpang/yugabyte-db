@@ -3204,8 +3204,8 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 		return false;
 
 	/*
-	 * Only UPDATE/DELETE are supported in this particular path. Single row
-	 * INSERT is handled through a separate mechanism.
+	 * Only UPDATE/DELETE are supported in this particular path. Single row INSERT
+	 * is handled through a separate mechanism.
 	 */
 	if (path->operation != CMD_UPDATE && path->operation != CMD_DELETE)
 		return false;

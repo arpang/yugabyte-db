@@ -4516,19 +4516,20 @@ ExecModifyTable(PlanState *pstate)
 					{
 						/* Fetch the most recent version of old tuple. */
 						Relation relation = resultRelInfo->ri_RelationDesc;
-
+						bool row_found = false;
 						if (IsYBRelation(relation))
 						{
-							YbFetchTableSlot(relation, tupleid, oldSlot);
+							row_found =
+								YbFetchTableSlot(relation, tupleid, oldSlot);
 						}
 						else
 						{
-								if (!table_tuple_fetch_row_version(
-										relation, tupleid, SnapshotAny,
-										oldSlot))
-									elog(ERROR, "failed to fetch tuple being "
-												"updated");
+							row_found = table_tuple_fetch_row_version(
+								relation, tupleid, SnapshotAny, oldSlot);
 						}
+
+						if (!row_found)
+							elog(ERROR, "failed to fetch tuple being updated");
 					}
 					slot = internalGetUpdateNewTuple(
 						resultRelInfo, context.planSlot, oldSlot, NULL);
