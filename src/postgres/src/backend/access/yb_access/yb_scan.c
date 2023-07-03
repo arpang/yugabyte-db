@@ -2841,14 +2841,6 @@ YbFetchRowData(YBCPgStatement ybc_stmt, Relation relation, ItemPointer tid,
 	/*
 	 * Set up the scan targets. For index-based scan we need to return all "real" columns.
 	 */
-#ifdef YB_TODO
-	/* YB_TODO(neil@yugabyte)
-	 * - OID is now a regular column.
-	 * - Yugabyte code might need modification when selecting column 'oid'
-	 */
-	if (RelationGetForm(relation)->relhasoids)
-		YbDmlAppendTargetSystem(ObjectIdAttributeNumber, ybc_stmt);
-#endif
 	for (AttrNumber attnum = 1; attnum <= tupdesc->natts; attnum++)
 	{
 		if (!TupleDescAttr(tupdesc, attnum - 1)->attisdropped)
@@ -2936,16 +2928,6 @@ YbFetchHeapTuple(Relation relation, ItemPointer tid, HeapTuple* tuple)
 	if (has_data)
 	{
 		*tuple = heap_form_tuple(tupdesc, values, nulls);
-#ifdef YB_TODO
-		/* YB_TODO(neil@yugabyte)
-		 * - OID is now a regular column.
-		 * - Yugabyte code might need modification when selecting column 'oid'
-		 */
-		if (syscols.oid != InvalidOid)
-		{
-			HeapTupleSetOid(tuple, syscols.oid);
-		}
-#endif
 		(*tuple)->t_tableOid = RelationGetRelid(relation);
 		if (syscols.ybctid != NULL)
 		{
@@ -3074,15 +3056,6 @@ ybBeginSample(Relation rel, int targrows)
 								  targrows,
 								  YBCIsRegionLocal(rel),
 								  &ybSample->handle));
-
-#ifdef YB_TODO
-	/* YB_TODO(neil) OID is now a regular column */
-	/*
-	 * Set up the scan targets. We need to return all "real" columns.
-	 */
-	if (RelationGetForm(ybSample->relation)->relhasoids)
-		YbDmlAppendTargetSystem(ObjectIdAttributeNumber, ybSample->handle);
-#endif
 	for (AttrNumber attnum = 1; attnum <= tupdesc->natts; attnum++)
 	{
 		if (!TupleDescAttr(tupdesc, attnum - 1)->attisdropped)
