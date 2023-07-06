@@ -41,8 +41,10 @@
 #include "catalog/pg_type.h"
 #include "miscadmin.h"
 #include "access/relation.h"
+#include "nodes/nodeFuncs.h"
 #include "optimizer/cost.h"
 #include "optimizer/optimizer.h"
+#include "optimizer/paths.h"
 #include "utils/datum.h"
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
@@ -2525,18 +2527,12 @@ void ybcCostEstimate(RelOptInfo *baserel, Selectivity selectivity,
 	*total_cost   = *startup_cost + cost_per_tuple * baserel->tuples * selectivity;
 }
 
-#ifdef YB_TODO
-/* YB_TODO(ram kannan@yugabyte) Reimplement cost functions.
- * - PG13 removed IndexQualInfo.
- * - PG13 introduced IndexClause.
- * - Yugabyte needs to reimplement the cost calculation using IndexClause.
- */
 /*
  * Evaluate the selectivity for yb_hash_code qualifiers.
  * Returns 1.0 if there are no yb_hash_code comparison expressions for this
  * index.
  */
-static double ybcEvalHashSelectivity(List *hashed_qinfos)
+static double ybcEvalHashSelectivity(List *hashed_rinfos)
 {
 	bool greatest_set = false;
 	int greatest = 0;
@@ -2546,13 +2542,17 @@ static double ybcEvalHashSelectivity(List *hashed_qinfos)
 	double selectivity;
 	ListCell * lc;
 
-	foreach(lc, hashed_qinfos)
+	foreach(lc, hashed_rinfos)
 	{
-		IndexQualInfo *qinfo = (IndexQualInfo *) lfirst(lc);
-		RestrictInfo *rinfo = qinfo->rinfo;
+		RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
 		Expr	   *clause = rinfo->clause;
 
-		if (!IsA(qinfo->other_operand, Const))
+		Assert(IsA(clause, OpExpr));
+		OpExpr	   *op = (OpExpr *) clause;
+		Node *other_operand = (Node *) lsecond(op->args);
+
+
+		if (!IsA(other_operand, Const))
 		{
 			continue;
 		}
@@ -2567,7 +2567,7 @@ static double ybcEvalHashSelectivity(List *hashed_qinfos)
 								   &lefttype,
 								   &righttype);
 
-		int signed_val = ((Const*) qinfo->other_operand)->constvalue;
+		int signed_val = ((Const*) other_operand)->constvalue;
 		signed_val = signed_val < 0 ? 0 : signed_val;
 		uint32_t val = signed_val > USHRT_MAX ? USHRT_MAX : signed_val;
 
@@ -2621,7 +2621,6 @@ static double ybcEvalHashSelectivity(List *hashed_qinfos)
 #endif
 	return selectivity;
 }
-#endif
 
 /*
  * Evaluate the selectivity for some qualified cols given the hash and primary key cols.
@@ -2664,28 +2663,60 @@ Oid ybc_get_attcollation(TupleDesc desc, AttrNumber attnum)
 	return attnum > 0 ? TupleDescAttr(desc, attnum - 1)->attcollation : InvalidOid;
 }
 
+bool
+is_hashed(Expr *clause, IndexOptInfo *index)
+{
+	bool is_hashed = false;
+	Node	   *leftop;
+
+	if (IsA(clause, OpExpr))
+	{
+		leftop = get_leftop(clause);
+		if (IsA(leftop, FuncExpr))
+		{
+			is_hashed =
+				(((FuncExpr *) leftop)->funcid == YB_HASH_CODE_OID);
+			ListCell *ls;
+			if (is_hashed)
+			{
+				/*
+				 * YB: We aren't going to push down a yb_hash_code call
+				 * if we matched the call against an expression
+				 */
+				foreach (ls, index->indexprs)
+				{
+					Node *indexpr = (Node *) lfirst(ls);
+					if (indexpr && IsA(indexpr, RelabelType))
+						indexpr = (Node *) ((RelabelType *) indexpr)->arg;
+					if (equal(indexpr, leftop))
+					{
+						is_hashed = false;
+						break;
+					}
+				}
+			}
+		}
+	}
+	return is_hashed;
+}
+
+
 void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 						  Selectivity *selectivity, Cost *startup_cost,
 						  Cost *total_cost)
 {
-	/* YB_TODO(ram kannan@yugabyte) Reimplement cost functions.
-	 * - PG13 removed IndexQualInfo.
-	 * - PG13 introduced IndexClause.
-	 * - Yugabyte needs to reimplement the cost calculation using IndexClause.
-	 */
-
-	Relation	index = RelationIdGetRelation(path->indexinfo->indexoid);
-	bool		isprimary = index->rd_index->indisprimary;
-	Relation	relation = isprimary ? RelationIdGetRelation(index->rd_index->indrelid) : NULL;
+	Relation index = RelationIdGetRelation(path->indexinfo->indexoid);
+	bool	 isprimary = index->rd_index->indisprimary;
+	Relation relation =
+		isprimary ? RelationIdGetRelation(index->rd_index->indrelid) : NULL;
 	RelOptInfo *baserel = path->path.parent;
 	ListCell   *lc;
-	bool        is_backwards_scan = path->indexscandir == BackwardScanDirection;
-	bool        is_unique = index->rd_index->indisunique;
-	bool        is_partial_idx = path->indexinfo->indpred != NIL && path->indexinfo->predOK;
-	Bitmapset  *const_quals = NULL;
-	#ifdef YB_TODO
-	List	   *hashed_qinfos = NIL;
-	#endif
+	bool is_backwards_scan = path->indexscandir == BackwardScanDirection;
+	bool is_unique = index->rd_index->indisunique;
+	bool is_partial_idx = path->indexinfo->indpred != NIL &&
+							path->indexinfo->predOK;
+	Bitmapset *const_quals = NULL;
+	List	   *hashed_rinfos = NIL;
 	List	   *clauses = NIL;
 	double 		baserel_rows_estimate;
 
@@ -2703,15 +2734,20 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 	{
 		IndexClause *iclause = lfirst_node(IndexClause, lc);
 		int			indexcol = iclause->indexcol;
-		ListCell   *lc2;
+		ListCell *lc2, *lci;
+		List* indexcols = iclause->indexcols == NIL ? list_make1_int(indexcol) : iclause->indexcols;
 
-		foreach(lc2, iclause->indexquals)
+		Assert(iclause->indexquals->length == indexcols->length);
+		forboth(lc2, iclause->indexquals, lci, indexcols)
 		{
 			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc2);
-			AttrNumber	 attnum = isprimary ? index->rd_index->indkey.values[indexcol]
-											: (indexcol + 1);
-			Expr	   *clause = rinfo->clause;
-			int			bms_idx = YBAttnumToBmsIndex(scan_plan.target_relation, attnum);
+			int			  indexcol = lfirst_int(lci);
+			AttrNumber	  attnum =
+					isprimary ? index->rd_index->indkey.values[indexcol] :
+								(indexcol + 1);
+			Expr *clause = rinfo->clause;
+			int	  bms_idx =
+				YBAttnumToBmsIndex(scan_plan.target_relation, attnum);
 
 			if (IsA(clause, NullTest))
 			{
@@ -2720,9 +2756,9 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 			}
 			else
 			{
-				OpExpr	   *op = (OpExpr *) clause;
-				Oid	clause_op = op->opno;
-				Node* other_operand = (Node *) lsecond(op->args);
+				OpExpr *op = (OpExpr *) clause;
+				Oid		clause_op = op->opno;
+				Node   *other_operand = (Node *) lsecond(op->args);
 
 				if (OidIsValid(clause_op))
 				{
@@ -2732,28 +2768,23 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 				}
 			}
 
-			#ifdef YB_TODO
-			if (qinfo->is_hashed)
+			if (is_hashed(clause, path->indexinfo))
 			{
-				hashed_qinfos = lappend(hashed_qinfos, qinfo);
+				hashed_rinfos = lappend(hashed_rinfos, rinfo);
 			}
 			else
 			{
 				clauses = lappend(clauses, rinfo);
 			}
-			#endif
-			clauses = lappend(clauses, rinfo);
 		}
 	}
-	#ifdef YB_TODO
-	if (hashed_qinfos != NIL)
+	if (hashed_rinfos != NIL)
 	{
-		*selectivity = ybcEvalHashSelectivity(hashed_qinfos);
+		*selectivity = ybcEvalHashSelectivity(hashed_rinfos);
 		baserel_rows_estimate = baserel->tuples * (*selectivity);
 	}
 	else
 	{
-	#endif
 		if (yb_enable_optimizer_statistics)
 		{
 			*selectivity = clauselist_selectivity(root /* PlannerInfo */,
@@ -2775,9 +2806,7 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 														scan_plan.primary_key);
 			baserel_rows_estimate = baserel->tuples * (*selectivity);
 		}
-	#ifdef YB_TODO
 	}
-	#endif
 
 	path->path.rows = baserel_rows_estimate;
 

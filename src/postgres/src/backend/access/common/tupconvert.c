@@ -237,7 +237,6 @@ execute_attr_map_slot(AttrMap *attrMap,
  *
  * Note: Postgres uses FirstLowInvalidHeapAttributeNumber.
  */
-/* YB_TODO(neil) Need to choose between attrMap and map when fixing compiling errors */
 Bitmapset *
 execute_attr_map_cols(AttrMap *attrMap, Bitmapset *in_cols, Relation rel)
 {
