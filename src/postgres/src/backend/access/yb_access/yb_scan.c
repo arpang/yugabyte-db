@@ -2900,9 +2900,11 @@ YbFetchTableSlot(Relation relation, ItemPointer tid,  TupleTableSlot *slot)
 	bool has_data = false;
 	YBCPgStatement ybc_stmt;
 
+	Assert(slot != NULL);
+	Assert(slot->tts_values != NULL);
+	Assert(slot->tts_isnull != NULL);
+
 	TupleDesc tupdesc = RelationGetDescr(relation);
-	slot->tts_values = (Datum *) palloc0(tupdesc->natts * sizeof(Datum));
-	slot->tts_isnull  = (bool *) palloc(tupdesc->natts * sizeof(bool));
 	YBCPgSysColumns syscols;
 
 	/* Read data */
@@ -2925,11 +2927,6 @@ YbFetchTableSlot(Relation relation, ItemPointer tid,  TupleTableSlot *slot)
 		}
 	}
 
-	#ifdef YB_TODO
-	/* YB_TODO(neil): pfree values and nulls at appropriate place. */
-	pfree(values);
-	pfree(nulls);
-	#endif
 	YBCPgDeleteStatement(ybc_stmt);
 	return has_data;
 }
@@ -3230,20 +3227,7 @@ ybFetchNext(YBCPgStatement handle,
 		slot->tts_nvalid = tupdesc->natts;
 		slot->tts_flags &= ~TTS_FLAG_EMPTY; /* Not empty */
 		TABLETUPLE_YBCTID(slot) = PointerGetDatum(syscols.ybctid);
-#ifdef YB_TODO
-		/* OID is now a regular column */
-		if (syscols.oid != InvalidOid)
-		{
-			MemoryContext oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
-			HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
-			HeapTupleSetOid(tuple, syscols.oid);
-			tuple->t_tableOid = relid;
-			HEAPTUPLE_YBCTID(tuple) = TABLETUPLE_YBCTID(slot);
-			slot = ExecStoreHeapTuple(tuple, slot, true);
-			MemoryContextSwitchTo(oldcontext);
-		}
-#endif
+		slot->tts_tableOid = relid;
 	}
-
 	return slot;
 }
