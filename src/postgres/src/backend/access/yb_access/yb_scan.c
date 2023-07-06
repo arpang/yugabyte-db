@@ -137,14 +137,6 @@ static void ybcLoadTableInfo(Relation relation, YbScanPlan scan_plan)
 	{
 		ybcCheckPrimaryKeyAttribute(scan_plan, ybc_table_desc, attnum);
 	}
-
-#ifdef NEIL_OID
-	/* OID is now a regular column */
-	if (relation->rd_rel->relhasoids)
-	{
-		ybcCheckPrimaryKeyAttribute(scan_plan, ybc_table_desc, ObjectIdAttributeNumber);
-	}
-#endif
 }
 
 static Oid ybc_get_atttypid(TupleDesc bind_desc, AttrNumber attnum)
@@ -412,14 +404,6 @@ static HeapTuple ybcFetchNextHeapTuple(YbScanDesc ybScan, bool is_forward_scan)
 	if (has_data)
 	{
 		tuple = heap_form_tuple(tupdesc, values, nulls);
-
-#ifdef NEIL_OID
-		/* OID is now a regular column */
-		if (syscols.oid != InvalidOid)
-		{
-			HeapTupleSetOid(tuple, syscols.oid);
-		}
-#endif
 		if (syscols.ybctid != NULL)
 		{
 			HEAPTUPLE_YBCTID(tuple) = PointerGetDatum(syscols.ybctid);
@@ -1903,15 +1887,6 @@ ybcSetupTargets(YbScanDesc ybScan, YbScanPlan scan_plan, Scan *pg_scan_plan)
 		}
 	}
 
-#ifdef NEIL_OID
-	/* OID is now a regular column */
-	if (scan_plan->target_relation->rd_rel->relhasoids)
-	{
-		YbDmlAppendTargetSystem(ObjectIdAttributeNumber, ybScan->handle);
-		target_added = true;
-	}
-#endif
-
 	if (is_index_only_scan)
 	{
 		/*
@@ -3167,13 +3142,6 @@ ybFetchSample(YbSample ybSample, HeapTuple *rows)
 
 		/* Make a heap tuple in current memory context */
 		rows[numrows] = heap_form_tuple(tupdesc, values, nulls);
-#ifdef NEIL_OID
-		/* OID is now a regular column */
-		if (syscols.oid != InvalidOid)
-		{
-			HeapTupleSetOid(rows[numrows], syscols.oid);
-		}
-#endif
 		if (syscols.ybctid != NULL)
 		{
 			HEAPTUPLE_YBCTID(rows[numrows]) = PointerGetDatum(syscols.ybctid);
