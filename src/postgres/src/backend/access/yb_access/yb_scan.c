@@ -3067,12 +3067,10 @@ ybBeginSample(Relation rel, int targrows)
 	 * Initialize sampler random state
 	 */
 	reservoir_init_selection_state(&rstate, targrows);
-#ifdef YB_TODO
-	/* YB_TODO(neil) Random state is no longer an array */
 	HandleYBStatus(YBCPgInitRandomState(ybSample->handle,
 										rstate.W,
-										SamplerRandomStateToUint64(rstate.randstate)));
-#endif
+										rstate.randstate.s0,
+										rstate.randstate.s1));
 
 	return ybSample;
 }
