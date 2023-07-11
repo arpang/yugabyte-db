@@ -312,11 +312,6 @@ Datum YbBPCharToDatum(const char *data, int64 bytes, const YBCPgTypeAttrs *type_
 						errmsg("Invalid data size")));
 	}
 
-	/* Convert YugaByte cstring to Postgres internal representation */
-	/* YB_TODO(neil) Check if LOCAL_FCINFO is correctly used.
-	 * - Old code uses FUNC_MAX_ARGS.
-	 * - We use `3`.
-	 */
 	LOCAL_FCINFO(fcinfo, 3);
 	InitFunctionCallInfoData(*fcinfo, NULL, 3, InvalidOid, NULL, NULL);
 
@@ -337,11 +332,6 @@ Datum YbVarcharToDatum(const char *data, int64 bytes, const YBCPgTypeAttrs *type
 						errmsg("Invalid data size")));
 	}
 
-	/* Convert YugaByte cstring to Postgres internal representation */
-	/* YB_TODO(neil) Check if LOCAL_FCINFO is correctly used.
-	 * - Old code uses FUNC_MAX_ARGS.
-	 * - We use `3`.
-	 */
 	LOCAL_FCINFO(fcinfo, 3);
 	InitFunctionCallInfoData(*fcinfo, NULL, 3, InvalidOid, NULL, NULL);
 
@@ -543,10 +533,6 @@ void YbDatumToDecimalText(Datum datum, char *plaintext[], int64 *bytes) {
 }
 
 Datum YbDecimalTextToDatum(const char plaintext[], int64 bytes, const YBCPgTypeAttrs *type_attrs) {
-	/* YB_TODO(neil) Check if LOCAL_FCINFO is correctly used.
-	 * - Old code uses FUNC_MAX_ARGS.
-	 * - We use `3`.
-	 */
 	LOCAL_FCINFO(fcinfo, 3);
 	InitFunctionCallInfoData(*fcinfo, NULL, 3, InvalidOid, NULL, NULL);
 
