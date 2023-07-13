@@ -346,6 +346,7 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 	bnlstate->numLookupAttrs = num_hashClauseInfos;
 	bnlstate->innerAttrs =
 		palloc(num_hashClauseInfos * sizeof(AttrNumber));
+	bnlstate->bnl_Collations = palloc(num_hashClauseInfos * sizeof(Oid));
 	ExprState **keyexprs = palloc(num_hashClauseInfos * (sizeof(ExprState*)));
 	List *outerParamExprs = NULL;
 	YbBNLHashClauseInfo *current_hinfo = plan->hashClauseInfos;
@@ -359,6 +360,7 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 		Expr *outerExpr = current_hinfo->outerParamExpr;
 		keyexprs[i] = ExecInitExpr(outerExpr, (PlanState *) bnlstate);
 		outerParamExprs = lappend(outerParamExprs, outerExpr);
+		bnlstate->bnl_Collations[i] = current_hinfo->collation;
 		current_hinfo++;
 	}
 	Oid *eqFuncOids;
@@ -370,12 +372,8 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 								   eqops,
 								   (PlanState *) bnlstate);
 
-	/* YB_TODO(tanuj@yugabyte)
-	 * - &TTSOpsVirtual is used so that I can compile.
-	 * - Please pass appropriate argument.
-	 */
 	bnlstate->hashslot =
-		ExecAllocTableSlot(&estate->es_tupleTable, outer_tdesc, &TTSOpsVirtual);
+		ExecAllocTableSlot(&estate->es_tupleTable, outer_tdesc, &TTSOpsMinimalTuple);
 
 	/* Per batch memory context for the hash table to work with */
 	MemoryContext tablecxt =
@@ -383,14 +381,10 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 							  "BNL_HASHTABLE",
 							  ALLOCSET_DEFAULT_SIZES);
 
-	/* YB_TODO(tanuj@yugabyte)
-	 * - "NULL // collations" is used to compile.
-	 * - Please pass appropriate argument.
-	 */
 	bnlstate->hashtable =
 		YbBuildTupleHashTableExt(&bnlstate->js.ps, outer_tdesc,
 								 num_hashClauseInfos, keyexprs, tab_eq_fn,
-								 eqFuncOids, bnlstate->hashFunctions,
+								 eqFuncOids, bnlstate->hashFunctions, bnlstate->bnl_Collations,
 								 GetBatchSize(plan), 0,
 								 econtext->ecxt_per_query_memory, tablecxt,
 								 econtext->ecxt_per_tuple_memory, econtext,
@@ -882,9 +876,6 @@ ExecInitYbBatchedNestLoop(YbBatchedNestLoop *plan, EState *estate, int eflags)
 	/*
 	 * Initialize result slot, type and projection.
 	 */
-	/* YB_TODO(tanuj@yugabyte)
-	 * Please verify if TTSOpsVirtual is the right choice here.
-	 */
 	ExecInitResultTupleSlotTL(&bnlstate->js.ps, &TTSOpsVirtual);
 	ExecAssignProjectionInfo(&bnlstate->js.ps, NULL);
 
@@ -911,9 +902,6 @@ ExecInitYbBatchedNestLoop(YbBatchedNestLoop *plan, EState *estate, int eflags)
 			break;
 		case JOIN_LEFT:
 		case JOIN_ANTI:
-			/* YB_TODO(tanuj@yugabyte)
-			 * Please verify if TTSOpsVirtual is the right choice here.
-			 */
 			bnlstate->nl_NullInnerTupleSlot =
 				ExecInitNullTupleSlot(
 					estate,

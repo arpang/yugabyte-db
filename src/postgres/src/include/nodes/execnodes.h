@@ -2145,6 +2145,7 @@ typedef struct YbBatchedNestLoopState
 	Tuplestorestate *bnl_tupleStoreState;
 	List *bnl_batchMatchedInfo;
 	int bnl_batchTupNo;
+	Oid				*bnl_Collations;
 
 	/* State for hashing batch strategy */
 

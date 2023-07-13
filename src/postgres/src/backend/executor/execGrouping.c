@@ -165,6 +165,7 @@ YbBuildTupleHashTableExt(PlanState *parent,
 						 ExprState *eqExpr,
 						 Oid *eqfuncoids,
 						 FmgrInfo *hashfunctions,
+						 Oid *collations,
 						 long nbuckets, Size additionalsize,
 						 MemoryContext metacxt,
 						 MemoryContext tablecxt,
@@ -189,6 +190,7 @@ YbBuildTupleHashTableExt(PlanState *parent,
 	hashtable->yb_keyColExprs = keyColExprs;
 	hashtable->keyColIdx = NULL;
 	hashtable->tab_hash_funcs = hashfunctions;
+	hashtable->tab_collations = collations;
 	hashtable->tablecxt = tablecxt;
 	hashtable->tempcxt = tempcxt;
 	hashtable->entrysize = entrysize;

@@ -615,7 +615,8 @@ yb_get_batched_index_paths(PlannerInfo *root, RelOptInfo *rel,
 		List *colclauses = clauses->indexclauses[i];
 		foreach (lc, colclauses)
 		{
-			RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
+			IndexClause *iclause = (IndexClause *) lfirst(lc);
+			RestrictInfo *rinfo = iclause->rinfo;
 
 			/*
 			 * If we can batch up outer vars in rinfo then do so.
