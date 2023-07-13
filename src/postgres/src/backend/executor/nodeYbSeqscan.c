@@ -190,11 +190,11 @@ ExecInitYbSeqScan(YbSeqScan *node, EState *estate, int eflags)
 
 	/* and create slot with the appropriate rowtype */
 	/* YB_TODO(amartsinchyk@yugabyte)
-	 * Verify that passing NULL for tts_op is a correct choice.
+	 * Verify that passing table_slot_callbacks(scanstate->ss.ss_currentRelation) for tts_op is a correct choice.
 	 */
 	ExecInitScanTupleSlot(estate, &scanstate->ss,
 						  RelationGetDescr(scanstate->ss.ss_currentRelation),
-						  NULL);
+						  table_slot_callbacks(scanstate->ss.ss_currentRelation));
 
 	/*
 	 * Initialize result type and projection.

@@ -221,7 +221,7 @@ YbBuildTupleHashTableExt(PlanState *parent,
 	 * input tuples will have equivalent descriptors.
 	 */
 	hashtable->tableslot = MakeSingleTupleTableSlot(CreateTupleDescCopy(inputDesc),
-													&TTSOpsVirtual);
+													&TTSOpsMinimalTuple);
 
 	/* build comparator for all columns */
 	hashtable->tab_eq_func = eqExpr;

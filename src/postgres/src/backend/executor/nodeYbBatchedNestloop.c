@@ -409,19 +409,13 @@ FlushTupleHash(YbBatchedNestLoopState *bnlstate, ExprContext *econtext)
 	TupleHashEntry entry = bnlstate->current_hash_entry;
 	if (entry == NULL)
 		entry = ScanTupleHashTable(bnlstate->hashtable, &bnlstate->hashiter);
-#ifdef YB_TODO
-	/* YB_TODO(tanuj)
-	 * - List structure has change.
-	 * - In the future, please don't access list attribute directly, but use the provided API by
-	 *   Postgres, such as lnext().
-	 */
 	while (entry != NULL)
 	{
 		NLBucketInfo *binfo = entry->additional;
 		while (binfo->current != NULL)
 		{
 			BucketTupleInfo *btinfo = lfirst(binfo->current);
-			binfo->current = binfo->current->next;
+			binfo->current = lnext(binfo->tuples, binfo->current);
 
 			while (btinfo != NULL && !(btinfo->matched))
 			{
@@ -435,7 +429,6 @@ FlushTupleHash(YbBatchedNestLoopState *bnlstate, ExprContext *econtext)
 		}
 		entry = ScanTupleHashTable(bnlstate->hashtable, &bnlstate->hashiter);
 	}
-#endif
 	TermTupleHashIterator(&bnlstate->hashiter);
 	bnlstate->hashiterinit = false;
 	bnlstate->current_hash_entry = NULL;
@@ -464,17 +457,11 @@ GetNewOuterTupleHash(YbBatchedNestLoopState *bnlstate, ExprContext *econtext)
 	}
 
 	NLBucketInfo *binfo = (NLBucketInfo*) data->additional;
-#ifdef YB_TODO
-	/* YB_TODO(tanuj)
-	 * - List structure has change.
-	 * - In the future, please don't access list attribute directly, but use the provided API by
-	 *   Postgres, such as lnext().
-	 */
 	while (binfo->current != NULL)
 	{
 		BucketTupleInfo *curr_btinfo = lfirst(binfo->current);
 		/* Change the bucket's state for the next invocation of this method */
-		binfo->current = binfo->current->next;
+		binfo->current = lnext(binfo->tuples, binfo->current);
 
 		/* We found a bucket with more matching tuples to be outputted. */
 		BucketTupleInfo *btinfo = (BucketTupleInfo *) curr_btinfo;
@@ -488,14 +475,13 @@ GetNewOuterTupleHash(YbBatchedNestLoopState *bnlstate, ExprContext *econtext)
 			continue;
 		}
 
-		ExecStoreMinimalTuple(btinfo->tuple, econtext->ecxt_outertuple, false);
+		ExecForceStoreMinimalTuple(btinfo->tuple, econtext->ecxt_outertuple, false);
 
 		bnlstate->current_ht_tuple = btinfo;
 
 		Assert(data != NULL);
 		return true;	
 	}
-#endif
 
 	/* 
 	 * There are no more matches for the current inner tuple so reset
@@ -539,17 +525,12 @@ void
 AddTupleToOuterBatchHash(YbBatchedNestLoopState *bnlstate,
 						 TupleTableSlot *slot)
 {
-#ifdef YB_TODO
-	/* YB_TODO(tanuj)
-	 * - List structure has change.
-	 * - In the future, please don't access list attribute directly, but use the provided API by
-	 *   Postgres in pg_list.h - such as lnext().
-	 */
 	TupleHashTable ht = bnlstate->hashtable;
 	bool isnew = false;
 
 	Assert(!TupIsNull(slot));
-	TupleHashEntry orig_data = LookupTupleHashEntry(ht, slot, &isnew);
+	/* YB_TODO: Is NULL the correct value for hash arg? */
+	TupleHashEntry orig_data = LookupTupleHashEntry(ht, slot, &isnew, NULL);
 	Assert(orig_data != NULL);
 	Assert(orig_data->firstTuple != NULL);
 	MemoryContext cxt = MemoryContextSwitchTo(ht->tablecxt);
@@ -574,9 +555,8 @@ AddTupleToOuterBatchHash(YbBatchedNestLoopState *bnlstate,
 
 	binfo->tuples = list_append_unique_ptr(tl, tupinfo);
 	binfo->current = list_head(binfo->tuples);
-	ExecStoreMinimalTuple(tuple, slot, false);
+	ExecForceStoreMinimalTuple(tuple, slot, false);
 	MemoryContextSwitchTo(cxt);
-#endif
 }
 
 /*
@@ -644,19 +624,12 @@ FlushTupleTS(YbBatchedNestLoopState *bnlstate, ExprContext *econtext)
 void
 RegisterOuterMatchTS(YbBatchedNestLoopState *bnlstate, ExprContext *econtext)
 {
-#ifdef YB_TODO
-	/* YB_TODO(tanuj)
-	 * - List structure has change.
-	 * - In the future, please don't access list attribute directly, but use the provided API by
-	 *   Postgres in pg_list.h - such as lnext().
-	 */
 	Assert(bnlstate->bnl_tupleStoreState != NULL);
 	(void) econtext;
 	ListCell *lc = list_nth_cell(bnlstate->bnl_batchMatchedInfo, 
 								 bnlstate->bnl_batchTupNo - 1);
-	lc->data.int_value = 1; /* Instead of hardcoding, please use lfirst_int() */
+	lfirst_int(lc) = 1;
 	return;
-#endif
 }
 
 bool

@@ -807,7 +807,7 @@ typedef struct YbBNLHashClauseInfo
 							   with. */
 	int innerHashAttNo;		/* Attno of inner side variable. */
 	Expr *outerParamExpr;	/* Outer expression of this clause. */
-	Oid	  collation;
+	Oid	  collation; /* YB_TODDO: see all usages of YbBNLHashClauseInfo and handle this new field. */
 } YbBNLHashClauseInfo;
 
 typedef struct YbBatchedNestLoop
