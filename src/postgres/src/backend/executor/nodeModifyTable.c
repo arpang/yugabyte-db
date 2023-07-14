@@ -1860,29 +1860,7 @@ ldelete:;
 		}
 		else if (IsYBRelation(resultRelationDesc))
 		{
-#ifdef YB_TODO
-			/* YB_TODO(neil) Need to trace Alex's commit efccad40c368e0148bd08bf8a6b77608fdfebcda */
-			if (mtstate->yb_fetch_target_tuple)
-			{
-				slot = ExecFilterJunk(resultRelInfo->ri_junkFilter, planSlot);
-			}
-			/* Previous code */
-			if (context->mtstate->yb_mt_is_single_row_update_or_delete)
-			{
-				slot = context->planSlot;
-			}
-#endif
-
-#ifdef YB_TODO
-			/* TODO(neil@yugabyte)
-			 * - Check to make sure that ExecFilterJunk is no longer needed here.
-			 * - Find where Yugabyte should plugin new code.
-			 */
-			else
-			{
-				slot = ExecFilterJunk(resultRelInfo->ri_junkFilter, context->planSlot);
-			}
-#endif
+			slot = context->planSlot;
 		}
 		else
 		{
