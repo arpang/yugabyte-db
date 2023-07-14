@@ -2763,7 +2763,6 @@ match_opclause_to_indexcol(PlannerInfo *root,
 		!bms_is_member(index_relid, rinfo->right_relids) &&
 		!contain_volatile_functions(rightop))
 	{
-		/* YB_TODO(neil) Double check the merge on "if" condition */
 		/*
 		 * Do not use the yb_hash_code special case if we have an applicable
 		 * functional index on yb_hash_code. For example, if the call is an
