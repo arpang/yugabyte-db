@@ -2564,11 +2564,11 @@ yb_lreplace:;
 	ModifyTable *plan = (ModifyTable *) context->mtstate->ps.plan;
 	if (is_pk_updated)
 	{
-		YBCTupleTableExecuteUpdateReplace(resultRelationDesc, context->planSlot, slot, estate);
+		YBCExecuteUpdateReplace(resultRelationDesc, context->planSlot, slot, estate);
 		row_found = true;
 	}
 	else
-		row_found = YBCTupleTableExecuteUpdate(
+		row_found = YBCExecuteUpdate(
 			resultRelationDesc, resultRelInfo, context->planSlot, slot,
 			oldtuple, estate, plan, context->mtstate->yb_fetch_target_tuple,
 			estate->yb_es_is_single_row_modify_txn, actualUpdatedCols,

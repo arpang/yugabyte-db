@@ -840,35 +840,6 @@ void YBCExecuteDeleteIndex(Relation index,
 	YBCPgDeleteStatement(delete_stmt);
 }
 
-/* YB_REVIEW(neil) Revisit later. */
-bool
-YBCTupleTableExecuteUpdate(Relation rel, ResultRelInfo *resultRelInfo,
-						   TupleTableSlot *planSlot, TupleTableSlot *slot,
-						   HeapTuple oldtuple, EState *estate,
-						   ModifyTable *mt_plan, bool target_tuple_fetched,
-						   bool is_single_row_txn, Bitmapset *updatedCols,
-						   bool canSetTag)
-{
-	bool	  shouldFree = true;
-	HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
-	bool	  result;
-
-	/* Update the tuple with table oid */
-	slot->tts_tableOid = RelationGetRelid(rel);
-	tuple->t_tableOid = slot->tts_tableOid;
-
-	/* Perform the update, and copy the resulting ItemPointer */
-	result = YBCExecuteUpdate(rel, resultRelInfo, planSlot, slot, oldtuple, tuple,
-							  estate, mt_plan, target_tuple_fetched,
-							  is_single_row_txn, updatedCols, canSetTag);
-	ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
-
-	if (shouldFree)
-		pfree(tuple);
-
-	return result;
-}
-
 /* YB_TODO: relation is present in resultRelInfo:
  * resultRelInfo->ri_RelationDesc*/
 bool YBCExecuteUpdate(Relation rel,
@@ -876,7 +847,6 @@ bool YBCExecuteUpdate(Relation rel,
 					  TupleTableSlot *planSlot,
 					  TupleTableSlot *slot,
 					  HeapTuple oldtuple,
-					  HeapTuple tuple,
 					  EState *estate,
 					  ModifyTable *mt_plan,
 					  bool target_tuple_fetched,
@@ -895,6 +865,10 @@ bool YBCExecuteUpdate(Relation rel,
 
 	/* is_single_row_txn always implies target tuple wasn't fetched. */
 	Assert(!is_single_row_txn || !target_tuple_fetched);
+
+	bool	  shouldFree = true;
+	HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
+
 
 	/* Create update statement. */
 	HandleYBStatus(YBCPgNewUpdate(dboid,
@@ -1120,8 +1094,11 @@ bool YBCExecuteUpdate(Relation rel,
 	 */
 	if (YBRelHasSecondaryIndices(rel))
 	{
-		HEAPTUPLE_YBCTID(tuple) = ybctid;
+		TABLETUPLE_YBCTID(slot) = ybctid;
 	}
+
+	if (shouldFree)
+		pfree(tuple);
 
 	/*
 	 * For batched statements rows_affected_count remains at its initial value:
@@ -1202,34 +1179,10 @@ YBCExecuteUpdateLoginAttempts(Oid roleid,
 	relation_close(rel, AccessShareLock);
 	return rows_affected_count > 0;
 }
-
-/* YB_REVIEW(neil) Revisit later. */
-Oid
-YBCTupleTableExecuteUpdateReplace(Relation rel, TupleTableSlot *planSlot, TupleTableSlot *slot,
-								  EState *estate)
-{
-	bool	  shouldFree = true;
-	HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
-	Oid		  result;
-
-	/* Update the tuple with table oid */
-	slot->tts_tableOid = RelationGetRelid(rel);
-	tuple->t_tableOid = slot->tts_tableOid;
-
-	/* Perform the update, and copy the resulting ItemPointer */
-	result = YBCExecuteUpdateReplace(rel, planSlot, tuple, estate);
-	ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
-
-	if (shouldFree)
-		pfree(tuple);
-
-	return result;
-}
-
 /* YB_TODO: No need to return Oid. */
 Oid YBCExecuteUpdateReplace(Relation rel,
 							TupleTableSlot *planSlot,
-							HeapTuple tuple,
+							TupleTableSlot *slot,
 							EState *estate)
 {
 	YBCExecuteDelete(rel,
@@ -1239,11 +1192,23 @@ Oid YBCExecuteUpdateReplace(Relation rel,
 					 false /* is_single_row_txn */,
 					 false /* changingPart */,
 					 estate);
+	bool	  shouldFree = true;
+	HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
 
-	return YBCExecuteInsert(rel,
+	/* Update the tuple with table oid */
+	slot->tts_tableOid = RelationGetRelid(rel);
+	tuple->t_tableOid = slot->tts_tableOid;
+
+	Oid result = YBCExecuteInsert(rel,
 							RelationGetDescr(rel),
 							tuple,
 							ONCONFLICT_NONE);
+	ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
+	if (shouldFree)
+		pfree(tuple);
+
+	return result;
+
 }
 
 void YBCDeleteSysCatalogTuple(Relation rel, HeapTuple tuple)
