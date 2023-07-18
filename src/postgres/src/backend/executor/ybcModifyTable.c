@@ -623,7 +623,7 @@ void YBCExecuteInsertIndexForDb(Oid dboid,
 }
 
 bool YBCExecuteDelete(Relation rel,
-					  TupleTableSlot *slot,
+					  TupleTableSlot *planSlot,
 					  List *returning_columns,
 					  bool target_tuple_fetched,
 					  bool is_single_row_txn,
@@ -653,22 +653,12 @@ bool YBCExecuteDelete(Relation rel,
 	 * from tuple values.
 	 */
 	if (target_tuple_fetched)
-		ybctid = YBCGetYBTupleIdFromSlot(slot);
+		ybctid = YBCGetYBTupleIdFromSlot(planSlot);
 	else
 	{
-	   /*
-		* YB_TODO(neil@yugabyte) Write Yugabyte API to work with slot.
-		*
-		* Current Yugabyte API works with HeapTuple instead of slot.
-		* - Create tuple as a workaround to compile.
-		* - Pass slot to Yugabyte call once the API is fixed.
-		*
-		* Postgres change ExecMaterializeSlot API.
-		* HeapTuple tuple = ExecMaterializeSlot(slot);
-		*/
 		bool shouldFree = true;
-		HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
-		ybctid = YBCGetYBTupleIdFromTuple(rel, tuple, slot->tts_tupleDescriptor);
+		HeapTuple tuple = ExecFetchSlotHeapTuple(planSlot, true, &shouldFree);
+		ybctid = YBCGetYBTupleIdFromTuple(rel, tuple, planSlot->tts_tupleDescriptor);
 		if (shouldFree)
 			pfree(tuple);
 	}
@@ -778,8 +768,8 @@ bool YBCExecuteDelete(Relation rel,
 		Assert(rows_affected_count == 1);
 		HandleYBStatus(YBCPgDmlFetch(delete_stmt,
 									 tupleDesc->natts,
-									 (uint64_t *) slot->tts_values,
-									 slot->tts_isnull,
+									 (uint64_t *) planSlot->tts_values,
+									 planSlot->tts_isnull,
 									 &syscols,
 									 &has_data));
 		Assert(has_data);
@@ -789,15 +779,15 @@ bool YBCExecuteDelete(Relation rel,
 		 * to ensure that returning_columns contains all the
 		 * attributes that may be referenced during subsequent evaluations.
 		 */
-		slot->tts_nvalid = tupleDesc->natts;
-		slot->tts_flags &= ~TTS_FLAG_EMPTY;
+		planSlot->tts_nvalid = tupleDesc->natts;
+		planSlot->tts_flags &= ~TTS_FLAG_EMPTY;
 
 		/*
 		 * The Result is getting dummy TLEs in place of missing attributes,
 		 * so we should fix the tuple table slot's descriptor before
 		 * the RETURNING clause expressions are evaluated.
 		 */
-		slot->tts_tupleDescriptor = CreateTupleDescCopyConstr(tupleDesc);
+		planSlot->tts_tupleDescriptor = CreateTupleDescCopyConstr(tupleDesc);
 	}
 
 	/* Cleanup. */
@@ -1215,7 +1205,7 @@ YBCExecuteUpdateLoginAttempts(Oid roleid,
 
 /* YB_REVIEW(neil) Revisit later. */
 Oid
-YBCTupleTableExecuteUpdateReplace(Relation rel, TupleTableSlot *slot,
+YBCTupleTableExecuteUpdateReplace(Relation rel, TupleTableSlot *planSlot, TupleTableSlot *slot,
 								  EState *estate)
 {
 	bool	  shouldFree = true;
@@ -1227,7 +1217,7 @@ YBCTupleTableExecuteUpdateReplace(Relation rel, TupleTableSlot *slot,
 	tuple->t_tableOid = slot->tts_tableOid;
 
 	/* Perform the update, and copy the resulting ItemPointer */
-	result = YBCExecuteUpdateReplace(rel, slot, tuple, estate);
+	result = YBCExecuteUpdateReplace(rel, planSlot, tuple, estate);
 	ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
 
 	if (shouldFree)
@@ -1238,12 +1228,12 @@ YBCTupleTableExecuteUpdateReplace(Relation rel, TupleTableSlot *slot,
 
 /* YB_TODO: No need to return Oid. */
 Oid YBCExecuteUpdateReplace(Relation rel,
-							TupleTableSlot *slot,
+							TupleTableSlot *planSlot,
 							HeapTuple tuple,
 							EState *estate)
 {
 	YBCExecuteDelete(rel,
-					 slot,
+					 planSlot,
 					 NIL /* returning_columns */,
 					 true /* target_tuple_fetched */,
 					 false /* is_single_row_txn */,

@@ -143,7 +143,7 @@ extern void YBCExecuteInsertIndexForDb(Oid dboid,
  * to anoter.
  */
 extern bool YBCExecuteDelete(Relation rel,
-							 TupleTableSlot *slot,
+							 TupleTableSlot *planSlot,
 							 List *returning_columns,
 							 bool target_tuple_fetched,
 							 bool is_single_row_txn,
@@ -199,7 +199,7 @@ extern bool YBCExecuteUpdateLoginAttempts(Oid roleid,
 										  int failed_attempts,
 										  char rolprfstatus);
 
-extern Oid YBCTupleTableExecuteUpdateReplace(Relation rel, TupleTableSlot *slot,
+extern Oid YBCTupleTableExecuteUpdateReplace(Relation rel, TupleTableSlot *planSlot, TupleTableSlot *slot,
 											 EState *estate);
 /*
  * Replace a row in a YugaByte table by first deleting an existing row
@@ -209,7 +209,7 @@ extern Oid YBCTupleTableExecuteUpdateReplace(Relation rel, TupleTableSlot *slot,
  * This will change ybctid of a row within a tuple.
  */
 extern Oid YBCExecuteUpdateReplace(Relation rel,
-								   TupleTableSlot *slot,
+								   TupleTableSlot *planSlot,
 								   HeapTuple tuple,
 								   EState *estate);
 

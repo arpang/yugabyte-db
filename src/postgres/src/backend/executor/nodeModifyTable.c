@@ -2564,7 +2564,7 @@ yb_lreplace:;
 	ModifyTable *plan = (ModifyTable *) context->mtstate->ps.plan;
 	if (is_pk_updated)
 	{
-		YBCTupleTableExecuteUpdateReplace(resultRelationDesc, slot, estate);
+		YBCTupleTableExecuteUpdateReplace(resultRelationDesc, context->planSlot, slot, estate);
 		row_found = true;
 	}
 	else
