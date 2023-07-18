@@ -854,27 +854,6 @@ ExecInsert(ModifyTableContext *context,
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
 
 	/*
-	 * TODO(alex@yugabyte): Relation structure no longer has OID.
-	 *
-	 * YB note:
-	 * --------
-	 * YSQL upgrade introduces a hacky way for INSERT to set OID implemented
-	 * via tts_yb_insert_oid. It would become obsolete after upgrade to PG 12
-	 * which would make oid a regular column.
-	 */
-#ifdef YB_TODO
-	if (resultRelationDesc->rd_rel->relhasoids)
-	{
-		Oid tuple_oid = InvalidOid;
-
-		if (IsYsqlUpgrade && IsYBRelation(resultRelationDesc))
-			tuple_oid = slot->tts_yb_insert_oid;
-
-		HeapTupleSetOid(tuple, tuple_oid);
-	}
-#endif
-
-	/*
 	 * Open the table's indexes, if we have not done so already, so that we
 	 * can add new index entries for the inserted tuple.
 	 */
@@ -1624,15 +1603,6 @@ ExecDelete(ModifyTableContext *context,
 	}
 	else if (IsYBRelation(resultRelationDesc))
 	{
-#if YB_TODO
-		/* YB_TODO(neil) Check this code. It's from
-		   commit efccad40c368e0148bd08bf8a6b77608fdfebcda
-		   Author: Alex Abdugafarov <frozenspider@users.noreply.github.com>
-		   Date:   Thu Apr 28 23:06:03 2022 +0500
-		 */
-		bool row_found = YBCExecuteDelete(resultRelationDesc, context->planSlot, estate,
-										  context->mtstate, changingPart);
-#endif
 		bool row_found = YBCExecuteDelete(resultRelationDesc,
 										  context->planSlot,
 										  ((ModifyTable *)context->mtstate->ps.plan)->ybReturningColumns,
@@ -1912,13 +1882,11 @@ YBEqualDatums(Datum lhs, Datum rhs, Oid atttypid, Oid collation)
 		         errmsg("could not identify a comparison function for type %s",
 		                format_type_be(typentry->type_id))));
 
-	/* YB_TODOneil) Need to verify if this code works. FuncCallInfo now uses Pg15 structure */
 	InitFunctionCallInfoData(*locfcinfo, &typentry->cmp_proc_finfo, 2, collation, NULL, NULL);
 	locfcinfo->args[0].value = lhs;
 	locfcinfo->args[0].isnull = false;
 	locfcinfo->args[1].value = rhs;
 	locfcinfo->args[1].isnull = false;
-	locfcinfo->isnull = false;
 	return DatumGetInt32(FunctionCallInvoke(locfcinfo)) == 0;
 }
 
