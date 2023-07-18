@@ -2569,8 +2569,8 @@ yb_lreplace:;
 	}
 	else
 		row_found = YBCTupleTableExecuteUpdate(
-			resultRelationDesc, resultRelInfo, slot, oldtuple, estate, plan,
-			context->mtstate->yb_fetch_target_tuple,
+			resultRelationDesc, resultRelInfo, context->planSlot, slot,
+			oldtuple, estate, plan, context->mtstate->yb_fetch_target_tuple,
 			estate->yb_es_is_single_row_modify_txn, actualUpdatedCols,
 			canSetTag);
 
@@ -4534,10 +4534,6 @@ ExecModifyTable(PlanState *pstate)
 													 oldSlot, NULL);
 					context.GetUpdateNewTuple = internalGetUpdateNewTuple;
 					context.relaction = NULL;
-					if (oldtuple != NULL)
-						TABLETUPLE_YBCTID(slot) = HEAPTUPLE_YBCTID(oldtuple);
-					else
-						TABLETUPLE_YBCTID(slot) = TABLETUPLE_YBCTID(oldSlot);
 				}
 
 				/* Now apply the update. */

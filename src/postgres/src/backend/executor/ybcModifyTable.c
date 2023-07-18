@@ -853,10 +853,11 @@ void YBCExecuteDeleteIndex(Relation index,
 /* YB_REVIEW(neil) Revisit later. */
 bool
 YBCTupleTableExecuteUpdate(Relation rel, ResultRelInfo *resultRelInfo,
-						   TupleTableSlot *slot, HeapTuple oldtuple,
-						   EState *estate, ModifyTable *mt_plan,
-						   bool target_tuple_fetched, bool is_single_row_txn,
-						   Bitmapset *updatedCols, bool canSetTag)
+						   TupleTableSlot *planSlot, TupleTableSlot *slot,
+						   HeapTuple oldtuple, EState *estate,
+						   ModifyTable *mt_plan, bool target_tuple_fetched,
+						   bool is_single_row_txn, Bitmapset *updatedCols,
+						   bool canSetTag)
 {
 	bool	  shouldFree = true;
 	HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
@@ -867,9 +868,9 @@ YBCTupleTableExecuteUpdate(Relation rel, ResultRelInfo *resultRelInfo,
 	tuple->t_tableOid = slot->tts_tableOid;
 
 	/* Perform the update, and copy the resulting ItemPointer */
-	result = YBCExecuteUpdate(rel, resultRelInfo, slot, oldtuple, tuple, estate,
-							  mt_plan, target_tuple_fetched, is_single_row_txn,
-							  updatedCols, canSetTag);
+	result = YBCExecuteUpdate(rel, resultRelInfo, planSlot, slot, oldtuple, tuple,
+							  estate, mt_plan, target_tuple_fetched,
+							  is_single_row_txn, updatedCols, canSetTag);
 	ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
 
 	if (shouldFree)
@@ -882,6 +883,7 @@ YBCTupleTableExecuteUpdate(Relation rel, ResultRelInfo *resultRelInfo,
  * resultRelInfo->ri_RelationDesc*/
 bool YBCExecuteUpdate(Relation rel,
 					  ResultRelInfo *resultRelInfo,
+					  TupleTableSlot *planSlot,
 					  TupleTableSlot *slot,
 					  HeapTuple oldtuple,
 					  HeapTuple tuple,
@@ -918,7 +920,7 @@ bool YBCExecuteUpdate(Relation rel,
 	 * from tuple values.
 	 */
 	if (target_tuple_fetched)
-		ybctid = YBCGetYBTupleIdFromSlot(slot);
+		ybctid = YBCGetYBTupleIdFromSlot(planSlot);
 	else
 		ybctid = YBCGetYBTupleIdFromTuple(rel, tuple, inputTupleDesc);
 
@@ -1077,8 +1079,8 @@ bool YBCExecuteUpdate(Relation rel,
 	 */
 	if (mt_plan->ybReturningColumns && rows_affected_count > 0)
 	{
-		Datum		   *values    = slot->tts_values;
-		bool		   *isnull    = slot->tts_isnull;
+		Datum		   *values    = planSlot->tts_values;
+		bool		   *isnull    = planSlot->tts_isnull;
 		bool			has_data   = false;
 		YBCPgSysColumns	syscols;
 
@@ -1109,15 +1111,15 @@ bool YBCExecuteUpdate(Relation rel,
 		 * to ensure that mt_plan->ybReturningColumns contains all the
 		 * attributes that may be referenced during subsequent evaluations.
 		 */
-		slot->tts_nvalid = outputTupleDesc->natts;
-		slot->tts_flags &= ~TTS_FLAG_EMPTY;
+		planSlot->tts_nvalid = outputTupleDesc->natts;
+		planSlot->tts_flags &= ~TTS_FLAG_EMPTY;
 
 		/*
 		 * The Result is getting dummy TLEs in place of missing attributes,
 		 * so we should fix the tuple table slot's descriptor before
 		 * the RETURNING clause expressions are evaluated.
 		 */
-		slot->tts_tupleDescriptor = CreateTupleDescCopyConstr(outputTupleDesc);
+		planSlot->tts_tupleDescriptor = CreateTupleDescCopyConstr(outputTupleDesc);
 	}
 
 	/* Cleanup. */

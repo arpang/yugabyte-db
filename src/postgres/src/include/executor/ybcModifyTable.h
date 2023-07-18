@@ -161,7 +161,7 @@ extern void YBCExecuteDeleteIndex(Relation index,
 								  void *indexstate);
 
 extern bool YBCTupleTableExecuteUpdate(Relation		   rel,
-									   ResultRelInfo  *resultRelInfo,
+									   ResultRelInfo  *resultRelInfo, TupleTableSlot *planSlot,
 									   TupleTableSlot *slot, HeapTuple oldtuple,
 									   EState *estate, ModifyTable *mt_plan,
 									   bool		  target_tuple_fetched,
@@ -176,6 +176,7 @@ extern bool YBCTupleTableExecuteUpdate(Relation		   rel,
  */
 extern bool YBCExecuteUpdate(Relation rel,
 							 ResultRelInfo *resultRelInfo,
+							 TupleTableSlot *planSlot,
 							 TupleTableSlot *slot,
 							 HeapTuple oldtuple,
 							 HeapTuple tuple,
