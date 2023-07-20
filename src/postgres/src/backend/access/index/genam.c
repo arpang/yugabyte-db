@@ -585,6 +585,13 @@ systable_getnext(SysScanDesc sysscan)
 bool
 systable_recheck_tuple(SysScanDesc sysscan, HeapTuple tup)
 {
+	/*
+	 * If YugaByte is enabled, systable_recheck_tuple doesn't work
+	 * since the function uses the buffer to determine the tuple's visibility.
+	 */
+	if (IsYugaByteEnabled())
+		return true;
+
 	Snapshot	freshsnap;
 	bool		result;
 
