@@ -174,8 +174,7 @@ extern bool YBCTupleTableExecuteUpdate(Relation		   rel,
  * no row to update. This can occur because we do not first perform a scan if
  * it is a single row op.
  */
-extern bool YBCExecuteUpdate(Relation rel,
-							 ResultRelInfo *resultRelInfo,
+extern bool YBCExecuteUpdate(ResultRelInfo *resultRelInfo,
 							 TupleTableSlot *slot,
 							 HeapTuple oldtuple,
 							 HeapTuple tuple,

@@ -2458,7 +2458,7 @@ yb_lreplace:;
 		}
 
 #ifdef YB_TODO
-		/* YB_TODO: Handle MERGE */
+		/* Handle MERGE */
 		/*
 		 * No luck, a retry is needed.  If running MERGE, we do not do so
 		 * here; instead let it handle that on its own rules.
@@ -2947,7 +2947,7 @@ redo_act:
 	if (resultRelInfo->ri_projectReturning)
 	{
 #ifdef YB_TODO
-		/* YB_TODO(neil@yugabyte)
+		/*
 		 * - Check to make sure that ExecFilterJunk is no longer needed here.
 		 * - Find where Yugabyte should plugin new code.
 		 */
@@ -3208,7 +3208,7 @@ yb_skip_transaction_control_check:
 
 	/* Execute UPDATE with projection */
 #ifdef YB_TODO
-	/* YB_TODO(neil) Postgres changes its function signature. Need fix while compiling */
+	/* Postgres changes its function signature. Need fix while compiling */
 	*returning = ExecUpdate(mtstate, resultRelInfo, conflictTid, oldtuple,
 							resultRelInfo->ri_onConflict->oc_ProjSlot,
 							context->planSlot,
@@ -5067,7 +5067,7 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 #ifdef YB_TODO
 	else
 	{
-		/* YB_TODO(neil@yugabyte)
+		/*
 		 * Pg13 reimplement junk filter. We need to change this code accordingly.
 		 *
 		 * If it's a YB single row UPDATE/DELETE we do not perform an

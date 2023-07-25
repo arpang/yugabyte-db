@@ -858,7 +858,7 @@ YBCTupleTableExecuteUpdate(Relation rel, ResultRelInfo *resultRelInfo,
 	tuple->t_tableOid = slot->tts_tableOid;
 
 	/* Perform the update, and copy the resulting ItemPointer */
-	result = YBCExecuteUpdate(rel, resultRelInfo, slot, oldtuple, tuple, estate,
+	result = YBCExecuteUpdate(resultRelInfo, slot, oldtuple, tuple, estate,
 							  mt_plan, target_tuple_fetched, is_single_row_txn,
 							  updatedCols, canSetTag);
 	ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
@@ -869,10 +869,7 @@ YBCTupleTableExecuteUpdate(Relation rel, ResultRelInfo *resultRelInfo,
 	return result;
 }
 
-/* YB_TODO: relation is present in resultRelInfo:
- * resultRelInfo->ri_RelationDesc*/
-bool YBCExecuteUpdate(Relation rel,
-					  ResultRelInfo *resultRelInfo,
+bool YBCExecuteUpdate(ResultRelInfo *resultRelInfo,
 					  TupleTableSlot *slot,
 					  HeapTuple oldtuple,
 					  HeapTuple tuple,
@@ -884,6 +881,7 @@ bool YBCExecuteUpdate(Relation rel,
 					  bool canSetTag)
 {
 	// The input heap tuple's descriptor
+	Relation rel = resultRelInfo->ri_RelationDesc;
 	TupleDesc		inputTupleDesc = slot->tts_tupleDescriptor;
 	// The target table tuple's descriptor
 	TupleDesc		outputTupleDesc = RelationGetDescr(rel);
@@ -1026,7 +1024,7 @@ bool YBCExecuteUpdate(Relation rel,
 	 * the first and the last conditions are checked here.
 	 */
 	bool can_batch_update = target_tuple_fetched ||
-		(!canSetTag && estate && resultRelInfo->ri_returningList == NIL);
+		(!canSetTag && resultRelInfo->ri_returningList == NIL);
 
 	/*
 	 * For system tables, mark tuple pair for invalidation from system caches
