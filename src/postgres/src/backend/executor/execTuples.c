@@ -1405,10 +1405,6 @@ ExecStoreBufferHeapTuple(HeapTuple tuple,
 	Assert(slot != NULL);
 	Assert(slot->tts_tupleDescriptor != NULL);
 
-	/* YB_TODO(neil@yugabyte)
-	 * - Since Yugabyte doesn't use heap buffer, it set the buffer to INVALID in places.
-	 * - Need to verify if that's the right thing to do.
-	 */
 	if (!IsYugaByteEnabled())
 		Assert(BufferIsValid(buffer));
 
@@ -1437,10 +1433,6 @@ ExecStorePinnedBufferHeapTuple(HeapTuple tuple,
 	Assert(slot != NULL);
 	Assert(slot->tts_tupleDescriptor != NULL);
 
-	/* YB_TODO(neil@yugabyte)
-	 * - Since Yugabyte doesn't use heap buffer, it set the buffer to INVALID in places.
-	 * - Need to verify if that's the right thing to do.
-	 */
 	if (!IsYugaByteEnabled())
 		Assert(BufferIsValid(buffer));
 
