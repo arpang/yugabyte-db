@@ -3142,15 +3142,9 @@ yb_skip_transaction_control_check:
 		ExecCheckTupleVisible(context->estate, relation, existing);
 	else
 	{
-		/*
-		 * YB_TODO(neil@yugabyte) Write Yugabyte API to work with slot.
-		 *
-		 * Current Yugabyte API works with HeapTuple instead of slot.
-		 * - Create tuple as a workaround to compile.
-		 * - Pass slot to Yugabyte call once the API is fixed.
-		 */
 		bool shouldFree = true;
 		oldtuple = ExecFetchSlotHeapTuple(context->estate->yb_conflict_slot, true, &shouldFree);
+		ExecStoreBufferHeapTuple(oldtuple, existing, InvalidBuffer);
 		TABLETUPLE_YBCTID(context->planSlot) = HEAPTUPLE_YBCTID(oldtuple);
 	}
 
@@ -3207,16 +3201,8 @@ yb_skip_transaction_control_check:
 	 */
 
 	/* Execute UPDATE with projection */
-#ifdef YB_TODO
-	/* Postgres changes its function signature. Need fix while compiling */
-	*returning = ExecUpdate(mtstate, resultRelInfo, conflictTid, oldtuple,
-							resultRelInfo->ri_onConflict->oc_ProjSlot,
-							context->planSlot,
-							&mtstate->mt_epqstate, mtstate->ps.state,
-							canSetTag);
-#endif
 	*returning = ExecUpdate(context, resultRelInfo,
-							conflictTid, NULL,
+							conflictTid, oldtuple,
 							resultRelInfo->ri_onConflict->oc_ProjSlot,
 							canSetTag);
 
@@ -4416,28 +4402,11 @@ ExecModifyTable(PlanState *pstate)
 		{
 			case CMD_INSERT:
 				/* Initialize projection info if first time for this table */
-				/* YB_TODO(neil@yugabyte) Check to see if this is still needed.
-				 *   bool prev_yb_is_single_row_modify_txn =
-				 *       estate->es_yb_is_single_row_modify_txn;
-				 */
-
 				if (unlikely(!resultRelInfo->ri_projectNewInfoValid))
 					ExecInitInsertProjection(node, resultRelInfo);
 				slot = ExecGetInsertNewTuple(resultRelInfo, context.planSlot);
 				slot = ExecInsert(&context, resultRelInfo, slot,
 								  node->canSetTag, NULL, NULL);
-
-				/* YB_TODO(neil) Fixed function signature
-				slot = ExecGetInsertNewTuple(resultRelInfo, context.planSlot);
-				slot = ExecInsert(node, resultRelInfo, slot, context.planSlot,
-								  estate, node->canSetTag);
-				*/
-
-				/* YB_TODO(neil@yugabyte)
-				 * Work on the optimization for single row insert.
-				 */
-				/* Revert ExecPrepareTupleRouting's state change. */
-				/* estate->es_yb_is_single_row_modify_txn = prev_yb_is_single_row_modify_txn; */
 				break;
 
 			case CMD_UPDATE:
