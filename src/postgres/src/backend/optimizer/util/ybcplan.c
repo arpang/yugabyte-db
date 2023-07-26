@@ -95,7 +95,7 @@ static bool ModifyTableIsSingleRowWrite(ModifyTable *modifyTable)
 	if (modifyTable->plan.initPlan != NIL)
 		return false;
 
-	Plan *plan = &modifyTable->plan;
+	Plan *plan = outerPlan(&modifyTable->plan);
 
 	/*
 	 * Only Result plan without a subplan produces single tuple without making
