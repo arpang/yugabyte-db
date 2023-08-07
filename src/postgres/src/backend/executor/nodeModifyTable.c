@@ -2945,22 +2945,7 @@ redo_act:
 
 	/* Process RETURNING if present */
 	if (resultRelInfo->ri_projectReturning)
-	{
-#ifdef YB_TODO
-		/*
-		 * - Check to make sure that ExecFilterJunk is no longer needed here.
-		 * - Find where Yugabyte should plugin new code.
-		 */
-		/*
-		 * Prepare the updated tuple in inner slot for RETURNING clause execution.
-		 * For ON CONFLICT DO UPDATE, the INSERT returning clause is setup
-		 * differently, so junkFilter is not needed.
-		 */
-		if (IsYBRelation(resultRelationDesc) && resultRelInfo->ri_junkFilter)
-			slot = ExecFilterJunk(resultRelInfo->ri_junkFilter, context->planSlot);
-#endif
 		return ExecProcessReturning(resultRelInfo, slot, context->planSlot);
-	}
 
 	return NULL;
 }
