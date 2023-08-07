@@ -5018,26 +5018,6 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 		else
 			resultRelInfo->ri_BatchSize = 1;
 	}
-#ifdef YB_TODO
-	else
-	{
-		/*
-		 * Pg13 reimplement junk filter. We need to change this code accordingly.
-		 *
-		 * If it's a YB single row UPDATE/DELETE we do not perform an
-		 * initial scan to populate the ybctid, so there is no junk
-		 * attribute to extract.
-		 */
-		if (IsYBRelation(mtstate->resultRelInfo->ri_RelationDesc))
-		{
-			junk_filter_needed = mtstate->yb_fetch_target_tuple;
-		}
-		else
-		{
-			junk_filter_needed = true;
-		}
-	}
-#endif
 
 	/*
 	 * Lastly, if this is not the primary (canSetTag) ModifyTable node, add it
