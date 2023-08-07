@@ -529,7 +529,6 @@ AddTupleToOuterBatchHash(YbBatchedNestLoopState *bnlstate,
 	bool isnew = false;
 
 	Assert(!TupIsNull(slot));
-	/* YB_TODO: Is NULL the correct value for hash arg? */
 	TupleHashEntry orig_data = LookupTupleHashEntry(ht, slot, &isnew, NULL);
 	Assert(orig_data != NULL);
 	Assert(orig_data->firstTuple != NULL);
