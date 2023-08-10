@@ -866,9 +866,9 @@ bool YBCExecuteUpdate(Relation rel,
 	/* is_single_row_txn always implies target tuple wasn't fetched. */
 	Assert(!is_single_row_txn || !target_tuple_fetched);
 
+	/* YB_TODO: Should materialize arg be true - check other usages as well that you have introduced? */
 	bool	  shouldFree = true;
 	HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
-
 
 	/* Create update statement. */
 	HandleYBStatus(YBCPgNewUpdate(dboid,
