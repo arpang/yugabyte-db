@@ -2877,7 +2877,7 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc2);
 			int			  indexcol = lfirst_int(lci);
 			AttrNumber	 attnum = isprimary ? index->rd_index->indkey.values[indexcol]
-										: (indexcol + 1);
+											: (indexcol + 1);
 			Expr	   *clause = rinfo->clause;
 			int			bms_idx = YBAttnumToBmsIndex(scan_plan.target_relation, attnum);
 
@@ -3346,6 +3346,19 @@ ybFetchNext(YBCPgStatement handle,
 		slot->tts_nvalid = tupdesc->natts;
 		slot->tts_flags &= ~TTS_FLAG_EMPTY; /* Not empty */
 		TABLETUPLE_YBCTID(slot) = PointerGetDatum(syscols.ybctid);
+#ifdef YB_TODO
+    /* OID is now a regular column */
+    if (syscols.oid != InvalidOid)
+    {
+      MemoryContext oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
+      HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
+      HeapTupleSetOid(tuple, syscols.oid);
+      tuple->t_tableOid = relid;
+      HEAPTUPLE_YBCTID(tuple) = TABLETUPLE_YBCTID(slot);
+      slot = ExecStoreHeapTuple(tuple, slot, true);
+      MemoryContextSwitchTo(oldcontext);
+    }
+#endif
 		slot->tts_tableOid = relid;
 	}
 	return slot;
