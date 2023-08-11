@@ -1361,7 +1361,9 @@ Result<size_t> PgsqlReadOperation::ExecuteSample(
   // Variables for the random numbers generator
   YbgPrepareMemoryContext();
   YbgReservoirState rstate = NULL;
-  YbgSamplerCreate(sampling_state.rstate_w(), sampling_state.rand_state().s0(), sampling_state.rand_state().s1(), &rstate);
+  YbgSamplerCreate(
+      sampling_state.rstate_w(), sampling_state.rand_state().s0(), sampling_state.rand_state().s1(),
+      &rstate);
   // Buffer to hold selected row ids from the current page
   std::unique_ptr<QLValuePB[]> reservoir = std::make_unique<QLValuePB[]>(targrows);
   // Number of rows to scan for the current page.

@@ -101,7 +101,8 @@ Status PgSamplePicker::Prepare() {
   return Status::OK();
 }
 
-Status PgSamplePicker::PrepareSamplingState(int targrows, double rstate_w, uint64_t rand_state_s0, uint64_t rand_state_s1) {
+Status PgSamplePicker::PrepareSamplingState(
+    int targrows, double rstate_w, uint64_t rand_state_s0, uint64_t rand_state_s1) {
   auto* sampling_state = read_req_->mutable_sampling_state();
   sampling_state->set_targrows(targrows);      // target sample size
   sampling_state->set_numrows(0);              // current number of rows selected

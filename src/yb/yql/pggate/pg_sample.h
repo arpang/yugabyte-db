@@ -66,7 +66,8 @@ class PgSamplePicker : public PgSelectIndex {
   Status Prepare() override;
 
   // Seed random numbers generator before execution
-  Status PrepareSamplingState(int targrows, double rstate_w, uint64_t rand_state_s0, uint64_t rand_state_s1);
+  Status PrepareSamplingState(
+      int targrows, double rstate_w, uint64_t rand_state_s0, uint64_t rand_state_s1);
 
   // Process next block of table rows and update the reservoir with ybctids of randomly selected
   // rows from the block. Returns true if there is another block to process.
