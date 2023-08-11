@@ -2891,9 +2891,9 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 			}
 			else
 			{
-				OpExpr *op = (OpExpr *) clause;
-				Oid		clause_op = op->opno;
-				Node   *other_operand = (Node *) lsecond(op->args);
+				OpExpr	   *op = (OpExpr *) clause;
+				Oid	clause_op = op->opno;
+				Node* other_operand = (Node *) lsecond(op->args);
 
 				if (OidIsValid(clause_op))
 				{
