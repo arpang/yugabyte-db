@@ -2688,7 +2688,6 @@ static double ybcEvalHashSelectivity(List *hashed_rinfos)
 		OpExpr	   *op = (OpExpr *) clause;
 		Node *other_operand = (Node *) lsecond(op->args);
 
-
 		if (!IsA(other_operand, Const))
 		{
 			continue;
