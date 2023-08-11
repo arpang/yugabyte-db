@@ -2876,12 +2876,10 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 		{
 			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc2);
 			int			  indexcol = lfirst_int(lci);
-			AttrNumber	  attnum =
-					isprimary ? index->rd_index->indkey.values[indexcol] :
-								(indexcol + 1);
-			Expr *clause = rinfo->clause;
-			int	  bms_idx =
-				YBAttnumToBmsIndex(scan_plan.target_relation, attnum);
+			AttrNumber	 attnum = isprimary ? index->rd_index->indkey.values[indexcol]
+										: (indexcol + 1);
+			Expr	   *clause = rinfo->clause;
+			int			bms_idx = YBAttnumToBmsIndex(scan_plan.target_relation, attnum);
 
 			if (IsA(clause, NullTest))
 			{
