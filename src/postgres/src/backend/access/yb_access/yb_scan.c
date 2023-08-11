@@ -2847,8 +2847,8 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 	Relation	relation = isprimary ? RelationIdGetRelation(index->rd_index->indrelid) : NULL;
 	RelOptInfo *baserel = path->path.parent;
 	ListCell   *lc;
-	bool		is_backwards_scan = path->indexscandir == BackwardScanDirection;
-	bool		is_unique = index->rd_index->indisunique;
+	bool        is_backwards_scan = path->indexscandir == BackwardScanDirection;
+	bool        is_unique = index->rd_index->indisunique;
 	bool        is_partial_idx = path->indexinfo->indpred != NIL && path->indexinfo->predOK;
 	Bitmapset  *const_quals = NULL;
 	List	   *hashed_rinfos = NIL;
