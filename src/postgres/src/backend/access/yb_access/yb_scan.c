@@ -2800,7 +2800,7 @@ Oid ybc_get_attcollation(TupleDesc desc, AttrNumber attnum)
 }
 
 bool
-is_hashed(Expr *clause, IndexOptInfo *index)
+yb_is_hashed(Expr *clause, IndexOptInfo *index)
 {
 	bool is_hashed = false;
 	Node	   *leftop;
@@ -2900,7 +2900,7 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 				}
 			}
 
-			if (is_hashed(clause, path->indexinfo))
+			if (yb_is_hashed(clause, path->indexinfo))
 			{
 				hashed_rinfos = lappend(hashed_rinfos, rinfo);
 			}
