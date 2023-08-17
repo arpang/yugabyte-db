@@ -125,8 +125,8 @@ static const char *const UserAuthName[] =
 
 static List *tokenize_inc_file(List *tokens, const char *outer_filename,
 							   const char *inc_filename, int elevel, char **err_msg);
-static void tokenize_hardcoded(List **tok_lines_all, int elevel);
-static TokenizedAuthLine *tokenize_line(const char *filename, int elevel,
+static void yb_tokenize_hardcoded(List **tok_lines_all, int elevel);
+static TokenizedAuthLine *yb_tokenize_line(const char *filename, int elevel,
 									int line_number, char *rawline,
 									char *err_msg);
 static bool parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
@@ -466,7 +466,7 @@ tokenize_auth_file(const char *filename, FILE *file, List **tok_lines,
 	MemoryContext linecxt;
 	MemoryContext oldcxt;
 
-	linecxt = AllocSetContextCreate(CurrentMemoryContext,
+	linecxt = AllocSetContextCreate(GetCurrentMemoryContext(),
 									"tokenize_auth_file",
 									ALLOCSET_SMALL_SIZES);
 	oldcxt = MemoryContextSwitchTo(linecxt);
@@ -572,7 +572,7 @@ tokenize_auth_file(const char *filename, FILE *file, List **tok_lines,
  * output list.
  */
 static void
-tokenize_hardcoded(List **tok_lines, int elevel)
+yb_tokenize_hardcoded(List **tok_lines, int elevel)
 {
 	int			line_number = -1;
 
@@ -583,7 +583,7 @@ tokenize_hardcoded(List **tok_lines, int elevel)
 		char	   *err_msg = NULL;
 		TokenizedAuthLine *tok_line;
 
-		tok_line = tokenize_line("(hardcoded: no filename)" /* filename */,
+		tok_line = yb_tokenize_line("(hardcoded: no filename)" /* filename */,
 								 elevel,
 								 line_number,
 								 pstrdup(HardcodedHbaLines[i]),
@@ -612,7 +612,7 @@ tokenize_hardcoded(List **tok_lines, int elevel)
  * Return value is a palloc'd tokenized line.
  */
 static TokenizedAuthLine *
-tokenize_line(const char *filename,
+yb_tokenize_line(const char *filename,
 			  int elevel,
 			  int line_number,
 			  char *rawline,
@@ -627,9 +627,7 @@ tokenize_line(const char *filename,
 				 errmsg("line is null")));
 
 	/* Strip trailing linebreak from rawline */
-	lineptr = rawline + strlen(rawline) - 1;
-	while (lineptr >= rawline && (*lineptr == '\n' || *lineptr == '\r'))
-		*lineptr-- = '\0';
+	pg_strip_crlf(rawline);
 
 	/* Parse fields */
 	lineptr = rawline;
@@ -2401,7 +2399,7 @@ load_hba(void)
 	List	   *hba_lines_hardcoded = NIL;
 
 	oldcxt = MemoryContextSwitchTo(linecxt);
-	tokenize_hardcoded(&hba_lines_hardcoded, LOG);
+	yb_tokenize_hardcoded(&hba_lines_hardcoded, LOG);
 	hba_lines = list_concat(hba_lines_hardcoded, hba_lines);
 	MemoryContextSwitchTo(oldcxt);
 
