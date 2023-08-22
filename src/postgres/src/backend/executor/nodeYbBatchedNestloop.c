@@ -346,7 +346,6 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 	bnlstate->numLookupAttrs = num_hashClauseInfos;
 	bnlstate->innerAttrs =
 		palloc(num_hashClauseInfos * sizeof(AttrNumber));
-	bnlstate->bnl_Collations = palloc(num_hashClauseInfos * sizeof(Oid));
 	ExprState **keyexprs = palloc(num_hashClauseInfos * (sizeof(ExprState*)));
 	List *outerParamExprs = NULL;
 	YbBNLHashClauseInfo *current_hinfo = plan->hashClauseInfos;
@@ -360,7 +359,6 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 		Expr *outerExpr = current_hinfo->outerParamExpr;
 		keyexprs[i] = ExecInitExpr(outerExpr, (PlanState *) bnlstate);
 		outerParamExprs = lappend(outerParamExprs, outerExpr);
-		bnlstate->bnl_Collations[i] = current_hinfo->collation;
 		current_hinfo++;
 	}
 	Oid *eqFuncOids;
@@ -384,7 +382,7 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 	bnlstate->hashtable =
 		YbBuildTupleHashTableExt(&bnlstate->js.ps, outer_tdesc,
 								 num_hashClauseInfos, keyexprs, tab_eq_fn,
-								 eqFuncOids, bnlstate->hashFunctions, bnlstate->bnl_Collations,
+								 eqFuncOids, bnlstate->hashFunctions,
 								 GetBatchSize(plan), 0,
 								 econtext->ecxt_per_query_memory, tablecxt,
 								 econtext->ecxt_per_tuple_memory, econtext,

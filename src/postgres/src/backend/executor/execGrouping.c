@@ -26,6 +26,7 @@
 
 /* Yugabyte includes */
 #include "nodes/makefuncs.h"
+#include "pg_yb_utils.h"
 
 static int	TupleHashTableMatch(struct tuplehash_hash *tb, const MinimalTuple tuple1, const MinimalTuple tuple2);
 static inline uint32 TupleHashTableHash_internal(struct tuplehash_hash *tb,
@@ -165,7 +166,6 @@ YbBuildTupleHashTableExt(PlanState *parent,
 						 ExprState *eqExpr,
 						 Oid *eqfuncoids,
 						 FmgrInfo *hashfunctions,
-						 Oid *collations,
 						 long nbuckets, Size additionalsize,
 						 MemoryContext metacxt,
 						 MemoryContext tablecxt,
@@ -190,7 +190,7 @@ YbBuildTupleHashTableExt(PlanState *parent,
 	hashtable->yb_keyColExprs = keyColExprs;
 	hashtable->keyColIdx = NULL;
 	hashtable->tab_hash_funcs = hashfunctions;
-	hashtable->tab_collations = collations;
+	hashtable->tab_collations = NULL;
 	hashtable->tablecxt = tablecxt;
 	hashtable->tempcxt = tempcxt;
 	hashtable->entrysize = entrysize;
@@ -600,9 +600,13 @@ TupleHashTableHash_internal(struct tuplehash_hash *tb,
 		{
 			uint32		hkey;
 
-			hkey = DatumGetUInt32(FunctionCall1Coll(&hashfunctions[i],
-													hashtable->tab_collations[i],
+			if (IsYugaByteEnabled())
+				hkey = DatumGetUInt32(FunctionCall1(&hashfunctions[i],
 													attr));
+			else
+				hkey = DatumGetUInt32(FunctionCall1Coll(&hashfunctions[i],
+														hashtable->tab_collations[i],
+														attr));
 			hashkey ^= hkey;
 		}
 	}
