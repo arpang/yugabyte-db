@@ -1325,11 +1325,11 @@ YbFetchPinnedObjectKeyFromPgShdepend(HeapTuple tup, YbPinnedObjectKey *key) {
  */
 static HTAB*
 YbBuildPinnedObjectCache(const char *name,
-						 int size,
-						 Oid dependRelId,
-						 int depTypeAnum,
-						 char depTypeValue,
-						 void(*key_fetcher)(HeapTuple, YbPinnedObjectKey*)) {
+                         int size,
+                         Oid dependRelId,
+                         int depTypeAnum,
+                         char depTypeValue,
+                         void(*key_fetcher)(HeapTuple, YbPinnedObjectKey*)) {
 	HASHCTL ctl;
 	MemSet(&ctl, 0, sizeof(ctl));
 	ctl.keysize = sizeof(YbPinnedObjectKey);
@@ -1339,9 +1339,9 @@ YbBuildPinnedObjectCache(const char *name,
 
 	ScanKeyData key;
 	ScanKeyInit(&key,
-				depTypeAnum,
-				BTEqualStrategyNumber, F_CHAREQ,
-				CharGetDatum(depTypeValue));
+	            depTypeAnum,
+	            BTEqualStrategyNumber, F_CHAREQ,
+	            CharGetDatum(depTypeValue));
 	Relation dependDesc = table_open(dependRelId, RowExclusiveLock);
 	SysScanDesc scan = systable_beginscan(dependDesc, InvalidOid, false, NULL, 1, &key);
 	YbPinnedObjectKey pinnedKey;
@@ -1365,17 +1365,17 @@ YbLoadPinnedObjectsCache()
 	 */
 	YBPinnedObjectsCacheData cache = {
 		.shared = YBBuildPinnedObjectCache("Shared pinned objects cache",
-											20, /* Number of pinned objects in pg_shdepend is 9 */
-											SharedDependRelationId,
-											Anum_pg_shdepend_deptype,
-											SHARED_DEPENDENCY_PIN,
-											YbFetchPinnedObjectKeyFromPgShdepend),
+		                                   20, /* Number of pinned objects in pg_shdepend is 9 */
+		                                   SharedDependRelationId,
+		                                   Anum_pg_shdepend_deptype,
+		                                   SHARED_DEPENDENCY_PIN,
+		                                   YbFetchPinnedObjectKeyFromPgShdepend),
 		.regular = YbBuildPinnedObjectCache("Pinned objects cache",
-											6500, /* Number of pinned object is pg_depend 6179 */
-											DependRelationId,
-											Anum_pg_depend_deptype,
-											DEPENDENCY_PIN,
-											YBFetchPinnedObjectKeyFromPgDepend)};
+		                                    6500, /* Number of pinned object is pg_depend 6179 */
+		                                    DependRelationId,
+		                                    Anum_pg_depend_deptype,
+		                                    DEPENDENCY_PIN,
+		                                    YBFetchPinnedObjectKeyFromPgDepend)};
 	YBPinnedObjectsCache = cache;
 }
 
