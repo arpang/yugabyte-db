@@ -2880,10 +2880,21 @@ match_opclause_to_indexcol(PlannerInfo *root,
 		 * index on yb_hash_code(x, y) and the clause is yb_hash_code(x, y),
 		 * we will take the typical index path.
 		 */
+
 		if (is_yb_hash_code_call(leftop) &&
-			!yb_hash_code_call_matches_indexcol(leftop, index, indexcol) &&
-			(!op_in_opfamily(expr_op, INTEGER_LSM_FAM_OID) || !is_opclause(clause)))
-			return NULL;
+			!yb_hash_code_call_matches_indexcol(leftop, index, indexcol))
+		{
+			if(!op_in_opfamily(expr_op, INTEGER_LSM_FAM_OID) || !is_opclause(clause))
+				return NULL;
+
+			iclause = makeNode(IndexClause);
+			iclause->rinfo = rinfo;
+			iclause->indexquals = list_make1(rinfo);
+			iclause->lossy = false;
+			iclause->indexcol = indexcol;
+			iclause->indexcols = NIL;
+			return iclause;
+		}
 
 		/*
 		 * If the column in the filter clause is part of the hash key for this
@@ -2934,9 +2945,24 @@ match_opclause_to_indexcol(PlannerInfo *root,
 		 * we will take the typical index path.
 		 */
 		if (is_yb_hash_code_call(rightop) &&
-			!yb_hash_code_call_matches_indexcol(rightop, index, indexcol) &&
-			(!op_in_opfamily(expr_op, INTEGER_LSM_FAM_OID) || !is_opclause(clause)))
-			return NULL;
+			!yb_hash_code_call_matches_indexcol(rightop, index, indexcol))
+		{
+			if (!op_in_opfamily(expr_op, INTEGER_LSM_FAM_OID) || !is_opclause(clause))
+				return NULL;
+
+			Oid			comm_op = get_commutator(expr_op);
+			RestrictInfo *commrinfo;
+
+			/* Build a commuted OpExpr and RestrictInfo */
+			commrinfo = commute_restrictinfo(rinfo, comm_op);
+			iclause = makeNode(IndexClause);
+			iclause->rinfo = rinfo;
+			iclause->indexquals = list_make1(commrinfo);
+			iclause->lossy = false;
+			iclause->indexcol = indexcol;
+			iclause->indexcols = NIL;
+			return iclause;
+		}
 
 		/*
 		 * If the column in the filter clause is part of the hash key for this
