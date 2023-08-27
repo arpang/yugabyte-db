@@ -3318,16 +3318,15 @@ ybFetchSample(YbSample ybSample, HeapTuple *rows)
  * data types is allocated from the current memory context, so be sure that
  * lifetime of that context is appropriate.
  *
- * By default the slot holds a virtual tuple, a heap tuple is only formed if
- * the DocDB returns oid. If heap tuple is formed, its t_tableOid field is
+ * slot is expected to be a VirtualTupleTableSlot. Its t_tableOid field is
  * updated with provided relid and ybctid field is set to returned ybctid
- * value. The heap tuple is allocated in the slot's memory context.
+ * value.
  */
 TupleTableSlot *
 ybFetchNext(YBCPgStatement handle,
 			TupleTableSlot *slot, Oid relid)
 {
-	/* YB_REVIEW: Are these the right assertion to make? */
+	/* YB_TODO(review): Are these the right assertion to make? */
 	Assert(slot != NULL);
 	Assert(TTS_IS_VIRTUAL(slot));
 	TupleDesc	tupdesc = slot->tts_tupleDescriptor;
@@ -3335,6 +3334,7 @@ ybFetchNext(YBCPgStatement handle,
 	bool	   *nulls = slot->tts_isnull;
 	YBCPgSysColumns syscols;
 	bool		has_data;
+
 	ExecClearTuple(slot);
 	/* Fetch one row. */
 	HandleYBStatus(YBCPgDmlFetch(handle,

@@ -4391,11 +4391,20 @@ ExecModifyTable(PlanState *pstate)
 		{
 			case CMD_INSERT:
 				/* Initialize projection info if first time for this table */
+				/* YB_TODO(neil@yugabyte) Check to see if this is still needed.
+				 *   bool prev_yb_is_single_row_modify_txn =
+				 *       estate->es_yb_is_single_row_modify_txn;
+				 */
 				if (unlikely(!resultRelInfo->ri_projectNewInfoValid))
 					ExecInitInsertProjection(node, resultRelInfo);
 				slot = ExecGetInsertNewTuple(resultRelInfo, context.planSlot);
 				slot = ExecInsert(&context, resultRelInfo, slot,
 								  node->canSetTag, NULL, NULL);
+				/* YB_TODO(neil@yugabyte)
+				 * Check to see if this is still needed.
+				 */
+				/* Revert ExecPrepareTupleRouting's state change. */
+				/* estate->es_yb_is_single_row_modify_txn = prev_yb_is_single_row_modify_txn; */
 				break;
 
 			case CMD_UPDATE:
