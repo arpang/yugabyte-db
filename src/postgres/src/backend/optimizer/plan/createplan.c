@@ -5519,7 +5519,6 @@ create_nestloop_plan(PlannerInfo *root,
 		foreach(l, joinrestrictclauses)
 		{
 			Oid hashOpno = InvalidOid;
-			Oid collation = InvalidOid;
 			RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);	
 			if (!list_member_ptr(joinclauses, rinfo->clause))
 			{
@@ -5537,9 +5536,7 @@ create_nestloop_plan(PlannerInfo *root,
 					yb_get_batched_restrictinfo(rinfo,batched_outerrelids,
 											 			 inner_relids);
 
-				OpExpr	   *hclause = (OpExpr *) batched_rinfo->clause;
-				hashOpno = hclause->opno;
-				collation = hclause->inputcollid;
+				hashOpno = ((OpExpr *) batched_rinfo->clause)->opno;
 			}
 
 			current_hinfo->hashOp = hashOpno;
@@ -7467,6 +7464,7 @@ make_YbBatchedNestLoop(List *tlist,
 	node->nl.nestParams = nestParams;
 	node->num_hashClauseInfos = num_hashClauseInfos;
 	node->hashClauseInfos = hashClauseInfos;
+
 	return node;
 }
 
