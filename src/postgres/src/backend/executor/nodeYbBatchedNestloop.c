@@ -370,6 +370,7 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 								   eqops,
 								   (PlanState *) bnlstate);
 
+	/* YB_TODO(later): Seems to be an unused field, remove after checking with Tanuj*/
 	bnlstate->hashslot =
 		ExecAllocTableSlot(&estate->es_tupleTable, outer_tdesc, &TTSOpsMinimalTuple);
 
