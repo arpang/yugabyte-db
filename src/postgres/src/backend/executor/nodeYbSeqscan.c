@@ -206,6 +206,7 @@ ExecInitYbSeqScan(YbSeqScan *node, EState *estate, int eflags)
 							 eflags);
 
 	/* and create slot with the appropriate rowtype */
+	/* YB_TODO(review)(amartsinchyk@yugabyte): requires review and testing */
 	ExecInitScanTupleSlot(estate, &scanstate->ss,
 						  RelationGetDescr(scanstate->ss.ss_currentRelation),
 						  table_slot_callbacks(scanstate->ss.ss_currentRelation));
