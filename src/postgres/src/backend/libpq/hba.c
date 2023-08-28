@@ -127,8 +127,8 @@ static List *tokenize_inc_file(List *tokens, const char *outer_filename,
 							   const char *inc_filename, int elevel, char **err_msg);
 static void yb_tokenize_hardcoded(List **tok_lines_all, int elevel);
 static TokenizedAuthLine *yb_tokenize_line(const char *filename, int elevel,
-									int line_number, char *rawline,
-									char *err_msg);
+										   int line_number, char *rawline,
+										   char *err_msg);
 static bool parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 							   int elevel, char **err_msg);
 
@@ -584,10 +584,8 @@ yb_tokenize_hardcoded(List **tok_lines, int elevel)
 		TokenizedAuthLine *tok_line;
 
 		tok_line = yb_tokenize_line("(hardcoded: no filename)" /* filename */,
-								 elevel,
-								 line_number,
-								 pstrdup(HardcodedHbaLines[i]),
-								 err_msg);
+									elevel, line_number,
+									pstrdup(HardcodedHbaLines[i]), err_msg);
 		if (tok_line != NULL)
 			*tok_lines = lappend(*tok_lines, tok_line);
 
