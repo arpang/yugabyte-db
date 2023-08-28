@@ -428,6 +428,7 @@ RI_FKey_check(TriggerData *trigdata)
 
 	if (IsYBRelation(pk_rel))
 	{
+		/* YB_TODO(later): Do away with TTS to heaptuple conversion. */
 		bool shouldFree = true;
 		HeapTuple new_row = ExecFetchSlotHeapTuple(newslot, true, &shouldFree);
 
