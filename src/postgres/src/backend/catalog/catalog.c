@@ -497,7 +497,7 @@ DoesOidExistInRelation(Oid oid,
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(oid));
 
-	/* see notes in GetNewOid about using SnapshotAny */
+	/* see notes above about using SnapshotAny */
 	scan = systable_beginscan(relation, indexId, true, SnapshotAny, 1, &key);
 
 	collides = HeapTupleIsValid(systable_getnext(scan));
