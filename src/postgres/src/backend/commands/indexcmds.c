@@ -661,10 +661,10 @@ DefineIndex(Oid relationId,
 				 errmsg("cannot use more than %d columns in an index",
 						INDEX_MAX_KEYS)));
 
-#ifdef YB_TODO
 	/* YB_TODO(neil) Need to redo the work on index to reintro Postgres code.
 	 * Code is not mergeable at the current state.
 	 */
+	rel = table_open(relationId, AccessShareLock);
 	if (IsYugaByteEnabled())
 	{
 		const int	cols[] = {
@@ -690,7 +690,6 @@ DefineIndex(Oid relationId,
 		}
 		pgstat_progress_update_multi_param(3, cols, values);
 	}
-#endif
 
 	/*
 	 * Only SELECT ... FOR UPDATE/SHARE are allowed while doing a standard
@@ -734,7 +733,6 @@ DefineIndex(Oid relationId,
 		 * Opening the relation under AccessShareLock first, just to get access to
 		 * its metadata. Stronger lock will be taken later.
 		 */
-		rel = table_open(relationId, AccessShareLock);
 
 		/*
 		 * Switch to the table owner's userid, so that any index functions are run
@@ -1251,7 +1249,7 @@ DefineIndex(Oid relationId,
 			 * btree opclasses; if there are ever any other index types that
 			 * support unique indexes, this logic will need extension.
 			 */
-			if (accessMethodId == BTREE_AM_OID)
+			if (accessMethodId == BTREE_AM_OID || accessMethodId == LSM_AM_OID)
 				eq_strategy = BTEqualStrategyNumber;
 			else
 				ereport(ERROR,

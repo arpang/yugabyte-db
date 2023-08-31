@@ -1199,10 +1199,8 @@ Oid YBCExecuteUpdateReplace(Relation rel,
 	slot->tts_tableOid = RelationGetRelid(rel);
 	tuple->t_tableOid = slot->tts_tableOid;
 
-	Oid result = YBCExecuteInsert(rel,
-							RelationGetDescr(rel),
-							tuple,
-							ONCONFLICT_NONE);
+	Oid result =
+		YBCExecuteInsert(rel, RelationGetDescr(rel), tuple, ONCONFLICT_NONE);
 	ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
 	if (shouldFree)
 		pfree(tuple);
