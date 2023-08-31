@@ -599,7 +599,7 @@ TupleHashTableHash_internal(struct tuplehash_hash *tb,
 		if (!isNull)			/* treat nulls as having hash key 0 */
 		{
 			uint32		hkey;
-
+			/* YB doesn't support collations with hash functions. */
 			if (IsYugaByteEnabled())
 				hkey = DatumGetUInt32(FunctionCall1(&hashfunctions[i],
 													attr));
