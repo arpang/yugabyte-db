@@ -12052,11 +12052,10 @@ typedef struct YbFKTriggerScanDescData
 {
 	TableScanDesc scan;
 	ScanDirection scan_direction;
-	MemoryContext cxt;
-	MemoryContext old_cxt;
+	MemoryContext perBatchCxt;
 	YbFKTriggerVTable* vptr;
 	Trigger* trigger;
-	Relation pkrel;
+	Relation fk_rel;
 	int buffered_tuples_capacity;
 	int buffered_tuples_size;
 	int current_tuple_idx;
@@ -12073,16 +12072,15 @@ typedef struct YbFKTriggerScanDescData *YbFKTriggerScanDesc;
  */
 typedef struct YbFKTriggerVTable
 {
-	HeapTuple (*get_next)(YbFKTriggerScanDesc descr);
+	bool (*get_next)(YbFKTriggerScanDesc descr, TupleTableSlot *slot);
 	Buffer (*get_buffer)();
 } YbFKTriggerVTable;
 
-static HeapTuple
-YbPgGetNext(YbFKTriggerScanDesc desc)
+static bool
+YbPgGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 {
 	/* Clear per-tuple context */
-	MemoryContextReset(desc->cxt);
-	return heap_getnext(desc->scan, desc->scan_direction);
+	return table_scan_getnextslot(desc->scan, desc->scan_direction, slot);
 }
 
 static Buffer
@@ -12092,13 +12090,13 @@ YbPgGetBuffer(YbFKTriggerScanDesc desc)
 	return hscan->rs_cbuf;
 }
 
-static HeapTuple
-YbGetNext(YbFKTriggerScanDesc desc)
+static bool
+YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 {
 	if (desc->current_tuple_idx >= desc->buffered_tuples_size && !desc->all_tuples_processed)
 	{
 		/* Clear context of previously buffered tuples */
-		MemoryContextReset(desc->cxt);
+		MemoryContextReset(desc->perBatchCxt);
 		desc->current_tuple_idx = 0;
 		desc->buffered_tuples_size = 0;
 		while (desc->buffered_tuples_size < desc->buffered_tuples_capacity)
@@ -12109,13 +12107,17 @@ YbGetNext(YbFKTriggerScanDesc desc)
 				desc->all_tuples_processed = true;
 				break;
 			}
-			YbAddTriggerFKReferenceIntent(desc->trigger, desc->pkrel, tuple);
+			YbAddTriggerFKReferenceIntent(desc->trigger, desc->fk_rel, tuple);
 			desc->buffered_tuples[desc->buffered_tuples_size++] = tuple;
 		}
 	}
-	return desc->current_tuple_idx < desc->buffered_tuples_size
-		? desc->buffered_tuples[desc->current_tuple_idx++]
-		: NULL;
+	if (desc->current_tuple_idx < desc->buffered_tuples_size)
+	{
+		HeapTuple tuple = desc->buffered_tuples[desc->current_tuple_idx++];
+		ExecForceStoreHeapTuple(tuple, slot, false);
+		return true;
+	}
+	return false;
 }
 
 static Buffer
@@ -12144,8 +12146,9 @@ static YbFKTriggerScanDesc
 YbFKTriggerScanBegin(TableScanDesc scan,
                      ScanDirection direction,
                      Trigger* trigger,
-                     Relation pkrel,
-                     int buffer_capacity)
+                     Relation fk_rel,
+                     int buffer_capacity,
+					 MemoryContext perBatchCxt)
 {
 	YbFKTriggerScanDesc descr = (YbFKTriggerScanDesc) palloc(
 		sizeof(YbFKTriggerScanDescData) + buffer_capacity * sizeof(HeapTuple));
@@ -12153,37 +12156,20 @@ YbFKTriggerScanBegin(TableScanDesc scan,
 	descr->scan = scan;
 	descr->scan_direction = direction;
 	descr->trigger = trigger;
-	descr->pkrel = pkrel;
+	descr->fk_rel = fk_rel;
 	descr->buffered_tuples_capacity = buffer_capacity;
 	if (IsYBRelation(scan->rs_rd))
-	{
 		descr->vptr = &YbFKTriggerScanVTableIsYugaByteEnabled;
-		descr->cxt = AllocSetContextCreate(
-			GetCurrentMemoryContext(), "validateForeignKeyConstraint", ALLOCSET_DEFAULT_SIZES);
-	}
 	else
-	{
 		descr->vptr = &YbFKTriggerScanVTableNotYugaByteEnabled;
-		descr->cxt = AllocSetContextCreate(
-			GetCurrentMemoryContext(), "validateForeignKeyConstraint", ALLOCSET_SMALL_SIZES);
-	}
-	descr->old_cxt = MemoryContextSwitchTo(descr->cxt);
+	descr->perBatchCxt = perBatchCxt;
 	return descr;
 }
 
-static void
-YbFKTriggerScanEnd(YbFKTriggerScanDesc descr)
+static bool
+YbFKTriggerScanGetNext(YbFKTriggerScanDesc descr, TupleTableSlot *slot)
 {
-	MemoryContextSwitchTo(descr->old_cxt);
-	MemoryContextDelete(descr->cxt);
-	heap_endscan(descr->scan);
-	pfree(descr);
-}
-
-static HeapTuple
-YbFKTriggerScanGetNext(YbFKTriggerScanDesc descr)
-{
-	return descr->vptr->get_next(descr);
+	return descr->vptr->get_next(descr, slot);
 }
 
 /*
@@ -12200,8 +12186,11 @@ validateForeignKeyConstraint(char *conname,
 							 Oid constraintOid)
 {
 	TupleTableSlot *slot;
+	TableScanDesc scan;
 	Trigger		trig;
 	Snapshot	snapshot;
+	MemoryContext oldcxt;
+	MemoryContext perTupCxt;
 
 	ereport(DEBUG1,
 			(errmsg_internal("validating foreign key constraint \"%s\"", conname)));
@@ -12237,22 +12226,29 @@ validateForeignKeyConstraint(char *conname,
 	 */
 	snapshot = RegisterSnapshot(GetLatestSnapshot());
 	slot = table_slot_create(rel, NULL);
+	scan = table_beginscan(rel, snapshot, 0, NULL);
+
+	if (IsYBRelation(rel))
+		perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
+										  "validateForeignKeyConstraint",
+										  ALLOCSET_DEFAULT_SIZES);
+	else
+		perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
+										  "validateForeignKeyConstraint",
+										  ALLOCSET_SMALL_SIZES);
 
 	YbFKTriggerScanDesc fk_scan = YbFKTriggerScanBegin(
-		heap_beginscan(rel, snapshot, 0, NULL, NULL, SO_TYPE_SEQSCAN),
+		scan,
 		ForwardScanDirection,
 		&trig,
-		pkrel,
-		*YBCGetGFlags()->ysql_session_max_batch_size);
+		rel,
+		*YBCGetGFlags()->ysql_session_max_batch_size,
+		perTupCxt);
 
-	/* YB_TODO(dmitry@yugabyte)
-	 * - Need to reimplement YbFK*.
-	 * - PG13 api works with slot & TableScanDesc instead of HeapTuple & HeapScanDesc.
-	 * - This code is not mergeable.
-	 */
-	while (YbFKTriggerScanGetNext(fk_scan) != NULL)
+	oldcxt = MemoryContextSwitchTo(perTupCxt);
+	while (YbFKTriggerScanGetNext(fk_scan, slot))
 	{
-		FunctionCallInfoBaseData fcinfo;
+		LOCAL_FCINFO(fcinfo, 0);
 		TriggerData trigdata = {0};
 
 		CHECK_FOR_INTERRUPTS();
@@ -12262,7 +12258,7 @@ validateForeignKeyConstraint(char *conname,
 		 *
 		 * No parameters are passed, but we do set a context
 		 */
-		MemSet(&fcinfo, 0, sizeof(fcinfo));
+		MemSet(fcinfo, 0, SizeForFunctionCallInfo(0));
 
 		/*
 		 * We assume RI_FKey_check_ins won't look at flinfo...
@@ -12274,14 +12270,19 @@ validateForeignKeyConstraint(char *conname,
 		trigdata.tg_trigslot = slot;
 		trigdata.tg_trigger = &trig;
 
-		fcinfo.context = (Node *) &trigdata;
+		fcinfo->context = (Node *) &trigdata;
 
-		RI_FKey_check_ins(&fcinfo);
+		RI_FKey_check_ins(fcinfo);
+		if (!IsYBRelation(fk_scan->scan->rs_rd))
+			MemoryContextReset(perTupCxt);
 	}
 
-	YbFKTriggerScanEnd(fk_scan);
+	MemoryContextSwitchTo(oldcxt);
+	MemoryContextDelete(perTupCxt);
+	table_endscan(scan);
 	UnregisterSnapshot(snapshot);
 	ExecDropSingleTupleTableSlot(slot);
+	pfree(fk_scan);
 }
 
 /*
