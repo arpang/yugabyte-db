@@ -21357,7 +21357,7 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 			CookedConstraint *cooked_constraint = lfirst(cell);
 			HeapTuple		  constrTup =
 				get_catalog_object_by_oid(constrRel,
-										  YB_HACK_INVALID_OID,
+										  Anum_pg_constraint_oid,
 										  cooked_constraint->conoid);
 			validateCheckConstraint(new_rel, constrTup);
 		}
@@ -21368,7 +21368,7 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 			Oid		  constraint_oid = lfirst_oid(cell);
 			HeapTuple constrTup =
 				get_catalog_object_by_oid(constrRel,
-										  YB_HACK_INVALID_OID,
+										  Anum_pg_constraint_oid,
 										  constraint_oid);
 			Form_pg_constraint constraint =
 				(Form_pg_constraint) GETSTRUCT(constrTup);

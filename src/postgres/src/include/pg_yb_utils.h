@@ -118,11 +118,10 @@ extern int32_t yb_follower_read_staleness_ms;
  * Should terminate with YB_FOR_EACH_DB_END.
  */
 /* YB_TODO: Remove it */
-#define YB_HACK_INVALID_OID -1
 #define YB_HACK_INVALID_FLAG -1
 
 /* YB_TODO: Remove it */
-#define YbHeapTupleGetOid(x) YB_HACK_INVALID_OID
+#define YbHeapTupleGetOid(x) YB_HACK_INVALID_FLAG
 
 #define YbFirstBootstrapObjectId 10000
 
