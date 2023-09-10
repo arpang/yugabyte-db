@@ -20127,7 +20127,7 @@ YbATCopyStats(Oid old_relid, RangeVar *new_rel, Oid new_relid,
 
 		/* Create the new ext. stats object. */
 		stmt = YbGenerateClonedExtStatsStmt(new_rel, old_relid,
-											YbHeapTupleGetOid(tuple));
+											stat_ext_form->oid);
 		stmt->defnames = stringToQualifiedNameList(orig_stats_name);
 		CreateStatistics(stmt);
 	}
@@ -20860,7 +20860,7 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 	index_oid = transformFkeyCheckAttrs(fk_rel, numkeys, confkey, index_opclasses);
 
 	/* Record the FK constraint in pg_constraint. */
-	CreateConstraintEntry(
+	Oid constr_oid = CreateConstraintEntry(
 		fk_name,
 		con_form->connamespace,
 		CONSTRAINT_FOREIGN,
@@ -20893,7 +20893,6 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 		con_form->connoinherit /* conNoInherit */,
 		false /* is_internal */);
 
-#ifdef YB_TODO
 	/* Postgres no longer has this function. Need to use new Postgres's implementation. */
 	Constraint* entity = makeNode(Constraint);
 	entity->deferrable      = con_form->condeferrable;
@@ -20908,15 +20907,18 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 
 	/*
 	 * Create the triggers that will enforce the constraint.
-	 * Note that this calls CommandCounterIncrement().
 	 */
-	createForeignKeyTriggers(base_rel, RelationGetRelid(fk_rel), entity,
-							 constr_oid, index_oid, true /* create_action */);
-
+	Oid insertTriggerOid, updateTriggerOid;
+	createForeignKeyActionTriggers(base_rel, RelationGetRelid(fk_rel), entity,
+								   constr_oid, index_oid, InvalidOid,
+								   InvalidOid, NULL, NULL);
+	if (base_rel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
+		createForeignKeyCheckTriggers(RelationGetRelid(base_rel),
+									  RelationGetRelid(fk_rel), entity,
+									  constr_oid, index_oid, InvalidOid,
+									  InvalidOid, &insertTriggerOid,
+									  &updateTriggerOid);
 	return constr_oid;
-#endif
-
-	return YB_HACK_INVALID_OID;
 }
 
 /*
@@ -21542,7 +21544,7 @@ YbATMoveRelDependencies(Relation old_rel, Relation new_rel, Relation pg_depend,
 		CommandCounterIncrement();
 
 		cons_to_drop =
-			lappend(cons_to_drop, list_make2_oid(YbHeapTupleGetOid(con_tuple),
+			lappend(cons_to_drop, list_make2_oid(con_form->oid,
 												 con_form->conrelid));
 
 		/*
