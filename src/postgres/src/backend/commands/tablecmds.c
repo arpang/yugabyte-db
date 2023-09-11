@@ -21256,7 +21256,7 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 	newTupDesc = RelationGetDescr(new_rel);
 
 	oldslot = MakeSingleTupleTableSlot(oldTupDesc, &TTSOpsHeapTuple);
-	newslot = MakeSingleTupleTableSlot(newTupDesc,  &TTSOpsHeapTuple);
+	newslot = MakeSingleTupleTableSlot(newTupDesc, &TTSOpsHeapTuple);
 
 	/* Preallocate values/isnull arrays */
 	old_values = (Datum *) palloc(oldTupDesc->natts * sizeof(Datum));
