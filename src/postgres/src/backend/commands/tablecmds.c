@@ -20826,6 +20826,11 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 
 	int numkeys = ARR_DIMS(DatumGetArrayTypeP(conkey_val))[0];
 
+	bool is_confdelsetcols_null;
+	Datum confdelsetcols_val =
+		SysCacheGetAttr(CONSTROID, tuple, Anum_pg_constraint_confdelsetcols,
+						&is_confdelsetcols_null);
+
 	int16 conkey[numkeys];
 	int16 confkey[numkeys];
 	Oid   pfeqop[numkeys];
@@ -20834,6 +20839,17 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 
 	Oid index_oid;
 	Oid index_opclasses[numkeys];
+
+	int16 fkdelsetcols[numkeys];
+	int numFkDeleteSetCols = 0;
+
+	if (!is_confdelsetcols_null)
+	{
+		ArrayType *arr = DatumGetArrayTypeP(confdelsetcols_val);
+		numFkDeleteSetCols = ARR_DIMS(arr)[0];
+		memcpy(fkdelsetcols, ARR_DATA_PTR(arr),
+			   numFkDeleteSetCols * sizeof(int16));
+	}
 
 	memcpy(conkey, ARR_DATA_PTR(DatumGetArrayTypeP(conkey_val)),
 		   numkeys * sizeof(int16));
@@ -20861,36 +20877,18 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 
 	/* Record the FK constraint in pg_constraint. */
 	Oid constr_oid = CreateConstraintEntry(
-		fk_name,
-		con_form->connamespace,
-		CONSTRAINT_FOREIGN,
-		con_form->condeferrable,
-		con_form->condeferred,
-		con_form->convalidated,
-		con_form->conparentid,
-		RelationGetRelid(base_rel),
-		conkey,
-		numkeys,
-		numkeys,
-		InvalidOid /* not a domain constraint */,
-		index_oid,
-		RelationGetRelid(fk_rel),
-		confkey,
-		pfeqop,
-		ppeqop,
-		ffeqop,
-		numkeys,
-		con_form->confupdtype,
-		con_form->confdeltype,
-		NULL, /* fkDeleteSetCols - YB_TODO(neil) Needs appropriate value */
-		0, /* numFkDeleteSetCols - YB_TODO(neil) Needs appropriate value */
-	    con_form->confmatchtype,
+		fk_name, con_form->connamespace, CONSTRAINT_FOREIGN,
+		con_form->condeferrable, con_form->condeferred, con_form->convalidated,
+		con_form->conparentid, RelationGetRelid(base_rel), conkey, numkeys,
+		numkeys, InvalidOid /* not a domain constraint */, index_oid,
+		RelationGetRelid(fk_rel), confkey, pfeqop, ppeqop, ffeqop, numkeys,
+		con_form->confupdtype, con_form->confdeltype,
+		is_confdelsetcols_null ? NULL : fkdelsetcols, numFkDeleteSetCols,
+		con_form->confmatchtype,
 		NULL /* exclOp - not an exclusion constraint */,
 		NULL /* conExpr - not a check constraint */,
-		NULL /* conBin - not a check constraint */,
-		true /* islocal */,
-		0 /* inhcount */,
-		con_form->connoinherit /* conNoInherit */,
+		NULL /* conBin - not a check constraint */, true /* islocal */,
+		0 /* inhcount */, con_form->connoinherit /* conNoInherit */,
 		false /* is_internal */);
 
 	/* Postgres no longer has this function. Need to use new Postgres's implementation. */
