@@ -273,6 +273,5 @@ select * from address2 order by id;
 
 -- create database
 CREATE DATABASE mytest;
-
 -- drop database
 DROP DATABASE mytest;
