@@ -196,7 +196,7 @@ PgStat_LocalState pgStatLocal;
 
 /*
  * Used in YB to indicate whether the statuses for ongoing concurrent
- * concurrent indexes have been retrieved in this transaction.
+ * indexes have been retrieved in this transaction.
  */
 bool yb_retrieved_concurrent_index_progress = false;
 
