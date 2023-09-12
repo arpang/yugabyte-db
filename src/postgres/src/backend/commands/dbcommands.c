@@ -1847,7 +1847,9 @@ removing_database_from_system:
 	 * Force a checkpoint to make sure the checkpointer has received the
 	 * message sent by ForgetDatabaseSyncRequests.
 	 */
-	RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT);
+	 /*YB_TODO(review)*/
+	if (!IsYugaByteEnabled())
+		RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT);
 
 	/* Close all smgr fds in all backends. */
 	WaitForProcSignalBarrier(EmitProcSignalBarrier(PROCSIGNAL_BARRIER_SMGRRELEASE));

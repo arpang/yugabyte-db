@@ -143,3 +143,9 @@ select * from address2 order by id;
 alter table address2 add primary key (id);
 delete from emp2 where id = 2;
 select * from address2 order by id;
+
+-- create database
+CREATE DATABASE mytest;
+
+-- drop database
+DROP DATABASE mytest;
