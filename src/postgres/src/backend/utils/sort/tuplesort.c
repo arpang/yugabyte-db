@@ -973,8 +973,7 @@ tuplesort_begin_batch(Tuplesortstate *state)
 	 * generation.c context as this keeps allocations more compact with less
 	 * wastage.  Allocations are also slightly more CPU efficient.
 	 */
-	/* YB_TODO(review): PG has introduced an optimization to use generation to allocate memory context. Check if this is applicable to YB. */
-	if ((state->sortopt & TUPLESORT_ALLOWBOUNDED) || IsYugaByteEnabled())
+	if (state->sortopt & TUPLESORT_ALLOWBOUNDED)
 		state->tuplecontext = AllocSetContextCreate(state->sortcontext,
 													"Caller tuples",
 													ALLOCSET_DEFAULT_SIZES);

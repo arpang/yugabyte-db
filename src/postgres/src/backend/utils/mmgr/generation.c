@@ -257,7 +257,7 @@ GenerationContextCreate(MemoryContext parent,
 	 * Allocate the initial block.  Unlike other generation.c blocks, it
 	 * starts with the context header and its block header follows that.
 	 */
-	set = (GenerationContext *) malloc(Generation_CONTEXTSZ);
+	set = (GenerationContext *) malloc(allocSize);
 	if (set == NULL)
 	{
 		MemoryContextStats(TopMemoryContext);
@@ -268,7 +268,7 @@ GenerationContextCreate(MemoryContext parent,
 						   name)));
 	}
 
-	YbPgMemAddConsumption(Generation_CONTEXTSZ);
+	YbPgMemAddConsumption(allocSize);
 
 	/*
 	 * Avoid writing code that can fail between here and MemoryContextCreate;
@@ -380,6 +380,7 @@ GenerationDelete(MemoryContext context)
 	GenerationReset(context);
 	/* And free the context header and keeper block */
 	free(context);
+	/*YB_TODO(review): What should be this value? */
 	YbPgMemSubConsumption(Generation_CONTEXTSZ);
 }
 
