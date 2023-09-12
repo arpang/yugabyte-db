@@ -864,8 +864,9 @@ ExecInsert(ModifyTableContext *context,
 		 * all of the INSERT, UPDATE, and DELETE statements. The ON CONFLICT UPDATE
 		 * execution also needs to process primary key index.
 		 */
-		if (YBRelHasSecondaryIndices(resultRelInfo->ri_RelationDesc) ||
-			node->onConflictAction != ONCONFLICT_NONE)
+		if ((YBRelHasSecondaryIndices(resultRelInfo->ri_RelationDesc) ||
+			 node->onConflictAction != ONCONFLICT_NONE) &&
+			resultRelInfo->ri_IndexRelationDescs == NULL)
 			ExecOpenIndices(resultRelInfo, onconflict != ONCONFLICT_NONE);
 	}
 	else
