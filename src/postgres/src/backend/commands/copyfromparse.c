@@ -877,6 +877,7 @@ NextCopyFrom(CopyFromState cstate, ExprContext *econtext,
 		MemSet(values, 0, num_phys_attrs * sizeof(Datum));
 		MemSet(nulls, true, num_phys_attrs * sizeof(bool));
 	}
+
 	if (!cstate->opts.binary)
 	{
 		char	  **field_strings;
