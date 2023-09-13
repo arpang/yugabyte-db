@@ -872,11 +872,8 @@ NextCopyFrom(CopyFromState cstate, ExprContext *econtext,
 	attr_count = list_length(cstate->attnumlist);
 
 	/* Initialize all values for row to NULL */
-	if (!skip_row)
-	{
-		MemSet(values, 0, num_phys_attrs * sizeof(Datum));
-		MemSet(nulls, true, num_phys_attrs * sizeof(bool));
-	}
+	MemSet(values, 0, num_phys_attrs * sizeof(Datum));
+	MemSet(nulls, true, num_phys_attrs * sizeof(bool));
 
 	if (!cstate->opts.binary)
 	{
