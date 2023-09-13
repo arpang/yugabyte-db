@@ -125,7 +125,7 @@ alter table test2 add primary key (id);
 
 -- Creating partitioned table
 create table emp_par1(id int primary key, name text) partition by range(id);
-CREATE TABLE emp_par1_1_100 PARTITION OF emp_par1 FOR VALUES FROM (1) TO (100); 
+CREATE TABLE emp_par1_1_100 PARTITION OF emp_par1 FOR VALUES FROM (1) TO (100);
 create table emp_par2(id int primary key, name text) partition by list(id);
 create table emp_par3(id int primary key, name text) partition by hash(id);
 
