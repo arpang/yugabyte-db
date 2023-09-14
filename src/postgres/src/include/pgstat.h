@@ -19,7 +19,8 @@
 #include "utils/relcache.h"
 #include "utils/wait_event.h"	/* for backward compatibility */
 
-
+/* Yugabyte includes */
+#include "storage/proc.h"
 /* ----------
  * Paths for the statistics files (relative to installation's $PGDATA).
  * ----------
@@ -528,12 +529,7 @@ extern PgStat_StatDBEntry *pgstat_fetch_stat_dbentry(Oid dbid);
 extern void pgstat_create_function(Oid proid);
 extern void pgstat_drop_function(Oid proid);
 
-/* YB_TODO(ted@yugabyte) Need to look at all related code every time we merge. */
 struct FunctionCallInfoBaseData;
-
-extern void pgstat_init_function_usage_org(struct FunctionCallInfoBaseData *fcinfo,
-										   PgStat_FunctionCallUsage *fcu);
-/* YB_TODO(neil) Need to remove Ted's call structure */
 extern void pgstat_init_function_usage(struct FunctionCallInfoBaseData *fcinfo,
 									   PgStat_FunctionCallUsage *fcu);
 extern void pgstat_end_function_usage(PgStat_FunctionCallUsage *fcu,
@@ -542,8 +538,6 @@ extern void pgstat_end_function_usage(PgStat_FunctionCallUsage *fcu,
 extern PgStat_StatFuncEntry *pgstat_fetch_stat_funcentry(Oid funcid);
 extern PgStat_BackendFunctionEntry *find_funcstat_entry(Oid func_id);
 
-#ifdef YB_TODO
-/* YB_TODO(neil) These functions are no longer used in Pg15 */
 /* ----------
  * pgstat_report_wait_end_for_proc(PGPROC *proc) -
  *
@@ -565,23 +559,6 @@ pgstat_report_wait_end_for_proc(volatile PGPROC *proc)
 	 */
 	proc->wait_event_info = 0;
 }
-
-
-/* ----------
- * pgstat_report_wait_end() -
- *
- *	Called to report end of a wait.
- *
- * NB: this *must* be able to survive being called before MyProc has been
- * initialized.
- * ----------
- */
-static inline void
-pgstat_report_wait_end(void)
-{
-	return pgstat_report_wait_end_for_proc(MyProc);
-}
-#endif
 
 /*
  * Functions in pgstat_relation.c

@@ -3561,10 +3561,7 @@ static void CleanupKilledProcess(PGPROC *proc)
 	{
 		/* These come from ShutdownAuxiliaryProcess */
 		ConditionVariableCancelSleepForProc(proc);
-#ifdef YB_TODO
-		/* YB_TODO Rewrite this funtion first, and then reactivate this call */
 		pgstat_report_wait_end_for_proc(proc);
-#endif
 	}
 	else
 	{
