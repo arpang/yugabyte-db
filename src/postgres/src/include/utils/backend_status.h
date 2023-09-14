@@ -189,7 +189,6 @@ typedef struct PgBackendStatus
 
 	/* Yugabyte attributes */
 	char 		*st_databasename; /* Used in YB Mode */
-	int			 yb_new_conn; /* new connection count */
 
 	/*
 	 * Memory usage of backend from TCMalloc, including PostgreSQL memory usage
@@ -199,6 +198,9 @@ typedef struct PgBackendStatus
 
 	/* YB catalog version */
 	YbPgBackendCatalogVersionStatus yb_st_catalog_version;
+
+	/* YB (pg_client <--> tserver) Session ID */
+	uint64_t yb_session_id;
 } PgBackendStatus;
 
 
