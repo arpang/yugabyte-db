@@ -1226,3 +1226,9 @@ yb_pgstat_clear_entry_pid(int pid)
 		beentry++;
 	}
 }
+
+PgBackendStatus *
+getBackendStatusArray(void)
+{
+  return BackendStatusArray;
+}

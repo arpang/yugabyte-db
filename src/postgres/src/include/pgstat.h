@@ -794,9 +794,6 @@ extern void yb_pgstat_report_allocated_mem_bytes(void);
 extern void yb_pgstat_set_catalog_version(uint64_t catalog_version);
 extern void yb_pgstat_set_has_catalog_version(bool has_catalog_version);
 extern PgStat_YBStatQueryEntry *pgstat_fetch_ybstat_queries(Oid db_oid, size_t* num_queries);
-#ifdef YB_TODO
-/* These functions need new implementation to match with Postgres 15. */
 extern PgBackendStatus *getBackendStatusArray(void);
-#endif
 
 #endif							/* PGSTAT_H */
