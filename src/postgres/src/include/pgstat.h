@@ -238,8 +238,6 @@ typedef struct PgStat_TableXactStatus
 	struct PgStat_TableXactStatus *next;	/* next of same subxact */
 } PgStat_TableXactStatus;
 
-/* YB_TODO(neil) This feature needs changes to match new implementation */
-#ifdef YB_TODO
 #define QUERY_TEXT_SIZE 		256
 #define QUERY_TERMINATION_SIZE	256
 
@@ -278,8 +276,6 @@ typedef struct PgStat_YBStatQueryEntry
 	size_t termination_reason_size;
 	char termination_reason[QUERY_TERMINATION_SIZE];
 } PgStat_YBStatQueryEntry;
-
-#endif
 
 /* ------------------------------------------------------------
  * Data structures on disk and in shared memory follow
@@ -797,11 +793,10 @@ extern PGDLLIMPORT PgStat_WalStats PendingWalStats;
 extern void yb_pgstat_report_allocated_mem_bytes(void);
 extern void yb_pgstat_set_catalog_version(uint64_t catalog_version);
 extern void yb_pgstat_set_has_catalog_version(bool has_catalog_version);
-
+extern PgStat_YBStatQueryEntry *pgstat_fetch_ybstat_queries(Oid db_oid, size_t* num_queries);
 #ifdef YB_TODO
 /* These functions need new implementation to match with Postgres 15. */
 extern PgBackendStatus *getBackendStatusArray(void);
-extern PgStat_YBStatQueryEntry *pgstat_fetch_ybstat_queries(Oid db_oid, size_t* num_queries);
 #endif
 
 #endif							/* PGSTAT_H */
