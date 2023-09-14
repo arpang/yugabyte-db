@@ -117,10 +117,11 @@ extern int32_t yb_follower_read_staleness_ms;
  * Iterate over databases and execute a given code snippet.
  * Should terminate with YB_FOR_EACH_DB_END.
  */
-#define YB_HACK_INVALID_OID -1
+/* YB_TODO: Remove it */
 #define YB_HACK_INVALID_FLAG -1
 
-#define YbHeapTupleGetOid(x) YB_HACK_INVALID_OID
+/* YB_TODO: Remove it */
+#define YbHeapTupleGetOid(x) YB_HACK_INVALID_FLAG
 
 #define YbFirstBootstrapObjectId 10000
 

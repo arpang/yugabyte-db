@@ -2186,6 +2186,17 @@ partitioned_table_reloptions(Datum reloptions, bool validate)
 	 * There are no options for partitioned tables yet, but this is able to do
 	 * some validation.
 	 */
+	if (IsYugaByteEnabled())
+	{
+		static const relopt_parse_elt tab[] = {
+			{"colocation_id", RELOPT_TYPE_OID, offsetof(StdRdOptions, colocation_id)},
+		};
+
+		return (bytea *) build_reloptions(reloptions, validate,
+										  RELOPT_KIND_PARTITIONED,
+										  sizeof(StdRdOptions),
+										  tab, lengthof(tab));
+	}
 	return (bytea *) build_reloptions(reloptions, validate,
 									  RELOPT_KIND_PARTITIONED,
 									  0, NULL, 0);

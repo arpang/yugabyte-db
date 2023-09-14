@@ -1530,12 +1530,12 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 			else
 				CreateDatabaseUsingFileCopy(src_dboid, dboid, src_deftablespace,
 											dst_deftablespace);
-
-			/*
-			 * Close pg_database, but keep lock till commit.
-			 */
-			table_close(pg_database_rel, NoLock);
 		}
+
+		/*
+		 * Close pg_database, but keep lock till commit.
+		 */
+		table_close(pg_database_rel, NoLock);
 
 		/*
 		 * Force synchronous commit, thus minimizing the window between
@@ -1847,7 +1847,9 @@ removing_database_from_system:
 	 * Force a checkpoint to make sure the checkpointer has received the
 	 * message sent by ForgetDatabaseSyncRequests.
 	 */
-	RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT);
+	 /*YB_TODO(review)*/
+	if (!IsYugaByteEnabled())
+		RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT);
 
 	/* Close all smgr fds in all backends. */
 	WaitForProcSignalBarrier(EmitProcSignalBarrier(PROCSIGNAL_BARRIER_SMGRRELEASE));

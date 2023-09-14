@@ -114,3 +114,46 @@ insert into t2 values (4), (5), (6);
 delete from t2 where id > 2 returning id, name;
 
 -- YB_TODO: There's some issue with drop table
+-- Adding PK
+create table test (id int);
+insert into test values (1);
+alter table test add primary key (id);
+
+create table test2 (id int);
+insert into test2 values (1), (1);
+alter table test2 add primary key (id);
+
+-- Creating partitioned table
+create table emp_par1(id int primary key, name text) partition by range(id);
+CREATE TABLE emp_par1_1_100 PARTITION OF emp_par1 FOR VALUES FROM (1) TO (100);
+create table emp_par2(id int primary key, name text) partition by list(id);
+create table emp_par3(id int primary key, name text) partition by hash(id);
+
+-- Adding FK
+create table emp(id int unique);
+create table address(emp_id int, addr text);
+insert into address values (1, 'a');
+ALTER TABLE address ADD FOREIGN KEY(emp_id) REFERENCES emp(id);
+insert into emp values (1);
+ALTER TABLE address ADD FOREIGN KEY(emp_id) REFERENCES emp(id);
+
+-- Adding PK with pre-existing FK constraint
+alter table emp add primary key (id);
+alter table address add primary key (emp_id);
+
+-- Add primary key with with pre-existing FK where confdelsetcols non nul
+create table emp2 (id int, name text, primary key (id, name));
+create table address2 (id int, name text, addr text,  FOREIGN KEY (id, name) REFERENCES emp2 ON DELETE SET NULL (name));
+insert into emp2 values (1, 'a'), (2, 'b');
+insert into address2 values (1, 'a', 'a'), (2, 'b', 'b');
+delete from emp2 where id = 1;
+select * from address2 order by id;
+alter table address2 add primary key (id);
+delete from emp2 where id = 2;
+select * from address2 order by id;
+
+-- create database
+CREATE DATABASE mytest;
+
+-- drop database
+DROP DATABASE mytest;

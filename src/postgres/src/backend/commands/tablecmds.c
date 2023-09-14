@@ -9047,7 +9047,7 @@ ATExecDropColumn(List **wqueue, Relation rel, const char *colName,
  * Retrieve attribute from pg_constraint sys cache, ensure it's not null and save it
  * to a variable provided in the first argument.
  */
-#define YBGetNotNullConstraintAttr(tuple, attname) \
+#define YBGetNotNullConstraintAttr(tuple, attname, oid) \
 	__extension__ ({ \
 		bool isnull; \
 		Datum result = SysCacheGetAttr(CONSTROID, \
@@ -9055,7 +9055,7 @@ ATExecDropColumn(List **wqueue, Relation rel, const char *colName,
 		                               Anum_pg_constraint_##attname, \
 		                               &isnull); \
 		if (isnull) \
-			elog(ERROR, "null " #attname " for constraint %u", YbHeapTupleGetOid(tuple)); \
+			elog(ERROR, "null " #attname " for constraint %u", oid); \
 		result; \
 	});
 
@@ -12041,16 +12041,7 @@ checkFkeyPermissions(Relation rel, int16 *attnums, int natts)
 	}
 }
 
-/*
- * Helper structure to emulate virtual functions for YbFKTriggerScan.
- * This scan works as regular heap_scan in non-YB mode and has some extra
- * functionality in YB mode.
- */
-typedef struct YbFKTriggerVTable
-{
-	HeapTuple (*get_next)();
-	Buffer (*get_buffer)();
-} YbFKTriggerVTable;
+typedef struct YbFKTriggerVTable YbFKTriggerVTable;
 
 /*
  * YbFKTriggerScanDescData holds the state of the YbFKTriggerScan which reads multiple
@@ -12061,11 +12052,10 @@ typedef struct YbFKTriggerScanDescData
 {
 	TableScanDesc scan;
 	ScanDirection scan_direction;
-	MemoryContext cxt;
-	MemoryContext old_cxt;
+	MemoryContext perBatchCxt;
 	YbFKTriggerVTable* vptr;
 	Trigger* trigger;
-	Relation pkrel;
+	Relation fk_rel;
 	int buffered_tuples_capacity;
 	int buffered_tuples_size;
 	int current_tuple_idx;
@@ -12075,12 +12065,22 @@ typedef struct YbFKTriggerScanDescData
 
 typedef struct YbFKTriggerScanDescData *YbFKTriggerScanDesc;
 
-static HeapTuple
-YbPgGetNext(YbFKTriggerScanDesc desc)
+/*
+ * Helper structure to emulate virtual functions for YbFKTriggerScan.
+ * This scan works as regular heap_scan in non-YB mode and has some extra
+ * functionality in YB mode.
+ */
+typedef struct YbFKTriggerVTable
+{
+	bool (*get_next)(YbFKTriggerScanDesc descr, TupleTableSlot *slot);
+	Buffer (*get_buffer)();
+} YbFKTriggerVTable;
+
+static bool
+YbPgGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 {
 	/* Clear per-tuple context */
-	MemoryContextReset(desc->cxt);
-	return heap_getnext(desc->scan, desc->scan_direction);
+	return table_scan_getnextslot(desc->scan, desc->scan_direction, slot);
 }
 
 static Buffer
@@ -12090,13 +12090,13 @@ YbPgGetBuffer(YbFKTriggerScanDesc desc)
 	return hscan->rs_cbuf;
 }
 
-static HeapTuple
-YbGetNext(YbFKTriggerScanDesc desc)
+static bool
+YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 {
 	if (desc->current_tuple_idx >= desc->buffered_tuples_size && !desc->all_tuples_processed)
 	{
 		/* Clear context of previously buffered tuples */
-		MemoryContextReset(desc->cxt);
+		MemoryContextReset(desc->perBatchCxt);
 		desc->current_tuple_idx = 0;
 		desc->buffered_tuples_size = 0;
 		while (desc->buffered_tuples_size < desc->buffered_tuples_capacity)
@@ -12107,13 +12107,17 @@ YbGetNext(YbFKTriggerScanDesc desc)
 				desc->all_tuples_processed = true;
 				break;
 			}
-			YbAddTriggerFKReferenceIntent(desc->trigger, desc->pkrel, tuple);
+			YbAddTriggerFKReferenceIntent(desc->trigger, desc->fk_rel, tuple);
 			desc->buffered_tuples[desc->buffered_tuples_size++] = tuple;
 		}
 	}
-	return desc->current_tuple_idx < desc->buffered_tuples_size
-		? desc->buffered_tuples[desc->current_tuple_idx++]
-		: NULL;
+	if (desc->current_tuple_idx < desc->buffered_tuples_size)
+	{
+		HeapTuple tuple = desc->buffered_tuples[desc->current_tuple_idx++];
+		ExecForceStoreHeapTuple(tuple, slot, false);
+		return true;
+	}
+	return false;
 }
 
 static Buffer
@@ -12142,8 +12146,9 @@ static YbFKTriggerScanDesc
 YbFKTriggerScanBegin(TableScanDesc scan,
                      ScanDirection direction,
                      Trigger* trigger,
-                     Relation pkrel,
-                     int buffer_capacity)
+                     Relation fk_rel,
+                     int buffer_capacity,
+					 MemoryContext perBatchCxt)
 {
 	YbFKTriggerScanDesc descr = (YbFKTriggerScanDesc) palloc(
 		sizeof(YbFKTriggerScanDescData) + buffer_capacity * sizeof(HeapTuple));
@@ -12151,54 +12156,21 @@ YbFKTriggerScanBegin(TableScanDesc scan,
 	descr->scan = scan;
 	descr->scan_direction = direction;
 	descr->trigger = trigger;
-	descr->pkrel = pkrel;
+	descr->fk_rel = fk_rel;
 	descr->buffered_tuples_capacity = buffer_capacity;
 	if (IsYBRelation(scan->rs_rd))
-	{
 		descr->vptr = &YbFKTriggerScanVTableIsYugaByteEnabled;
-		descr->cxt = AllocSetContextCreate(
-			GetCurrentMemoryContext(), "validateForeignKeyConstraint", ALLOCSET_DEFAULT_SIZES);
-	}
 	else
-	{
 		descr->vptr = &YbFKTriggerScanVTableNotYugaByteEnabled;
-		descr->cxt = AllocSetContextCreate(
-			GetCurrentMemoryContext(), "validateForeignKeyConstraint", ALLOCSET_SMALL_SIZES);
-	}
-	descr->old_cxt = MemoryContextSwitchTo(descr->cxt);
+	descr->perBatchCxt = perBatchCxt;
 	return descr;
 }
 
-static void
-YbFKTriggerScanEnd(YbFKTriggerScanDesc descr)
+static bool
+YbFKTriggerScanGetNext(YbFKTriggerScanDesc descr, TupleTableSlot *slot)
 {
-	MemoryContextSwitchTo(descr->old_cxt);
-	MemoryContextDelete(descr->cxt);
-	heap_endscan(descr->scan);
-	pfree(descr);
+	return descr->vptr->get_next(descr, slot);
 }
-
-static HeapTuple
-YbFKTriggerScanGetNext(YbFKTriggerScanDesc descr)
-{
-#ifdef YB_TODO
-	/* prototype mismatch */
-	return descr->vptr->get_next(descr);
-#else
-	/* workaround */
-	return descr->vptr->get_next();
-#endif
-}
-
-#ifdef YB_TODO
-/* YB_TODO(neil) Need to rework */
-static Buffer
-YbFKTriggerScanGetBuffer(YbFKTriggerScanDesc descr)
-{
-	/* prototype mismatch */
-	return descr->vptr->get_buffer(descr);
-}
-#endif
 
 /*
  * Scan the existing rows in a table to verify they meet a proposed FK
@@ -12214,8 +12186,11 @@ validateForeignKeyConstraint(char *conname,
 							 Oid constraintOid)
 {
 	TupleTableSlot *slot;
+	TableScanDesc scan;
 	Trigger		trig;
 	Snapshot	snapshot;
+	MemoryContext oldcxt;
+	MemoryContext perTupCxt;
 
 	ereport(DEBUG1,
 			(errmsg_internal("validating foreign key constraint \"%s\"", conname)));
@@ -12251,22 +12226,29 @@ validateForeignKeyConstraint(char *conname,
 	 */
 	snapshot = RegisterSnapshot(GetLatestSnapshot());
 	slot = table_slot_create(rel, NULL);
+	scan = table_beginscan(rel, snapshot, 0, NULL);
+
+	if (IsYBRelation(rel))
+		perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
+										  "validateForeignKeyConstraint",
+										  ALLOCSET_DEFAULT_SIZES);
+	else
+		perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
+										  "validateForeignKeyConstraint",
+										  ALLOCSET_SMALL_SIZES);
 
 	YbFKTriggerScanDesc fk_scan = YbFKTriggerScanBegin(
-		heap_beginscan(rel, snapshot, 0, NULL, NULL, SO_TYPE_SEQSCAN),
+		scan,
 		ForwardScanDirection,
 		&trig,
-		pkrel,
-		*YBCGetGFlags()->ysql_session_max_batch_size);
+		rel,
+		*YBCGetGFlags()->ysql_session_max_batch_size,
+		perTupCxt);
 
-	/* YB_TODO(dmitry@yugabyte)
-	 * - Need to reimplement YbFK*.
-	 * - PG13 api works with slot & TableScanDesc instead of HeapTuple & HeapScanDesc.
-	 * - This code is not mergeable.
-	 */
-	while (YbFKTriggerScanGetNext(fk_scan) != NULL)
+	oldcxt = MemoryContextSwitchTo(perTupCxt);
+	while (YbFKTriggerScanGetNext(fk_scan, slot))
 	{
-		FunctionCallInfoBaseData fcinfo;
+		LOCAL_FCINFO(fcinfo, 0);
 		TriggerData trigdata = {0};
 
 		CHECK_FOR_INTERRUPTS();
@@ -12276,7 +12258,7 @@ validateForeignKeyConstraint(char *conname,
 		 *
 		 * No parameters are passed, but we do set a context
 		 */
-		MemSet(&fcinfo, 0, sizeof(fcinfo));
+		MemSet(fcinfo, 0, SizeForFunctionCallInfo(0));
 
 		/*
 		 * We assume RI_FKey_check_ins won't look at flinfo...
@@ -12288,22 +12270,19 @@ validateForeignKeyConstraint(char *conname,
 		trigdata.tg_trigslot = slot;
 		trigdata.tg_trigger = &trig;
 
-		/*
-		 * YB_TODO(dmitry@yugabyte)
-		 * - Check if this code is still needed.
-		 * - Postgres no longer used "tg_trigtuplebuf"
+		fcinfo->context = (Node *) &trigdata;
 
-		trigdata.tg_trigtuplebuf = YbFKTriggerScanGetBuffer(fk_scan);
-		 */
-
-		fcinfo.context = (Node *) &trigdata;
-
-		RI_FKey_check_ins(&fcinfo);
+		RI_FKey_check_ins(fcinfo);
+		if (!IsYBRelation(fk_scan->scan->rs_rd))
+			MemoryContextReset(perTupCxt);
 	}
 
-	YbFKTriggerScanEnd(fk_scan);
+	MemoryContextSwitchTo(oldcxt);
+	MemoryContextDelete(perTupCxt);
+	table_endscan(scan);
 	UnregisterSnapshot(snapshot);
 	ExecDropSingleTupleTableSlot(slot);
+	pfree(fk_scan);
 }
 
 /*
@@ -15273,7 +15252,7 @@ ATExecSetTableSpaceNoStorage(Relation rel, Oid newTableSpace)
 
 #ifdef YB_TODO
 	/* Record dependency on tablespace */
-	/* YB_TODO(jasonk@yugabyte
+	/* jasonk@yugabyte
 	 * - This change is needed to be moved elsewhere.
 	 * - This change is done by the following commit.
 	 *   commit 20281bd9c777d825cbf50c5bc0a0a615463a1944
@@ -20101,7 +20080,7 @@ GetAttributeCompression(Oid atttypid, char *compression)
  */
 static void
 YbATCopyStats(Oid old_relid, RangeVar *new_rel, Oid new_relid,
-			  AttrNumber *attmap, int altered_old_attnum)
+			  const AttrMap *attmap, int altered_old_attnum)
 {
 	Relation		pg_statistic, pg_statistic_ext;
 	HeapTuple		tuple;
@@ -20148,7 +20127,7 @@ YbATCopyStats(Oid old_relid, RangeVar *new_rel, Oid new_relid,
 
 		/* Create the new ext. stats object. */
 		stmt = YbGenerateClonedExtStatsStmt(new_rel, old_relid,
-											YbHeapTupleGetOid(tuple));
+											stat_ext_form->oid);
 		stmt->defnames = stringToQualifiedNameList(orig_stats_name);
 		CreateStatistics(stmt);
 	}
@@ -20187,7 +20166,7 @@ YbATCopyStats(Oid old_relid, RangeVar *new_rel, Oid new_relid,
 
 		/* Set staattnum to reflect new relation's attribute numbering. */
 		values[Anum_pg_statistic_staattnum - 1] =
-			Int16GetDatum(attmap[stat_form->staattnum - 1]);
+			Int16GetDatum(attmap->attnums[stat_form->staattnum - 1]);
 		replaces[Anum_pg_statistic_staattnum - 1] = true;
 
 		newtuple = heap_modify_tuple(tuple, RelationGetDescr(pg_statistic),
@@ -20207,11 +20186,8 @@ YbATCopyStats(Oid old_relid, RangeVar *new_rel, Oid new_relid,
  * from CreatePolicy().
  */
 static void
-YbATCopyPolicyObjects(Relation old_rel, Relation new_rel, AttrNumber *attmap)
+YbATCopyPolicyObjects(Relation old_rel, Relation new_rel, const AttrMap *attmap)
 {
-#ifdef YB_TODO
-	/* Postgres redefined  some of called functions. Need to use Postgres's new implementation. */
-
 	Relation		pg_policy;
 	ScanKeyData		key;
 	HeapTuple		old_policy_tuple;
@@ -20253,7 +20229,6 @@ YbATCopyPolicyObjects(Relation old_rel, Relation new_rel, AttrNumber *attmap)
 		{
 			qual = map_variable_attnos(
 				stringToNode(TextDatumGetCString(qual_datum)), 1, 0, attmap,
-				RelationGetDescr(old_rel)->natts,
 				RelationGetForm(new_rel)->reltype, &found_whole_row);
 
 			/* There can never be a whole-row reference here. */
@@ -20278,7 +20253,7 @@ YbATCopyPolicyObjects(Relation old_rel, Relation new_rel, AttrNumber *attmap)
 		{
 			with_check = map_variable_attnos(
 				stringToNode(TextDatumGetCString(with_check_datum)), 1, 0,
-				attmap, RelationGetDescr(old_rel)->natts,
+				attmap,
 				RelationGetForm(new_rel)->reltype, &found_whole_row);
 
 			/* There can never be a whole-row reference here. */
@@ -20298,9 +20273,8 @@ YbATCopyPolicyObjects(Relation old_rel, Relation new_rel, AttrNumber *attmap)
 											 RelationGetDescr(pg_policy),
 											 values, nulls, replaces);
 
-		HeapTupleSetOid(new_policy_tuple, InvalidOid);
-
-		new_policy_oid = CatalogTupleInsert(pg_policy, new_policy_tuple);
+		CatalogTupleInsert(pg_policy, new_policy_tuple);
+		new_policy_oid = ((Form_pg_policy) GETSTRUCT(new_policy_tuple))->oid;
 
 		/* Record dependencies. */
 		target.classId = RelationRelationId;
@@ -20323,9 +20297,9 @@ YbATCopyPolicyObjects(Relation old_rel, Relation new_rel, AttrNumber *attmap)
 		 * record dependencies on the policy's qual and with_check.
 		 */
 		ParseState *pstate = make_parsestate(NULL);
-		RangeTblEntry *rte =
+		ParseNamespaceItem *nsitem =
 			addRangeTableEntryForRelation(pstate, new_rel, AccessShareLock, NULL, false, true);
-		addRTEtoQuery(pstate, rte, true, true, true);
+		addNSItemToQuery(pstate, nsitem, true, true, true);
 
 		recordDependencyOnExpr(&myself, qual, pstate->p_rtable,
 							   DEPENDENCY_NORMAL);
@@ -20359,7 +20333,6 @@ YbATCopyPolicyObjects(Relation old_rel, Relation new_rel, AttrNumber *attmap)
 	}
 	systable_endscan(scan);
 	table_close(pg_policy, RowExclusiveLock);
-#endif
 }
 
 /*
@@ -20386,7 +20359,7 @@ YbATReplaceViewQueries(const List *view_oids, const List *view_queries)
  * pg_attribute.attstattarget).
  */
 static void
-YbATCopyMiscMetadata(Relation old_rel, Relation new_rel, AttrNumber *attmap)
+YbATCopyMiscMetadata(Relation old_rel, Relation new_rel, const AttrMap *attmap)
 {
 	Oid old_relid = RelationGetRelid(old_rel);
 	Oid new_relid = RelationGetRelid(new_rel);
@@ -20475,7 +20448,7 @@ YbATCopyMiscMetadata(Relation old_rel, Relation new_rel, AttrNumber *attmap)
 		old_rel_att_tuple = SearchSysCache2(
 			ATTNUM,
 			ObjectIdGetDatum(old_relid),
-			Int16GetDatum(attmap[attno - 1]));
+			Int16GetDatum(attmap->attnums[attno - 1]));
 		old_rel_attform = (Form_pg_attribute) GETSTRUCT(old_rel_att_tuple);
 		acl_datum = heap_getattr(old_rel_att_tuple,
 									Anum_pg_attribute_attacl,
@@ -20807,11 +20780,10 @@ YbATAddPrimaryKeyToCreateStmt(IndexStmt *index_stmt, CreateStmt *create_stmt,
 /* clang-format off */
 static void
 YbATCloneTableAndGetMappings(CreateStmt *create_stmt, const Relation old_rel,
-							 Relation *new_rel, AttrNumber **old2new_attmap,
-							 AttrNumber **new2old_attmap,
+							 Relation *new_rel, AttrMap **old2new_attmap,
+							 AttrMap 	**new2old_attmap,
 							 bool ignore_type_mismatch)
 {
-#ifdef YB_TODO
 	/* clang-format on */
 	ObjectAddress address =
 		DefineRelation(create_stmt, RELKIND_RELATION, old_rel->rd_rel->relowner,
@@ -20820,17 +20792,11 @@ YbATCloneTableAndGetMappings(CreateStmt *create_stmt, const Relation old_rel,
 	Assert(OidIsValid(new_relid));
 	*new_rel = table_open(new_relid, AccessExclusiveLock);
 
-	/* YB_TODO(neil) Need to change this code to use new Pg15 API
-	 * build_attrmap_by_name()
-	 */
-	*old2new_attmap = convert_tuples_by_name_map(
-		RelationGetDescr(old_rel), RelationGetDescr(*new_rel),
-		gettext_noop("could not convert row type"), ignore_type_mismatch);
+	*old2new_attmap = build_attrmap_by_name(
+		RelationGetDescr(old_rel), RelationGetDescr(*new_rel), ignore_type_mismatch);
 
-	*new2old_attmap = convert_tuples_by_name_map(
-		RelationGetDescr(*new_rel), RelationGetDescr(old_rel),
-		gettext_noop("could not convert row type"), ignore_type_mismatch);
-#endif
+	*new2old_attmap = build_attrmap_by_name(
+		RelationGetDescr(*new_rel), RelationGetDescr(old_rel), ignore_type_mismatch);
 }
 
 /*
@@ -20842,23 +20808,28 @@ YbATCloneTableAndGetMappings(CreateStmt *create_stmt, const Relation old_rel,
 static Oid
 YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 							Relation base_rel, Relation fk_rel,
-							AttrNumber *conkey_attmap,
-							AttrNumber *confkey_attmap)
+							const AttrMap *conkey_attmap,
+							const AttrMap *confkey_attmap)
 {
 	Form_pg_constraint con_form = (Form_pg_constraint) GETSTRUCT(tuple);
 
 	/* attnums of constrained columns. */
-	Datum conkey_val = YBGetNotNullConstraintAttr(tuple, conkey);
+	Datum conkey_val = YBGetNotNullConstraintAttr(tuple, conkey, con_form->oid);
 	/* attnums of referenced columns. */
-	Datum confkey_val= YBGetNotNullConstraintAttr(tuple, confkey);
+	Datum confkey_val= YBGetNotNullConstraintAttr(tuple, confkey, con_form->oid);
 	/* equality operators for PK = FK comparisons */
-	Datum pfeqop_val = YBGetNotNullConstraintAttr(tuple, conpfeqop);
+	Datum pfeqop_val = YBGetNotNullConstraintAttr(tuple, conpfeqop, con_form->oid);
 	/* equality operators for PK = PK comparisons */
-	Datum ppeqop_val = YBGetNotNullConstraintAttr(tuple, conppeqop);
+	Datum ppeqop_val = YBGetNotNullConstraintAttr(tuple, conppeqop, con_form->oid);
 	/* equality operators for FK = FK comparisons */
-	Datum ffeqop_val = YBGetNotNullConstraintAttr(tuple, conffeqop);
+	Datum ffeqop_val = YBGetNotNullConstraintAttr(tuple, conffeqop, con_form->oid);
 
 	int numkeys = ARR_DIMS(DatumGetArrayTypeP(conkey_val))[0];
+
+	bool is_confdelsetcols_null;
+	Datum confdelsetcols_val =
+		SysCacheGetAttr(CONSTROID, tuple, Anum_pg_constraint_confdelsetcols,
+						&is_confdelsetcols_null);
 
 	int16 conkey[numkeys];
 	int16 confkey[numkeys];
@@ -20868,6 +20839,17 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 
 	Oid index_oid;
 	Oid index_opclasses[numkeys];
+
+	int16 fkdelsetcols[numkeys];
+	int numFkDeleteSetCols = 0;
+
+	if (!is_confdelsetcols_null)
+	{
+		ArrayType *arr = DatumGetArrayTypeP(confdelsetcols_val);
+		numFkDeleteSetCols = ARR_DIMS(arr)[0];
+		memcpy(fkdelsetcols, ARR_DATA_PTR(arr),
+			   numFkDeleteSetCols * sizeof(int16));
+	}
 
 	memcpy(conkey, ARR_DATA_PTR(DatumGetArrayTypeP(conkey_val)),
 		   numkeys * sizeof(int16));
@@ -20884,9 +20866,9 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 	for (int i = 0; i < numkeys; ++i)
 	{
 		if (conkey_attmap)
-			conkey[i]  = conkey_attmap[conkey[i] - 1];
+			conkey[i]  = conkey_attmap->attnums[conkey[i] - 1];
 		if (confkey_attmap)
-			confkey[i] = confkey_attmap[confkey[i] - 1];
+			confkey[i] = confkey_attmap->attnums[confkey[i] - 1];
 	}
 
 
@@ -20894,40 +20876,21 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 	index_oid = transformFkeyCheckAttrs(fk_rel, numkeys, confkey, index_opclasses);
 
 	/* Record the FK constraint in pg_constraint. */
-	CreateConstraintEntry(
-		fk_name,
-		con_form->connamespace,
-		CONSTRAINT_FOREIGN,
-		con_form->condeferrable,
-		con_form->condeferred,
-		con_form->convalidated,
-		con_form->conparentid,
-		RelationGetRelid(base_rel),
-		conkey,
-		numkeys,
-		numkeys,
-		InvalidOid /* not a domain constraint */,
-		index_oid,
-		RelationGetRelid(fk_rel),
-		confkey,
-		pfeqop,
-		ppeqop,
-		ffeqop,
-		numkeys,
-		con_form->confupdtype,
-		con_form->confdeltype,
-		NULL, /* fkDeleteSetCols - YB_TODO(neil) Needs appropriate value */
-		0, /* numFkDeleteSetCols - YB_TODO(neil) Needs appropriate value */
-	    con_form->confmatchtype,
+	Oid constr_oid = CreateConstraintEntry(
+		fk_name, con_form->connamespace, CONSTRAINT_FOREIGN,
+		con_form->condeferrable, con_form->condeferred, con_form->convalidated,
+		con_form->conparentid, RelationGetRelid(base_rel), conkey, numkeys,
+		numkeys, InvalidOid /* not a domain constraint */, index_oid,
+		RelationGetRelid(fk_rel), confkey, pfeqop, ppeqop, ffeqop, numkeys,
+		con_form->confupdtype, con_form->confdeltype,
+		is_confdelsetcols_null ? NULL : fkdelsetcols, numFkDeleteSetCols,
+		con_form->confmatchtype,
 		NULL /* exclOp - not an exclusion constraint */,
 		NULL /* conExpr - not a check constraint */,
-		NULL /* conBin - not a check constraint */,
-		true /* islocal */,
-		0 /* inhcount */,
-		con_form->connoinherit /* conNoInherit */,
+		NULL /* conBin - not a check constraint */, true /* islocal */,
+		0 /* inhcount */, con_form->connoinherit /* conNoInherit */,
 		false /* is_internal */);
 
-#ifdef YB_TODO
 	/* Postgres no longer has this function. Need to use new Postgres's implementation. */
 	Constraint* entity = makeNode(Constraint);
 	entity->deferrable      = con_form->condeferrable;
@@ -20942,15 +20905,18 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 
 	/*
 	 * Create the triggers that will enforce the constraint.
-	 * Note that this calls CommandCounterIncrement().
 	 */
-	createForeignKeyTriggers(base_rel, RelationGetRelid(fk_rel), entity,
-							 constr_oid, index_oid, true /* create_action */);
-
+	Oid insertTriggerOid, updateTriggerOid;
+	createForeignKeyActionTriggers(base_rel, RelationGetRelid(fk_rel), entity,
+								   constr_oid, index_oid, InvalidOid,
+								   InvalidOid, NULL, NULL);
+	if (base_rel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
+		createForeignKeyCheckTriggers(RelationGetRelid(base_rel),
+									  RelationGetRelid(fk_rel), entity,
+									  constr_oid, index_oid, InvalidOid,
+									  InvalidOid, &insertTriggerOid,
+									  &updateTriggerOid);
 	return constr_oid;
-#endif
-
-	return YB_HACK_INVALID_OID;
 }
 
 /*
@@ -20977,13 +20943,15 @@ YbATValidateChangeForeignKeyType(HeapTuple constraint_tuple, Relation base_rel,
 								 const char *altered_column_name,
 								 bool base_rel_altered)
 {
-	Datum conkey_val = YBGetNotNullConstraintAttr(constraint_tuple, conkey);
+	Form_pg_constraint con_form = (Form_pg_constraint) GETSTRUCT(constraint_tuple);
+
+	Datum conkey_val = YBGetNotNullConstraintAttr(constraint_tuple, conkey, con_form->oid);
 	int	  numkeys = ARR_DIMS(DatumGetArrayTypeP(conkey_val))[0];
 	int16 conkey[numkeys];
 	memcpy(conkey, ARR_DATA_PTR(DatumGetArrayTypeP(conkey_val)),
 		   numkeys * sizeof(int16));
 
-	Datum confkey_val = YBGetNotNullConstraintAttr(constraint_tuple, confkey);
+	Datum confkey_val = YBGetNotNullConstraintAttr(constraint_tuple, confkey, con_form->oid);
 	Assert(numkeys == ARR_DIMS(DatumGetArrayTypeP(confkey_val))[0]);
 	int16 confkey[numkeys];
 	memcpy(confkey, ARR_DATA_PTR(DatumGetArrayTypeP(confkey_val)),
@@ -21036,13 +21004,11 @@ YbATCopyFkAndCheckConstraints(const Relation old_rel, Relation new_rel,
 							  Relation pg_constraint,
 							  List **new_check_constraints,
 							  List **new_fk_constraint_oids,
-							  AttrNumber *new2old_attmap,
+							  const AttrMap *new2old_attmap,
 							  bool has_altered_column_type,
 							  const char *altered_column_name,
 							  bool expect_dummy_pk, bool expect_no_dummy_pk)
 {
-#ifdef YB_TODO
-	/* Postgres redefined  some of called functions. Need to use Postgres's new implementation. */
 	ScanKeyData key;
 	SysScanDesc scan;
 	HeapTuple	tuple;
@@ -21106,12 +21072,9 @@ YbATCopyFkAndCheckConstraints(const Relation old_rel, Relation new_rel,
 					 */
 					ParseState *pstate = make_parsestate(NULL);
 					pstate->p_sourcetext = NULL;
-#ifdef YB_TODO
-					/* YB_TODO(neil) Needs to use new API "ParseNamespaceItem *nsitem;" */
-					RangeTblEntry *rte = addRangeTableEntryForRelation(
+					ParseNamespaceItem *nsitem = addRangeTableEntryForRelation(
 						pstate, new_rel, AccessShareLock, NULL, false, true);
-					addRTEtoQuery(pstate, rte, true, true, true);
-#endif
+					addNSItemToQuery(pstate, nsitem, true, true, true);
 
 					entity->cooked_expr = nodeToString(
 						YbCookConstraint(pstate, entity->raw_expr,
@@ -21123,7 +21086,7 @@ YbATCopyFkAndCheckConstraints(const Relation old_rel, Relation new_rel,
 					Node *expr;
 					bool  found_whole_row;
 					Datum conbin_val =
-						YBGetNotNullConstraintAttr(tuple, conbin);
+						YBGetNotNullConstraintAttr(tuple, conbin, con_form->oid);
 
 					// NOTE: Expression diverges, locations are -1
 					char *conbin = TextDatumGetCString(conbin_val);
@@ -21145,7 +21108,6 @@ YbATCopyFkAndCheckConstraints(const Relation old_rel, Relation new_rel,
 					expr = (Node *) map_variable_attnos(
 						stringToNode(conbin), 1 /* fromrel_varno */,
 						0 /* sublevels_up */, new2old_attmap,
-						RelationGetDescr(old_rel)->natts,
 						RelationGetForm(new_rel)->reltype, &found_whole_row);
 					if (found_whole_row)
 						elog(ERROR,
@@ -21227,7 +21189,6 @@ YbATCopyFkAndCheckConstraints(const Relation old_rel, Relation new_rel,
 		new_rel, NULL /* newColDefaults - they are already in place */,
 		checks_list, false /* allow_merge */, true /* is_local */,
 		true /* is_internal */, NULL /* queryString - not available here */);
-#endif
 }
 
 /*
@@ -21263,18 +21224,14 @@ YbATCopyFkAndCheckConstraints(const Relation old_rel, Relation new_rel,
  */
 static void
 YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
-						   AttrNumber *old2new_attmap,
-						   AttrNumber *new2old_attmap,
+						   const AttrMap *old2new_attmap,
+						   const AttrMap *new2old_attmap,
 						   bool has_altered_column_type,
 						   const List *altered_column_new_column_values,
 						   const char *altered_column_name,
 						   List *new_check_constraints,
 						   List *new_fk_constraint_oids)
 {
-#ifdef YB_TODO
-	/* YB_TODO(neil) This function uses some old interface that is no longer avail in Pg15.
-	 * Needs to translate these code to use newer API.
-	 */
 	TupleDesc		oldTupDesc, newTupDesc;
 	Datum		   *old_values;
 	bool		   *old_isnull;
@@ -21298,8 +21255,8 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 	oldTupDesc = RelationGetDescr(old_rel);
 	newTupDesc = RelationGetDescr(new_rel);
 
-	oldslot = MakeSingleTupleTableSlot(oldTupDesc, table_slot_callbacks(old_rel));
-	newslot = MakeSingleTupleTableSlot(newTupDesc, table_slot_callbacks(new_rel));
+	oldslot = MakeSingleTupleTableSlot(oldTupDesc, &TTSOpsHeapTuple);
+	newslot = MakeSingleTupleTableSlot(newTupDesc, &TTSOpsHeapTuple);
 
 	/* Preallocate values/isnull arrays */
 	old_values = (Datum *) palloc(oldTupDesc->natts * sizeof(Datum));
@@ -21317,7 +21274,7 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 		 * columns in the original relation).
 		 */
 		new_column_value->attnum =
-			new2old_attmap[new_column_value->attnum - 1];
+			new2old_attmap->attnums[new_column_value->attnum - 1];
 		/* expr already planned */
 		new_column_value->exprstate =
 			ExecInitExpr((Expr *) new_column_value->expr, NULL);
@@ -21336,18 +21293,11 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 	 */
 	oldcxt = MemoryContextSwitchTo(econtext->ecxt_per_tuple_memory);
 
-#ifdef YB_TODO
-	/* YB_TODO(neil) Needs rewrite.
-	 * Pg15 chnages API for scan and oid. This old interface cannot be used any longer.
-	 */
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
-		Oid tupOid = InvalidOid;
 
 		/* Extract data from old tuple */
 		heap_deform_tuple(tuple, oldTupDesc, old_values, old_isnull);
-		if (oldTupDesc->tdhasoid)
-			tupOid = YbHeapTupleGetOid(tuple);
 
 		/* Remap the attribute numbers. */
 		for (int i = 0; i < newTupDesc->natts; ++i)
@@ -21373,8 +21323,8 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 			}
 			else
 			{
-				new_values[i] = old_values[old2new_attmap[i] - 1];
-				new_isnull[i] = old_isnull[old2new_attmap[i] - 1];
+				new_values[i] = old_values[old2new_attmap->attnums[i] - 1];
+				new_isnull[i] = old_isnull[old2new_attmap->attnums[i] - 1];
 			}
 		}
 
@@ -21383,10 +21333,6 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 		 * since the per-tuple memory context will be reset shortly.
 		 */
 		tuple = heap_form_tuple(newTupDesc, new_values, new_isnull);
-
-		/* Preserve OID, if any */
-		if (newTupDesc->tdhasoid)
-			HeapTupleSetOid(tuple, tupOid);
 
 		ExecStoreHeapTuple(tuple, newslot, false);
 
@@ -21403,22 +21349,24 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 	if (has_altered_column_type)
 	{
 		Relation constrRel = table_open(ConstraintRelationId, AccessShareLock);
+		#ifdef YB_TODO
 		foreach(cell, new_check_constraints)
 		{
 			CookedConstraint *cooked_constraint = lfirst(cell);
 			HeapTuple		  constrTup =
 				get_catalog_object_by_oid(constrRel,
-										  YB_HACK_INVALID_OID,
+										  Anum_pg_constraint_oid,
 										  cooked_constraint->conoid);
 			validateCheckConstraint(new_rel, constrTup);
 		}
+		#endif
 
 		foreach(cell, new_fk_constraint_oids)
 		{
 			Oid		  constraint_oid = lfirst_oid(cell);
 			HeapTuple constrTup =
 				get_catalog_object_by_oid(constrRel,
-										  YB_HACK_INVALID_OID,
+										  Anum_pg_constraint_oid,
 										  constraint_oid);
 			Form_pg_constraint constraint =
 				(Form_pg_constraint) GETSTRUCT(constrTup);
@@ -21432,41 +21380,6 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 
 		table_close(constrRel, AccessShareLock);
 	}
-
-#else
-	/* YB_TODO(neil) The above code needs to do something similar to the following */
-	while (table_scan_getnextslot(scan, ForwardScanDirection, oldslot))
-	{
-		/* Extract data from old tuple */
-		slot_getallattrs(oldslot);
-		ExecClearTuple(newslot);
-
-		/* Remap the attribute numbers. */
-		for (int i = 0; i < newTupDesc->natts; ++i)
-		{
-			newslot->tts_values[i] = oldslot->tts_values[attmap[i] - 1];
-			newslot->tts_isnull[i] = oldslot->tts_isnull[attmap[i] - 1];
-		}
-
-		/*
-		 * Form the new tuple. Note that we don't explicitly pfree it,
-		 * since the per-tuple memory context will be reset shortly.
-		 */
-		tuple = heap_form_tuple(newTupDesc, newslot->tts_values, newslot->tts_isnull);
-
-		ExecStoreHeapTuple(tuple, newslot, false);
-
-		/* Write the tuple out to the new relation */
-		YBCExecuteInsert(new_rel,
-						 newslot->tts_tupleDescriptor,
-						 tuple,
-						 ONCONFLICT_NONE);
-
-		MemoryContextReset(econtext->ecxt_per_tuple_memory);
-
-		CHECK_FOR_INTERRUPTS();
-	}
-#endif
 
 	/*
 	 * TODO(mislam): When paritioned tables are supported, their constraints
@@ -21482,7 +21395,6 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 
 	ExecDropSingleTupleTableSlot(oldslot);
 	ExecDropSingleTupleTableSlot(newslot);
-#endif
 }
 
 /*
@@ -21495,13 +21407,11 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
  * the primary key index of the target relation.
  */
 static void
-YbATCopyIndexes(Relation old_rel, Oid new_relid, AttrNumber *new2old_attmap,
+YbATCopyIndexes(Relation old_rel, Oid new_relid, const AttrMap *new2old_attmap,
 				const char *temp_suffix, const Oid namespace_oid,
 				RenameStmt *rename_stmt, const char *namespace_name,
 				ObjectAddress *new_index_addr)
 {
-#ifdef YB_TODO
-	/* YB_TODO(neil) Translate this code to use Pg15 APIs for some of the calls */
 	ListCell *cell;
 	List	 *idx_list = RelationGetIndexList(old_rel);
 	foreach(cell, idx_list)
@@ -21510,8 +21420,8 @@ YbATCopyIndexes(Relation old_rel, Oid new_relid, AttrNumber *new2old_attmap,
 		Relation idx_rel = index_open(lfirst_oid(cell), AccessExclusiveLock);
 
 		IndexStmt *idx_stmt = generateClonedIndexStmt(
-			NULL /* heapRel, we provide an oid instead */, new_relid, idx_rel,
-			new2old_attmap, RelationGetDescr(old_rel)->natts,
+			NULL /* heapRel, we provide an oid instead */, idx_rel,
+			new2old_attmap,
 			NULL /* parent constraint OID pointer */);
 
 		/*
@@ -21554,7 +21464,6 @@ YbATCopyIndexes(Relation old_rel, Oid new_relid, AttrNumber *new2old_attmap,
 		index_close(idx_rel, AccessExclusiveLock);
 	}
 	list_free(idx_list);
-#endif
 }
 
 /*
@@ -21569,7 +21478,7 @@ YbATCopyIndexes(Relation old_rel, Oid new_relid, AttrNumber *new2old_attmap,
 static void
 YbATMoveRelDependencies(Relation old_rel, Relation new_rel, Relation pg_depend,
 						Relation pg_constraint, bool has_altered_column_type,
-						const char *altered_column_name, AttrNumber *attmap)
+						const char *altered_column_name, const AttrMap *attmap)
 {
 	ScanKeyData key[2];
 	SysScanDesc scan;
@@ -21635,7 +21544,7 @@ YbATMoveRelDependencies(Relation old_rel, Relation new_rel, Relation pg_depend,
 		CommandCounterIncrement();
 
 		cons_to_drop =
-			lappend(cons_to_drop, list_make2_oid(YbHeapTupleGetOid(con_tuple),
+			lappend(cons_to_drop, list_make2_oid(con_form->oid,
 												 con_form->conrelid));
 
 		/*
@@ -21684,10 +21593,8 @@ YbATMoveRelDependencies(Relation old_rel, Relation new_rel, Relation pg_depend,
 
 static void
 YbATCopyTriggers(const Relation old_rel, const Relation new_rel,
-				 Relation pg_trigger, AttrNumber *new2old_attmap)
+				 Relation pg_trigger, const AttrMap *new2old_attmap)
 {
-#ifdef YB_TODO
-	/* Postgres redefined  some of called functions. Need to use Postgres's new implementation. */
 	ScanKeyData	  key;
 	SysScanDesc	  scan;
 	MemoryContext oldcxt, per_tup_cxt;
@@ -21786,7 +21693,6 @@ YbATCopyTriggers(const Relation old_rel, const Relation new_rel,
 	MemoryContextDelete(per_tup_cxt);
 
 	systable_endscan(scan);
-#endif
 }
 
 /*
@@ -21807,8 +21713,8 @@ YbATCopyTriggers(const Relation old_rel, const Relation new_rel,
  */
 static void
 YbATCopyMetadataAndData(Relation old_rel, Relation new_rel,
-						Relation pg_constraint, AttrNumber *old2new_attmap,
-						AttrNumber *new2old_attmap, bool expect_dummy_pk,
+						Relation pg_constraint, const AttrMap *old2new_attmap,
+						const AttrMap *new2old_attmap, bool expect_dummy_pk,
 						bool expect_no_dummy_pk, bool has_altered_column_type,
 						const List *altered_column_new_column_values,
 						const char *altered_column_name,
@@ -21939,14 +21845,11 @@ static Relation
 YbATCloneRelationSetPrimaryKey(Relation old_rel, IndexStmt *stmt,
 							   ObjectAddress *result_addr)
 {
-	return NULL;
-#ifdef YB_TODO
-	/* Postgres redefined  some of called functions. Need to use Postgres's new implementation. */
 	CreateStmt *create_stmt;
 	RenameStmt *rename_stmt;
 	Relation	new_rel = NULL;
-	AttrNumber *old2new_attmap = NULL;
-	AttrNumber *new2old_attmap = NULL;
+	AttrMap	   *old2new_attmap;
+	AttrMap	   *new2old_attmap;
 	bool		is_range_pk = false;
 
 	List *view_oids = NIL, *view_queries = NIL;
@@ -21993,7 +21896,7 @@ YbATCloneRelationSetPrimaryKey(Relation old_rel, IndexStmt *stmt,
 
 	if (stmt)
 		is_range_pk = YbATIsRangePk(
-			lfirst_node(IndexElem, stmt->indexParams->head)->ordering,
+			lfirst_node(IndexElem, stmt->indexParams->elements)->ordering,
 			old_rel->yb_table_properties->is_colocated);
 
 	/*
@@ -22050,7 +21953,6 @@ YbATCloneRelationSetPrimaryKey(Relation old_rel, IndexStmt *stmt,
 	YbATDropTable(namespace_name, temp_old_table_name);
 
 	return new_rel;
-#endif
 }
 
 /*
@@ -22088,25 +21990,19 @@ YbATCopyPrimaryKeyToCreateStmt(Relation rel, Relation pg_constraint,
 		{
 			case CONSTRAINT_PRIMARY:
 			{
-#ifdef YB_TODO
 				/*
 				 * We don't actually need to map attributes here since there
 				 * isn't a new relation yet, but we still need a map to generate
 				 * an index stmt.
 				 */
-				/* YB_TODO(neil) Need to change this code to use new Pg15 API
-				 * build_attrmap_by_name()
-				 */
-				AttrNumber *att_map = convert_tuples_by_name_map(
+				AttrMap *att_map = build_attrmap_by_name(
 					RelationGetDescr(rel), RelationGetDescr(rel),
-					gettext_noop("could not convert row type"),
 					false /* yb_ignore_type_mismatch */);
 
 				Relation idx_rel =
 					index_open(con_form->conindid, AccessShareLock);
 				IndexStmt *index_stmt = generateClonedIndexStmt(
-					NULL, RelationGetRelid(rel), idx_rel, att_map,
-					RelationGetDescr(rel)->natts, NULL);
+					NULL, idx_rel, att_map, NULL);
 
 				Constraint *pk_constr = makeNode(Constraint);
 				pk_constr->contype = CONSTR_PRIMARY;
@@ -22128,7 +22024,6 @@ YbATCopyPrimaryKeyToCreateStmt(Relation rel, Relation pg_constraint,
 
 				index_close(idx_rel, AccessShareLock);
 				pk_copied = true;
-#endif
 				break;
 			}
 			case CONSTRAINT_CHECK:
@@ -22252,8 +22147,8 @@ YbATCloneRelationSetColumnType(Relation old_rel,
 	CreateStmt	*create_stmt;
 	RenameStmt	*rename_stmt;
 	Relation	 new_rel = NULL;
-	AttrNumber	*old2new_attmap = NULL;
-	AttrNumber	*new2old_attmap = NULL;
+	AttrMap 	*old2new_attmap;
+	AttrMap 	*new2old_attmap;
 	Oid			 old_relid;
 
 	List *view_oids = NIL, *view_queries = NIL;
