@@ -546,7 +546,7 @@ ybcIterateForeignScan(ForeignScanState *node)
 					   InvalidOid);
 }
 
-#ifdef YB_TODO
+#ifdef NEIL_TODO
 /* Keep this code till I look at ybFetchNext() */
 {
 	/* Clear tuple slot before starting */
@@ -572,7 +572,7 @@ ybcIterateForeignScan(ForeignScanState *node)
 		if (node->yb_fdw_aggs == NIL)
 		{
 			HeapTuple tuple = heap_form_tuple(tupdesc, values, isnull);
-#ifdef YB_TODO
+#ifdef NEIL_OID
 	/* OID is now a regular column */
 			if (syscols.oid != InvalidOid)
 			{

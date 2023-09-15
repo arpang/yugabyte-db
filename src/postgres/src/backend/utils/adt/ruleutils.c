@@ -12496,7 +12496,7 @@ yb_get_dependent_views(Oid relid, List **view_oids, List **view_queries)
 			(Form_pg_depend) GETSTRUCT(pg_depend_tuple);
 		Oid				view_oid;
 
-		ScanKeyInit(&key, Anum_pg_rewrite_oid, BTEqualStrategyNumber,
+		ScanKeyInit(&key, ObjectIdAttributeNumber, BTEqualStrategyNumber,
 					F_OIDEQ, ObjectIdGetDatum(depend_form->objid));
 		pg_rewrite_scan = systable_beginscan(pg_rewrite, RewriteOidIndexId,
 											 true, NULL, 1, &key);

@@ -46,5 +46,5 @@
  */
 #define YBSystemFirstLowInvalidAttributeNumber	(-103)
 
-#define ObjectIdAttributeNumber					(-104) /*YB_TODO: remove it*/
+#define ObjectIdAttributeNumber					(-104)
 #endif							/* SYSATTR_H */
