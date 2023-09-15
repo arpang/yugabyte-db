@@ -12280,9 +12280,9 @@ validateForeignKeyConstraint(char *conname,
 	MemoryContextSwitchTo(oldcxt);
 	MemoryContextDelete(perTupCxt);
 	table_endscan(scan);
+	pfree(fk_scan);
 	UnregisterSnapshot(snapshot);
 	ExecDropSingleTupleTableSlot(slot);
-	pfree(fk_scan);
 }
 
 /*
