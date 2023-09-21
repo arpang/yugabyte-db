@@ -12245,8 +12245,8 @@ validateForeignKeyConstraint(char *conname,
 		rel,
 		*YBCGetGFlags()->ysql_session_max_batch_size,
 		perTupCxt);
-
 	oldcxt = MemoryContextSwitchTo(perTupCxt);
+
 	while (YbFKTriggerScanGetNext(fk_scan, slot))
 	{
 		LOCAL_FCINFO(fcinfo, 0);
@@ -12274,7 +12274,8 @@ validateForeignKeyConstraint(char *conname,
 		fcinfo->context = (Node *) &trigdata;
 
 		RI_FKey_check_ins(fcinfo);
-		if (!IsYBRelation(fk_scan->scan->rs_rd))
+
+		if (!IsYBRelation(rel))
 			MemoryContextReset(perTupCxt);
 	}
 
