@@ -487,6 +487,16 @@ typedef struct ViewOptions
 	  VIEW_OPTION_CHECK_OPTION_CASCADED)
 
 /*
+ * ParitionedTableOptions
+ *		Contents of rd_options for partitioned tables.
+ */
+typedef struct ParitionedTableOptions
+{
+	int32		vl_len_;		/* varlena header (do not touch directly!) */
+	Oid 		colocation_id;
+} ParitionedTableOptions;
+
+/*
  * RelationIsValid
  *		True iff relation descriptor is valid.
  */

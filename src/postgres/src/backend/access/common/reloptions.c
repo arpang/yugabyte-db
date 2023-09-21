@@ -2186,12 +2186,13 @@ partitioned_table_reloptions(Datum reloptions, bool validate)
 	{
 		/* YB supports colocation_id option for partioned tables. */
 		static const relopt_parse_elt tab[] = {
-			{"colocation_id", RELOPT_TYPE_OID, offsetof(StdRdOptions, colocation_id)},
+			{"colocation_id", RELOPT_TYPE_OID,
+			 offsetof(ParitionedTableOptions, colocation_id)},
 		};
 
 		return (bytea *) build_reloptions(reloptions, validate,
 										  RELOPT_KIND_PARTITIONED,
-										  sizeof(StdRdOptions),
+										  sizeof(ParitionedTableOptions),
 										  tab, lengthof(tab));
 	}
 	/*
