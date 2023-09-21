@@ -9047,15 +9047,16 @@ ATExecDropColumn(List **wqueue, Relation rel, const char *colName,
  * Retrieve attribute from pg_constraint sys cache, ensure it's not null and save it
  * to a variable provided in the first argument.
  */
-#define YBGetNotNullConstraintAttr(tuple, attname, oid) \
+#define YBGetNotNullConstraintAttr(tuple, attname) \
 	__extension__ ({ \
 		bool isnull; \
+		Form_pg_constraint con_form = (Form_pg_constraint) GETSTRUCT(tuple); \
 		Datum result = SysCacheGetAttr(CONSTROID, \
 		                               tuple, \
 		                               Anum_pg_constraint_##attname, \
 		                               &isnull); \
 		if (isnull) \
-			elog(ERROR, "null " #attname " for constraint %u", oid); \
+			elog(ERROR, "null " #attname " for constraint %u", con_form->oid); \
 		result; \
 	});
 
@@ -20814,15 +20815,15 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 	Form_pg_constraint con_form = (Form_pg_constraint) GETSTRUCT(tuple);
 
 	/* attnums of constrained columns. */
-	Datum conkey_val = YBGetNotNullConstraintAttr(tuple, conkey, con_form->oid);
+	Datum conkey_val = YBGetNotNullConstraintAttr(tuple, conkey);
 	/* attnums of referenced columns. */
-	Datum confkey_val= YBGetNotNullConstraintAttr(tuple, confkey, con_form->oid);
+	Datum confkey_val= YBGetNotNullConstraintAttr(tuple, confkey);
 	/* equality operators for PK = FK comparisons */
-	Datum pfeqop_val = YBGetNotNullConstraintAttr(tuple, conpfeqop, con_form->oid);
+	Datum pfeqop_val = YBGetNotNullConstraintAttr(tuple, conpfeqop);
 	/* equality operators for PK = PK comparisons */
-	Datum ppeqop_val = YBGetNotNullConstraintAttr(tuple, conppeqop, con_form->oid);
+	Datum ppeqop_val = YBGetNotNullConstraintAttr(tuple, conppeqop);
 	/* equality operators for FK = FK comparisons */
-	Datum ffeqop_val = YBGetNotNullConstraintAttr(tuple, conffeqop, con_form->oid);
+	Datum ffeqop_val = YBGetNotNullConstraintAttr(tuple, conffeqop);
 
 	int numkeys = ARR_DIMS(DatumGetArrayTypeP(conkey_val))[0];
 
@@ -20943,15 +20944,13 @@ YbATValidateChangeForeignKeyType(HeapTuple constraint_tuple, Relation base_rel,
 								 const char *altered_column_name,
 								 bool base_rel_altered)
 {
-	Form_pg_constraint con_form = (Form_pg_constraint) GETSTRUCT(constraint_tuple);
-
-	Datum conkey_val = YBGetNotNullConstraintAttr(constraint_tuple, conkey, con_form->oid);
+	Datum conkey_val = YBGetNotNullConstraintAttr(constraint_tuple, conkey);
 	int	  numkeys = ARR_DIMS(DatumGetArrayTypeP(conkey_val))[0];
 	int16 conkey[numkeys];
 	memcpy(conkey, ARR_DATA_PTR(DatumGetArrayTypeP(conkey_val)),
 		   numkeys * sizeof(int16));
 
-	Datum confkey_val = YBGetNotNullConstraintAttr(constraint_tuple, confkey, con_form->oid);
+	Datum confkey_val = YBGetNotNullConstraintAttr(constraint_tuple, confkey);
 	Assert(numkeys == ARR_DIMS(DatumGetArrayTypeP(confkey_val))[0]);
 	int16 confkey[numkeys];
 	memcpy(confkey, ARR_DATA_PTR(DatumGetArrayTypeP(confkey_val)),
@@ -21086,7 +21085,7 @@ YbATCopyFkAndCheckConstraints(const Relation old_rel, Relation new_rel,
 					Node *expr;
 					bool  found_whole_row;
 					Datum conbin_val =
-						YBGetNotNullConstraintAttr(tuple, conbin, con_form->oid);
+						YBGetNotNullConstraintAttr(tuple, conbin);
 
 					// NOTE: Expression diverges, locations are -1
 					char *conbin = TextDatumGetCString(conbin_val);
