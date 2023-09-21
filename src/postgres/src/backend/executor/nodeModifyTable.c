@@ -1434,6 +1434,16 @@ ExecDeletePrologue(ModifyTableContext *context, ResultRelInfo *resultRelInfo,
 				   ItemPointer tupleid, HeapTuple oldtuple,
 				   TupleTableSlot **epqreturnslot)
 {
+	Relation resultRelationDesc = resultRelInfo->ri_RelationDesc;
+
+	/*
+	 * For a YugaByte table, we need to delete the secondary indices, if any.
+	 */
+	if (IsYBRelation(resultRelationDesc) &&
+		YBRelHasSecondaryIndices(resultRelationDesc) &&
+		resultRelInfo->ri_IndexRelationDescs == NULL)
+		ExecOpenIndices(resultRelInfo, false);
+
 	/* BEFORE ROW DELETE triggers */
 	if (resultRelInfo->ri_TrigDesc &&
 		resultRelInfo->ri_TrigDesc->trig_delete_before_row)
