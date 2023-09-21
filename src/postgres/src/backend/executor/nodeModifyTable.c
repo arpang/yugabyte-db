@@ -861,11 +861,11 @@ ExecInsert(ModifyTableContext *context,
 	{
 		/*
 		 * For a YugaByte table, we need to update the secondary indices for
-		 * all of the INSERT, UPDATE, and DELETE statements. The ON CONFLICT UPDATE
+		 * the INSERT statements. The ON CONFLICT UPDATE
 		 * execution also needs to process primary key index.
 		 */
 		if ((YBRelHasSecondaryIndices(resultRelInfo->ri_RelationDesc) ||
-			 node->onConflictAction != ONCONFLICT_NONE) &&
+			 onconflict != ONCONFLICT_NONE) &&
 			resultRelInfo->ri_IndexRelationDescs == NULL)
 			ExecOpenIndices(resultRelInfo, onconflict != ONCONFLICT_NONE);
 	}
@@ -2150,6 +2150,8 @@ ExecUpdatePrologue(ModifyTableContext *context, ResultRelInfo *resultRelInfo,
 	/*
 	 * Open the table's indexes, if we have not done so already, so that we
 	 * can add new index entries for the updated tuple.
+	 *
+	 * For a YugaByte table, we need to update the secondary indices.
 	 */
 	if ((IsYBRelation(resultRelationDesc) ?
 			 (YBRelHasSecondaryIndices(resultRelationDesc)) :
