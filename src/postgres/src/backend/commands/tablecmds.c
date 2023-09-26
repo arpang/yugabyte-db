@@ -21873,8 +21873,8 @@ YbATCloneRelationSetPrimaryKey(Relation old_rel, IndexStmt *stmt,
 	CreateStmt *create_stmt;
 	RenameStmt *rename_stmt;
 	Relation	new_rel = NULL;
-	AttrMap	   *old2new_attmap;
-	AttrMap	   *new2old_attmap;
+	AttrMap	   *old2new_attmap = NULL;
+	AttrMap	   *new2old_attmap = NULL;
 	bool		is_range_pk = false;
 
 	List *view_oids = NIL, *view_queries = NIL;

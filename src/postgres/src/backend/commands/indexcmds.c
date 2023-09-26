@@ -732,8 +732,6 @@ DefineIndex(Oid relationId,
 		 *   issues.
 		 * Concurrent index build is currently also disabled for
 		 * - indexes in nested DDL
-		 * - indexes whose indexed table is colocated (issue #6215)
-		 * - unique indexes
 		 * - system table indexes
 		 * The following behavior applies when CONCURRENTLY keyword is specified:
 		 * - For system tables, one throws an error when CONCURRENTLY is specified
