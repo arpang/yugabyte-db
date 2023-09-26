@@ -933,7 +933,7 @@ CheckpointerShmemInit(void)
 void
 RequestCheckpoint(int flags)
 {
-  /* RequestCheckpoint is not applicable to Yugabyte as it uses DocDB's WAL. */
+  /* Not applicable to Yugabyte as it doesn't use PG WAL. */
   if (IsYugaByteEnabled())
 	return;
 
