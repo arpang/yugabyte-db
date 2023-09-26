@@ -20238,6 +20238,11 @@ YbATCopyPolicyObjects(Relation old_rel, Relation new_rel, const AttrMap *attmap)
 		memset(nulls, false, sizeof(nulls));
 		memset(replaces, false, sizeof(replaces));
 
+		new_policy_oid =
+			GetNewOidWithIndex(pg_policy, PolicyOidIndexId, Anum_pg_policy_oid);
+		values[Anum_pg_policy_oid - 1] = ObjectIdGetDatum(new_policy_oid);
+		replaces[Anum_pg_policy_oid - 1 ] = true;
+
 		values[Anum_pg_policy_polrelid - 1] =
 			ObjectIdGetDatum(RelationGetRelid(new_rel));
 		replaces[Anum_pg_policy_polrelid - 1 ] = true;
@@ -20296,7 +20301,6 @@ YbATCopyPolicyObjects(Relation old_rel, Relation new_rel, const AttrMap *attmap)
 											 values, nulls, replaces);
 
 		CatalogTupleInsert(pg_policy, new_policy_tuple);
-		new_policy_oid = ((Form_pg_policy) GETSTRUCT(new_policy_tuple))->oid;
 
 		/* Record dependencies. */
 		target.classId = RelationRelationId;

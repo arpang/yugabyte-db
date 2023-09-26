@@ -117,6 +117,8 @@ delete from t2 where id > 2 returning id, name;
 -- Adding PK
 create table test (id int);
 insert into test values (1);
+ALTER TABLE test ENABLE ROW LEVEL SECURITY;
+CREATE POLICY test_policy ON test FOR SELECT USING (true);
 alter table test add primary key (id);
 
 create table test2 (id int);
