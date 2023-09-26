@@ -487,16 +487,6 @@ typedef struct ViewOptions
 	  VIEW_OPTION_CHECK_OPTION_CASCADED)
 
 /*
- * ParitionedTableOptions
- *		Contents of rd_options for partitioned tables.
- */
-typedef struct ParitionedTableOptions
-{
-	int32		vl_len_;		/* varlena header (do not touch directly!) */
-	Oid 		colocation_id;
-} ParitionedTableOptions;
-
-/*
  * RelationIsValid
  *		True iff relation descriptor is valid.
  */
@@ -735,5 +725,15 @@ RelationGetSmgr(Relation rel)
 /* routines in utils/cache/relcache.c */
 extern void RelationIncrementReferenceCount(Relation rel);
 extern void RelationDecrementReferenceCount(Relation rel);
+
+/*
+ * YbParitionedTableOptions
+ *		Contents of rd_options for partitioned tables.
+ */
+typedef struct YbParitionedTableOptions
+{
+	int32		vl_len_;		/* varlena header (do not touch directly!) */
+	Oid 		colocation_id;
+} YbParitionedTableOptions;
 
 #endif							/* REL_H */
