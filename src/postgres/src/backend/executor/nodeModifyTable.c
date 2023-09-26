@@ -860,7 +860,7 @@ ExecInsert(ModifyTableContext *context,
 	if (IsYBRelation(resultRelInfo->ri_RelationDesc))
 	{
 		/*
-		 * For a YugaByte table, we need to update the secondary indices for
+		 * For a Yugabyte table, we need to update the secondary indexes for
 		 * the INSERT statements. The ON CONFLICT UPDATE
 		 * execution also needs to process primary key index.
 		 */
@@ -1437,7 +1437,9 @@ ExecDeletePrologue(ModifyTableContext *context, ResultRelInfo *resultRelInfo,
 	Relation resultRelationDesc = resultRelInfo->ri_RelationDesc;
 
 	/*
-	 * For a YugaByte table, we need to delete the secondary indices, if any.
+	 * Unlike upstream PG, Yugabyte indexes have deletes explicitly written to
+	 * them. Open the Yugabyte table's indexes, if we have not done so already,
+	 * so that we can delete index entries for the deleted tuple.
 	 */
 	if (IsYBRelation(resultRelationDesc) &&
 		YBRelHasSecondaryIndices(resultRelationDesc) &&
@@ -2161,7 +2163,7 @@ ExecUpdatePrologue(ModifyTableContext *context, ResultRelInfo *resultRelInfo,
 	 * Open the table's indexes, if we have not done so already, so that we
 	 * can add new index entries for the updated tuple.
 	 *
-	 * For a YugaByte table, we need to update the secondary indices.
+	 * For a Yugabyte table, we need to update the secondary indexes.
 	 */
 	if ((IsYBRelation(resultRelationDesc) ?
 			 (YBRelHasSecondaryIndices(resultRelationDesc)) :

@@ -20803,7 +20803,7 @@ YbATAddPrimaryKeyToCreateStmt(IndexStmt *index_stmt, CreateStmt *create_stmt,
 static void
 YbATCloneTableAndGetMappings(CreateStmt *create_stmt, const Relation old_rel,
 							 Relation *new_rel, AttrMap **old2new_attmap,
-							 AttrMap 	**new2old_attmap,
+							 AttrMap **new2old_attmap,
 							 bool ignore_type_mismatch)
 {
 	/* clang-format on */
@@ -21370,6 +21370,7 @@ YbATCopyTableRowsUnchecked(Relation old_rel, Relation new_rel,
 	{
 		Relation constrRel = table_open(ConstraintRelationId, AccessShareLock);
 		#ifdef YB_TODO
+		TODO: validateCheckConstraint is not available in pg15, needs to be handled.
 		foreach(cell, new_check_constraints)
 		{
 			CookedConstraint *cooked_constraint = lfirst(cell);

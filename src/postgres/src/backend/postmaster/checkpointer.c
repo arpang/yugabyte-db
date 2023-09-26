@@ -59,6 +59,8 @@
 #include "utils/memutils.h"
 #include "utils/resowner.h"
 
+/* Yugabyte includes */
+#include "pg_yb_utils.h"
 
 /*----------
  * Shared memory area for communication between checkpointer and backends
@@ -931,6 +933,10 @@ CheckpointerShmemInit(void)
 void
 RequestCheckpoint(int flags)
 {
+  /* RequestCheckpoint is not applicable to Yugabyte as it uses DocDB's WAL. */
+  if (IsYugaByteEnabled())
+	return;
+
   /*
    * YB: ignoring user requested checkpoints for now
    */
