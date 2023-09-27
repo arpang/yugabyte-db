@@ -19,6 +19,7 @@
 #include "utils/relcache.h"
 #include "utils/wait_event.h"	/* for backward compatibility */
 
+
 /* Yugabyte includes */
 #include "storage/proc.h"
 /* ----------
@@ -538,28 +539,6 @@ extern void pgstat_end_function_usage(PgStat_FunctionCallUsage *fcu,
 extern PgStat_StatFuncEntry *pgstat_fetch_stat_funcentry(Oid funcid);
 extern PgStat_BackendFunctionEntry *find_funcstat_entry(Oid func_id);
 
-/* ----------
- * pgstat_report_wait_end_for_proc(PGPROC *proc) -
- *
- *	Called to report end of a wait for a specific process.
- *
- * NB: this *must* be able to survive being called before MyProc has been
- * initialized.
- * ----------
- */
-static inline void
-pgstat_report_wait_end_for_proc(volatile PGPROC *proc)
-{
-	if (!pgstat_track_activities || !proc)
-		return;
-
-	/*
-	 * Since this is a four-byte field which is always read and written as
-	 * four-bytes, updates are atomic.
-	 */
-	proc->wait_event_info = 0;
-}
-
 /*
  * Functions in pgstat_relation.c
  */
@@ -764,13 +743,36 @@ extern PGDLLIMPORT SessionEndType pgStatSessionEndCause;
 extern PGDLLIMPORT PgStat_WalStats PendingWalStats;
 
 /* ----------
- * YB functions called from backends
+ * YB structure and functions
  * ----------
  */
+
 extern void yb_pgstat_report_allocated_mem_bytes(void);
 extern void yb_pgstat_set_catalog_version(uint64_t catalog_version);
 extern void yb_pgstat_set_has_catalog_version(bool has_catalog_version);
 extern PgStat_YBStatQueryEntry *pgstat_fetch_ybstat_queries(Oid db_oid, size_t* num_queries);
 extern PgBackendStatus *getBackendStatusArray(void);
+
+/* ----------
+ * yb_pgstat_report_wait_end_for_proc(PGPROC *proc) -
+ *
+ *	Called to report end of a wait for a specific process.
+ *
+ * NB: this *must* be able to survive being called before MyProc has been
+ * initialized.
+ * ----------
+ */
+static inline void
+yb_pgstat_report_wait_end_for_proc(volatile PGPROC *proc)
+{
+	if (!pgstat_track_activities || !proc)
+		return;
+
+	/*
+	 * Since this is a four-byte field which is always read and written as
+	 * four-bytes, updates are atomic.
+	 */
+	proc->wait_event_info = 0;
+}
 
 #endif							/* PGSTAT_H */
