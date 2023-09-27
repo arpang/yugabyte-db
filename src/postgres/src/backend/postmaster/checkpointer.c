@@ -62,6 +62,7 @@
 /* Yugabyte includes */
 #include "pg_yb_utils.h"
 
+
 /*----------
  * Shared memory area for communication between checkpointer and backends
  *
@@ -933,9 +934,9 @@ CheckpointerShmemInit(void)
 void
 RequestCheckpoint(int flags)
 {
-  /* Not applicable to Yugabyte as it doesn't use PG WAL. */
-  if (IsYugaByteEnabled())
-	return;
+	/* Not applicable to Yugabyte as it doesn't use PG WAL. */
+	if (IsYugaByteEnabled())
+		return;
 
   /*
    * YB: ignoring user requested checkpoints for now

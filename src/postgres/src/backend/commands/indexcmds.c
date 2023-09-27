@@ -1985,21 +1985,23 @@ DefineIndex(Oid relationId,
 
 		/* Delay after committing pg_index update. */
 		pg_usleep(yb_index_state_flags_update_delay * 1000);
-
 		if (yb_test_block_index_phase[0] != '\0')
 			YbTestGucBlockWhileStrEqual(&yb_test_block_index_phase,
 										"indisready",
 										"index state change indisready=true");
 
 		StartTransactionCommand();
+
 		YBIncrementDdlNestingLevel(true /* is_catalog_version_increment */,
 								   false /* is_breaking_catalog_change */);
 
 		/* Wait for all backends to have up-to-date version. */
 		YbWaitForBackendsCatalogVersion();
 
+		#ifdef YB_TODO
 		/* YB_TODO(later): The below line should be added after latest master rebase */
-		/*YbTestGucFailIfStrEqual(yb_test_fail_index_state_change, "indisready"); */
+		YbTestGucFailIfStrEqual(yb_test_fail_index_state_change, "indisready");
+		#endif
 
 		/*
 		 * Update the pg_index row to mark the index as ready for inserts.
@@ -2038,8 +2040,10 @@ DefineIndex(Oid relationId,
 		/* Do backfill. */
 		HandleYBStatus(YBCPgBackfillIndex(databaseId, indexRelationId));
 
-		/* YB_TODO(later): The below line should be added after latest master rebase */
-		/* YbTestGucFailIfStrEqual(yb_test_fail_index_state_change, "postbackfill"); */
+		#ifdef YB_TODO
+		/* The below line should be added after latest master rebase */
+		YbTestGucFailIfStrEqual(yb_test_fail_index_state_change, "postbackfill");
+		#endif
 
 		if (yb_test_block_index_phase[0] != '\0')
 			YbTestGucBlockWhileStrEqual(&yb_test_block_index_phase,

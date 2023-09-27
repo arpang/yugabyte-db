@@ -20241,11 +20241,11 @@ YbATCopyPolicyObjects(Relation old_rel, Relation new_rel, const AttrMap *attmap)
 		new_policy_oid =
 			GetNewOidWithIndex(pg_policy, PolicyOidIndexId, Anum_pg_policy_oid);
 		values[Anum_pg_policy_oid - 1] = ObjectIdGetDatum(new_policy_oid);
-		replaces[Anum_pg_policy_oid - 1 ] = true;
+		replaces[Anum_pg_policy_oid - 1] = true;
 
 		values[Anum_pg_policy_polrelid - 1] =
 			ObjectIdGetDatum(RelationGetRelid(new_rel));
-		replaces[Anum_pg_policy_polrelid - 1 ] = true;
+		replaces[Anum_pg_policy_polrelid - 1] = true;
 
 		Datum qual_datum = heap_getattr(old_policy_tuple,
 										Anum_pg_policy_polqual,
