@@ -2776,11 +2776,7 @@ CreateCommandTag(Node *parsetree)
 					tag = CMDTAG_DROP_YBTABLEGROUP;
 					break;
 				case OBJECT_YBPROFILE:
-					/* YB_TODO(neil) Needs to intro tag profile to the preprocessor.
-					 * tag = CMDTAG_DROP_PROFILE;
-					 */
-					elog(WARNING, "unrecognized commandType: drop ybprofile");
-					tag = CMDTAG_UNKNOWN;
+					tag = CMDTAG_DROP_YBPROFILE;
 					break;
 				default:
 					tag = CMDTAG_UNKNOWN;

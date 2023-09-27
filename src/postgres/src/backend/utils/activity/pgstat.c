@@ -158,6 +158,9 @@ typedef struct PgStat_SnapshotEntry
 #define SH_DECLARE
 #include "lib/simplehash.h"
 
+static PgStat_YBStatQueryEntry queryEntries[TERMINATED_QUERIES_SIZE];
+static size_t total_terminated_queries = 0;
+
 
 /* ----------
  * Local function forward declarations
@@ -1707,4 +1710,42 @@ yb_pgstat_set_has_catalog_version(bool has_version)
 	vbeentry->yb_st_catalog_version.has_version = has_version;
 
 	PGSTAT_END_WRITE_ACTIVITY(vbeentry);
+}
+
+/* ----------
+ * pgstat_fetch_ybstat_queries() -
+ *
+ *	Support function for the SQL-callable pgstat* functions. Returns
+ *	the query statistics for one query or NULL. NULL indicates the query
+ *  does not exist for this OID.
+ * ----------
+ */
+PgStat_YBStatQueryEntry *
+pgstat_fetch_ybstat_queries(Oid db_oid, size_t *num_queries)
+{
+	#ifdef YB_TODO
+	backend_read_statsfile();
+	#endif
+	size_t queries_size = Min(total_terminated_queries, TERMINATED_QUERIES_SIZE);
+	if (db_oid == -1)
+	{
+		*num_queries = queries_size;
+		return queryEntries;
+	}
+
+	size_t db_terminated_queries = 0;
+	for (size_t idx = 0; idx < queries_size; idx++)
+		db_terminated_queries += queryEntries[idx].database_oid == db_oid ? 1 : 0;
+
+	size_t total_expected_size = db_terminated_queries * sizeof(PgStat_YBStatQueryEntry);
+	PgStat_YBStatQueryEntry *queries = (PgStat_YBStatQueryEntry *) palloc0(total_expected_size);
+
+	size_t counter = 0;
+	for (size_t idx = 0; idx < queries_size; idx++)
+	{
+		if (queryEntries[idx].database_oid == db_oid)
+			queries[counter++] = queryEntries[idx];
+	}
+	*num_queries = db_terminated_queries;
+	return queries;
 }
