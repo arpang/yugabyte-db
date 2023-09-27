@@ -12145,10 +12145,10 @@ static YbFKTriggerVTable YbFKTriggerScanVTableIsYugaByteEnabled =
 
 static YbFKTriggerScanDesc
 YbFKTriggerScanBegin(TableScanDesc scan,
-                     ScanDirection direction,
-                     Trigger* trigger,
-                     Relation fk_rel,
-                     int buffer_capacity,
+					 ScanDirection direction,
+					 Trigger* trigger,
+					 Relation fk_rel,
+					 int buffer_capacity,
 					 MemoryContext perBatchCxt)
 {
 	YbFKTriggerScanDesc descr = (YbFKTriggerScanDesc) palloc(
@@ -20911,17 +20911,31 @@ YbATCreateSimilarForeignKey(HeapTuple tuple, const char *fk_name,
 
 	/*
 	 * Create the triggers that will enforce the constraint.
+	 * Note that we also call CommandCounterIncrement().
 	 */
-	Oid insertTriggerOid, updateTriggerOid;
+
+	/*
+	 * For the referenced side, create action triggers, if requested.  (If the
+	 * referencing side is partitioned, there is still only one trigger, which
+	 * runs on the referenced side and points to the top of the referencing
+	 * hierarchy.)
+	 */
 	createForeignKeyActionTriggers(base_rel, RelationGetRelid(fk_rel), entity,
 								   constr_oid, index_oid, InvalidOid,
 								   InvalidOid, NULL, NULL);
+
+	/*
+	 * For the referencing side, create the check triggers.
+	 */
 	if (base_rel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
+	{
+		Oid insertTriggerOid, updateTriggerOid;
 		createForeignKeyCheckTriggers(RelationGetRelid(base_rel),
 									  RelationGetRelid(fk_rel), entity,
 									  constr_oid, index_oid, InvalidOid,
 									  InvalidOid, &insertTriggerOid,
 									  &updateTriggerOid);
+	}
 	return constr_oid;
 }
 
