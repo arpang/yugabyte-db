@@ -30,6 +30,7 @@ typedef enum ProgressCommandType
 	PROGRESS_COMMAND_COPY
 } ProgressCommandType;
 
+/*YB_TODO(review)*/
 #define PGSTAT_NUM_PROGRESS_PARAM	20
 
 

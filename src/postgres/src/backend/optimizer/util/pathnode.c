@@ -3982,7 +3982,7 @@ create_modifytable_path(PlannerInfo *root, RelOptInfo *rel,
 	pathnode->path.pathkeys = NIL;
 
 #ifdef YB_TODO
-	/* YB_TODO(jasonk) subpaths is changed in Pg15 */
+	/* (jasonk) subpaths is changed in Pg15 */
 	yb_propagate_fields_list(&pathnode->path.yb_path_info, subpaths);
 #endif
 
