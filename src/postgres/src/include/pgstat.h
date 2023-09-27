@@ -30,9 +30,6 @@
 #define PGSTAT_STAT_PERMANENT_FILENAME		"pg_stat/pgstat.stat"
 #define PGSTAT_STAT_PERMANENT_TMPFILE		"pg_stat/pgstat.tmp"
 
-#define PGSTAT_YBSTAT_PERMANENT_FILENAME    "pg_stat/yb_global.stat"
-#define PGSTAT_YBSTAT_PERMANENT_TMPFILE     "pg_stat/yb_global.tmp"
-
 /* Default directory to store temporary statistics data in */
 #define PG_STAT_TMP_DIR		"pg_stat_tmp"
 
@@ -242,42 +239,6 @@ typedef struct PgStat_TableXactStatus
 
 #define QUERY_TEXT_SIZE 		256
 #define QUERY_TERMINATION_SIZE	256
-
-typedef struct PgStat_YBStatQueryEntry
-{
-	/*
-	 * query_oid is not an actual oid. It is an index that
-	 * represents its location in the array that stores the
-	 * terminated queries modulo TERMINATED_QUERIES_SIZE.
-	 */
-	Oid query_oid;
-
-	/*
-	 * We need to store the owner ID of the database for
-	 * security validation when the queries are fetched by the user.
-	 */
-	Oid st_userid;
-	Oid database_oid;
-	int32 backend_pid;
-	TimestampTz activity_start_timestamp;
-	TimestampTz activity_end_timestamp;
-
-	/*
-	 * query_string_size: records the length of the string
-	 * so that when writing this string to file, we only write
-	 * that many characters.
-	 */
-	size_t query_string_size;
-	char query_string[QUERY_TEXT_SIZE];
-
-	/*
-	 * termination_reason_size: records the length of the string
-	 * so that when writing this string to file, we only write
-	 * that many characters.
-	 */
-	size_t termination_reason_size;
-	char termination_reason[QUERY_TERMINATION_SIZE];
-} PgStat_YBStatQueryEntry;
 
 /* ------------------------------------------------------------
  * Data structures on disk and in shared memory follow
@@ -510,7 +471,6 @@ extern void pgstat_report_deadlock(void);
 extern void pgstat_report_checksum_failures_in_db(Oid dboid, int failurecount);
 extern void pgstat_report_checksum_failure(void);
 extern void pgstat_report_connect(Oid dboid);
-extern void yb_pgstat_clear_entry_pid(int pid);
 
 #define pgstat_count_buffer_read_time(n)							\
 	(pgStatBlockReadTime += (n))
@@ -747,6 +707,51 @@ extern PGDLLIMPORT PgStat_WalStats PendingWalStats;
  * ----------
  */
 
+#define PGSTAT_YBSTAT_PERMANENT_FILENAME    "pg_stat/yb_global.stat"
+#define PGSTAT_YBSTAT_PERMANENT_TMPFILE     "pg_stat/yb_global.tmp"
+
+extern void yb_pgstat_clear_entry_pid(int pid);
+
+typedef struct PgStat_YBStatQueryEntry
+{
+	/*
+	 * query_oid is not an actual oid. It is an index that
+	 * represents its location in the array that stores the
+	 * terminated queries modulo TERMINATED_QUERIES_SIZE.
+	 */
+	Oid query_oid;
+
+	/*
+	 * We need to store the owner ID of the database for
+	 * security validation when the queries are fetched by the user.
+	 */
+	Oid st_userid;
+	Oid database_oid;
+	int32 backend_pid;
+	TimestampTz activity_start_timestamp;
+	TimestampTz activity_end_timestamp;
+
+	/*
+	 * query_string_size: records the length of the string
+	 * so that when writing this string to file, we only write
+	 * that many characters.
+	 */
+	size_t query_string_size;
+	char query_string[QUERY_TEXT_SIZE];
+
+	/*
+	 * termination_reason_size: records the length of the string
+	 * so that when writing this string to file, we only write
+	 * that many characters.
+	 */
+	size_t termination_reason_size;
+	char termination_reason[QUERY_TERMINATION_SIZE];
+} PgStat_YBStatQueryEntry;
+
+/* ----------
+ * YB functions called from backends
+ * ----------
+ */
 extern void yb_pgstat_report_allocated_mem_bytes(void);
 extern void yb_pgstat_set_catalog_version(uint64_t catalog_version);
 extern void yb_pgstat_set_has_catalog_version(bool has_catalog_version);

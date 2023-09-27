@@ -201,6 +201,7 @@ typedef struct PgBackendStatus
 
 	/* YB (pg_client <--> tserver) Session ID */
 	uint64_t yb_session_id;
+
 } PgBackendStatus;
 
 
