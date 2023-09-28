@@ -569,6 +569,7 @@ pgstat_initialize(void)
 long
 pgstat_report_stat(bool force)
 {
+	#ifdef YB_TODO
 	static TimestampTz pending_since = 0;
 	static TimestampTz last_flush = 0;
 	bool		partial_flush;
@@ -658,7 +659,7 @@ pgstat_report_stat(bool force)
 	}
 
 	pending_since = 0;
-
+	#endif
 	return 0;
 }
 
