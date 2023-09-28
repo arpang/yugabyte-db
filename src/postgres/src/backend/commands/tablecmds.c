@@ -12053,7 +12053,7 @@ typedef struct YbFKTriggerScanDescData
 {
 	TableScanDesc scan;
 	ScanDirection scan_direction;
-	MemoryContext perBatchCxt;
+	MemoryContext per_batch_cxt;
 	YbFKTriggerVTable* vptr;
 	Trigger* trigger;
 	Relation fk_rel;
@@ -12074,21 +12074,12 @@ typedef struct YbFKTriggerScanDescData *YbFKTriggerScanDesc;
 typedef struct YbFKTriggerVTable
 {
 	bool (*get_next)(YbFKTriggerScanDesc descr, TupleTableSlot *slot);
-	Buffer (*get_buffer)();
 } YbFKTriggerVTable;
 
 static bool
 YbPgGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 {
-	/* Clear per-tuple context */
 	return table_scan_getnextslot(desc->scan, desc->scan_direction, slot);
-}
-
-static Buffer
-YbPgGetBuffer(YbFKTriggerScanDesc desc)
-{
-	HeapScanDesc hscan = (HeapScanDesc)desc->scan;
-	return hscan->rs_cbuf;
 }
 
 static bool
@@ -12097,7 +12088,7 @@ YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 	if (desc->current_tuple_idx >= desc->buffered_tuples_size && !desc->all_tuples_processed)
 	{
 		/* Clear context of previously buffered tuples */
-		MemoryContextReset(desc->perBatchCxt);
+		MemoryContextReset(desc->per_batch_cxt);
 		desc->current_tuple_idx = 0;
 		desc->buffered_tuples_size = 0;
 		while (desc->buffered_tuples_size < desc->buffered_tuples_capacity)
@@ -12121,35 +12112,23 @@ YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 	return false;
 }
 
-static Buffer
-YbGetBuffer(YbFKTriggerScanDesc desc)
-{
-	/*
-	 * In YB mode data from trigdata.tg_trigtuplebuf is not used.
-	 * It is safe to return InvalidBuffer.
-	 */
-	return InvalidBuffer;
-}
-
 static YbFKTriggerVTable YbFKTriggerScanVTableNotYugaByteEnabled =
 	{
 		.get_next = &YbPgGetNext,
-		.get_buffer = &YbPgGetBuffer
 	};
 
 static YbFKTriggerVTable YbFKTriggerScanVTableIsYugaByteEnabled =
 	{
 		.get_next = &YbGetNext,
-		.get_buffer = &YbGetBuffer
 	};
 
 static YbFKTriggerScanDesc
 YbFKTriggerScanBegin(TableScanDesc scan,
 					 ScanDirection direction,
-					 Trigger* trigger,
+					 Trigger *trigger,
 					 Relation fk_rel,
 					 int buffer_capacity,
-					 MemoryContext perBatchCxt)
+					 MemoryContext per_batch_cxt)
 {
 	YbFKTriggerScanDesc descr = (YbFKTriggerScanDesc) palloc(
 		sizeof(YbFKTriggerScanDescData) + buffer_capacity * sizeof(HeapTuple));
@@ -12159,11 +12138,10 @@ YbFKTriggerScanBegin(TableScanDesc scan,
 	descr->trigger = trigger;
 	descr->fk_rel = fk_rel;
 	descr->buffered_tuples_capacity = buffer_capacity;
-	if (IsYBRelation(scan->rs_rd))
-		descr->vptr = &YbFKTriggerScanVTableIsYugaByteEnabled;
-	else
-		descr->vptr = &YbFKTriggerScanVTableNotYugaByteEnabled;
-	descr->perBatchCxt = perBatchCxt;
+	descr->vptr = IsYBRelation(scan->rs_rd) ?
+					  &YbFKTriggerScanVTableIsYugaByteEnabled :
+					  &YbFKTriggerScanVTableNotYugaByteEnabled;
+	descr->per_batch_cxt = per_batch_cxt;
 	return descr;
 }
 
