@@ -209,6 +209,7 @@ ProcSignalInit(int pss_idx)
 	on_shmem_exit(CleanupProcSignalState, Int32GetDatum(pss_idx));
 }
 
+#ifdef YB_TODO
 /* CleanupProcSignalState
  * 		Remove current process from ProcSignalSlots
  */
@@ -229,6 +230,7 @@ CleanupProcSignalStateInternal(PGPROC *proc, int procSignalSlotIndex, volatile P
 
 	slot->pss_pid = 0;
 }
+#endif
 
 /*
  * CleanupProcSignalState

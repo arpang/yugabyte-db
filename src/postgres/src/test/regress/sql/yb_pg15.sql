@@ -176,3 +176,7 @@ CREATE DATABASE mytest;
 
 -- drop database
 DROP DATABASE mytest;
+
+-- create view on temp table
+CREATE TEMP TABLE temptest (col int);
+CREATE VIEW tempview AS SELECT * FROM temptest;
