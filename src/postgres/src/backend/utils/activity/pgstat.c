@@ -569,7 +569,6 @@ pgstat_initialize(void)
 long
 pgstat_report_stat(bool force)
 {
-	#ifdef YB_TODO
 	static TimestampTz pending_since = 0;
 	static TimestampTz last_flush = 0;
 	bool		partial_flush;
@@ -586,6 +585,7 @@ pgstat_report_stat(bool force)
 		pgStatForceNextFlush = false;
 	}
 
+	#ifdef YB_TODO
 	/* Don't expend a clock check if nothing to do */
 	if (dlist_is_empty(&pgStatPending) &&
 		!have_slrustats &&
@@ -594,6 +594,7 @@ pgstat_report_stat(bool force)
 		Assert(pending_since == 0);
 		return 0;
 	}
+	#endif
 
 	/*
 	 * There should never be stats to report once stats are shut down. Can't
@@ -659,7 +660,6 @@ pgstat_report_stat(bool force)
 	}
 
 	pending_since = 0;
-	#endif
 	return 0;
 }
 
