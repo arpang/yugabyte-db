@@ -209,13 +209,6 @@ typedef struct IndexScanDescData
 	PushdownExprs *yb_idx_pushdown;
 	List *yb_aggrefs;				/* aggregate information for aggregate pushdown */
 	TupleTableSlot *yb_agg_slot;	/* scan slot used by aggregate pushdown */
-
-	/*
-	 * Result from Yugabyte.
-	 * - This field contains the returned value from Yugabyte including ybctid.
-	 * - Note that Postgres keeps the result in field "ItemPointerData xs_heaptid;".
-	 */
-	YbItemPointerData yb_dataip;
 }			IndexScanDescData;
 
 /* Generic structure for parallel scans */
