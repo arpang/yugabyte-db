@@ -585,16 +585,16 @@ pgstat_report_stat(bool force)
 		pgStatForceNextFlush = false;
 	}
 
-	#ifdef YB_TODO
 	/* Don't expend a clock check if nothing to do */
 	if (dlist_is_empty(&pgStatPending) &&
 		!have_slrustats &&
 		!pgstat_have_pending_wal())
 	{
+		#ifdef YB_TODO
 		Assert(pending_since == 0);
+		#endif
 		return 0;
 	}
-	#endif
 
 	/*
 	 * There should never be stats to report once stats are shut down. Can't
