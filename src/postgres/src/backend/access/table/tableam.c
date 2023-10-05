@@ -61,7 +61,8 @@ table_slot_callbacks(Relation relation)
 
 	if (relation->rd_tableam)
 		tts_cb = relation->rd_tableam->slot_callbacks(relation);
-	else if (relation->rd_rel->relkind == RELKIND_FOREIGN_TABLE || IsYBRelation(relation))
+	else if (relation->rd_rel->relkind == RELKIND_FOREIGN_TABLE ||
+			 IsYBRelation(relation))
 	{
 		/*
 		 * Historically FDWs expect to store heap tuples in slots. Continue
