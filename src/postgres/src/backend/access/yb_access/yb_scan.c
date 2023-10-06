@@ -2863,8 +2863,8 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 	foreach(lc, path->indexclauses)
 	{
 		IndexClause *iclause = lfirst_node(IndexClause, lc);
-		int indexcol = iclause->indexcol;
-		ListCell *lc2;
+		int      indexcol = iclause->indexcol;
+		ListCell   *lc2;
 		foreach (lc2, iclause->indexquals)
 		{
 			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc2);
