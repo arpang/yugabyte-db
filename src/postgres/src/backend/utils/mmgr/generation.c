@@ -380,11 +380,6 @@ GenerationDelete(MemoryContext context)
 	GenerationReset(context);
 	/* And free the context header and keeper block */
 	free(context);
-	/*YB_TODO(review): Previously, in GenerationContextCreate, we used
-	 * Generation_CONTEXTSZ to allocate the initial block. Now, this has
-	 * changed to use allocSize. On deleting the context, we should also perhaps
-	 * substract allocSize from the memory consumption. See
-	 * GenerationContextCreate for details.*/
 	YbPgMemSubConsumption(Generation_CONTEXTSZ);
 }
 
@@ -660,12 +655,12 @@ GenerationBlockFree(GenerationContext *set, GenerationBlock *block)
 	dlist_delete(&block->node);
 
 	((MemoryContext) set)->mem_allocated -= block->blksize;
+	size_t freed_sz = block->blksize;
 
 #ifdef CLOBBER_FREED_MEMORY
 	wipe_mem(block, block->blksize);
 #endif
 
-	size_t freed_sz = block->endptr - ((char *) block);
 	free(block);
 	YbPgMemSubConsumption(freed_sz);
 }
