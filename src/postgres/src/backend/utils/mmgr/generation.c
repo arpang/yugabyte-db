@@ -379,8 +379,9 @@ GenerationDelete(MemoryContext context)
 	/* Reset to release all releasable GenerationBlocks */
 	GenerationReset(context);
 	/* And free the context header and keeper block */
+	size_t freed_sz = context->mem_allocated + Generation_CONTEXTSZ;
 	free(context);
-	YbPgMemSubConsumption(Generation_CONTEXTSZ);
+	YbPgMemSubConsumption(freed_sz);
 }
 
 /*
