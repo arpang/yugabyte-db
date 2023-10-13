@@ -385,7 +385,8 @@ heap_create(const char *relname,
 	 * TODO Consider hooking the YB-Create logic here instead of above.
 	 */
 	if (YBIsEnabledInPostgresEnvVar())
-		create_storage = relpersistence == RELPERSISTENCE_TEMP;
+		create_storage = create_storage &&
+						 relpersistence == RELPERSISTENCE_TEMP;
 
 	/*
 	 * Have the storage manager create the relation's disk file, if needed.
