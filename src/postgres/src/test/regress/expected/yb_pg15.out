@@ -467,3 +467,8 @@ SELECT * FROM pk_range_int_asc WHERE (r1, r2, r3) <= (2,3,2);
   2 |  3 |  1 | 66
   2 |  3 |  2 | 67
 (67 rows)
+
+-- create view on temp table
+CREATE TEMP TABLE temptest (col int);
+CREATE VIEW tempview AS SELECT * FROM temptest;
+NOTICE:  view "tempview" will be a temporary view
