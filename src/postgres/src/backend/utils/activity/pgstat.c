@@ -585,25 +585,27 @@ pgstat_report_stat(bool force)
 		pgStatForceNextFlush = false;
 	}
 
-#ifdef YB_TODO
-	/* The if condition below depends on pgstat_have_pending_wal which is not
-	 * applicable to YB. In YB, pgstat_have_pending_wal always returns
-	 * false and consequently, execution flow enters the if block even
-	 * when it shouldn't, causing assetion failure at Assert(pending_since == 0).
-	 * This causes drop table to fail intermittently (seems time dependent). The
-	 * test TestPgRegressDistinctPushdown#testPgRegressDistinctPushdown
-	 * reproduces this error consistently. Temporarily disabling this
-	 * code block.
-	 */
 	/* Don't expend a clock check if nothing to do */
 	if (dlist_is_empty(&pgStatPending) &&
 		!have_slrustats &&
 		!pgstat_have_pending_wal())
 	{
+#ifdef YB_TODO
+		/* The if condition depends on pgstat_have_pending_wal which is not
+		 * applicable to YB. In YB, pgstat_have_pending_wal always returns
+		 * false and consequently, execution flow enters this block even
+		 * when not intended, causing assetion failure at Assert(pending_since
+		 * == 0). This causes drop table to fail intermittently (seems time
+		 * dependent, could cause other operations to fail as well but I haven't
+		 * encountered). The test
+		 * TestPgRegressDistinctPushdown#testPgRegressDistinctPushdown
+		 * reproduces this error consistently. Temporarily disabling this
+		 * assertion.
+		 */
 		Assert(pending_since == 0);
+#endif
 		return 0;
 	}
-#endif
 
 	/*
 	 * There should never be stats to report once stats are shut down. Can't
