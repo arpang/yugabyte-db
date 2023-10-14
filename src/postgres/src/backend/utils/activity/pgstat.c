@@ -592,12 +592,11 @@ pgstat_report_stat(bool force)
 	{
 #ifdef YB_TODO
 		/* The if condition depends on pgstat_have_pending_wal which is not
-		 * applicable to YB. In YB, pgstat_have_pending_wal always returns
-		 * false and consequently, execution flow enters this block even
-		 * when not intended, causing assetion failure at Assert(pending_since
-		 * == 0). This causes drop table to fail intermittently (seems time
-		 * dependent, could cause other operations to fail as well but I haven't
-		 * encountered). The test
+		 * applicable to YB. Consequently, execution flow enters this block even
+		 * when not intended, causing assertion failure at Assert(pending_since
+		 * == 0). This causes drop table to fail intermittently (it seems time
+		 * dependent and could cause other operations to fail as well but I
+		 * haven't encountered those). The test
 		 * TestPgRegressDistinctPushdown#testPgRegressDistinctPushdown
 		 * reproduces this error consistently. Temporarily disabling this
 		 * assertion.
