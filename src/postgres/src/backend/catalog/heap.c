@@ -381,7 +381,7 @@ heap_create(const char *relname,
 
 	/*
 	 * Create local storage in YB only if storage is required and it is a
-	 * temporary table.
+	 * temporary relation.
 	 * TODO Consider hooking the YB-Create logic here instead of above.
 	 */
 	if (YBIsEnabledInPostgresEnvVar())
