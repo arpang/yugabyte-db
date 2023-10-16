@@ -3698,5 +3698,29 @@ TEST_F(PgLibPqTest, DropSequenceTest) {
   ASSERT_NOK(conn.FetchRowAsString("SELECT nextval('foo')"));
 }
 
+TEST_F(PgLibPqTest, TempTableViewFileCountTest) {
+  PGConn conn = ASSERT_RESULT(Connect());
+
+  ASSERT_OK(conn.Execute("CREATE TEMP TABLE foo (k INT)"));
+
+  string relation_filepath =
+      ASSERT_RESULT(conn.FetchValue<std::string>(Format("SELECT pg_relation_filepath('foo')")));
+  string abs_relation_filepath =
+      JoinPathSegments(pg_ts->GetRootDir(), "pg_data", relation_filepath);
+  string db_directory = abs_relation_filepath.substr(0, abs_relation_filepath.find_last_of("/\\"));
+
+  std::vector<std::string> files;
+  auto env = Env::Default();
+  ASSERT_OK(env->GetChildren(db_directory, ExcludeDots::kTrue, &files));
+
+  ASSERT_OK(conn.Execute("CREATE VIEW tempview AS SELECT * FROM foo"));
+
+  // Check that no new files are created on creation of view.
+  std::vector<std::string> files2;
+  ASSERT_OK(env->GetChildren(db_directory, ExcludeDots::kTrue, &files2));
+  ASSERT_EQ(files.size(), files2.size());
+  ASSERT_TRUE(std::equal(files.begin(), files.end(), files2.begin()));
+}
+
 } // namespace pgwrapper
 } // namespace yb
