@@ -3699,27 +3699,24 @@ TEST_F(PgLibPqTest, DropSequenceTest) {
 }
 
 TEST_F(PgLibPqTest, TempTableViewFileCountTest) {
+  const std::string kTableName = "foo";
   PGConn conn = ASSERT_RESULT(Connect());
+  ASSERT_OK(conn.ExecuteFormat("CREATE TEMP TABLE $0 (k INT)", kTableName));
+  auto values = ASSERT_RESULT(conn.FetchAll<bool>(Format(
+      "SELECT pg_ls_dir('$0/pg_data/' || substring(pg_relation_filepath('$1') from '.*/')) = 't1_' "
+      "|| '$1'::regclass::oid::text;",
+      pg_ts->GetRootDir(), kTableName)));
+  decltype(values) expected_values = {{true}};
+  ASSERT_EQ(values, expected_values);
 
-  ASSERT_OK(conn.Execute("CREATE TEMP TABLE foo (k INT)"));
+  ASSERT_OK(conn.ExecuteFormat("CREATE VIEW tempview AS SELECT * FROM $0", kTableName));
 
-  string relation_filepath =
-      ASSERT_RESULT(conn.FetchValue<std::string>(Format("SELECT pg_relation_filepath('foo')")));
-  string abs_relation_filepath =
-      JoinPathSegments(pg_ts->GetRootDir(), "pg_data", relation_filepath);
-  string db_directory = abs_relation_filepath.substr(0, abs_relation_filepath.find_last_of("/\\"));
-
-  std::vector<std::string> files;
-  auto env = Env::Default();
-  ASSERT_OK(env->GetChildren(db_directory, ExcludeDots::kTrue, &files));
-
-  ASSERT_OK(conn.Execute("CREATE VIEW tempview AS SELECT * FROM foo"));
-
-  // Check that no new files are created on creation of view.
-  std::vector<std::string> files2;
-  ASSERT_OK(env->GetChildren(db_directory, ExcludeDots::kTrue, &files2));
-  ASSERT_EQ(files.size(), files2.size());
-  ASSERT_TRUE(std::equal(files.begin(), files.end(), files2.begin()));
+  // Check that no new files are created on view creation.
+  values = ASSERT_RESULT(conn.FetchAll<bool>(Format(
+      "SELECT pg_ls_dir('$0/pg_data/' || substring(pg_relation_filepath('$1') from '.*/')) = 't1_' "
+      "|| '$1'::regclass::oid::text;",
+      pg_ts->GetRootDir(), kTableName)));
+  ASSERT_EQ(values, expected_values);
 }
 
 } // namespace pgwrapper
