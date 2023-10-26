@@ -405,7 +405,8 @@ ybgindelete(Relation index, Datum *values, bool *isnull, Datum ybctid,
 {
 	ItemPointerData tid;
 	YbItemPointerYbctid(&tid) = ybctid;
-	ybginWrite(index, values, isnull, &tid, heap, indexInfo, false /* isinsert */);
+	ybginWrite(index, values, isnull, &tid, heap, indexInfo,
+			   false /* isinsert */);
 }
 
 IndexBuildResult *
