@@ -69,6 +69,8 @@ static const TableAmRoutine heapam_methods;
 static const TupleTableSlotOps *
 heapam_slot_callbacks(Relation relation)
 {
+	if (IsYBRelation(relation))
+		return &TTSOpsHeapTuple;
 	return &TTSOpsBufferHeapTuple;
 }
 
