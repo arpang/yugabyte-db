@@ -3143,8 +3143,9 @@ yb_skip_transaction_control_check:
 		ExecCheckTupleVisible(context->estate, relation, existing);
 	else
 	{
-		oldtuple = ExecFetchSlotHeapTuple(context->estate->yb_conflict_slot, true, &shouldFree);
-		ExecStoreBufferHeapTuple(oldtuple, existing, InvalidBuffer);
+		oldtuple = ExecFetchSlotHeapTuple(context->estate->yb_conflict_slot,
+										  true, &shouldFree);
+		ExecStoreHeapTuple(oldtuple, existing, false);
 		TABLETUPLE_YBCTID(context->planSlot) = HEAPTUPLE_YBCTID(oldtuple);
 	}
 

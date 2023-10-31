@@ -1294,7 +1294,8 @@ heapam_index_build_range_scan(Relation heapRelation,
 
 	/* YB_TODO(arpan): scan can be instance of YBScanDesc as well. hscan is only
 	 * used in non YB code path except for one place. See hscan usages. */
-	hscan = (HeapScanDesc) scan;
+	if (!IsYBRelation(heapRelation))
+		hscan = (HeapScanDesc) scan;
 
 	/*
 	 * Must have called GetOldestNonRemovableTransactionId() if using
@@ -1656,7 +1657,10 @@ heapam_index_build_range_scan(Relation heapRelation,
 			MemoryContextReset(econtext->ecxt_per_tuple_memory);
 
 		/* Set up for predicate or expression evaluation */
-		ExecStoreBufferHeapTuple(heapTuple, slot, hscan->rs_cbuf);
+		if (IsYBRelation(heapRelation))
+			ExecStoreHeapTuple(heapTuple, slot, false);
+		else
+			ExecStoreBufferHeapTuple(heapTuple, slot, hscan->rs_cbuf);
 
 		/*
 		 * In a partial index, discard tuples that don't satisfy the
