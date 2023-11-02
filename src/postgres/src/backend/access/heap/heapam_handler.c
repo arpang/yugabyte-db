@@ -1656,7 +1656,7 @@ heapam_index_build_range_scan(Relation heapRelation,
 
 		/* Set up for predicate or expression evaluation */
 		if (IsYBRelation(heapRelation))
-			ExecStoreHeapTuple(heapTuple, slot, false);
+			ExecStoreHeapTuple(heapTuple, slot, false /*shouldFree*/);
 		else
 			ExecStoreBufferHeapTuple(heapTuple, slot, hscan->rs_cbuf);
 
