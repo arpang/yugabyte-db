@@ -205,4 +205,4 @@ SELECT * FROM tlateral1 t1 LEFT JOIN LATERAL (SELECT t2.a AS t2a, t2.c AS t2c, t
 -- Cleanup
 DROP TABLE IF EXISTS address, address2, emp, emp2, emp_par1, emp_par1_1_100, emp_par2, emp_par3,
   fastpath, myemp, myemp2, myemp2_101_200, myemp2_1_100, p1, p2, pk_range_int_asc,
-  single_row_decimal, t1, t2, test, test2 CASCADE;
+  single_row_decimal, t1, t2, test, test2, serial_test, tlateral1, tlateral2 CASCADE;
