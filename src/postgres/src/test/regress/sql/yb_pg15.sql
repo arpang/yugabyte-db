@@ -117,7 +117,6 @@ SELECT * FROM single_row_decimal ORDER BY k;
 insert into t2 values (4), (5), (6);
 delete from t2 where id > 2 returning id, name;
 
--- YB_TODO: There's some issue with drop table
 -- COPY FROM
 CREATE TABLE myemp (id int primary key, name text);
 COPY myemp FROM stdin;
@@ -185,6 +184,7 @@ create table fastpath (a int, b text, c numeric);
 insert into fastpath select y.x, 'b' || (y.x/10)::text, 100 from (select generate_series(1,10000) as x) y;
 select md5(string_agg(a::text, b order by a, b asc)) from fastpath
 	where a >= 1000 and a < 2000 and b > 'b1' and b < 'b3';
+
 -- Index scan test row comparison expressions
 CREATE TABLE pk_range_int_asc (r1 INT, r2 INT, r3 INT, v INT, PRIMARY KEY(r1 asc, r2 asc, r3 asc));
 INSERT INTO pk_range_int_asc SELECT i/25, (i/5) % 5, i % 5, i FROM generate_series(1, 125) AS i;
@@ -220,3 +220,7 @@ explain SELECT * FROM mytest1 t1 JOIN mytest2 t2 on t1.h = t2.h WHERE t2.r = 2;
 SELECT * FROM mytest1 t1 JOIN mytest2 t2 on t1.h = t2.h WHERE t2.r = 2;
 SET enable_hashjoin = on;
 SET enable_nestloop = on;
+-- Cleanup
+DROP TABLE IF EXISTS address, address2, emp, emp2, emp_par1, emp_par1_1_100, emp_par2, emp_par3,
+  fastpath, myemp, myemp2, myemp2_101_200, myemp2_1_100, p1, p2, pk_range_int_asc,
+  single_row_decimal, t1, t2, test, test2, serial_test, tlateral1, tlateral2, mytest1, mytest2 CASCADE;
