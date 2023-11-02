@@ -3349,8 +3349,9 @@ IndexBackfillHeapRangeScan(Relation table_rel,
 						   YbBackfillInfo *bfinfo,
 						   YbPgExecOutParam *bfresult)
 {
-	/* YB_TODO(neil@yugabyte)
-	 * - Check for the value of the new flag "progress".
+	/*
+	 *	YB_TODO: Add support of "progress" feature for YB relations if needed
+	 *	and possible.
 	 */
 	return table_rel->rd_tableam->index_build_range_scan(table_rel,
 														 index_rel,
