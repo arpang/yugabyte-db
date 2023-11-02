@@ -3,9 +3,9 @@ CREATE INDEX test_a1 ON test (a1 HASH);
 INSERT INTO test (SELECT s, s, s, s FROM generate_series(1, 100000) s);
 -- ANALYZE has not been called and actual number of rows in the table are not known.
 SELECT reltuples FROM pg_class WHERE relname = 'test';
- reltuples
+ reltuples 
 -----------
-         0
+        -1
 (1 row)
 
 -- Filter on full key of unique index, expect 1 row.
