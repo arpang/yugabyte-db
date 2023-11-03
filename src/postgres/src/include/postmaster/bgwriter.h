@@ -28,7 +28,7 @@ extern PGDLLIMPORT int CheckPointWarning;
 extern PGDLLIMPORT double CheckPointCompletionTarget;
 
 extern void BackgroundWriterMain(void) pg_attribute_noreturn();
-extern void CheckpointerMain(void) pg_attribute_noreturn();
+extern void CheckpointerMain(void);
 
 extern void RequestCheckpoint(int flags);
 extern void CheckpointWriteDelay(int flags, double progress);

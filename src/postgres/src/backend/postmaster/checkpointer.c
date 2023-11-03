@@ -183,6 +183,8 @@ static void ReqCheckpointHandler(SIGNAL_ARGS);
 void
 CheckpointerMain(void)
 {
+	if (IsYugaByteEnabled() || YBIsEnabledInPostgresEnvVar())
+		return;
 	sigjmp_buf	local_sigjmp_buf;
 	MemoryContext checkpointer_context;
 
