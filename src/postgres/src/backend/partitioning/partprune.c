@@ -765,7 +765,7 @@ gen_partprune_steps(RelOptInfo *rel, List *clauses, PartClauseTarget target,
  * Callers must ensure that 'rel' is a partitioned table.
  */
 Bitmapset *
-prune_append_rel_partitions(RelOptInfo *rel, Oid* yb_oids)
+prune_append_rel_partitions(RelOptInfo *rel, Oid *yb_oids)
 {
 	List	   *clauses = rel->baserestrictinfo;
 	List	   *pruning_steps;
