@@ -510,13 +510,28 @@ SELECT * FROM tlateral1 t1 LEFT JOIN LATERAL (SELECT t2.a AS t2a, t2.c AS t2c, t
 (12 rows)
 
 -- Insert with on conflict on temp table
-create temporary table mytmp (id int primary key, name text);
-insert into mytmp values (1, 'foo');
+create temporary table mytmp (id int primary key, name text, count int);
+insert into mytmp values (1, 'foo', 0);
 insert into mytmp values (1, 'foo') on conflict ON CONSTRAINT mytmp_pkey do update set id = mytmp.id+1;
 select * from mytmp;
- id | name 
-----+------
-  2 | foo
+ id | name | count 
+----+------+-------
+  2 | foo  |     0
+(1 row)
+
+CREATE OR REPLACE FUNCTION update_count() RETURNS trigger LANGUAGE plpgsql AS
+$func$
+BEGIN
+   NEW.count := NEW.count+1;
+   RETURN NEW;
+END
+$func$;
+CREATE TRIGGER update_count_trig BEFORE UPDATE ON mytmp FOR ROW EXECUTE PROCEDURE update_count();
+insert into mytmp values (2, 'foo') on conflict ON CONSTRAINT mytmp_pkey do update set id = mytmp.id+1;
+select * from mytmp;
+ id | name | count 
+----+------+-------
+  3 | foo  |     1
 (1 row)
 
 -- Cleanup

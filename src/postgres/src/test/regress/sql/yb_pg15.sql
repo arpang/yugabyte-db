@@ -204,9 +204,21 @@ ANALYZE tlateral1, tlateral2;
 SELECT * FROM tlateral1 t1 LEFT JOIN LATERAL (SELECT t2.a AS t2a, t2.c AS t2c, t2.b AS t2b, t3.b AS t3b, least(t1.a,t2.a,t3.b) FROM tlateral1 t2 JOIN tlateral2 t3 ON (t2.a = t3.b AND t2.c = t3.c)) ss ON t1.a = ss.t2a WHERE t1.b = 0 ORDER BY t1.a;
 
 -- Insert with on conflict on temp table
-create temporary table mytmp (id int primary key, name text);
-insert into mytmp values (1, 'foo');
+create temporary table mytmp (id int primary key, name text, count int);
+insert into mytmp values (1, 'foo', 0);
 insert into mytmp values (1, 'foo') on conflict ON CONSTRAINT mytmp_pkey do update set id = mytmp.id+1;
+select * from mytmp;
+
+CREATE OR REPLACE FUNCTION update_count() RETURNS trigger LANGUAGE plpgsql AS
+$func$
+BEGIN
+   NEW.count := NEW.count+1;
+   RETURN NEW;
+END
+$func$;
+
+CREATE TRIGGER update_count_trig BEFORE UPDATE ON mytmp FOR ROW EXECUTE PROCEDURE update_count();
+insert into mytmp values (2, 'foo') on conflict ON CONSTRAINT mytmp_pkey do update set id = mytmp.id+1;
 select * from mytmp;
 
 -- Cleanup
