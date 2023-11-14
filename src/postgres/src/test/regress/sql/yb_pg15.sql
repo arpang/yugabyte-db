@@ -220,6 +220,28 @@ explain SELECT * FROM mytest1 t1 JOIN mytest2 t2 on t1.h = t2.h WHERE t2.r = 2;
 SELECT * FROM mytest1 t1 JOIN mytest2 t2 on t1.h = t2.h WHERE t2.r = 2;
 SET enable_hashjoin = on;
 SET enable_nestloop = on;
+-- Insert with on conflict on temp table
+create temporary table mytmp (id int primary key, name text, count int);
+insert into mytmp values (1, 'foo', 0);
+insert into mytmp values (1, 'foo') on conflict ON CONSTRAINT mytmp_pkey do update set id = mytmp.id+1;
+select * from mytmp;
+
+CREATE OR REPLACE FUNCTION update_count() RETURNS trigger LANGUAGE plpgsql AS
+$func$
+BEGIN
+   NEW.count := NEW.count+1;
+   RETURN NEW;
+END
+$func$;
+
+CREATE TRIGGER update_count_trig BEFORE UPDATE ON mytmp FOR ROW EXECUTE PROCEDURE update_count();
+insert into mytmp values (2, 'foo') on conflict ON CONSTRAINT mytmp_pkey do update set id = mytmp.id+1;
+select * from mytmp;
+
+create view myview as  select * from mytmp;
+insert into myview values (3, 'foo') on conflict (id) do update set id = myview.id + 1;
+select * from myview;
+
 -- Cleanup
 DROP TABLE IF EXISTS address, address2, emp, emp2, emp_par1, emp_par1_1_100, emp_par2, emp_par3,
   fastpath, myemp, myemp2, myemp2_101_200, myemp2_1_100, p1, p2, pk_range_int_asc,
