@@ -221,6 +221,10 @@ CREATE TRIGGER update_count_trig BEFORE UPDATE ON mytmp FOR ROW EXECUTE PROCEDUR
 insert into mytmp values (2, 'foo') on conflict ON CONSTRAINT mytmp_pkey do update set id = mytmp.id+1;
 select * from mytmp;
 
+create view myview as  select * from mytmp;
+insert into myview values (3, 'foo') on conflict (id) do update set id = myview.id + 1;
+select * from myview;
+
 -- Cleanup
 DROP TABLE IF EXISTS address, address2, emp, emp2, emp_par1, emp_par1_1_100, emp_par2, emp_par3,
   fastpath, myemp, myemp2, myemp2_101_200, myemp2_1_100, p1, p2, pk_range_int_asc,
