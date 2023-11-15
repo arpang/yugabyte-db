@@ -937,7 +937,7 @@ void
 RequestCheckpoint(int flags)
 {
 	/* Not applicable to Yugabyte as it doesn't use PG WAL. */
-	if (IsYugaByteEnabled())
+	if (IsYugaByteEnabled() || YBIsEnabledInPostgresEnvVar())
 		return;
 
   /*
@@ -1106,6 +1106,10 @@ RequestCheckpoint(int flags)
 bool
 ForwardSyncRequest(const FileTag *ftag, SyncRequestType type)
 {
+
+	/* Not applicable to Yugabyte as it doesn't use PG WAL. */
+	if (IsYugaByteEnabled() || YBIsEnabledInPostgresEnvVar())
+		return true;
 	CheckpointerRequest *request;
 	bool		too_full;
 

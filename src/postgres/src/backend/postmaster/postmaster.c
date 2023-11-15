@@ -5712,7 +5712,8 @@ StartChildProcess(AuxProcType type)
 	if (YBIsEnabledInPostgresEnvVar() &&
 		(type == BgWriterProcess ||
 		 type == WalWriterProcess ||
-		 type == WalReceiverProcess)) {
+		 type == WalReceiverProcess ||
+		 type == CheckpointerProcess)) {
 		return 0;
 	}
 
