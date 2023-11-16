@@ -285,7 +285,7 @@ ybginBuildCommon(Relation heap, Relation index, struct IndexInfo *indexInfo,
 	 * Do the heap scan.
 	 */
 	if (!bfinfo)
-		reltuples = table_index_build_scan(heap, index, indexInfo, true, false /* progress */,
+		reltuples = table_index_build_scan(heap, index, indexInfo, true, true,
 										   ybginBuildCallback, (void *) &buildstate,
 										   NULL /* HeapScanDesc */);
 	else
