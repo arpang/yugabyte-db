@@ -284,12 +284,8 @@ ybginBuildCommon(Relation heap, Relation index, struct IndexInfo *indexInfo,
 	/*
 	 * Do the heap scan.
 	 */
-	/*
-	 *	YB_TODO: Add support of "progress" feature for YB relations if needed
-	 *	and possible.
-	 */
 	if (!bfinfo)
-		reltuples = table_index_build_scan(heap, index, indexInfo, true, false/* progress */,
+		reltuples = table_index_build_scan(heap, index, indexInfo, true, false /* progress */,
 										   ybginBuildCallback, (void *) &buildstate,
 										   NULL /* HeapScanDesc */);
 	else

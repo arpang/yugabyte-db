@@ -631,7 +631,7 @@ index_fetch_heap(IndexScanDesc scan, TupleTableSlot *slot)
 {
 	if (IsYBRelation(scan->heapRelation))
 	{
-		ExecStoreHeapTuple(scan->xs_hitup, slot, false /*shouldFree*/);
+		ExecStoreHeapTuple(scan->xs_hitup, slot, false /* shouldFree */);
 		return true;
 	}
 
