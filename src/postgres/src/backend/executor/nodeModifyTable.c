@@ -3144,7 +3144,7 @@ yb_skip_transaction_control_check:
 	else
 	{
 		ybOldTuple = ExecFetchSlotHeapTuple(context->estate->yb_conflict_slot, true, &ybShouldFree);
-		ExecStoreHeapTuple(ybOldTuple, existing, false);
+		ExecStoreHeapTuple(ybOldTuple, existing, false /* shouldFree */);
 		TABLETUPLE_YBCTID(context->planSlot) = HEAPTUPLE_YBCTID(ybOldTuple);
 	}
 

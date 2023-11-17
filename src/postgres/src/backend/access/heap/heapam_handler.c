@@ -1292,8 +1292,9 @@ heapam_index_build_range_scan(Relation heapRelation,
 		snapshot = scan->rs_snapshot;
 	}
 
-	if (!IsYBRelation(heapRelation))
-		hscan = (HeapScanDesc) scan;
+	/* YB_TODO(arpan): scan can be instance of YBScanDesc as well. hscan is only
+	 * used in non YB code path except for one place. See hscan usages. */
+	hscan = (HeapScanDesc) scan;
 
 	/*
 	 * Must have called GetOldestNonRemovableTransactionId() if using
@@ -1643,22 +1644,21 @@ heapam_index_build_range_scan(Relation heapRelation,
 				tupleIsAlive = true;
 				reltuples += 1;
 			}
+
+			MemoryContextReset(econtext->ecxt_per_tuple_memory);
+
+			/* Set up for predicate or expression evaluation */
+			ExecStoreBufferHeapTuple(heapTuple, slot, hscan->rs_cbuf);
 		}
 		else
 		{
 			/* In YugaByte mode DocDB will only send live tuples. */
 			tupleIsAlive = true;
 			reltuples += 1;
-		}
 
-		if (!IsYBRelation(indexRelation))
-			MemoryContextReset(econtext->ecxt_per_tuple_memory);
-
-		/* Set up for predicate or expression evaluation */
-		if (IsYBRelation(heapRelation))
+			/* Set up for predicate or expression evaluation */
 			ExecStoreHeapTuple(heapTuple, slot, false /* shouldFree */);
-		else
-			ExecStoreBufferHeapTuple(heapTuple, slot, hscan->rs_cbuf);
+		}
 
 		/*
 		 * In a partial index, discard tuples that don't satisfy the
