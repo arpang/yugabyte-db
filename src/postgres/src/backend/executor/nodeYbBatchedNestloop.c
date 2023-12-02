@@ -605,7 +605,6 @@ AddTupleToOuterBatchTS(YbBatchedNestLoopState *bnlstate,
 							slot);
 	bnlstate->bnl_batchMatchedInfo =
 		lappend_int(bnlstate->bnl_batchMatchedInfo, 0);
-	tuplestore_gettupleslot(bnlstate->bnl_tupleStoreState, true, false, slot);
 }
 
 bool
