@@ -6357,6 +6357,9 @@ fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
 		}
 	}
 
+	/* YB_TODO: This can be optimized by converting
+	 * yb_get_fixed_batched_indexquals to yb_get_batched_indexquals such that it
+	 * returns both fixed and stripped quals.*/
 	if(!bms_is_empty(root->yb_cur_batched_relids) && IsYugaByteEnabled())
 	{
 		stripped_indexquals = yb_get_actual_batched_clauses(root, rinfos, (Path *) index_path);
