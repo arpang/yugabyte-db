@@ -279,7 +279,7 @@ IndexOnlyNext(IndexOnlyScanState *node)
 			econtext->ecxt_scantuple = slot;
 			ExprState *recheckqual = node->yb_indexqual_for_recheck
 				? node->yb_indexqual_for_recheck : node->recheckqual;
-			if (!ExecQualAndReset(recheckqual, econtext))
+			if (!ExecQual(recheckqual, econtext))
 			{
 				/* Fails recheck, so drop it and loop back for another */
 				ResetExprContext(econtext);
