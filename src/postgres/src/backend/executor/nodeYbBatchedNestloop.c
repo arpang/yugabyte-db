@@ -562,6 +562,7 @@ AddTupleToOuterBatchHash(YbBatchedNestLoopState *bnlstate,
 
 	binfo->tuples = list_append_unique_ptr(tl, tupinfo);
 	binfo->current = list_head(binfo->tuples);
+	ExecStoreMinimalTuple(tuple, slot, false);
 	MemoryContextSwitchTo(cxt);
 }
 
@@ -605,6 +606,7 @@ AddTupleToOuterBatchTS(YbBatchedNestLoopState *bnlstate,
 							slot);
 	bnlstate->bnl_batchMatchedInfo =
 		lappend_int(bnlstate->bnl_batchMatchedInfo, 0);
+	tuplestore_gettupleslot(bnlstate->bnl_tupleStoreState, true, false, slot);
 }
 
 bool
@@ -765,7 +767,7 @@ CreateBatch(YbBatchedNestLoopState *bnlstate, ExprContext *econtext)
 			Assert(nlp->paramval->varattno > 0);
 			if (!bnlstate->bnl_outerdone)
 			{
-				prm->value = slot_getattr(outerTupleSlot,
+				prm->value = slot_getattr(econtext->ecxt_outertuple,
 										  nlp->paramval->varattno,
 										  &(prm->isnull));
 			}
