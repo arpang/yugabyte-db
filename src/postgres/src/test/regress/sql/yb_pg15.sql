@@ -264,6 +264,10 @@ INSERT INTO m1 SELECT i*2 FROM generate_series(1, 2000) i;
 CREATE TABLE m2 (a money, primary key(a asc));
 INSERT INTO m2 SELECT i*5 FROM generate_series(1, 2000) i;
 SELECT * FROM m1 t1 JOIN m2 t2 ON t1.a = t2.a WHERE t1.a <= 50::money;
+-- Index on tmp table
+create temp table prtx2 (a integer, b integer, c integer);
+insert into prtx2 select 1 + i%10, i, i from generate_series(1,5000) i, generate_series(1,10) j;
+create index on prtx2 (c);
 
 -- Cleanup
 DROP TABLE IF EXISTS address, address2, emp, emp2, emp_par1, emp_par1_1_100, emp_par2, emp_par3,
