@@ -247,6 +247,13 @@ create temp table prtx2 (a integer, b integer, c integer);
 insert into prtx2 select 1 + i%10, i, i from generate_series(1,5000) i, generate_series(1,10) j;
 create index on prtx2 (c);
 
+-- testing yb_hash_code pushdown on a secondary index with a text hash column
+CREATE TABLE text_table (hr text, ti text, tj text, i int, j int, primary key (hr));
+INSERT INTO text_table SELECT i::TEXT, i::TEXT, i::TEXT, i, i FROM generate_series(1,10000) i;
+CREATE INDEX textidx ON text_table (tj);
+SELECT tj FROM text_table WHERE yb_hash_code(tj) <= 63;
+SELECT tj FROM text_table WHERE 63 >= yb_hash_code(tj);
+
 -- Cleanup
 DROP TABLE IF EXISTS address, address2, emp, emp2, emp_par1, emp_par1_1_100, emp_par2, emp_par3,
   fastpath, myemp, myemp2, myemp2_101_200, myemp2_1_100, p1, p2, pk_range_int_asc,
