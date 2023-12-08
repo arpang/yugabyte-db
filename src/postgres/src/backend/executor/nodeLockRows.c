@@ -109,6 +109,8 @@ lnext:
 		TM_Result	test;
 		TupleTableSlot *markSlot;
 
+		tmfd.traversed = false;
+
 		/* clear any leftover test tuple for this rel */
 		markSlot = EvalPlanQualSlot(&node->lr_epqstate, erm->relation, erm->rti);
 		ExecClearTuple(markSlot);
@@ -209,7 +211,7 @@ lnext:
 
 		if (IsYBBackedRelation(erm->relation)) {
 			test = YBCLockTuple(erm->relation, datum, erm->markType, erm->waitPolicy,
-													estate);
+													estate, markSlot);
 		}
 		else {
 			test = table_tuple_lock(erm->relation, &tid, estate->es_snapshot,
@@ -403,7 +405,6 @@ ExecInitLockRows(LockRows *node, EState *estate, int eflags)
 		PlanRowMark *rc = lfirst_node(PlanRowMark, lc);
 		ExecRowMark *erm;
 		ExecAuxRowMark *aerm;
-
 		/* ignore "parent" rowmarks; they are irrelevant at runtime */
 		if (rc->isParent)
 			continue;
