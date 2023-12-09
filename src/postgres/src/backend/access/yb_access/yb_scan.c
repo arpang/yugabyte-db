@@ -3208,7 +3208,6 @@ YBCLockTuple(Relation relation, Datum ybctid, RowMarkType mode,
 			 LockWaitPolicy pg_wait_policy, EState *estate,
 			 TupleTableSlot *slot)
 {
-	// elog(INFO, "YBCLockTuple RelationGetRelid(relation): %d", RelationGetRelid(relation));
 	int docdb_wait_policy;
 
 	YBSetRowLockPolicy(&docdb_wait_policy, pg_wait_policy);

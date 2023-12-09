@@ -109,8 +109,6 @@ lnext:
 		TM_Result	test;
 		TupleTableSlot *markSlot;
 
-		tmfd.traversed = false;
-
 		/* clear any leftover test tuple for this rel */
 		markSlot = EvalPlanQualSlot(&node->lr_epqstate, erm->relation, erm->rti);
 		ExecClearTuple(markSlot);
@@ -250,7 +248,7 @@ lnext:
 				 * Got the lock successfully, the locked tuple saved in
 				 * markSlot for, if needed, EvalPlanQual testing below.
 				 */
-				if (tmfd.traversed)
+				if (!IsYBBackedRelation(erm->relation) && tmfd.traversed)
 					epq_needed = true;
 				break;
 
@@ -277,11 +275,6 @@ lnext:
 							errmsg("could not serialize access due to concurrent update"),
 							yb_txn_errcode(YBCGetTxnConflictErrorCode())));
 				}
-
-				if (IsolationUsesXactSnapshot())
-					ereport(ERROR,
-							(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
-							 errmsg("could not serialize access due to concurrent update")));
 				elog(ERROR, "unexpected table_tuple_lock status: %u",
 					 test);
 				break;
@@ -405,6 +398,7 @@ ExecInitLockRows(LockRows *node, EState *estate, int eflags)
 		PlanRowMark *rc = lfirst_node(PlanRowMark, lc);
 		ExecRowMark *erm;
 		ExecAuxRowMark *aerm;
+
 		/* ignore "parent" rowmarks; they are irrelevant at runtime */
 		if (rc->isParent)
 			continue;
