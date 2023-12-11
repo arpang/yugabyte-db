@@ -285,7 +285,6 @@ lnext:
 					ereport(ERROR,
 							(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 							 errmsg("could not serialize access due to concurrent update")));
-
 				elog(ERROR, "unexpected table_tuple_lock status: %u",
 					 test);
 				break;
