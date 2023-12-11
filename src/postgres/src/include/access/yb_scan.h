@@ -262,7 +262,7 @@ extern void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
  * This API is needed for reading data via index.
  */
 extern TM_Result YBCLockTuple(Relation relation, Datum ybctid, RowMarkType mode,
-								LockWaitPolicy wait_policy, EState* estate, TupleTableSlot *slot);
+								LockWaitPolicy wait_policy, EState* estate);
 
 extern bool YBCFetchTuple(Relation relation, ItemPointer ybctid, TupleTableSlot *slot);
 

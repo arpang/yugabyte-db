@@ -3204,9 +3204,8 @@ YbFetchHeapTuple(Relation relation, ItemPointer tid, HeapTuple* tuple)
 }
 
 TM_Result
-YBCLockTuple(Relation relation, Datum ybctid, RowMarkType mode,
-			 LockWaitPolicy pg_wait_policy, EState *estate,
-			 TupleTableSlot *slot)
+YBCLockTuple(Relation relation, Datum ybctid, RowMarkType mode, LockWaitPolicy pg_wait_policy,
+			 EState* estate)
 {
 	int docdb_wait_policy;
 
@@ -3222,18 +3221,6 @@ YBCLockTuple(Relation relation, Datum ybctid, RowMarkType mode,
 	/* Bind ybctid to identify the current row. */
 	YBCPgExpr ybctid_expr = YBCNewConstant(ybc_stmt, BYTEAOID, InvalidOid, ybctid, false);
 	HandleYBStatus(YBCPgDmlBindColumn(ybc_stmt, YBTupleIdAttributeNumber, ybctid_expr));
-	TupleDesc tupdesc = RelationGetDescr(relation);
-
-	/*
-	 * Set up the scan targets. For index-based scan we need to return all
-	 * "real" columns.
-	 */
-	for (AttrNumber attnum = 1; attnum <= tupdesc->natts; attnum++)
-	{
-		if (!TupleDescAttr(tupdesc, attnum - 1)->attisdropped)
-			YbDmlAppendTargetRegular(tupdesc, attnum, ybc_stmt);
-	}
-	YbDmlAppendTargetSystem(YBTupleIdAttributeNumber, ybc_stmt);
 
 	YBCPgExecParameters exec_params = {0};
 	exec_params.limit_count = 1;
@@ -3254,8 +3241,8 @@ YBCLockTuple(Relation relation, Datum ybctid, RowMarkType mode,
 		HandleYBStatus(YBCPgExecSelect(ybc_stmt, &exec_params /* exec_params */));
 
 		bool has_data = false;
-		Datum *values = (Datum *) palloc0(tupdesc->natts * sizeof(Datum));
-		bool *nulls = (bool *) palloc(tupdesc->natts * sizeof(bool));
+		Datum *values = NULL;
+		bool *nulls = NULL;
 		YBCPgSysColumns syscols;
 
 		/*
@@ -3270,20 +3257,6 @@ YBCLockTuple(Relation relation, Datum ybctid, RowMarkType mode,
 						&syscols,
 						&has_data));
 		YBCPgAddIntoForeignKeyReferenceCache(RelationGetRelid(relation), ybctid);
-		if (has_data)
-		{
-			HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
-			ExecClearTuple(slot);
-			ExecStoreHeapTuple(tuple, slot, /* shouldFree= */ false);
-			slot->tts_nvalid = tupdesc->natts;
-			slot->tts_tupleDescriptor = tupdesc;
-			slot->tts_flags &= ~TTS_FLAG_EMPTY; /* Not empty */
-			TABLETUPLE_YBCTID(slot) = PointerGetDatum(syscols.ybctid); // todo: verify
-			slot->tts_tableOid = RelationGetRelid(relation); // todo: verify
-		}
-
-		pfree(values);
-		pfree(nulls);
 	}
 	PG_CATCH();
 	{

@@ -209,7 +209,7 @@ lnext:
 
 		if (IsYBBackedRelation(erm->relation)) {
 			test = YBCLockTuple(erm->relation, datum, erm->markType, erm->waitPolicy,
-													estate, markSlot);
+													estate);
 		}
 		else {
 			test = table_tuple_lock(erm->relation, &tid, estate->es_snapshot,
@@ -247,6 +247,12 @@ lnext:
 				/*
 				 * Got the lock successfully, the locked tuple saved in
 				 * markSlot for, if needed, EvalPlanQual testing below.
+				 *
+				 * TODO(Piyush): If we use EvalPlanQual for READ
+				 * COMMITTED in future:
+				 * - remove !IsYBBackedRelation(erm->relation)
+				 * - populate latest tuple version in markSlot in YBCLockTuple()
+				 * - set tmfd.traversed to true
 				 */
 				if (!IsYBBackedRelation(erm->relation) && tmfd.traversed)
 					epq_needed = true;
