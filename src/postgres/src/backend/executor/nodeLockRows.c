@@ -281,6 +281,7 @@ lnext:
 							errmsg("could not serialize access due to concurrent update"),
 							yb_txn_errcode(YBCGetTxnConflictErrorCode())));
 				}
+
 				if (IsolationUsesXactSnapshot())
 					ereport(ERROR,
 							(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
