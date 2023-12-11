@@ -260,10 +260,10 @@ lnext:
 
 			case TM_Updated:
 				/*
-				 * TODO(Piyush): If handling using EvalPlanQual for READ COMMITTED in future, replace true
+				 * TODO(Piyush): If handling using EvalPlanQual for READ COMMITTED in future, replace IsYBBackedRelation(erm->relation)
 				 * with IsolationUsesXactSnapshot().
 				 */
-				if (true)
+				if (IsYBBackedRelation(erm->relation))
 				{
 					if (erm->waitPolicy == LockWaitError)
 					{
@@ -281,6 +281,11 @@ lnext:
 							errmsg("could not serialize access due to concurrent update"),
 							yb_txn_errcode(YBCGetTxnConflictErrorCode())));
 				}
+				if (IsolationUsesXactSnapshot())
+					ereport(ERROR,
+							(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
+							 errmsg("could not serialize access due to concurrent update")));
+
 				elog(ERROR, "unexpected table_tuple_lock status: %u",
 					 test);
 				break;

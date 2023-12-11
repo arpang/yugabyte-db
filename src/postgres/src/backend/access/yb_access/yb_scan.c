@@ -3242,7 +3242,7 @@ YBCLockTuple(Relation relation, Datum ybctid, RowMarkType mode, LockWaitPolicy p
 
 		bool has_data = false;
 		Datum *values = NULL;
-		bool *nulls = NULL;
+		bool *nulls  = NULL;
 		YBCPgSysColumns syscols;
 
 		/*
