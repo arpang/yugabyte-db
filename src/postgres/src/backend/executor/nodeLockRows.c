@@ -260,8 +260,10 @@ lnext:
 
 			case TM_Updated:
 				/*
-				 * TODO(Piyush): If handling using EvalPlanQual for READ COMMITTED in future, replace IsYBBackedRelation(erm->relation)
-				 * with IsolationUsesXactSnapshot().
+				 * TODO(Piyush): If handling using EvalPlanQual for READ
+				 * COMMITTED in future, replace
+				 * IsYBBackedRelation(erm->relation) with
+				 * IsolationUsesXactSnapshot().
 				 */
 				if (IsYBBackedRelation(erm->relation))
 				{
