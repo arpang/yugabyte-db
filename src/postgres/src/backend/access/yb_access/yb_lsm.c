@@ -436,6 +436,7 @@ ybcingettuple(IndexScanDesc scan, ScanDirection dir)
 	/*
 	 * IndexScan(SysTable, Index) --> HeapTuple.
 	 */
+	YbItemPointerSetInvalid(&scan->xs_heaptid);
 	bool has_tuple = false;
 	if (ybscan->prepare_params.index_only_scan)
 	{
