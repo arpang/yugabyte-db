@@ -598,7 +598,6 @@ ybgingettuple(IndexScanDesc scan, ScanDirection dir)
 	}
 
 	/* fetch */
-	YbItemPointerSetInvalid(&scan->xs_heaptid);
 	if (scan->yb_aggrefs)
 	{
 		/*

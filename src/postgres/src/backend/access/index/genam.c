@@ -136,6 +136,7 @@ RelationGetIndexScan(Relation indexRelation, int nkeys, int norderbys)
 	scan->yb_aggrefs = NIL;
 	scan->yb_agg_slot = NULL;
 	scan->yb_distinct_prefixlen = 0;
+	ItemPointerSetInvalid(&scan->xs_heaptid);
 	return scan;
 }
 

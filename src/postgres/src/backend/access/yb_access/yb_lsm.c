@@ -436,7 +436,6 @@ ybcingettuple(IndexScanDesc scan, ScanDirection dir)
 	/*
 	 * IndexScan(SysTable, Index) --> HeapTuple.
 	 */
-	scan->xs_heaptid.yb_item.ybctid = 0;
 	bool has_tuple = false;
 	if (ybscan->prepare_params.index_only_scan)
 	{
@@ -447,6 +446,14 @@ ybcingettuple(IndexScanDesc scan, ScanDirection dir)
 			scan->xs_itup = tuple;
 			scan->xs_itupdesc = RelationGetDescr(scan->indexRelation);
 			has_tuple = true;
+
+			/*
+			 * Hack to pass ItemPointerIsValid() assertion in index_getnext_tid
+			 * when xs_heaptid is invalid. xs_heaptid is not used in YB
+			 * IndexOnlyScan.
+			 */
+			if (!ItemPointerIsValid(&scan->xs_heaptid))
+				YbItemPointerYbctid(&scan->xs_heaptid) = 1;
 		}
 	}
 	else

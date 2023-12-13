@@ -2573,9 +2573,11 @@ ybc_getnext_aggslot(IndexScanDesc scan, YBCPgStatement handle,
 	 */
 	scan->yb_agg_slot = ybFetchNext(handle, scan->yb_agg_slot,
 									InvalidOid /* relid */);
-	/* For IndexScan, hack to make index_getnext think there are tuples. */
-	if (!index_only_scan)
-		scan->xs_hitup = (HeapTuple) 1;
+	/*
+	 * Hack to pass ItemPointerIsValid() assertion in index_getnext_tid. The
+	 * scan slot is already populated, xs_heaptid won't be used.
+	 */
+	YbItemPointerYbctid(&scan->xs_heaptid) = 1;
 	return !TTS_EMPTY(scan->yb_agg_slot);
 }
 
