@@ -35,6 +35,8 @@ void YBCInterruptPgGate();
 // Initialize a session to process statements that come from the same client connection.
 YBCStatus YBCPgInitSession(const char* database_name, YBCPgExecStatsState* session_stats);
 
+uint64_t YBCPgGetSessionID();
+
 // Initialize YBCPgMemCtx.
 // - Postgres uses memory context to hold all of its allocated space. Once all associated operations
 //   are done, the context is destroyed.
@@ -88,6 +90,9 @@ bool YBCTryMemConsume(int64_t bytes);
 bool YBCTryMemRelease(int64_t bytes);
 
 YBCStatus YBCGetHeapConsumption(YbTcmallocStats *desc);
+
+// Validate the JWT based on the options including the identity matching based on the identity map.
+YBCStatus YBCValidateJWT(const char *token, const YBCPgJwtAuthOptions *options);
 
 //--------------------------------------------------------------------------------------------------
 // DDL Statements
@@ -233,7 +238,8 @@ YBCStatus YBCPgNewAlterTable(YBCPgOid database_oid,
                              YBCPgStatement *handle);
 
 YBCStatus YBCPgAlterTableAddColumn(YBCPgStatement handle, const char *name, int order,
-                                   const YBCPgTypeEntity *attr_type);
+                                   const YBCPgTypeEntity *attr_type,
+                                   YBCPgExpr missing_value);
 
 YBCStatus YBCPgAlterTableRenameColumn(YBCPgStatement handle, const char *oldname,
                                       const char *newname);
@@ -334,6 +340,8 @@ YBCStatus YBCPgNewDropIndex(YBCPgOid database_oid,
 YBCStatus YBCPgExecPostponedDdlStmt(YBCPgStatement handle);
 
 YBCStatus YBCPgExecDropTable(YBCPgStatement handle);
+
+YBCStatus YBCPgExecDropIndex(YBCPgStatement handle);
 
 YBCStatus YBCPgWaitForBackendsCatalogVersion(
     YBCPgOid dboid,
@@ -523,6 +531,9 @@ YBCStatus YBCPgNewSelect(YBCPgOid database_oid,
 // Set forward/backward scan direction.
 YBCStatus YBCPgSetForwardScan(YBCPgStatement handle, bool is_forward_scan);
 
+// Set prefix length for distinct index scans.
+YBCStatus YBCPgSetDistinctPrefixLength(YBCPgStatement handle, int distinct_prefix_length);
+
 YBCStatus YBCPgExecSelect(YBCPgStatement handle, const YBCPgExecParameters *exec_params);
 
 // Functions----------------------------------------------------------------------------------------
@@ -559,6 +570,8 @@ YBCStatus YBCPgSetActiveSubTransaction(uint32_t id);
 YBCStatus YBCPgRollbackToSubTransaction(uint32_t id);
 double YBCGetTransactionPriority();
 TxnPriorityRequirement YBCGetTransactionPriorityType();
+YBCStatus YBCPgGetSelfActiveTransaction(YBCPgUuid *txn_id, bool *is_null);
+YBCStatus YBCPgActiveTransactions(YBCPgSessionTxnInfo *infos, size_t num_infos);
 
 // System validation -------------------------------------------------------------------------------
 // Validate placement information
@@ -596,7 +609,7 @@ YBCStatus YBCPgUpdateConstInt8(YBCPgExpr expr, int64_t value, bool is_null);
 YBCStatus YBCPgUpdateConstFloat4(YBCPgExpr expr, float value, bool is_null);
 YBCStatus YBCPgUpdateConstFloat8(YBCPgExpr expr, double value, bool is_null);
 YBCStatus YBCPgUpdateConstText(YBCPgExpr expr, const char *value, bool is_null);
-YBCStatus YBCPgUpdateConstChar(YBCPgExpr expr, const char *value, int64_t bytes, bool is_null);
+YBCStatus YBCPgUpdateConstBinary(YBCPgExpr expr, const char *value, int64_t bytes, bool is_null);
 
 // Expressions with operators "=", "+", "between", "in", ...
 YBCStatus YBCPgNewOperator(
