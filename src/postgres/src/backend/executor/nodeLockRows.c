@@ -251,8 +251,10 @@ lnext:
 				 * TODO(Piyush): If we use EvalPlanQual for READ
 				 * COMMITTED in future:
 				 * - remove !IsYBBackedRelation(erm->relation)
-				 * - populate latest tuple version in markSlot in YBCLockTuple()
-				 * - set tmfd.traversed to true
+				 * - In YBCLockTuple():
+				 *	- initialize tmfd.traversed to false
+				 *	- if the tuple being locked is updated, populate latest
+				 *    tuple version in markSlot and set tmfd.traversed to true
 				 */
 				if (!IsYBBackedRelation(erm->relation) && tmfd.traversed)
 					epq_needed = true;
