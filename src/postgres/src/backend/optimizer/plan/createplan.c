@@ -6246,8 +6246,7 @@ replace_nestloop_params_mutator(Node *node, PlannerInfo *root)
 
 static void
 yb_get_batched_indexquals(PlannerInfo *root, IndexPath *index_path,
-								List **stripped_indexquals,
-								List **fixed_indexquals)
+						  List **stripped_indexquals, List **fixed_indexquals)
 {
 	Assert(bms_num_members(index_path->path.parent->relids) == 1);
 	if (!bms_is_empty(root->yb_cur_batched_relids))
@@ -6269,15 +6268,16 @@ yb_get_batched_indexquals(PlannerInfo *root, IndexPath *index_path,
 
 				if (tmp_batched)
 				{
-					Node	   *clause = (Node *) tmp_batched->clause;
+					Node *clause = (Node *) tmp_batched->clause;
 
 					if (list_member_ptr(*stripped_indexquals, clause))
 						continue;
 					
 					*stripped_indexquals = lappend(*stripped_indexquals, clause);
-					clause = copyObject(clause); // why is this needed?
-					clause = fix_indexqual_clause(root, index_path->indexinfo, indexcol,
-								clause, iclause->indexcols);
+					clause = copyObject(clause);
+					clause = fix_indexqual_clause(root, index_path->indexinfo,
+												  indexcol, clause,
+												  iclause->indexcols);
 					*fixed_indexquals = lappend(*fixed_indexquals, clause);
 				}
 			}
@@ -6319,7 +6319,7 @@ fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
 	stripped_indexquals = fixed_indexquals = NIL;
 
 	yb_get_batched_indexquals(root, index_path, &stripped_indexquals,
-									&fixed_indexquals);
+							  &fixed_indexquals);
 
 	foreach(lc, index_path->indexclauses)
 	{
