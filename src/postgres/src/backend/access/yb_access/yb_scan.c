@@ -519,7 +519,7 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, bool is_forward_scan)
 		{
 			/*
 			 * ItemPointer t_tid is not set (and used) for YB IndexOnlyScan. Set
-			 * it to a dummy non-invalid value to pass ItemPointerIsValid()
+			 * it to a dummy-but-valid value to pass ItemPointerIsValid()
 			 * assertion in index_getnext_tid. Before doing that, check that
 			 * t_tid is indeed invalid, just in case something changes in the
 			 * future.
