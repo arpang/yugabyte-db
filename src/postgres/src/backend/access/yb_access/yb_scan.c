@@ -515,6 +515,18 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, bool is_forward_scan)
 			}
 		}
 
+		if (ybScan->prepare_params.index_only_scan)
+		{
+			/*
+			 * ItemPointer t_tid is not set (and used) for YB IndexOnlyScan. Set
+			 * it to a dummy non-invalid value to pass ItemPointerIsValid()
+			 * assertion in index_getnext_tid. Before doing that, check that
+			 * t_tid is indeed invalid, just in case something changes in the
+			 * future.
+			 */
+			Assert(!ItemPointerIsValid(&tuple->t_tid));
+			INDEXTUPLE_YBCTID(tuple) = 1;
+		}
 	}
 	pfree(values);
 	pfree(nulls);
