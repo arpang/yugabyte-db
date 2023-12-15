@@ -499,6 +499,7 @@ pgstat_beshutdown_hook(int code, Datum arg)
 	PGSTAT_BEGIN_WRITE_ACTIVITY(beentry);
 
 	beentry->st_procpid = 0;	/* mark invalid */
+	beentry->yb_session_id = 0;
 
 	PGSTAT_END_WRITE_ACTIVITY(beentry);
 
@@ -1211,9 +1212,92 @@ yb_pgstat_clear_entry_pid(int pid)
 		{
 			PGSTAT_BEGIN_WRITE_ACTIVITY(beentry);
 			beentry->st_procpid = 0;	/* mark invalid */
+			beentry->yb_session_id = 0;
 			PGSTAT_END_WRITE_ACTIVITY(beentry);
 			return;
 		}
 		beentry++;
 	}
+}
+
+/* ----------
+ * yb_pgstat_report_allocated_mem_bytes() -
+ *
+ *	Called from utils/mmgr/mcxt.c to update our allocated memory measurement
+ *	value
+ * ----------
+ */
+void
+yb_pgstat_report_allocated_mem_bytes(void)
+{
+	volatile PgBackendStatus *beentry = MyBEEntry;
+
+	if (!beentry)
+		return;
+
+	PGSTAT_BEGIN_WRITE_ACTIVITY(beentry);
+
+	beentry->yb_st_allocated_mem_bytes = PgMemTracker.backend_cur_allocated_mem_bytes;
+
+	PGSTAT_END_WRITE_ACTIVITY(beentry);
+}
+
+/* ----------
+ * yb_pgstat_set_catalog_version() -
+ *
+ *		Set yb_st_catalog_version.version for my backend
+ * ----------
+ */
+void
+yb_pgstat_set_catalog_version(uint64_t catalog_version)
+{
+	volatile PgBackendStatus *vbeentry = MyBEEntry;
+
+	PGSTAT_BEGIN_WRITE_ACTIVITY(vbeentry);
+
+	vbeentry->yb_st_catalog_version.version = catalog_version;
+
+	PGSTAT_END_WRITE_ACTIVITY(vbeentry);
+}
+
+/* ----------
+ * yb_pgstat_set_has_catalog_version() -
+ *
+ *		Set yb_st_catalog_version.has_version for my backend
+ * ----------
+ */
+void
+yb_pgstat_set_has_catalog_version(bool has_version)
+{
+	volatile PgBackendStatus *vbeentry = MyBEEntry;
+
+	PGSTAT_BEGIN_WRITE_ACTIVITY(vbeentry);
+
+	vbeentry->yb_st_catalog_version.has_version = has_version;
+
+	PGSTAT_END_WRITE_ACTIVITY(vbeentry);
+}
+
+void
+yb_pgstat_add_session_info(uint64_t session_id)
+{
+	volatile PgBackendStatus *vbeentry = NULL;
+
+	/* This code could be invoked either in a regular backend or in an
+	 * auxiliary process. In case of the latter, skip initializing shared
+	 * memory context. See note in pgstat_initalize() */
+	if (MyBEEntry == NULL)
+	{
+		/* Must be an auxiliary process */
+		Assert(MyAuxProcType != NotAnAuxProcess);
+		return;
+	}
+
+	vbeentry = MyBEEntry;
+
+	PGSTAT_BEGIN_WRITE_ACTIVITY(vbeentry);
+
+	vbeentry->yb_session_id = session_id;
+
+	PGSTAT_END_WRITE_ACTIVITY(vbeentry);
 }
