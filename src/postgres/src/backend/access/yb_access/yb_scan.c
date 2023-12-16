@@ -523,6 +523,8 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, bool is_forward_scan)
 			 * assertion in index_getnext_tid. Before doing that, check that
 			 * t_tid is indeed invalid, just in case something changes in the
 			 * future.
+			 *
+			 * YB_TODO: This is hacky, can we do better than this?
 			 */
 			Assert(!ItemPointerIsValid(&tuple->t_tid));
 			INDEXTUPLE_YBCTID(tuple) = 1;
@@ -2588,6 +2590,8 @@ ybc_getnext_aggslot(IndexScanDesc scan, YBCPgStatement handle,
 	/*
 	 * Hack to pass ItemPointerIsValid() assertion in index_getnext_tid. The
 	 * scan slot is already populated, xs_heaptid won't be used.
+	 *
+	 * YB_TODO: Can we do better than this hack?
 	 */
 	YbItemPointerYbctid(&scan->xs_heaptid) = 1;
 	return !TTS_EMPTY(scan->yb_agg_slot);
