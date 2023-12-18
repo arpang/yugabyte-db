@@ -5,7 +5,7 @@
 -- runs.
 --
 
--- Test pg_stat_activity view.  The three rows correspond to checkpointer,
+-- Test pg_stat_activity view.  The two rows correspond to
 -- this connection, and java test default connection.
 SELECT datname, usename, state, query, backend_type,
        catalog_version IS NOT null AS has_catalog_snapshot

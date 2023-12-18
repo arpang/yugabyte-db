@@ -60,6 +60,7 @@
 #include "utils/resowner.h"
 
 /* Yugabyte includes */
+#include "common/pg_yb_common.h"
 #include "pg_yb_utils.h"
 
 
@@ -935,19 +936,15 @@ void
 RequestCheckpoint(int flags)
 {
 	/* Not applicable to Yugabyte as it doesn't use PG WAL. */
-	if (IsYugaByteEnabled())
+	if (YBIsEnabledInPostgresEnvVar())
+	{
+		/*
+		 * Throw warning for user requested checkpoints.
+		 */
+		if (flags & CHECKPOINT_CAUSE_CLIENT)
+			ereport(WARNING, (errmsg("CHECKPOINT will be ignored")));
 		return;
-
-  /*
-   * YB: ignoring user requested checkpoints for now
-   */
-  if(flags & CHECKPOINT_CAUSE_CLIENT)
-  {
-    ereport(WARNING,
-            (errmsg("CHECKPOINT will be ignored")));
-     return;
-  }
-
+	}
 
 	int			ntries;
 	int			old_failed,
@@ -1112,6 +1109,10 @@ ForwardSyncRequest(const FileTag *ftag, SyncRequestType type)
 
 	if (AmCheckpointerProcess())
 		elog(ERROR, "ForwardSyncRequest must not be called in checkpointer");
+
+	/* Not applicable to Yugabyte as it doesn't use PG WAL. */
+	if (IsYugaByteEnabled())
+		return true;
 
 	LWLockAcquire(CheckpointerCommLock, LW_EXCLUSIVE);
 

@@ -75,7 +75,7 @@ public class TestPgConnection extends BasePgSQLTest {
     try (Statement stmt = createConnection().createStatement()) {
       ResultSet result = stmt.executeQuery("SELECT COUNT(*) FROM pg_stat_activity");
       result.next();
-      return MAX_CONNECTIONS - result.getInt("count") + 1;
+      return MAX_CONNECTIONS - result.getInt("count");
     }
   }
 

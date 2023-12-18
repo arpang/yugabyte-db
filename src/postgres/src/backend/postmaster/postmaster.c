@@ -5681,10 +5681,12 @@ StartChildProcess(AuxProcType type)
 {
 	pid_t		pid;
 
+	/* YB_TODO: Is disabling checkpointer process the right thing to do? */
 	if (YBIsEnabledInPostgresEnvVar() &&
 		(type == BgWriterProcess ||
 		 type == WalWriterProcess ||
-		 type == WalReceiverProcess)) {
+		 type == WalReceiverProcess||
+		 type == CheckpointerProcess)) {
 		return 0;
 	}
 
