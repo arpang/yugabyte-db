@@ -15,6 +15,7 @@
 #define TRANSAM_H
 
 #include "access/xlogdefs.h"
+#include "pg_yb_utils.h"
 
 
 /* ----------------
@@ -114,16 +115,19 @@ FullTransactionIdRetreat(FullTransactionId *dest)
 	 * ShmemVariableCache->latestCompletedXid in StartupXLOG. PG11 used
 	 * TransactionIdRetreat instead. For input 3
 	 * (FirstNormalTransactionId/FirstNormalFullTransactionId),
-	 * TransactionIdRetreat returns -1 whereas FullTransactionIdRetreat
+	 * TransactionIdRetreat returns 2^32-1 whereas FullTransactionIdRetreat
 	 * returns 2. This difference is causing assertion
 	 * TransactionIdIsNormal(CurrentRunningXacts->latestCompletedXid) in
-	 * procarray.c to fail on every checkpointer run in pg15. This sees to be bug on PG's
-	 * part. Disabling the below if-block to keep the behaviour of
+	 * procarray.c to fail on every checkpoint run in pg15. This seems to be
+	 * bug on PG's part. Disabling the below if-block to keep the behaviour of
 	 * TransactionIdRetreat and FullTransactionIdRetreat same.
 	 * ShmemVariableCache->latestCompletedXid is anyway not much used in YB.
-	if (FullTransactionIdPrecedes(*dest, FirstNormalFullTransactionId))
-		return;
-	*/
+	 */
+	if (!YBIsEnabledInPostgresEnvVar())
+	{
+		if (FullTransactionIdPrecedes(*dest, FirstNormalFullTransactionId))
+			return;
+	}
 
 	/*
 	 * But we do need to step over XIDs that'd appear special only for 32bit
