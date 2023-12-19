@@ -15,7 +15,9 @@
 #define TRANSAM_H
 
 #include "access/xlogdefs.h"
-#include "pg_yb_utils.h"
+
+/* Yugabyte includes */
+#include "common/pg_yb_common.h"
 
 
 /* ----------------
