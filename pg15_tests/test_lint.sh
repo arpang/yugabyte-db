@@ -10,6 +10,12 @@ diff <(find . -name '*.sh' | grep -v '^./test_' | sort) - <<EOT
 ./run_test_n_times.sh
 EOT
 
+# passing_foo.tsv should be sorted and have no duplicates.
+find . -name 'passing_*.tsv' \
+  | while read -r tsv; do
+  sort -cu "$tsv"
+done
+
 find . -name '*.sh' \
   | grep '^./test_' \
   | while read -r test_file; do
@@ -24,6 +30,6 @@ EOT
   # All tests besides this one should not contain "/ysqlsh", which suggests
   # running the ysqlsh executable.  Instead, they should use the ysqlsh helper
   # function defined in common.sh.
-  [ "$test_file" != ./"${BASH_SOURCE[0]##*/}" ] && \
+  [ "$test_file" == ./"${BASH_SOURCE[0]##*/}" ] || \
     ! grep "/ysqlsh" "$test_file"
 done
