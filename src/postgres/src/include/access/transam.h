@@ -109,8 +109,21 @@ FullTransactionIdRetreat(FullTransactionId *dest)
 	 * For 64bit xids these can't be reached as part of a wraparound as they
 	 * can in the 32bit case.
 	 */
+	/*
+	 * FullTransactionIdRetreat is used to initialize
+	 * ShmemVariableCache->latestCompletedXid in StartupXLOG. PG11 used
+	 * TransactionIdRetreat instead. For input 3
+	 * (FirstNormalTransactionId/FirstNormalFullTransactionId),
+	 * TransactionIdRetreat returns -1 whereas FullTransactionIdRetreat
+	 * returns 2. This difference is causing assertion
+	 * TransactionIdIsNormal(CurrentRunningXacts->latestCompletedXid) in
+	 * procarray.c to fail on every checkpointer run in pg15. This sees to be bug on PG's
+	 * part. Disabling the below if-block to keep the behaviour of
+	 * TransactionIdRetreat and FullTransactionIdRetreat same.
+	 * ShmemVariableCache->latestCompletedXid is anyway not much used in YB.
 	if (FullTransactionIdPrecedes(*dest, FirstNormalFullTransactionId))
 		return;
+	*/
 
 	/*
 	 * But we do need to step over XIDs that'd appear special only for 32bit
