@@ -113,17 +113,26 @@ FullTransactionIdRetreat(FullTransactionId *dest)
 	 * can in the 32bit case.
 	 */
 	/*
-	 * FullTransactionIdRetreat is used to initialize
+	 * YB note: FullTransactionIdRetreat is used to initialize
 	 * ShmemVariableCache->latestCompletedXid in StartupXLOG. PG11 used
-	 * TransactionIdRetreat instead. For input 3
-	 * (FirstNormalTransactionId/FirstNormalFullTransactionId),
-	 * TransactionIdRetreat returns 2^32-1 whereas FullTransactionIdRetreat
-	 * returns 2. This difference is causing assertion
+	 * macro TransactionIdRetreat instead.
+	 * For context, 3 indicates
+	 * FirstNormalTransactionId/FirstNormalFullTransactionId.
+	 *
+	 *  - TransactionIdRetreat: for dest = 3 as input, sets dest to 2^32-1 on
+	 * completion
+	 *  - FullTransactionIdRetreat: for dest->value = 3 as input, set
+	 * dest->value to 2 on completion
+	 *
+	 * This difference causes assertion
 	 * TransactionIdIsNormal(CurrentRunningXacts->latestCompletedXid) in
-	 * procarray.c to fail on every checkpoint run in pg15. This seems to be
-	 * bug on PG's part. Disabling the below if-block to keep the behaviour of
-	 * TransactionIdRetreat and FullTransactionIdRetreat same.
-	 * ShmemVariableCache->latestCompletedXid is anyway not much used in YB.
+	 * procarray.c to fail on every checkpoint run in YB with pg15. This seems
+	 * to be bug on PG's part. This surfaced in YB because we do not update
+	 * ShmemVariableCache->latestCompletedXid after initialization. Disabling
+	 * the below if-block to keep the behaviour of TransactionIdRetreat and
+	 * FullTransactionIdRetreat the same. Even if it is not a PG bug, it should
+	 * be okay because ShmemVariableCache->latestCompletedXid is not used much
+	 * in YB.
 	 */
 	if (!YBIsEnabledInPostgresEnvVar())
 	{
