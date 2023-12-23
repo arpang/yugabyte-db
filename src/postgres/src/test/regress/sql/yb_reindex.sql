@@ -256,6 +256,7 @@ REINDEX (VERBOSE) INDEX yb_j_idx;
 
 -- unsupported command/options
 REINDEX INDEX CONCURRENTLY yb_j_idx;
+REINDEX(VERBOSE) INDEX CONCURRENTLY yb_j_idx;
 REINDEX(CONCURRENTLY) INDEX yb_j_idx;
 REINDEX(tablespace somespace) INDEX yb_j_idx;
 
