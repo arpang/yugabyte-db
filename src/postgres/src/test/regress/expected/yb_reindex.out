@@ -490,7 +490,7 @@ LINE 1: REINDEX INDEX CONCURRENTLY yb_j_idx;
 HINT:  Please report the issue on https://github.com/YugaByte/yugabyte-db/issues
 REINDEX (VERBOSE) INDEX CONCURRENTLY yb_j_idx;
 ERROR:  REINDEX CONCURRENTLY not supported yet
-LINE 1: REINDEX(VERBOSE) INDEX CONCURRENTLY yb_j_idx;
+LINE 1: REINDEX (VERBOSE) INDEX CONCURRENTLY yb_j_idx;
         ^
 HINT:  Please report the issue on https://github.com/YugaByte/yugabyte-db/issues
 REINDEX (CONCURRENTLY) INDEX yb_j_idx;
