@@ -1072,7 +1072,7 @@ YBCCreateIndex(const char *indexName,
 }
 
 static Node *
-ybFetchDefaultConstraintExpr(ColumnDef *column)
+ybFetchDefaultConstraintExpr(const ColumnDef *column)
 {
 	Node *result = NULL;
 	ListCell *clist;
