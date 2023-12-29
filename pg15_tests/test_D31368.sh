@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source "${BASH_SOURCE[0]%/*}"/common.sh
 
+# yb_get_current_transaction_priority fails in macOS - but that happens in master branch too.
 failing_java_test 'TestPgRegressProc'
 grep_in_java_test \
   'failed tests: [yb_hash_code, yb_lock_status]' \
