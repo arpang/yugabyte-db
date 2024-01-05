@@ -1072,7 +1072,7 @@ YBCCreateIndex(const char *indexName,
 }
 
 static Node *
-ybFetchDefaultConstraintExpr(const ColumnDef *column)
+ybFetchDefaultConstraintExpr(const ColumnDef *column, Relation rel)
 {
 	Node *result = NULL;
 	ListCell *clist;
@@ -1083,9 +1083,9 @@ ybFetchDefaultConstraintExpr(const ColumnDef *column)
 		{
 			if (result)
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-								errmsg("multiple default values specified for "
-									   "column \"%s\"",
-									   column->colname)));
+								errmsg("multiple default values specified for column \"%s\"  of table \"%s\"",
+									   column->colname,
+									   RelationGetRelationName(rel))));
 			result = constraint->raw_expr;
 			Assert(constraint->cooked_expr == NULL);
 		}
@@ -1156,7 +1156,7 @@ YBCPrepareAlterTableCmd(AlterTableCmd* cmd, Relation rel, List *handles,
 				(YBCPgStatement) lfirst(list_head(handles));
 
 			YBCPgExpr res = NULL;
-			Node *default_expr = ybFetchDefaultConstraintExpr(colDef);
+			Node *default_expr = ybFetchDefaultConstraintExpr(colDef, rel);
 			if (default_expr && yb_enable_add_column_missing_default)
 			{
 				ParseState *pstate = make_parsestate(NULL);
