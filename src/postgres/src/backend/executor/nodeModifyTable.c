@@ -4311,6 +4311,7 @@ ExecModifyTable(PlanState *pstate)
 				if (isNull)
 					elog(ERROR, "ybctid is NULL");
 
+				TABLETUPLE_YBCTID(context.planSlot) = datum;
 				HEAPTUPLE_YBCTID(&oldtupdata) = datum;
 
 				oldtuple = &oldtupdata;
@@ -4357,6 +4358,7 @@ ExecModifyTable(PlanState *pstate)
 					tuple_ctid = *tupleid;	/* be sure we don't free ctid!! */
 				}
 				tupleid = &tuple_ctid;
+				TABLETUPLE_YBCTID(context.planSlot) = datum;
 			}
 
 			/*
