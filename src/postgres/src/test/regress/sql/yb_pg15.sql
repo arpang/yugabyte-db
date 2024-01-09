@@ -281,6 +281,7 @@ CREATE TABLE t(h INT, r INT, PRIMARY KEY(h, r));
 INSERT INTO t VALUES(1, 1), (1, 3);
 SELECT * FROM t WHERE h = 1 AND r in(1, 3) FOR KEY SHARE;
 DROP TABLE t;
+
 -- Test for ItemPointerIsValid assertion failure
 CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple');
 -- Aggregate pushdown
