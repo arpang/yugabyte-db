@@ -516,7 +516,8 @@ ExecBuildUpdateProjection(List *targetList,
 						  TupleDesc relDesc,
 						  ExprContext *econtext,
 						  TupleTableSlot *slot,
-						  PlanState *parent)
+						  PlanState *parent,
+						  bool is_yb_relation)
 {
 	ProjectionInfo *projInfo = makeNode(ProjectionInfo);
 	ExprState  *state;
@@ -591,6 +592,8 @@ ExecBuildUpdateProjection(List *targetList,
 		if (attr->attisdropped)
 			continue;
 		if (bms_is_member(attnum, assignedCols))
+			continue;
+		if (is_yb_relation)
 			continue;
 		deform.last_scan = attnum;
 		break;
@@ -713,7 +716,7 @@ ExecBuildUpdateProjection(List *targetList,
 			scratch.d.assign_tmp.resultnum = attnum - 1;
 			ExprEvalPushStep(state, &scratch);
 		}
-		else if (!bms_is_member(attnum, assignedCols))
+		else if (!is_yb_relation && !bms_is_member(attnum, assignedCols))
 		{
 			/* Certainly the right type, so needn't check */
 			scratch.opcode = EEOP_ASSIGN_SCAN_VAR;

@@ -704,7 +704,8 @@ ExecInitUpdateProjection(ModifyTableState *mtstate,
 								  relDesc,
 								  mtstate->ps.ps_ExprContext,
 								  resultRelInfo->ri_newTupleSlot,
-								  &mtstate->ps);
+								  &mtstate->ps,
+								  IsYBRelation(resultRelInfo->ri_RelationDesc));
 
 	resultRelInfo->ri_projectNewInfoValid = true;
 }
@@ -3861,7 +3862,8 @@ ExecInitMerge(ModifyTableState *mtstate, EState *estate)
 												  relationDesc,
 												  econtext,
 												  resultRelInfo->ri_newTupleSlot,
-												  &mtstate->ps);
+												  &mtstate->ps,
+												  IsYBRelation(resultRelInfo->ri_RelationDesc));
 					mtstate->mt_merge_subcommands |= MERGE_UPDATE;
 					break;
 				case CMD_DELETE:
@@ -4448,8 +4450,7 @@ ExecModifyTable(PlanState *pstate)
 						bool row_found = false;
 						if (IsYBRelation(relation))
 						{
-							row_found =
-								YbFetchTableSlot(relation, tupleid, oldSlot);
+							row_found = true;
 						}
 						else
 						{
@@ -4935,7 +4936,8 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 									  relationDesc,
 									  econtext,
 									  onconfl->oc_ProjSlot,
-									  &mtstate->ps);
+									  &mtstate->ps,
+									  IsYBRelation(resultRelInfo->ri_RelationDesc));
 
 		/* initialize state to evaluate the WHERE clause, if any */
 		if (node->onConflictWhere)
