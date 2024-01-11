@@ -125,7 +125,7 @@ public class TestPgAlterTable extends BasePgSQLTest {
       runInvalidQuery(
           statement,
           "INSERT INTO test_table(id, b) VALUES(1, 3)",
-          "null value in column \"a\" violates not-null constraint"
+          "null value in column \"a\" of relation \"test_table\" violates not-null constraint"
       );
 
       runInvalidQuery(
@@ -510,7 +510,7 @@ public class TestPgAlterTable extends BasePgSQLTest {
         "SELECT a.attname, t.typname FROM pg_attribute a" +
             " JOIN pg_class r ON r.oid=a.attrelid" +
             " JOIN pg_type t ON t.oid=a.atttypid" +
-            " WHERE a.attnum > 0 AND r.relname='%s'",
+            " WHERE a.attnum > 0 AND r.relname='%s' ORDER BY a.attname",
         table
     );
   }
