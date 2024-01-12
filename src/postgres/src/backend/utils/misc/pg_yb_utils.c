@@ -1334,6 +1334,18 @@ PowerWithUpperLimit(double base, int exp, double upper_limit)
 	return res;
 }
 
+bool
+YBUpdateUseScanTuple(Relation relation, Bitmapset *updatedCols,
+					 CmdType operation)
+{
+	Bitmapset *primary_key_bms = YBGetTablePrimaryKeyBms(relation);
+	bool is_pk_updated = bms_overlap(primary_key_bms, updatedCols);
+
+	return operation == CMD_UPDATE &&
+		   (!IsYBRelation(relation) || is_pk_updated ||
+			relation->rd_partkey != NULL || relation->rd_rel->relispartition);
+}
+
 //------------------------------------------------------------------------------
 // YB GUC variables.
 

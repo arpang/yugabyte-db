@@ -427,6 +427,13 @@ void YBRaiseNotSupportedSignal(const char *msg, int issue_no, int signal_level);
  */
 extern double PowerWithUpperLimit(double base, int exponent, double upper_limit);
 
+/*
+ * For UPDATE operatiom, return whether to use scanned "old" tuple as wholerow
+ * junk attribute. Return false otherwise.
+ */
+extern bool YBUpdateUseScanTuple(Relation relation, Bitmapset *updatedCols,
+								 CmdType operation);
+
 //------------------------------------------------------------------------------
 // YB GUC variables.
 

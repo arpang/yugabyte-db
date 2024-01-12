@@ -705,7 +705,7 @@ ExecInitUpdateProjection(ModifyTableState *mtstate,
 								  mtstate->ps.ps_ExprContext,
 								  resultRelInfo->ri_newTupleSlot,
 								  &mtstate->ps,
-								  IsYBRelation(resultRelInfo->ri_RelationDesc));
+								  resultRelInfo);
 
 	resultRelInfo->ri_projectNewInfoValid = true;
 }
@@ -3863,7 +3863,7 @@ ExecInitMerge(ModifyTableState *mtstate, EState *estate)
 												  econtext,
 												  resultRelInfo->ri_newTupleSlot,
 												  &mtstate->ps,
-												  IsYBRelation(resultRelInfo->ri_RelationDesc));
+												  resultRelInfo);
 					mtstate->mt_merge_subcommands |= MERGE_UPDATE;
 					break;
 				case CMD_DELETE:
@@ -4285,7 +4285,10 @@ ExecModifyTable(PlanState *pstate)
 
 			if (IsYBRelation(relation) &&
 				(YBRelHasSecondaryIndices(relation) ||
-				 YBRelHasOldRowTriggers(relation, operation)))
+				 YBRelHasOldRowTriggers(relation, operation) ||
+				 YBUpdateUseScanTuple(relation,
+									  ExecGetUpdatedCols(resultRelInfo, estate),
+									  operation)))
 			{
 				AttrNumber  resno;
 				Plan	   *subplan = outerPlan(node->ps.plan);
@@ -4449,9 +4452,7 @@ ExecModifyTable(PlanState *pstate)
 						Relation relation = resultRelInfo->ri_RelationDesc;
 						bool row_found = false;
 						if (IsYBRelation(relation))
-						{
 							row_found = true;
-						}
 						else
 						{
 							row_found = table_tuple_fetch_row_version(
@@ -4937,7 +4938,7 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 									  econtext,
 									  onconfl->oc_ProjSlot,
 									  &mtstate->ps,
-									  IsYBRelation(resultRelInfo->ri_RelationDesc));
+									  resultRelInfo);
 
 		/* initialize state to evaluate the WHERE clause, if any */
 		if (node->onConflictWhere)

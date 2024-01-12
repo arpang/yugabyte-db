@@ -322,7 +322,7 @@ extern ProjectionInfo *ExecBuildUpdateProjection(List *targetList,
 												 ExprContext *econtext,
 												 TupleTableSlot *slot,
 												 PlanState *parent,
-												 bool is_yb_relation);
+												 ResultRelInfo *yb_relinfo);
 extern ExprState *ExecPrepareExpr(Expr *node, EState *estate);
 extern ExprState *ExecPrepareQual(List *qual, EState *estate);
 extern ExprState *ExecPrepareCheck(List *qual, EState *estate);

@@ -874,9 +874,13 @@ add_row_identity_columns(PlannerInfo *root, Index rtindex,
 		 * the whole row.
 		 */
 		if (YBRelHasOldRowTriggers(target_relation, commandType) ||
-			YBRelHasSecondaryIndices(target_relation))
+			YBRelHasSecondaryIndices(target_relation) ||
+			YBUpdateUseScanTuple(target_relation, target_rte->updatedCols,
+								 commandType))
 		{
 			var = makeWholeRowVar(target_rte, rtindex, 0, false);
+			if (get_rel_relispartition(target_rte->relid))
+				var->vartype = RECORDOID;
 			add_row_identity_var(root, var, rtindex, "wholerow");
 		}
 

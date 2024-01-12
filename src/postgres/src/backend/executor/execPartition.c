@@ -832,7 +832,7 @@ ExecInitPartitionInfo(ModifyTableState *mtstate, EState *estate,
 											  econtext,
 											  onconfl->oc_ProjSlot,
 											  &mtstate->ps,
-											  IsYBRelation(partrel));
+											  leaf_part_rri);
 
 				/*
 				 * If there is a WHERE clause, initialize state where it will
@@ -954,7 +954,7 @@ ExecInitPartitionInfo(ModifyTableState *mtstate, EState *estate,
 												  econtext,
 												  leaf_part_rri->ri_newTupleSlot,
 												  NULL,
-												  IsYBRelation(partrel));
+												  leaf_part_rri);
 					break;
 				case CMD_DELETE:
 					break;
