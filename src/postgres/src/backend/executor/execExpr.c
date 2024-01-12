@@ -530,7 +530,7 @@ ExecBuildUpdateProjection(List *targetList,
 	ListCell   *lc,
 			   *lc2;
 	Bitmapset *updated_cols;
-	bool yb_use_scan_tuple;
+	bool use_scan_tuple;
 
 	projInfo->pi_exprContext = econtext;
 	/* We embed ExprState into ProjectionInfo instead of doing extra palloc */
@@ -546,8 +546,9 @@ ExecBuildUpdateProjection(List *targetList,
 	state->resultslot = slot;
 
 	updated_cols = ExecGetUpdatedCols(yb_relinfo, econtext->ecxt_estate);
-	yb_use_scan_tuple = YBUpdateUseScanTuple(yb_relinfo->ri_RelationDesc,
-											 updated_cols, CMD_UPDATE);
+	use_scan_tuple =
+		!IsYBRelation(yb_relinfo->ri_RelationDesc) ||
+		YBUpdateUseScanTuple(yb_relinfo->ri_RelationDesc, updated_cols);
 
 	/*
 	 * Examine the targetList to see how many non-junk columns there are, and
@@ -599,7 +600,7 @@ ExecBuildUpdateProjection(List *targetList,
 			continue;
 		if (bms_is_member(attnum, assignedCols))
 			continue;
-		if (!yb_use_scan_tuple)
+		if (!use_scan_tuple)
 			continue;
 		deform.last_scan = attnum;
 		break;
@@ -708,7 +709,7 @@ ExecBuildUpdateProjection(List *targetList,
 	{
 		Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
 
-		if (attr->attisdropped || (!yb_use_scan_tuple && !bms_is_member(attnum, assignedCols)))
+		if (attr->attisdropped || (!use_scan_tuple && !bms_is_member(attnum, assignedCols)))
 		{
 			/* Put a null into the ExprState's resvalue/resnull ... */
 			scratch.opcode = EEOP_CONST;

@@ -1344,20 +1344,57 @@ PowerWithUpperLimit(double base, int exp, double upper_limit)
 }
 
 bool
-YBUpdateUseScanTuple(Relation relation, Bitmapset *updatedCols,
-					 CmdType operation)
+YBUseWholeRowJunkAttribute(Relation relation, Bitmapset *updatedCols,
+						   CmdType operation)
 {
-	if (operation != CMD_UPDATE)
-		return false;
+	Assert(IsYBRelation(relation));
 
-	if (!IsYBRelation(relation))
+	/*
+	 * 1. For tables with secondary indexes we need the (old) ybctid for
+	 *    removing old index entries (for UPDATE and DELETE)
+	 * 2. For tables with row triggers we need to pass the old row for
+	 *    trigger execution.
+	 */
+	if (YBRelHasSecondaryIndices(relation) ||
+		YBRelHasOldRowTriggers(relation, operation))
 		return true;
 
+	if (operation == CMD_UPDATE)
+		return YBUpdateUseScanTuple(relation, updatedCols);
+
+	return false;
+}
+
+/*
+ * With PG upstream commit 86dc90056dfdbd9d1b891718d2e5614e3e432f35, UPDATE's
+ * child node only returns the columns being updated along with junk columns. PG
+ * then fetches the pre-existing old tuple to reconstruct the new tuple. This is
+ * be an expensive operation in YB. To workaround this problem, YB stores the
+ * old tuple as "wholerow" junk column when required. This function
+ * returns true when this should be done.
+ */
+bool
+YBUpdateUseScanTuple(Relation relation, Bitmapset *updatedCols)
+{
+	Assert(IsYBRelation(relation));
+
+	/*
+	 * Old tuple is required for:
+	 *  - partitions: to check partition constraints and to perform cross
+	 * 				  partition update (deletinon followed by insertion).
+	 *  - constraints: to check for constraint violation.
+	 */
+	if (relation->rd_partkey != NULL || relation->rd_rel->relispartition ||
+		relation->rd_att->constr)
+		return true;
+
+	/*
+	 * PK update works by deleting and reinserting the tuple, hence the old
+	 * tuple is required.
+	 */
 	Bitmapset *primary_key_bms = YBGetTablePrimaryKeyBms(relation);
 	bool is_pk_updated = bms_overlap(primary_key_bms, updatedCols);
-
-	return is_pk_updated || relation->rd_partkey != NULL ||
-		   relation->rd_rel->relispartition || relation->rd_att->constr;
+	return is_pk_updated;
 }
 
 //------------------------------------------------------------------------------

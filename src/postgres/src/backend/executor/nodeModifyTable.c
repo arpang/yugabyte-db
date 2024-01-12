@@ -4277,18 +4277,10 @@ ExecModifyTable(PlanState *pstate)
 			/*
 			 * For YugaByte relations extract the old row from the wholerow junk
 			 * attribute if needed.
-			 * 1. For tables with secondary indexes we need the (old) ybctid for
-			 *    removing old index entries (for UPDATE and DELETE)
-			 * 2. For tables with row triggers we need to pass the old row for
-			 *    trigger execution.
 			 */
-
+			Bitmapset *updated_cols = ExecGetUpdatedCols(resultRelInfo, estate);
 			if (IsYBRelation(relation) &&
-				(YBRelHasSecondaryIndices(relation) ||
-				 YBRelHasOldRowTriggers(relation, operation) ||
-				 YBUpdateUseScanTuple(relation,
-									  ExecGetUpdatedCols(resultRelInfo, estate),
-									  operation)))
+				YBUseWholeRowJunkAttribute(relation, updated_cols, operation))
 			{
 				AttrNumber  resno;
 				Plan	   *subplan = outerPlan(node->ps.plan);
