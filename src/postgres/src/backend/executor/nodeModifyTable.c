@@ -4351,14 +4351,16 @@ ExecModifyTable(PlanState *pstate)
 				}
 
 				if(IsYBRelation(relation))
+				{
 					tuple_ctid.yb_item.ybctid = datum;
+					TABLETUPLE_YBCTID(context.planSlot) = datum;
+				}
 				else
 				{
 					tupleid = (ItemPointer) DatumGetPointer(datum);
 					tuple_ctid = *tupleid;	/* be sure we don't free ctid!! */
 				}
 				tupleid = &tuple_ctid;
-				TABLETUPLE_YBCTID(context.planSlot) = datum;
 			}
 
 			/*
