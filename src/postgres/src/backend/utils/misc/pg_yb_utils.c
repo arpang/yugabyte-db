@@ -1347,12 +1347,17 @@ bool
 YBUpdateUseScanTuple(Relation relation, Bitmapset *updatedCols,
 					 CmdType operation)
 {
+	if (operation != CMD_UPDATE)
+		return false;
+
+	if (!IsYBRelation(relation))
+		return true;
+
 	Bitmapset *primary_key_bms = YBGetTablePrimaryKeyBms(relation);
 	bool is_pk_updated = bms_overlap(primary_key_bms, updatedCols);
 
-	return operation == CMD_UPDATE &&
-		   (!IsYBRelation(relation) || is_pk_updated ||
-			relation->rd_partkey != NULL || relation->rd_rel->relispartition);
+	return is_pk_updated || relation->rd_partkey != NULL ||
+		   relation->rd_rel->relispartition || relation->rd_att->constr;
 }
 
 //------------------------------------------------------------------------------

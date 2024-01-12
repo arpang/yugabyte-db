@@ -708,7 +708,7 @@ ExecBuildUpdateProjection(List *targetList,
 	{
 		Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
 
-		if (attr->attisdropped)
+		if (attr->attisdropped || (!yb_use_scan_tuple && !bms_is_member(attnum, assignedCols)))
 		{
 			/* Put a null into the ExprState's resvalue/resnull ... */
 			scratch.opcode = EEOP_CONST;
@@ -722,7 +722,7 @@ ExecBuildUpdateProjection(List *targetList,
 			scratch.d.assign_tmp.resultnum = attnum - 1;
 			ExprEvalPushStep(state, &scratch);
 		}
-		else if (yb_use_scan_tuple && !bms_is_member(attnum, assignedCols))
+		else if (!bms_is_member(attnum, assignedCols))
 		{
 			/* Certainly the right type, so needn't check */
 			scratch.opcode = EEOP_ASSIGN_SCAN_VAR;
