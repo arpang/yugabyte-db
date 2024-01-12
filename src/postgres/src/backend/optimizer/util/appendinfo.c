@@ -876,9 +876,8 @@ add_row_identity_columns(PlannerInfo *root, Index rtindex,
 		if (YBUseWholeRowJunkAttribute(target_relation, target_rte->updatedCols,
 									   commandType))
 		{
-			var = makeWholeRowVar(target_rte, rtindex, 0, false);
-			if (get_rel_relispartition(target_rte->relid))
-				var->vartype = RECORDOID;
+			var = makeVar(rtindex, InvalidAttrNumber, RECORDOID, -1, InvalidOid,
+						  0);
 			add_row_identity_var(root, var, rtindex, "wholerow");
 		}
 
