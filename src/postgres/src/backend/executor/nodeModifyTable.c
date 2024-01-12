@@ -4285,6 +4285,7 @@ ExecModifyTable(PlanState *pstate)
 				(YBRelHasSecondaryIndices(relation) ||
 				 YBRelHasOldRowTriggers(relation, operation)))
 			{
+				// dummy change.
 				AttrNumber  resno;
 				Plan	   *subplan = outerPlan(node->ps.plan);
 
