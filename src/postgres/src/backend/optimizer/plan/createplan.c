@@ -3314,67 +3314,45 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 		{
 			TargetEntry *tle = lfirst_node(TargetEntry, values);
 
-			/* Ignore unspecified columns. */
+			/* Ignore junk columns. */
 			if (IsA(tle->expr, Var))
 			{
 				Var *var = castNode(Var, tle->expr);
-				/*
-				 * Column set to itself (unset) or ybctid pseudo-column
-				 * (added for YB scan in rewrite handler).
-				 */
 				if (var->varattno == InvalidAttrNumber ||
-					var->varattno == tle->resno ||
 					(var->varattno == YBTupleIdAttributeNumber &&
-						var->varcollid == InvalidOid))
+					 var->varcollid == InvalidOid))
 				{
 					continue;
 				}
 			}
 
 			/*
-			 * Verify if the path target matches a table column.
+			 * Verify if the path target matches a table column being modified.
 			 *
-			 * While resno is always expected to be greater than zero, it is
-			 * possible that planner adds extra expressions. In particular,
-			 * we've seen a RowExpr when a view was updated.
+			 * It is possible that planner adds extra expressions. In
+			 * particular, we've seen a RowExpr when a view was updated.
 			 *
 			 * We are not sure how to handle those, so we fallback to regular
 			 * update.
 			 *
-			 * Note, this check happens after the unspecified/pseudo-column
-			 * check, it is expected that pseudo-columns go after regular
-			 * tables columns listed in the tuple descriptor.
 			 */
-			if (update_col_index >= root->update_colnos->length)
+			if (update_col_index == root->update_colnos->length)
 			{
 				elog(DEBUG1, "Target expression out of range: %d", update_col_index);
 				RelationClose(relation);
 				return false;
 			}
 
-			/* The semantic of target list in the UPDATE path has changed in
-			 * PG15. It no longer contains all the attributes in the relation,
-			 * instead just contains the attributes being updated and the junk
-			 * columns. The semantics of resno has changed as well. Previously,
-			 * it used to represent the attribute number, now it is just a
-			 * consecutive number. Now, root->update_colnos represents the
-			 * att_nums of attributes being updated. See preprocess_targetlist
-			 * and extract_update_targetlist_colnos for more details.  */
-			if (root->update_colnos->length == update_col_index)
-			{
-				elog(INFO,
-					 "returning from "
-					 "yb_single_row_update_or_delete_path,  "
-					 "root->update_colnos (length %d) exhausted",
-					 root->update_colnos->length);
-				return false;
-			}
-			Assert(root->update_colnos->length > update_col_index);
-
-			/* Setting tle resno to attribute number. */
+			/*
+			 * It is expected that root->update_colnos and subpath->pathtarget
+			 * contain the updated columns in the same order.
+			 *
+			 * Store attribute number in tle->resno overriding the sequential
+			 * number as the attribute number is required in YBCExecuteUpdate
+			 * for ybPushdownTlist.
+			 */
 			int resno = tle->resno =
-				list_nth_int(root->update_colnos, update_col_index);
-			update_col_index++;
+				list_nth_int(root->update_colnos, update_col_index++);
 
 			/* Updates involving primary key columns are not single-row. */
 			if (bms_is_member(resno - attr_offset, primary_key_attrs))
