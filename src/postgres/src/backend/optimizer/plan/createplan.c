@@ -3330,20 +3330,6 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 					continue;
 				}
 			}
-			/* The semantic of target list in the UPDATE path has changed in
-			 * PG15. It no longer contains all the attributes in the relation,
-			 * instead just contains the attributes being updated and the junk
-			 * columns. The semantics of resno has changed as well. Previously,
-			 * it used to represent the attribute number, now it is just a
-			 * consecutive number. Now, root->update_colnos represents the
-			 * att_nums of attributes being updated. See preprocess_targetlist
-			 * and extract_update_targetlist_colnos for more details.  */
-			Assert(root->update_colnos->length > update_col_index);
-
-			/* Setting tle resno to attribute number. */
-			int resno = tle->resno =
-				root->update_colnos->elements[update_col_index].int_value;
-			update_col_index++;
 
 			/*
 			 * Verify if the path target matches a table column.
@@ -3359,12 +3345,36 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			 * check, it is expected that pseudo-columns go after regular
 			 * tables columns listed in the tuple descriptor.
 			 */
-			if (resno <= 0 || resno > tupDesc->natts)
+			if (update_col_index >= root->update_colnos->length)
 			{
-				elog(DEBUG1, "Target expression out of range: %d", resno);
+				elog(DEBUG1, "Target expression out of range: %d", update_col_index);
 				RelationClose(relation);
 				return false;
 			}
+
+			/* The semantic of target list in the UPDATE path has changed in
+			 * PG15. It no longer contains all the attributes in the relation,
+			 * instead just contains the attributes being updated and the junk
+			 * columns. The semantics of resno has changed as well. Previously,
+			 * it used to represent the attribute number, now it is just a
+			 * consecutive number. Now, root->update_colnos represents the
+			 * att_nums of attributes being updated. See preprocess_targetlist
+			 * and extract_update_targetlist_colnos for more details.  */
+			if (root->update_colnos->length == update_col_index)
+			{
+				elog(INFO,
+					 "returning from "
+					 "yb_single_row_update_or_delete_path,  "
+					 "root->update_colnos (length %d) exhausted",
+					 root->update_colnos->length);
+				return false;
+			}
+			Assert(root->update_colnos->length > update_col_index);
+
+			/* Setting tle resno to attribute number. */
+			int resno = tle->resno =
+				list_nth_int(root->update_colnos, update_col_index);
+			update_col_index++;
 
 			/* Updates involving primary key columns are not single-row. */
 			if (bms_is_member(resno - attr_offset, primary_key_attrs))
