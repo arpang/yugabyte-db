@@ -416,5 +416,5 @@ FOR EACH ROW EXECUTE PROCEDURE view_trigger('instead_of_upd');
 INSERT INTO main_view VALUES (20, 30);
 INSERT INTO main_view VALUES (21, 31);
 UPDATE main_view SET b = 31 WHERE a = 20;
-SELECT * FROM main_view;
+SELECT * FROM main_view WHERE a = 20;
 DROP TABLE main_table CASCADE;

@@ -871,12 +871,11 @@ INSERT INTO main_view VALUES (21, 31);
 UPDATE main_view SET b = 31 WHERE a = 20;
 NOTICE:  main_view INSTEAD OF UPDATE ROW (instead_of_upd)
 NOTICE:  OLD: (20,30), NEW: (20,31)
-SELECT * FROM main_view;
+SELECT * FROM main_view WHERE a = 20;
  a  | b  
 ----+----
  20 | 31
- 21 | 31
-(2 rows)
+(1 row)
 
 DROP TABLE main_table CASCADE;
 NOTICE:  drop cascades to view main_view
