@@ -3338,7 +3338,7 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			 * Note, it is expected that these "extra" expressions go after
 			 * the columns being updated.
 			 */
-			if (update_col_index == root->update_colnos->length)
+			if (update_col_index == list_length(root->update_colnos))
 			{
 				elog(DEBUG1, "Target expression out of range: %d", update_col_index);
 				RelationClose(relation);
