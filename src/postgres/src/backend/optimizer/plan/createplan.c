@@ -3335,8 +3335,8 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			 * We are not sure how to handle those, so we fallback to regular
 			 * update.
 			 *
-			 * Note, it is expected that these expression come after the columns
-			 * being updated.
+			 * Note, it is expected that these "extra" expressions go after
+			 * the columns being updated.
 			 */
 			if (update_col_index == root->update_colnos->length)
 			{
