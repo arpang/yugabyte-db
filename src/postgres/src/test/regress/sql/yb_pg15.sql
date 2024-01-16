@@ -367,3 +367,16 @@ INSERT INTO t3 VALUES (1, 1, 1);
 UPDATE t3 SET ADD = 2;
 SELECT * from t3;
 DROP TABLE t3;
+
+-- Cross partition UPDATE with nested loop join (multiple matches)
+CREATE TABLE list_parted (a int, b int) PARTITION BY list (a);
+CREATE TABLE sub_part1 PARTITION OF list_parted for VALUES in (1);
+CREATE TABLE sub_part2 PARTITION OF list_parted for VALUES in (2);
+INSERT into list_parted VALUES (1, 2);
+
+CREATE TABLE non_parted (id int);
+INSERT into non_parted VALUES (1), (1), (1);
+UPDATE list_parted t1 set a = 2 FROM non_parted t2 WHERE t1.a = t2.id and a = 1;
+SELECT * FROM list_parted;
+DROP TABLE list_parted;
+DROP TABLE non_parted;
