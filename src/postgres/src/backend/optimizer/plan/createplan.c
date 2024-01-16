@@ -3349,8 +3349,8 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			 * It is expected that root->update_colnos and subpath->pathtarget
 			 * contain the updated columns in the same order.
 			 *
-			 * Store attribute number in tle->resno overriding the sequential
-			 * number as the attribute number is required in YBCExecuteUpdate
+			 * Store attribute number in tle->resno, overriding the sequential
+			 * number, as the attribute number is required in YBCExecuteUpdate
 			 * for ybPushdownTlist.
 			 */
 			int resno = tle->resno =
