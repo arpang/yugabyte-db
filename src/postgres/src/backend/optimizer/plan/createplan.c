@@ -3232,6 +3232,7 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	for (int rti = 1; rti < root->simple_rel_array_size; ++rti)
 	{
 		RelOptInfo *rel = root->simple_rel_array[rti];
+		/* Ignore NULL or non-leaf partitioned rels. */
 		if (rel != NULL && !IS_PARTITIONED_REL(rel))
 		{
 			if (relInfo == NULL)
@@ -3287,10 +3288,12 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 		ProjectionPath *projection_path;
 
 		/*
-		 * UPDATE contains projection for SET values on top of index scan.
+		 * If subpath is an AppendPath with a single child, get that child path.
 		 */
 		subpath = get_singleton_append_subpath(subpath);
-
+		/*
+		 * UPDATE contains projection for SET values on top of index scan.
+		 */
 		if (!IsA(subpath, ProjectionPath))
 		{
 			RelationClose(relation);
