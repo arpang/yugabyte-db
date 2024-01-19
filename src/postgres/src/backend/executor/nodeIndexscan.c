@@ -175,6 +175,15 @@ IndexNext(IndexScanState *node)
 
 		// Add row marks.
 		plan = castNode(IndexScan, node->ss.ps.plan);
+#ifdef YB_TODO
+		/*
+		 * 1. This block of code is broken on master. GH #20704
+		 * 2. PG in f9eb7c14b08d2cc5eda62ffaf37a356c05e89b93 modified
+		 * estate->es_rowmarks to be an array (from a list) with potentially
+		 * NULL elements. Because of the way this block of code is imported in
+		 * pg15 branch (using estate->es_rowmarks[0]), it causes segmentation
+		 * fault. Fix it on pg15 after #20704 is addressed.
+		 */
 		if (IsolationIsSerializable() || plan->yb_lock_mechanism == YB_LOCK_CLAUSE_ON_PK)
 		{
 			/*
@@ -196,6 +205,7 @@ IndexNext(IndexScanState *node)
 				}
 			}
 		}
+#endif
 
 		/*
 		 * Set reference to slot in scan desc so that YB amgettuple can use it

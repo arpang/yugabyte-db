@@ -106,6 +106,15 @@ YbSeqNext(YbSeqScanState *node)
 		node->ss.ss_currentScanDesc = tsdesc;
 	}
 
+#ifdef YB_TODO
+	/*
+	 * 1. This block of code is broken on master. GH #20704
+	 * 2. PG in f9eb7c14b08d2cc5eda62ffaf37a356c05e89b93 modified
+	 * estate->es_rowmarks to be an array (from a list) with potentially NULL
+	 * elements. Because of the way this block of code is imported in pg15
+	 * branch (using estate->es_rowmarks[0]), it causes segmentation fault. Fix
+	 * it on pg15 after #20704 is addressed.
+	 */
 	/*
 	 * Set up any locking that happens at the time of the scan.
 	 */
@@ -135,6 +144,7 @@ YbSeqNext(YbSeqScanState *node)
 			}
 		}
 	}
+#endif
 
 	/*
 	 * Since the scandesc is destroyed upon node rescan, the statement is
