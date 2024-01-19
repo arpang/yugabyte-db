@@ -879,3 +879,25 @@ SELECT * FROM main_view WHERE a = 20;
 
 DROP TABLE main_table CASCADE;
 NOTICE:  drop cascades to view main_view
+-- Test whether single row optimization is invoked when
+-- only one partition is being updated.
+CREATE TABLE list_parted (a int, b int, c int, primary key(a,b)) PARTITION BY list (a);
+CREATE TABLE sub_parted PARTITION OF list_parted for VALUES in (1) PARTITION BY list (b);
+CREATE TABLE sub_part1 PARTITION OF sub_parted for VALUES in (1);
+INSERT INTO list_parted VALUES (1, 1, 1);
+EXPLAIN (COSTS OFF) UPDATE list_parted SET c = 2 WHERE a = 1 and b = 1;
+            QUERY PLAN             
+-----------------------------------
+ Update on list_parted
+   Update on sub_part1 list_parted
+   ->  Result
+(3 rows)
+
+UPDATE list_parted SET c = 2 WHERE a = 1 and b = 1;
+SELECT * FROM list_parted;
+ a | b | c 
+---+---+---
+ 1 | 1 | 2
+(1 row)
+
+DROP TABLE list_parted;

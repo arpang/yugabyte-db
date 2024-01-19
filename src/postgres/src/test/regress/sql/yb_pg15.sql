@@ -418,3 +418,14 @@ INSERT INTO main_view VALUES (21, 31);
 UPDATE main_view SET b = 31 WHERE a = 20;
 SELECT * FROM main_view WHERE a = 20;
 DROP TABLE main_table CASCADE;
+
+-- Test whether single row optimization is invoked when
+-- only one partition is being updated.
+CREATE TABLE list_parted (a int, b int, c int, primary key(a,b)) PARTITION BY list (a);
+CREATE TABLE sub_parted PARTITION OF list_parted for VALUES in (1) PARTITION BY list (b);
+CREATE TABLE sub_part1 PARTITION OF sub_parted for VALUES in (1);
+INSERT INTO list_parted VALUES (1, 1, 1);
+EXPLAIN (COSTS OFF) UPDATE list_parted SET c = 2 WHERE a = 1 and b = 1;
+UPDATE list_parted SET c = 2 WHERE a = 1 and b = 1;
+SELECT * FROM list_parted;
+DROP TABLE list_parted;

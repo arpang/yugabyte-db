@@ -3232,7 +3232,7 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	for (int rti = 1; rti < root->simple_rel_array_size; ++rti)
 	{
 		RelOptInfo *rel = root->simple_rel_array[rti];
-		if (rel != NULL)
+		if (rel != NULL && !IS_PARTITIONED_REL(rel))
 		{
 			if (relInfo == NULL)
 			{
@@ -3289,6 +3289,8 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 		/*
 		 * UPDATE contains projection for SET values on top of index scan.
 		 */
+		subpath = get_singleton_append_subpath(subpath);
+
 		if (!IsA(subpath, ProjectionPath))
 		{
 			RelationClose(relation);
@@ -3319,6 +3321,7 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			{
 				Var *var = castNode(Var, tle->expr);
 				if (var->varattno == InvalidAttrNumber ||
+					var->varattno == TableOidAttributeNumber ||
 					(var->varattno == YBTupleIdAttributeNumber &&
 					 var->varcollid == InvalidOid))
 				{
