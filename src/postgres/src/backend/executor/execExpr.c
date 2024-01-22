@@ -529,8 +529,8 @@ ExecBuildUpdateProjection(List *targetList,
 	int			outerattnum;
 	ListCell   *lc,
 			   *lc2;
-	Bitmapset *updated_cols;
-	bool use_scan_tuple;
+	Bitmapset *adjustedUpdatedCols;
+	bool useScanTuple;
 
 	projInfo->pi_exprContext = econtext;
 	/* We embed ExprState into ProjectionInfo instead of doing extra palloc */
@@ -544,11 +544,6 @@ ExecBuildUpdateProjection(List *targetList,
 	state->ext_params = NULL;
 
 	state->resultslot = slot;
-
-	updated_cols = ExecGetUpdatedCols(yb_relinfo, econtext->ecxt_estate);
-	use_scan_tuple =
-		!IsYBRelation(yb_relinfo->ri_RelationDesc) ||
-		YBUpdateUseScanTuple(yb_relinfo->ri_RelationDesc, updated_cols);
 
 	/*
 	 * Examine the targetList to see how many non-junk columns there are, and
@@ -580,30 +575,39 @@ ExecBuildUpdateProjection(List *targetList,
 	 * columns.)
 	 */
 	assignedCols = NULL;
+	adjustedUpdatedCols = NULL;
 	foreach(lc, targetColnos)
 	{
 		AttrNumber	targetattnum = lfirst_int(lc);
 
 		assignedCols = bms_add_member(assignedCols, targetattnum);
+		adjustedUpdatedCols =
+			bms_add_member(adjustedUpdatedCols,
+						   targetattnum - YBGetFirstLowInvalidAttributeNumber(
+											  yb_relinfo->ri_RelationDesc));
 	}
+	useScanTuple =
+		!IsYBRelation(yb_relinfo->ri_RelationDesc) ||
+		YBUpdateUseScanTuple(yb_relinfo->ri_RelationDesc, adjustedUpdatedCols);
 
-	/*
-	 * We need to insert EEOP_*_FETCHSOME steps to ensure the input tuples are
-	 * sufficiently deconstructed.  The scan tuple must be deconstructed at
-	 * least as far as the last old column we need.
-	 */
-	for (int attnum = relDesc->natts; attnum > 0; attnum--)
+	if (useScanTuple)
 	{
-		Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
+		/*
+		 * We need to insert EEOP_*_FETCHSOME steps to ensure the input tuples
+		 * are sufficiently deconstructed.  The scan tuple must be deconstructed
+		 * at least as far as the last old column we need.
+		 */
+		for (int attnum = relDesc->natts; attnum > 0; attnum--)
+		{
+			Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
 
-		if (attr->attisdropped)
-			continue;
-		if (bms_is_member(attnum, assignedCols))
-			continue;
-		if (!use_scan_tuple)
-			continue;
-		deform.last_scan = attnum;
-		break;
+			if (attr->attisdropped)
+				continue;
+			if (bms_is_member(attnum, assignedCols))
+				continue;
+			deform.last_scan = attnum;
+			break;
+		}
 	}
 
 	/*
@@ -709,7 +713,7 @@ ExecBuildUpdateProjection(List *targetList,
 	{
 		Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
 
-		if (attr->attisdropped || (!use_scan_tuple && !bms_is_member(attnum, assignedCols)))
+		if (attr->attisdropped || (!useScanTuple && !bms_is_member(attnum, assignedCols)))
 		{
 			/* Put a null into the ExprState's resvalue/resnull ... */
 			scratch.opcode = EEOP_CONST;

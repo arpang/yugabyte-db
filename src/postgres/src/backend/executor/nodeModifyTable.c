@@ -4278,9 +4278,10 @@ ExecModifyTable(PlanState *pstate)
 			 * For YugaByte relations extract the old row from the wholerow junk
 			 * attribute if needed.
 			 */
-			Bitmapset *updated_cols = ExecGetUpdatedCols(resultRelInfo, estate);
 			if (IsYBRelation(relation) &&
-				YBUseWholeRowJunkAttribute(relation, updated_cols, operation))
+				YBUseWholeRowJunkAttribute(
+					relation, ExecGetUpdatedCols(resultRelInfo, estate),
+					operation))
 			{
 				AttrNumber  resno;
 				Plan	   *subplan = outerPlan(node->ps.plan);
