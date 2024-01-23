@@ -187,10 +187,10 @@ IndexNext(IndexScanState *node)
 			 */
 			for (int i = 0; i < estate->es_range_table_size; i++)
 			{
-				ExecRowMark *erm = estate->es_rowmarks[0];
+				ExecRowMark *erm = estate->es_rowmarks[i];
 				/*
 				 * YB_TODO: This block of code is broken on master (GH #20704).
-				 * With commit PG f9eb7c14b08d2cc5eda62ffaf37a356c05e89b93,
+				 * With PG commit f9eb7c14b08d2cc5eda62ffaf37a356c05e89b93,
 				 * estate->es_rowmarks is an array with
 				 * potentially NULL elements (previously, it was a list). As a
 				 * temporary fix till #20704 is addressed, ignore any NULL
