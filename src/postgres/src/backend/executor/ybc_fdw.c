@@ -344,7 +344,6 @@ ybcBeginForeignScan(ForeignScanState *node, int eflags)
 	if (YBReadFromFollowersEnabled()) {
 		ereport(DEBUG2, (errmsg("Doing read from followers")));
 	}
-
 	if (XactIsoLevel == XACT_SERIALIZABLE)
 	{
 		/*
