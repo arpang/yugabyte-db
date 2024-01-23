@@ -380,3 +380,11 @@ UPDATE list_parted t1 set a = 2 FROM non_parted t2 WHERE t1.a = t2.id and a = 1;
 SELECT * FROM list_parted;
 DROP TABLE list_parted;
 DROP TABLE non_parted;
+-- Test no segmentation fault in YbSeqscan with row marks
+CREATE TABLE main_table (a int) partition by range(a);
+CREATE TABLE main_table_1_100 partition of main_table FOR VALUES FROM (1) TO (100);
+INSERT INTO main_table VALUES (1);
+BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+SELECT * FROM main_table;
+SELECT * FROM main_table FOR KEY SHARE;
+COMMIT;
