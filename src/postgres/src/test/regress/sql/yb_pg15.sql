@@ -373,5 +373,6 @@ CREATE TABLE main_table (a int) partition by range(a);
 CREATE TABLE main_table_1_100 partition of main_table FOR VALUES FROM (1) TO (100);
 INSERT INTO main_table VALUES (1);
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+SELECT * FROM main_table;
 SELECT * FROM main_table FOR KEY SHARE;
 COMMIT;

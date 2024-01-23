@@ -185,7 +185,8 @@ IndexNext(IndexScanState *node)
 			 * For other isolation levels it's sometimes possible to take locks during the index scan
 			 * as well.
 			 */
-			for (int i = 0; i < estate->es_range_table_size; i++)
+			for (int i = 0;
+				 estate->es_rowmarks && i < estate->es_range_table_size; i++)
 			{
 				ExecRowMark *erm = estate->es_rowmarks[i];
 				/*

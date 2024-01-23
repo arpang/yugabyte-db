@@ -351,7 +351,8 @@ ybcBeginForeignScan(ForeignScanState *node, int eflags)
 		 * INSERTion of new rows that satisfy the query predicate. So, we set the rowmark on all
 		 * read requests sent to tserver instead of locking each tuple one by one in LockRows node.
 		 */
-		for (int i = 0; i < estate->es_range_table_size; i++)
+		for (int i = 0; estate->es_rowmarks && i < estate->es_range_table_size;
+			 i++)
 		{
 			ExecRowMark *erm = estate->es_rowmarks[i];
 			/*
