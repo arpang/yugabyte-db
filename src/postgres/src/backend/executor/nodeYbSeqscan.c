@@ -106,15 +106,6 @@ YbSeqNext(YbSeqScanState *node)
 		node->ss.ss_currentScanDesc = tsdesc;
 	}
 
-#ifdef YB_TODO
-	/*
-	 * 1. This block of code is broken on master. GH #20704
-	 * 2. PG in f9eb7c14b08d2cc5eda62ffaf37a356c05e89b93 modified
-	 * estate->es_rowmarks to be an array (from a list) with potentially NULL
-	 * elements. Because of the way this block of code is imported in pg15
-	 * branch (using estate->es_rowmarks[0]), it causes segmentation fault. Fix
-	 * it on pg15 after #20704 is addressed.
-	 */
 	/*
 	 * Set up any locking that happens at the time of the scan.
 	 */
@@ -126,9 +117,19 @@ YbSeqNext(YbSeqScanState *node)
 		 * predicate. So, we set the rowmark on all read requests sent to
 		 * tserver instead of locking each tuple one by one in LockRows node.
 		 */
-		if (estate->es_rowmarks && estate->es_range_table_size > 0)
+		for (int i = 0; i < estate->es_range_table_size; i++)
 		{
-			ExecRowMark *erm = estate->es_rowmarks[0];
+			ExecRowMark *erm = estate->es_rowmarks[i];
+			/*
+			 * YB_TODO: This block of code is broken on master (GH #20704). With
+			 * commit PG f9eb7c14b08d2cc5eda62ffaf37a356c05e89b93,
+			 * estate->es_rowmarks is an array with
+			 * potentially NULL elements (previously, it was a list). As a
+			 * temporary fix till #20704 is addressed, ignore any NULL element
+			 * in es_rowmarks.
+			 */
+			if (!erm)
+				continue;
 			/* Do not propagate non-row-locking row marks. */
 			if (erm->markType != ROW_MARK_REFERENCE &&
 				erm->markType != ROW_MARK_COPY)
@@ -144,7 +145,6 @@ YbSeqNext(YbSeqScanState *node)
 			}
 		}
 	}
-#endif
 
 	/*
 	 * Since the scandesc is destroyed upon node rescan, the statement is
