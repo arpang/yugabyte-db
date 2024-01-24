@@ -3362,8 +3362,6 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			 * We are not sure how to handle those, so we fallback to regular
 			 * update.
 			 *
-			 * Note, it is expected that these "extra" expressions go after
-			 * the columns being updated.
 			 */
 			if (update_col_index == list_length(root->update_colnos))
 			{
@@ -3373,8 +3371,9 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			}
 
 			/*
-			 * It is expected that root->update_colnos and subpath->pathtarget
-			 * contain the updated columns in the same order.
+			 * It is expected that root->update_colnos and
+			 * projection_path->pathtarget contain the updated columns in the
+			 * same order.
 			 *
 			 * Store attribute number in tle->resno, overriding the sequential
 			 * number, as the attribute number is required in YBCExecuteUpdate
