@@ -3137,6 +3137,44 @@ static bool has_applicable_triggers(Relation rel, CmdType operation, Bitmapset *
 	return false;
 }
 
+static void
+fetch_subpaths(ModifyTablePath *path, IndexPath **index_path,
+			   ProjectionPath **projection_path)
+{
+	Path *subpath = path->subpath;
+	*index_path = NULL;
+	*projection_path = NULL;
+
+	/*
+	 * This function only supports UPDATE/DELETE.
+	 */
+	if (path->operation != CMD_UPDATE && path->operation != CMD_DELETE)
+		return;
+
+	/*
+	 * If subpath is an AppendPath with a single child, get that child path.
+	 */
+	subpath = get_singleton_append_subpath(subpath);
+
+	/*
+	 * The index path is the subpath of the projection for UPDATE, whereas
+	 * for DELETE that's not the case.
+	 */
+	if (path->operation == CMD_UPDATE)
+	{
+		/*
+		 * UPDATE contains projection for SET values on top of index scan.
+		 */
+		if (!IsA(subpath, ProjectionPath))
+			return;
+		*projection_path = (ProjectionPath *) subpath;
+		*index_path = (IndexPath *) (*projection_path)->subpath;
+	}
+	else
+		*index_path = (IndexPath *) subpath;
+	return;
+}
+
 /*
  * yb_single_row_update_or_delete_path
  *
@@ -3193,8 +3231,8 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	Oid relid;
 	Relation relation;
 	TupleDesc tupDesc;
-	Path *subpath = path->subpath;
 	IndexPath *index_path;
+	ProjectionPath *projection_path;
 	Bitmapset *primary_key_attrs = NULL;
 	ListCell *values;
 	ListCell *subpath_tlist_values;
@@ -3281,32 +3319,15 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	tupDesc = RelationGetDescr(relation);
 	attr_offset = YBGetFirstLowInvalidAttributeNumber(relation);
 
-	index_path = (IndexPath *) subpath;
+	fetch_subpaths(path, &index_path, &projection_path);
+	if (!index_path)
+	{
+		RelationClose(relation);
+		return false;
+	}
 
 	if (path->operation == CMD_UPDATE)
 	{
-		ProjectionPath *projection_path;
-
-		/*
-		 * If subpath is an AppendPath with a single child, get that child path.
-		 */
-		subpath = get_singleton_append_subpath(subpath);
-		/*
-		 * UPDATE contains projection for SET values on top of index scan.
-		 */
-		if (!IsA(subpath, ProjectionPath))
-		{
-			RelationClose(relation);
-			return false;
-		}
-		projection_path = (ProjectionPath *) subpath;
-
-		/*
-		 * The index path is the subpath of the projection for UPDATE, whereas for DELETE
-		 * the index path is the direct subpath of the ModifyTablePath.
-		 */
-		index_path = (IndexPath *) projection_path->subpath;
-
 		Bitmapset *primary_key_attrs = YBGetTablePrimaryKeyBms(relation);
 
 		/*
@@ -3315,7 +3336,7 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 		 * then return false.
 		 */
 		int update_col_index = 0;
-		foreach(values, build_path_tlist(root, subpath))
+		foreach (values, build_path_tlist(root, (Path *) projection_path))
 		{
 			TargetEntry *tle = lfirst_node(TargetEntry, values);
 

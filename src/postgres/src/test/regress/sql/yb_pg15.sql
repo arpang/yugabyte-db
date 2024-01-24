@@ -428,6 +428,11 @@ INSERT INTO list_parted VALUES (1, 1, 1);
 EXPLAIN (COSTS OFF) UPDATE list_parted SET c = 2 WHERE a = 1 and b = 1;
 UPDATE list_parted SET c = 2 WHERE a = 1 and b = 1;
 SELECT * FROM list_parted;
+
+EXPLAIN (COSTS OFF) DELETE FROM list_parted WHERE a = 1 and b = 1;
+DELETE FROM list_parted WHERE a = 1 and b = 1;
+SELECT * FROM list_parted;
+
 DROP TABLE list_parted;
 -- Test no segmentation fault in YbSeqscan with row marks
 CREATE TABLE main_table (a int) partition by range(a);

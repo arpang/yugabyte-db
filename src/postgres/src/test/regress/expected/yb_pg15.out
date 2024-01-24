@@ -900,6 +900,20 @@ SELECT * FROM list_parted;
  1 | 1 | 2
 (1 row)
 
+EXPLAIN (COSTS OFF) DELETE FROM list_parted WHERE a = 1 and b = 1;
+            QUERY PLAN             
+-----------------------------------
+ Delete on list_parted
+   Delete on sub_part1 list_parted
+   ->  Result
+(3 rows)
+
+DELETE FROM list_parted WHERE a = 1 and b = 1;
+SELECT * FROM list_parted;
+ a | b | c 
+---+---+---
+(0 rows)
+
 DROP TABLE list_parted;
 -- Test no segmentation fault in YbSeqscan with row marks
 CREATE TABLE main_table (a int) partition by range(a);
