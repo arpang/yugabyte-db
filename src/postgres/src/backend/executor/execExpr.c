@@ -517,7 +517,7 @@ ExecBuildUpdateProjection(List *targetList,
 						  ExprContext *econtext,
 						  TupleTableSlot *slot,
 						  PlanState *parent,
-						  ResultRelInfo *yb_relinfo)
+						  bool useScanTuple)
 {
 	ProjectionInfo *projInfo = makeNode(ProjectionInfo);
 	ExprState  *state;
@@ -529,8 +529,6 @@ ExecBuildUpdateProjection(List *targetList,
 	int			outerattnum;
 	ListCell   *lc,
 			   *lc2;
-	Bitmapset *adjustedUpdatedCols;
-	bool useScanTuple;
 
 	projInfo->pi_exprContext = econtext;
 	/* We embed ExprState into ProjectionInfo instead of doing extra palloc */
@@ -575,20 +573,12 @@ ExecBuildUpdateProjection(List *targetList,
 	 * columns.)
 	 */
 	assignedCols = NULL;
-	adjustedUpdatedCols = NULL;
 	foreach(lc, targetColnos)
 	{
 		AttrNumber	targetattnum = lfirst_int(lc);
 
 		assignedCols = bms_add_member(assignedCols, targetattnum);
-		adjustedUpdatedCols =
-			bms_add_member(adjustedUpdatedCols,
-						   targetattnum - YBGetFirstLowInvalidAttributeNumber(
-											  yb_relinfo->ri_RelationDesc));
 	}
-	useScanTuple =
-		!IsYBRelation(yb_relinfo->ri_RelationDesc) ||
-		YBUpdateUseScanTuple(yb_relinfo->ri_RelationDesc, adjustedUpdatedCols);
 
 	if (useScanTuple)
 	{

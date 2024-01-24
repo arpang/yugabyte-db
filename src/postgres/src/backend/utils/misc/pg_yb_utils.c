@@ -1360,7 +1360,7 @@ YBUseWholeRowJunkAttribute(Relation relation, Bitmapset *updatedCols,
 		return true;
 
 	if (operation == CMD_UPDATE)
-		return YBUpdateUseScanTuple(relation, updatedCols);
+		return YBUseScanTupleInUpdate(relation, updatedCols);
 
 	return false;
 }
@@ -1374,14 +1374,16 @@ YBUseWholeRowJunkAttribute(Relation relation, Bitmapset *updatedCols,
  * returns true when this should be done.
  */
 bool
-YBUpdateUseScanTuple(Relation relation, Bitmapset *updatedCols)
+YBUseScanTupleInUpdate(Relation relation, Bitmapset *updatedCols)
 {
-	Assert(IsYBRelation(relation));
+	/* Use scan tuple for non-YB relation. */
+	if (!IsYBRelation(relation))
+		return true;
 
 	/*
 	 * Old tuple is required for:
-	 *  - partitions: to check partition constraints and to perform cross
-	 * 				  partition update (deletinon followed by insertion).
+	 *  - partitions: to check partition constraints and to perform
+	 * cross-partition update (deletion followed by insertion).
 	 *  - constraints: to check for constraint violation.
 	 */
 	if (relation->rd_partkey != NULL || relation->rd_rel->relispartition ||
@@ -1389,7 +1391,7 @@ YBUpdateUseScanTuple(Relation relation, Bitmapset *updatedCols)
 		return true;
 
 	/*
-	 * PK update works by deleting and reinserting the tuple, hence the old
+	 * PK update works by deletion followed by re-insertion, hence the old
 	 * tuple is required.
 	 */
 	Bitmapset *primary_key_bms = YBGetTablePrimaryKeyBms(relation);

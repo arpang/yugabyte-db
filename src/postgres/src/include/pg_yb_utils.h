@@ -443,7 +443,7 @@ extern bool YBUseWholeRowJunkAttribute(Relation relation,
  * Return whether to use scanned "old" tuple to reconstruct the new tuple during
  * UPDATE operations for YB relations. See function definition for details.
  */
-extern bool YBUpdateUseScanTuple(Relation relation, Bitmapset *updatedCols);
+extern bool YBUseScanTupleInUpdate(Relation relation, Bitmapset *updatedCols);
 
 //------------------------------------------------------------------------------
 // YB GUC variables.
