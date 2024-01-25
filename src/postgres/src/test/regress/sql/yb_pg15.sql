@@ -368,6 +368,7 @@ UPDATE t3 SET ADD = 2;
 SELECT * from t3;
 DROP TABLE t3;
 
+-- YB_TODO: BEGIN: remove this after tracking yb_pg_triggers
 -- UPDATE view with INSTEAD OF UPDATE trigger
 CREATE OR REPLACE FUNCTION view_trigger() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -418,6 +419,7 @@ INSERT INTO main_view VALUES (21, 31);
 UPDATE main_view SET b = 31 WHERE a = 20;
 SELECT * FROM main_view WHERE a = 20;
 DROP TABLE main_table CASCADE;
+-- YB_TODO: END: remove this after tracking yb_pg_triggers
 
 -- Test whether single row optimization is invoked when
 -- only one partition is being updated.

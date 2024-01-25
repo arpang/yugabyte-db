@@ -3148,8 +3148,7 @@ fetch_subpaths(ModifyTablePath *path, IndexPath **index_path,
 	/*
 	 * This function only supports UPDATE/DELETE.
 	 */
-	if (path->operation != CMD_UPDATE && path->operation != CMD_DELETE)
-		return;
+	Assert(path->operation == CMD_UPDATE || path->operation == CMD_DELETE);
 
 	/*
 	 * If subpath is an AppendPath with a single child, get that child path.
