@@ -8713,7 +8713,7 @@ make_modifytable(PlannerInfo *root, Plan *subplan,
 	RangeTblEntry *rte = root->simple_rte_array[linitial_int(resultRelations)];
 	Relation relation = RelationIdGetRelation(rte->relid);
 	node->ybUseScanTupleInUpdate =
-		YBUseScanTupleInUpdate(relation, rte->updatedCols);
+		YbUseScanTupleInUpdate(relation, rte->updatedCols);
 	RelationClose(relation);
 	return node;
 }

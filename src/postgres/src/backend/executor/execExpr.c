@@ -517,7 +517,7 @@ ExecBuildUpdateProjection(List *targetList,
 						  ExprContext *econtext,
 						  TupleTableSlot *slot,
 						  PlanState *parent,
-						  bool useScanTuple)
+						  bool ybUseScanTuple)
 {
 	ProjectionInfo *projInfo = makeNode(ProjectionInfo);
 	ExprState  *state;
@@ -580,13 +580,13 @@ ExecBuildUpdateProjection(List *targetList,
 		assignedCols = bms_add_member(assignedCols, targetattnum);
 	}
 
-	if (useScanTuple)
+	if (ybUseScanTuple)
 	{
 		/*
-		 * We need to insert EEOP_*_FETCHSOME steps to ensure the input tuples
-		 * are sufficiently deconstructed.  The scan tuple must be deconstructed
-		 * at least as far as the last old column we need.
-		 */
+		* We need to insert EEOP_*_FETCHSOME steps to ensure the input tuples are
+		* sufficiently deconstructed.  The scan tuple must be deconstructed at
+		* least as far as the last old column we need.
+		*/
 		for (int attnum = relDesc->natts; attnum > 0; attnum--)
 		{
 			Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
@@ -703,7 +703,7 @@ ExecBuildUpdateProjection(List *targetList,
 	{
 		Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
 
-		if (attr->attisdropped || (!useScanTuple && !bms_is_member(attnum, assignedCols)))
+		if (attr->attisdropped || (!ybUseScanTuple && !bms_is_member(attnum, assignedCols)))
 		{
 			/* Put a null into the ExprState's resvalue/resnull ... */
 			scratch.opcode = EEOP_CONST;

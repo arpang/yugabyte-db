@@ -4281,7 +4281,7 @@ ExecModifyTable(PlanState *pstate)
 			 * attribute if needed.
 			 */
 			if (IsYBRelation(relation) &&
-				YBUseWholeRowJunkAttribute(
+				YbUseWholeRowJunkAttribute(
 					relation, ExecGetUpdatedCols(resultRelInfo, estate),
 					operation))
 			{

@@ -1344,7 +1344,7 @@ PowerWithUpperLimit(double base, int exp, double upper_limit)
 }
 
 bool
-YBUseWholeRowJunkAttribute(Relation relation, Bitmapset *updatedCols,
+YbUseWholeRowJunkAttribute(Relation relation, Bitmapset *updatedCols,
 						   CmdType operation)
 {
 	Assert(IsYBRelation(relation));
@@ -1360,7 +1360,7 @@ YBUseWholeRowJunkAttribute(Relation relation, Bitmapset *updatedCols,
 		return true;
 
 	if (operation == CMD_UPDATE)
-		return YBUseScanTupleInUpdate(relation, updatedCols);
+		return YbUseScanTupleInUpdate(relation, updatedCols);
 
 	return false;
 }
@@ -1374,7 +1374,7 @@ YBUseWholeRowJunkAttribute(Relation relation, Bitmapset *updatedCols,
  * returns true when this should be done.
  */
 bool
-YBUseScanTupleInUpdate(Relation relation, Bitmapset *updatedCols)
+YbUseScanTupleInUpdate(Relation relation, Bitmapset *updatedCols)
 {
 	/* Use scan tuple for non-YB relation. */
 	if (!IsYBRelation(relation))
