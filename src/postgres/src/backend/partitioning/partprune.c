@@ -3683,7 +3683,7 @@ perform_pruning_combine_step(PartitionPruneContext *context,
 		 * valid entries; otherwise there are boundinfo->ndatums.
 		 */
 		rangemax = context->strategy == PARTITION_STRATEGY_RANGE ?
-			boundinfo->nindexes : boundinfo->nindexes - 1;
+			boundinfo->ndatums : boundinfo->ndatums - 1;
 
 		result->bound_offsets =
 			bms_add_range(result->bound_offsets, 0, rangemax);
