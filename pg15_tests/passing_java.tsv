@@ -30,4 +30,4 @@ org.yb.pgsql.TestPgRegressTypesNumeric
 org.yb.pgsql.TestPgTransactions#testSerializableReadDelayWrite
 org.yb.pgsql.TestPgWrapper#testNotNullConstraint
 org.yb.pgsql.TestYbBackup#testAlteredTableWithNotNull
-org.yb.pgsql.TestPgRegressPushdown
+org.yb.pgsql.TestPgRegressPushdown#testPgRegressPushdown
