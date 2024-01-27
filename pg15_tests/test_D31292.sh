@@ -10,3 +10,4 @@ failing_java_test 'TestPgRegressPgMiscIndependent'
 grep_in_java_test \
   'failed tests: [yb_pg_dbsize, yb_pg_identity, yb_pg_index_including, yb_pg_misc, yb_pg_sequence]' \
   'TestPgRegressPgMiscIndependent'
+  
