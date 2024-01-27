@@ -24,10 +24,10 @@ org.yb.pgsql.TestPgRegressGin
 org.yb.pgsql.TestPgRegressHashInQueries
 org.yb.pgsql.TestPgRegressMisc#testPgRegressMiscSerial2
 org.yb.pgsql.TestPgRegressNonTxnCopy
+org.yb.pgsql.TestPgRegressPushdown#testPgRegressPushdown
 org.yb.pgsql.TestPgRegressSecondaryIndexScan
 org.yb.pgsql.TestPgRegressTabletSplit
 org.yb.pgsql.TestPgRegressTypesNumeric
 org.yb.pgsql.TestPgTransactions#testSerializableReadDelayWrite
 org.yb.pgsql.TestPgWrapper#testNotNullConstraint
 org.yb.pgsql.TestYbBackup#testAlteredTableWithNotNull
-org.yb.pgsql.TestPgRegressPushdown#testPgRegressPushdown
