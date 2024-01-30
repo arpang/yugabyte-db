@@ -3137,9 +3137,17 @@ static bool has_applicable_triggers(Relation rel, CmdType operation, Bitmapset *
 	return false;
 }
 
+/*
+ * yb_fetch_subpaths
+ *
+ * Helper function for yb_single_row_update_or_delete_path to fetch the
+ * - projection and index subpaths of an UPDATE path
+ * - index subpath of a DELETE path
+ *
+ */
 static void
-fetch_subpaths(ModifyTablePath *path, IndexPath **index_path,
-			   ProjectionPath **projection_path)
+yb_fetch_subpaths(ModifyTablePath *path, IndexPath **index_path,
+				  ProjectionPath **projection_path)
 {
 	Path *subpath = path->subpath;
 	*index_path = NULL;
@@ -3318,7 +3326,7 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	tupDesc = RelationGetDescr(relation);
 	attr_offset = YBGetFirstLowInvalidAttributeNumber(relation);
 
-	fetch_subpaths(path, &index_path, &projection_path);
+	yb_fetch_subpaths(path, &index_path, &projection_path);
 	if (!index_path)
 	{
 		RelationClose(relation);
