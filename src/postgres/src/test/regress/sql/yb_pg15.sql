@@ -436,6 +436,18 @@ DELETE FROM list_parted WHERE a = 1 and b = 1;
 SELECT * FROM list_parted;
 
 DROP TABLE list_parted;
+-- Cross partition UPDATE with nested loop join (multiple matches)
+CREATE TABLE list_parted (a int, b int) PARTITION BY list (a);
+CREATE TABLE sub_part1 PARTITION OF list_parted for VALUES in (1);
+CREATE TABLE sub_part2 PARTITION OF list_parted for VALUES in (2);
+INSERT into list_parted VALUES (1, 2);
+
+CREATE TABLE non_parted (id int);
+INSERT into non_parted VALUES (1), (1), (1);
+UPDATE list_parted t1 set a = 2 FROM non_parted t2 WHERE t1.a = t2.id and a = 1;
+SELECT * FROM list_parted;
+DROP TABLE list_parted;
+DROP TABLE non_parted;
 -- Test no segmentation fault in YbSeqscan with row marks
 CREATE TABLE main_table (a int) partition by range(a);
 CREATE TABLE main_table_1_100 partition of main_table FOR VALUES FROM (1) TO (100);
@@ -444,3 +456,33 @@ BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 SELECT * FROM main_table;
 SELECT * FROM main_table FOR KEY SHARE;
 COMMIT;
+
+-- YB_TODO: begin: remove this after tracking yb_pg_partition_prune
+-- Test partition pruning
+create table rlp (a int, b varchar) partition by range (a);
+create table rlp_default partition of rlp default partition by list (a);
+create table rlp_default_default partition of rlp_default default;
+create table rlp_default_10 partition of rlp_default for values in (10);
+create table rlp_default_30 partition of rlp_default for values in (30);
+create table rlp_default_null partition of rlp_default for values in (null);
+create table rlp1 partition of rlp for values from (minvalue) to (1);
+create table rlp2 partition of rlp for values from (1) to (10);
+
+create table rlp3 (b varchar, a int) partition by list (b varchar_ops);
+create table rlp3_default partition of rlp3 default;
+create table rlp3abcd partition of rlp3 for values in ('ab', 'cd');
+create table rlp3efgh partition of rlp3 for values in ('ef', 'gh');
+create table rlp3nullxy partition of rlp3 for values in (null, 'xy');
+alter table rlp attach partition rlp3 for values from (15) to (20);
+
+create table rlp4 partition of rlp for values from (20) to (30) partition by range (a);
+create table rlp4_default partition of rlp4 default;
+create table rlp4_1 partition of rlp4 for values from (20) to (25);
+create table rlp4_2 partition of rlp4 for values from (25) to (29);
+
+create table rlp5 partition of rlp for values from (31) to (maxvalue) partition by range (a);
+create table rlp5_default partition of rlp5 default;
+create table rlp5_1 partition of rlp5 for values from (31) to (40);
+
+explain (costs off) select * from rlp where a = 1 or b = 'ab';
+-- YB_TODO: end
