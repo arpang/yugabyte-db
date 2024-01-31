@@ -1385,9 +1385,11 @@ YbUseScanTupleInUpdate(Relation relation, Bitmapset *updatedCols)
 	 *  - partitions: to check partition constraints and to perform
 	 * cross-partition update (deletion followed by insertion).
 	 *  - constraints: to check for constraint violation.
+	 *  - secondary indexes: these are updated by deletion followed by
+	 * re-insertion.
 	 */
 	if (relation->rd_partkey != NULL || relation->rd_rel->relispartition ||
-		relation->rd_att->constr)
+		relation->rd_att->constr || YBRelHasSecondaryIndices(relation))
 		return true;
 
 	/*
