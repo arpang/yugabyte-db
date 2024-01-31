@@ -1005,3 +1005,10 @@ explain (costs off) select * from rlp where a = 1 or b = 'ab';
 (25 rows)
 
 -- YB_TODO: end
+-- YB_TODO: begin: remove after tracking yb_alter_table
+CREATE TABLE no_pk_tbl(k INT);
+ALTER TABLE no_pk_tbl ADD COLUMN v1 SERIAL;
+ERROR:  Rewriting of YB table is not yet implemented
+HINT:  See https://github.com/yugabyte/yugabyte-db/issues/13278. React with thumbs up to raise its priority
+DROP TABLE no_pk_tbl;
+-- YB_TODO: end

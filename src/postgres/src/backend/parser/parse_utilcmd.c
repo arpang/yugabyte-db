@@ -742,7 +742,6 @@ YbHandleSerialType(ColumnDef *column, ParseState *pstate)
 										column->typeName->location)));
 	}
 	column->ybIsSerial = is_serial;
-	return;
 }
 
 /*
@@ -761,11 +760,11 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
 
 	cxt->columns = lappend(cxt->columns, column);
 
+	YbHandleSerialType(column, cxt->pstate);
+
 	/* Do necessary work on the column type declaration */
 	if (column->typeName)
 		transformColumnType(cxt, column);
-
-	YbHandleSerialType(column, cxt->pstate);
 
 	/* Special actions for SERIAL pseudo-types */
 	if (column->ybIsSerial)

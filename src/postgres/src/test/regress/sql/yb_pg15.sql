@@ -486,3 +486,9 @@ create table rlp5_1 partition of rlp5 for values from (31) to (40);
 
 explain (costs off) select * from rlp where a = 1 or b = 'ab';
 -- YB_TODO: end
+
+-- YB_TODO: begin: remove after tracking yb_alter_table
+CREATE TABLE no_pk_tbl(k INT);
+ALTER TABLE no_pk_tbl ADD COLUMN v1 SERIAL;
+DROP TABLE no_pk_tbl;
+-- YB_TODO: end
