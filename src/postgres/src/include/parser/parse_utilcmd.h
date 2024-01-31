@@ -50,6 +50,6 @@ extern void YBTransformPartitionSplitValue(ParseState *pstate,
 										   int attr_count,
 										   PartitionRangeDatum **datums,
 										   int *datum_count);
-extern void YbHandleSerialType(ColumnDef *column, ParseState *pstate);
+extern void YbTransformSerialType(ColumnDef *column, ParseState *pstate);
 
 #endif							/* PARSE_UTILCMD_H */

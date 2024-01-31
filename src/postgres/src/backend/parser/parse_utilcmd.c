@@ -688,15 +688,15 @@ generateSerialExtraStmts(CreateStmtContext *cxt, ColumnDef *column,
 }
 
 /*
- * YbHandleSerialType
- * 		Handle SERIAL pseudo-types
+ * YbTransformSerialType
+ * 		Transform SERIAL pseudo-types to true types
  */
 void
-YbHandleSerialType(ColumnDef *column, ParseState *pstate)
+YbTransformSerialType(ColumnDef *column, ParseState *pstate)
 {
 	bool		is_serial;
 
-	/* Return if serial pseudo type has been handled already. */
+	/* Return if serial type has been handled already. */
 	if (column->ybIsSerial)
 		return;
 
@@ -760,7 +760,8 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
 
 	cxt->columns = lappend(cxt->columns, column);
 
-	YbHandleSerialType(column, cxt->pstate);
+	/* Handle SERIAL pseudo-types */
+	YbTransformSerialType(column, cxt->pstate);
 
 	/* Do necessary work on the column type declaration */
 	if (column->typeName)

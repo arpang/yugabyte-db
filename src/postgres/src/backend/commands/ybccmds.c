@@ -1135,7 +1135,7 @@ YBCPrepareAlterTableCmd(AlterTableCmd* cmd, Relation rel, List *handles,
 			int order;
 
 			/* Handle SERIAL pseudo-types */
-			YbHandleSerialType(colDef, NULL);
+			YbTransformSerialType(colDef, NULL);
 
 			/* Skip yb alter for IF NOT EXISTS with existing column */
 			if (cmd->missing_ok)
