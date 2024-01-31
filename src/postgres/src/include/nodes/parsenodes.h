@@ -695,6 +695,7 @@ typedef struct ColumnDef
 	List	   *constraints;	/* other constraints on column */
 	List	   *fdwoptions;		/* per-column FDW options */
 	int			location;		/* parse location, or -1 if none/unknown */
+	bool 		ybIsSerial;     /* whether column is of SERIAL pseudo type */
 } ColumnDef;
 
 /*

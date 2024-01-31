@@ -688,23 +688,18 @@ generateSerialExtraStmts(CreateStmtContext *cxt, ColumnDef *column,
 }
 
 /*
- * transformColumnDefinition -
- *		transform a single ColumnDef within CREATE TABLE
- *		Also used in ALTER TABLE ADD COLUMN
+ * YbHandleSerialType
+ * 		Handle SERIAL pseudo-types
  */
-static void
-transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
+void
+YbHandleSerialType(ColumnDef *column, ParseState *pstate)
 {
 	bool		is_serial;
-	bool		saw_nullable;
-	bool		saw_default;
-	bool		saw_identity;
-	bool		saw_generated;
-	ListCell   *clist;
 
-	cxt->columns = lappend(cxt->columns, column);
+	/* Return if serial pseudo type has been handled already. */
+	if (column->ybIsSerial)
+		return;
 
-	/* Check for SERIAL pseudo-types */
 	is_serial = false;
 	if (column->typeName
 		&& list_length(column->typeName->names) == 1
@@ -743,16 +738,37 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("array of serial is not implemented"),
-					 parser_errposition(cxt->pstate,
+					 parser_errposition(pstate,
 										column->typeName->location)));
 	}
+	column->ybIsSerial = is_serial;
+	return;
+}
+
+/*
+ * transformColumnDefinition -
+ *		transform a single ColumnDef within CREATE TABLE
+ *		Also used in ALTER TABLE ADD COLUMN
+ */
+static void
+transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
+{
+	bool		saw_nullable;
+	bool		saw_default;
+	bool		saw_identity;
+	bool		saw_generated;
+	ListCell   *clist;
+
+	cxt->columns = lappend(cxt->columns, column);
 
 	/* Do necessary work on the column type declaration */
 	if (column->typeName)
 		transformColumnType(cxt, column);
 
+	YbHandleSerialType(column, cxt->pstate);
+
 	/* Special actions for SERIAL pseudo-types */
-	if (is_serial)
+	if (column->ybIsSerial)
 	{
 		char	   *snamespace;
 		char	   *sname;
