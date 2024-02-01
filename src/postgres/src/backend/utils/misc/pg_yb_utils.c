@@ -1392,8 +1392,7 @@ YbUseScanTupleInUpdate(Relation relation, Bitmapset *updatedCols)
 		return true;
 
 	/*
-	 * Scenarios when the "new tuple" must contain the non-modified columns in
-	 * UPDATE:
+	 * Scenarios when the new tuple must contain non-modified columns in UPDATE:
 	 *  - partitions: to check partition constraints and to perform
 	 * cross-partition update (deletion followed by insertion).
 	 *  - constraints: to check for constraint violation.
