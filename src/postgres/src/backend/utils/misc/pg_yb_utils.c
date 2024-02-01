@@ -1396,8 +1396,10 @@ YbUseScanTupleInUpdate(Relation relation, Bitmapset *updatedCols)
 	 *  - partitions: to check partition constraints and to perform
 	 * cross-partition update (deletion followed by insertion).
 	 *  - constraints: to check for constraint violation.
-	 *  - secondary indexes update works by deletion followed by re-insertion.
-	 *  - before row triggers: because we check for "extra updated" cols.
+	 *  - secondary index: index update works by deletion followed by
+	 * re-insertion, and a multi-column secondary index can contain some updated
+	 * and some non-updated columns.
+	 *  - BR update triggers: to correctly check for "extra updated" columns.
 	 *  - PK update: works by deletion followed by re-insertion, hence the old
 	 * tuple is required.
 	 *
