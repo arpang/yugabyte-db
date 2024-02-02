@@ -402,9 +402,7 @@ YbRelHasBRUpdateTrigger(Relation rel)
 {
 	Assert(IsYBRelation(rel));
 	TriggerDesc *trigdesc = rel->trigdesc;
-	if (!trigdesc)
-		return false;
-	return trigdesc->trig_update_before_row;
+	return trigdesc ? trigdesc->trig_update_before_row : false;
 }
 
 bool
@@ -1357,7 +1355,7 @@ bool
 YbUseWholeRowJunkAttribute(Relation relation, Bitmapset *updatedCols,
 						   CmdType operation)
 {
-	if(!IsYBRelation(relation))
+	if (!IsYBRelation(relation))
 		return false;
 
 	/*
