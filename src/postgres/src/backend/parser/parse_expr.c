@@ -2542,10 +2542,10 @@ transformWholeRowRef(ParseState *pstate, ParseNamespaceItem *nsitem,
 	{
 		Var		   *result;
 
-		result = makeWholeRowVar(nsitem->p_rte, nsitem->p_rtindex,
-								 sublevels_up, true);
+		result = makeVar(nsitem->p_rtindex, InvalidAttrNumber, RECORDOID, -1,
+						 InvalidOid, sublevels_up);
 
-		/* location is not filled in by makeWholeRowVar */
+		/* location is not filled in by makeVar */
 		result->location = location;
 
 		/* mark relation as requiring whole-row SELECT access */
