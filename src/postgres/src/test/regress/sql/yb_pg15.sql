@@ -508,3 +508,8 @@ FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
 UPDATE min_updates_test SET f1 = f1;
 SELECT * FROM min_updates_test ORDER BY f1;
 -- YB_TODO: end
+
+create table test (type text NOT NULL UNIQUE, totamt numeric NOT NULL);
+insert into test values ('x', 1), ('y', 2), ('z', 3);
+delete FROM test mv WHERE mv OPERATOR(pg_catalog.=) ANY (select test from test where totamt = 1);
+drop table test;
