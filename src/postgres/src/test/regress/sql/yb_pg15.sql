@@ -511,5 +511,5 @@ SELECT * FROM min_updates_test ORDER BY f1;
 
 create table test (id int unique);
 insert into test values (1), (2), (3);
-delete from test mv WHERE mv OPERATOR(pg_catalog.=) ANY (select test from test);
+delete from test WHERE test = ANY (select test from test);
 drop table test;
