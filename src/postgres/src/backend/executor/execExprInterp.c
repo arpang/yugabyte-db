@@ -79,6 +79,8 @@
 
 /* Yugabyte includes */
 #include "access/sysattr.h"
+#include "parser/parse_type.h"
+#include "pg_yb_utils.h"
 
 /*
  * Use computed-goto-based opcode dispatch when computed gotos are available.
@@ -1938,13 +1940,19 @@ CheckVarSlotCompatibility(TupleTableSlot *slot, int attnum, Oid vartype)
 							attnum, format_type_be(slot_tupdesc->tdtypeid))));
 
 		if (vartype != attr->atttypid)
-			ereport(ERROR,
-					(errcode(ERRCODE_DATATYPE_MISMATCH),
-					 errmsg("attribute %d of type %s has wrong type",
-							attnum, format_type_be(slot_tupdesc->tdtypeid)),
-					 errdetail("Table has type %s, but query expects %s.",
-							   format_type_be(attr->atttypid),
-							   format_type_be(vartype))));
+		{
+			bool yb_skip_incompatible_error = IsYugaByteEnabled() &&
+											  attr->atttypid == RECORDOID &&
+											  ISCOMPLEX(vartype);
+			if (!yb_skip_incompatible_error)
+				ereport(ERROR,
+						(errcode(ERRCODE_DATATYPE_MISMATCH),
+						 errmsg("attribute %d of type %s has wrong type",
+								attnum, format_type_be(slot_tupdesc->tdtypeid)),
+						 errdetail("Table has type %s, but query expects %s.",
+								   format_type_be(attr->atttypid),
+								   format_type_be(vartype))));
+		}
 	}
 }
 
