@@ -6,16 +6,24 @@ cd pg15_tests
 # All tests should start with "test_".
 diff <(find . -name '*.sh' | grep -v '^./test_' | sort) - <<EOT
 ./common.sh
+./run_flaky_cxx_tests.sh
+./run_flaky_java_tests.sh
 ./run_passing_cxx_tests.sh
 ./run_passing_java_tests.sh
 ./run_shell_tests.sh
 ./run_test_n_times.sh
 EOT
 
-# passing_foo.tsv should be sorted and have no duplicates.
-find . -name 'passing_*.tsv' \
+# flaky_foo.tsv and passing_foo.tsv.
+find . -name '*.tsv' \
   | while read -r tsv; do
+  # Check sorted and no duplicates.
   LC_ALL=C sort -cu "$tsv"
+  # Check no spaces (should be tabs).
+  if grep -q ' ' "$tsv"; then
+    echo "Bad space in $tsv"
+    exit 1
+  fi
 done
 
 find . -name '*.sh' \
