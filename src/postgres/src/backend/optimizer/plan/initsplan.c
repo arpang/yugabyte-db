@@ -276,7 +276,7 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 												copyObject(var));
 				/* reltarget cost and width will be computed later */
 			}
-			else if (rel->is_yb_relation && var->varattno == InvalidOid &&
+			else if (IsYugaByteEnabled() && var->varattno == InvalidOid &&
 					 var->vartype != RECORDOID)
 			{
 				/*
