@@ -1940,8 +1940,8 @@ CheckVarSlotCompatibility(TupleTableSlot *slot, int attnum, Oid vartype)
 		if (vartype != attr->atttypid)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
-					 errmsg("attribute %d of type %s has wrong type", attnum,
-							format_type_be(slot_tupdesc->tdtypeid)),
+					 errmsg("attribute %d of type %s has wrong type",
+							attnum, format_type_be(slot_tupdesc->tdtypeid)),
 					 errdetail("Table has type %s, but query expects %s.",
 							   format_type_be(attr->atttypid),
 							   format_type_be(vartype))));
