@@ -38,6 +38,9 @@
 #include "utils/timestamp.h"
 #include "utils/xml.h"
 
+/* Yugabyte includes */
+#include "pg_yb_utils.h"
+
 /* GUC parameters */
 bool		Transform_null_equals = false;
 
@@ -2542,8 +2545,12 @@ transformWholeRowRef(ParseState *pstate, ParseNamespaceItem *nsitem,
 	{
 		Var		   *result;
 
-		result = makeWholeRowVar(nsitem->p_rte, nsitem->p_rtindex,
-								 sublevels_up, true);
+		if (IsYugaByteEnabled())
+			result = makeVar(nsitem->p_rtindex, InvalidAttrNumber, RECORDOID,
+							 -1, InvalidOid, sublevels_up);
+		else
+			result = makeWholeRowVar(nsitem->p_rte, nsitem->p_rtindex,
+									 sublevels_up, true);
 
 		/* location is not filled in by makeWholeRowVar */
 		result->location = location;
