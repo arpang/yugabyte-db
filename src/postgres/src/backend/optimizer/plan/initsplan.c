@@ -219,6 +219,19 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
 	}
 }
 
+ListCell *
+yb_find_wholerow_of_record_type(List *expr)
+{
+	ListCell *lc;
+	foreach (lc, expr)
+	{
+		Var *var = lfirst_node(Var, lc);
+		if (var->varattno == InvalidOid && var->vartype == RECORDOID)
+			return lc;
+	}
+	return NULL;
+}
+
 /*
  * add_vars_to_targetlist
  *	  For each variable appearing in the list, add it to the owning
@@ -262,6 +275,25 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 				rel->reltarget->exprs = lappend(rel->reltarget->exprs,
 												copyObject(var));
 				/* reltarget cost and width will be computed later */
+			}
+			else if (rel->is_yb_relation && var->varattno == InvalidOid &&
+					 var->vartype != RECORDOID)
+			{
+				/*
+				 * YB note: var is a wholerow Var with vartype == rel_type_id.
+				 * If rel->reltarget->exprs contains wholerow Var of
+				 * RECOROID type, replace it.
+				 */
+				ListCell *lc =
+					yb_find_wholerow_of_record_type(rel->reltarget->exprs);
+				if (lc)
+				{
+					rel->reltarget->exprs =
+						list_delete_cell(rel->reltarget->exprs, lc);
+					/* XXX is copyObject necessary here? */
+					rel->reltarget->exprs = lappend(rel->reltarget->exprs,
+													copyObject(var));
+				}
 			}
 			rel->attr_needed[attno] = bms_add_members(rel->attr_needed[attno],
 													  where_needed);
