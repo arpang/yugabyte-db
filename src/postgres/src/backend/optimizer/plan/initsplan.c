@@ -281,8 +281,8 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 			{
 				/*
 				 * YB note: var is a wholerow Var with vartype == rel_type_id.
-				 * If rel->reltarget->exprs contains wholerow Var of
-				 * RECOROID type, replace it.
+				 * Prioritize it over existing wholerow of RECOROID type (if
+				 * any) in rel->reltarget->exprs.
 				 */
 				ListCell *lc =
 					yb_find_wholerow_of_record_type(rel->reltarget->exprs);
