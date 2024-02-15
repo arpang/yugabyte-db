@@ -523,3 +523,10 @@ insert into emp3 values (1, 'a'), (2, 'b'), (3, 'c');
 select * from emp FULL JOIN emp3 on emp = emp3;
 drop table emp;
 drop table emp3;
+-- suppress warning that depends on wal_level
+SET client_min_messages = 'ERROR';
+CREATE PUBLICATION p;
+RESET client_min_messages;
+ALTER PUBLICATION p ADD TABLES IN SCHEMA public;
+ALTER PUBLICATION p DROP TABLES IN SCHEMA CURRENT_SCHEMA;
+ALTER PUBLICATION p SET CURRENT_SCHEMA;
