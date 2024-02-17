@@ -233,7 +233,6 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
  *	  to create new PlaceHolderInfos; otherwise, the PlaceHolderInfos must
  *	  already exist, and we should only update their ph_needed.  (This should
  *	  be true before deconstruct_jointree begins, and false after that.)
-
  */
 void
 add_vars_to_targetlist(PlannerInfo *root, List *vars,
