@@ -86,6 +86,7 @@ static void check_mergejoinable(RestrictInfo *restrictinfo);
 static void check_hashjoinable(RestrictInfo *restrictinfo);
 static void check_batchable(PlannerInfo *root, RestrictInfo *restrictinfo);
 static void check_memoizable(RestrictInfo *restrictinfo);
+static ListCell * yb_find_wholerow_of_record_type(List *expr);
 
 
 /*****************************************************************************
@@ -219,19 +220,6 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
 	}
 }
 
-ListCell *
-yb_find_wholerow_of_record_type(List *expr)
-{
-	ListCell *lc;
-	foreach (lc, expr)
-	{
-		Var *var = lfirst_node(Var, lc);
-		if (var->varattno == InvalidOid && var->vartype == RECORDOID)
-			return lc;
-	}
-	return NULL;
-}
-
 /*
  * add_vars_to_targetlist
  *	  For each variable appearing in the list, add it to the owning
@@ -245,6 +233,7 @@ yb_find_wholerow_of_record_type(List *expr)
  *	  to create new PlaceHolderInfos; otherwise, the PlaceHolderInfos must
  *	  already exist, and we should only update their ph_needed.  (This should
  *	  be true before deconstruct_jointree begins, and false after that.)
+
  */
 void
 add_vars_to_targetlist(PlannerInfo *root, List *vars,
@@ -2941,4 +2930,17 @@ check_memoizable(RestrictInfo *restrictinfo)
 
 	if (OidIsValid(typentry->hash_proc) && OidIsValid(typentry->eq_opr))
 		restrictinfo->right_hasheqoperator = typentry->eq_opr;
+}
+
+static ListCell *
+yb_find_wholerow_of_record_type(List *expr)
+{
+	ListCell *lc;
+	foreach (lc, expr)
+	{
+		Var *var = lfirst_node(Var, lc);
+		if (var->varattno == InvalidOid && var->vartype == RECORDOID)
+			return lc;
+	}
+	return NULL;
 }
