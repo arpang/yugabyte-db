@@ -220,19 +220,6 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
 	}
 }
 
-ListCell *
-yb_find_wholerow_of_record_type(List *expr)
-{
-	ListCell *lc;
-	foreach (lc, expr)
-	{
-		Var *var = lfirst_node(Var, lc);
-		if (var->varattno == InvalidOid && var->vartype == RECORDOID)
-			return lc;
-	}
-	return NULL;
-}
-
 /*
  * add_vars_to_targetlist
  *	  For each variable appearing in the list, add it to the owning
