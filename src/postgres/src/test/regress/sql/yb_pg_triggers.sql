@@ -1574,7 +1574,7 @@ end;
 $$;
 insert into parted values (1, 1, 'uno uno');       -- works
 update parted set c = c || ' v6';                   -- works
-select tableoid::regclass, * from parted;
+select tableoid::regclass, * from parted order by c;
 
 -- update itself moves tuple to new partition; trigger still works
 truncate table parted;
