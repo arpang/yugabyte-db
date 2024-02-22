@@ -1007,7 +1007,6 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 		HeapTuple	newtup;
 
 		newtup = heap_form_tuple(tgrel->rd_att, values, nulls);
-		HEAPTUPLE_YBCTID(newtup) = HEAPTUPLE_YBCTID(tuple);
 		CatalogTupleUpdate(tgrel, &tuple->t_self, newtup);
 		heap_freetuple(newtup);
 	}
