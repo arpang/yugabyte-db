@@ -2264,7 +2264,7 @@ $$;
 insert into parted values (1, 1, 'uno uno');       -- works
 update parted set c = c || ' v6';                   -- works
 select tableoid::regclass, * from parted order by c;
-  tableoid  | a | b |            c             
+  tableoid  | a | b |            c
 ------------+---+---+--------------------------
  parted_1_1 | 1 | 1 | uno uno and so v6 and so
  parted_1_1 | 1 | 1 | uno uno v1 v6 and so
