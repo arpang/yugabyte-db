@@ -1253,6 +1253,13 @@ void YBCUpdateSysCatalogTupleForDb(Oid dboid, Relation rel, HeapTuple oldtuple, 
 	AttrNumber minattr = YBGetFirstLowInvalidAttributeNumber(rel);
 	Bitmapset  *pkey   = YBGetTablePrimaryKeyBms(rel);
 
+	if (HEAPTUPLE_YBCTID(tuple) == 0)
+	{
+		/* Get the ybctid from the tuple. */
+		HEAPTUPLE_YBCTID(tuple) =
+			YBCGetYBTupleIdFromTuple(rel, tuple, tupleDesc);
+	}
+
 	/* Bind the ybctid to the statement. */
 	YBCBindTupleId(update_stmt, HEAPTUPLE_YBCTID(tuple));
 
