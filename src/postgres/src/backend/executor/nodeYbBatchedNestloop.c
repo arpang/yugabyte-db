@@ -489,7 +489,15 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 	execTuplesHashPrepare(num_hashClauseInfos, eqops, &eqFuncOids,
 						  &bnlstate->hashFunctions);
 
-	/* temporarily change the innerops while compiling the expression */
+	/*
+	 * Since hash table stores MinimalTuple, both LHS and RHS operands of the
+	 * hash table comparator will be MinimalTuple. The operands will be stored
+	 * in ecxt_innertuple and ecxt_outertuple (see TupleHashTableMatch).
+	 * Therefore, both innerops and outerops must be TTSOpsMinimalTuple when
+	 * compiling the hash table comparator. outerops is already handled in
+	 * ExecInitYbBatchedNestLoop. Temporarily set the innerops to
+	 * &TTSOpsMinimalTuple.
+	 */
 	bnlstate->js.ps.innerops = &TTSOpsMinimalTuple;
 	bnlstate->js.ps.inneropsfixed = true;
 	bnlstate->js.ps.inneropsset = true;
@@ -498,6 +506,11 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 		ybPrepareOuterExprsEqualFn(outerParamExprs,
 								   eqops,
 								   (PlanState *) bnlstate);
+
+	/* revert to original innerops */
+	bnlstate->js.ps.innerops = innerops;
+	bnlstate->js.ps.inneropsfixed = inneropsfixed;
+	bnlstate->js.ps.inneropsset = inneropsset;
 
 	/* Per batch memory context for the hash table to work with */
 	MemoryContext tablecxt =
@@ -517,10 +530,6 @@ InitHash(YbBatchedNestLoopState *bnlstate)
 
 	bnlstate->hashiterinit = false;
 	bnlstate->current_hash_entry = NULL;
-
-	bnlstate->js.ps.innerops = innerops;
-	bnlstate->js.ps.inneropsfixed = inneropsfixed;
-	bnlstate->js.ps.inneropsset = inneropsset;
 }
 
 bool
