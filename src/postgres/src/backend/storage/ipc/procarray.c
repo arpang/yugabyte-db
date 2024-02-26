@@ -656,8 +656,6 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 	 */
 	LWLockRelease(XidGenLock);
 	LWLockRelease(ProcArrayLock);
-
-	elog(WARNING, "failed to find process with pid %d in ProcArray", proc->pid);
 }
 
 /*
