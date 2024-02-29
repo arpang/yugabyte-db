@@ -103,8 +103,8 @@ YbCallSQLIncrementCatalogVersions(bool is_breaking_change)
 	LOCAL_FCINFO(fcinfo, 1);
 	fmgr_info(functionId, &flinfo);
 	InitFunctionCallInfoData(*fcinfo, &flinfo, 1, InvalidOid, NULL, NULL);
-	PG_GETARG_DATUM(0) = BoolGetDatum(is_breaking_change);
-	PG_ARGISNULL(0) = false;
+	fcinfo->args[0].value = BoolGetDatum(is_breaking_change);
+	fcinfo->args[0].isnull = false;
 
 	// Save old values and set new values to enable the call.
 	bool saved = yb_non_ddl_txn_for_sys_tables_allowed;
