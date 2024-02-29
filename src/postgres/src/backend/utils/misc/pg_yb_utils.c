@@ -3593,7 +3593,7 @@ void YbRegisterSysTableForPrefetching(int sys_table_id) {
 	// In case particular table must always load all the rows or
 	// system cache filtering is disabled the sys_only_filter_attr
 	// must be set to InvalidAttrNumber.
-	int sys_only_filter_attr;
+	int sys_only_filter_attr = InvalidAttrNumber;
 	int db_id = MyDatabaseId;
 	int sys_table_index_id = InvalidOid;
 
