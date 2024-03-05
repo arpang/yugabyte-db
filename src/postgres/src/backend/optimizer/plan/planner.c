@@ -1282,12 +1282,13 @@ yb_ipath_matches_pk(IndexPath *index_path)
 {
 	ListCell   *values;
 	Bitmapset  *primary_key_attrs = NULL;
-	ListCell   *lc = NULL;
-
+	ListCell   *lc, *lc2;
+	List *quals;
 	/*
 	 * Verify no non-primary-key filters are specified. There is one
 	 * indrestrictinfo per query term.
 	 */
+	quals = get_quals_from_indexclauses(index_path->indexclauses);
 	foreach(values, index_path->indexinfo->indrestrictinfo)
 	{
 		RestrictInfo *rinfo = lfirst_node(RestrictInfo, values);
@@ -1298,8 +1299,7 @@ yb_ipath_matches_pk(IndexPath *index_path)
 		 * because if there is only one query term, both structures will contain
 		 * one item, even if there are more columns in the primary key.
 		 */
-		if (!list_member_ptr(
-				get_quals_from_indexclauses(index_path->indexclauses), rinfo))
+		if (!list_member_ptr(quals, rinfo))
 			return false;
 	}
 
@@ -1310,18 +1310,17 @@ yb_ipath_matches_pk(IndexPath *index_path)
 	foreach (lc, index_path->indexclauses)
 	{
 		IndexClause *iclause = lfirst_node(IndexClause, lc);
-		ListCell *lc2;
 		foreach (lc2, iclause->indexquals)
 		{
 			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc2);
-			Expr *clause = rinfo->clause;
-			Oid clause_op;
-			int op_strategy;
+			Expr		*clause = rinfo->clause;
+			Oid			clause_op;
+			int			op_strategy;
 
 			if (!IsA(clause, OpExpr))
 				return false;
-			OpExpr *op = (OpExpr *) clause;
-			clause_op = op->opno;
+
+			clause_op = ((OpExpr *) clause)->opno;
 			if (!OidIsValid(clause_op))
 				return false;
 
