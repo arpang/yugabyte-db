@@ -1282,7 +1282,7 @@ yb_ipath_matches_pk(IndexPath *index_path)
 {
 	ListCell   *values;
 	Bitmapset  *primary_key_attrs = NULL;
-	ListCell   *lc;
+	ListCell   *lc = NULL;
 	/*
 	 * Verify no non-primary-key filters are specified. There is one
 	 * indrestrictinfo per query term.
@@ -1326,6 +1326,7 @@ yb_ipath_matches_pk(IndexPath *index_path)
 
 			/* indexcols is only set for RowCompareExpr. */
 			Assert(iclause->indexcols == NULL);
+
 			op_strategy = get_op_opfamily_strategy(
 				clause_op, index_path->indexinfo->opfamily[iclause->indexcol]);
 			Assert(op_strategy != 0); /* not a member of opfamily?? */

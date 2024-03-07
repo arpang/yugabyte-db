@@ -3508,6 +3508,7 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	foreach(values, index_path->indexinfo->indrestrictinfo)
 	{
 		RestrictInfo *rinfo = lfirst_node(RestrictInfo, values);
+
 		if (!is_redundant_with_indexclauses(rinfo, index_path->indexclauses))
 		{
 			RelationClose(relation);
