@@ -3254,7 +3254,6 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	Bitmapset *pushdown_update_attrs = NULL;
 	/* Delay bailout because of not pushable expressions to analyze indexes. */
 	bool has_unpushable_exprs = false;
-	List *quals;
 
 	/* Verify YB is enabled. */
 	if (!IsYugaByteEnabled())
@@ -3506,12 +3505,10 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	}
 
 	/* Verify no non-primary-key filters are specified. */
-	quals = get_quals_from_indexclauses(index_path->indexclauses);
 	foreach(values, index_path->indexinfo->indrestrictinfo)
 	{
 		RestrictInfo *rinfo = lfirst_node(RestrictInfo, values);
-
-		if (!list_member_ptr(quals, rinfo))
+		if (!is_redundant_with_indexclauses(rinfo, index_path->indexclauses))
 		{
 			RelationClose(relation);
 			return false;
