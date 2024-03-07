@@ -3254,6 +3254,7 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	Bitmapset *pushdown_update_attrs = NULL;
 	/* Delay bailout because of not pushable expressions to analyze indexes. */
 	bool has_unpushable_exprs = false;
+	List *quals;
 
 	/* Verify YB is enabled. */
 	if (!IsYugaByteEnabled())
@@ -3505,11 +3506,12 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	}
 
 	/* Verify no non-primary-key filters are specified. */
+	quals = get_quals_from_indexclauses(index_path->indexclauses);
 	foreach(values, index_path->indexinfo->indrestrictinfo)
 	{
 		RestrictInfo *rinfo = lfirst_node(RestrictInfo, values);
 
-		if (!is_redundant_with_indexclauses(rinfo, index_path->indexclauses))
+		if (!list_member_ptr(quals, rinfo))
 		{
 			RelationClose(relation);
 			return false;
@@ -3543,7 +3545,10 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 				return false;
 			}
 
-			op_strategy = get_op_opfamily_strategy(clause_op, index_path->indexinfo->opfamily[iclause->indexcol]);
+			/* indexcols is only set for RowCompareExpr. */
+			Assert(iclause->indexcols == NULL);
+			op_strategy = get_op_opfamily_strategy(
+				clause_op, index_path->indexinfo->opfamily[iclause->indexcol]);
 			Assert(op_strategy != 0);  /* not a member of opfamily?? */
 			/* Only pushdown equal operators. */
 			if (op_strategy != BTEqualStrategyNumber)
@@ -6305,7 +6310,6 @@ yb_get_batched_indexquals(PlannerInfo *root, IndexPath *index_path,
 		foreach(lc, index_path->indexclauses)
 		{
 			IndexClause *iclause = lfirst_node(IndexClause, lc);
-			int			indexcol = iclause->indexcol;
 			ListCell   *lc2;
 
 			foreach(lc2, iclause->indexquals)
@@ -6325,7 +6329,7 @@ yb_get_batched_indexquals(PlannerInfo *root, IndexPath *index_path,
 					*stripped_indexquals = lappend(*stripped_indexquals, clause);
 					clause = copyObject(clause);
 					clause = fix_indexqual_clause(root, index_path->indexinfo,
-												  indexcol, clause,
+												  iclause->indexcol, clause,
 												  iclause->indexcols);
 					*fixed_indexquals = lappend(*fixed_indexquals, clause);
 				}
@@ -6373,7 +6377,6 @@ fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
 	foreach(lc, index_path->indexclauses)
 	{
 		IndexClause *iclause = lfirst_node(IndexClause, lc);
-		int			indexcol = iclause->indexcol;
 		ListCell   *lc2;
 
 		foreach(lc2, iclause->indexquals)
@@ -6392,7 +6395,7 @@ fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
 				continue;
 
 			stripped_indexquals = lappend(stripped_indexquals, clause);
-			clause = fix_indexqual_clause(root, index, indexcol,
+			clause = fix_indexqual_clause(root, index, iclause->indexcol,
 										  clause, iclause->indexcols);
 			fixed_indexquals = lappend(fixed_indexquals, clause);
 		}

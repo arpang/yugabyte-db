@@ -1282,7 +1282,7 @@ yb_ipath_matches_pk(IndexPath *index_path)
 {
 	ListCell   *values;
 	Bitmapset  *primary_key_attrs = NULL;
-	ListCell   *lc, *lc2;
+	ListCell   *lc;
 	List 	   *quals;
 	/*
 	 * Verify no non-primary-key filters are specified. There is one
@@ -1310,6 +1310,8 @@ yb_ipath_matches_pk(IndexPath *index_path)
 	foreach (lc, index_path->indexclauses)
 	{
 		IndexClause *iclause = lfirst_node(IndexClause, lc);
+		ListCell 	*lc2;
+
 		foreach (lc2, iclause->indexquals)
 		{
 			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc2);
@@ -1324,7 +1326,7 @@ yb_ipath_matches_pk(IndexPath *index_path)
 			if (!OidIsValid(clause_op))
 				return false;
 
-			/* indexcols is only set for RowCompareExpr.  */
+			/* indexcols is only set for RowCompareExpr. */
 			Assert(iclause->indexcols == NULL);
 			op_strategy = get_op_opfamily_strategy(
 				clause_op, index_path->indexinfo->opfamily[iclause->indexcol]);
