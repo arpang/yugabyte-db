@@ -1284,18 +1284,16 @@ yb_ipath_matches_pk(IndexPath *index_path)
 	Bitmapset  *primary_key_attrs = NULL;
 	ListCell   *lc = NULL;
 	/*
-	 * Verify no non-primary-key filters are specified. There is one
-	 * indrestrictinfo per query term.
+	 * Verify no non-primary-key filters are specified.
 	 */
 	foreach(values, index_path->indexinfo->indrestrictinfo)
 	{
 		RestrictInfo *rinfo = lfirst_node(RestrictInfo, values);
 
 		/*
-		 * There is one indexquals per key that has a query term. Note this
-		 * means we can't simply compare indrestrictinfo count to indexquals,
-		 * because if there is only one query term, both structures will contain
-		 * one item, even if there are more columns in the primary key.
+		 * TODO(tfoucher): Given all the additional checks that follow, can we
+		 * simply check for length(indrestrictinfo) > length(indexclauses) to
+		 * check for presence of non-pk filters?
 		 */
 		if (!is_redundant_with_indexclauses(rinfo, index_path->indexclauses))
 			return false;
