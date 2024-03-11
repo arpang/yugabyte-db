@@ -3609,16 +3609,14 @@ ybFetchSample(YbSample ybSample, HeapTuple *rows)
  * data types is allocated from the current memory context, so be sure that
  * lifetime of that context is appropriate.
  *
- * slot is expected to be a VirtualTupleTableSlot. Its t_tableOid field is
- * updated with provided relid and ybctid field is set to returned ybctid
- * value.
+ * slot's t_tableOid field is updated with provided relid and ybctid field is
+ * set to returned ybctid value.
  */
 TupleTableSlot *
 ybFetchNext(YBCPgStatement handle,
 			TupleTableSlot *slot, Oid relid)
 {
 	Assert(slot != NULL);
-	Assert(TTS_IS_VIRTUAL(slot));
 	TupleDesc	tupdesc = slot->tts_tupleDescriptor;
 	Datum	   *values = slot->tts_values;
 	bool	   *nulls = slot->tts_isnull;
