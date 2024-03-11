@@ -450,3 +450,21 @@ RESET client_min_messages;
 ALTER PUBLICATION p ADD TABLES IN SCHEMA public;
 ALTER PUBLICATION p DROP TABLES IN SCHEMA CURRENT_SCHEMA;
 ALTER PUBLICATION p SET CURRENT_SCHEMA;
+
+-- Can be removed after yb_parallel_colocated passes
+CREATE DATABASE pctest colocation = true;
+\c pctest
+CREATE TABLE pctest1(k int primary key, a int, b int, c int, d text)
+    WITH (colocation = true);
+CREATE UNIQUE INDEX ON pctest1(a);
+CREATE INDEX ON pctest1(c);
+INSERT INTO pctest1
+    SELECT i, 1000 - i, i/3, i%50, 'Value' || i::text FROM generate_series(1, 1000) i;
+
+set yb_parallel_range_rows  to 1;
+set yb_enable_base_scans_cost_model to true;
+set parallel_setup_cost=0;
+set parallel_tuple_cost=0;
+
+EXPLAIN (costs off) SELECT count(*) FROM pctest1 WHERE k > 123;
+SELECT count(*) FROM pctest1 WHERE k > 123;
