@@ -451,7 +451,8 @@ ALTER PUBLICATION p ADD TABLES IN SCHEMA public;
 ALTER PUBLICATION p DROP TABLES IN SCHEMA CURRENT_SCHEMA;
 ALTER PUBLICATION p SET CURRENT_SCHEMA;
 
--- Can be removed after yb_parallel_colocated passes
+-- parallel query with aggregate pushdown.
+-- start: remove after yb_parallel_colocated passes
 CREATE DATABASE pctest colocation = true;
 \c pctest
 CREATE TABLE pctest1(k int primary key, a int, b int, c int, d text)
@@ -468,3 +469,9 @@ set parallel_tuple_cost=0;
 
 EXPLAIN (costs off) SELECT count(*) FROM pctest1 WHERE k > 123;
 SELECT count(*) FROM pctest1 WHERE k > 123;
+
+CREATE TABLE pctest3(k int primary key, a int) WITH (colocation = true);
+INSERT INTO pctest3 SELECT i, 1000 - i FROM generate_series(1, 1000) i;
+EXPLAIN (costs off) SELECT count(*), max(k), min(k) FROM pctest3 WHERE k > 123;
+SELECT count(*), max(k), min(k) FROM pctest3 WHERE k > 123;
+-- end: remove after yb_parallel_colocated passes

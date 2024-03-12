@@ -993,7 +993,8 @@ ERROR:  CREATE/ALTER PUBLICATION SCHEMA not supported yet
 LINE 1: ALTER PUBLICATION p SET CURRENT_SCHEMA;
                                 ^
 HINT:  Please report the issue on https://github.com/YugaByte/yugabyte-db/issues
--- Can be removed after yb_parallel_colocated passes
+-- parallel query with aggregate pushdown.
+-- start: remove after yb_parallel_colocated passes
 CREATE DATABASE pctest colocation = true;
 \c pctest
 CREATE TABLE pctest1(k int primary key, a int, b int, c int, d text)
@@ -1023,3 +1024,25 @@ SELECT count(*) FROM pctest1 WHERE k > 123;
 -------
    877
 (1 row)
+
+CREATE TABLE pctest3(k int primary key, a int) WITH (colocation = true);
+INSERT INTO pctest3 SELECT i, 1000 - i FROM generate_series(1, 1000) i;
+EXPLAIN (costs off) SELECT count(*), max(k), min(k) FROM pctest3 WHERE k > 123;
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather
+         Workers Planned: 2
+         ->  Noop Aggregate
+               ->  Parallel Index Scan using pctest3_pkey on pctest3
+                     Index Cond: (k > 123)
+                     Partial Aggregate: true
+(7 rows)
+
+SELECT count(*), max(k), min(k) FROM pctest3 WHERE k > 123;
+ count | max  | min 
+-------+------+-----
+   877 | 1000 | 124
+(1 row)
+
+-- end: remove after yb_parallel_colocated passes
