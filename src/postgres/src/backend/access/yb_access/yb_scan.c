@@ -3617,6 +3617,7 @@ ybFetchNext(YBCPgStatement handle,
 			TupleTableSlot *slot, Oid relid)
 {
 	Assert(slot != NULL);
+	Assert(TTS_IS_VIRTUAL(slot));
 	TupleDesc	tupdesc = slot->tts_tupleDescriptor;
 	Datum	   *values = slot->tts_values;
 	bool	   *nulls = slot->tts_isnull;
