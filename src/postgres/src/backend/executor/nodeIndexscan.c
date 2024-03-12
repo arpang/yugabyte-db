@@ -1038,6 +1038,7 @@ ExecInitIndexScan(IndexScan *node, EState *estate, int eflags)
 	ExecInitScanTupleSlot(estate, &indexstate->ss,
 						  RelationGetDescr(currentRelation),
 						  table_slot_callbacks(currentRelation));
+
 	/*
 	 * Initialize result type and projection.
 	 */

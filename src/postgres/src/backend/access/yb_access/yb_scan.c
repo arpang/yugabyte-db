@@ -3609,8 +3609,10 @@ ybFetchSample(YbSample ybSample, HeapTuple *rows)
  * data types is allocated from the current memory context, so be sure that
  * lifetime of that context is appropriate.
  *
- * slot's t_tableOid field is updated with provided relid and ybctid field is
- * set to returned ybctid value.
+ * While the function should work with any slot type, using
+ * VirtualTupleTableSlot makes most sense for YB (GH #19372), hence the
+ * assertion. Slot's t_tableOid field is updated with provided relid and ybctid
+ * field is set to returned ybctid value.
  */
 TupleTableSlot *
 ybFetchNext(YBCPgStatement handle,

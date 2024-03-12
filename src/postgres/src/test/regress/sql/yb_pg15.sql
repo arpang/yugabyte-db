@@ -451,7 +451,7 @@ ALTER PUBLICATION p ADD TABLES IN SCHEMA public;
 ALTER PUBLICATION p DROP TABLES IN SCHEMA CURRENT_SCHEMA;
 ALTER PUBLICATION p SET CURRENT_SCHEMA;
 
--- parallel query with aggregate pushdown.
+-- parallel index scan with aggregate pushdown.
 -- start: remove after yb_parallel_colocated passes
 CREATE DATABASE pctest colocation = true;
 \c pctest

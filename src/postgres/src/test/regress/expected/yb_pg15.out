@@ -993,7 +993,7 @@ ERROR:  CREATE/ALTER PUBLICATION SCHEMA not supported yet
 LINE 1: ALTER PUBLICATION p SET CURRENT_SCHEMA;
                                 ^
 HINT:  Please report the issue on https://github.com/YugaByte/yugabyte-db/issues
--- parallel query with aggregate pushdown.
+-- parallel index scan with aggregate pushdown.
 -- start: remove after yb_parallel_colocated passes
 CREATE DATABASE pctest colocation = true;
 \c pctest
