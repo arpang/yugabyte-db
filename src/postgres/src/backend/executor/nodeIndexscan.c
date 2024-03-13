@@ -2060,7 +2060,7 @@ ExecIndexScanInitializeDSM(IndexScanState *node,
 								 piscan);
 	yb_init_index_scandesc(node);
 
-	if (IsYBRelation(node->ss.ss_currentRelation) && node->yb_iss_aggrefs)
+	if (node->yb_iss_aggrefs)
 		yb_agg_pushdown_init_scan_slot(node);
 
 	/*
@@ -2107,7 +2107,7 @@ ExecIndexScanInitializeWorker(IndexScanState *node,
 								 piscan);
 	yb_init_index_scandesc(node);
 
-	if (IsYBRelation(node->ss.ss_currentRelation) && node->yb_iss_aggrefs)
+	if (node->yb_iss_aggrefs)
 		yb_agg_pushdown_init_scan_slot(node);
 
 	/*

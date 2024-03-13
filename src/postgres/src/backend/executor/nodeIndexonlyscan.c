@@ -807,7 +807,7 @@ ExecIndexOnlyScanInitializeDSM(IndexOnlyScanState *node,
 	node->ioss_VMBuffer = InvalidBuffer;
 	yb_init_indexonly_scandesc(node);
 
-	if (IsYBRelation(node->ss.ss_currentRelation) && node->yb_ioss_aggrefs)
+	if (node->yb_ioss_aggrefs)
 		yb_agg_pushdown_init_scan_slot(node);
 
 	/*
@@ -855,7 +855,7 @@ ExecIndexOnlyScanInitializeWorker(IndexOnlyScanState *node,
 	node->ioss_ScanDesc->xs_want_itup = true;
 	yb_init_indexonly_scandesc(node);
 
-	if (IsYBRelation(node->ss.ss_currentRelation) && node->yb_ioss_aggrefs)
+	if (node->yb_ioss_aggrefs)
 		yb_agg_pushdown_init_scan_slot(node);
 
 	/*
