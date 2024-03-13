@@ -2,6 +2,7 @@
 -- TRIGGERS
 --
 
+SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 -- directory paths and dlsuffix are passed to us in environment variables
 \getenv libdir PG_LIBDIR
 \getenv dlsuffix PG_DLSUFFIX
@@ -610,7 +611,8 @@ CREATE TRIGGER serializable_update_trig BEFORE UPDATE ON serializable_update_tab
 INSERT INTO serializable_update_tab SELECT a, repeat('xyzxz', 100), 'new'
 	FROM generate_series(1, 50) a;
 
-BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 UPDATE serializable_update_tab SET description = 'no no', id = 1 WHERE id = 1;
 COMMIT;
 SELECT description FROM serializable_update_tab WHERE id = 1;
