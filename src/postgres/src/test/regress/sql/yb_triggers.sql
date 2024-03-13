@@ -1,4 +1,5 @@
 SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+
 -- Test views on temporary tables.
 create temp table main_table(a int, b int);
 
