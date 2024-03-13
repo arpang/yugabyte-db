@@ -6857,16 +6857,6 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 			filters_on_each_column[index_col] =
 				lappend(filters_on_each_column[index_col], rinfo);
 			index_bound_quals = lappend(index_bound_quals, rinfo);
-
-			ListCell *lc3;
-			foreach (lc3, iclause->indexcols)
-			{
-				int i = lfirst_int(lc3);
-				if (i == index_col)
-					continue;
-				filters_on_each_column[i] =
-					lappend(filters_on_each_column[i], rinfo);
-			}
 		}
 	}
 
