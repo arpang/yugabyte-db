@@ -4475,7 +4475,7 @@ yb_is_restart_possible(const ErrorData* edata,
 		return false;
 	}
 
-	elog(DEBUG1, "Error details: edata->message=%s edata->filename=%s edata->lineno=%d",
+	elog(DEBUG2, "Error details: edata->message=%s edata->filename=%s edata->lineno=%d",
 			 edata->message, edata->filename, edata->lineno);
 	bool is_read_restart_error = YBCIsRestartReadError(edata->yb_txn_errcode);
 	bool is_conflict_error     = YBCIsTxnConflictError(edata->yb_txn_errcode);
@@ -5700,11 +5700,8 @@ PostgresMain(const char *dbname, const char *username)
 										 IdleSessionTimeout);
 				}
 
-#ifdef YB_TODO
-				/* Needs to activate this call */
 				if (IsYugaByteEnabled())
 					yb_pgstat_set_has_catalog_version(false);
-#endif
 			}
 
 			/* Report any recently-changed GUC options */
@@ -5777,10 +5774,7 @@ PostgresMain(const char *dbname, const char *username)
 
 		if (IsYugaByteEnabled())
 		{
-#ifdef YB_TODO
-			/* Needs to activate this call */
 			yb_pgstat_set_has_catalog_version(true);
-#endif
 			YBCPgResetCatalogReadTime();
 			YBCheckSharedCatalogCacheVersion();
 			yb_run_with_explain_analyze = false;
