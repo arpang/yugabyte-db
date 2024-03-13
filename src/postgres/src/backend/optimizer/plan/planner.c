@@ -1289,12 +1289,6 @@ yb_ipath_matches_pk(IndexPath *index_path)
 	foreach(values, index_path->indexinfo->indrestrictinfo)
 	{
 		RestrictInfo *rinfo = lfirst_node(RestrictInfo, values);
-
-		/*
-		 * TODO(tfoucher): Given all the additional checks that follow, can we
-		 * simply check for length(indrestrictinfo) > length(indexclauses) to
-		 * check for presence of non-pk filters?
-		 */
 		if (!is_redundant_with_indexclauses(rinfo, index_path->indexclauses))
 			return false;
 	}
