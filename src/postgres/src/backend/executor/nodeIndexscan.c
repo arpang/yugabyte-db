@@ -2037,6 +2037,9 @@ ExecIndexScanInitializeDSM(IndexScanState *node,
 
 	yb_init_index_scandesc(node);
 
+	if (node->yb_iss_aggrefs)
+		yb_agg_pushdown_init_scan_slot(node);
+
 	/*
 	 * If no run-time keys to calculate or they are ready, go ahead and pass
 	 * the scankeys to the index AM.
@@ -2085,6 +2088,9 @@ ExecIndexScanInitializeWorker(IndexScanState *node,
 
 	yb_init_index_scandesc(node);
 
+	if (node->yb_iss_aggrefs)
+		yb_agg_pushdown_init_scan_slot(node);
+
 	/*
 	 * If no run-time keys to calculate or they are ready, go ahead and pass
 	 * the scankeys to the index AM.
@@ -2108,6 +2114,5 @@ yb_agg_pushdown_init_scan_slot(IndexScanState *node)
 	 */
 	TupleDesc tupdesc =
 		CreateTemplateTupleDesc(list_length(node->yb_iss_aggrefs));
-	ExecInitScanTupleSlot(node->ss.ps.state, &node->ss, tupdesc,
-						  &TTSOpsVirtual);
+	ExecInitScanTupleSlot(node->ss.ps.state, &node->ss, tupdesc, &TTSOpsVirtual);
 }
