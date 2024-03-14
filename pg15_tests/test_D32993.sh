@@ -10,4 +10,3 @@ failing_java_test TestPgRegressPlanner
 grep_in_java_test \
   "Failed tests: [yb_planner_joins, yb_planner_size_estimates]" \
   TestPgRegressPlanner
-  
