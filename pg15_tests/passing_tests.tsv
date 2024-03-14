@@ -1,3 +1,6 @@
+JAVA	org.yb.pgsql.TestAlterTableWithConcurrentTxn#testDmlTransactionAfterAlterOnCurrentResourceWithCachedMetadata
+JAVA	org.yb.pgsql.TestAlterTableWithConcurrentTxn#testDmlTransactionAfterAlterOnCurrentResourceWithoutCachedMetadata
+JAVA	org.yb.pgsql.TestAlterTableWithConcurrentTxn#testDmlTransactionBeforeAlterOnCurrentResource
 JAVA	org.yb.pgsql.TestAlterTableWithConcurrentTxn#testMultipleDmlTransactionWithAlterOnCurrentResource
 JAVA	org.yb.pgsql.TestBatchCopyFrom#testNonTxnWriteSessionVariable
 JAVA	org.yb.pgsql.TestIndexBackfill#insertsWhileCreatingIndex
@@ -12,7 +15,9 @@ JAVA	org.yb.pgsql.TestPgAlterTableColumnType#testSplitOptions
 JAVA	org.yb.pgsql.TestPgAlterTableColumnType#testTableWithRangeKey
 JAVA	org.yb.pgsql.TestPgAlterTableColumnType#testTempTables
 JAVA	org.yb.pgsql.TestPgAlterTableColumnType#testUniqueConstraints
+JAVA	org.yb.pgsql.TestPgAuthorization
 JAVA	org.yb.pgsql.TestPgCacheConsistency#testCatalogVersionLogging
+JAVA	org.yb.pgsql.TestPgConnection
 JAVA	org.yb.pgsql.TestPgExplainAnalyzeMetrics
 JAVA	org.yb.pgsql.TestPgExplainAnalyzeScans#testFetchLimitCosting
 JAVA	org.yb.pgsql.TestPgPrefetchControl#testBnlWithSizeLimit
@@ -25,6 +30,7 @@ JAVA	org.yb.pgsql.TestPgRegressBufferingWithSQLErrors
 JAVA	org.yb.pgsql.TestPgRegressCursor#testPgRegressCursor
 JAVA	org.yb.pgsql.TestPgRegressGin
 JAVA	org.yb.pgsql.TestPgRegressHashInQueries
+JAVA	org.yb.pgsql.TestPgRegressJson
 JAVA	org.yb.pgsql.TestPgRegressMatview
 JAVA	org.yb.pgsql.TestPgRegressMisc#testPgRegressMiscSerial2
 JAVA	org.yb.pgsql.TestPgRegressNonTxnCopy
@@ -36,6 +42,7 @@ JAVA	org.yb.pgsql.TestPgRegressSecondaryIndexScan
 JAVA	org.yb.pgsql.TestPgRegressTabletSplit
 JAVA	org.yb.pgsql.TestPgRegressThirdPartyExtensionsPgHintPlan
 JAVA	org.yb.pgsql.TestPgRegressTrigger
+JAVA	org.yb.pgsql.TestPgRegressTypesMisc
 JAVA	org.yb.pgsql.TestPgReplicationSlot
 JAVA	org.yb.pgsql.TestPgTransactions#testSerializableReadDelayWrite
 JAVA	org.yb.pgsql.TestPgWrapper#testNotNullConstraint
@@ -139,6 +146,7 @@ pgwrapper_pg_op_buffering-test	PgOpBufferingTest.PKConstraintConflict
 pgwrapper_pg_read_time-test	PgMiniTestBase.CheckReadingDataAsOfPastTime
 pgwrapper_pg_read_time-test	PgMiniTestBase.TestYSQLDumpAsOfTime
 pgwrapper_pg_read_time-test	PgReadTimeTest.CheckReadTimePickingLocation
+pgwrapper_pg_read_time-test	PgReadTimeTest.TestConflictRetriesOnDocdb
 pgwrapper_pg_retryable_request-test	PgRetryableRequestTest.YsqlRequestTimeoutSecs
 pgwrapper_pg_row_lock-test	PgRowLockTest.AdvisoryLocksNotSupported
 pgwrapper_pg_row_lock-test	PgRowLockTest.SelectForKeyShareWithRestart
@@ -170,6 +178,7 @@ pgwrapper_pg_wait_on_conflict-test	PgTabletSplittingWaitQueuesTest.SplitTablet
 pgwrapper_pg_wait_on_conflict-test	PgWaitQueueRF1Test.TestResumingWaitersDoesntBlockTabletShutdown
 pgwrapper_pg_wait_on_conflict-test	PgWaitQueuesReadCommittedTest.TestDeadlockSimple
 pgwrapper_pg_wrapper-test	PgWrapperTest.TestCompactHistoryWithTxn
+tools_yb-admin-snapshot-schedule-test	Colocation/YbAdminSnapshotScheduleTestWithYsqlParam.PgsqlAlterTableSetOwner/*
 tools_yb-backup-cross-feature-test	YBDdlAtomicityBackupTest.*
 tools_yb-backup-test	YBBackupTest.BackupRaceWithDropColocatedTable
 tools_yb-backup-test	YBBackupTest.BackupRaceWithDropTable
