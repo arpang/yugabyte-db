@@ -6854,6 +6854,14 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 		foreach (lc2, iclause->indexquals)
 		{
 			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc2);
+			if (path->path.param_info)
+			{
+				Relids batched = YB_PATH_REQ_OUTER_BATCHED(&path->path);
+				RestrictInfo *batched_rinfo = yb_get_batched_restrictinfo(
+					rinfo, batched, path->path.parent->relids);
+				if (batched_rinfo)
+					rinfo = batched_rinfo;
+			}
 			filters_on_each_column[index_col] =
 				lappend(filters_on_each_column[index_col], rinfo);
 			index_bound_quals = lappend(index_bound_quals, rinfo);
