@@ -18,6 +18,8 @@ JAVA	org.yb.pgsql.TestPgAlterTableColumnType#testUniqueConstraints
 JAVA	org.yb.pgsql.TestPgAuthorization
 JAVA	org.yb.pgsql.TestPgCacheConsistency#testCatalogVersionLogging
 JAVA	org.yb.pgsql.TestPgConnection
+JAVA	org.yb.pgsql.TestPgCostModelSeekNextEstimation
+JAVA	org.yb.pgsql.TestPgExplainAnalyze
 JAVA	org.yb.pgsql.TestPgExplainAnalyzeMetrics
 JAVA	org.yb.pgsql.TestPgExplainAnalyzeScans#testFetchLimitCosting
 JAVA	org.yb.pgsql.TestPgPrefetchControl#testBnlWithSizeLimit
@@ -39,6 +41,7 @@ JAVA	org.yb.pgsql.TestPgRegressPublication
 JAVA	org.yb.pgsql.TestPgRegressPushdown#testPgRegressPushdown
 JAVA	org.yb.pgsql.TestPgRegressReplicationSlot
 JAVA	org.yb.pgsql.TestPgRegressSecondaryIndexScan
+JAVA	org.yb.pgsql.TestPgRegressTAQO
 JAVA	org.yb.pgsql.TestPgRegressTabletSplit
 JAVA	org.yb.pgsql.TestPgRegressThirdPartyExtensionsPgHintPlan
 JAVA	org.yb.pgsql.TestPgRegressTrigger
