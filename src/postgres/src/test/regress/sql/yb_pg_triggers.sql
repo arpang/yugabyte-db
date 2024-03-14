@@ -1577,7 +1577,8 @@ end;
 $$;
 insert into parted values (1, 1, 'uno uno');       -- works
 update parted set c = c || ' v6';                   -- works
-select tableoid::regclass, * from parted order by c;
+-- YB note: add order by desc to match PG ordering
+select tableoid::regclass, * from parted order by c desc;
 
 -- update itself moves tuple to new partition; trigger still works
 truncate table parted;
