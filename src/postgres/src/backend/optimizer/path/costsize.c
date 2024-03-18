@@ -6954,11 +6954,15 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 						if (IsA(other_operand, YbBatchedExpr))
 						{
 							current_column_has_in_filter = true;
-							in_filter_array_length = yb_batch_expr_size(
-								root, baserel->relid, other_operand);
+							in_filter_array_length =
+								yb_batch_expr_size(root,
+												   baserel->relid,
+												   other_operand);
 						}
 						else
+						{
 							current_column_has_equality_filter = true;
+						}
 					}
 					else if (op_strategy == BTLessEqualStrategyNumber ||
 							 op_strategy == BTLessStrategyNumber)
