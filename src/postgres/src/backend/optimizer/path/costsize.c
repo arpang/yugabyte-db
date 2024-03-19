@@ -6834,13 +6834,11 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 		startup_cost += disable_cost;
 	/* we don't need to check enable_index_onlyscan; indxpath.c does that */
 
-	/* Do preliminary analysis of indexclauses */
-
 	/* Collect the filters for each index in a list of list structure */
 	filters_on_each_column = palloc0(sizeof(List *) * index->nkeycolumns);
 	index_bound_quals = NIL;
 	index_col = 0;
-	foreach (lc, path->indexclauses)
+	foreach(lc, path->indexclauses)
 	{
 		IndexClause *iclause = lfirst_node(IndexClause, lc);
 		ListCell *lc2;
@@ -6932,8 +6930,10 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 				else if (IsA(clause, ScalarArrayOpExpr))
 				{
 					ScalarArrayOpExpr *saop = (ScalarArrayOpExpr *) clause;
-					other_operand = (Node *) lsecond(saop->args);
+
 					clause_op = saop->opno;
+					other_operand = (Node *) lsecond(saop->args);
+
 					current_column_has_in_filter = true;
 					in_filter_array_length =
 						estimate_array_length(other_operand);
