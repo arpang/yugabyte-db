@@ -6391,7 +6391,7 @@ fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
 		foreach(lc2, iclause->indexquals)
 		{
 			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc2);
-			Node *clause = (Node *) rinfo->clause;
+			Node	   *clause = (Node *) rinfo->clause;
 
 			RestrictInfo *tmp_batched =
 				yb_get_batched_restrictinfo(rinfo, root->yb_cur_batched_relids,
