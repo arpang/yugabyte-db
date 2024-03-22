@@ -497,12 +497,11 @@ RESET yb_bnl_batch_size;
 CREATE TABLE fk_notpartitioned_pk (a int, b int,PRIMARY KEY (a, b));
 INSERT INTO fk_notpartitioned_pk VALUES (2501, 2503);
 
-CREATE TABLE fk_partitioned_fk (b int, a int) PARTITION BY RANGE (a, b);
+CREATE TABLE fk_partitioned_fk (a int, b int) PARTITION BY HASH (a);
 ALTER TABLE fk_partitioned_fk ADD FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk;
-CREATE TABLE fk_partitioned_fk_3 (b int, a int) PARTITION BY HASH (a);
-CREATE TABLE fk_partitioned_fk_3_0 PARTITION OF fk_partitioned_fk_3 FOR VALUES WITH (MODULUS 5, REMAINDER 0);
-CREATE TABLE fk_partitioned_fk_3_1 PARTITION OF fk_partitioned_fk_3 FOR VALUES WITH (MODULUS 5, REMAINDER 1);
-ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_3 FOR VALUES FROM (2000,2000) TO (3000,3000);
+
+CREATE TABLE fk_partitioned_fk_0 PARTITION OF fk_partitioned_fk FOR VALUES WITH (MODULUS 5, REMAINDER 0);
+CREATE TABLE fk_partitioned_fk_1 PARTITION OF fk_partitioned_fk FOR VALUES WITH (MODULUS 5, REMAINDER 1);
 INSERT INTO fk_partitioned_fk (a,b) VALUES (2501, 2503);
 
 -- this update fails because there is no referenced row
