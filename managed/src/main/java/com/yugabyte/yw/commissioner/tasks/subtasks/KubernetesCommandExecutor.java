@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
+import com.yugabyte.operator.OperatorConfig;
 import com.yugabyte.yw.commissioner.BaseTaskDependencies;
 import com.yugabyte.yw.commissioner.UserTaskDetails;
 import com.yugabyte.yw.commissioner.tasks.UniverseTaskBase;
@@ -39,6 +40,7 @@ import com.yugabyte.yw.common.config.GlobalConfKeys;
 import com.yugabyte.yw.common.gflags.GFlagsUtil;
 import com.yugabyte.yw.common.helm.HelmUtils;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams;
+import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.ExposingServiceState;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.UserIntent;
 import com.yugabyte.yw.forms.UniverseTaskParams;
 import com.yugabyte.yw.models.AvailabilityZone;
@@ -96,6 +98,7 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
     UPDATE_NUM_NODES,
     HELM_DELETE,
     VOLUME_DELETE,
+    VOLUME_DELETE_SHELL_MODE_MASTER,
     NAMESPACE_DELETE,
     POD_DELETE,
     DELETE_ALL_SERVER_TYPE_PODS,
@@ -121,6 +124,8 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
           return UserTaskDetails.SubTaskGroupType.UpdateNumNodes.name();
         case HELM_DELETE:
           return UserTaskDetails.SubTaskGroupType.HelmDelete.name();
+        case VOLUME_DELETE_SHELL_MODE_MASTER:
+          return UserTaskDetails.SubTaskGroupType.KubernetesVolumeDeleteMasterShellMode.name();
         case VOLUME_DELETE:
           return UserTaskDetails.SubTaskGroupType.KubernetesVolumeDelete.name();
         case NAMESPACE_DELETE:
@@ -225,6 +230,8 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
     public Map<String, String> ybcGflags = new HashMap<>();
     public String command = null;
     public String azCode = null;
+    public String pvcName = null;
+    public int newPlacementAzMasterCount = 0;
   }
 
   protected KubernetesCommandExecutor.Params taskParams() {
@@ -334,6 +341,21 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
             .getManager()
             .helmDelete(config, taskParams().helmReleaseName, taskParams().namespace);
         break;
+      case VOLUME_DELETE_SHELL_MODE_MASTER:
+        // We are deleting only master volumes for now,
+        // perhaps tserver volumes should also be deleted ?
+        Universe universe = Universe.getOrBadRequest(taskParams().getUniverseUUID());
+        String appLabelValue = "yb-master";
+        kubernetesManagerFactory
+            .getManager()
+            .deleteUnusedPVCs(
+                config,
+                taskParams().namespace,
+                taskParams().helmReleaseName,
+                appLabelValue,
+                universe.getUniverseDetails().useNewHelmNamingStyle,
+                taskParams().newPlacementAzMasterCount); // ReplicaCount to Assert.
+        break;
       case VOLUME_DELETE:
         kubernetesManagerFactory
             .getManager()
@@ -371,17 +393,24 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
             .deleteStatefulSet(config, taskParams().namespace, appName);
         break;
       case PVC_EXPAND_SIZE:
-        u = Universe.getOrBadRequest(taskParams().getUniverseUUID());
-        kubernetesManagerFactory
-            .getManager()
-            .expandPVC(
-                taskParams().getUniverseUUID(),
-                config,
-                taskParams().namespace,
-                taskParams().helmReleaseName,
-                "yb-tserver",
-                taskParams().newDiskSize,
-                u.getUniverseDetails().useNewHelmNamingStyle);
+        try {
+          u = Universe.getOrBadRequest(taskParams().getUniverseUUID());
+          kubernetesManagerFactory
+              .getManager()
+              .expandPVC(
+                  taskParams().getUniverseUUID(),
+                  config,
+                  taskParams().namespace,
+                  taskParams().helmReleaseName,
+                  "yb-tserver",
+                  taskParams().newDiskSize,
+                  u.getUniverseDetails().useNewHelmNamingStyle);
+        } catch (Throwable e) {
+          // Ignore exception from the actual expand task and handle it later in
+          // KubernetesPostExpansionCheckVolume since we want to run the subsequent task
+          // that re-creates the STS, and only then handle any errors.
+          log.error("Orginal failure to expand volume: ", e);
+        }
         break;
       case COPY_PACKAGE:
         u = Universe.getOrBadRequest(taskParams().getUniverseUUID());
@@ -1060,9 +1089,8 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
     UUID placementUuid = cluster.uuid;
     Map<String, Object> gflagOverrides = new HashMap<>();
     // Go over master flags.
-    Map<String, Object> masterGFlags =
-        new HashMap<>(
-            GFlagsUtil.getBaseGFlags(ServerType.MASTER, cluster, taskUniverseDetails.clusters));
+    Map<String, String> masterGFlags =
+        GFlagsUtil.getBaseGFlags(ServerType.MASTER, cluster, taskUniverseDetails.clusters);
     if (placementCloud != null && masterGFlags.get("placement_cloud") == null) {
       masterGFlags.put("placement_cloud", placementCloud);
     }
@@ -1179,6 +1207,16 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
       labels.put("yugabyte.io/zone", placementZone);
       overrides.put("commonLabels", labels);
     }
+
+    // Conditionally enable yugabyteDUI if running in community mode.
+    boolean COMMUNITY_OP_ENABLED = OperatorConfig.getOssMode();
+    Map<String, Object> yugabytedUiInfo = new HashMap<>();
+    Map<String, Object> metricsSnapshotterInfo = new HashMap<>();
+    metricsSnapshotterInfo.put("enabled", COMMUNITY_OP_ENABLED);
+    yugabytedUiInfo.put("enabled", COMMUNITY_OP_ENABLED);
+    yugabytedUiInfo.put("metricsSnapshotter", metricsSnapshotterInfo);
+
+    overrides.put("yugabytedUi", yugabytedUiInfo);
 
     Map<String, Object> ybcInfo = new HashMap<>();
     ybcInfo.put("enabled", taskParams().isEnableYbc());

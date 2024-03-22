@@ -19,6 +19,9 @@ import io.ebean.RawSqlBuilder;
 import io.ebean.SqlUpdate;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -29,15 +32,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.Id;
 import lombok.AccessLevel;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import play.libs.Json;
@@ -132,6 +132,23 @@ public class NodeInstance extends Model {
     List<NodeInstance> nodes = null;
     // Search in the proper AZ.
     ExpressionList<NodeInstance> exp = NodeInstance.find.query().where().eq("zone_uuid", zoneUuid);
+    // Search only for nodes not in use.
+    exp.where().eq("in_use", false);
+    // Filter by instance type if asked to.
+    if (instanceTypeCode != null) {
+      exp.where().eq("instance_type_code", instanceTypeCode);
+    }
+    nodes = exp.findList();
+    return nodes;
+  }
+
+  public static List<NodeInstance> listByRegion(UUID regionUUID, String instanceTypeCode) {
+    Region region = Region.getOrBadRequest(regionUUID);
+    List<UUID> azUUIDs =
+        region.getZones().stream().map(az -> az.getUuid()).collect(Collectors.toList());
+    List<NodeInstance> nodes = null;
+    // Search in the proper AZ.
+    ExpressionList<NodeInstance> exp = NodeInstance.find.query().where().in("zone_uuid", azUUIDs);
     // Search only for nodes not in use.
     exp.where().eq("in_use", false);
     // Filter by instance type if asked to.

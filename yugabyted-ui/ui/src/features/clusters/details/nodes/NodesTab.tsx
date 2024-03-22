@@ -63,7 +63,11 @@ const useStyles = makeStyles((theme) => ({
         alignItems: 'center'
     },
     regionZoneComponent: {
-        padding: '12px 32px'
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: '10px',
+        padding: '12px 32px',
     },
     selectBox: {
         width: '180px'
@@ -135,23 +139,33 @@ const NodeComponent = (classes: ClassNameMap, t: TFunction) => (
     );
 }
 
-const RegionZoneComponent = (classes: ClassNameMap) => (
+const RegionZoneComponent = (classes: ClassNameMap, t: TFunction) => (
     region_and_zone: {
         region: string,
-        zone: string
+        zone: string,
+        preference: number | undefined
     }
 ) => {
     return (
     <Box className={classes.regionZoneComponent}>
-        <Typography variant='body2' className={classes.nodeName}>
-            {region_and_zone.region}
-        </Typography>
-        <Typography variant='subtitle1' className={classes.nodeHost}>
-            {region_and_zone.zone}
-        </Typography>
+        <Box>
+            <Typography variant='body2' className={classes.nodeName}>
+                {region_and_zone.region}
+            </Typography>
+            <Typography variant='subtitle1' className={classes.nodeHost}>
+                {region_and_zone.zone}
+            </Typography>
+        </Box>
+        {region_and_zone.preference !== undefined && region_and_zone.preference !== -1 &&
+            <YBTextBadge>
+                {t('clusterDetail.nodes.preference', { preference: region_and_zone.preference })}
+            </YBTextBadge>
+        }
     </Box>
     );
 }
+
+const NODE_COLUMNS_LS_KEY = "node-columns";
 
 export const NodesTab: FC = () => {
   const classes = useStyles();
@@ -236,7 +250,10 @@ export const NodesTab: FC = () => {
       master_tserver_status: false,
       master_tserver_uptime: false
   };
-  const [columns, setColumns] = useState(defaultValues);
+  const [columns, setColumns] = useState({
+    ...defaultValues,
+    ...(JSON.parse(localStorage.getItem(NODE_COLUMNS_LS_KEY)!) || {})
+  });
   const { control, handleSubmit, reset, setValue, getValues } = useForm({
     mode: 'onChange',
     defaultValues: columns
@@ -248,6 +265,7 @@ export const NodesTab: FC = () => {
   };
   const applyColumnChanges = handleSubmit((formData) => {
     setColumns(formData);
+    localStorage.setItem(NODE_COLUMNS_LS_KEY, JSON.stringify(formData));
     closeQueryOptionsModal();
   });
 
@@ -286,7 +304,8 @@ export const NodesTab: FC = () => {
         },
         region_and_zone: {
             region: node.cloud_info.region,
-            zone: node.cloud_info.zone
+            zone: node.cloud_info.zone,
+            preference: node.preference_order,
         },
         status: node.is_node_up,
         name: node.name,
@@ -340,8 +359,7 @@ export const NodesTab: FC = () => {
     }
     return [];
   }, [nodesResponse, filter, nodeFilter, connectionsResponse, isConnMgrEnabled]);
-console.log(nodesData)
-console.log(connectionsResponse)
+
   const hasReadReplica = !!nodesResponse?.data.find(node => node.is_read_replica);
 
   if (fetchingNodes || fetchingGflags || fetchingConn) {
@@ -409,7 +427,7 @@ console.log(connectionsResponse)
           },
         options: {
           filter: true,
-          customBodyRender: RegionZoneComponent(classes),
+          customBodyRender: RegionZoneComponent(classes, t),
           setCellHeaderProps: () => ({style:{whiteSpace: 'nowrap', padding: '8px 32px' }}),
           display: columns.region_and_zone
         }
