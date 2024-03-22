@@ -2325,8 +2325,7 @@ lreplace:;
 				ExecCrossPartitionUpdateForeignKey(context,
 												   resultRelInfo,
 												   insert_destrel,
-												   tupleid,
-												   slot,
+												   tupleid, slot,
 												   inserted_tuple,
 												   NULL);
 
@@ -4469,6 +4468,7 @@ ExecModifyTable(PlanState *pstate)
 					context.GetUpdateNewTuple = internalGetUpdateNewTuple;
 					context.relaction = NULL;
 				}
+
 				/* Now apply the update. */
 				slot = ExecUpdate(&context, resultRelInfo, tupleid, oldtuple,
 								  slot, node->canSetTag);
