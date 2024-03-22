@@ -2691,7 +2691,9 @@ ExecCrossPartitionUpdateForeignKey(ModifyTableContext *context,
 	/* Perform the root table's triggers. */
 	ExecARUpdateTriggers(context->estate,
 						 rootRelInfo, sourcePartInfo, destPartInfo,
-						 tupleid, yb_oldtuple, newslot, NIL, NULL, true);
+						 tupleid,
+						 IsYBRelation(sourcePartInfo->ri_RelationDesc) ? yb_oldtuple : NULL,
+						 newslot, NIL, NULL, true);
 }
 
 /* ----------------------------------------------------------------
