@@ -1598,6 +1598,18 @@ DETAIL:  Key (a, b)=(1500, 1501) is still referenced from table "fk_partitioned_
 UPDATE fk_notpartitioned_pk SET b = 2504 WHERE a = 2500;
 ERROR:  update or delete on table "fk_notpartitioned_pk" violates foreign key constraint "fk_partitioned_fk_a_b_fkey" on table "fk_partitioned_fk"
 DETAIL:  Key (a, b)=(2500, 2502) is still referenced from table "fk_partitioned_fk".
+-- check psql behavior
+\d fk_notpartitioned_pk
+        Table "public.fk_notpartitioned_pk"
+ Column |  Type   | Collation | Nullable | Default 
+--------+---------+-----------+----------+---------
+ a      | integer |           | not null | 
+ b      | integer |           | not null | 
+Indexes:
+    "fk_notpartitioned_pk_pkey" PRIMARY KEY, btree (a, b)
+Referenced by:
+    TABLE "fk_partitioned_fk" CONSTRAINT "fk_partitioned_fk_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b)
+
 ALTER TABLE fk_partitioned_fk DROP CONSTRAINT fk_partitioned_fk_a_b_fkey;
 -- done.
 DROP TABLE fk_notpartitioned_pk, fk_partitioned_fk;
@@ -1770,7 +1782,7 @@ ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_4 FOR VALUES IN
 Partition of: fk_partitioned_fk FOR VALUES IN (3500, 3502)
 Partition key: RANGE (b, a)
 Foreign-key constraints:
-    "fk_partitioned_fk_4_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE "fk_partitioned_fk" CONSTRAINT "fk_partitioned_fk_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
 Number of partitions: 2 (Use \d+ to list them.)
 
 \d fk_partitioned_fk_4_1
@@ -1817,7 +1829,7 @@ Partition key: RANGE (a)
 Foreign-key constraints:
     "fk_partitioned_fk_5_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE
     "fk_partitioned_fk_5_a_b_fkey1" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) MATCH FULL ON UPDATE CASCADE ON DELETE CASCADE
-    "fk_partitioned_fk_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE "fk_partitioned_fk" CONSTRAINT "fk_partitioned_fk_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
 Number of partitions: 1 (Use \d+ to list them.)
 
 -- verify that it works to reattaching a child with multiple candidate
