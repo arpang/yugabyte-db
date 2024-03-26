@@ -1593,7 +1593,7 @@ DETAIL:  Key (a, b)=(2500, 2502) is still referenced from table "fk_partitioned_
  a      | integer |           | not null | 
  b      | integer |           | not null | 
 Indexes:
-    fk_notpartitioned_pk_pkey" PRIMARY KEY, lsm (a HASH, b ASC)
+    "fk_notpartitioned_pk_pkey" PRIMARY KEY, lsm (a HASH, b ASC)
 Referenced by:
     TABLE "fk_partitioned_fk" CONSTRAINT "fk_partitioned_fk_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b)
 
