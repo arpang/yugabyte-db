@@ -1759,10 +1759,10 @@ ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_2 FOR VALUES IN
  Column |  Type   | Collation | Nullable | Default
 --------+---------+-----------+----------+---------
  b      | integer |           |          |
- a      | integer |           |          |
+ a      | integer |           |          | 
 Partition of: fk_partitioned_fk FOR VALUES IN (1500, 1502)
 Foreign-key constraints:
-    "fk_partitioned_fk_2_a_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
+    "fk_partitioned_fk_2_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
 
 DROP TABLE fk_partitioned_fk_2;
 CREATE TABLE fk_partitioned_fk_4 (a int, b int, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE) PARTITION BY RANGE (b, a);
@@ -1790,10 +1790,10 @@ Number of partitions: 2 (Use \d+ to list them.)
  Column |  Type   | Collation | Nullable | Default
 --------+---------+-----------+----------+---------
  a      | integer |           |          |
- b      | integer |           |          |
+ b      | integer |           |          | 
 Partition of: fk_partitioned_fk_4 FOR VALUES FROM (1, 1) TO (100, 100)
 Foreign-key constraints:
-    "fk_partitioned_fk_4_a_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
+    "fk_partitioned_fk_4_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
 
 -- this one has an FK with mismatched properties
 \d fk_partitioned_fk_4_2
@@ -1801,11 +1801,11 @@ Foreign-key constraints:
  Column |  Type   | Collation | Nullable | Default
 --------+---------+-----------+----------+---------
  a      | integer |           |          |
- b      | integer |           |          |
+ b      | integer |           |          | 
 Partition of: fk_partitioned_fk_4 FOR VALUES FROM (100, 100) TO (1000, 1000)
 Foreign-key constraints:
-    "fk_partitioned_fk_4_2_a_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE SET NULL
-    "fk_partitioned_fk_4_a_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
+    "fk_partitioned_fk_4_2_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE SET NULL
+    "fk_partitioned_fk_4_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
 
 CREATE TABLE fk_partitioned_fk_5 (a int, b int,
 	FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE,
@@ -1841,13 +1841,13 @@ ALTER TABLE fk_partitioned_fk_5 ATTACH PARTITION fk_partitioned_fk_5_1 FOR VALUE
  Column |  Type   | Collation | Nullable | Default
 --------+---------+-----------+----------+---------
  a      | integer |           |          |
- b      | integer |           |          |
+ b      | integer |           |          | 
 Partition of: fk_partitioned_fk_5 FOR VALUES FROM (0) TO (10)
 Foreign-key constraints:
-    "fk_partitioned_fk_5_1_a_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b)
-    "fk_partitioned_fk_5_a_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE
-    "fk_partitioned_fk_5_a_fkey1" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) MATCH FULL ON UPDATE CASCADE ON DELETE CASCADE
-    "fk_partitioned_fk_a_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
+    "fk_partitioned_fk_5_1_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b)
+    "fk_partitioned_fk_5_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE
+    "fk_partitioned_fk_5_a_b_fkey1" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) MATCH FULL ON UPDATE CASCADE ON DELETE CASCADE
+    "fk_partitioned_fk_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE
 
 -- verify that attaching a table checks that the existing data satisfies the
 -- constraint
