@@ -9618,7 +9618,7 @@ ATAddForeignKeyConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	 * numbers)
 	 */
 	/*
-	 * YB_TODO: Remove after adding support for foreign keys that reference
+	 * YB_TODO(feat): Remove after adding support for foreign keys that reference
 	 * partitioned tables
 	 */
 	if (pkrel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
