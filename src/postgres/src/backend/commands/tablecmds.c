@@ -9618,13 +9618,14 @@ ATAddForeignKeyConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	 * numbers)
 	 */
 	/*
-	 * YB_TODO(feat): Remove after adding support for foreign keys that reference
+	 * YB_TODO(feat): begin: Remove after adding support for foreign keys that reference
 	 * partitioned tables
 	 */
 	if (pkrel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 		ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE),
 						errmsg("cannot reference partitioned table \"%s\"",
 							   RelationGetRelationName(pkrel))));
+	/* YB_TODO(feat): end */
 
 	if (rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
