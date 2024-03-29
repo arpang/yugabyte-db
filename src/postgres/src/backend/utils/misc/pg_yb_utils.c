@@ -2084,6 +2084,7 @@ YbDdlModeOptional YbGetDdlMode(
 		case T_ReassignOwnedStmt:
 		/* ALTER .. RENAME TO syntax gets parsed into a T_RenameStmt node. */
 		case T_RenameStmt:
+		case T_AlterTypeStmt:
 			break;
 
 		case T_AlterRoleStmt:
