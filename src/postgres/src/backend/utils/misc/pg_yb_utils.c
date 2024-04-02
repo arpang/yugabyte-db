@@ -2165,6 +2165,7 @@ YbDdlModeOptional YbGetDdlMode(
 			foreach (lc, vacuum_stmt->options)
 			{
 				DefElem *def_elem = lfirst_node(DefElem, lc);
+				/* VACUUM ANALYZE */
 				is_analyze |= (strcmp(def_elem->defname, "analyze") == 0);
 			}
 			is_ddl = is_analyze;
