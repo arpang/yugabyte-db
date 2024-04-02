@@ -19,4 +19,3 @@ CREATE TABLE person (
 COPY person FROM :'filename';
 VACUUM ANALYZE person;
 WARNING:  VACUUM will be ignored
-ERROR:  Transaction for catalog table write operation 'pg_statistic' not found
