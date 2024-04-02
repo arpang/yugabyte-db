@@ -2159,7 +2159,15 @@ YbDdlModeOptional YbGetDdlMode(
 			/* Vacuum with analyze updates relation and attribute statistics */
 			is_version_increment = false;
 			is_breaking_change = false;
-			is_ddl = !(castNode(VacuumStmt, parsetree))->is_vacuumcmd;
+			VacuumStmt *vacuum_stmt = castNode(VacuumStmt, parsetree);
+			bool is_analyze = !vacuum_stmt->is_vacuumcmd;
+			ListCell *lc;
+			foreach (lc, vacuum_stmt->options)
+			{
+				DefElem *def_elem = lfirst_node(DefElem, lc);
+				is_analyze |= (strcmp(def_elem->defname, "analyze") == 0);
+			}
+			is_ddl = is_analyze;
 			break;
 
 		case T_RefreshMatViewStmt:
