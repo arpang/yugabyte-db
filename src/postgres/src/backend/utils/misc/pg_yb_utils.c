@@ -2167,15 +2167,20 @@ YbDdlModeOptional YbGetDdlMode(
 			is_version_increment = false;
 			is_breaking_change = false;
 			VacuumStmt *vacuum_stmt = castNode(VacuumStmt, parsetree);
-			bool is_analyze = !vacuum_stmt->is_vacuumcmd;
+			/* ANALYZE */
+			is_ddl = !vacuum_stmt->is_vacuumcmd;
 			ListCell *lc;
-			foreach (lc, vacuum_stmt->options)
+			if (!is_ddl)
 			{
-				DefElem *def_elem = lfirst_node(DefElem, lc);
-				/* VACUUM ANALYZE */
-				is_analyze |= (strcmp(def_elem->defname, "analyze") == 0);
+				foreach (lc, vacuum_stmt->options)
+				{
+					DefElem *def_elem = lfirst_node(DefElem, lc);
+					/* VACUUM ANALYZE */
+					is_ddl |= (strcmp(def_elem->defname, "analyze") == 0);
+					if (is_ddl)
+						break;
+				}
 			}
-			is_ddl = is_analyze;
 			break;
 
 		case T_RefreshMatViewStmt:
