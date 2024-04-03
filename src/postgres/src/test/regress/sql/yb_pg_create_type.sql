@@ -269,7 +269,10 @@ SELECT typinput, typoutput, typreceive, typsend, typmodin, typmodout,
 FROM pg_type WHERE typname = '_myvarchardom';
 
 -- ensure dependencies are straight
+-- YB note: trivial ordering difference in DETAIL as compared to PG
 DROP FUNCTION myvarcharsend(myvarchar);  -- fail
+-- YB note: trivial ordering difference in DETAIL as compared to PG
 DROP TYPE myvarchar;  -- fail
 
+-- YB note: trivial ordering difference in DETAIL as compared to PG
 DROP TYPE myvarchar CASCADE;

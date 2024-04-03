@@ -328,6 +328,7 @@ FROM pg_type WHERE typname = '_myvarchardom';
 (1 row)
 
 -- ensure dependencies are straight
+-- YB note: trivial ordering difference in DETAIL as compared to PG
 DROP FUNCTION myvarcharsend(myvarchar);  -- fail
 ERROR:  cannot drop function myvarcharsend(myvarchar) because other objects depend on it
 DETAIL:  function myvarcharin(cstring,oid,integer) depends on type myvarchar
@@ -336,6 +337,7 @@ function myvarcharrecv(internal,oid,integer) depends on type myvarchar
 type myvarchar depends on function myvarcharsend(myvarchar)
 type myvarchardom depends on function myvarcharsend(myvarchar)
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+-- YB note: trivial ordering difference in DETAIL as compared to PG
 DROP TYPE myvarchar;  -- fail
 ERROR:  cannot drop type myvarchar because other objects depend on it
 DETAIL:  function myvarcharin(cstring,oid,integer) depends on type myvarchar
@@ -344,6 +346,7 @@ function myvarcharrecv(internal,oid,integer) depends on type myvarchar
 function myvarcharsend(myvarchar) depends on type myvarchar
 type myvarchardom depends on type myvarchar
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+-- YB note: trivial ordering difference in DETAIL as compared to PG
 DROP TYPE myvarchar CASCADE;
 NOTICE:  drop cascades to 5 other objects
 DETAIL:  drop cascades to function myvarcharin(cstring,oid,integer)
