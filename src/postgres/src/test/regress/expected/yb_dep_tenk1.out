@@ -31,7 +31,7 @@ CREATE TABLE tenk1 (
 \set filename :abs_srcdir '/data/tenk.data'
 COPY tenk1 FROM :'filename';
 VACUUM ANALYZE tenk1;
-WARNING:  VACUUM will be ignored
+NOTICE:  VACUUM is a no-op statement since YugabyteDB performs garbage collection of dead tuples automatically
 --
 -- yb_pg_create_index
 -- (With modification to make them all nonconcurrent for performance.)

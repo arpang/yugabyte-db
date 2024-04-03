@@ -109,7 +109,7 @@
 #include "nodes/readfuncs.h"
 #include "yb_ash.h"
 
-#ifdef __linux__
+#ifdef HAVE_SYS_PRCTL_H
 #include <sys/prctl.h>
 #endif
 
@@ -460,7 +460,7 @@ YBTransactionsEnabled()
 }
 
 bool
-IsYBReadCommitted()
+YBIsReadCommittedSupported()
 {
 	static int cached_value = -1;
 	if (cached_value == -1)
@@ -472,7 +472,13 @@ IsYBReadCommitted()
 		cached_value = YBCIsEnvVarTrueWithDefault("FLAGS_yb_enable_read_committed_isolation", true);
 #endif
 	}
-	return IsYugaByteEnabled() && cached_value &&
+	return cached_value;
+}
+
+bool
+IsYBReadCommitted()
+{
+	return IsYugaByteEnabled() && YBIsReadCommittedSupported() &&
 				 (XactIsoLevel == XACT_READ_COMMITTED || XactIsoLevel == XACT_READ_UNCOMMITTED);
 }
 
@@ -2084,6 +2090,7 @@ YbDdlModeOptional YbGetDdlMode(
 		case T_ReassignOwnedStmt:
 		/* ALTER .. RENAME TO syntax gets parsed into a T_RenameStmt node. */
 		case T_RenameStmt:
+		case T_AlterTypeStmt:
 			break;
 
 		case T_AlterRoleStmt:
@@ -2565,6 +2572,27 @@ YbTryGetTableProperties(Relation rel)
 	bool not_found = false;
 	HandleYBStatusIgnoreNotFound(YbGetTablePropertiesCommon(rel), &not_found);
 	return not_found ? NULL : rel->yb_table_properties;
+}
+
+YbTableDistribution
+YbGetTableDistribution(Oid relid)
+{
+	YbTableDistribution result;
+	Relation relation = RelationIdGetRelation(relid);
+	if (IsSystemRelation(relation))
+		result = YB_SYSTEM;
+	else
+	{
+		HandleYBStatus(YbGetTablePropertiesCommon(relation));
+		if (relation->yb_table_properties->is_colocated)
+			result = YB_COLOCATED;
+		else if (relation->yb_table_properties->num_hash_key_columns > 0)
+			result = YB_HASH_SHARDED;
+		else
+			result = YB_RANGE_SHARDED;
+	}
+	RelationClose(relation);
+	return result;
 }
 
 Datum
@@ -3660,7 +3688,7 @@ bool IsYbFdwUser(Oid member) {
 
 void YBSetParentDeathSignal()
 {
-#ifdef __linux__
+#ifdef HAVE_SYS_PRCTL_H
 	char* pdeathsig_str = getenv("YB_PG_PDEATHSIG");
 	if (pdeathsig_str)
 	{
@@ -4578,4 +4606,13 @@ YbSortOrdering(SortByDir ordering, bool is_colocated, bool is_tablegroup,
 	}
 
 	return ordering;
+}
+
+void
+YbGetRedactedQueryString(const char* query, int query_len,
+						 const char** redacted_query, int* redacted_query_len)
+{
+	*redacted_query = pnstrdup(query, query_len);
+	*redacted_query = RedactPasswordIfExists(*redacted_query);
+	*redacted_query_len = strlen(*redacted_query);
 }
