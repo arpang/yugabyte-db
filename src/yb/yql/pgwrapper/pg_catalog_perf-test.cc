@@ -310,6 +310,7 @@ constexpr uint64_t kFirstConnectionRPCCountDefault = 5;
 constexpr uint64_t kFirstConnectionRPCCountWithAdditionalTables = 7;
 constexpr uint64_t kFirstConnectionRPCCountWithSmallPreload = 5;
 constexpr uint64_t kSubsequentConnectionRPCCount = 2;
+constexpr uint64_t kFirstConnectionRPCCountNoRelcacheFile = 6;
 static_assert(kFirstConnectionRPCCountDefault <= kFirstConnectionRPCCountWithAdditionalTables);
 
 } // namespace
@@ -599,7 +600,7 @@ TEST_F_EX(PgCatalogPerfTest,
           RPCCountOnStartupPredictableMemoryUsage,
           PgPredictableMemoryUsageTest) {
   const auto first_connect_rpc_count = ASSERT_RESULT(RPCCountOnStartUp());
-  ASSERT_EQ(first_connect_rpc_count, kFirstConnectionRPCCountWithAdditionalTables);
+  ASSERT_EQ(first_connect_rpc_count, kFirstConnectionRPCCountNoRelcacheFile);
   const auto subsequent_connect_rpc_count = ASSERT_RESULT(RPCCountOnStartUp());
   ASSERT_EQ(subsequent_connect_rpc_count, kSubsequentConnectionRPCCount);
 }
