@@ -853,14 +853,18 @@ CopyFrom(CopyFromState cstate)
 	if (IsYBRelation(resultRelInfo->ri_RelationDesc))
 	{
 		/*
-		 * Only use non-txn insert if it's explicitly enabled, the relation
-		 * meets criteria for multi insert (e.g. no triggers), and the relation
-		 * does not have secondary indices.
+		 * Only use non-txn insert if it's explicitly enabled, the relation meets criteria for
+		 * multi insert (e.g. no triggers), and the relation does not have secondary indices.
 		 */
 		if (YBIsNonTxnCopyEnabled() && insertMethod == CIM_MULTI &&
 			!YBCRelInfoHasSecondaryIndices(resultRelInfo))
 			useNonTxnInsert = true;
-		insertMethod = CIM_YB;
+
+		/*
+		 * YB doesn't use PG's CopyMultiInsertBuffer. As a result, YB relations
+		 * take similar code path as insertMethod = CIM_SINGLE.
+		 */
+		insertMethod = CIM_SINGLE;
 	}
 
 	/*
@@ -869,8 +873,7 @@ CopyFrom(CopyFromState cstate)
 	 * one, even if we might batch insert, to read the tuple in the root
 	 * partition's form.
 	 */
-	if (insertMethod == CIM_SINGLE || insertMethod == CIM_MULTI_CONDITIONAL ||
-		insertMethod == CIM_YB)
+	if (insertMethod == CIM_SINGLE || insertMethod == CIM_MULTI_CONDITIONAL)
 	{
 		singleslot = table_slot_create(resultRelInfo->ri_RelationDesc,
 									   &estate->es_tupleTable);
@@ -948,7 +951,7 @@ yb_process_more_batches:
 		}
 
 		/* select slot to (initially) load row into */
-		if (insertMethod == CIM_SINGLE || proute || insertMethod == CIM_YB)
+		if (insertMethod == CIM_SINGLE || proute)
 		{
 			myslot = singleslot;
 			Assert(myslot != NULL);
@@ -1075,8 +1078,7 @@ yb_process_more_batches:
 			 * rowtype.
 			 */
 			map = resultRelInfo->ri_RootToPartitionMap;
-			if (insertMethod == CIM_SINGLE || !leafpart_use_multi_insert ||
-				insertMethod == CIM_YB)
+			if (insertMethod == CIM_SINGLE || !leafpart_use_multi_insert)
 			{
 				/* non batch insert */
 				if (map != NULL)
@@ -1203,7 +1205,7 @@ yb_process_more_batches:
 					List	   *recheckIndexes = NIL;
 
 					/* OK, store the tuple */
-					if (insertMethod == CIM_YB)
+					if (IsYBRelation(resultRelInfo->ri_RelationDesc))
 					{
 						/*YB_TODO(later): Remove the conversion to heap tuple.*/
 						TupleDesc tupDesc = RelationGetDescr(cstate->rel);
@@ -1261,7 +1263,7 @@ yb_process_more_batches:
 										   myslot, mycid, ti_options, bistate);
 					}
 
-					/*YB_TODO(review): Moved it out of above else block so that is it executed for YB relations too. */
+					/* And create index entries for it */
 					if (resultRelInfo->ri_NumIndices > 0)
 						recheckIndexes = ExecInsertIndexTuples(resultRelInfo,
 															   myslot,
@@ -1335,7 +1337,7 @@ yb_process_more_batches:
 
 yb_no_more_tuples:
 	/* Flush any remaining buffered tuples */
-	if (insertMethod != CIM_SINGLE && insertMethod != CIM_YB)
+	if (insertMethod != CIM_SINGLE)
 	{
 		if (!CopyMultiInsertInfoIsEmpty(&multiInsertInfo))
 			CopyMultiInsertInfoFlush(&multiInsertInfo, NULL);
@@ -1364,7 +1366,7 @@ yb_no_more_tuples:
 															  target_resultRelInfo);
 
 	/* Tear down the multi-insert buffer data */
-	if (insertMethod != CIM_SINGLE && insertMethod != CIM_YB)
+	if (insertMethod != CIM_SINGLE)
 		CopyMultiInsertInfoCleanup(&multiInsertInfo);
 
 	/* Close all the partitioned tables, leaf partitions, and their indices */
