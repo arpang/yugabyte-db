@@ -855,6 +855,12 @@ CopyFrom(CopyFromState cstate)
 		/*
 		 * Only use non-txn insert if it's explicitly enabled, the relation meets criteria for
 		 * multi insert (e.g. no triggers), and the relation does not have secondary indices.
+		 *
+		 * TODO: PG in commit 0d5f05cde011512e605bb2688d9b1fbb5b3ae152 added
+		 * support for conditional usage of multi-inserts for partitioned
+		 * tables (insertMethod = CIM_MULTI_CONDITIONAL). For now, this
+		 * optimization doesn't apply to YB partitioned relations and
+		 * transactional insert is used for such relations.
 		 */
 		if (YBIsNonTxnCopyEnabled() && insertMethod == CIM_MULTI &&
 			!YBCRelInfoHasSecondaryIndices(resultRelInfo))
@@ -862,7 +868,8 @@ CopyFrom(CopyFromState cstate)
 
 		/*
 		 * YB doesn't use PG's CopyMultiInsertBuffer. As a result, YB relations
-		 * take similar code path as insertMethod = CIM_SINGLE.
+		 * take similar code path as insertMethod = CIM_SINGLE irrespective of
+		 * useNonTxnInsert value.
 		 */
 		insertMethod = CIM_SINGLE;
 	}
