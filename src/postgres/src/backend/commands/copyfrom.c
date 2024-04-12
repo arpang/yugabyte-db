@@ -1242,6 +1242,17 @@ yb_process_more_batches:
 
 						if (shouldFree)
 							pfree(tuple);
+
+						/* And create index entries for it */
+						if (resultRelInfo->ri_NumIndices > 0)
+							recheckIndexes = ExecInsertIndexTuples(resultRelInfo,
+																   myslot,
+																   estate,
+																   false,
+																   false,
+																   NULL,
+																   NIL,
+																   NIL);
 					}
 					else if (resultRelInfo->ri_FdwRoutine != NULL)
 					{
@@ -1268,18 +1279,17 @@ yb_process_more_batches:
 						/* OK, store the tuple and create index entries for it */
 						table_tuple_insert(resultRelInfo->ri_RelationDesc,
 										   myslot, mycid, ti_options, bistate);
-					}
 
-					/* And create index entries for it */
-					if (resultRelInfo->ri_NumIndices > 0)
-						recheckIndexes = ExecInsertIndexTuples(resultRelInfo,
-															   myslot,
-															   estate,
-															   false,
-															   false,
-															   NULL,
-															   NIL,
-															   NIL);
+						if (resultRelInfo->ri_NumIndices > 0)
+							recheckIndexes = ExecInsertIndexTuples(resultRelInfo,
+																   myslot,
+																   estate,
+																   false,
+																   false,
+																   NULL,
+																   NIL,
+																   NIL /* no_update_index_list */);
+					}
 
 					/* AFTER ROW INSERT Triggers */
 					ExecARInsertTriggers(estate, resultRelInfo, myslot,
