@@ -6762,11 +6762,6 @@ void
 yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 			  bool partial_path)
 {
-#ifdef YB_TODO
-	/*
-	 * Gaurav: this function needs changes to work with pg15.  Particularly,
-	 * deconstruct_indexquals no longer exists
-	 */
 	IndexOptInfo *index = path->indexinfo;
 	Relation	index_rel = RelationIdGetRelation(path->indexinfo->indexoid);
 	bool		is_primary_index = index_rel->rd_index->indisprimary;
@@ -6780,7 +6775,6 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 	Cost		index_startup_cost = 0;
 	Cost		index_total_cost = 0;
 	Selectivity index_selectivity;
-	List	   *qinfos;
 	double		num_index_tuples;
 	List	   *index_bound_quals;
 	int			index_col;
@@ -6807,9 +6801,10 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 	int			index_random_pages_fetched;
 	int			index_sequential_pages_fetched;
 	List	  **filters_on_each_column;
-	List	  **index_qual_infos_on_each_column;
 	bool		previous_column_had_lower_bound;
 	bool		previous_column_had_upper_bound;
+	bool 		current_column_has_upper_bound;
+	bool 		current_column_has_lower_bound;
 	int			max_nexts_to_avoid_seek = 2;
 	int			num_result_pages;
 	int			docdb_result_width;
@@ -6882,31 +6877,36 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 		startup_cost += disable_cost;
 	/* we don't need to check enable_index_onlyscan; indxpath.c does that */
 
-	/* Do preliminary analysis of indexquals */
-	qinfos = deconstruct_indexquals(path);
-
 	/* Collect the filters for each index in a list of list structure */
-	filters_on_each_column = palloc0(sizeof(List*) * index->nkeycolumns);
-	index_qual_infos_on_each_column =
-		palloc0(sizeof(List*) * index->nkeycolumns);
+	filters_on_each_column = palloc0(sizeof(List *) * index->nkeycolumns);
 	index_bound_quals = NIL;
 	index_col = 0;
-	foreach(lc, qinfos)
+	foreach(lc, path->indexclauses)
 	{
-		IndexQualInfo *qinfo = (IndexQualInfo *) lfirst(lc);
-		RestrictInfo *rinfo = qinfo->rinfo;
+		IndexClause *iclause = lfirst_node(IndexClause, lc);
+		ListCell *lc2;
 
-		while (index_col != qinfo->indexcol)
+		while (index_col != iclause->indexcol)
 		{
 			++index_col;
 			Assert(index_col < index->nkeycolumns);
 		}
 
-		filters_on_each_column[index_col] =
-			lappend(filters_on_each_column[index_col], rinfo);
-		index_qual_infos_on_each_column[index_col] =
-			lappend(index_qual_infos_on_each_column[index_col], qinfo);
-		index_bound_quals = lappend(index_bound_quals, rinfo);
+		foreach (lc2, iclause->indexquals)
+		{
+			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc2);
+			if (path->path.param_info)
+			{
+				Relids batched = YB_PATH_REQ_OUTER_BATCHED(&path->path);
+				RestrictInfo *batched_rinfo = yb_get_batched_restrictinfo(
+					rinfo, batched, path->path.parent->relids);
+				if (batched_rinfo)
+					rinfo = batched_rinfo;
+			}
+			filters_on_each_column[index_col] =
+				lappend(filters_on_each_column[index_col], rinfo);
+			index_bound_quals = lappend(index_bound_quals, rinfo);
+		}
 	}
 
 	/*
@@ -6920,6 +6920,9 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 	previous_column_had_upper_bound = false;
 	for (int index_col = index->nkeycolumns - 1; index_col >= 0; --index_col)
 	{
+		current_column_has_lower_bound = false;
+		current_column_has_upper_bound = false;
+
 		List 	   *filtersOnCurrentColumn =
 			filters_on_each_column[index_col];
 		if (filtersOnCurrentColumn == NIL)
@@ -6939,8 +6942,6 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 				num_seeks += ndistinct;
 				num_nexts += ndistinct * max_nexts_to_avoid_seek;
 			}
-			previous_column_had_lower_bound = false;
-			previous_column_had_upper_bound = false;
 		}
 		else
 		{
@@ -6948,45 +6949,78 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 			bool	current_column_has_in_filter = false;
 			bool	current_column_has_equality_filter = false;
 			int		in_filter_array_length = 0;
-			foreach (lc, index_qual_infos_on_each_column[index_col])
+			foreach (lc, filters_on_each_column[index_col])
 			{
-				IndexQualInfo *qinfo = (IndexQualInfo *) lfirst(lc);
-				Expr	   *clause = qinfo->rinfo->clause;
-				Oid 		clause_op = qinfo->clause_op;
-				if (IsA(clause, ScalarArrayOpExpr))
+				RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
+				Expr *clause = rinfo->clause;
+				Oid clause_op = InvalidOid;
+				Node *other_operand = NULL;
+
+				if (IsA(clause, OpExpr))
 				{
+					OpExpr *op = (OpExpr *) clause;
+
+					clause_op = op->opno;
+					other_operand = get_rightop(clause);
+				}
+				else if (IsA(clause, RowCompareExpr))
+				{
+					RowCompareExpr *rc = (RowCompareExpr *) clause;
+
+					clause_op = linitial_oid(rc->opnos);
+					other_operand = (Node *) rc->rargs;
+				}
+				else if (IsA(clause, ScalarArrayOpExpr))
+				{
+					ScalarArrayOpExpr *saop = (ScalarArrayOpExpr *) clause;
+
+					clause_op = saop->opno;
+					other_operand = (Node *) lsecond(saop->args);
+
 					current_column_has_in_filter = true;
 					in_filter_array_length =
-						estimate_array_length(qinfo->other_operand);
+						estimate_array_length(other_operand);
 				}
-				else if (OidIsValid(clause_op))
+				else if (IsA(clause, NullTest))
+					clause_op = InvalidOid;
+				else
+					elog(ERROR, "unsupported indexqual type: %d",
+						 (int) nodeTag(clause));
+
+				if (OidIsValid(clause_op) && !IsA(clause, ScalarArrayOpExpr))
 				{
 					int 		op_strategy =
 						get_op_opfamily_strategy(clause_op,
 													index->opfamily[index_col]);
 					if (op_strategy == BTEqualStrategyNumber)
 					{
-						if (IsA(qinfo->other_operand, YbBatchedExpr))
+						if (IsA(other_operand, YbBatchedExpr))
 						{
 							current_column_has_in_filter = true;
 							in_filter_array_length =
 								yb_batch_expr_size(root,
 												   baserel->relid,
-												   qinfo->other_operand);
+												   other_operand);
 						}
 						else
 						{
 							current_column_has_equality_filter = true;
 						}
 					}
+					else if (op_strategy == BTLessEqualStrategyNumber ||
+							 op_strategy == BTLessStrategyNumber)
+						current_column_has_upper_bound = true;
+					else if (op_strategy == BTGreaterEqualStrategyNumber ||
+							 op_strategy == BTGreaterStrategyNumber)
+						current_column_has_lower_bound = true;
 				}
 			}
 
 			if (current_column_has_equality_filter)
 			{
 				/* No additional seeks and nexts needed for equality filter */
-				previous_column_had_lower_bound = true;
-				previous_column_had_upper_bound = true;
+				current_column_has_lower_bound = true;
+				current_column_has_upper_bound = true;
 			}
 			else if (current_column_has_in_filter)
 			{
@@ -6998,8 +7032,8 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 				 */
 				num_seeks += in_filter_array_length;
 				num_nexts += in_filter_array_length * max_nexts_to_avoid_seek;
-				previous_column_had_lower_bound = false;
-				previous_column_had_upper_bound = true;
+				current_column_has_lower_bound = false;
+				current_column_has_upper_bound = true;
 			}
 			else
 			{
@@ -7070,31 +7104,10 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 						(num_distinct_column_values_matching_column_filters - 1) *
 						max_nexts_to_avoid_seek;
 				}
-
-				foreach (lc, index_qual_infos_on_each_column[index_col])
-				{
-					IndexQualInfo *qinfo = (IndexQualInfo *) lfirst(lc);
-					Oid 		clause_op = qinfo->clause_op;
-
-					if (OidIsValid(clause_op))
-					{
-						int 		op_strategy =
-							get_op_opfamily_strategy(clause_op, index->opfamily[index_col]);
-						Assert(op_strategy != 0);
-						if (op_strategy == BTLessEqualStrategyNumber ||
-							op_strategy == BTLessStrategyNumber)
-						{
-							previous_column_had_upper_bound = true;
-						}
-						else if (op_strategy == BTGreaterEqualStrategyNumber ||
-								op_strategy == BTGreaterStrategyNumber)
-						{
-							previous_column_had_lower_bound = true;
-						}
-					}
-				}
 			}
 		}
+		previous_column_had_lower_bound = current_column_has_lower_bound;
+		previous_column_had_upper_bound = current_column_has_upper_bound;
 	}
 
 	List	   *selectivityQuals;
@@ -7300,5 +7313,4 @@ yb_cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 	path->path.startup_cost = startup_cost;
 	path->path.total_cost = startup_cost + run_cost;
 	yb_parallel_cost((Path *) path);
-#endif
 }
