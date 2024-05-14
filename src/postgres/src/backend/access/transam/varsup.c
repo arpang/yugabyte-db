@@ -639,7 +639,6 @@ YbGetMaxAllocatedSystemOid()
 					ObjectIdGetDatum((Oid) FirstNormalObjectId));
 
 		sys_rel = table_open(lfirst_oid(lc), AccessShareLock);
-
 		scan = table_beginscan_catalog(sys_rel, 2, key);
 
 		while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
