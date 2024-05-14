@@ -559,8 +559,9 @@ YbGetMaxAllocatedSystemOid()
 				   *lc2;
 	List		   *attrelids = NIL;
 	List		   *attnums = NIL;
-	ArrayType	   *array;
+	ArrayType	   *oids_array_type;
 	SysScanDesc  	sys_scan;
+	bool 			is_null;
 
 	pg_class = table_open(RelationRelationId, AccessShareLock);
 
@@ -581,10 +582,8 @@ YbGetMaxAllocatedSystemOid()
 	scan = table_beginscan_catalog(pg_class, 2, key);
 
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
-	{
-		Oid oid = ((Form_pg_class) GETSTRUCT(tuple))->oid;
-		sys_rel_oids = lappend_oid(sys_rel_oids, oid);
-	}
+		sys_rel_oids =
+			lappend_oid(sys_rel_oids, ((Form_pg_class) GETSTRUCT(tuple))->oid);
 
 	table_endscan(scan);
 	table_close(pg_class, AccessShareLock);
@@ -593,19 +592,19 @@ YbGetMaxAllocatedSystemOid()
 	 * SELECT attrelid, attnum FROM pg_attribute WHERE attrelid in
 	 * <sys_rel_oids> AND attname = 'oid';
 	 */
-	Datum sys_rel_oids_array[list_length(sys_rel_oids)];
+	Datum oids_datum_array[list_length(sys_rel_oids)];
 	int num_oids = 0;
 	foreach(lc, sys_rel_oids)
-		sys_rel_oids_array[num_oids++] = ObjectIdGetDatum(lfirst_oid(lc));
+		oids_datum_array[num_oids++] = ObjectIdGetDatum(lfirst_oid(lc));
 
-	array = construct_array(sys_rel_oids_array, num_oids, OIDOID, sizeof(Oid),
+	oids_array_type = construct_array(oids_datum_array, num_oids, OIDOID, sizeof(Oid),
 							true, TYPALIGN_INT);
 
 	ScanKeyEntryInitialize(&key[0],
 						   SK_SEARCHARRAY,
 						   Anum_pg_attribute_attrelid,
 						   BTEqualStrategyNumber, OIDOID, C_COLLATION_OID,
-						   F_OIDEQ, PointerGetDatum(array));
+						   F_OIDEQ, PointerGetDatum(oids_array_type));
 	ScanKeyInit(&key[1],
 				Anum_pg_attribute_attname,
 				BTEqualStrategyNumber,
@@ -624,7 +623,7 @@ YbGetMaxAllocatedSystemOid()
 	}
 	systable_endscan(sys_scan);
 	table_close(pg_attribute, AccessShareLock);
-	pfree(array);
+	pfree(oids_array_type);
 
 	forboth(lc, attrelids, lc2, attnums)
 	{
@@ -642,7 +641,7 @@ YbGetMaxAllocatedSystemOid()
 		sys_rel = table_open(lfirst_oid(lc), AccessShareLock);
 
 		scan = table_beginscan_catalog(sys_rel, 2, key);
-		bool is_null;
+
 		while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 		{
 			Oid oid = DatumGetObjectId(heap_getattr(
