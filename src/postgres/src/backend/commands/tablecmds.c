@@ -12221,7 +12221,7 @@ typedef struct YbFKTriggerScanDescData
 	int buffered_tuples_size;
 	int current_tuple_idx;
 	bool all_tuples_processed;
-	HeapTuple buffered_tuples[];
+	TupleTableSlot* buffered_tuples[];
 } YbFKTriggerScanDescData;
 
 typedef struct YbFKTriggerScanDescData *YbFKTriggerScanDesc;
@@ -12253,20 +12253,20 @@ YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 		desc->buffered_tuples_size = 0;
 		while (desc->buffered_tuples_size < desc->buffered_tuples_capacity)
 		{
-			HeapTuple tuple = heap_getnext(desc->scan, desc->scan_direction);
-			if (tuple == NULL)
+			TupleTableSlot * new_slot = MakeTupleTableSlot(RelationGetDescr(desc->scan->rs_rd), &TTSOpsHeapTuple);
+			heap_getnextslot(desc->scan, desc->scan_direction, new_slot);
+			if (TTS_EMPTY(new_slot))
 			{
 				desc->all_tuples_processed = true;
 				break;
 			}
-			YbAddTriggerFKReferenceIntent(desc->trigger, desc->fk_rel, tuple);
-			desc->buffered_tuples[desc->buffered_tuples_size++] = tuple;
+			YbAddTriggerFKReferenceIntent(desc->trigger, desc->fk_rel, new_slot);
+			desc->buffered_tuples[desc->buffered_tuples_size++] = new_slot;
 		}
 	}
 	if (desc->current_tuple_idx < desc->buffered_tuples_size)
 	{
-		HeapTuple tuple = desc->buffered_tuples[desc->current_tuple_idx++];
-		ExecForceStoreHeapTuple(tuple, slot, false);
+		slot = desc->buffered_tuples[desc->current_tuple_idx++];
 		return true;
 	}
 	return false;
