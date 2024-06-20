@@ -12253,7 +12253,8 @@ YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 		desc->buffered_tuples_size = 0;
 		while (desc->buffered_tuples_size < desc->buffered_tuples_capacity)
 		{
-			TupleTableSlot * new_slot = MakeTupleTableSlot(RelationGetDescr(desc->scan->rs_rd), &TTSOpsHeapTuple);
+			TupleTableSlot *new_slot = MakeTupleTableSlot(
+				RelationGetDescr(desc->scan->rs_rd), &TTSOpsHeapTuple);
 			heap_getnextslot(desc->scan, desc->scan_direction, new_slot);
 			if (TTS_EMPTY(new_slot))
 			{
