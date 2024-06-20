@@ -214,9 +214,7 @@ extern bool YbIsSingleRowModifyTxnPlanned(PlannedStmt *pstmt, EState *estate);
 
 extern Datum YBCGetYBTupleIdFromSlot(TupleTableSlot *slot);
 
-extern Datum YBCGetYBTupleIdFromTuple(Relation rel,
-									  HeapTuple tuple,
-									  TupleDesc tupleDesc);
+extern Datum YBCComputeYBTupleIdFromSlot(Relation rel, TupleTableSlot *slot);
 
 /*
  * Returns if a table has secondary indices.
