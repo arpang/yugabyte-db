@@ -1898,7 +1898,7 @@ YBEqualDatums(Datum lhs, Datum rhs, Oid atttypid, Oid collation)
 /* ----------------------------------------------------------------
  * YBBuildExtraUpdatedCols
  *
- * Function compares attribute value in oldtuple and newtuple for attributes which are not in the
+ * Function compares attribute value in oldtuple and newslot for attributes which are not in the
  * updatedCols set. Returns set of changed attributes or NULL.
  * ----------------------------------------------------------------
  */
