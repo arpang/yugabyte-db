@@ -268,19 +268,17 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo, TupleTableSlot *slo
 		riinfo->nkeys + (using_index ? 1 : 0));
 	YBCPgAttrValueDescriptor *next_attr = result->attrs;
 
-	Relation fk_rel = RelationIdGetRelation(riinfo->fk_relid);
 	YBCPgTableDesc ybc_source_table_desc = NULL;
 	HandleYBStatus(YBCPgGetTableDesc(source_dboid,
 									 source_rel_relfilenode_oid,
 									 &ybc_source_table_desc));
 
-	TupleDesc fk_tupdesc = fk_rel->rd_att;
 	TupleDesc source_tupdesc = source_rel->rd_att;
 	for (int i = 0; i < riinfo->nkeys; ++i, ++next_attr)
 	{
 		next_attr->attr_num = using_index ? (i + 1) : riinfo->pk_attnums[i];
 		const int fk_attnum = riinfo->fk_attnums[i];
-		const Oid type_id = TupleDescAttr(fk_tupdesc, fk_attnum - 1)->atttypid;
+		const Oid type_id = TupleDescAttr(slot->tts_tupleDescriptor, fk_attnum - 1)->atttypid;
 		/*
 		 * In case source_rel and fk_rel has different type of same attribute conversion is required
 		 * to build source_rel tuple id from fk_rel tuple.
@@ -307,7 +305,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo, TupleTableSlot *slo
 												   &column_info), ybc_source_table_desc);
 		YBSetupAttrCollationInfo(next_attr, &column_info);
 	}
-	RelationClose(fk_rel);
 	RelationClose(source_rel);
 	if (using_index && result)
 		YBCFillUniqueIndexNullAttribute(result);
