@@ -12257,11 +12257,13 @@ YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 		desc->buffered_tuples_size = 0;
 		while (desc->buffered_tuples_size < desc->buffered_tuples_capacity)
 		{
-			TupleTableSlot *new_slot =
-				table_slot_create(desc->scan->rs_rd, NULL);
+			TupleTableSlot *new_slot = MakeSingleTupleTableSlot(
+				RelationGetDescr(desc->scan->rs_rd),
+				table_slot_callbacks(desc->scan->rs_rd));
 			if (!heap_getnextslot(desc->scan, desc->scan_direction, new_slot))
 			{
 				desc->all_tuples_processed = true;
+				ExecDropSingleTupleTableSlot(new_slot);
 				break;
 			}
 			YbAddTriggerFKReferenceIntent(desc->trigger, desc->fk_rel, new_slot);
@@ -12423,6 +12425,8 @@ validateForeignKeyConstraint(char *conname,
 
 		if (!IsYBRelation(rel))
 			MemoryContextReset(perTupCxt);
+		else
+			ExecDropSingleTupleTableSlot(ybSlot);
 	}
 
 	MemoryContextSwitchTo(oldcxt);
