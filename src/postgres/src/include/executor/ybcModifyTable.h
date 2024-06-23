@@ -75,6 +75,11 @@ extern void YBCHeapInsert(ResultRelInfo *resultRelInfo,
 extern void YBCExecuteInsert(Relation rel,
 							 TupleTableSlot *slot,
 							 OnConflictAction onConflictAction);
+
+extern void
+YBCExecuteInsertHeapTupleForDb(Oid dboid, Relation rel, HeapTuple tuple,
+							   OnConflictAction onConflictAction, Datum *ybctid,
+							   YBCPgTransactionSetting transaction_setting);
 extern void YBCExecuteInsertForDb(Oid dboid,
 								  Relation rel,
 								  TupleTableSlot *slot,

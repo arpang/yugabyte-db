@@ -629,7 +629,7 @@ Datum YbGetMasterCatalogVersionTableEntryYbctid(Relation catalog_version_rel,
 	 * YBCComputeYBTupleIdFromSlot. Note that db_oid is the primary key so we
 	 * can use null for other columns for simplicity.
 	 */
-	TupleTableSlot *slot = MakeTupleTableSlot(
+	TupleTableSlot *slot = MakeSingleTupleTableSlot(
 		RelationGetDescr(catalog_version_rel), &TTSOpsVirtual);
 
 	slot->tts_values[0] = db_oid;
@@ -638,8 +638,11 @@ Datum YbGetMasterCatalogVersionTableEntryYbctid(Relation catalog_version_rel,
 	slot->tts_isnull[1] = true;
 	slot->tts_values[2] = 0;
 	slot->tts_isnull[2] = true;
+	slot->tts_nvalid = 3;
 
-	return YBCComputeYBTupleIdFromSlot(catalog_version_rel, slot);
+	Datum ybctid = YBCComputeYBTupleIdFromSlot(catalog_version_rel, slot);
+	ExecDropSingleTupleTableSlot(slot);
+	return ybctid;
 }
 
 Oid YbMasterCatalogVersionTableDBOid()

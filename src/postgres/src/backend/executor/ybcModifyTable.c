@@ -421,6 +421,23 @@ static YBCPgTransactionSetting YBCFixTransactionSetting(
 	return transaction_setting;
 }
 
+void
+YBCExecuteInsertHeapTupleForDb(Oid dboid,
+							   Relation rel,
+							   HeapTuple tuple,
+							   OnConflictAction onConflictAction,
+							   Datum *ybctid,
+							   YBCPgTransactionSetting transaction_setting)
+{
+	TupleTableSlot *slot =
+		MakeSingleTupleTableSlot(RelationGetDescr(rel), &TTSOpsHeapTuple);
+	ExecStoreHeapTuple(tuple, slot, false);
+	YBCExecuteInsertForDb(dboid, rel, slot, onConflictAction, ybctid,
+						  transaction_setting);
+	HEAPTUPLE_YBCTID(tuple) = TABLETUPLE_YBCTID(slot);
+	ExecDropSingleTupleTableSlot(slot);
+}
+
 void YBCExecuteInsertForDb(Oid dboid,
 						   Relation rel,
 						   TupleTableSlot *slot,
@@ -1130,9 +1147,10 @@ YBCExecuteUpdateLoginAttempts(Oid roleid,
 	 * Retrieve ybctid from the slot if possible, otherwise generate it
 	 * from tuple values.
 	 */
-	slot = MakeTupleTableSlot(inputTupleDesc, &TTSOpsHeapTuple);
+	slot = MakeSingleTupleTableSlot(inputTupleDesc, &TTSOpsHeapTuple);
 	ExecStoreHeapTuple(tuple, slot, false);
 	ybctid = YBCComputeYBTupleIdFromSlot(rel, slot);
+	ExecDropSingleTupleTableSlot(slot);
 
 	if (ybctid == 0)
 		ereport(ERROR,
