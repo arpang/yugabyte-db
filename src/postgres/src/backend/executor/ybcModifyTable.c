@@ -360,7 +360,6 @@ static void YBCApplyInsertRow(
 		YBCPgAddIntoForeignKeyReferenceCache(relfileNodeId,
 											 TABLETUPLE_YBCTID(slot));
 
-
 }
 
 /*
@@ -1042,7 +1041,6 @@ bool YBCExecuteUpdate(ResultRelInfo *resultRelInfo,
 			 */
 			CacheInvalidateCatalog(relid);
 		}
-
 	}
 
 	/* If update batching is allowed, then ignore rows_affected_count. */

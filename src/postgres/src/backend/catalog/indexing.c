@@ -374,14 +374,22 @@ YBCatalogTupleInsert(Relation heapRel, HeapTuple tup, bool yb_shared_insert)
 			if (dboid == YBCGetDatabaseOid(heapRel))
 				continue; /* Will be done after the loop. */
 
-			YBCExecuteInsertHeapTupleForDb(dboid, heapRel, tup, ONCONFLICT_NONE,
-										   &ybctid, YB_TRANSACTIONAL);
+			YBCExecuteInsertHeapTupleForDb(dboid,
+										   heapRel,
+										   tup,
+										   ONCONFLICT_NONE,
+										   &ybctid,
+										   YB_TRANSACTIONAL);
 		}
 		YB_FOR_EACH_DB_END;
 	}
 
-	YBCExecuteInsertHeapTupleForDb(YBCGetDatabaseOid(heapRel), heapRel, tup,
-								   ONCONFLICT_NONE, &ybctid, YB_TRANSACTIONAL);
+	YBCExecuteInsertHeapTupleForDb(YBCGetDatabaseOid(heapRel),
+								   heapRel,
+								   tup,
+								   ONCONFLICT_NONE,
+								   &ybctid,
+								   YB_TRANSACTIONAL);
 
 	/* Update the local cache automatically */
 	YbSetSysCacheTuple(heapRel, tup);
