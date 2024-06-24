@@ -12423,10 +12423,10 @@ validateForeignKeyConstraint(char *conname,
 
 		RI_FKey_check_ins(fcinfo);
 
-		if (!IsYBRelation(rel))
-			MemoryContextReset(perTupCxt);
-		else
+		if (IsYBRelation(rel))
 			ExecDropSingleTupleTableSlot(ybSlot);
+		else
+			MemoryContextReset(perTupCxt);
 	}
 
 	MemoryContextSwitchTo(oldcxt);
