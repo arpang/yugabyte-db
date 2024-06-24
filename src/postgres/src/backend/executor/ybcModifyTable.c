@@ -651,8 +651,6 @@ bool YBCExecuteDelete(Relation rel,
 	YBCPgStatement	delete_stmt = NULL;
 	Datum			ybctid;
 	Oid				relfileNodeId = YbGetRelfileNodeId(rel);
-	HeapTuple		tuple = NULL;
-	bool			shouldFree = false;
 
 	/* YB_SINGLE_SHARD_TRANSACTION always implies target tuple wasn't fetched. */
 	Assert((transaction_setting != YB_SINGLE_SHARD_TRANSACTION) || !target_tuple_fetched);
@@ -716,9 +714,6 @@ bool YBCExecuteDelete(Relation rel,
 		/* Cleanup. */
 		YBCPgDeleteStatement(delete_stmt);
 
-		if (tuple && shouldFree)
-			pfree(tuple);
-
 		return rows_affected_count > 0;
 	}
 
@@ -739,7 +734,13 @@ bool YBCExecuteDelete(Relation rel,
 	{
 		MarkCurrentCommandUsed();
 		if (!target_tuple_fetched)
+		{
+			bool shouldFree;
+			HeapTuple tuple = ExecFetchSlotHeapTuple(planSlot, false, &shouldFree);
 			CacheInvalidateHeapTuple(rel, tuple, NULL);
+			if (shouldFree)
+				pfree(tuple);
+		}
 		else
 		{
 			/*
@@ -751,10 +752,6 @@ bool YBCExecuteDelete(Relation rel,
 			CacheInvalidateCatalog(relid);
 		}
 	}
-
-	/* Done with tuple, free it. */
-	if (tuple && shouldFree)
-		pfree(tuple);
 
 	YBCExecWriteStmt(delete_stmt,
 					 rel,
@@ -1025,12 +1022,16 @@ bool YBCExecuteUpdate(ResultRelInfo *resultRelInfo,
 	 */
 	if (IsCatalogRelation(rel))
 	{
-		bool shouldFree;
-		/* tuple will be used transitorily, don't materialize it */
-		HeapTuple tuple = ExecFetchSlotHeapTuple(slot, false, &shouldFree);
 		MarkCurrentCommandUsed();
 		if (oldtuple)
+		{
+			bool shouldFree;
+			/* tuple will be used transitorily, don't materialize it */
+			HeapTuple tuple = ExecFetchSlotHeapTuple(slot, false, &shouldFree);
 			CacheInvalidateHeapTuple(rel, oldtuple, tuple);
+			if (shouldFree)
+				pfree(tuple);
+		}
 		else
 		{
 			/*
@@ -1041,8 +1042,7 @@ bool YBCExecuteUpdate(ResultRelInfo *resultRelInfo,
 			 */
 			CacheInvalidateCatalog(relid);
 		}
-		if (shouldFree)
-			pfree(tuple);
+
 	}
 
 	/* If update batching is allowed, then ignore rows_affected_count. */
