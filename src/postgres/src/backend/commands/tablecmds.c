@@ -12249,6 +12249,7 @@ static TupleTableSlot *
 YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 {
 	/* Note: slot argument is NULL and should not be used. */
+	Assert(slot == NULL);
 	if (desc->current_tuple_idx >= desc->buffered_tuples_size && !desc->all_tuples_processed)
 	{
 		/* Clear context of previously buffered tuples */
