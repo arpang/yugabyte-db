@@ -12374,10 +12374,6 @@ validateForeignKeyConstraint(char *conname,
 	scan = table_beginscan(rel, snapshot, 0, NULL);
 
 	/* YB note: perTupCxt is used as per-batch (and not per-tuple) context */
-	/*
-	 * YB_TODO(arpan): GetCurrentMemoryContext() should be used in YB instead of
-	 * using CurrentMemoryContext directly. Here and elsewhere.
-	 */
 	if (IsYBRelation(rel))
 		perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
 										  "validateForeignKeyConstraint",
