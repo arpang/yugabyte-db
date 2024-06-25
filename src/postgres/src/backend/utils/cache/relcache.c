@@ -3035,7 +3035,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 
 	if (RECOVER_RELATION_BUILD_MEMORY || debug_discard_caches > 0)
 	{
-		tmpcxt = AllocSetContextCreate(CurrentMemoryContext,
+		tmpcxt = AllocSetContextCreate(GetCurrentMemoryContext(),
 									   "RelationBuildDesc workspace",
 									   ALLOCSET_DEFAULT_SIZES);
 		oldcxt = MemoryContextSwitchTo(tmpcxt);

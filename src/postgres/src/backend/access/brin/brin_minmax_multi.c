@@ -1651,7 +1651,7 @@ ensure_free_space_in_buffer(BrinDesc *bdesc, Oid colloid,
 	 * context and make sure we free the memory at the end (so if we call the
 	 * distance function many times, it might be an issue, but meh).
 	 */
-	ctx = AllocSetContextCreate(CurrentMemoryContext,
+	ctx = AllocSetContextCreate(GetCurrentMemoryContext(),
 								"minmax-multi context",
 								ALLOCSET_DEFAULT_SIZES);
 
@@ -1818,7 +1818,7 @@ compactify_ranges(BrinDesc *bdesc, Ranges *ranges, int max_values)
 	 * memory context and make sure we free the memory before leaving this
 	 * function (not after every call).
 	 */
-	ctx = AllocSetContextCreate(CurrentMemoryContext,
+	ctx = AllocSetContextCreate(GetCurrentMemoryContext(),
 								"minmax-multi context",
 								ALLOCSET_DEFAULT_SIZES);
 
@@ -2800,7 +2800,7 @@ brin_minmax_multi_union(PG_FUNCTION_ARGS)
 	 * memory context and make sure we free the memory before leaving this
 	 * function (not after every call).
 	 */
-	ctx = AllocSetContextCreate(CurrentMemoryContext,
+	ctx = AllocSetContextCreate(GetCurrentMemoryContext(),
 								"minmax-multi context",
 								ALLOCSET_DEFAULT_SIZES);
 

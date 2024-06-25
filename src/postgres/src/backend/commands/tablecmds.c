@@ -12368,11 +12368,11 @@ validateForeignKeyConstraint(char *conname,
 	scan = table_beginscan(rel, snapshot, 0, NULL);
 
 	if (IsYBRelation(rel))
-		perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
+		perTupCxt = AllocSetContextCreate(GetCurrentMemoryContext(),
 										  "validateForeignKeyConstraint",
 										  ALLOCSET_DEFAULT_SIZES);
 	else
-		perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
+		perTupCxt = AllocSetContextCreate(GetCurrentMemoryContext(),
 										  "validateForeignKeyConstraint",
 										  ALLOCSET_SMALL_SIZES);
 
