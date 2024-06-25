@@ -48,7 +48,7 @@ index_form_tuple(TupleDesc tupleDescriptor,
 				 bool *isnull)
 {
 	return index_form_tuple_context(tupleDescriptor, values, isnull,
-									CurrentMemoryContext);
+									GetCurrentMemoryContext());
 }
 
 /* ----------------

@@ -3078,7 +3078,7 @@ brin_minmax_multi_summary_out(PG_FUNCTION_ARGS)
 										 PointerGetDatum(c),
 										 false,
 										 TEXTOID,
-										 CurrentMemoryContext);
+										 GetCurrentMemoryContext());
 	}
 
 	if (ranges_deserialized->nranges > 0)
@@ -3090,7 +3090,7 @@ brin_minmax_multi_summary_out(PG_FUNCTION_ARGS)
 
 		getTypeOutputInfo(ANYARRAYOID, &typoutput, &typIsVarlena);
 
-		val = PointerGetDatum(makeArrayResult(astate_values, CurrentMemoryContext));
+		val = PointerGetDatum(makeArrayResult(astate_values, GetCurrentMemoryContext()));
 
 		extval = OidOutputFunctionCall(typoutput, val);
 
@@ -3118,7 +3118,7 @@ brin_minmax_multi_summary_out(PG_FUNCTION_ARGS)
 										 PointerGetDatum(b),
 										 false,
 										 TEXTOID,
-										 CurrentMemoryContext);
+										 GetCurrentMemoryContext());
 	}
 
 	if (ranges_deserialized->nvalues > 0)
@@ -3130,7 +3130,7 @@ brin_minmax_multi_summary_out(PG_FUNCTION_ARGS)
 
 		getTypeOutputInfo(ANYARRAYOID, &typoutput, &typIsVarlena);
 
-		val = PointerGetDatum(makeArrayResult(astate_values, CurrentMemoryContext));
+		val = PointerGetDatum(makeArrayResult(astate_values, GetCurrentMemoryContext()));
 
 		extval = OidOutputFunctionCall(typoutput, val);
 
