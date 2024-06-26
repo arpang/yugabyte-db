@@ -39,7 +39,7 @@
   *		index_form_tuple
   *
   *		As index_form_tuple_context, but allocates the returned tuple in the
-  *		CurrentMemoryContext.
+  *		GetCurrentMemoryContext().
   * ----------------
   */
 IndexTuple

@@ -3016,7 +3016,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 
 	/*
 	 * This function and its subroutines can allocate a good deal of transient
-	 * data in CurrentMemoryContext.  Traditionally we've just leaked that
+	 * data in GetCurrentMemoryContext().  Traditionally we've just leaked that
 	 * data, reasoning that the caller's context is at worst of transaction
 	 * scope, and relcache loads shouldn't happen so often that it's essential
 	 * to recover transient data before end of statement/transaction.  However
