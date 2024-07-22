@@ -131,7 +131,7 @@ typedef struct TupleTableSlot
 	Oid			tts_tableOid;	/* table oid of tuple */
 
 	/* YugaByte support */
-	/* Datum tts_ybctid; */  /* Selected ybctid value. Replaced by field "tts_tid". */
+	Datum tts_ybctid;  /* Selected ybctid value. Replaced by field "tts_tid". */
 } TupleTableSlot;
 
 /* routines for a TupleTableSlot implementation */

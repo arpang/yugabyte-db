@@ -71,7 +71,7 @@ initCachedPage(BloomBuildState *buildstate)
  * Per-tuple callback for table_index_build_scan.
  */
 static void
-bloomBuildCallback(Relation index, ItemPointer tid, Datum *values,
+bloomBuildCallback(Relation index, ItemPointer tid, Datum ybctid, Datum *values,
 				   bool *isnull, bool tupleIsAlive, void *state)
 {
 	BloomBuildState *buildstate = (BloomBuildState *) state;

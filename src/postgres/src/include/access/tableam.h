@@ -247,6 +247,7 @@ typedef struct TM_IndexDeleteOp
 /* Typedef for callback function for table_index_build_scan */
 typedef void (*IndexBuildCallback) (Relation index,
 									ItemPointer tid,
+									Datum ybctid,
 									Datum *values,
 									bool *isnull,
 									bool tupleIsAlive,

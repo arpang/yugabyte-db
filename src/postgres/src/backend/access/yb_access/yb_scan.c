@@ -3650,7 +3650,7 @@ void ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 }
 
 static bool
-YbFetchRowData(YBCPgStatement ybc_stmt, Relation relation, ItemPointer tid,
+YbFetchRowData(YBCPgStatement ybc_stmt, Relation relation, Datum ybctid,
 			   Datum *values, bool *nulls, YBCPgSysColumns *syscols)
 {
 	bool has_data = false;
@@ -3660,7 +3660,7 @@ YbFetchRowData(YBCPgStatement ybc_stmt, Relation relation, ItemPointer tid,
 	YBCPgExpr ybctid_expr = YBCNewConstant(ybc_stmt,
 										   BYTEAOID,
 										   InvalidOid,
-										   YbItemPointerYbctid(tid),
+										   ybctid,
 										   false);
 	HandleYBStatus(YBCPgDmlBindColumn(ybc_stmt, YBTupleIdAttributeNumber, ybctid_expr));
 
@@ -3691,45 +3691,45 @@ YbFetchRowData(YBCPgStatement ybc_stmt, Relation relation, ItemPointer tid,
 	return has_data;
 }
 
+// bool
+// YbFetchTableSlot(Relation relation, ItemPointer tid,  TupleTableSlot *slot)
+// {
+// 	bool has_data = false;
+// 	YBCPgStatement ybc_stmt;
+
+// 	Assert(slot != NULL);
+// 	Assert(slot->tts_values != NULL);
+// 	Assert(slot->tts_isnull != NULL);
+
+// 	TupleDesc tupdesc = RelationGetDescr(relation);
+// 	YBCPgSysColumns syscols;
+
+// 	/* Read data */
+// 	HandleYBStatus(YBCPgNewSelect(YBCGetDatabaseOid(relation),
+// 								  YbGetRelfileNodeId(relation),
+// 								  NULL /* prepare_params */,
+// 								  YBCIsRegionLocal(relation),
+// 								  &ybc_stmt));
+// 	has_data = YbFetchRowData(ybc_stmt, relation, tid, slot->tts_values, slot->tts_isnull, &syscols);
+
+// 	/* Write into the given slot */
+// 	if (has_data)
+// 	{
+// 		slot->tts_nvalid = tupdesc->natts;
+// 		slot->tts_tableOid = RelationGetRelid(relation);
+// 		slot->tts_flags &= ~TTS_FLAG_EMPTY; /* Not empty */
+// 		if (syscols.ybctid != NULL)
+// 		{
+// 			TABLETUPLE_YBCTID(slot) = PointerGetDatum(syscols.ybctid);
+// 		}
+// 	}
+
+// 	YBCPgDeleteStatement(ybc_stmt);
+// 	return has_data;
+// }
+
 bool
-YbFetchTableSlot(Relation relation, ItemPointer tid,  TupleTableSlot *slot)
-{
-	bool has_data = false;
-	YBCPgStatement ybc_stmt;
-
-	Assert(slot != NULL);
-	Assert(slot->tts_values != NULL);
-	Assert(slot->tts_isnull != NULL);
-
-	TupleDesc tupdesc = RelationGetDescr(relation);
-	YBCPgSysColumns syscols;
-
-	/* Read data */
-	HandleYBStatus(YBCPgNewSelect(YBCGetDatabaseOid(relation),
-								  YbGetRelfileNodeId(relation),
-								  NULL /* prepare_params */,
-								  YBCIsRegionLocal(relation),
-								  &ybc_stmt));
-	has_data = YbFetchRowData(ybc_stmt, relation, tid, slot->tts_values, slot->tts_isnull, &syscols);
-
-	/* Write into the given slot */
-	if (has_data)
-	{
-		slot->tts_nvalid = tupdesc->natts;
-		slot->tts_tableOid = RelationGetRelid(relation);
-		slot->tts_flags &= ~TTS_FLAG_EMPTY; /* Not empty */
-		if (syscols.ybctid != NULL)
-		{
-			TABLETUPLE_YBCTID(slot) = PointerGetDatum(syscols.ybctid);
-		}
-	}
-
-	YBCPgDeleteStatement(ybc_stmt);
-	return has_data;
-}
-
-bool
-YbFetchHeapTuple(Relation relation, ItemPointer tid, HeapTuple* tuple)
+YbFetchHeapTuple(Relation relation, Datum ybctid, HeapTuple* tuple)
 {
 	bool has_data = false;
 	YBCPgStatement ybc_stmt;
@@ -3745,7 +3745,7 @@ YbFetchHeapTuple(Relation relation, ItemPointer tid, HeapTuple* tuple)
 								  NULL /* prepare_params */,
 								  YBCIsRegionLocal(relation),
 								  &ybc_stmt));
-	has_data = YbFetchRowData(ybc_stmt, relation, tid, values, nulls, &syscols);
+	has_data = YbFetchRowData(ybc_stmt, relation, ybctid, values, nulls, &syscols);
 
 	/* Write into the given tuple */
 	if (has_data)

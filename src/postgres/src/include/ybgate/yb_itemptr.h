@@ -34,42 +34,27 @@
  *
  * Postgres's ItemPointerData is an address on disk.
  */
-typedef struct YbItemPointerData
-{
-	Datum ybctid;
-} YbItemPointerData;
+// typedef struct YbItemPointerData
+// {
+// 	Datum ybctid;
+// } YbItemPointerData;
 
-typedef YbItemPointerData *YbItemPointer;
+// typedef YbItemPointerData *YbItemPointer;
 
-#define YbItemPointerYbctid(itemPointer) \
-	((itemPointer)->yb_item.ybctid)
-
-#define YbItemPointerSetInvalid(itemPointer) \
-	((itemPointer)->yb_item.ybctid = (Datum)0)
-
-/* Heap tuple keeps data in t_self */
-#define HEAPTUPLE_YBITEM(htup) ((htup)->t_self.yb_item)
-
-#define HEAPTUPLE_YBCTID(htup) ((htup)->t_self.yb_item.ybctid)
+#define HEAPTUPLE_YBCTID(htup) ((htup)->t_ybctid)
 
 #define HEAPTUPLE_COPY_YBITEM(fromHtup, toHtup)			\
-	COPY_YBITEM(HEAPTUPLE_YBITEM(fromHtup), HEAPTUPLE_YBITEM(toHtup))
+	COPY_YBCTID(HEAPTUPLE_YBCTID(fromHtup), HEAPTUPLE_YBCTID(toHtup))
 
-/* Index tuple keeps data in t_tid */
-#define INDEXTUPLE_YBITEM(itup) ((itup)->t_tid.yb_item)
-
-#define INDEXTUPLE_YBCTID(itup) ((itup)->t_tid.yb_item.ybctid)
+#define INDEXTUPLE_YBCTID(itup) ((itup)->t_ybctid)
 
 #define INDEXTUPLE_COPY_YBITEM(fromItup, toItup)			\
-	COPY_YBITEM(INDEXTUPLE_YBITEM(fromItup), INDEXTUPLE_YBITEM(toItup))
+	COPY_YBCTID(INDEXTUPLE_YBCTID(fromItup), INDEXTUPLE_YBCTID(toItup))
 
-/* TupleTableSlot keeps data in tts_tid */
-#define TABLETUPLE_YBITEM(tslot) ((tslot)->tts_tid.yb_item)
-
-#define TABLETUPLE_YBCTID(tslot) ((tslot)->tts_tid.yb_item.ybctid)
+#define TABLETUPLE_YBCTID(tslot) ((tslot)->tts_ybctid)
 
 #define TABLETUPLE_COPY_YBITEM(fromTslot, toTslot)			\
-  COPY_YBITEM(TABLETUPLE_YBITEM(fromTslot), TABLETUPLE_YBITEM(toTslot))
+  COPY_YBCTID(TABLETUPLE_YBCTID(fromTslot), TABLETUPLE_YBCTID(toTslot))
 
 /* Copy YbItemPointerData from a source to destination */
 #define COPY_YBITEM(src, dest) COPY_YBCTID(src.ybctid, dest.ybctid)

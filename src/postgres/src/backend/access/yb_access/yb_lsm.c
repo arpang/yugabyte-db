@@ -134,8 +134,8 @@ doBindsForIdxWrite(YBCPgStatement stmt,
 }
 
 static void
-ybcinbuildCallback(Relation index, ItemPointer tid, Datum *values, bool *isnull,
-				   bool tupleIsAlive, void *state)
+ybcinbuildCallback(Relation index, ItemPointer tid, Datum ybctid, Datum *values,
+				   bool *isnull, bool tupleIsAlive, void *state)
 {
 	YBCBuildState  *buildstate = (YBCBuildState *)state;
 
@@ -143,7 +143,7 @@ ybcinbuildCallback(Relation index, ItemPointer tid, Datum *values, bool *isnull,
 		YBCExecuteInsertIndex(index,
 							  values,
 							  isnull,
-							  tid,
+							  ybctid,
 							  buildstate->backfill_write_time,
 							  doBindsForIdxWrite,
 							  NULL /* indexstate */);
@@ -218,7 +218,7 @@ ybcinbuildempty(Relation index)
 }
 
 static bool
-ybcininsert(Relation index, Datum *values, bool *isnull, ItemPointer tid, Relation heap,
+ybcininsert(Relation index, Datum *values, bool *isnull, Datum ybctid, Relation heap,
 			IndexUniqueCheck checkUnique, struct IndexInfo *indexInfo, bool sharedInsert)
 {
 	if (!index->rd_index->indisprimary)
@@ -239,7 +239,7 @@ ybcininsert(Relation index, Datum *values, bool *isnull, ItemPointer tid, Relati
 										   index,
 										   values,
 										   isnull,
-										   tid,
+										   ybctid,
 										   NULL /* backfill_write_time */,
 										   doBindsForIdxWrite,
 										   NULL /* indexstate */);
@@ -250,7 +250,7 @@ ybcininsert(Relation index, Datum *values, bool *isnull, ItemPointer tid, Relati
 			YBCExecuteInsertIndex(index,
 								  values,
 								  isnull,
-								  tid,
+								  ybctid,
 								  NULL /* backfill_write_time */,
 								  doBindsForIdxWrite,
 								  NULL /* indexstate */);

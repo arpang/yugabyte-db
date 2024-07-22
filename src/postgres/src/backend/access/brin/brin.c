@@ -765,6 +765,7 @@ brinendscan(IndexScanDesc scan)
 static void
 brinbuildCallback(Relation index,
 				  ItemPointer tid,
+				  Datum ybctid,
 				  Datum *values,
 				  bool *isnull,
 				  bool tupleIsAlive,

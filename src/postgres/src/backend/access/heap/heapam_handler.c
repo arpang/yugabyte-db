@@ -1729,13 +1729,13 @@ heapam_index_build_range_scan(Relation heapRelation,
 						   root_offsets[offnum - 1]);
 
 			/* Call the AM's callback routine to process the tuple */
-			callback(indexRelation, &tid, values, isnull, tupleIsAlive,
+			callback(indexRelation, &tid, 0, values, isnull, tupleIsAlive,
 					 callback_state);
 		}
 		else
 		{
 			/* Call the AM's callback routine to process the tuple */
-			callback(indexRelation, &heapTuple->t_self, values, isnull,
+			callback(indexRelation, &heapTuple->t_self, heapTuple->t_ybctid, values, isnull,
 					 tupleIsAlive, callback_state);
 		}
 		if (IsYBRelation(indexRelation))
@@ -2010,6 +2010,7 @@ heapam_index_validate_scan(Relation heapRelation,
 						 values,
 						 isnull,
 						 &rootTuple,
+						 0, /* YB_TODO: right thing? */
 						 heapRelation,
 						 indexInfo->ii_Unique ?
 						 UNIQUE_CHECK_YES : UNIQUE_CHECK_NO,

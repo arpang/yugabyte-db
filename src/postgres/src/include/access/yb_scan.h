@@ -374,13 +374,13 @@ extern TM_Result YBCLockTuple(Relation relation, Datum ybctid, RowMarkType mode,
 
 extern bool YBCFetchTuple(Relation relation, ItemPointer ybctid, TupleTableSlot *slot);
 
-extern bool YbFetchTableSlot(Relation relation, ItemPointer tid, TupleTableSlot *slot);
+// extern bool YbFetchTableSlot(Relation relation, ItemPointer tid, TupleTableSlot *slot);
 
 /*
  * Fetch a single row for given ybctid into a heap-tuple.
  * This API is needed for reading data from a catalog (system table).
  */
-extern bool YbFetchHeapTuple(Relation relation, ItemPointer tid, HeapTuple* tuple);
+extern bool YbFetchHeapTuple(Relation relation, Datum ybctid, HeapTuple* tuple);
 extern void YBCFlushTupleLocks();
 
 /*
