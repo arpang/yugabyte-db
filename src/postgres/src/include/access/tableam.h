@@ -247,11 +247,17 @@ typedef struct TM_IndexDeleteOp
 /* Typedef for callback function for table_index_build_scan */
 typedef void (*IndexBuildCallback) (Relation index,
 									ItemPointer tid,
-									Datum ybctid,
 									Datum *values,
 									bool *isnull,
 									bool tupleIsAlive,
 									void *state);
+
+typedef void (*YbIndexBuildCallback) (Relation index,
+									  Datum ybctid,
+									  Datum *values,
+									  bool *isnull,
+									  bool tupleIsAlive,
+									  void *state);
 
 /*
  * API struct for a table AM.  Note this must be allocated in a
@@ -680,7 +686,8 @@ typedef struct TableAmRoutine
 										   void *callback_state,
 										   TableScanDesc scan,
 										   YbBackfillInfo *bfinfo,
-										   YbPgExecOutParam *bfresult);
+										   YbPgExecOutParam *bfresult,
+										   YbIndexBuildCallback ybcallback);
 
 	/* see table_index_validate_scan for reference about parameters */
 	void		(*index_validate_scan) (Relation table_rel,
@@ -1768,7 +1775,33 @@ table_index_build_scan(Relation table_rel,
 														 callback_state,
 														 scan,
 														 NULL, /* bfinfo */
-														 NULL /* bfresult */);
+														 NULL, /* bfresult */
+														 NULL /* ybcallback */);
+}
+
+static inline double
+yb_table_index_build_scan(Relation table_rel,
+						  Relation index_rel,
+						  struct IndexInfo *index_info,
+						  bool allow_sync,
+						  YbIndexBuildCallback ybcallback,
+						  void *callback_state,
+						  TableScanDesc scan)
+{
+	return table_rel->rd_tableam->index_build_range_scan(table_rel,
+														 index_rel,
+														 index_info,
+														 allow_sync,
+														 false,
+														 false, /* progress */
+														 0,
+														 InvalidBlockNumber,
+														 NULL, /* callback */
+														 callback_state,
+														 scan,
+														 NULL, /* bfinfo */
+														 NULL, /* bfresult */
+														 ybcallback);
 }
 
 /*
@@ -1808,7 +1841,8 @@ table_index_build_range_scan(Relation table_rel,
 														 callback_state,
 														 scan,
 														 bfinfo,
-														 bfresult);
+														 bfresult,
+														 NULL /* ybcallback */);
 }
 
 /*

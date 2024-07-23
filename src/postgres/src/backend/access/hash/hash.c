@@ -43,7 +43,6 @@ typedef struct
 
 static void hashbuildCallback(Relation index,
 							  ItemPointer tid,
-							  Datum ybctid,
 							  Datum *values,
 							  bool *isnull,
 							  bool tupleIsAlive,
@@ -207,7 +206,6 @@ hashbuildempty(Relation index)
 static void
 hashbuildCallback(Relation index,
 				  ItemPointer tid,
-				  Datum ybctid,
 				  Datum *values,
 				  bool *isnull,
 				  bool tupleIsAlive,

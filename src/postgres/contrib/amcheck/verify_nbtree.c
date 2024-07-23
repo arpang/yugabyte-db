@@ -164,7 +164,6 @@ static void bt_child_highkey_check(BtreeCheckState *state,
 static void bt_downlink_missing_check(BtreeCheckState *state, bool rightsplit,
 									  BlockNumber targetblock, Page target);
 static void bt_tuple_present_callback(Relation index, ItemPointer tid,
-									  Datum ybctid,
 									  Datum *values, bool *isnull,
 									  bool tupleIsAlive, void *checkstate);
 static IndexTuple bt_normalize_tuple(BtreeCheckState *state,
@@ -2487,7 +2486,7 @@ bt_downlink_missing_check(BtreeCheckState *state, bool rightsplit,
  * also allows us to detect the corruption in many cases.
  */
 static void
-bt_tuple_present_callback(Relation index, ItemPointer tid, Datum ybctid, Datum *values,
+bt_tuple_present_callback(Relation index, ItemPointer tid, Datum *values,
 						  bool *isnull, bool tupleIsAlive, void *checkstate)
 {
 	BtreeCheckState *state = (BtreeCheckState *) checkstate;

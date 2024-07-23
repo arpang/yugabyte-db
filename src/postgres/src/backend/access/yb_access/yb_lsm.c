@@ -134,7 +134,7 @@ doBindsForIdxWrite(YBCPgStatement stmt,
 }
 
 static void
-ybcinbuildCallback(Relation index, ItemPointer tid, Datum ybctid, Datum *values,
+ybcinbuildCallback(Relation index, Datum ybctid, Datum *values,
 				   bool *isnull, bool tupleIsAlive, void *state)
 {
 	YBCBuildState  *buildstate = (YBCBuildState *)state;
@@ -167,8 +167,9 @@ ybcinbuild(Relation heap, Relation index, struct IndexInfo *indexInfo)
 	 */
 	if (!index->rd_index->indisprimary)
 	{
-		heap_tuples = table_index_build_scan(heap, index, indexInfo, true, false,
-											 ybcinbuildCallback, &buildstate, NULL);
+		heap_tuples = yb_table_index_build_scan(heap, index, indexInfo, true,
+												ybcinbuildCallback, &buildstate,
+												NULL);
 	}
 	/*
 	 * Return statistics

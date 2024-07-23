@@ -235,8 +235,8 @@ ybVectorTupleInsert(YbVectorBuildState *vectorstate, OffsetNumber attnum,
  * similar ybcinbuildCallback.
  */
 static void
-ybvectorBuildCallback(Relation index, ItemPointer tid, Datum ybctid, Datum *values,
-				   bool *isnull, bool tupleIsAlive, void *state)
+ybvectorBuildCallback(Relation index, Datum ybctid, Datum *values, bool *isnull,
+					  bool tupleIsAlive, void *state)
 {
 	YbVectorBuildState *buildstate = (YbVectorBuildState *) state;
 	MemoryContext oldCtx;
@@ -305,9 +305,10 @@ ybvectorBuildCommon(Relation heap, Relation index, struct IndexInfo *indexInfo,
 	 * Do the heap scan.
 	 */
 	if (!bfinfo)
-		reltuples = table_index_build_scan(heap, index, indexInfo, true, true,
-									   ybvectorBuildCallback, (void *) &buildstate,
-									   NULL /* HeapScanDesc */);
+		reltuples = yb_table_index_build_scan(heap, index, indexInfo, true,
+											  ybvectorBuildCallback,
+											  (void *) &buildstate,
+											  NULL /* HeapScanDesc */);
 	else
 		reltuples = IndexBackfillHeapRangeScan(heap, index, indexInfo,
 											   ybvectorBuildCallback,

@@ -265,7 +265,7 @@ static void _bt_spooldestroy(BTSpool *btspool);
 static void _bt_spool(BTSpool *btspool, ItemPointer self,
 					  Datum *values, bool *isnull);
 static void _bt_leafbuild(BTSpool *btspool, BTSpool *btspool2);
-static void _bt_build_callback(Relation index, ItemPointer tid, Datum ybctid, Datum *values,
+static void _bt_build_callback(Relation index, ItemPointer tid, Datum *values,
 							   bool *isnull, bool tupleIsAlive, void *state);
 static Page _bt_blnewpage(uint32 level);
 static BTPageState *_bt_pagestate(BTWriteState *wstate, uint32 level);
@@ -587,7 +587,6 @@ _bt_leafbuild(BTSpool *btspool, BTSpool *btspool2)
 static void
 _bt_build_callback(Relation index,
 				   ItemPointer tid,
-				   Datum ybctid,
 				   Datum *values,
 				   bool *isnull,
 				   bool tupleIsAlive,

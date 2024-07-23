@@ -186,7 +186,7 @@ ybginTupleDelete(GinState *ginstate, OffsetNumber attnum,
  * similar ybcinbuildCallback.
  */
 static void
-ybginBuildCallback(Relation index, ItemPointer tid, Datum ybctid, Datum *values,
+ybginBuildCallback(Relation index, Datum ybctid, Datum *values,
 				   bool *isnull, bool tupleIsAlive, void *state)
 {
 	YbginBuildState *buildstate = (YbginBuildState *) state;
@@ -244,9 +244,10 @@ ybginBuildCommon(Relation heap, Relation index, struct IndexInfo *indexInfo,
 	 * Do the heap scan.
 	 */
 	if (!bfinfo)
-		reltuples = table_index_build_scan(heap, index, indexInfo, true, true,
-										   ybginBuildCallback, (void *) &buildstate,
-										   NULL /* HeapScanDesc */);
+		reltuples = yb_table_index_build_scan(heap, index, indexInfo, true,
+											  ybginBuildCallback,
+											  (void *) &buildstate,
+											  NULL /* HeapScanDesc */);
 	else
 		reltuples = IndexBackfillHeapRangeScan(heap, index, indexInfo,
 											   ybginBuildCallback,

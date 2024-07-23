@@ -40,7 +40,7 @@ typedef struct
 
 /* Callback to process one heap tuple during table_index_build_scan */
 static void
-spgistBuildCallback(Relation index, ItemPointer tid, Datum ybctid, Datum *values,
+spgistBuildCallback(Relation index, ItemPointer tid, Datum *values,
 					bool *isnull, bool tupleIsAlive, void *state)
 {
 	SpGistBuildState *buildstate = (SpGistBuildState *) state;
