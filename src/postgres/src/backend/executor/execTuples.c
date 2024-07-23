@@ -461,6 +461,7 @@ tts_heap_store_tuple(TupleTableSlot *slot, HeapTuple tuple, bool shouldFree)
 	hslot->off = 0;
 	slot->tts_flags &= ~(TTS_FLAG_EMPTY | TTS_FLAG_SHOULDFREE);
 	slot->tts_tid = tuple->t_self;
+	TABLETUPLE_YBCTID(slot) = HEAPTUPLE_YBCTID(tuple);
 
 	if (shouldFree)
 		slot->tts_flags |= TTS_FLAG_SHOULDFREE;
