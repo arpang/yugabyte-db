@@ -413,19 +413,20 @@ systable_beginscan(Relation heapRelation,
 	SysScanDesc sysscan;
 	Relation	irel;
 
-	if (IsYugaByteEnabled())
-	{
-		return ybc_systable_beginscan(heapRelation,
-		                              indexId,
-		                              indexOK,
-		                              snapshot,
-		                              nkeys,
-		                              key);
-	}
+	// if (IsYugaByteEnabled())
+	// {
+	// 	return ybc_systable_beginscan(heapRelation,
+	// 	                              indexId,
+	// 	                              indexOK,
+	// 	                              snapshot,
+	// 	                              nkeys,
+	// 	                              key);
+	// }
 
 	if (indexOK &&
 		!IgnoreSystemIndexes &&
-		!ReindexIsProcessingIndex(indexId))
+		!ReindexIsProcessingIndex(indexId)
+		&& IsYugaByteEnabled())
 		irel = index_open(indexId, AccessShareLock);
 	else
 		irel = NULL;
@@ -484,9 +485,17 @@ systable_beginscan(Relation heapRelation,
 		 * disadvantage; and there are no compensating advantages, because
 		 * it's unlikely that such scans will occur in parallel.
 		 */
-		sysscan->scan = table_beginscan_strat(heapRelation, snapshot,
-											  nkeys, key,
-											  true, false);
+		if (!IsYugaByteEnabled())
+			sysscan->scan = table_beginscan_strat(heapRelation, snapshot,
+												nkeys, key,
+												true, false);
+		else
+			ybc_systable_beginscan(heapRelation,
+										indexId,
+										indexOK,
+										snapshot,
+										nkeys,
+										key);
 		sysscan->iscan = NULL;
 	}
 
@@ -537,9 +546,9 @@ systable_getnext(SysScanDesc sysscan)
 {
 	HeapTuple	htup = NULL;
 
-	YbSysScanBase ybscan = sysscan->ybscan;
-	if (ybscan)
-		return ybscan->vtable->next(ybscan);
+	// YbSysScanBase ybscan = sysscan->ybscan;
+	// if (ybscan)
+	// 	return ybscan->vtable->next(ybscan);
 
 	if (sysscan->irel)
 	{
@@ -639,9 +648,9 @@ systable_recheck_tuple(SysScanDesc sysscan, HeapTuple tup)
 void
 systable_endscan(SysScanDesc sysscan)
 {
-	YbSysScanBase ybscan = sysscan->ybscan;
-	if (ybscan)
-		return ybscan->vtable->end(ybscan);
+	// YbSysScanBase ybscan = sysscan->ybscan;
+	// if (ybscan)
+	// 	return ybscan->vtable->end(ybscan);
 
 	if (sysscan->slot)
 	{

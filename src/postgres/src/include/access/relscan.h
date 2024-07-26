@@ -22,7 +22,7 @@
 #include "utils/relcache.h"
 
 /* Yugabyte includes */
-#include "access/yb_sys_scan_base.h"
+// #include "access/yb_sys_scan_base.h"
 #include "executor/ybcExpr.h"
 #include "pg_yb_utils.h"
 #include "yb/yql/pggate/ybc_pggate.h"
@@ -31,6 +31,7 @@ typedef struct YbScanDescData *YbScanDesc;
 
 struct ParallelTableScanDescData;
 
+struct YbSysScanVirtualTable;
 /*
  * Generic descriptor for table scans. This is the base-class for table scans,
  * which needs to be embedded in the scans of individual AMs.
@@ -55,6 +56,8 @@ typedef struct TableScanDescData
 
 	struct ParallelTableScanDescData *rs_parallel;	/* parallel scan
 													 * information */
+
+	struct YbSysScanVirtualTable *yb_virtual;
 } TableScanDescData;
 typedef struct TableScanDescData *TableScanDesc;
 
@@ -234,7 +237,17 @@ typedef struct SysScanDescData
 	struct IndexScanDescData *iscan;	/* only valid in index-scan case */
 	struct SnapshotData *snapshot;	/* snapshot to unregister at end of scan */
 	struct TupleTableSlot *slot;
-	YbSysScanBase	ybscan;			/* only valid in yb-scan case */
+	// YbSysScanBase	ybscan;			/* only valid in yb-scan case */
 }			SysScanDescData;
+
+typedef struct YbSysScanVirtualTable
+{
+	bool (*next)(TableScanDesc, ScanDirection, TupleTableSlot *);
+	void (*end)(TableScanDesc);
+} YbSysScanVirtualTable;
+
+#define YbSysScanVirtualTableValid(pointer) \
+	((bool) (PointerIsValid(pointer) && \
+				(PointerIsValid((pointer)->next) & PointerIsValid((pointer)->end))))
 
 #endif							/* RELSCAN_H */

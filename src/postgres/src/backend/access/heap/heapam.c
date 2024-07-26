@@ -1154,6 +1154,8 @@ heap_beginscan(Relation relation, Snapshot snapshot,
 	/* YB scan methods should only be used for tables that are handled by YugaByte. */
 	if (IsYBRelation(relation))
 	{
+		// if (IsCatalogRelation(relation))
+		//return ybc_systable_beginscan(Relation relation, Oid indexId, bool indexOK, Snapshot snapshot, int nkeys, ScanKey key)
 		return ybc_heap_beginscan(relation, snapshot, nkeys, key, flags);
 	}
 
@@ -1278,7 +1280,10 @@ heap_endscan(TableScanDesc sscan)
 
 	if (IsYBRelation(sscan->rs_rd))
 	{
-		return ybc_heap_endscan(sscan);
+		if (sscan->yb_virtual)
+			return sscan->yb_virtual->end(sscan);
+		else
+			return ybc_heap_endscan(sscan);
 	}
 
 	HeapScanDesc scan = (HeapScanDesc) sscan;
@@ -1369,6 +1374,8 @@ heap_getnextslot(TableScanDesc sscan, ScanDirection direction, TupleTableSlot *s
 {
 	if (IsYBRelation(sscan->rs_rd))
 	{
+		if (sscan->yb_virtual)
+			return sscan->yb_virtual->next(sscan, direction, slot);
 		HeapTuple tuple = ybc_heap_getnext(sscan);
 		if (!tuple)
 		{

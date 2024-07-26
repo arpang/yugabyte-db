@@ -88,13 +88,13 @@ typedef struct YbScanPlanData
 
 typedef YbScanPlanData *YbScanPlan;
 
-typedef struct YbDefaultSysScanData
-{
-	YbSysScanBaseData base;
-	YbScanDesc ybscan;
-} YbDefaultSysScanData;
+// typedef struct YbDefaultSysScanData
+// {
+// 	YbSysScanBaseData base;
+// 	YbScanDesc ybscan;
+// } YbDefaultSysScanData;
 
-typedef struct YbDefaultSysScanData *YbDefaultSysScan;
+// typedef struct YbDefaultSysScanData *YbDefaultSysScan;
 
 static void ybcAddAttributeColumn(YbScanPlan scan_plan, AttrNumber attnum)
 {
@@ -3096,18 +3096,18 @@ void ybc_free_ybscan(YbScanDesc ybscan)
 	}
 }
 
-static SysScanDesc
-YbBuildSysScanDesc(
-	Relation relation, Snapshot snapshot, YbSysScanBase ybscan)
-{
-	SysScanDesc scan_desc = palloc0(sizeof(SysScanDescData));
-	scan_desc->heap_rel = relation;
-	scan_desc->snapshot = snapshot;
-	scan_desc->ybscan = ybscan;
-	return scan_desc;
-}
+// static SysScanDesc
+// YbBuildSysScanDesc(
+// 	Relation relation, Snapshot snapshot, YbSysScanBase ybscan)
+// {
+// 	SysScanDesc scan_desc = palloc0(sizeof(SysScanDescData));
+// 	scan_desc->heap_rel = relation;
+// 	scan_desc->snapshot = snapshot;
+// 	scan_desc->ybscan = ybscan;
+// 	return scan_desc;
+// }
 
-static SysScanDesc
+static TableScanDesc
 YbBuildOptimizedSysTableScan(Relation relation,
 							 Oid indexId,
 							 bool indexOK,
@@ -3116,21 +3116,18 @@ YbBuildOptimizedSysTableScan(Relation relation,
 							 ScanKey key)
 {
 	if (relation->rd_id == InheritsRelationId)
-		return YbBuildSysScanDesc(
-			relation,
-			snapshot,
-			yb_pg_inherits_beginscan(relation, key, nkeys, indexId));
+		return yb_pg_inherits_beginscan(relation, key, nkeys, indexId);
 	return NULL;
 }
 
-SysScanDesc ybc_systable_beginscan(Relation relation,
+TableScanDesc ybc_systable_beginscan(Relation relation,
                                    Oid indexId,
                                    bool indexOK,
                                    Snapshot snapshot,
                                    int nkeys,
                                    ScanKey key)
 {
-	SysScanDesc scan = IsBootstrapProcessingMode()
+	TableScanDesc scan = IsBootstrapProcessingMode()
 		? NULL
 		: YbBuildOptimizedSysTableScan(
 			relation, indexId, indexOK, snapshot, nkeys, key);
@@ -3140,36 +3137,36 @@ SysScanDesc ybc_systable_beginscan(Relation relation,
 			relation, indexId, indexOK, snapshot, nkeys, key);
 }
 
-static HeapTuple
-ybc_systable_getnext(YbSysScanBase default_scan)
-{
-	YbDefaultSysScan scan = (void *)default_scan;
+// static HeapTuple
+// ybc_systable_getnext(YbSysScanBase default_scan)
+// {
+// 	YbDefaultSysScan scan = (void *)default_scan;
 
-	bool recheck = false;
+// 	bool recheck = false;
 
-	Assert(PointerIsValid(scan->ybscan));
+// 	Assert(PointerIsValid(scan->ybscan));
 
-	HeapTuple tuple = ybc_getnext_heaptuple(
-		scan->ybscan, true /* is_forward_scan */, &recheck);
+// 	HeapTuple tuple = ybc_getnext_heaptuple(
+// 		scan->ybscan, true /* is_forward_scan */, &recheck);
 
-	Assert(!recheck);
+// 	Assert(!recheck);
 
-	return tuple;
-}
+// 	return tuple;
+// }
 
-static void
-ybc_systable_endscan(YbSysScanBaseData *default_scan)
-{
-	YbDefaultSysScan scan = (void *)default_scan;
-	ybc_free_ybscan(scan->ybscan);
-	pfree(scan);
-}
+// static void
+// ybc_systable_endscan(YbSysScanBaseData *default_scan)
+// {
+// 	YbDefaultSysScan scan = (void *)default_scan;
+// 	ybc_free_ybscan(scan->ybscan);
+// 	pfree(scan);
+// }
 
-static YbSysScanVirtualTable yb_default_scan = {
-	.next = &ybc_systable_getnext,
-	.end = &ybc_systable_endscan};
+// static YbSysScanVirtualTable yb_default_scan = {
+// 	.next = &ybc_systable_getnext,
+// 	.end = &ybc_systable_endscan};
 
-SysScanDesc ybc_systable_begin_default_scan(Relation relation,
+TableScanDesc ybc_systable_begin_default_scan(Relation relation,
 											Oid indexId,
 											bool indexOK,
 											Snapshot snapshot,
@@ -3207,8 +3204,8 @@ SysScanDesc ybc_systable_begin_default_scan(Relation relation,
 		}
 	}
 
-	YbDefaultSysScan scan = palloc0(sizeof(YbDefaultSysScanData));
-	scan->ybscan = ybcBeginScan(relation,
+	// YbDefaultSysScan scan = palloc0(sizeof(YbDefaultSysScanData));
+	YbScanDesc ybscan = ybcBeginScan(relation,
 								index,
 								false /* xs_want_itup */,
 								nkeys,
@@ -3222,12 +3219,13 @@ SysScanDesc ybc_systable_begin_default_scan(Relation relation,
 								true /* is_internal_scan */,
 								false /* fetch_ybctids_only */);
 
-	scan->base.vtable = &yb_default_scan;
+	// scan->base.vtable = &yb_default_scan;
 
 	if (index)
 		RelationClose(index);
 
-	return YbBuildSysScanDesc(relation, snapshot, &scan->base);
+	// return YbBuildSysScanDesc(relation, snapshot, &scan->base);
+	return (TableScanDesc) ybscan;
 }
 
 TableScanDesc ybc_heap_beginscan(Relation relation,

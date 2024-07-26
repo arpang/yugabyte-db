@@ -21,21 +21,24 @@
  *-----------------------------------------------------------------------------
  */
 
-#pragma once
+// #pragma once
 
-#include "access/htup.h"
+// #include "access/htup.h"
+// #include "relscan.h"
 
-struct YbSysScanBaseData;
+// struct YbSysScanBaseData;
 
-typedef struct YbSysScanBaseData *YbSysScanBase;
+// typedef struct YbSysScanVirtualTable
+// {
+// 	bool (*next)(TableScanDesc, ScanDirection, TupleTableSlot *);
+// 	void (*end)(TableScanDesc);
+// } YbSysScanVirtualTable;
 
-typedef struct YbSysScanVirtualTable
-{
-	HeapTuple (*next)(YbSysScanBase);
-	void (*end)(YbSysScanBase);
-} YbSysScanVirtualTable;
+// #define YbSysScanVirtualTableValid(pointer) \
+// 	((bool) (PointerIsValid(pointer) && \
+// 				(PointerIsValid((pointer)->next) & PointerIsValid((pointer)->end))))
 
-typedef struct YbSysScanBaseData
-{
-	YbSysScanVirtualTable *vtable;
-} YbSysScanBaseData;
+// typedef struct YbSysScanBaseData
+// {
+// 	YbSysScanVirtualTable *vtable;
+// } YbSysScanBaseData;

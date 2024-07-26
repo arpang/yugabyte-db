@@ -27,6 +27,7 @@
  */
 #include "postgres.h"
 
+// is this required?
 #include "access/heapam.h"
 #include "access/relscan.h"
 #include "access/yb_pg_inherits_scan.h"
@@ -42,7 +43,7 @@
 
 typedef struct YbChildScanData
 {
-	YbSysScanBaseData base;
+	TableScanDescData base;
 	YbPgInheritsCacheChildEntry cache_entry;
 	bool finished_processing;
 } YbChildScanData;
@@ -51,7 +52,7 @@ typedef struct YbChildScanData *YbChildScan;
 
 typedef struct YbParentScanData
 {
-	YbSysScanBaseData base;
+	TableScanDescData base;
 	YbPgInheritsCacheEntry parent_cache_entry;
 	List *tuples;
 	ListCell *current_tuple;
@@ -59,20 +60,24 @@ typedef struct YbParentScanData
 
 typedef struct YbParentScanData *YbParentScan;
 
-static HeapTuple
-yb_lookup_cache_get_next(YbSysScanBase child_scan)
+// bool (*next)(TableScanDesc, ScanDirection, TupleTableSlot *);
+
+
+static bool
+yb_lookup_cache_get_next(TableScanDesc child_scan, ScanDirection direction, TupleTableSlot *slot)
 {
 	YbChildScan scan = (void *)child_scan;
 	if (scan->finished_processing || !scan->cache_entry)
-		return NULL;
+		return false;
 	// Only one row expected for child-based lookup. Set finished_processing
 	// to true.
 	scan->finished_processing = true;
-	return scan->cache_entry->childTuple;
+	ExecStoreHeapTuple(scan->cache_entry->childTuple, slot, false);
+	return true;
 }
 
 static void
-yb_lookup_cache_end_scan(YbSysScanBase child_scan)
+yb_lookup_cache_end_scan(TableScanDesc child_scan)
 {
 	YbChildScan scan = (void *)child_scan;
 	if (scan->cache_entry)
@@ -80,19 +85,20 @@ yb_lookup_cache_end_scan(YbSysScanBase child_scan)
 }
 
 
-static HeapTuple
-yb_parent_get_next(YbSysScanBase parent_scan)
+static bool
+yb_parent_get_next(TableScanDesc parent_scan, ScanDirection direction, TupleTableSlot* slot)
 {
 	YbParentScan scan = (void *)parent_scan;
 	ListCell *ret = scan->current_tuple;
 	if (ret == NULL)
-		return NULL;
+		return false;
 	scan->current_tuple = lnext(scan->tuples, scan->current_tuple);
-	return lfirst(ret);
+	ExecStoreHeapTuple(lfirst(ret), slot, false);
+	return true;
 }
 
 static void
-yb_parent_end_scan(YbSysScanBase parent_scan)
+yb_parent_end_scan(TableScanDesc parent_scan)
 {
 	YbParentScan scan = (void *)parent_scan;
 	Assert(scan->parent_cache_entry);
@@ -104,13 +110,13 @@ static YbSysScanVirtualTable yb_parent_scan =
 static YbSysScanVirtualTable yb_child_scan =
 	{.next = &yb_lookup_cache_get_next, .end = &yb_lookup_cache_end_scan};
 
-static YbSysScanBase
-YbInitSysScanDesc(YbSysScanBase scan, YbSysScanVirtualTable *vtable) {
-	scan->vtable = vtable;
+static TableScanDesc
+YbInitSysScanDesc(TableScanDesc scan, YbSysScanVirtualTable *vtable) {
+	scan->yb_virtual = vtable;
 	return scan;
 }
 
-YbSysScanBase
+TableScanDesc
 yb_pg_inherits_beginscan(Relation inhrel, ScanKey key, int nkeys, Oid indexId)
 {
 	/*
