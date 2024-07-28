@@ -39,5 +39,8 @@
 { oid => '8021', oid_symbol => 'YBGIN_AM_OID',
   descr => 'Yugabyte GIN index access method',
   amname => 'ybgin', amhandler => 'ybginhandler', amtype => 'i' },
+{ oid => '8069', oid_symbol => 'YB_DOCDB_TABLE_AM_OID',
+  descr => 'yb docdb table access method',
+  amname => 'yb_docdb', amhandler => 'yb_docdb_tableam_handler', amtype => 't' },
 
 ]

@@ -1156,7 +1156,7 @@ heap_beginscan(Relation relation, Snapshot snapshot,
 	{
 		// if (IsCatalogRelation(relation))
 		//return ybc_systable_beginscan(Relation relation, Oid indexId, bool indexOK, Snapshot snapshot, int nkeys, ScanKey key)
-		return ybc_heap_beginscan(relation, snapshot, nkeys, key, flags);
+		return ybc_heap_beginscan(relation, snapshot, nkeys, key, parallel_scan, flags);
 	}
 
 	/*
@@ -1280,10 +1280,7 @@ heap_endscan(TableScanDesc sscan)
 
 	if (IsYBRelation(sscan->rs_rd))
 	{
-		if (sscan->yb_virtual)
-			return sscan->yb_virtual->end(sscan);
-		else
-			return ybc_heap_endscan(sscan);
+		return ybc_heap_endscan(sscan);
 	}
 
 	HeapScanDesc scan = (HeapScanDesc) sscan;
@@ -1373,18 +1370,7 @@ bool
 heap_getnextslot(TableScanDesc sscan, ScanDirection direction, TupleTableSlot *slot)
 {
 	if (IsYBRelation(sscan->rs_rd))
-	{
-		if (sscan->yb_virtual)
-			return sscan->yb_virtual->next(sscan, direction, slot);
-		HeapTuple tuple = ybc_heap_getnext(sscan);
-		if (!tuple)
-		{
-			ExecClearTuple(slot);
-			return false;
-		}
-		ExecStoreHeapTuple(tuple, slot, false /* shouldFree */);
-		return true;
-	}
+		return yb_getnextslot(sscan, direction, slot);
 
 	HeapScanDesc scan = (HeapScanDesc) sscan;
 

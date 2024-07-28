@@ -57,7 +57,7 @@ typedef struct TableScanDescData
 	struct ParallelTableScanDescData *rs_parallel;	/* parallel scan
 													 * information */
 
-	struct YbSysScanVirtualTable *yb_virtual;
+	// struct YbSysScanVirtualTable *yb_virtual;
 } TableScanDescData;
 typedef struct TableScanDescData *TableScanDesc;
 

@@ -3770,6 +3770,11 @@ InitTableAmRoutine(Relation relation)
 	relation->rd_tableam = GetTableAmRoutine(relation->rd_amhandler);
 }
 
+bool YbUseCacheTableAM(Relation relation)
+{
+	return relation->rd_id == InheritsRelationId;
+}
+
 /*
  * Initialize table access method support for a table like relation
  */
@@ -3779,6 +3784,14 @@ RelationInitTableAccessMethod(Relation relation)
 	HeapTuple	tuple;
 	Form_pg_am	aform;
 
+	if (IsYBRelation(relation))
+	{
+		// Assert(relation->rd_rel->relam == YB_DOCDB_TABLE_AM_OID);
+		if (YbUseCacheTableAM(relation))
+			relation->rd_amhandler = F_YB_CACHE_TABLEAM_HANDLER;
+		else
+			relation->rd_amhandler = F_YB_DOCDB_TABLEAM_HANDLER;
+	}
 	if (relation->rd_rel->relkind == RELKIND_SEQUENCE)
 	{
 		/*

@@ -41,9 +41,15 @@
 #include "utils/syscache.h"
 #include "utils/yb_inheritscache.h"
 
-typedef struct YbChildScanData
+typedef struct YbPgInheritsScan
 {
 	TableScanDescData base;
+	bool is_parent;
+} YbPgInheritsScan;
+
+typedef struct YbChildScanData
+{
+	YbPgInheritsScan scan;
 	YbPgInheritsCacheChildEntry cache_entry;
 	bool finished_processing;
 } YbChildScanData;
@@ -52,7 +58,7 @@ typedef struct YbChildScanData *YbChildScan;
 
 typedef struct YbParentScanData
 {
-	TableScanDescData base;
+	YbPgInheritsScan scan;
 	YbPgInheritsCacheEntry parent_cache_entry;
 	List *tuples;
 	ListCell *current_tuple;
@@ -105,19 +111,38 @@ yb_parent_end_scan(TableScanDesc parent_scan)
 	ReleaseYbPgInheritsCacheEntry(scan->parent_cache_entry);
 }
 
-static YbSysScanVirtualTable yb_parent_scan =
-	{.next = &yb_parent_get_next, .end = &yb_parent_end_scan};
-static YbSysScanVirtualTable yb_child_scan =
-	{.next = &yb_lookup_cache_get_next, .end = &yb_lookup_cache_end_scan};
+// static YbSysScanVirtualTable yb_parent_scan =
+// 	{.next = &yb_parent_get_next, .end = &yb_parent_end_scan};
+// static YbSysScanVirtualTable yb_child_scan =
+// 	{.next = &yb_lookup_cache_get_next, .end = &yb_lookup_cache_end_scan};
 
-static TableScanDesc
-YbInitSysScanDesc(TableScanDesc scan, YbSysScanVirtualTable *vtable) {
-	scan->yb_virtual = vtable;
-	return scan;
+// static TableScanDesc
+// YbInitSysScanDesc(TableScanDesc scan, YbSysScanVirtualTable *vtable) {
+// 	scan->yb_virtual = vtable;
+// 	return scan;
+// }
+
+bool
+yb_pg_inherits_get_next(TableScanDesc scan, ScanDirection direction,
+						TupleTableSlot *slot)
+{
+	YbPgInheritsScan *inh_scan = (void *) scan;
+	return inh_scan->is_parent ?
+			   yb_parent_get_next(scan, direction, slot) :
+			   yb_lookup_cache_get_next(scan, direction, slot);
+}
+
+void
+yb_pg_inherits_end_scan(TableScanDesc scan)
+{
+	YbPgInheritsScan *inh_scan = (void *) scan;
+	return inh_scan->is_parent ? yb_parent_end_scan(scan) :
+								 yb_lookup_cache_end_scan(scan);
 }
 
 TableScanDesc
-yb_pg_inherits_beginscan(Relation inhrel, ScanKey key, int nkeys, Oid indexId)
+yb_pg_inherits_beginscan(Relation inhrel, Snapshot snapshot, int nkeys,
+						 ScanKey key, ParallelTableScanDesc pscan, uint32 flags)
 {
 	/*
 	 * We only expect that this is a cache lookup based on the
@@ -138,7 +163,8 @@ yb_pg_inherits_beginscan(Relation inhrel, ScanKey key, int nkeys, Oid indexId)
 			GetYbPgInheritsCacheEntry(DatumGetObjectId(key[0].sk_argument));
 		scan->tuples = scan->parent_cache_entry->childTuples;
 		scan->current_tuple = list_head(scan->tuples);
-		return YbInitSysScanDesc(&scan->base, &yb_parent_scan);
+		scan->scan.is_parent = true;
+		return (TableScanDesc) scan;
 	}
 
 	/*
@@ -170,5 +196,5 @@ yb_pg_inherits_beginscan(Relation inhrel, ScanKey key, int nkeys, Oid indexId)
 	YbChildScan scan = palloc0(sizeof(YbChildScanData));
 	scan->cache_entry = GetYbPgInheritsChildCacheEntry(
 		DatumGetObjectId(key[0].sk_argument));
-	return YbInitSysScanDesc(&scan->base, &yb_child_scan);
+	return (TableScanDesc) scan;
 }

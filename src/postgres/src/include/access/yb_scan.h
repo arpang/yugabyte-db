@@ -240,18 +240,18 @@ extern void ybc_free_ybscan(YbScanDesc ybscan);
  * We ignore the index id and always do a regular YugaByte scan (Postgres
  * would do either heap scan or index scan depending on the params).
  */
-extern TableScanDesc ybc_systable_beginscan(Relation relation,
-										  Oid indexId,
-										  bool indexOK,
-										  Snapshot snapshot,
-										  int nkeys,
-										  ScanKey key);
-extern TableScanDesc ybc_systable_begin_default_scan(Relation relation,
-												   Oid indexId,
-												   bool indexOK,
-												   Snapshot snapshot,
-												   int nkeys,
-												   ScanKey key);
+// extern TableScanDesc ybc_systable_beginscan(Relation relation,
+// 										  Oid indexId,
+// 										  bool indexOK,
+// 										  Snapshot snapshot,
+// 										  int nkeys,
+// 										  ScanKey key);
+// extern TableScanDesc ybc_systable_begin_default_scan(Relation relation,
+// 												//    Oid indexId,
+// 												//    bool indexOK,
+// 												   Snapshot snapshot,
+// 												   int nkeys,
+// 												   ScanKey key);
 
 /*
  * Access to YB-stored system catalogs (mirroring API from heapam.c)
@@ -261,6 +261,7 @@ extern TableScanDesc ybc_heap_beginscan(Relation relation,
 										Snapshot snapshot,
 										int nkeys,
 										ScanKey key,
+										 ParallelTableScanDesc pscan,
 										uint32 flags);
 extern HeapTuple ybc_heap_getnext(TableScanDesc scanDesc);
 extern void ybc_heap_endscan(TableScanDesc scanDesc);
@@ -410,3 +411,5 @@ extern bool ybParallelNextRange(YBParallelPartitionKeys ppk,
 								const char **low_bound, size_t *low_bound_size,
 								const char **high_bound,
 								size_t *high_bound_size);
+
+extern bool yb_getnextslot(TableScanDesc sscan, ScanDirection direction, TupleTableSlot *slot);

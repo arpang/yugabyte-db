@@ -450,6 +450,12 @@ systable_beginscan(Relation heapRelation,
 		sysscan->snapshot = NULL;
 	}
 
+	if (IsYugaByteEnabled() && irel->rd_index->indisprimary)
+	{
+		RelationClose(irel);
+		irel = NULL;
+	}
+
 	if (irel)
 	{
 		int			i;
@@ -485,17 +491,17 @@ systable_beginscan(Relation heapRelation,
 		 * disadvantage; and there are no compensating advantages, because
 		 * it's unlikely that such scans will occur in parallel.
 		 */
-		if (!IsYugaByteEnabled())
-			sysscan->scan = table_beginscan_strat(heapRelation, snapshot,
-												nkeys, key,
-												true, false);
-		else
-			ybc_systable_beginscan(heapRelation,
-										indexId,
-										indexOK,
-										snapshot,
-										nkeys,
-										key);
+		//if (!IsYugaByteEnabled())
+		sysscan->scan = table_beginscan_strat(heapRelation, snapshot,
+											nkeys, key,
+											true, false);
+		// else
+		// 	ybc_systable_beginscan(heapRelation,
+		// 								indexId,
+		// 								indexOK,
+		// 								snapshot,
+		// 								nkeys,
+		// 								key);
 		sysscan->iscan = NULL;
 	}
 

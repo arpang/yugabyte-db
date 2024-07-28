@@ -30,7 +30,15 @@
 #include "access/heapam.h"
 // #include "access/yb_sys_scan_base.h"
 
-extern TableScanDesc yb_pg_inherits_beginscan(
-	Relation inhrelation, ScanKey key, int nkeys, Oid indexId);
+extern TableScanDesc yb_pg_inherits_beginscan(Relation inhrel,
+											  Snapshot snapshot, int nkeys,
+											  ScanKey key,
+											  ParallelTableScanDesc pscan,
+											  uint32 flags);
+
+extern void yb_pg_inherits_end_scan(TableScanDesc scan);
+
+extern bool yb_pg_inherits_get_next(TableScanDesc scan, ScanDirection direction,
+									TupleTableSlot *slot);
 
 #endif							/* YB_PG_INHERITS_SCAN_H */

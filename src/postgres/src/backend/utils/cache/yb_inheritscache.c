@@ -50,6 +50,7 @@ FindChildren(Oid parentOid, List **childTuples)
 	*childTuples = NIL;
 
 	Relation relation = table_open(InheritsRelationId, AccessShareLock);
+	relation->rd_tableam = GetYbDocDBTableAmRoutine();
 	ScanKeyData key[1];
 	ScanKeyInit(&key[0],
 				Anum_pg_inherits_inhparent,
@@ -57,7 +58,7 @@ FindChildren(Oid parentOid, List **childTuples)
 				ObjectIdGetDatum(parentOid));
 
 	elog(DEBUG3, "FindChildren for parentOid %d", parentOid);
-	SysScanDesc scan = ybc_systable_begin_default_scan(
+	SysScanDesc scan = systable_beginscan(
 		relation, InheritsParentIndexId, true, NULL, 1, key);
 
 	HeapTuple inheritsTuple = NULL;
@@ -114,6 +115,7 @@ static Oid
 YbGetParentRelid(Oid relid)
 {
 	Relation relation = table_open(InheritsRelationId, AccessShareLock);
+	relation->rd_tableam = GetYbDocDBTableAmRoutine();
 	ScanKeyData key[2];
 
 	/*
@@ -127,7 +129,7 @@ YbGetParentRelid(Oid relid)
                 Anum_pg_inherits_inhseqno,
                 BTEqualStrategyNumber, F_INT4EQ,
                 Int32GetDatum(1));
-	SysScanDesc scan = ybc_systable_begin_default_scan(
+	SysScanDesc scan = systable_beginscan(
 		relation, InheritsRelidSeqnoIndexId, true, NULL, 2, key);
 
 	HeapTuple inheritsTuple = NULL;
@@ -228,9 +230,10 @@ YbPreloadPgInheritsCache()
 {
 	Assert(YbPgInheritsCache);
 	Relation relation = table_open(InheritsRelationId, AccessShareLock);
+	relation->rd_tableam = GetYbDocDBTableAmRoutine();
 	HeapTuple	inheritsTuple;
 
-	SysScanDesc scan = ybc_systable_begin_default_scan(
+	SysScanDesc scan = systable_beginscan(
 		relation, InheritsParentIndexId, true, NULL, 0, NULL);
 
 	YbPgInheritsCacheEntry entry = NULL;

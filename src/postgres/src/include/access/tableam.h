@@ -2079,6 +2079,7 @@ extern void table_block_relation_estimate_size(Relation rel,
 
 extern const TableAmRoutine *GetTableAmRoutine(Oid amhandler);
 extern const TableAmRoutine *GetHeapamTableAmRoutine(void);
+extern const TableAmRoutine *GetYbDocDBTableAmRoutine(void);
 extern bool check_default_table_access_method(char **newval, void **extra,
 											  GucSource source);
 

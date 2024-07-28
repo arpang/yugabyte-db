@@ -912,6 +912,14 @@
   proname => 'heap_tableam_handler', provolatile => 'v',
   prorettype => 'table_am_handler', proargtypes => 'internal',
   prosrc => 'heap_tableam_handler' },
+{ oid => '8070', descr => 'row-oriented yb docdb table access method handler',
+  proname => 'yb_docdb_tableam_handler', provolatile => 'v',
+  prorettype => 'table_am_handler', proargtypes => 'internal',
+  prosrc => 'yb_docdb_tableam_handler' },
+{ oid => '8071', descr => 'row-oriented yb cache table access method handler',
+  proname => 'yb_cache_tableam_handler', provolatile => 'v',
+  prorettype => 'table_am_handler', proargtypes => 'internal',
+  prosrc => 'yb_cache_tableam_handler' },
 
 # Index access method handlers
 { oid => '330', descr => 'btree index access method handler',

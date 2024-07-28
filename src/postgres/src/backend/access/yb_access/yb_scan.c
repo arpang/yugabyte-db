@@ -3107,35 +3107,35 @@ void ybc_free_ybscan(YbScanDesc ybscan)
 // 	return scan_desc;
 // }
 
-static TableScanDesc
-YbBuildOptimizedSysTableScan(Relation relation,
-							 Oid indexId,
-							 bool indexOK,
-							 Snapshot snapshot,
-							 int nkeys,
-							 ScanKey key)
-{
-	if (relation->rd_id == InheritsRelationId)
-		return yb_pg_inherits_beginscan(relation, key, nkeys, indexId);
-	return NULL;
-}
+// static TableScanDesc
+// YbBuildOptimizedSysTableScan(Relation relation,
+// 							 Oid indexId,
+// 							 bool indexOK,
+// 							 Snapshot snapshot,
+// 							 int nkeys,
+// 							 ScanKey key)
+// {
+// 	if (relation->rd_id == InheritsRelationId)
+// 		return yb_pg_inherits_beginscan(relation, key, nkeys, indexId);
+// 	return NULL;
+// }
 
-TableScanDesc ybc_systable_beginscan(Relation relation,
-                                   Oid indexId,
-                                   bool indexOK,
-                                   Snapshot snapshot,
-                                   int nkeys,
-                                   ScanKey key)
-{
-	TableScanDesc scan = IsBootstrapProcessingMode()
-		? NULL
-		: YbBuildOptimizedSysTableScan(
-			relation, indexId, indexOK, snapshot, nkeys, key);
-	return scan
-		? scan
-		: ybc_systable_begin_default_scan(
-			relation, indexId, indexOK, snapshot, nkeys, key);
-}
+// TableScanDesc ybc_systable_beginscan(Relation relation,
+//                                    Oid indexId,
+//                                    bool indexOK,
+//                                    Snapshot snapshot,
+//                                    int nkeys,
+//                                    ScanKey key)
+// {
+// 	TableScanDesc scan = IsBootstrapProcessingMode()
+// 		? NULL
+// 		: YbBuildOptimizedSysTableScan(
+// 			relation, indexId, indexOK, snapshot, nkeys, key);
+// 	return scan
+// 		? scan
+// 		: ybc_systable_begin_default_scan(
+// 			relation, indexId, indexOK, snapshot, nkeys, key);
+// }
 
 // static HeapTuple
 // ybc_systable_getnext(YbSysScanBase default_scan)
@@ -3166,74 +3166,77 @@ TableScanDesc ybc_systable_beginscan(Relation relation,
 // 	.next = &ybc_systable_getnext,
 // 	.end = &ybc_systable_endscan};
 
-TableScanDesc ybc_systable_begin_default_scan(Relation relation,
-											Oid indexId,
-											bool indexOK,
-											Snapshot snapshot,
-											int nkeys,
-											ScanKey key)
-{
-	Relation index = NULL;
+// TableScanDesc ybc_systable_begin_default_scan(Relation relation,
+// 											// Oid indexId,
+// 											// bool indexOK,
+// 											Snapshot snapshot,
+// 											int nkeys,
+// 											ScanKey key)
+// {
+// 	// Relation index = NULL;
 
-	/*
-	 * Look up the index to scan with if we can. If the index is the primary key which is part
-	 * of the table in YugaByte, we should scan the table directly.
-	 */
-	if (indexOK && !IgnoreSystemIndexes && !ReindexIsProcessingIndex(indexId))
-	{
-		index = RelationIdGetRelation(indexId);
-		if (index->rd_index->indisprimary)
-		{
-			RelationClose(index);
-			index = NULL;
-		}
+// 	/*
+// 	 * Look up the index to scan with if we can. If the index is the primary key which is part
+// 	 * of the table in YugaByte, we should scan the table directly.
+// 	 */
+// 	// if (indexOK && !IgnoreSystemIndexes && !ReindexIsProcessingIndex(indexId))
+// 	// {
+// 	// 	index = RelationIdGetRelation(indexId);
+// 	// 	if (index->rd_index->indisprimary)
+// 	// 	{
+// 	// 		RelationClose(index);
+// 	// 		index = NULL;
+// 	// 	}
 
-		if (index)
-		{
-			/*
-			 * Change attribute numbers to be index column numbers.
-			 * - This conversion is the same as function systable_beginscan() in file "genam.c". If we
-			 *   ever reuse Postgres index code, this conversion is a must because the key entries must
-			 *   match what Postgres code expects.
-			 *
-			 * - When selecting using INDEX, the key values are bound to the IndexTable, so index attnum
-			 *   must be used for bindings.
-			 */
-			for (int i = 0; i < nkeys; ++i)
-				key[i].sk_attno = YbGetIndexAttnum(key[i].sk_attno, index);
-		}
-	}
+// 	// 	if (index)
+// 	// 	{
+// 	// 		/*
+// 	// 		 * Change attribute numbers to be index column numbers.
+// 	// 		 * - This conversion is the same as function systable_beginscan() in file "genam.c". If we
+// 	// 		 *   ever reuse Postgres index code, this conversion is a must because the key entries must
+// 	// 		 *   match what Postgres code expects.
+// 	// 		 *
+// 	// 		 * - When selecting using INDEX, the key values are bound to the IndexTable, so index attnum
+// 	// 		 *   must be used for bindings.
+// 	// 		 */
+// 	// 		for (int i = 0; i < nkeys; ++i)
+// 	// 			key[i].sk_attno = YbGetIndexAttnum(key[i].sk_attno, index);
+// 	// 	}
+// 	// }
 
-	// YbDefaultSysScan scan = palloc0(sizeof(YbDefaultSysScanData));
-	YbScanDesc ybscan = ybcBeginScan(relation,
-								index,
-								false /* xs_want_itup */,
-								nkeys,
-								key,
-								NULL /* pg_scan_plan */,
-								NULL /* rel_pushdown */,
-								NULL /* idx_pushdown */,
-								NULL /* aggrefs */,
-								0 /* distinct_prefixlen */,
-								NULL /* exec_params */,
-								true /* is_internal_scan */,
-								false /* fetch_ybctids_only */);
+// 	// YbDefaultSysScan scan = palloc0(sizeof(YbDefaultSysScanData));
+// 	YbScanDesc ybscan = ybcBeginScan(relation,
+// 								NULL,
+// 								false /* xs_want_itup */,
+// 								nkeys,
+// 								key,
+// 								NULL /* pg_scan_plan */,
+// 								NULL /* rel_pushdown */,
+// 								NULL /* idx_pushdown */,
+// 								NULL /* aggrefs */,
+// 								0 /* distinct_prefixlen */,
+// 								NULL /* exec_params */,
+// 								true /* is_internal_scan */,
+// 								false /* fetch_ybctids_only */);
 
-	// scan->base.vtable = &yb_default_scan;
+// 	// scan->base.vtable = &yb_default_scan;
 
-	if (index)
-		RelationClose(index);
+// 	// if (index)
+// 	// 	RelationClose(index);
 
-	// return YbBuildSysScanDesc(relation, snapshot, &scan->base);
-	return (TableScanDesc) ybscan;
-}
+// 	// return YbBuildSysScanDesc(relation, snapshot, &scan->base);
+// 	return (TableScanDesc) ybscan;
+// }
 
 TableScanDesc ybc_heap_beginscan(Relation relation,
 								 Snapshot snapshot,
 								 int nkeys,
 								 ScanKey key,
+								 ParallelTableScanDesc pscan,
 								 uint32 flags)
 {
+	// if (IsCatalogRelation(relation))
+	// 	return ybc_systable_begin_default_scan(relation, snapshot, nkeys, key, pscan, flags);
 	/* Restart should not be prevented if operation caused by system read of system table. */
 	Scan *pg_scan_plan = NULL; /* In current context scan plan is not available */
 	YbScanDesc ybScan = ybcBeginScan(relation,
@@ -4630,4 +4633,17 @@ ybParallelNextRange(YBParallelPartitionKeys ppk,
 	 */
 	Assert(result == NEXT_RANGE_SUCCESS || result == NEXT_RANGE_DONE);
 	return result == NEXT_RANGE_SUCCESS;
+}
+
+// instead of having this additional function, improve ybc_heap_getnext
+bool yb_getnextslot(TableScanDesc sscan, ScanDirection direction, TupleTableSlot *slot)
+{
+	HeapTuple tuple = ybc_heap_getnext(sscan);
+	if (!tuple)
+	{
+		ExecClearTuple(slot);
+		return false;
+	}
+	ExecStoreHeapTuple(tuple, slot, false /* shouldFree */);
+	return true;
 }
