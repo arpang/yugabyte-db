@@ -10,6 +10,10 @@ bin/yb-admin --master_addresses=$PGHOST:7100,$pghost2:7100,$pghost3:7100 list_na
 
 # Create pre-existing PG11 table
 ysqlsh <<EOT
+SET yb_non_ddl_txn_for_sys_tables_allowed=true;
+SELECT yb_fix_catalog_version_table(true);
+SET yb_non_ddl_txn_for_sys_tables_allowed = false;
+select * from pg_yb_catalog_version;
 SHOW server_version;
 CREATE TABLE t (h int, r TEXT, v1 BIGINT, v2 VARCHAR, v3 JSONB, v4 int[], PRIMARY KEY (h, r));
 INSERT INTO t VALUES (1, 'a', 5000000000, 'abc', '{"a" : 3.5}', '{1, 2, 3}'),
