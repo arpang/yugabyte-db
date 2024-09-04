@@ -1427,13 +1427,13 @@ bootstrap_template1(void)
 	char	  **bki_lines;
 	char		headerline[MAXPGPATH];
 	char		buf[64];
-	char	  **yb_origin_bki_lines;
+	char	  **yb_orig_bki_lines;
 
 	printf(_("running bootstrap script ... "));
 	fflush(stdout);
 
 	bki_lines = readfile(bki_file);
-	yb_origin_bki_lines = bki_lines;
+	yb_orig_bki_lines = bki_lines;
 
 	/* Check that bki file appears to be of the right version */
 
@@ -1512,8 +1512,8 @@ bootstrap_template1(void)
 
 	free(bki_lines);
 
-	if (yb_origin_bki_lines != bki_lines)
-		free(yb_origin_bki_lines);
+	if (yb_orig_bki_lines != bki_lines)
+		free(yb_orig_bki_lines);
 
 	check_ok();
 }
