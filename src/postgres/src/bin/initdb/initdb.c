@@ -1501,17 +1501,18 @@ bootstrap_template1(void)
 
 	PG_CMD_OPEN;
 
-  for (line = bki_lines; *line != NULL; line++)
-  {
-    if (!IsYugaByteLocalNodeInitdb())
-      PG_CMD_PUTS(*line);
-    free(*line);
-  }
+	for (line = bki_lines; *line != NULL; line++)
+	{
+		if (!IsYugaByteLocalNodeInitdb())
+			PG_CMD_PUTS(*line);
+		free(*line);
+	}
 
 	PG_CMD_CLOSE;
-
 	free(bki_lines);
-	free(yb_origin_bki_lines);
+
+	if (yb_origin_bki_lines != bki_lines)
+		free(yb_origin_bki_lines);
 
 	check_ok();
 }
