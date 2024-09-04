@@ -1509,6 +1509,7 @@ bootstrap_template1(void)
 	}
 
 	PG_CMD_CLOSE;
+
 	free(bki_lines);
 
 	if (yb_origin_bki_lines != bki_lines)
