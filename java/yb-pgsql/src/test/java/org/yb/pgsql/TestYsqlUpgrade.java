@@ -248,12 +248,12 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
   /** Create a shared relation just like pg_database and verify they look the same. */
   @Test
   public void creatingSharedRelsIsLikeInitdb() throws Exception {
-    TableInfo origTi = new TableInfo("pg_database", 1262L, 1248L,
+    TableInfo origTi = new TableInfo("pg_database", 1262L, 1248L, 10052L,
         Arrays.asList(
             Pair.of("pg_database_datname_index", 2671L),
             Pair.of("pg_database_oid_index", 2672L)));
 
-    TableInfo newTi = new TableInfo(SHARED_ENTITY_PREFIX + "database_2", newSysOid(), newSysOid(),
+    TableInfo newTi = new TableInfo(SHARED_ENTITY_PREFIX + "database_2", newSysOid(), newSysOid(), newSysOid(),
         Arrays.asList(
             Pair.of(SHARED_ENTITY_PREFIX + "database_2_datname_index", newSysOid()),
             Pair.of(SHARED_ENTITY_PREFIX + "database_2_oid_index", newSysOid())));
@@ -306,13 +306,13 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
   /** Create a system relation just like pg_class and verify they look the same. */
   @Test
   public void creatingSystemRelsIsLikeInitdb() throws Exception {
-    TableInfo origTi = new TableInfo("pg_class", 1259L, 83L,
+    TableInfo origTi = new TableInfo("pg_class", 1259L, 83L, 273L,
         Arrays.asList(
             Pair.of("pg_class_oid_index", 2662L),
             Pair.of("pg_class_relname_nsp_index", 2663L),
             Pair.of("pg_class_tblspc_relfilenode_index", 3455L)));
 
-    TableInfo newTi = new TableInfo("pg_class_2", newSysOid(), newSysOid(),
+    TableInfo newTi = new TableInfo("pg_class_2", newSysOid(), newSysOid(), newSysOid(),
         Arrays.asList(
             Pair.of("pg_class_2_oid_index", newSysOid()),
             Pair.of("pg_class_2_relname_nsp_index", newSysOid()),
@@ -1243,13 +1243,16 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
     // Determine OIDs for tables if not predefined.
     for (TableInfo ti : Arrays.asList(origTi, newTi)) {
       if (ti.getOid() == 0) {
-        Row row = getSingleRow(stmtForNew, "SELECT oid, reltype FROM pg_class"
+        Row row = getSingleRow(stmtForNew,
+            "SELECT pg_class.oid, reltype, typarray FROM pg_class join pg_type on pg_class.oid = pg_type.typrelid"
             + " WHERE relname = '" + ti.name + "'"
             + " AND relnamespace = 'pg_catalog'::regnamespace");
         ti.setOid(row.getLong(0));
         ti.setTypeOid(row.getLong(1));
+        ti.setArrayTypeOid(row.getLong(2));
         assertSysGeneratedOid(ti.getOid());
         assertSysGeneratedOid(ti.getTypeOid());
+        assertSysGeneratedOid(ti.getArrayTypeOid());
       }
 
       if (ti instanceof ViewInfo) {
@@ -1272,6 +1275,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
           .stream()
           .map(r -> excluded(r, "reltuples"))
           .map(r -> expectRelfilenodeMismatch ? excluded(r, "relfilenode") : r)
+          .map(r -> excluded(r, "relacl"))
           .collect(Collectors.toList());
     };
 
@@ -1279,9 +1283,11 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
       List<Row> rows = getRowList(stmtForNew, formatter.format(newTi));
       return rows.stream()
           .map(r -> excluded(r, "reltuples"))
+          .map(r -> excluded(r, "relacl"))
           .map(r -> expectRelfilenodeMismatch ? excluded(r, "relfilenode") : r)
           .map(r -> replaced(r, newTi.getOid(), origTi.getOid()))
           .map(r -> replaced(r, newTi.getTypeOid(), origTi.getTypeOid()))
+          .map(r -> replaced(r, newTi.getArrayTypeOid(), origTi.getArrayTypeOid()))
           .map(r -> origTi instanceof ViewInfo
               ? replaced(r, ((ViewInfo) newTi).getRuleOid(), ((ViewInfo) origTi).getRuleOid())
               : r)
@@ -1302,6 +1308,22 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
           + " FROM pg_class cl"
           + " LEFT JOIN pg_type tp ON cl.oid = tp.typrelid"
           + " WHERE cl.oid = %d ORDER By cl.oid, tp.oid";
+      {
+        TableInfoSqlFormatter fmt = (ti) -> String.format(sql, ti.getOid());
+        assertRows(origTi.name,
+            fetchExpected.fetch(fmt), fetchActual.fetch(fmt));
+      }
+      for (int i = 0; i < origTi.indexes.size(); ++i) {
+        final int fi = i;
+        TableInfoSqlFormatter fmt = (ti) -> String.format(sql, ti.indexes.get(fi).getRight());
+        assertRows(newTi.indexes.get(i).getLeft(),
+            fetchExpected.fetch(fmt), fetchActual.fetch(fmt));
+      }
+    }
+
+    {
+      // pg_clas.relacl
+      String sql = "SELECT unnest(relacl::text[]) FROM pg_class where oid = %d order by 1";
       {
         TableInfoSqlFormatter fmt = (ti) -> String.format(sql, ti.getOid());
         assertRows(origTi.name,
@@ -2007,13 +2029,15 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
     // OIDs, 0 means not known in advance or not applicable.
     private long oid;
     private long typeOid;
+    private long arrayTypeOid;
 
     public final List<Pair<String, Long>> indexes;
 
-    public TableInfo(String name, long oid, long typeOid, List<Pair<String, Long>> indexes) {
+    public TableInfo(String name, long oid, long typeOid, long arrayTypeOid, List<Pair<String, Long>> indexes) {
       this.name = name;
       this.setOid(oid);
       this.setTypeOid(typeOid);
+      this.setArrayTypeOid(arrayTypeOid);
       this.indexes = Collections.unmodifiableList(new ArrayList<>(indexes));
     }
 
@@ -2032,13 +2056,21 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
     public void setTypeOid(long typeOid) {
       this.typeOid = typeOid;
     }
+
+    public long getArrayTypeOid() {
+      return arrayTypeOid;
+    }
+
+    public void setArrayTypeOid(long arrayTypeOid) {
+      this.arrayTypeOid = arrayTypeOid;
+    }
   }
 
   private class ViewInfo extends TableInfo {
     private long ruleOid = 0L;
 
     public ViewInfo(String name) {
-      super(name, 0L, 0L, Collections.emptyList());
+      super(name, 0L, 0L, 0L, Collections.emptyList());
     }
 
     public long getRuleOid() {
