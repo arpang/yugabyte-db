@@ -425,7 +425,8 @@ RI_FKey_check(TriggerData *trigdata)
 			break;
 	}
 
-	if (IsYBRelation(pk_rel))
+	// YB_TODO: temp disable fast path if the referenced relation is partitioned
+	if (IsYBRelation(pk_rel) && pk_rel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
 	{
 		/*
 		 * Use fast path for FK check in case ybctid for row in source table can be build from
