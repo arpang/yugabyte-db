@@ -123,11 +123,11 @@ CREATE TABLE gtest1_1 () INHERITS (gtest1);
 -- YB note: port additional tests once INHERITS is supported.
 
 -- test stored update
-CREATE TABLE gtest3 (a int, b int GENERATED ALWAYS AS (a * 3) STORED);
+CREATE TABLE gtest3 (a int, b int GENERATED ALWAYS AS (a * 3) STORED, yb_sort SERIAL, PRIMARY KEY (yb_sort ASC));
 INSERT INTO gtest3 (a) VALUES (1), (2), (3), (NULL);
-SELECT * FROM gtest3 ORDER BY a;
+SELECT a, b FROM gtest3 ORDER BY a;
 UPDATE gtest3 SET a = 22 WHERE a = 2;
-SELECT * FROM gtest3 ORDER BY a;
+SELECT a, b FROM gtest3 ORDER BY a;
 
 CREATE TABLE gtest3a (a text, b text GENERATED ALWAYS AS (a || '+' || a) STORED);
 INSERT INTO gtest3a (a) VALUES ('a'), ('b'), ('c'), (NULL);
@@ -155,18 +155,18 @@ SELECT * FROM gtest1 ORDER BY a;
 TRUNCATE gtest3;
 INSERT INTO gtest3 (a) VALUES (1), (2);
 
-COPY gtest3 TO stdout;
+COPY gtest3(a) TO stdout; -- YB note: avoid yb_sort column
 
 COPY gtest3 (a, b) TO stdout;
 
-COPY gtest3 FROM stdin;
+COPY gtest3(a) FROM stdin;
 3
 4
 \.
 
 COPY gtest3 (a, b) FROM stdin;
 
-SELECT * FROM gtest3 ORDER BY a;
+SELECT a, b FROM gtest3 ORDER BY a;
 
 -- null values
 CREATE TABLE gtest2 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (NULL) STORED);
@@ -184,10 +184,11 @@ DROP TABLE gtest_varlena;
 CREATE TYPE double_int as (a int, b int);
 CREATE TABLE gtest4 (
     a int,
-    b double_int GENERATED ALWAYS AS ((a * 2, a * 3)) STORED
+    b double_int GENERATED ALWAYS AS ((a * 2, a * 3)) STORED,
+    yb_sort SERIAL, PRIMARY KEY (yb_sort ASC)
 );
 INSERT INTO gtest4 VALUES (1), (6);
-SELECT * FROM gtest4;
+SELECT a, b FROM gtest4; -- YB note: skip yb_sort column
 
 DROP TABLE gtest4;
 DROP TYPE double_int;
@@ -198,7 +199,6 @@ CREATE TABLE gtest_tableoid (
   b bool GENERATED ALWAYS AS (tableoid = 'gtest_tableoid'::regclass) STORED
 );
 INSERT INTO gtest_tableoid VALUES (1), (2);
--- YB note: additional notice.
 ALTER TABLE gtest_tableoid ADD COLUMN
   c regclass GENERATED ALWAYS AS (tableoid) STORED;  -- YB note: additional notice.
 SELECT * FROM gtest_tableoid;
@@ -271,11 +271,11 @@ INSERT INTO gtest21b (a) VALUES (0);  -- ok now
 -- index constraints
 CREATE TABLE gtest22a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a / 2) STORED UNIQUE);
 INSERT INTO gtest22a VALUES (2);
-INSERT INTO gtest22a VALUES (3);
+INSERT INTO gtest22a VALUES (3); -- YB note: YB doesn't show DETAIL.
 INSERT INTO gtest22a VALUES (4);
 CREATE TABLE gtest22b (a int, b int GENERATED ALWAYS AS (a / 2) STORED, PRIMARY KEY (a, b));
 INSERT INTO gtest22b VALUES (2);
-INSERT INTO gtest22b VALUES (2);
+INSERT INTO gtest22b VALUES (2); -- YB note: YB doesn't show DETAIL.
 
 -- indexes
 CREATE TABLE gtest22c (a int, b int GENERATED ALWAYS AS (a * 2) STORED);
@@ -371,13 +371,14 @@ SELECT * FROM gtest25 ORDER BY a;
 CREATE TABLE gtest27 (
     a int,
     b int,
-    x int GENERATED ALWAYS AS ((a + b) * 2) STORED
+    x int GENERATED ALWAYS AS ((a + b) * 2) STORED,
+    yb_sort SERIAL, PRIMARY KEY (yb_sort ASC)
 );
 INSERT INTO gtest27 (a, b) VALUES (3, 7), (4, 11);
 ALTER TABLE gtest27 ALTER COLUMN a TYPE text;  -- error
 ALTER TABLE gtest27 ALTER COLUMN x TYPE numeric; -- YB note: additional notice.
 \d gtest27
-SELECT * FROM gtest27;
+SELECT a, b, x FROM gtest27; -- YB note: skip yb_sort column
 ALTER TABLE gtest27 ALTER COLUMN x TYPE boolean USING x <> 0;  -- error
 ALTER TABLE gtest27 ALTER COLUMN x DROP DEFAULT;  -- error
 -- It's possible to alter the column types this way:
@@ -386,13 +387,7 @@ ALTER TABLE gtest27
   ALTER COLUMN a TYPE bigint,
   ALTER COLUMN b TYPE bigint,
   ADD COLUMN x bigint GENERATED ALWAYS AS ((a + b) * 2) STORED;
-\d gtest27
--- Ideally you could just do this, but not today (and should x change type?):
-ALTER TABLE gtest27
-  ALTER COLUMN a TYPE float8,
-  ALTER COLUMN b TYPE float8;  -- error
-\d gtest27
-SELECT * FROM gtest27;
+-- YB note: import additional tests once the above is supported.
 
 -- ALTER TABLE ... ALTER COLUMN ... DROP EXPRESSION
 CREATE TABLE gtest29 (
