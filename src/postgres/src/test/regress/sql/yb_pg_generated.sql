@@ -8,7 +8,7 @@ CREATE TABLE gtest1 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED
 SELECT table_name, column_name, column_default, is_nullable, is_generated, generation_expression FROM information_schema.columns WHERE table_name LIKE 'gtest_' ORDER BY 1, 2;
 
 SELECT table_name, column_name, dependent_column FROM information_schema.column_column_usage ORDER BY 1, 2, 3;
--- YB note: YB uses lsm
+
 \d gtest1
 
 -- duplicate generated
@@ -33,8 +33,7 @@ CREATE TABLE gtest_err_5b (a int PRIMARY KEY, b int GENERATED ALWAYS AS identity
 
 -- reference to system column not allowed in generated column
 -- (except tableoid, which we test below)
--- YB note: xmin column not supported in YB
-CREATE TABLE gtest_err_6a (a int PRIMARY KEY, b bool GENERATED ALWAYS AS (xmin <> 37) STORED);
+CREATE TABLE gtest_err_6a (a int PRIMARY KEY, b bool GENERATED ALWAYS AS (xmin <> 37) STORED); -- YB note: xmin column not supported in YB
 
 -- various prohibited constructs
 CREATE TABLE gtest_err_7a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (avg(a)) STORED);
@@ -66,7 +65,7 @@ SELECT a, b FROM gtest1 WHERE b = 4 ORDER BY a;
 
 -- test that overflow error happens on write
 INSERT INTO gtest1 VALUES (2000000000);
-SELECT * FROM gtest1 ORDER BY a DESC; -- YB note: ordering
+SELECT * FROM gtest1 ORDER BY 1 DESC; -- YB note: ordering
 DELETE FROM gtest1 WHERE a = 2000000000;
 
 -- test with joins
@@ -111,7 +110,7 @@ ALTER VIEW gtest1v ALTER COLUMN b SET DEFAULT 100;
 INSERT INTO gtest1v VALUES (8, DEFAULT);  -- error
 INSERT INTO gtest1v VALUES (8, DEFAULT), (9, DEFAULT);  -- error
 
-SELECT * FROM gtest1v ORDER BY a; -- YB note: ordering
+SELECT * FROM gtest1v ORDER BY 1; -- YB note: ordering
 DELETE FROM gtest1v WHERE a >= 5;
 DROP VIEW gtest1v;
 
@@ -125,9 +124,9 @@ CREATE TABLE gtest1_1 () INHERITS (gtest1);
 -- test stored update
 CREATE TABLE gtest3 (a int, b int GENERATED ALWAYS AS (a * 3) STORED, yb_sort SERIAL, PRIMARY KEY (yb_sort ASC));
 INSERT INTO gtest3 (a) VALUES (1), (2), (3), (NULL);
-SELECT a, b FROM gtest3 ORDER BY a;
+SELECT a, b FROM gtest3 ORDER BY a; -- YB note: avoid yb_sort column
 UPDATE gtest3 SET a = 22 WHERE a = 2;
-SELECT a, b FROM gtest3 ORDER BY a;
+SELECT a, b FROM gtest3 ORDER BY a; -- YB note: avoid yb_sort column
 
 CREATE TABLE gtest3a (a text, b text GENERATED ALWAYS AS (a || '+' || a) STORED);
 INSERT INTO gtest3a (a) VALUES ('a'), ('b'), ('c'), (NULL);
@@ -159,14 +158,14 @@ COPY gtest3(a) TO stdout; -- YB note: avoid yb_sort column
 
 COPY gtest3 (a, b) TO stdout;
 
-COPY gtest3(a) FROM stdin;
+COPY gtest3(a) FROM stdin; -- YB note: skip yb_sort column
 3
 4
 \.
 
 COPY gtest3 (a, b) FROM stdin;
 
-SELECT a, b FROM gtest3 ORDER BY a;
+SELECT a, b FROM gtest3 ORDER BY a; -- YB note: avoid yb_sort column
 
 -- null values
 CREATE TABLE gtest2 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (NULL) STORED);
@@ -207,7 +206,6 @@ SELECT * FROM gtest_tableoid;
 CREATE TABLE gtest10 (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (b * 2) STORED);
 ALTER TABLE gtest10 DROP COLUMN b;  -- fails
 ALTER TABLE gtest10 DROP COLUMN b CASCADE;  -- drops c too
--- YB note: YB uses lsm
 \d gtest10
 
 CREATE TABLE gtest10a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED);
@@ -282,7 +280,6 @@ CREATE TABLE gtest22c (a int, b int GENERATED ALWAYS AS (a * 2) STORED);
 CREATE INDEX gtest22c_b_idx ON gtest22c (b);
 CREATE INDEX gtest22c_expr_idx ON gtest22c ((b * 3));
 CREATE INDEX gtest22c_pred_idx ON gtest22c (a) WHERE b > 0;
--- YB note: YB uses lsm
 \d gtest22c
 
 INSERT INTO gtest22c VALUES (1), (2), (3);
@@ -305,7 +302,6 @@ CREATE TABLE gtest23x (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STOR
 CREATE TABLE gtest23x (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a (x) ON DELETE SET NULL);  -- error
 
 CREATE TABLE gtest23b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a (x));
--- YB note: YB uses lsm
 \d gtest23b
 
 INSERT INTO gtest23b VALUES (1);  -- ok
@@ -364,7 +360,6 @@ ALTER TABLE gtest25 ADD COLUMN d int DEFAULT 101;
 ALTER TABLE gtest25 ALTER COLUMN d SET DATA TYPE float8,
   ADD COLUMN y float8 GENERATED ALWAYS AS (d * 4) STORED; -- YB note: additional notice.
 SELECT * FROM gtest25 ORDER BY a;
--- YB note: YB uses lsm
 \d gtest25
 
 -- ALTER TABLE ... ALTER COLUMN
