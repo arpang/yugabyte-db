@@ -122,11 +122,11 @@ CREATE TABLE gtest1_1 () INHERITS (gtest1);
 -- YB note: port additional tests once INHERITS is supported.
 
 -- test stored update
-CREATE TABLE gtest3 (a int, b int GENERATED ALWAYS AS (a * 3) STORED, yb_sort SERIAL, PRIMARY KEY (yb_sort ASC));
+CREATE TABLE gtest3 (a int, b int GENERATED ALWAYS AS (a * 3) STORED);
 INSERT INTO gtest3 (a) VALUES (1), (2), (3), (NULL);
-SELECT a, b FROM gtest3 ORDER BY a; -- YB note: avoid yb_sort column
+SELECT * FROM gtest3 ORDER BY a;
 UPDATE gtest3 SET a = 22 WHERE a = 2;
-SELECT a, b FROM gtest3 ORDER BY a; -- YB note: avoid yb_sort column
+SELECT * FROM gtest3 ORDER BY a;
 
 CREATE TABLE gtest3a (a text, b text GENERATED ALWAYS AS (a || '+' || a) STORED);
 INSERT INTO gtest3a (a) VALUES ('a'), ('b'), ('c'), (NULL);
@@ -154,18 +154,18 @@ SELECT * FROM gtest1 ORDER BY a;
 TRUNCATE gtest3;
 INSERT INTO gtest3 (a) VALUES (1), (2);
 
-COPY gtest3(a) TO stdout; -- YB note: avoid yb_sort column
+COPY gtest3 TO stdout;
 
 COPY gtest3 (a, b) TO stdout;
 
-COPY gtest3(a) FROM stdin; -- YB note: skip yb_sort column
+COPY gtest3 FROM stdin;
 3
 4
 \.
 
 COPY gtest3 (a, b) FROM stdin;
 
-SELECT a, b FROM gtest3 ORDER BY a; -- YB note: avoid yb_sort column
+SELECT * FROM gtest3 ORDER BY a;
 
 -- null values
 CREATE TABLE gtest2 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (NULL) STORED);
@@ -183,11 +183,10 @@ DROP TABLE gtest_varlena;
 CREATE TYPE double_int as (a int, b int);
 CREATE TABLE gtest4 (
     a int,
-    b double_int GENERATED ALWAYS AS ((a * 2, a * 3)) STORED,
-    yb_sort SERIAL, PRIMARY KEY (yb_sort ASC)
+    b double_int GENERATED ALWAYS AS ((a * 2, a * 3)) STORED
 );
 INSERT INTO gtest4 VALUES (1), (6);
-SELECT a, b FROM gtest4; -- YB note: skip yb_sort column
+SELECT * FROM gtest4;
 
 DROP TABLE gtest4;
 DROP TYPE double_int;
