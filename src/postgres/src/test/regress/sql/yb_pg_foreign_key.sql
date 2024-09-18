@@ -1657,5 +1657,5 @@ CREATE TABLE fk_d PARTITION OF fk DEFAULT;
 INSERT INTO fk VALUES (20), (30);
 DELETE FROM pk WHERE a = 20;
 UPDATE pk SET a = 90 WHERE a = 30;
-SELECT tableoid::regclass, * FROM fk ORDER BY a; -- YB note: ordering
+SELECT tableoid::regclass, * FROM fk;
 DROP TABLE fk;
