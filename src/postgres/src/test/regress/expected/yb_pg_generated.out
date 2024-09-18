@@ -28,7 +28,7 @@ SELECT table_name, column_name, dependent_column FROM information_schema.column_
  a      | integer |           | not null | 
  b      | integer |           |          | generated always as (a * 2) stored
 Indexes:
-    "gtest1_pkey" PRIMARY KEY, lsm (a HASH)
+    "gtest1_pkey" PRIMARY KEY, lsm (a ASC)
 
 -- duplicate generated
 CREATE TABLE gtest_err_1 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED GENERATED ALWAYS AS (a * 3) STORED);
@@ -416,7 +416,7 @@ NOTICE:  drop cascades to column c of table gtest10
 --------+---------+-----------+----------+---------
  a      | integer |           | not null | 
 Indexes:
-    "gtest10_pkey" PRIMARY KEY, lsm (a HASH)
+    "gtest10_pkey" PRIMARY KEY, lsm (a ASC)
 
 CREATE TABLE gtest10a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED);
 ALTER TABLE gtest10a DROP COLUMN b;
@@ -514,9 +514,9 @@ CREATE INDEX gtest22c_pred_idx ON gtest22c (a) WHERE b > 0;
  a      | integer |           |          | 
  b      | integer |           |          | generated always as (a * 2) stored
 Indexes:
-    "gtest22c_b_idx" lsm (b HASH)
-    "gtest22c_expr_idx" lsm ((b * 3) HASH)
-    "gtest22c_pred_idx" lsm (a HASH) WHERE b > 0
+    "gtest22c_b_idx" lsm (b ASC)
+    "gtest22c_expr_idx" lsm ((b * 3) ASC)
+    "gtest22c_pred_idx" lsm (a ASC) WHERE b > 0
 
 INSERT INTO gtest22c VALUES (1), (2), (3);
 SET enable_seqscan TO off;
@@ -577,7 +577,7 @@ CREATE TABLE gtest23b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STOR
  a      | integer |           | not null | 
  b      | integer |           |          | generated always as (a * 2) stored
 Indexes:
-    "gtest23b_pkey" PRIMARY KEY, lsm (a HASH)
+    "gtest23b_pkey" PRIMARY KEY, lsm (a ASC)
 Foreign-key constraints:
     "gtest23b_b_fkey" FOREIGN KEY (b) REFERENCES gtest23a(x)
 
@@ -688,7 +688,7 @@ SELECT * FROM gtest25 ORDER BY a;
  d      | double precision |           |          | 101
  y      | double precision |           |          | generated always as (d * 4::double precision) stored
 Indexes:
-    "gtest25_pkey" PRIMARY KEY, lsm (a HASH)
+    "gtest25_pkey" PRIMARY KEY, lsm (a ASC)
 
 -- ALTER TABLE ... ALTER COLUMN
 CREATE TABLE gtest27 (
