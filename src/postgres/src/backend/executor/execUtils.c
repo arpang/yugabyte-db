@@ -488,7 +488,7 @@ ReScanExprContext(ExprContext *econtext)
  * not directly.
  */
 ExprContext *
-MakePerTupleExprContext(EState *estate)
+ MakePerTupleExprContext(EState *estate)
 {
 	if (estate->es_per_tuple_exprcontext == NULL)
 		estate->es_per_tuple_exprcontext = CreateExprContext(estate);

@@ -489,6 +489,120 @@ ExecFindPartition(ModifyTableState *mtstate,
 	return rri;
 }
 
+Oid
+FindLeafPartitionOid(ResultRelInfo *rootResultRelInfo,
+					 PartitionTupleRouting *proute, TupleTableSlot *slot,
+					 EState *estate)
+{
+	PartitionDispatch *pd = proute->partition_dispatch_info;
+	Datum values[PARTITION_MAX_KEYS];
+	bool isnull[PARTITION_MAX_KEYS];
+	// Relation rel;
+	PartitionDispatch dispatch;
+	PartitionDesc partdesc;
+	TupleTableSlot *myslot = NULL;
+	MemoryContext oldcxt;
+
+	/* use per-tuple context here to avoid leaking memory */
+	oldcxt = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
+
+	/*
+	 * First check the root table's partition constraint, if any.  No point in
+	 * routing the tuple if it doesn't belong in the root table itself.
+	 */
+	if (rootResultRelInfo->ri_RelationDesc->rd_rel->relispartition)
+		ExecPartitionCheck(rootResultRelInfo, slot, estate, true);
+
+	/* start with the root partitioned table */
+	dispatch = pd[0];
+	while (dispatch != NULL)
+	{
+		int partidx = -1;
+
+		CHECK_FOR_INTERRUPTS();
+
+		// rel = dispatch->reldesc;
+		partdesc = dispatch->partdesc;
+
+		/*
+		 * Extract partition key from tuple. Expression evaluation machinery
+		 * that FormPartitionKeyDatum() invokes expects ecxt_scantuple to
+		 * point to the correct tuple slot.  The slot might have changed from
+		 * what was used for the parent table if the table of the current
+		 * partitioning level has different tuple descriptor from the parent.
+		 * So update ecxt_scantuple accordingly.
+		 */
+		FormPartitionKeyDatum(dispatch, slot, estate, values, isnull);
+
+		/*
+		 * If this partitioned table has no partitions or no partition for
+		 * these values, error out.
+		 */
+		if (partdesc->nparts == 0 ||
+			(partidx = get_partition_for_tuple(dispatch, values, isnull)) < 0)
+			return InvalidOid;
+
+		if (partdesc->is_leaf[partidx])
+			return partdesc->oids[partidx];
+		else
+		{
+			/*
+			 * Partition is a sub-partitioned table; get the PartitionDispatch
+			 */
+			if (likely(dispatch->indexes[partidx] >= 0))
+			{
+				/* Already built. */
+				Assert(dispatch->indexes[partidx] < proute->num_dispatch);
+				/*
+				 * Move down to the next partition level and search again
+				 * until we find a leaf partition that matches this tuple
+				 */
+				dispatch = pd[dispatch->indexes[partidx]];
+			}
+			else
+			{
+				/* Not yet built. Do that now. */
+				PartitionDispatch subdispatch;
+
+				/*
+				 * Create the new PartitionDispatch.  We pass the current one
+				 * in as the parent PartitionDispatch
+				 */
+				subdispatch = ExecInitPartitionDispatchInfo(
+					estate, proute, partdesc->oids[partidx], dispatch, partidx,
+					NULL);
+				Assert(dispatch->indexes[partidx] >= 0 &&
+					   dispatch->indexes[partidx] < proute->num_dispatch);
+
+				dispatch = subdispatch;
+			}
+
+			/*
+			 * Convert the tuple to the new parent's layout, if different from
+			 * the previous parent.
+			 */
+			if (dispatch->tupslot)
+			{
+				AttrMap *map = dispatch->tupmap;
+				TupleTableSlot *tempslot = myslot;
+
+				myslot = dispatch->tupslot;
+				slot = execute_attr_map_slot(map, slot, myslot);
+
+				if (tempslot != NULL)
+					ExecClearTuple(tempslot);
+			}
+		}
+	}
+
+	/* Release the tuple in the lowest parent's dedicated slot. */
+	if (myslot != NULL)
+		ExecClearTuple(myslot);
+	MemoryContextSwitchTo(oldcxt);
+	// ExecPartitionCheckEmitError(rootResultRelInfo, slot, estate);
+	return InvalidOid;
+}
+
 /*
  * ExecInitPartitionInfo
  *		Lock the partition and initialize ResultRelInfo.  Also setup other
@@ -1312,6 +1426,8 @@ FormPartitionKeyDatum(PartitionDispatch pd,
 	ListCell   *partexpr_item;
 	int			i;
 
+	// bool is_virtual = TTS_IS_VIRTUAL(slot);
+	// elog(INFO, "FormPartitionKeyDatum is_virtual %d", is_virtual);
 	if (pd->key->partexprs != NIL && pd->keystate == NIL)
 	{
 		/* Check caller has set up context correctly */
@@ -1332,6 +1448,12 @@ FormPartitionKeyDatum(PartitionDispatch pd,
 		if (keycol != 0)
 		{
 			/* Plain column; get the value directly from the heap tuple */
+			// if (is_virtual)
+			// {
+			// 	datum = slot->tts_values[keycol-1];
+			// 	isNull = slot->tts_isnull[keycol-1];
+			// }
+			// else
 			datum = slot_getattr(slot, keycol, &isNull);
 		}
 		else

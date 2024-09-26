@@ -239,6 +239,29 @@ static void ri_ReportViolation(const RI_ConstraintInfo *riinfo,
 							   TupleTableSlot *violatorslot, TupleDesc tupdesc,
 							   int queryno, bool partgone) pg_attribute_noreturn();
 
+TupleTableSlot *
+helper(const RI_ConstraintInfo *riinfo, TupleTableSlot *slot, TupleDesc pkdesc)
+{
+	// elog(INFO, "starting helper");
+	TupleTableSlot *pkslot = MakeTupleTableSlot(pkdesc, &TTSOpsVirtual);
+	// int pkatts = pkdesc->natts;
+	// // Datum values[pkatts];
+	// // bool isnull[pkatts];
+	for (int i = 0; i < riinfo->nkeys; i++)
+	{
+		const int fk_attnum = riinfo->fk_attnums[i];
+		const int pk_attnum = riinfo->pk_attnums[i];
+		pkslot->tts_values[pk_attnum-1] =
+			slot_getattr(slot, fk_attnum, &pkslot->tts_isnull[pk_attnum-1]);
+	}
+	pkslot->tts_flags &= ~TTS_FLAG_EMPTY;
+	pkslot->tts_nvalid = pkdesc->natts;
+	// elog(INFO, "ending helper");
+	// HeapTuple tuple = heap_form_tuple(pkdesc, values, isnull);
+	// table_slot_create(Relation rel, List **reglist)
+	return pkslot;
+}
+
 /* ----------
  * YBCBuildYBTupleIdDescriptor -
  *
@@ -246,10 +269,21 @@ static void ri_ReportViolation(const RI_ConstraintInfo *riinfo,
  *	Returns NULL in case at least one attribute type in source and referenced table doesn't match.
  * ----------
  */
-static YBCPgYBTupleIdDescriptor*
-YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo, TupleTableSlot *slot)
+static YBCPgYBTupleIdDescriptor *
+YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
+							TupleTableSlot *slot, EState *estate)
 {
+	// elog(INFO, "YBCBuildYBTupleIdDescriptor estate %p", estate);
 	bool using_index = false;
+	// bool local_estate = false;
+
+	// if (estate == NULL)
+	// {
+	// 	elog(INFO, "estate == NULL, setting local_estate to true");
+	// 	estate = CreateExecutorState();
+	// 	local_estate = true;
+	// }
+
 	Relation idx_rel = RelationIdGetRelation(riinfo->conindid);
 	Relation source_rel = idx_rel;
 	if (idx_rel->rd_index != NULL && !idx_rel->rd_index->indisprimary)
@@ -260,6 +294,35 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo, TupleTableSlot *slo
 	{
 		RelationClose(idx_rel);
 		source_rel = RelationIdGetRelation(riinfo->pk_relid);
+		if (source_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
+		{
+			TupleTableSlot *pkslot =
+				helper(riinfo, slot, RelationGetDescr(source_rel));
+			PartitionTupleRouting *proute =
+				ExecSetupPartitionTupleRouting(estate, source_rel);
+			ResultRelInfo *pkrelinfo = makeNode(ResultRelInfo);
+			pkrelinfo->ri_RelationDesc = source_rel;
+			Oid partoid = FindLeafPartitionOid(pkrelinfo, proute, pkslot, estate);
+			pfree(pkrelinfo);
+			ExecDropSingleTupleTableSlot(pkslot);
+			if (partoid == InvalidOid)
+			{
+				RI_QueryKey qkey;
+				ri_BuildQueryKey(&qkey, riinfo, RI_PLAN_CHECK_LOOKUPPK);
+				ri_ReportViolation(riinfo,
+								   RelationIdGetRelation(riinfo->pk_relid),
+								   RelationIdGetRelation(riinfo->fk_relid),
+								   slot,
+								   NULL,
+								   qkey.constr_queryno,
+								   false /* partgone */);
+			}
+			ExecCleanupTupleRouting(NULL, proute);
+			// pfree(pkslot);
+			RelationClose(source_rel);
+			source_rel = RelationIdGetRelation(partoid);
+			// elog(INFO, "Found partition %s", RelationGetRelationName(source_rel));
+		}
 	}
 	Oid source_rel_relfilenode_oid = YbGetRelfileNodeId(source_rel);
 	Oid source_dboid = YBCGetDatabaseOid(source_rel);
@@ -308,6 +371,13 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo, TupleTableSlot *slo
 	RelationClose(source_rel);
 	if (using_index && result)
 		YBCFillUniqueIndexNullAttribute(result);
+
+	// if (local_estate)
+	// {
+	// 	ExecCloseResultRelations(estate);
+	// 	ExecResetTupleTable(estate->es_tupleTable, false);
+	// 	FreeExecutorState(estate);
+	// }
 	return result;
 }
 
@@ -425,14 +495,13 @@ RI_FKey_check(TriggerData *trigdata)
 			break;
 	}
 
-	// YB_TODO: temp disable fast path if the referenced relation is partitioned
-	if (IsYBRelation(pk_rel) && pk_rel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
+	if (IsYBRelation(pk_rel))
 	{
 		/*
 		 * Use fast path for FK check in case ybctid for row in source table can be build from
 		 * referenced table tuple.
 		 */
-		YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(riinfo, newslot);
+		YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(riinfo, newslot, trigdata->estate);
 		if (descr)
 		{
 			bool found = false;
@@ -1741,7 +1810,6 @@ RI_Initial_Check(Trigger *trigger, Relation fk_rel, Relation pk_rel)
 					 errdetail("MATCH FULL does not allow mixing of null and nonnull key values."),
 					 errtableconstraint(fk_rel,
 										NameStr(fake_riinfo.conname))));
-
 		/*
 		 * We tell ri_ReportViolation we were doing the RI_PLAN_CHECK_LOOKUPPK
 		 * query, which isn't true, but will cause it to use
@@ -3157,10 +3225,11 @@ RI_FKey_trigger_type(Oid tgfoid)
 }
 
 void
-YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel, TupleTableSlot *new_slot)
+YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel, TupleTableSlot *new_slot, EState* estate)
 {
+	// elog(INFO, "YbAddTriggerFKReferenceIntent");
 	YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(
-		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot);
+		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot, estate);
 	/*
 	 * Check that ybctid for row in source table can be build from referenced table tuple
 	 * (i.e. no type casting is required)

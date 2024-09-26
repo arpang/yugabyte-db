@@ -12225,6 +12225,7 @@ typedef struct YbFKTriggerScanDescData
 	int buffered_tuples_size;
 	int current_tuple_idx;
 	bool all_tuples_processed;
+	EState* estate;
 	TupleTableSlot* buffered_tuples[];
 } YbFKTriggerScanDescData;
 
@@ -12271,7 +12272,7 @@ YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 				ExecDropSingleTupleTableSlot(new_slot);
 				break;
 			}
-			YbAddTriggerFKReferenceIntent(desc->trigger, desc->fk_rel, new_slot);
+			YbAddTriggerFKReferenceIntent(desc->trigger, desc->fk_rel, new_slot, desc->estate);
 			desc->buffered_tuples[desc->buffered_tuples_size++] = new_slot;
 		}
 	}
@@ -12310,6 +12311,8 @@ YbFKTriggerScanBegin(TableScanDesc scan,
 					  &YbFKTriggerScanVTableIsYugaByteEnabled :
 					  &YbFKTriggerScanVTableNotYugaByteEnabled;
 	descr->per_batch_cxt = per_batch_cxt;
+	descr->estate = CreateExecutorState();
+	elog(INFO, "descr->estate %p", descr->estate);
 	return descr;
 }
 
@@ -12400,6 +12403,7 @@ validateForeignKeyConstraint(char *conname,
 	{
 		LOCAL_FCINFO(fcinfo, 0);
 		TriggerData trigdata = {0};
+		// elog(INFO, "TriggerData in validateForeignKeyConstraint");
 
 		CHECK_FOR_INTERRUPTS();
 
@@ -12433,6 +12437,7 @@ validateForeignKeyConstraint(char *conname,
 	MemoryContextSwitchTo(oldcxt);
 	MemoryContextDelete(perTupCxt);
 	table_endscan(scan);
+	FreeExecutorState(fk_scan->estate);
 	pfree(fk_scan);
 	UnregisterSnapshot(snapshot);
 	if (!IsYBRelation(rel))

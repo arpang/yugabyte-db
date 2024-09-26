@@ -1832,6 +1832,7 @@ ExecPartitionCheck(ResultRelInfo *resultRelInfo, TupleTableSlot *slot,
 		List	   *qual = RelationGetPartitionQual(resultRelInfo->ri_RelationDesc);
 
 		resultRelInfo->ri_PartitionCheckExpr = ExecPrepareCheck(qual, estate);
+		// elog(INFO, "resultRelInfo->ri_PartitionCheckExpr was null, now updated to %p", resultRelInfo->ri_PartitionCheckExpr);
 		MemoryContextSwitchTo(oldcxt);
 	}
 

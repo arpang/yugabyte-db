@@ -32,6 +32,10 @@ extern ResultRelInfo *ExecFindPartition(ModifyTableState *mtstate,
 extern void ExecCleanupTupleRouting(ModifyTableState *mtstate,
 									PartitionTupleRouting *proute);
 
+extern Oid
+FindLeafPartitionOid(ResultRelInfo *rootResultRelInfo,
+					 PartitionTupleRouting *proute, TupleTableSlot *slot,
+					 EState *estate);
 
 /*
  * PartitionedRelPruningData - Per-partitioned-table data for run-time pruning
