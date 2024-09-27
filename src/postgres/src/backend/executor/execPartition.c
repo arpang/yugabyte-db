@@ -498,6 +498,8 @@ FindLeafPartitionOid(ResultRelInfo *rootResultRelInfo,
 	Datum values[PARTITION_MAX_KEYS];
 	bool isnull[PARTITION_MAX_KEYS];
 	// Relation rel;
+	ExprContext *ecxt = GetPerTupleExprContext(estate);
+	TupleTableSlot *ecxt_scantuple_saved = ecxt->ecxt_scantuple;
 	PartitionDispatch dispatch;
 	PartitionDesc partdesc;
 	TupleTableSlot *myslot = NULL;
@@ -532,6 +534,7 @@ FindLeafPartitionOid(ResultRelInfo *rootResultRelInfo,
 		 * partitioning level has different tuple descriptor from the parent.
 		 * So update ecxt_scantuple accordingly.
 		 */
+		ecxt->ecxt_scantuple = slot;
 		FormPartitionKeyDatum(dispatch, slot, estate, values, isnull);
 
 		/*
@@ -598,6 +601,8 @@ FindLeafPartitionOid(ResultRelInfo *rootResultRelInfo,
 	/* Release the tuple in the lowest parent's dedicated slot. */
 	if (myslot != NULL)
 		ExecClearTuple(myslot);
+	/* and restore ecxt's scantuple */
+	ecxt->ecxt_scantuple = ecxt_scantuple_saved;
 	MemoryContextSwitchTo(oldcxt);
 	// ExecPartitionCheckEmitError(rootResultRelInfo, slot, estate);
 	return InvalidOid;
