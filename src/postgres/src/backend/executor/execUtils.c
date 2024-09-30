@@ -261,6 +261,29 @@ FreeExecutorState(EState *estate)
 	MemoryContextDelete(estate->es_query_cxt);
 }
 
+void ArpanPrint(EState* estate, char* identifier)
+{
+	ListCell *l, *lc;
+	foreach (l, estate->es_opened_result_relations)
+	{
+		ResultRelInfo *resultRelInfo = lfirst(l);
+		elog(INFO,
+			"%s rel: %s "
+			"ri_ancestorResultRels: %p",
+			identifier,
+			RelationGetRelationName(
+				resultRelInfo->ri_RelationDesc),
+			resultRelInfo->ri_ancestorResultRels);
+		foreach (lc, resultRelInfo->ri_ancestorResultRels)
+		{
+			ResultRelInfo *rInfo = lfirst(lc);
+			elog(INFO, "Individual elements %p, relname %s",
+				rInfo,
+				RelationGetRelationName(
+					rInfo->ri_RelationDesc));
+		}
+	}
+}
 /*
  * Internal implementation for CreateExprContext() and CreateWorkExprContext()
  * that allows control over the AllocSet parameters.
