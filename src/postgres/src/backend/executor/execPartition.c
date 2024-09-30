@@ -504,6 +504,7 @@ FindLeafPartitionOid(ResultRelInfo *rootResultRelInfo,
 	PartitionDesc partdesc;
 	TupleTableSlot *myslot = NULL;
 	MemoryContext oldcxt;
+	Oid resultOid = InvalidOid;
 
 	/* use per-tuple context here to avoid leaking memory */
 	oldcxt = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
@@ -543,10 +544,13 @@ FindLeafPartitionOid(ResultRelInfo *rootResultRelInfo,
 		 */
 		if (partdesc->nparts == 0 ||
 			(partidx = get_partition_for_tuple(dispatch, values, isnull)) < 0)
-			return InvalidOid;
+			break;
 
 		if (partdesc->is_leaf[partidx])
-			return partdesc->oids[partidx];
+		{
+			resultOid = partdesc->oids[partidx];
+			break;
+		}
 		else
 		{
 			/*
@@ -605,7 +609,7 @@ FindLeafPartitionOid(ResultRelInfo *rootResultRelInfo,
 	ecxt->ecxt_scantuple = ecxt_scantuple_saved;
 	MemoryContextSwitchTo(oldcxt);
 	// ExecPartitionCheckEmitError(rootResultRelInfo, slot, estate);
-	return InvalidOid;
+	return resultOid;
 }
 
 /*
