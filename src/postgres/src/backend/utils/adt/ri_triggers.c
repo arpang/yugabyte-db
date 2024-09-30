@@ -254,8 +254,7 @@ helper(const RI_ConstraintInfo *riinfo, TupleTableSlot *slot, TupleDesc pkdesc)
 		pkslot->tts_values[pk_attnum-1] =
 			slot_getattr(slot, fk_attnum, &pkslot->tts_isnull[pk_attnum-1]);
 	}
-	pkslot->tts_flags &= ~TTS_FLAG_EMPTY;
-	pkslot->tts_nvalid = pkdesc->natts;
+	ExecStoreVirtualTuple(pkslot);
 	// elog(INFO, "ending helper");
 	// HeapTuple tuple = heap_form_tuple(pkdesc, values, isnull);
 	// table_slot_create(Relation rel, List **reglist)
@@ -318,10 +317,8 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 								   false /* partgone */);
 			}
 			ExecCleanupTupleRouting(NULL, proute);
-			// pfree(pkslot);
 			RelationClose(source_rel);
 			source_rel = RelationIdGetRelation(partoid);
-			// elog(INFO, "Found partition %s", RelationGetRelationName(source_rel));
 		}
 	}
 	Oid source_rel_relfilenode_oid = YbGetRelfileNodeId(source_rel);
@@ -3227,7 +3224,6 @@ RI_FKey_trigger_type(Oid tgfoid)
 void
 YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel, TupleTableSlot *new_slot, EState* estate)
 {
-	// elog(INFO, "YbAddTriggerFKReferenceIntent");
 	YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(
 		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot, estate);
 	/*
