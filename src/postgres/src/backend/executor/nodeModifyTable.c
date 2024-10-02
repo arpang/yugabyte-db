@@ -2610,6 +2610,7 @@ ExecCrossPartitionUpdateForeignKey(ModifyTableContext *context,
 							 RelationGetRelationName(rootRelInfo->ri_RelationDesc))));
 	}
 
+	// elog(INFO, "ExecCrossPartitionUpdateForeignKey adding update trigger for root %s", RelationGetRelationName(rootRelInfo->ri_RelationDesc));
 	/* Perform the root table's triggers. */
 	ExecARUpdateTriggers(context->estate,
 						 rootRelInfo, sourcePartInfo, destPartInfo,

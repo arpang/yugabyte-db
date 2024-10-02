@@ -270,7 +270,7 @@ helper(const RI_ConstraintInfo *riinfo, TupleTableSlot *slot, TupleDesc pkdesc)
  */
 static YBCPgYBTupleIdDescriptor *
 YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
-							TupleTableSlot *slot, EState *estate)
+							TupleTableSlot *slot, EState *estate, bool error)
 {
 	// elog(INFO, "YBCBuildYBTupleIdDescriptor estate %p", estate);
 	bool using_index = false;
@@ -304,7 +304,8 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 			Oid partoid = FindLeafPartitionOid(pkrelinfo, proute, pkslot, estate);
 			pfree(pkrelinfo);
 			ExecDropSingleTupleTableSlot(pkslot);
-			if (partoid == InvalidOid)
+			ExecCleanupTupleRouting(NULL, proute);
+			if (partoid == InvalidOid && error)
 			{
 				RI_QueryKey qkey;
 				ri_BuildQueryKey(&qkey, riinfo, RI_PLAN_CHECK_LOOKUPPK);
@@ -316,9 +317,11 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 								   qkey.constr_queryno,
 								   false /* partgone */);
 			}
-			ExecCleanupTupleRouting(NULL, proute);
-			RelationClose(source_rel);
-			source_rel = RelationIdGetRelation(partoid);
+			if (partoid != InvalidOid)
+			{
+				RelationClose(source_rel);
+				source_rel = RelationIdGetRelation(partoid);
+			}
 		}
 	}
 	Oid source_rel_relfilenode_oid = YbGetRelfileNodeId(source_rel);
@@ -498,7 +501,8 @@ RI_FKey_check(TriggerData *trigdata)
 		 * Use fast path for FK check in case ybctid for row in source table can be build from
 		 * referenced table tuple.
 		 */
-		YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(riinfo, newslot, trigdata->estate);
+		YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(riinfo, newslot, trigdata->estate, true);
+
 		if (descr)
 		{
 			bool found = false;
@@ -599,6 +603,7 @@ RI_FKey_check(TriggerData *trigdata)
 Datum
 RI_FKey_check_ins(PG_FUNCTION_ARGS)
 {
+	// elog(INFO, "RI_FKey_check_ins");
 	/* Check that this is a valid trigger call on the right time and event. */
 	ri_CheckTrigger(fcinfo, "RI_FKey_check_ins", RI_TRIGTYPE_INSERT);
 
@@ -615,6 +620,7 @@ RI_FKey_check_ins(PG_FUNCTION_ARGS)
 Datum
 RI_FKey_check_upd(PG_FUNCTION_ARGS)
 {
+	// elog(INFO, "RI_FKey_check_upd");
 	/* Check that this is a valid trigger call on the right time and event. */
 	ri_CheckTrigger(fcinfo, "RI_FKey_check_upd", RI_TRIGTYPE_UPDATE);
 
@@ -3225,7 +3231,7 @@ void
 YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel, TupleTableSlot *new_slot, EState* estate)
 {
 	YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(
-		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot, estate);
+		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot, estate, false);
 	/*
 	 * Check that ybctid for row in source table can be build from referenced table tuple
 	 * (i.e. no type casting is required)

@@ -6141,6 +6141,8 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 					  bool is_crosspart_update)
 {
 	Relation	rel = relinfo->ri_RelationDesc;
+	// elog(INFO, "AfterTriggerSaveEvent relation: %s, event %d", RelationGetRelationName(rel), event);
+
 	// Relation srcrel = NULL;
 	// if (src_partinfo)
 	// 	srcrel = src_partinfo->ri_RelationDesc;
@@ -6439,13 +6441,17 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 					if (is_crosspart_update &&
 						TRIGGER_FIRED_BY_DELETE(event) &&
 						trigger->tgisclone)
+					{
+						// elog(INFO, "Skipping this RI_TRIGGER_PK event (delete, cross partition)");
 						continue;
+					}
 
 					/* Update or delete on trigger's PK table */
 					if (!RI_FKey_pk_upd_check_required(trigger, rel,
 													   oldslot, newslot,
 													   &estate->yb_skip_entities))
 					{
+						// elog(INFO, "Skipping this RI_TRIGGER_PK event");
 						/* skip queuing this event */
 						continue;
 					}
@@ -6469,6 +6475,7 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 													   oldslot, newslot,
 													   &estate->yb_skip_entities))
 					{
+						// elog(INFO, "Skipping this RI_TRIGGER_FK event");
 						/* skip queuing this event */
 						continue;
 					}

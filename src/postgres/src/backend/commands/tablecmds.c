@@ -12312,7 +12312,7 @@ YbFKTriggerScanBegin(TableScanDesc scan,
 					  &YbFKTriggerScanVTableNotYugaByteEnabled;
 	descr->per_batch_cxt = per_batch_cxt;
 	descr->estate = CreateExecutorState();
-	elog(INFO, "descr->estate %p", descr->estate);
+	// elog(INFO, "descr->estate %p", descr->estate);
 	return descr;
 }
 
@@ -12423,6 +12423,7 @@ validateForeignKeyConstraint(char *conname,
 		trigdata.tg_trigtuple = ExecFetchSlotHeapTuple(ybSlot, false, NULL);
 		trigdata.tg_trigslot = ybSlot;
 		trigdata.tg_trigger = &trig;
+		trigdata.estate = fk_scan->estate;
 
 		fcinfo->context = (Node *) &trigdata;
 
