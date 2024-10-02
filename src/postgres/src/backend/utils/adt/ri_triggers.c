@@ -270,18 +270,9 @@ helper(const RI_ConstraintInfo *riinfo, TupleTableSlot *slot, TupleDesc pkdesc)
  */
 static YBCPgYBTupleIdDescriptor *
 YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
-							TupleTableSlot *slot, EState *estate, bool error)
+							TupleTableSlot *slot, EState *estate)
 {
-	// elog(INFO, "YBCBuildYBTupleIdDescriptor estate %p", estate);
 	bool using_index = false;
-	// bool local_estate = false;
-
-	// if (estate == NULL)
-	// {
-	// 	elog(INFO, "estate == NULL, setting local_estate to true");
-	// 	estate = CreateExecutorState();
-	// 	local_estate = true;
-	// }
 
 	Relation idx_rel = RelationIdGetRelation(riinfo->conindid);
 	Relation source_rel = idx_rel;
@@ -305,18 +296,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 			pfree(pkrelinfo);
 			ExecDropSingleTupleTableSlot(pkslot);
 			ExecCleanupTupleRouting(NULL, proute);
-			if (partoid == InvalidOid && error)
-			{
-				RI_QueryKey qkey;
-				ri_BuildQueryKey(&qkey, riinfo, RI_PLAN_CHECK_LOOKUPPK);
-				ri_ReportViolation(riinfo,
-								   RelationIdGetRelation(riinfo->pk_relid),
-								   RelationIdGetRelation(riinfo->fk_relid),
-								   slot,
-								   NULL,
-								   qkey.constr_queryno,
-								   false /* partgone */);
-			}
 			if (partoid != InvalidOid)
 			{
 				RelationClose(source_rel);
@@ -372,12 +351,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	if (using_index && result)
 		YBCFillUniqueIndexNullAttribute(result);
 
-	// if (local_estate)
-	// {
-	// 	ExecCloseResultRelations(estate);
-	// 	ExecResetTupleTable(estate->es_tupleTable, false);
-	// 	FreeExecutorState(estate);
-	// }
 	return result;
 }
 
@@ -501,7 +474,7 @@ RI_FKey_check(TriggerData *trigdata)
 		 * Use fast path for FK check in case ybctid for row in source table can be build from
 		 * referenced table tuple.
 		 */
-		YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(riinfo, newslot, trigdata->estate, true);
+		YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(riinfo, newslot, trigdata->estate);
 
 		if (descr)
 		{
@@ -3231,7 +3204,7 @@ void
 YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel, TupleTableSlot *new_slot, EState* estate)
 {
 	YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(
-		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot, estate, false);
+		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot, estate);
 	/*
 	 * Check that ybctid for row in source table can be build from referenced table tuple
 	 * (i.e. no type casting is required)
