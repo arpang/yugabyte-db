@@ -548,7 +548,6 @@ extern void end_tup_output(TupOutputState *tstate);
  */
 extern EState *CreateExecutorState(void);
 extern void FreeExecutorState(EState *estate);
-extern void ArpanPrint(EState* estate, char* identifier);
 extern ExprContext *CreateExprContext(EState *estate);
 extern ExprContext *CreateWorkExprContext(EState *estate);
 extern ExprContext *CreateStandaloneExprContext(void);
