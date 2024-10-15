@@ -105,7 +105,8 @@ doBindsForIdxWrite(YBCPgStatement stmt,
 
 	/*
 	 * For unique indexes we need to set the key suffix system column:
-	 * - to ybbasectid if index has NULLS DISTINCT and at least one index key column is null.
+	 * - to ybbasectid if index uses nulls-are-distinct mode and at least one
+	 * index key column is null.
 	 * - to NULL otherwise (setting is_null to true is enough).
 	 */
 	if (unique_index)
