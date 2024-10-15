@@ -209,15 +209,14 @@ DELETE FROM ab_tab WHERE a IS null;
 -- NULLS NOT DISTINCT
 DROP INDEX ah_idx;
 CREATE UNIQUE INDEX NONCONCURRENTLY ah_idx ON ab_tab (a HASH) NULLS NOT DISTINCT;
-ERROR:  UNIQUE NULLS NOT DISTINCT not supported yet
-LINE 1: ...E INDEX NONCONCURRENTLY ah_idx ON ab_tab (a HASH) NULLS NOT ...
-                                                             ^
-HINT:  See https://github.com/yugabyte/yugabyte-db/issues/24399. React with thumbs up to raise its priority
-/* TODO(jason): uncomment when NULLS NOT DISTINCT is supported
 INSERT INTO ab_tab VALUES (null, null);
 INSERT INTO ab_tab VALUES (null, null) ON CONFLICT DO NOTHING;
 SELECT * FROM ab_tab WHERE a IS NULL ORDER BY b;
-*/
+ a | b 
+---+---
+   |  
+(1 row)
+
 --- Partitioned table
 CREATE TABLE pp (i serial, j int, UNIQUE (j)) PARTITION BY RANGE (j);
 CREATE TABLE pp1 PARTITION OF pp FOR VALUES FROM (0) TO (10);

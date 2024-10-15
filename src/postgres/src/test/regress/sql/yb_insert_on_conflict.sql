@@ -96,11 +96,9 @@ DELETE FROM ab_tab WHERE a IS null;
 -- NULLS NOT DISTINCT
 DROP INDEX ah_idx;
 CREATE UNIQUE INDEX NONCONCURRENTLY ah_idx ON ab_tab (a HASH) NULLS NOT DISTINCT;
-/* TODO(jason): uncomment when NULLS NOT DISTINCT is supported
 INSERT INTO ab_tab VALUES (null, null);
 INSERT INTO ab_tab VALUES (null, null) ON CONFLICT DO NOTHING;
 SELECT * FROM ab_tab WHERE a IS NULL ORDER BY b;
-*/
 
 --- Partitioned table
 CREATE TABLE pp (i serial, j int, UNIQUE (j)) PARTITION BY RANGE (j);
