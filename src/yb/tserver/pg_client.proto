@@ -311,6 +311,7 @@ message PgCreateTableRequestPB {
   PgObjectIdPB base_table_id = 15;
   bool is_unique_index = 16;
   bool skip_index_backfill = 17;
+  bool nulls_not_distinct = 25; // only applicable for unique indexes.
 
   bool is_matview = 21;
   // Used during a table rewrite operation to explicitly store the PG table oid.

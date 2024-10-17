@@ -288,9 +288,12 @@ Status PgCreateTable::Exec() {
 }
 
 void PgCreateTable::SetupIndex(
-    const PgObjectId& base_table_id, bool is_unique_index, bool skip_index_backfill) {
+    const PgObjectId& base_table_id, bool is_unique_index, bool nulls_not_distinct,
+    bool skip_index_backfill) {
   base_table_id.ToPB(req_.mutable_base_table_id());
   req_.set_is_unique_index(is_unique_index);
+  if (is_unique_index)
+    req_.set_nulls_not_distinct(nulls_not_distinct);
   req_.set_skip_index_backfill(skip_index_backfill);
 }
 

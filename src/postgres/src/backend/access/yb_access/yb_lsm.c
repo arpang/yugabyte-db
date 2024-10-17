@@ -104,18 +104,18 @@ doBindsForIdxWrite(YBCPgStatement stmt,
 	const bool unique_index = index->rd_index->indisunique;
 
 	/*
-	 * For unique indexes we need to set the key suffix system column:
-	 * - to ybbasectid if index uses nulls-are-distinct mode and at least one
-	 * index key column is null.
+	 * For unique indexes that use nulls-are-distinct mode we need to set the
+	 * key suffix system column:
+	 * - to ybbasectid if at least one index key column is null.
 	 * - to NULL otherwise (setting is_null to true is enough).
 	 */
-	if (unique_index)
+	if (unique_index && !index->rd_index->indnullsnotdistinct )
 		YbBindDatumToColumn(stmt,
 							YBUniqueIdxKeySuffixAttributeNumber,
 							BYTEAOID,
 							InvalidOid,
 							ybbasectid,
-							index->rd_index->indnullsnotdistinct || !has_null_attr /* is_null */,
+							!has_null_attr /* is_null */,
 							NULL /* null_type_entity */);
 
 	/*
@@ -216,13 +216,13 @@ doAssignForIdxUpdate(YBCPgStatement stmt,
 							false,
 							NULL /* null_type_entity */);
 
-	else
+	else if (!index->rd_index->indnullsnotdistinct)
 		YbBindDatumToColumn(stmt,
 							YBUniqueIdxKeySuffixAttributeNumber,
 							BYTEAOID,
 							InvalidOid,
 							old_ybbasectid,
-							index->rd_index->indnullsnotdistinct || !has_null_attr /* is_null */,
+							!has_null_attr /* is_null */,
 							NULL /* null_type_entity */);
 }
 
