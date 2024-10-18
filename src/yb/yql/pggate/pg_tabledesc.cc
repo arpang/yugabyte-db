@@ -238,6 +238,9 @@ const client::YBTableName& PgTableDesc::table_name() const {
 size_t PgTableDesc::num_range_key_columns() const {
   // skip system column: ybidxbasectid/ybuniqueidxkeysuffix of INDEX/UNIQUE INDEX
   if (IsIndex()) {
+    if (resp_.index_info().pg_nulls_not_distinct()) {
+      return schema().num_range_key_columns();
+    }
     return schema().num_range_key_columns() - 1;
   }
   return schema().num_range_key_columns();

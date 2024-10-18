@@ -192,6 +192,9 @@ Status PgCreateTable::Exec(
     table_creator->indexed_table_id(indexed_table_id_.GetYbTableId());
     if (req_.is_unique_index()) {
       table_creator->is_unique_index(true);
+      if (req_.nulls_not_distinct()) {
+        table_creator->nulls_not_distinct(true);
+      }
     }
     if (req_.skip_index_backfill()) {
       table_creator->skip_index_backfill(true);

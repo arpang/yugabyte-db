@@ -213,6 +213,11 @@ YBTableCreator& YBTableCreator::is_unique_index(bool is_unique_index) {
   return *this;
 }
 
+YBTableCreator& YBTableCreator::nulls_not_distinct(bool nulls_not_distinct) {
+  index_info_->set_pg_nulls_not_distinct(nulls_not_distinct);
+  return *this;
+}
+
 YBTableCreator& YBTableCreator::add_vector_options(
     const PgVectorIdxOptionsPB& vec_options) {
   *index_info_->mutable_vector_idx_options() = vec_options;
