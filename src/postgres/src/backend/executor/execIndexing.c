@@ -1303,7 +1303,7 @@ check_exclusion_or_unique_constraint(Relation heap, Relation index,
 		ScanKeyEntryInitialize(&scankeys[i],
 							   isnull[i] ? SK_ISNULL | SK_SEARCHNULL : 0,
 							   i + 1,
-							   isnull[i] ? InvalidStrategy : constr_strats[i],
+							   isnull[i] ? InvalidStrategy : constr_strats[i], /* YB expects invalid strategy for NULL search. See YbShouldPushdownScanPrimaryKey. */
 							   InvalidOid,
 							   index_collations[i],
 							   constr_procs[i],

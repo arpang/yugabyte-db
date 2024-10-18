@@ -205,7 +205,8 @@ doAssignForIdxUpdate(YBCPgStatement stmt,
 	/*
 	 * Bind to key columns that do not have an attnum in postgres:
 	 * - For non-unique indexes, this is the base table CTID.
-	 * - For unique indexes, this is the unique key suffix.
+	 * - For unique indexes in nulls-are-distinct mode, this is the unique key
+	 * suffix.
 	 */
 	if (!unique_index)
 		YbBindDatumToColumn(stmt,

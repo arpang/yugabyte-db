@@ -58,7 +58,6 @@ enum class PgSystemAttrNum : int {
                                 // index row will be set to:
                                 //  - the base table ctid when one or more indexed cols are null
                                 //  - to null otherwise (all indexed cols are non-null).
-
 };
 
 } // namespace yb
