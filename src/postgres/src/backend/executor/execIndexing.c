@@ -139,7 +139,8 @@ static bool check_exclusion_or_unique_constraint(Relation heap, Relation index,
 												 CEOUC_WAIT_MODE waitMode,
 												 bool errorOK,
 												 ItemPointer conflictTid,
-												 TupleTableSlot **ybConflictSlot);
+												 TupleTableSlot **ybConflictSlot,
+												 struct yb_insert_on_conflict_batching_hash *ybConflictMap);
 
 static bool index_recheck_constraint(Relation index, Oid *constr_procs,
 									 Datum *existing_values, bool *existing_isnull,
@@ -429,7 +430,8 @@ YbExecDoInsertIndexTuple(ResultRelInfo *resultRelInfo,
 												 tupleid, values, isnull,
 												 estate, false,
 												 waitMode, violationOK, NULL,
-												 NULL /* ybConflictSlot */);
+												 NULL /* ybConflictSlot */,
+												 NULL);
 	}
 
 	if ((checkUnique == UNIQUE_CHECK_PARTIAL ||
@@ -1186,7 +1188,8 @@ ExecCheckIndexConstraints(ResultRelInfo *resultRelInfo, TupleTableSlot *slot,
 													 values, isnull, estate, false,
 													 CEOUC_WAIT, true,
 													 conflictTid,
-													 ybConflictSlot);
+													 ybConflictSlot,
+													 NULL);
 		}
 		if (!satisfiesConstraint)
 			return false;
@@ -1249,7 +1252,8 @@ check_exclusion_or_unique_constraint(Relation heap, Relation index,
 									 CEOUC_WAIT_MODE waitMode,
 									 bool violationOK,
 									 ItemPointer conflictTid,
-									 TupleTableSlot **ybConflictSlot)
+									 TupleTableSlot **ybConflictSlot,
+									 struct yb_insert_on_conflict_batching_hash *ybConflictMap)
 {
 	Oid		   *constr_procs;
 	uint16	   *constr_strats;
@@ -1374,6 +1378,16 @@ retry:
 								 * conflict */
 		}
 
+		if (ybConflictMap)
+		{
+			YbInsertOnConflictBatchingMapInsert(ybConflictMap,
+												indnkeyatts,
+												values,
+												isnull,
+												NULL /* slot */);
+			break;
+		}
+
 		/*
 		 * At this point we have either a conflict or a potential conflict.
 		 *
@@ -1475,7 +1489,7 @@ retry:
 	 * TODO(jason): this is not necessary for DO NOTHING, so it could be freed
 	 * here as a minor optimization in that case.
 	 */
-	if (!*ybConflictSlot)
+	if (!ybConflictSlot || !*ybConflictSlot)
 		ExecDropSingleTupleTableSlot(existing_slot);
 	return !conflict;
 }
@@ -1497,7 +1511,8 @@ check_exclusion_constraint(Relation heap, Relation index,
 												values, isnull,
 												estate, newIndex,
 												CEOUC_WAIT, false, NULL,
-												NULL /* ybConflictSlot */);
+												NULL /* ybConflictSlot */,
+												NULL);
 }
 
 /*
@@ -1785,26 +1800,35 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 					   values,
 					   isnull);
 
-		/*
-		 * If any of the input values are NULL, and the index uses the default
-		 * nulls-are-distinct mode, the constraint check is assumed to pass (i.e.,
-		 * we assume the operators are strict).  Otherwise, we interpret the
-		 * constraint as specifying IS NULL for each column whose input value is
-		 * NULL.
-		 */
-		if (!indexInfo->ii_NullsNotDistinct)
+		bool found_null = false;
+		for (int j = 0; j < indnkeyatts; j++)
 		{
-			bool found_null = false;
-			for (int j = 0; j < indnkeyatts; j++)
+			if (isnull[j])
 			{
-				if (isnull[j])
-				{
-					found_null = true;
-					break;
-				}
+				found_null = true;
+				break;
 			}
-			if (found_null)
-				continue;
+		}
+
+		if (indexInfo->ii_NullsNotDistinct)
+		{
+			/* Create an ON CONFLICT batching map. */
+			if (!resultRelInfo->ri_YbConflictMap[idx])
+				resultRelInfo->ri_YbConflictMap[idx] = YbInsertOnConflictBatchingMapCreate(
+					estate->es_query_cxt, resultRelInfo->ri_BatchSize, index->rd_att);
+
+			check_exclusion_or_unique_constraint(heap, index, indexInfo, NULL,
+												 values, isnull, estate, false,
+												 CEOUC_WAIT, true, NULL, NULL, resultRelInfo->ri_YbConflictMap[idx]);
+		}
+		else if (found_null)
+		{
+			/*
+			 * If any of the input values are NULL, and the index uses the
+			 * default nulls-are-distinct mode, the constraint check is assumed
+			 * to pass (i.e., we assume the operators are strict).
+			 */
+			continue;
 		}
 
 		if (indnkeyatts == 1)
@@ -1841,17 +1865,16 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	 * Optimization to bail out early in case there is no batch read RPC to
 	 * send.  An ON CONFLICT batching map will not be created for this index.
 	 */
-	if (array_len == 0)
+	if (array_len == 0 && YbInsertOnConflictBatchingMapEmpty(resultRelInfo->ri_YbConflictMap[idx]))
 	{
 		econtext->ecxt_scantuple = save_scantuple;
 		return;
 	}
 
 	/* Create an ON CONFLICT batching map. */
-	resultRelInfo->ri_YbConflictMap[idx] =
-		YbInsertOnConflictBatchingMapCreate(estate->es_query_cxt,
-											resultRelInfo->ri_BatchSize,
-											index->rd_att);
+	if (!resultRelInfo->ri_YbConflictMap[idx])
+		resultRelInfo->ri_YbConflictMap[idx] = YbInsertOnConflictBatchingMapCreate(
+			estate->es_query_cxt, resultRelInfo->ri_BatchSize, index->rd_att);
 
 	/*
 	 * Create the array used for the RHS of the batch read RPC.

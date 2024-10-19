@@ -276,3 +276,9 @@ YbInsertOnConflictBatchingMapDestroy(struct yb_insert_on_conflict_batching_hash 
 	yb_insert_on_conflict_batching_destroy(tb);
 	MemoryContextDelete(tbctx);
 }
+
+bool
+YbInsertOnConflictBatchingMapEmpty(struct yb_insert_on_conflict_batching_hash *tb)
+{
+	return !tb || tb->members == 0;
+}

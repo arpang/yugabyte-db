@@ -38,3 +38,6 @@ YbInsertOnConflictBatchingMapDelete(struct yb_insert_on_conflict_batching_hash *
 
 void
 YbInsertOnConflictBatchingMapDestroy(struct yb_insert_on_conflict_batching_hash *tb);
+
+bool
+YbInsertOnConflictBatchingMapEmpty(struct yb_insert_on_conflict_batching_hash *tb);
