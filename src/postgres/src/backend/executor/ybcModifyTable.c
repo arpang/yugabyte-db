@@ -564,7 +564,7 @@ YBCBuildNonNullUniqueIndexYBTupleId(Relation unique_index, Datum *values)
 		YBSetupAttrCollationInfo(next_attr, &column_info);
 		++next_attr;
 	}
-	YBCFillUniqueIndexNullAttribute(result);
+	YBCFillUniqueIndexNullAttribute(result, unique_index);
 	return result;
 }
 

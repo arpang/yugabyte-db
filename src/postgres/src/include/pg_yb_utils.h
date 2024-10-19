@@ -830,7 +830,7 @@ bool YBFollowerReadsBehaviorBefore20482();
  */
 YBCPgYBTupleIdDescriptor* YBCCreateYBTupleIdDescriptor(Oid db_oid, Oid table_relfilenode_oid,
 	int nattrs);
-void YBCFillUniqueIndexNullAttribute(YBCPgYBTupleIdDescriptor* descr);
+void YBCFillUniqueIndexNullAttribute(YBCPgYBTupleIdDescriptor* descr, Relation index);
 
 /*
  * Lazily loads yb_table_properties field in Relation.

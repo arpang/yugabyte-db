@@ -2756,7 +2756,9 @@ YBCPgYBTupleIdDescriptor* YBCCreateYBTupleIdDescriptor(Oid db_oid, Oid table_rel
 	return result;
 }
 
-void YBCFillUniqueIndexNullAttribute(YBCPgYBTupleIdDescriptor* descr) {
+void YBCFillUniqueIndexNullAttribute(YBCPgYBTupleIdDescriptor* descr, Relation index) {
+	if (index->rd_index->indnullsnotdistinct)
+		return;
 	YBCPgAttrValueDescriptor* last_attr = descr->attrs + descr->nattrs - 1;
 	last_attr->attr_num = YBUniqueIdxKeySuffixAttributeNumber;
 	last_attr->type_entity = YbDataTypeFromOidMod(YBUniqueIdxKeySuffixAttributeNumber, BYTEAOID);
