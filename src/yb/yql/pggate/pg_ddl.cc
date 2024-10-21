@@ -293,7 +293,9 @@ void PgCreateTable::SetupIndex(
   base_table_id.ToPB(req_.mutable_base_table_id());
   req_.set_is_unique_index(is_unique_index);
   if (is_unique_index)
+  {
     req_.set_nulls_not_distinct(nulls_not_distinct);
+  }
   req_.set_skip_index_backfill(skip_index_backfill);
 }
 

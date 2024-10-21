@@ -278,7 +278,7 @@ YbInsertOnConflictBatchingMapDestroy(struct yb_insert_on_conflict_batching_hash 
 }
 
 bool
-YbInsertOnConflictBatchingMapEmpty(struct yb_insert_on_conflict_batching_hash *tb)
+YbIsInsertOnConflictBatchingMapEmpty(struct yb_insert_on_conflict_batching_hash *tb)
 {
 	return !tb || tb->members == 0;
 }

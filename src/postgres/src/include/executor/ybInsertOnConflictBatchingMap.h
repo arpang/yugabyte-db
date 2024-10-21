@@ -40,4 +40,4 @@ void
 YbInsertOnConflictBatchingMapDestroy(struct yb_insert_on_conflict_batching_hash *tb);
 
 bool
-YbInsertOnConflictBatchingMapEmpty(struct yb_insert_on_conflict_batching_hash *tb);
+YbIsInsertOnConflictBatchingMapEmpty(struct yb_insert_on_conflict_batching_hash *tb);

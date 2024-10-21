@@ -1816,7 +1816,13 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 
 		if (found_null)
 		{
-
+			/*
+			 * If any of the input values are NULL, and the index uses the
+			 * - nulls-not-distinct mode: Since NULLs cannot be looked up in
+			 * 		batched fashion, do a one-off loopup.
+			 * - nulls-are-distinct mode: the constraint check is assumed
+			 * 		to pass (i.e., we assume the operators are strict).
+			 */
 			if (indexInfo->ii_NullsNotDistinct)
 			{
 				/* Create an ON CONFLICT batching map. */
@@ -1842,11 +1848,6 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 													 NULL /* ybConflictSlot */,
 													 resultRelInfo->ri_YbConflictMap[idx]);
 			}
-			/*
-			 * If any of the input values are NULL, and the index uses the
-			 * default nulls-are-distinct mode, the constraint check is assumed
-			 * to pass (i.e., we assume the operators are strict).
-			 */
 			continue;
 		}
 
@@ -1884,7 +1885,8 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	 * Optimization to bail out early in case there is no batch read RPC to
 	 * send.  An ON CONFLICT batching map will not be created for this index.
 	 */
-	if (array_len == 0 && YbInsertOnConflictBatchingMapEmpty(resultRelInfo->ri_YbConflictMap[idx]))
+	if (array_len == 0 && YbIsInsertOnConflictBatchingMapEmpty(
+							  resultRelInfo->ri_YbConflictMap[idx]))
 	{
 		econtext->ecxt_scantuple = save_scantuple;
 		return;
