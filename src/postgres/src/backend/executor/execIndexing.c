@@ -1814,33 +1814,34 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 			}
 		}
 
-		if (indexInfo->ii_NullsNotDistinct)
+		if (found_null)
 		{
-			/* Create an ON CONFLICT batching map. */
-			if (!resultRelInfo->ri_YbConflictMap[idx])
-				resultRelInfo->ri_YbConflictMap[idx] = YbInsertOnConflictBatchingMapCreate(
-					estate->es_query_cxt, resultRelInfo->ri_BatchSize, index->rd_att);
 
-			/*
-			 * Re-use check_exclusion_or_unique_constraint to populate batching
-			 * map to avoid code duplication.
-			 */
-			check_exclusion_or_unique_constraint(heap,
-												 index,
-												 indexInfo,
-												 NULL /* tupleid */,
-												 values,
-												 isnull,
-												 estate,
-												 false /* newIndex */,
-												 CEOUC_WAIT,
-												 true /* violationOK */,
-												 NULL /* conflictTid */,
-												 NULL /* ybConflictSlot */,
-												 resultRelInfo->ri_YbConflictMap[idx]);
-		}
-		else if (found_null)
-		{
+			if (indexInfo->ii_NullsNotDistinct)
+			{
+				/* Create an ON CONFLICT batching map. */
+				if (!resultRelInfo->ri_YbConflictMap[idx])
+					resultRelInfo->ri_YbConflictMap[idx] = YbInsertOnConflictBatchingMapCreate(
+						estate->es_query_cxt, resultRelInfo->ri_BatchSize, index->rd_att);
+
+				/*
+				 * Re-use check_exclusion_or_unique_constraint to populate
+				 * batching map to avoid code duplication.
+				 */
+				check_exclusion_or_unique_constraint(heap,
+													 index,
+													 indexInfo,
+													 NULL /* tupleid */,
+													 values,
+													 isnull,
+													 estate,
+													 false /* newIndex */,
+													 CEOUC_WAIT,
+													 true /* violationOK */,
+													 NULL /* conflictTid */,
+													 NULL /* ybConflictSlot */,
+													 resultRelInfo->ri_YbConflictMap[idx]);
+			}
 			/*
 			 * If any of the input values are NULL, and the index uses the
 			 * default nulls-are-distinct mode, the constraint check is assumed
