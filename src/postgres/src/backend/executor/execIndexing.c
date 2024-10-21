@@ -431,7 +431,7 @@ YbExecDoInsertIndexTuple(ResultRelInfo *resultRelInfo,
 												 estate, false,
 												 waitMode, violationOK, NULL,
 												 NULL /* ybConflictSlot */,
-												 NULL);
+												 NULL /* ybConflictMap */);
 	}
 
 	if ((checkUnique == UNIQUE_CHECK_PARTIAL ||
@@ -1189,7 +1189,7 @@ ExecCheckIndexConstraints(ResultRelInfo *resultRelInfo, TupleTableSlot *slot,
 													 CEOUC_WAIT, true,
 													 conflictTid,
 													 ybConflictSlot,
-													 NULL);
+													 NULL /* ybConflictMap */);
 		}
 		if (!satisfiesConstraint)
 			return false;
@@ -1307,7 +1307,11 @@ check_exclusion_or_unique_constraint(Relation heap, Relation index,
 		ScanKeyEntryInitialize(&scankeys[i],
 							   isnull[i] ? SK_ISNULL | SK_SEARCHNULL : 0,
 							   i + 1,
-							   isnull[i] ? InvalidStrategy : constr_strats[i], /* YB expects invalid strategy for NULL search. See YbShouldPushdownScanPrimaryKey. */
+							   /*
+								* YB expects invalid strategy for NULL search.
+								* See YbShouldPushdownScanPrimaryKey.
+								*/
+							   isnull[i] ? InvalidStrategy : constr_strats[i],
 							   InvalidOid,
 							   index_collations[i],
 							   constr_procs[i],
@@ -1512,7 +1516,7 @@ check_exclusion_constraint(Relation heap, Relation index,
 												estate, newIndex,
 												CEOUC_WAIT, false, NULL,
 												NULL /* ybConflictSlot */,
-												NULL);
+												NULL /* ybConflictMap */);
 }
 
 /*
@@ -1817,9 +1821,23 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 				resultRelInfo->ri_YbConflictMap[idx] = YbInsertOnConflictBatchingMapCreate(
 					estate->es_query_cxt, resultRelInfo->ri_BatchSize, index->rd_att);
 
-			check_exclusion_or_unique_constraint(heap, index, indexInfo, NULL,
-												 values, isnull, estate, false,
-												 CEOUC_WAIT, true, NULL, NULL, resultRelInfo->ri_YbConflictMap[idx]);
+			/*
+			 * Re-use check_exclusion_or_unique_constraint to populate batching
+			 * map to avoid code duplication.
+			 */
+			check_exclusion_or_unique_constraint(heap,
+												 index,
+												 indexInfo,
+												 NULL /* tupleid */,
+												 values,
+												 isnull,
+												 estate,
+												 false /* newIndex */,
+												 CEOUC_WAIT,
+												 true /* violationOK */,
+												 NULL /* conflictTid */,
+												 NULL /* ybConflictSlot */,
+												 resultRelInfo->ri_YbConflictMap[idx]);
 		}
 		else if (found_null)
 		{
