@@ -268,7 +268,7 @@ void PgCreateTable::EnsureYBbasectidColumnCreated() {
   // Value of this column is set to ybctid (same as ybbasectid) for index row in case index
   // is unique and at least one of its key column is NULL.
   // In all other case value of this column is NULL.
-  if (req_.is_unique_index() && !req_.nulls_not_distinct()) {
+  if (req_.is_unique_index()) {
     auto name = "ybuniqueidxkeysuffix";
     client::YBColumnSpec* col = schema_builder_.AddColumn(name)->Type(yb_type);
     col->Order(to_underlying(PgSystemAttrNum::kYBUniqueIdxKeySuffix));
