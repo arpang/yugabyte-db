@@ -109,13 +109,13 @@ doBindsForIdxWrite(YBCPgStatement stmt,
 	 * - to ybbasectid if at least one index key column is null.
 	 * - to NULL otherwise (setting is_null to true is enough).
 	 */
-	if (unique_index && !index->rd_index->indnullsnotdistinct )
+	if (unique_index)
 		YbBindDatumToColumn(stmt,
 							YBUniqueIdxKeySuffixAttributeNumber,
 							BYTEAOID,
 							InvalidOid,
 							ybbasectid,
-							!has_null_attr /* is_null */,
+							index->rd_index->indnullsnotdistinct || !has_null_attr /* is_null */,
 							NULL /* null_type_entity */);
 
 	/*
@@ -217,13 +217,13 @@ doAssignForIdxUpdate(YBCPgStatement stmt,
 							false,
 							NULL /* null_type_entity */);
 
-	else if (!index->rd_index->indnullsnotdistinct)
+	else
 		YbBindDatumToColumn(stmt,
 							YBUniqueIdxKeySuffixAttributeNumber,
 							BYTEAOID,
 							InvalidOid,
 							old_ybbasectid,
-							!has_null_attr /* is_null */,
+							index->rd_index->indnullsnotdistinct || !has_null_attr /* is_null */,
 							NULL /* null_type_entity */);
 }
 
