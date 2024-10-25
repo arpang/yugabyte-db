@@ -1049,7 +1049,6 @@ Status PgApiImpl::NewCreateIndex(const char *database_name,
                                  bool is_shared_index,
                                  bool is_sys_catalog_index,
                                  bool is_unique_index,
-                                 bool nulls_not_distinct,
                                  const bool skip_index_backfill,
                                  bool if_not_exist,
                                  bool is_colocated_via_database,
@@ -1065,7 +1064,7 @@ Status PgApiImpl::NewCreateIndex(const char *database_name,
       is_colocated_via_database, tablegroup_oid, colocation_id,
       tablespace_oid, false /* is_matview */, pg_table_id, old_relfilenode_id,
       false /* is_truncate */);
-  stmt->SetupIndex(base_table_id, is_unique_index, nulls_not_distinct, skip_index_backfill);
+  stmt->SetupIndex(base_table_id, is_unique_index, skip_index_backfill);
   if (pg_txn_manager_->IsDdlMode()) {
       stmt->UseTransaction();
   }

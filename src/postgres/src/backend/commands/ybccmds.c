@@ -1155,7 +1155,6 @@ YBCCreateIndex(const char *indexName,
 									   rel->rd_rel->relisshared,
 									   is_sys_catalog_index,
 									   indexInfo->ii_Unique,
-									   indexInfo->ii_NullsNotDistinct,
 									   skip_index_backfill,
 									   false /* if_not_exists */,
 									   MyDatabaseColocated && is_colocated

@@ -134,9 +134,6 @@ class YBTableCreator {
   // For index table: sets whether this is a unique index.
   YBTableCreator& is_unique_index(bool is_unique_index);
 
-  // For a unqiue index: sets whether this uses nulls_not_distinct.
-  YBTableCreator& nulls_not_distinct(bool nulls_not_distinct);
-
   // For index table: should backfill be deferred for batching.
   YBTableCreator& is_backfill_deferred(bool is_backfill_deferred);
 

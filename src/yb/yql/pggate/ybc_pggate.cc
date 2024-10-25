@@ -1190,7 +1190,6 @@ YBCStatus YBCPgNewCreateIndex(const char *database_name,
                               bool is_shared_index,
                               bool is_sys_catalog_index,
                               bool is_unique_index,
-                              bool nulls_not_distinct,
                               const bool skip_index_backfill,
                               bool if_not_exist,
                               bool is_colocated_via_database,
@@ -1209,8 +1208,8 @@ YBCStatus YBCPgNewCreateIndex(const char *database_name,
 
   return ToYBCStatus(pgapi->NewCreateIndex(database_name, schema_name, index_name, index_id,
                                            table_id, is_shared_index, is_sys_catalog_index,
-                                           is_unique_index, nulls_not_distinct, skip_index_backfill,
-                                           if_not_exist, is_colocated_via_database, tablegroup_id,
+                                           is_unique_index, skip_index_backfill, if_not_exist,
+                                           is_colocated_via_database, tablegroup_id,
                                            colocation_id, tablespace_id, pg_table_id,
                                            old_relfilenode_id, handle));
 }

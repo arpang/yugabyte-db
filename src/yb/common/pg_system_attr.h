@@ -52,12 +52,12 @@ enum class PgSystemAttrNum : int {
   // they are chosen to avoid potential conflict with Postgres' own sys attributes now and future.
   kYBRowId              = -100, // ybrowid: auto-generated key-column for tables without pkey.
   kYBIdxBaseTupleId     = -101, // ybidxbasectid: for indexes ybctid of the indexed table row.
-  kYBUniqueIdxKeySuffix = -102, // ybuniqueidxkeysuffix: extra key column for unique indexes that
-                                // use nulls-are-distinct mode, used to ensure SQL semantics for
-                                // null (null != null) in DocDB (where null == null). For each
-                                // index row will be set to:
-                                //  - the base table ctid when one or more indexed cols are null
-                                //  - to null otherwise (all indexed cols are non-null).
+  kYBUniqueIdxKeySuffix = -102, // ybuniqueidxkeysuffix: extra key column for unique indexes, used
+                                // to ensure SQL semantics of nulls-are-distinct mode (null != null)
+                                // in DocDB (where null == null). For each index it will be set to:
+                                //  - the base table ctid if the index uses nulls-are-distinct mode
+                                //    and one or more indexed cols are null.
+                                //  - to null otherwise.
 };
 
 } // namespace yb

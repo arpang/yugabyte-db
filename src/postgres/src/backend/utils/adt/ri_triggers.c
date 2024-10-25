@@ -307,7 +307,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo, TupleTableSlot *slo
 	}
 	RelationClose(source_rel);
 	if (using_index && result)
-		YBCFillUniqueIndexNullAttribute(result, idx_rel);
+		YBCFillUniqueIndexNullAttribute(result);
 	return result;
 }
 

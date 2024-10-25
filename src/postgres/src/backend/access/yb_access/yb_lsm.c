@@ -104,9 +104,9 @@ doBindsForIdxWrite(YBCPgStatement stmt,
 	const bool unique_index = index->rd_index->indisunique;
 
 	/*
-	 * For unique indexes that use nulls-are-distinct mode we need to set the
-	 * key suffix system column:
-	 * - to ybbasectid if at least one index key column is null.
+	 * For unique indexes we need to set the key suffix system column:
+	 * - to ybbasectid if the index uses nulls-are-distinct mode and at least
+	 * one index key column is null.
 	 * - to NULL otherwise (setting is_null to true is enough).
 	 */
 	if (unique_index)
@@ -115,7 +115,7 @@ doBindsForIdxWrite(YBCPgStatement stmt,
 							BYTEAOID,
 							InvalidOid,
 							ybbasectid,
-							index->rd_index->indnullsnotdistinct || !has_null_attr /* is_null */,
+							index->rd_index->indnullsnotdistinct ||!has_null_attr /* is_null */,
 							NULL /* null_type_entity */);
 
 	/*
@@ -205,8 +205,7 @@ doAssignForIdxUpdate(YBCPgStatement stmt,
 	/*
 	 * Bind to key columns that do not have an attnum in postgres:
 	 * - For non-unique indexes, this is the base table CTID.
-	 * - For unique indexes in nulls-are-distinct mode, this is the unique key
-	 * suffix.
+	 * - For unique indexes, this is the unique key suffix.
 	 */
 	if (!unique_index)
 		YbBindDatumToColumn(stmt,

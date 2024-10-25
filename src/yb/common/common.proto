@@ -206,7 +206,6 @@ message IndexInfoPB {
   optional uint32 version = 2 [ default = 0]; // Index table's schema version.
   optional bool is_local = 3 [ default = false ];  // Whether the index is a local index
   optional bool is_unique = 7 [ default = false ]; // Whether the index is a unique index
-  optional bool pg_nulls_not_distinct = 36 [ default = false ]; // Only applicable for unique index
   // We should only have this in the elements of "repeated IndexInfoPB indexes" of the
   // SysTablesEntryPB of the main table.
   optional IndexPermissions index_permissions = 12 [ default = INDEX_PERM_READ_WRITE_AND_DELETE ];

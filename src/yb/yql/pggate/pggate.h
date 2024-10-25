@@ -385,7 +385,6 @@ class PgApiImpl {
                         bool is_shared_index,
                         bool is_sys_catalog_index,
                         bool is_unique_index,
-                        bool nulls_not_distinct,
                         const bool skip_index_backfill,
                         bool if_not_exist,
                         bool is_colocated_via_database,
