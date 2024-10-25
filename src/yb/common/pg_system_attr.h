@@ -54,8 +54,9 @@ enum class PgSystemAttrNum : int {
   kYBIdxBaseTupleId     = -101, // ybidxbasectid: for indexes ybctid of the indexed table row.
   kYBUniqueIdxKeySuffix = -102, // ybuniqueidxkeysuffix: extra key column for unique indexes, used
                                 // to ensure SQL semantics of nulls-are-distinct mode (null != null)
-                                // in DocDB (where null == null). For each index it will be set to:
-                                //  - the base table ctid if the index uses nulls-are-distinct mode
+                                // in DocDB (where null == null). For each index row it will be set
+                                // to:
+                                // - the base table ctid if the index uses nulls-are-distinct mode
                                 //    and one or more indexed cols are null.
                                 //  - to null otherwise.
 };
