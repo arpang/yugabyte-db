@@ -673,3 +673,19 @@ ERROR:  insert or update on table "child_2" violates foreign key constraint "chi
 DETAIL:  Key (v)=(1010002) is not present in table "parent".
 UPDATE child_1 SET v = v * 2 WHERE k < 5001;
 UPDATE child_2 SET v = (v - 1000000) * 2 + 1000000 WHERE k < 5001;
+-- UNIQUE NULLS NOT DISTINCT
+CREATE TABLE pk(a INT PRIMARY KEY, b INT, c INT, UNIQUE NULLS NOT DISTINCT (b, c));
+CREATE TABLE fk_simple(b INT, c INT, FOREIGN KEY (b,c) REFERENCES pk(b, c) MATCH SIMPLE);
+INSERT INTO fk_simple VALUES (NULL, 1);
+INSERT INTO fk_simple VALUES (1, 1);
+ERROR:  insert or update on table "fk_simple" violates foreign key constraint "fk_simple_b_c_fkey"
+DETAIL:  Key (b, c)=(1, 1) is not present in table "pk".
+INSERT INTO fk_simple VALUES (NULL, NULL);
+CREATE TABLE fk_full(b INT, c INT, FOREIGN KEY (b,c) REFERENCES pk(b, c) MATCH FULL);
+INSERT INTO fk_full VALUES (NULL, 1);
+ERROR:  insert or update on table "fk_full" violates foreign key constraint "fk_full_b_c_fkey"
+DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
+INSERT INTO fk_full VALUES (1, 1);
+ERROR:  insert or update on table "fk_full" violates foreign key constraint "fk_full_b_c_fkey"
+DETAIL:  Key (b, c)=(1, 1) is not present in table "pk".
+INSERT INTO fk_full VALUES (NULL, NULL);
