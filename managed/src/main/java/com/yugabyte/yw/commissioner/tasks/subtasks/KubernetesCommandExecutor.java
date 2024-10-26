@@ -87,6 +87,9 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
   private static final List<CommandType> skipNamespaceCommands =
       Arrays.asList(CommandType.POD_INFO, CommandType.COPY_PACKAGE, CommandType.YBC_ACTION);
 
+  public static final int DEFAULT_YSQL_SERVER_RPC_PORT = 5433;
+  public static final int DEFAULT_INTERNAL_YSQL_SERVER_RPC_PORT = 6433;
+
   public enum CommandType {
     CREATE_NAMESPACE,
     APPLY_SECRET,
@@ -243,6 +246,8 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
     public boolean usePreviousGflagsChecksum = false;
     public boolean createNamespacedService = false;
     public Set<String> deleteServiceNames;
+    // Only set false for create universe case initially
+    public boolean masterJoinExistingCluster = true;
   }
 
   protected KubernetesCommandExecutor.Params taskParams() {
@@ -1138,6 +1143,9 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
           XClusterConfigTaskBase.XCLUSTER_ROOT_CERTS_DIR_GFLAG,
           taskUniverseDetails.xClusterInfo.sourceRootCertDirPath);
     }
+    if (taskParams().masterJoinExistingCluster) {
+      masterGFlags.put(GFlagsUtil.MASTER_JOIN_EXISTING_UNIVERSE, "true");
+    }
     if (!masterGFlags.isEmpty()) {
       gflagOverrides.put("master", masterGFlags);
     }
@@ -1150,6 +1158,28 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
         .enableYSQL) { // In the UI, we can choose not to show these entries for read replica.
       tserverGFlags.put("enable_ysql", "false");
     }
+
+    if (primaryClusterIntent.enableYSQL) {
+      // For now, set a default value for the ysql server rpc port.
+      // TO DO:
+      // If the user passed in a custom value, use it as an override.
+      int ysqlServerRpcPort = DEFAULT_YSQL_SERVER_RPC_PORT;
+      if (primaryClusterIntent.enableConnectionPooling) {
+        // For now, set a default value for the internal ysql server rpc port.
+        // TO DO:
+        // Check if the user passed in a value for the internal ysql server rpc port.
+        // If given, use it as an override.
+        int internalYsqlServerRpcPort = DEFAULT_INTERNAL_YSQL_SERVER_RPC_PORT;
+        tserverGFlags.put("enable_ysql_conn_mgr", "true");
+        tserverGFlags.put("allowed_preview_flags_csv", "enable_ysql_conn_mgr");
+        tserverGFlags.put("ysql_conn_mgr_port", String.valueOf(ysqlServerRpcPort));
+        tserverGFlags.put(
+            "pgsql_proxy_bind_address",
+            (primaryClusterIntent.enableIPV6 ? "[::]:" : "0.0.0.0:")
+                + String.valueOf(internalYsqlServerRpcPort));
+      }
+    }
+
     if (!primaryClusterIntent.enableYCQL) {
       tserverGFlags.put("start_cql_proxy", "false");
     }
@@ -1201,7 +1231,9 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
     // timestamp_history_retention_sec gflag final value
     Duration timestampHistoryRetentionPlatform =
         Schedule.getMaxBackupIntervalInUniverseForPITRestore(
-            universeFromDB.getUniverseUUID(), true /* includeIntermediate */);
+            universeFromDB.getUniverseUUID(),
+            true /* includeIntermediate */,
+            null /* excludeScheduleUUID */);
     if (timestampHistoryRetentionPlatform.toSeconds() > 0L) {
       long historyRetentionBufferSecs =
           confGetter.getConfForScope(

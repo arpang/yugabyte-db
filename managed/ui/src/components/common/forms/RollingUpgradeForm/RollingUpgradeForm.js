@@ -160,6 +160,8 @@ export default class RollingUpgradeForm extends Component {
         payload.taskType = 'kubernetes_overrides';
         payload.universeOverrides = values.universeOverrides;
         payload.azOverrides = values.azOverrides;
+        payload.upgradeOption = values.rollingUpgrade ? 'Rolling' : 'Non-Rolling';
+
         break;
       default:
         return;
@@ -439,6 +441,8 @@ export default class RollingUpgradeForm extends Component {
             setHelmOverridesData={(helmYaml) => {
               this.props.change('universeOverrides', helmYaml.universeOverrides);
               this.props.change('azOverrides', helmYaml.azOverrides);
+              this.props.change('rollingUpgrade', helmYaml.rollingUpgrade);
+              this.props.change('timeDelay', helmYaml.timeDelay);
               submitAction();
             }}
             editValues={editValues}
@@ -571,7 +575,7 @@ export default class RollingUpgradeForm extends Component {
                   }}
                 />
               ) : (
-                <span>Select new CA signed cert from the list</span>
+                <span>Select a new certificate from the list</span>
               )
             }
             asyncValidating={

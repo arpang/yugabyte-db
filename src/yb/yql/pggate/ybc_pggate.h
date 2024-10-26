@@ -33,6 +33,11 @@ typedef const void * ConstSliceVector;
 typedef void * SliceSet;
 typedef const void * ConstSliceSet;
 
+typedef struct PgExplicitRowLockStatus {
+  YBCStatus ybc_status;
+  YBCPgExplicitRowLockErrorInfo error_info;
+} YBCPgExplicitRowLockStatus;
+
 // This must be called exactly once to initialize the YB/PostgreSQL gateway API before any other
 // functions in this API are called.
 void YBCInitPgGate(const YBCPgTypeEntity *YBCDataTypeTable, int count,
@@ -47,7 +52,7 @@ void YBCDumpCurrentPgSessionState(YBCPgSessionState* session_data);
 
 void YBCRestorePgSessionState(const YBCPgSessionState* session_data);
 
-YBCStatus YBCPgInitSession(YBCPgExecStatsState* session_stats);
+YBCStatus YBCPgInitSession(YBCPgExecStatsState* session_stats, bool is_binary_upgrade);
 
 uint64_t YBCPgGetSessionID();
 
@@ -118,6 +123,8 @@ YBCStatus YBCFetchFromUrl(const char *url, char **buf);
 
 // Is this node acting as the pg_cron leader?
 bool YBCIsCronLeader();
+YBCStatus YBCSetCronLastMinute(int64_t last_minute);
+YBCStatus YBCGetCronLastMinute(int64_t* last_minute);
 
 //--------------------------------------------------------------------------------------------------
 // YB Bitmap Scan Operations
@@ -332,6 +339,9 @@ YBCStatus YBCPgExecAlterTable(YBCPgStatement handle);
 
 YBCStatus YBCPgAlterTableInvalidateTableCacheEntry(YBCPgStatement handle);
 
+void YBCPgAlterTableInvalidateTableByOid(
+    const YBCPgOid database_oid, const YBCPgOid table_relfilenode_oid);
+
 YBCStatus YBCPgNewDropTable(YBCPgOid database_oid,
                             YBCPgOid table_relfilenode_oid,
                             bool if_exist,
@@ -524,7 +534,7 @@ YBCStatus YBCPgDmlAssignColumn(YBCPgStatement handle,
                                int attr_num,
                                YBCPgExpr attr_value);
 
-YBCStatus YBCPgDmlANNBindVector(YBCPgStatement handle, YBCPgExpr vector);
+YBCStatus YBCPgDmlANNBindVector(YBCPgStatement handle, int vec_att_no, YBCPgExpr vector);
 
 YBCStatus YBCPgDmlANNSetPrefetchSize(YBCPgStatement handle, int prefetch_size);
 
@@ -558,12 +568,12 @@ YBCStatus YBCPgFlushBufferedOperations();
 
 YBCStatus YBCPgNewSample(const YBCPgOid database_oid,
                          const YBCPgOid table_relfilenode_oid,
-                         int targrows,
                          bool is_region_local,
+                         int targrows,
+                         double rstate_w,
+                         uint64_t rand_state_s0,
+                         uint64_t rand_state_s1,
                          YBCPgStatement *handle);
-
-YBCStatus YBCPgInitRandomState(
-    YBCPgStatement handle, double rstate_w, uint64_t rand_state_s0, uint64_t rand_state_s1);
 
 YBCStatus YBCPgSampleNextBlock(YBCPgStatement handle, bool *has_more);
 
@@ -758,10 +768,10 @@ YBCStatus YBCAddForeignKeyReferenceIntent(const YBCPgYBTupleIdDescriptor* descr,
                                           bool relation_is_region_local);
 
 // Explicit Row-level Locking.
-YBCStatus YBCAddExplicitRowLockIntent(
-    YBCPgOid table_relfilenode_oid, uint64_t ybctid,
-    YBCPgOid database_oid, const YBCPgExplicitRowLockParams *params, bool is_region_local);
-YBCStatus YBCFlushExplicitRowLockIntents();
+YBCPgExplicitRowLockStatus YBCAddExplicitRowLockIntent(
+    YBCPgOid table_relfilenode_oid, uint64_t ybctid, YBCPgOid database_oid,
+    const YBCPgExplicitRowLockParams *params, bool is_region_local);
+YBCPgExplicitRowLockStatus YBCFlushExplicitRowLockIntents();
 
 bool YBCIsInitDbModeEnvVarSet();
 
@@ -873,10 +883,12 @@ YBCStatus YBCPgNewDropReplicationSlot(const char *slot_name,
 YBCStatus YBCPgExecDropReplicationSlot(YBCPgStatement handle);
 
 YBCStatus YBCPgInitVirtualWalForCDC(
-    const char *stream_id, const YBCPgOid database_oid, YBCPgOid *relations, size_t num_relations);
+    const char *stream_id, const YBCPgOid database_oid, YBCPgOid *relations, YBCPgOid *relfilenodes,
+    size_t num_relations);
 
 YBCStatus YBCPgUpdatePublicationTableList(
-    const char *stream_id, const YBCPgOid database_oid, YBCPgOid *relations, size_t num_relations);
+    const char *stream_id, const YBCPgOid database_oid, YBCPgOid *relations, YBCPgOid *relfilenodes,
+    size_t num_relations);
 
 YBCStatus YBCPgDestroyVirtualWalForCDC();
 
@@ -899,6 +911,10 @@ void YBCStoreTServerAshSamples(
     uint64_t sample_time);
 
 YBCStatus YBCLocalTablets(YBCPgTabletsDescriptor** tablets, size_t* count);
+
+YBCStatus YBCServersMetrics(YBCPgServerMetricsInfo** serverMetricsInfo, size_t* count);
+
+YBCStatus YBCDatabaseClones(YBCPgDatabaseCloneInfo** databaseClones, size_t* count);
 
 uint64_t YBCPgGetCurrentReadTimePoint();
 YBCStatus YBCRestoreReadTimePoint(uint64_t read_time_point_handle);

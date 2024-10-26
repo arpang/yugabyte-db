@@ -478,6 +478,7 @@ InitProcess(void)
 		   sizeof(MyProc->yb_ash_metadata.client_addr));
 	MyProc->yb_ash_metadata.client_port = 0;
 	MyProc->yb_ash_metadata.addr_family = AF_UNSPEC;
+	MyProc->yb_is_ash_metadata_set = false;
 
 	/*
 	 * Acquire ownership of the PGPROC's latch, so that we can use WaitLatch
@@ -488,7 +489,10 @@ InitProcess(void)
 	SwitchToSharedLatch();
 
 	/* now that we have a proc, report wait events to shared memory */
-	pgstat_set_wait_event_storage(&MyProc->wait_event_info);
+	if (YBIsEnabledInPostgresEnvVar())
+		yb_pgstat_set_wait_event_storage(MyProc);
+	else
+		pgstat_set_wait_event_storage(&MyProc->wait_event_info);
 
 	/*
 	 * We might be reusing a semaphore that belonged to a failed process. So
@@ -890,7 +894,10 @@ ProcKill(int code, Datum arg)
 	 * After that clear MyProc and disown the shared latch.
 	 */
 	SwitchBackToLocalLatch();
-	pgstat_reset_wait_event_storage();
+	if (YBIsEnabledInPostgresEnvVar())
+		yb_pgstat_reset_wait_event_storage();
+	else
+		pgstat_reset_wait_event_storage();
 
 	proc = MyProc;
 	MyProc = NULL;

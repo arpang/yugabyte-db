@@ -42,14 +42,13 @@ struct XClusterOutputClientResponse {
 };
 
 class XClusterPoller;
-struct XClusterClient;
 
 class XClusterOutputClient : public XClusterAsyncExecutor {
  public:
   XClusterOutputClient(
       XClusterPoller* xcluster_poller, const xcluster::ConsumerTabletInfo& consumer_tablet_info,
       const xcluster::ProducerTabletInfo& producer_tablet_info, client::YBClient& local_client,
-      ThreadPool* thread_pool, rpc::Rpcs* rpcs, bool use_local_tserver,
+      ThreadPool* thread_pool, rpc::Rpcs* rpcs, bool use_local_tserver, bool is_automatic_mode,
       rocksdb::RateLimiter* rate_limiter);
   ~XClusterOutputClient();
   void StartShutdown() override;
@@ -134,7 +133,8 @@ class XClusterOutputClient : public XClusterAsyncExecutor {
   cdc::ColocatedSchemaVersionMap colocated_schema_version_map_ GUARDED_BY(lock_);
   client::YBClient& local_client_;
 
-  bool use_local_tserver_;
+  const bool use_local_tserver_;
+  const bool is_automatic_mode_;
 
   std::shared_ptr<client::YBTable> table_;
 
@@ -169,7 +169,7 @@ class XClusterOutputClient : public XClusterAsyncExecutor {
 std::shared_ptr<XClusterOutputClient> CreateXClusterOutputClient(
     XClusterPoller* xcluster_poller, const xcluster::ConsumerTabletInfo& consumer_tablet_info,
     const xcluster::ProducerTabletInfo& producer_tablet_info, client::YBClient& local_client,
-    ThreadPool* thread_pool, rpc::Rpcs* rpcs, bool use_local_tserver,
+    ThreadPool* thread_pool, rpc::Rpcs* rpcs, bool use_local_tserver, bool is_automatic_mode,
     rocksdb::RateLimiter* rate_limiter);
 
 } // namespace tserver

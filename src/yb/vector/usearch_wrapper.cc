@@ -19,17 +19,23 @@
 
 #include "yb/gutil/casts.h"
 
+#include "yb/util/locks.h"
+#include "yb/util/shared_lock.h"
+
 #include "yb/vector/distance.h"
+#include "yb/vector/index_wrapper_base.h"
 #include "yb/vector/usearch_include_wrapper_internal.h"
 #include "yb/vector/coordinate_types.h"
 
 namespace yb::vectorindex {
 
-using unum::usearch::metric_punned_t;
-using unum::usearch::metric_kind_t;
-using unum::usearch::scalar_kind_t;
-using unum::usearch::index_dense_gt;
+using unum::usearch::byte_t;
 using unum::usearch::index_dense_config_t;
+using unum::usearch::index_dense_gt;
+using unum::usearch::metric_kind_t;
+using unum::usearch::metric_punned_t;
+using unum::usearch::output_file_t;
+using unum::usearch::scalar_kind_t;
 
 index_dense_config_t CreateIndexDenseConfig(const HNSWOptions& options) {
   index_dense_config_t config;
@@ -64,37 +70,62 @@ scalar_kind_t ConvertCoordinateKind(CoordinateKind coordinate_kind) {
   FATAL_INVALID_ENUM_VALUE(CoordinateKind, coordinate_kind);
 }
 
-namespace detail {
+namespace {
 
 template<IndexableVectorType Vector, ValidDistanceResultType DistanceResult>
-class UsearchIndexImpl {
+class UsearchIndex :
+    public IndexWrapperBase<UsearchIndex<Vector, DistanceResult>, Vector, DistanceResult> {
  public:
-  explicit UsearchIndexImpl(const HNSWOptions& options)
+  using IndexImpl = index_dense_gt<VertexId>;
+
+  explicit UsearchIndex(const HNSWOptions& options)
       : dimensions_(options.dimensions),
         distance_kind_(options.distance_kind),
         metric_(dimensions_,
                 MetricKindFromDistanceType(distance_kind_),
                 ConvertCoordinateKind(CoordinateTypeTraits<typename Vector::value_type>::kKind)),
-        index_(decltype(index_)::make(
+        index_(IndexImpl::make(
             metric_,
             CreateIndexDenseConfig(options))) {
     CHECK_GT(dimensions_, 0);
   }
 
-  Status Reserve(size_t num_vectors) {
+  Status Reserve(size_t num_vectors) override {
     index_.reserve(num_vectors);
     return Status::OK();
   }
 
-  Status Insert(VertexId vertex_id, const Vector& v) {
+  Status DoInsert(VertexId vertex_id, const Vector& v) {
     if (!index_.add(vertex_id, v.data())) {
       return STATUS_FORMAT(RuntimeError, "Failed to add a vector");
     }
     return Status::OK();
   }
 
-  std::vector<VertexWithDistance<DistanceResult>> Search(
-      const Vector& query_vector, size_t max_num_results) {
+  Status DoSaveToFile(const std::string& path) {
+    // TODO(lsm) Reload via memory mapped file
+    if (!index_.save(output_file_t(path.c_str()))) {
+      return STATUS_FORMAT(IOError, "Failed to save index to file: $0", path);
+    }
+    return Status::OK();
+  }
+
+  Status DoLoadFromFile(const std::string& path) {
+    auto result = decltype(index_)::make(path.c_str(), /* view= */ true);
+    if (result) {
+      index_ = std::move(result.index);
+      return Status::OK();
+    }
+    return STATUS_FORMAT(IOError, "Failed to load index from file: $0", path);
+  }
+
+  DistanceResult Distance(const Vector& lhs, const Vector& rhs) const override {
+    return metric_(
+        pointer_cast<const byte_t*>(lhs.data()), pointer_cast<const byte_t*>(rhs.data()));
+  }
+
+  std::vector<VertexWithDistance<DistanceResult>> DoSearch(
+      const Vector& query_vector, size_t max_num_results) const {
     auto usearch_results = index_.search(query_vector.data(), max_num_results);
     std::vector<VertexWithDistance<DistanceResult>> result_vec;
     result_vec.reserve(usearch_results.size());
@@ -105,13 +136,50 @@ class UsearchIndexImpl {
     return result_vec;
   }
 
-  Result<Vector> GetVector(VertexId vertex_id) const {
+  Result<Vector> GetVector(VertexId vertex_id) const override {
     Vector result;
     result.resize(dimensions_);
     if (index_.get(vertex_id, result.data())) {
       return result;
     }
     return Vector();
+  }
+
+  static std::string StatsToStringHelper(const IndexImpl::stats_t& stats) {
+    return Format(
+        "$0 nodes, $1 edges, $2 average edges per node",
+        stats.nodes,
+        stats.edges,
+        StringPrintf("%.2f", stats.edges * 1.0 / stats.nodes));
+  }
+
+  std::string IndexStatsStr() const override {
+    std::ostringstream output;
+
+    // Get the maximum level of the index
+    auto max_level = index_.max_level();
+    output << "Usearch index with " << (max_level + 1) << " levels" << std::endl;
+
+    const auto& config = index_.config();
+    output << "    connectivity: " << config.connectivity << std::endl;
+    output << "    connectivity_base: " << config.connectivity_base << std::endl;
+    output << "    expansion_add: " << config.expansion_add << std::endl;
+    output << "    expansion_search: " << config.expansion_search << std::endl;
+    output << "    inverse_log_connectivity: " << index_.inverse_log_connectivity() << std::endl;
+
+    std::vector<IndexImpl::stats_t> stats_per_level;
+    stats_per_level.resize(max_level + 1);
+    auto total_stats = index_.stats(stats_per_level.data(), max_level);
+
+    // Print connectivity distribution for each level
+    for (size_t level = 0; level <= max_level; ++level) {
+      output << "    Level " << level << ": " << StatsToStringHelper(stats_per_level[level])
+             << std::endl;
+    }
+
+    output << "    Totals: " << StatsToStringHelper(total_stats) << std::endl;
+
+    return output.str();
   }
 
  private:
@@ -121,16 +189,14 @@ class UsearchIndexImpl {
   index_dense_gt<VertexId> index_;
 };
 
-}  // namespace detail
+}  // namespace
 
-template<IndexableVectorType Vector, ValidDistanceResultType DistanceResult>
-UsearchIndex<Vector, DistanceResult>::UsearchIndex(const HNSWOptions& options)
-    : VectorIndexBase<Impl, Vector, DistanceResult>(std::make_unique<Impl>(options)) {
+template <class Vector, class DistanceResult>
+VectorIndexIfPtr<Vector, DistanceResult> UsearchIndexFactory<Vector, DistanceResult>::Create(
+    const HNSWOptions& options) {
+  return std::make_shared<UsearchIndex<Vector, DistanceResult>>(options);
 }
 
-template<IndexableVectorType Vector, ValidDistanceResultType DistanceResult>
-UsearchIndex<Vector, DistanceResult>::~UsearchIndex() = default;
-
-template class UsearchIndex<FloatVector, float>;
+template class UsearchIndexFactory<FloatVector, float>;
 
 }  // namespace yb::vectorindex

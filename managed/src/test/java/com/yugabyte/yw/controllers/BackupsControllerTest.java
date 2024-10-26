@@ -153,14 +153,14 @@ public class BackupsControllerTest extends FakeDBApplication {
     taskInfo.setTaskParams(bodyJson);
     taskInfo.setOwner("");
     UUID restoreTaskUUID = UUID.randomUUID();
-    taskInfo.setTaskUUID(restoreTaskUUID);
+    taskInfo.setUuid(restoreTaskUUID);
     taskInfo.save();
 
     TaskInfo taskInfoSub = new TaskInfo(TaskType.RestoreBackupYb, null);
     taskInfoSub.setTaskParams(bodyJson);
     taskInfoSub.setOwner("");
     UUID taskUUIDSub = UUID.randomUUID();
-    taskInfoSub.setTaskUUID(taskUUIDSub);
+    taskInfoSub.setUuid(taskUUIDSub);
     taskInfoSub.setParentUuid(restoreTaskUUID);
     taskInfoSub.setPosition(1);
     taskInfoSub.save();
@@ -373,6 +373,7 @@ public class BackupsControllerTest extends FakeDBApplication {
         TaskType.CreateBackup,
         1000000000L,
         "0 */2 * * *",
+        true /* useLocalTimezone */,
         TimeUnit.HOURS,
         "schedule-1");
     Result result = assertPlatformException(() -> createBackupSchedule(bodyJson, null));
@@ -1169,7 +1170,7 @@ public class BackupsControllerTest extends FakeDBApplication {
     taskInfo = new TaskInfo(TaskType.CreateTable, null);
     taskInfo.setTaskParams(Json.newObject());
     taskInfo.setOwner("");
-    taskInfo.setTaskUUID(taskUUID);
+    taskInfo.setUuid(taskUUID);
     taskInfo.save();
 
     defaultBackup.setTaskUUID(taskUUID);
@@ -1206,7 +1207,7 @@ public class BackupsControllerTest extends FakeDBApplication {
     taskInfo = new TaskInfo(TaskType.CreateTable, null);
     taskInfo.setTaskParams(Json.newObject());
     taskInfo.setOwner("");
-    taskInfo.setTaskUUID(taskUUID);
+    taskInfo.setUuid(taskUUID);
     taskInfo.save();
 
     defaultBackup.setTaskUUID(taskUUID);
@@ -1252,7 +1253,7 @@ public class BackupsControllerTest extends FakeDBApplication {
     taskInfo = new TaskInfo(TaskType.CreateTable, null);
     taskInfo.setTaskParams(Json.newObject());
     taskInfo.setOwner("");
-    taskInfo.setTaskUUID(taskUUID);
+    taskInfo.setUuid(taskUUID);
     taskInfo.save();
 
     defaultBackup.setTaskUUID(taskUUID);
@@ -1764,14 +1765,14 @@ public class BackupsControllerTest extends FakeDBApplication {
     taskInfo.setOwner("");
     taskInfo.setTaskState(TaskInfo.State.Success);
     UUID taskUUID = UUID.randomUUID();
-    taskInfo.setTaskUUID(taskUUID);
+    taskInfo.setUuid(taskUUID);
     taskInfo.save();
 
     TaskInfo taskInfoSub = new TaskInfo(TaskType.RestoreBackupYb, null);
     taskInfoSub.setTaskParams(bodyJson);
     taskInfoSub.setOwner("");
     UUID taskUUIDSub = UUID.randomUUID();
-    taskInfoSub.setTaskUUID(taskUUIDSub);
+    taskInfoSub.setUuid(taskUUIDSub);
     taskInfoSub.setParentUuid(taskUUID);
     taskInfoSub.setPosition(1);
     taskInfoSub.setTaskState(TaskInfo.State.Success);
@@ -1865,14 +1866,14 @@ public class BackupsControllerTest extends FakeDBApplication {
     taskInfo.setOwner("");
     taskInfo.setTaskState(TaskInfo.State.Success);
     UUID taskUUID = UUID.randomUUID();
-    taskInfo.setTaskUUID(taskUUID);
+    taskInfo.setUuid(taskUUID);
     taskInfo.save();
 
     TaskInfo taskInfoSub = new TaskInfo(TaskType.RestoreBackupYb, null);
     taskInfoSub.setTaskParams(bodyJson);
     taskInfoSub.setOwner("");
     UUID taskUUIDSub = UUID.randomUUID();
-    taskInfoSub.setTaskUUID(taskUUIDSub);
+    taskInfoSub.setUuid(taskUUIDSub);
     taskInfoSub.setParentUuid(taskUUID);
     taskInfoSub.setPosition(1);
     taskInfoSub.setTaskState(TaskInfo.State.Success);

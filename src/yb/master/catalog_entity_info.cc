@@ -519,24 +519,16 @@ TableType TableInfo::GetTableType() const {
   return LockForRead()->pb.table_type();
 }
 
-bool TableInfo::IsBeingDroppedDueToDdlTxn(
-    const std::string& pb_txn_id, std::optional<bool> txn_success) const {
+bool TableInfo::IsBeingDroppedDueToDdlTxn(const std::string& pb_txn_id, bool txn_success) const {
   auto l = LockForRead();
   if (l->pb_transaction_id() != pb_txn_id) {
-    return false;
-  }
-  if (!txn_success.has_value()) {
-    // This means the DDL txn only increments the schema version and does not change
-    // the DocDB schema at all. It cannot be one of the following 2 cases.
-    DCHECK(!l->is_being_created_by_ysql_ddl_txn());
-    DCHECK(!l->is_being_deleted_by_ysql_ddl_txn());
     return false;
   }
   // The table can be dropped in 2 cases due to a DDL:
   // 1. This table was created by a transaction that subsequently aborted.
   // 2. This is a successful transaction that DROPs the table.
-  return (l->is_being_created_by_ysql_ddl_txn() && !*txn_success) ||
-         (l->is_being_deleted_by_ysql_ddl_txn() && *txn_success);
+  return (l->is_being_created_by_ysql_ddl_txn() && !txn_success) ||
+         (l->is_being_deleted_by_ysql_ddl_txn() && txn_success);
 }
 
 Status TableInfo::AddTablet(const TabletInfoPtr& tablet) {
@@ -1158,6 +1150,11 @@ bool NamespaceInfo::colocated() const {
   return LockForRead()->pb.state();
 }
 
+::yb::master::SysNamespaceEntryPB_YsqlNextMajorVersionState
+    NamespaceInfo::ysql_next_major_version_state() const {
+  return LockForRead()->pb.ysql_next_major_version_state();
+}
+
 string NamespaceInfo::ToString() const {
   return Substitute("$0 [id=$1]", name(), namespace_id_);
 }
@@ -1315,6 +1312,10 @@ Result<std::shared_ptr<XClusterRpcTasks>> UniverseReplicationInfoBase::GetOrCrea
 
 bool PersistentUniverseReplicationInfo::IsDbScoped() const { return yb::master::IsDbScoped(pb); }
 
+bool PersistentUniverseReplicationInfo::IsAutomaticDdlMode() const {
+  return yb::master::IsAutomaticDdlMode(pb);
+}
+
 // ================================================================================================
 // UniverseReplicationInfo
 // ================================================================================================
@@ -1336,6 +1337,10 @@ Status UniverseReplicationInfo::GetSetupUniverseReplicationErrorStatus() const {
 }
 
 bool UniverseReplicationInfo::IsDbScoped() const { return LockForRead()->IsDbScoped(); }
+
+bool UniverseReplicationInfo::IsAutomaticDdlMode() const {
+  return LockForRead()->IsAutomaticDdlMode();
+}
 
 // ================================================================================================
 // PersistentUniverseReplicationBootstrapInfo

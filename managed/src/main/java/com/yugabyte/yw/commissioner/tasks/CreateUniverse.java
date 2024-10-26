@@ -166,7 +166,9 @@ public class CreateUniverse extends UniverseDefinitionTaskBase {
           universe,
           taskParams().nodeDetailsSet,
           false /* ignore node status check */,
-          null /* setup server param customizer */,
+          setupServerParams -> {
+            setupServerParams.rebootNodeAllowed = true;
+          },
           null /* install software param customizer */,
           gFlagsParams -> {
             gFlagsParams.resetMasterState = true;
@@ -204,7 +206,7 @@ public class CreateUniverse extends UniverseDefinitionTaskBase {
             .setSubTaskGroupType(SubTaskGroupType.ConfigureUniverse);
       }
 
-      createConfigureUniverseTasks(primaryCluster, newMasters);
+      createConfigureUniverseTasks(primaryCluster, newMasters, null /* gflagsUpgradeSubtasks */);
 
       // Create Load Balancer map to add nodes to load balancer
       Map<LoadBalancerPlacement, LoadBalancerConfig> loadBalancerMap =

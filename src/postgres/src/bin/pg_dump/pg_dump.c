@@ -174,6 +174,8 @@ static int	ncomments = 0;
 static SecLabelItem *seclabels = NULL;
 static int	nseclabels = 0;
 
+static bool IsYugabyteEnabled = true;
+
 /*
  * The default number of rows per INSERT when
  * --inserts is specified without --rows-per-insert
@@ -909,7 +911,7 @@ main(int argc, char **argv)
 	pg_yb_tablegroup_exists = catalogTableExists(fout, "pg_yb_tablegroup");
 	pg_tablegroup_exists = catalogTableExists(fout, "pg_tablegroup");
 
-	/* 
+	/*
 	 * Cache (1) whether the dumped database is a colocated database and
 	 * (2) whether the dumped database is a legacy colocated database
 	 * in global variables.
@@ -3256,8 +3258,11 @@ dumpDatabase(Archive *fout)
 	/*
 	 * pg_largeobject comes from the old system intact, so set its
 	 * relfrozenxids, relminmxids and relfilenode.
+	 *
+	 * YB: We don't support pg_largeobject and thus don't need to upgrade this
+	 * table.
 	 */
-	if (dopt->binary_upgrade)
+	if (dopt->binary_upgrade && !IsYugabyteEnabled)
 	{
 		PGresult   *lo_res;
 		PQExpBuffer loFrozenQry = createPQExpBuffer();
@@ -14785,11 +14790,17 @@ dumpACL(Archive *fout, DumpId objDumpId, DumpId altDumpId,
 		else
 			appendPQExpBuffer(tag, "%s %s", type, name);
 
-		if (dopt->include_yb_metadata)
-		{
+		if (dopt->include_yb_metadata || dopt->binary_upgrade)
 			yb_use_roles_sql = createPQExpBuffer();
+		/*
+		 * YB_TODO: \if is a psql meta-command and doesn't work with pg_restore,
+		 * for the dopt->binary_upgrade == true case. For now in the
+		 * dopt->binary_upgrade == true case, emit an empty statement. When we
+		 * implement restoration of global objects including roles, we will
+		 * probably want to set an ACL correctly.
+		 */
+		if (dopt->include_yb_metadata)
 			appendPQExpBuffer(yb_use_roles_sql, "\\if :use_roles\n%s\\endif\n", sql->data);
-		}
 
 		aclDeps[nDeps++] = objDumpId;
 		if (altDumpId != InvalidDumpId)
@@ -14803,12 +14814,12 @@ dumpACL(Archive *fout, DumpId objDumpId, DumpId altDumpId,
 								  .owner = owner,
 								  .description = "ACL",
 								  .section = SECTION_NONE,
-								  .createStmt = (dopt->include_yb_metadata ?
+								  .createStmt = ((dopt->include_yb_metadata || dopt->binary_upgrade) ?
 												 yb_use_roles_sql->data :
 												 sql->data),
 								  .deps = aclDeps,
 								  .nDeps = nDeps));
-		if (dopt->include_yb_metadata)
+		if (dopt->include_yb_metadata || dopt->binary_upgrade)
 			destroyPQExpBuffer(yb_use_roles_sql);
 
 		destroyPQExpBuffer(tag);
@@ -15617,10 +15628,15 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
 		{
 			binary_upgrade_set_pg_class_oids(fout, q,
 											 tbinfo->dobj.catId.oid, false);
+
 			/*
-			 * We may create a primary key index as part of the CREATE TABLE
+			 * YB: We may create a primary key index as part of the CREATE TABLE
 			 * statement we generate here; accordingly, set things up so we
 			 * will set its OID correctly in binary update mode.
+			 *
+			 * YB_TODO: For upgrade, figure out how to handle a table partition
+			 * where the parent defines the primary key. (See use of
+			 * parent_has_primary_key, below.)
 			 */
 			if (tbinfo->primaryKeyIndex)
 			{
@@ -15650,7 +15666,8 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
 			&& (tbinfo->relkind == RELKIND_RELATION || tbinfo->relkind == RELKIND_MATVIEW
 				|| tbinfo->relkind == RELKIND_PARTITIONED_TABLE)
 			&& yb_properties && yb_properties->is_colocated
-			&& !simple_string_list_member(&colocated_database_tablespaces, tbinfo->reltablespace))
+			&& (!simple_string_list_member(&colocated_database_tablespaces, tbinfo->reltablespace)
+			|| dopt->outputNoTablespaces))
 		{
 			simple_string_list_append(&colocated_database_tablespaces, tbinfo->reltablespace);
 			/*
@@ -15663,6 +15680,16 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
 			appendPQExpBuffer(q,
 							  "SELECT pg_catalog.binary_upgrade_set_next_tablegroup_oid('%u'::pg_catalog.oid);\n",
 							  yb_properties->tablegroup_oid);
+			if (dopt->outputNoTablespaces)
+			{
+				if(strcmp(yb_properties->tablegroup_name, "default") == 0)
+				{
+					appendPQExpBufferStr(q,
+									"\n-- For YB colocation backup without tablespace information, must preserve default tablegroup tables\n");
+					appendPQExpBuffer(q,
+						"SELECT pg_catalog.binary_upgrade_set_next_tablegroup_default(true);\n");
+				}
+			}
 		}
 
 		appendPQExpBuffer(q, "CREATE %s%s %s",
@@ -16123,8 +16150,22 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
 		 * TOAST tables semi-independently, here we see them only as children
 		 * of other relations; so this "if" lacks RELKIND_TOASTVALUE, and the
 		 * child toast table is handled below.)
+		 *
+		 * YB: We have code in pg_backup_archiver.c:_printTocEntry to work
+		 * around YugabyteDB not currently supporting mixing DDLs with
+		 * modifications to the PG catalog in a single transaction. The
+		 * workaround causes ahwrite/ExecuteSqlCommandBuf to call
+		 * ExecuteSimpleCommands in pg_backup_db.c. ExecuteSimpleCommands does
+		 * its own parsing to split the statements, and is unaware of --
+		 * comments but is aware of quotation marks, so a single quote inside a
+		 * comment (here "heap's") puts it into a SQL_IN_SINGLE_QUOTE mode that
+		 * eats the rest of the string, eliminating the statement afterwards
+		 * which sets relispopulated. To work around this issue, since Yugabyte
+		 * doesn’t need xid fields, we skip the outputs here entirely, avoiding
+		 * the comments with single quotes.
 		 */
 		if (dopt->binary_upgrade &&
+			!IsYugabyteEnabled &&
 			(tbinfo->relkind == RELKIND_RELATION ||
 			 tbinfo->relkind == RELKIND_MATVIEW))
 		{
@@ -16603,6 +16644,30 @@ dumpIndex(Archive *fout, const IndxInfo *indxinfo)
 			binary_upgrade_set_pg_class_oids(fout, q,
 											 indxinfo->dobj.catId.oid, true);
 
+		if (dopt->outputNoTablespaces && is_colocated_database && !is_legacy_colocated_database)
+		{
+			YbTableProperties yb_properties;
+			yb_properties = (YbTableProperties) pg_malloc(sizeof(YbTablePropertiesData));
+			PQExpBuffer yb_reloptions = createPQExpBuffer();
+			getYbTablePropertiesAndReloptions(fout, yb_properties, yb_reloptions,
+				indxinfo->dobj.catId.oid, indxinfo->dobj.name, tbinfo->relkind);
+
+			if(yb_properties && yb_properties->is_colocated){
+				appendPQExpBufferStr(q,
+								 "\n-- For YB colocation backup, must preserve implicit tablegroup pg_yb_tablegroup oid\n");
+				appendPQExpBuffer(q,
+								 "SELECT pg_catalog.binary_upgrade_set_next_tablegroup_oid('%u'::pg_catalog.oid);\n",
+								 yb_properties->tablegroup_oid);
+				if(strcmp(yb_properties->tablegroup_name, "default") == 0)
+				{
+					appendPQExpBufferStr(q,
+									"\n-- For YB colocation backup without tablespace information, must preserve default tablegroup tables\n");
+					appendPQExpBuffer(q,
+						"SELECT pg_catalog.binary_upgrade_set_next_tablegroup_default(true);\n");
+				}
+			}
+			destroyPQExpBuffer(yb_reloptions);
+		}
 		/* Plain secondary index */
 		appendPQExpBuffer(q, "%s", indxinfo->indexdef);
 		appendPQExpBuffer(q, ";\n");
@@ -16958,49 +17023,6 @@ dumpConstraint(Archive *fout, const ConstraintInfo *coninfo)
 
 				appendPQExpBufferChar(q, ')');
 			}
-
-			/* Get the table and index properties from YB, if relevant. */
-			YbTableProperties yb_table_properties = NULL;
-			YbTableProperties yb_index_properties = NULL;
-			if (dopt->include_yb_metadata &&
-				(coninfo->contype == 'u'))
-			{
-				yb_table_properties = (YbTableProperties) pg_malloc(sizeof(YbTablePropertiesData));
-				yb_index_properties = (YbTableProperties) pg_malloc(sizeof(YbTablePropertiesData));
-			}
-			PQExpBuffer yb_table_reloptions = createPQExpBuffer();
-			PQExpBuffer yb_index_reloptions = createPQExpBuffer();
-			getYbTablePropertiesAndReloptions(fout, yb_table_properties, yb_table_reloptions,
-				tbinfo->dobj.catId.oid, tbinfo->dobj.name, tbinfo->relkind);
-			getYbTablePropertiesAndReloptions(fout, yb_index_properties, yb_index_reloptions,
-				indxinfo->dobj.catId.oid, indxinfo->dobj.name, tbinfo->relkind);
-
-#ifdef YB_TODO
-			/* Need rework to match Pg15 */
-			/*
-			 * Issue #11600: if tablegroups mismatch between the table and its
-			 * constraint, we cannot currently replicate that.
-			 * We have to fail to prevent inconsistency upon yb_backup restore.
-			 */
-			if (dopt->include_yb_metadata &&
-				OidIsValid(yb_table_properties->tablegroup_oid) &&
-				yb_index_properties->tablegroup_oid != yb_table_properties->tablegroup_oid)
-			{
-				fatal("table %s and its constraint %s have mismatching tablegroups!\n"
-					  "This case cannot currently be handled, see issue "
-					  "https://github.com/yugabyte/yugabyte-db/issues/11600\n",
-					  tbinfo->dobj.name,
-					  coninfo->dobj.name);
-			}
-#endif
-
-			YbAppendReloptions2(q, false /* newline_before*/,
-				indxinfo->indreloptions, "",
-				yb_index_reloptions->data, "",
-				fout);
-
-			destroyPQExpBuffer(yb_table_reloptions);
-			destroyPQExpBuffer(yb_index_reloptions);
 
 			if (coninfo->condeferrable)
 			{
@@ -18951,6 +18973,22 @@ getYbTablePropertiesAndReloptions(Archive *fout, YbTableProperties properties,
 			fatal("colocation ID is not defined for a colocated table \"%s\"\n",
 				  relname);
 #endif
+
+		if (is_colocated_database && !is_legacy_colocated_database &&  properties->is_colocated)
+		{
+			query = createPQExpBuffer();
+			/* Get name of the tablegroup.*/
+			appendPQExpBuffer(query,
+							"SELECT * FROM pg_yb_tablegroup WHERE oid=%u",
+							properties->tablegroup_oid);
+			res = ExecuteSqlQueryForSingleRow(fout, query->data);
+			int i_grpname = PQfnumber(res, "grpname");
+			properties->tablegroup_name =
+				PQgetisnull(res, 0, i_grpname) ? "" : PQgetvalue(res, 0, i_grpname);
+
+			PQclear(res);
+			destroyPQExpBuffer(query);
+		}
 	}
 
 

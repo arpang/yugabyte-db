@@ -34,6 +34,9 @@
 #include "yb/master/xcluster/xcluster_manager.h"
 #include "yb/master/xcluster/xcluster_replication_group.h"
 
+#include "yb/tserver/pg_create_table.h"
+
+#include "yb/util/async_util.h"
 #include "yb/util/flags/auto_flags_util.h"
 #include "yb/util/status.h"
 #include "yb/util/status_format.h"
@@ -52,7 +55,14 @@ DEFINE_test_flag(bool, fail_universe_replication_merge, false,
 DEFINE_test_flag(bool, exit_unfinished_merging, false,
     "Whether to exit part way through the merging universe process.");
 
+DEFINE_test_flag(bool, skip_schema_validation, false,
+    "Skip schema validation during xCluster replication setup.");
+
 DECLARE_bool(enable_xcluster_auto_flag_validation);
+
+DECLARE_bool(TEST_xcluster_enable_sequence_replication);
+
+DECLARE_uint32(xcluster_ysql_statement_timeout_sec);
 
 using namespace std::placeholders;
 
@@ -60,43 +70,11 @@ namespace yb::master {
 
 Result<std::shared_ptr<XClusterInboundReplicationGroupSetupTaskIf>>
 CreateSetupUniverseReplicationTask(
-    Master& master, CatalogManager& catalog_manager, const SetupUniverseReplicationRequestPB* req,
+    Master& master, CatalogManager& catalog_manager, XClusterSetupUniverseReplicationData&& data,
     const LeaderEpoch& epoch) {
-  SCHECK_PB_FIELDS_NOT_EMPTY(
-      *req, replication_group_id, producer_master_addresses, producer_table_ids);
-
-  std::vector<xrepl::StreamId> stream_ids;
-  for (const auto& bootstrap_id : req->producer_bootstrap_ids()) {
-    stream_ids.push_back(VERIFY_RESULT(xrepl::StreamId::FromString(bootstrap_id)));
-  }
-
-  std::vector<NamespaceId> source_namespace_ids, target_namespace_ids;
-  for (const auto& source_ns_id : req->producer_namespaces()) {
-    SCHECK(!source_ns_id.id().empty(), InvalidArgument, "Invalid Namespace Id");
-    SCHECK(!source_ns_id.name().empty(), InvalidArgument, "Invalid Namespace name");
-    SCHECK_EQ(
-        source_ns_id.database_type(), YQLDatabase::YQL_DATABASE_PGSQL, InvalidArgument,
-        "Invalid Namespace database_type");
-
-    source_namespace_ids.push_back(source_ns_id.id());
-
-    NamespaceIdentifierPB target_ns_id;
-    target_ns_id.set_database_type(YQLDatabase::YQL_DATABASE_PGSQL);
-    target_ns_id.set_name(source_ns_id.name());
-    auto ns_info = VERIFY_RESULT(catalog_manager.FindNamespace(target_ns_id));
-    target_namespace_ids.push_back(ns_info->id());
-  }
-
-  std::vector<TableId> source_table_ids;
-  source_table_ids.insert(
-      source_table_ids.begin(), req->producer_table_ids().begin(), req->producer_table_ids().end());
-
   auto setup_task = std::shared_ptr<XClusterInboundReplicationGroupSetupTask>(
       new XClusterInboundReplicationGroupSetupTask(
-          master, catalog_manager, epoch, xcluster::ReplicationGroupId(req->replication_group_id()),
-          req->producer_master_addresses(), std::move(source_table_ids), std::move(stream_ids),
-          req->transactional(), std::move(source_namespace_ids), std::move(target_namespace_ids),
-          req->automatic_ddl_mode()));
+          master, catalog_manager, epoch, std::move(data)));
   RETURN_NOT_OK(setup_task->ValidateInputArguments());
 
   return setup_task;
@@ -104,30 +82,17 @@ CreateSetupUniverseReplicationTask(
 
 XClusterInboundReplicationGroupSetupTask::XClusterInboundReplicationGroupSetupTask(
     Master& master, CatalogManager& catalog_manager, const LeaderEpoch& epoch,
-    xcluster::ReplicationGroupId&& replication_group_id,
-    const google::protobuf::RepeatedPtrField<HostPortPB>& source_masters,
-    std::vector<TableId>&& source_table_ids, std::vector<xrepl::StreamId>&& stream_ids,
-    bool transactional, std::vector<NamespaceId>&& source_namespace_ids,
-    std::vector<NamespaceId>&& target_namespace_ids, bool automatic_ddl_mode)
+    XClusterSetupUniverseReplicationData&& data)
     : MultiStepMonitoredTask(*catalog_manager.AsyncTaskPool(), *master.messenger()),
       master_(master),
       catalog_manager_(catalog_manager),
       sys_catalog_(*catalog_manager.sys_catalog()),
       xcluster_manager_(*catalog_manager.GetXClusterManagerImpl()),
       epoch_(epoch),
-      replication_group_id_(std::move(replication_group_id)),
-      source_masters_(source_masters),
-      source_table_ids_(std::move(source_table_ids)),
-      stream_ids_(std::move(stream_ids)),
-      source_namespace_ids_(std::move(source_namespace_ids)),
-      target_namespace_ids_(std::move(target_namespace_ids)),
-      is_alter_replication_(xcluster::IsAlterReplicationGroupId(replication_group_id_)),
-      stream_ids_provided_(!stream_ids_.empty()),
-      transactional_(transactional),
-      is_db_scoped_(!source_namespace_ids_.empty()),
-      automatic_ddl_mode_(automatic_ddl_mode) {
+      data_(std::move(data)),
+      is_alter_replication_(xcluster::IsAlterReplicationGroupId(data_.replication_group_id)) {
   log_prefix_ = Format(
-      "xCluster InboundReplicationGroup [$0] $1: ", replication_group_id_,
+      "xCluster InboundReplicationGroup [$0] $1: ", data_.replication_group_id,
       (is_alter_replication_ ? "Alter" : "Setup"));
 }
 
@@ -201,27 +166,55 @@ bool XClusterInboundReplicationGroupSetupTask::TryCancel() {
 }
 
 Status XClusterInboundReplicationGroupSetupTask::ValidateInputArguments() {
-  SCHECK(!replication_group_id_.empty(), InvalidArgument, "Invalid Replication Group Id");
-  SCHECK(!source_table_ids_.empty(), InvalidArgument, "No tables provided");
+  SCHECK(!data_.replication_group_id.empty(), InvalidArgument, "Invalid Replication Group Id");
+  auto universe_replication = catalog_manager_.GetUniverseReplication(
+      xcluster::GetOriginalReplicationGroupId(data_.replication_group_id));
+  if (is_alter_replication_) {
+    SCHECK_FORMAT(
+        universe_replication, NotFound, "Replication group $0 not found",
+        data_.replication_group_id);
+    auto l = universe_replication->LockForRead();
+    is_db_scoped_ = l->IsDbScoped();
+    SCHECK_EQ(
+        data_.automatic_ddl_mode, l->IsAutomaticDdlMode(), InvalidArgument,
+        "Automatic DDL mode setting passed differs from existing replication group's");
+  } else {
+    SCHECK_FORMAT(
+        !universe_replication, AlreadyPresent, "Replication group $0 already present",
+        data_.replication_group_id);
+    is_db_scoped_ = !data_.source_namespace_ids.empty();
+  }
 
   SCHECK(
-      !automatic_ddl_mode_ || is_db_scoped_, InvalidArgument,
-      "Automatic DDL mode is only valid for DB scoped replication groups");
+      !data_.automatic_ddl_mode || is_db_scoped_, InvalidArgument,
+      "Automatic DDL mode is only valid for DB-scoped replication groups");
 
-  for (const auto& source_table_id : source_table_ids_) {
+  SCHECK(
+      !is_db_scoped_ || data_.transactional, InvalidArgument,
+      "Transactional flag must be set for DB-scoped replication groups");
+
+  SCHECK(!data_.source_table_ids.empty(), InvalidArgument, "No tables provided");
+
+  for (const auto& source_table_id : data_.source_table_ids) {
     SCHECK(!source_table_id.empty(), InvalidArgument, "Invalid Table Id");
-    SCHECK(
+    SCHECK_FORMAT(
         !IsColocatedDbParentTableId(source_table_id), NotSupported,
         "Pre GA colocated databases are not supported with xCluster replication: $0",
         source_table_id);
   }
 
-  if (stream_ids_provided_) {
+  if (data_.TargetTableIdsProvided()) {
     SCHECK_EQ(
-        stream_ids_.size(), source_table_ids_.size(), InvalidArgument,
+        data_.target_table_ids.size(), data_.source_table_ids.size(), InvalidArgument,
+        "Number of target tables must be equal to number of source tables");
+  }
+
+  if (data_.StreamIdsProvided()) {
+    SCHECK_EQ(
+        data_.stream_ids.size(), data_.source_table_ids.size(), InvalidArgument,
         "Number of bootstrap ids must be equal to number of tables");
 
-    for (const auto& stream_id : stream_ids_) {
+    for (const auto& stream_id : data_.stream_ids) {
       SCHECK(stream_id, InvalidArgument, "Invalid Stream Id");
     }
   }
@@ -229,29 +222,15 @@ Status XClusterInboundReplicationGroupSetupTask::ValidateInputArguments() {
   {
     auto l = catalog_manager_.ClusterConfig()->LockForRead();
     SCHECK_NE(
-        l->pb.cluster_uuid(), replication_group_id_, InvalidArgument,
+        l->pb.cluster_uuid(), data_.replication_group_id, InvalidArgument,
         "Replication group Id cannot be the same as the cluster UUID");
   }
 
-  RETURN_NOT_OK(ValidateMasterAddressesBelongToDifferentCluster(master_, source_masters_));
-
-  SCHECK(
-      source_namespace_ids_.empty() || transactional_, InvalidArgument,
-      "Transactional flag must be set for Db scoped replication groups");
+  RETURN_NOT_OK(ValidateMasterAddressesBelongToDifferentCluster(master_, data_.source_masters));
 
   SCHECK_EQ(
-      source_namespace_ids_.size(), target_namespace_ids_.size(), InvalidArgument,
+      data_.source_namespace_ids.size(), data_.target_namespace_ids.size(), InvalidArgument,
       "Source and target namespace ids must be of the same size");
-
-  auto universe_replication = catalog_manager_.GetUniverseReplication(
-      xcluster::GetOriginalReplicationGroupId(replication_group_id_));
-  if (is_alter_replication_) {
-    SCHECK(universe_replication, NotFound, "Replication group $0 not found", replication_group_id_);
-  } else {
-    SCHECK(
-        !universe_replication, AlreadyPresent, "Replication group $0 already present",
-        replication_group_id_);
-  }
 
   RETURN_NOT_OK(ValidateNamespaceListForDbScoped());
 
@@ -262,12 +241,11 @@ Status XClusterInboundReplicationGroupSetupTask::ValidateInputArguments() {
 
 Status XClusterInboundReplicationGroupSetupTask::FirstStep() {
   IF_DEBUG_MODE(CHECK(argument_validation_done_));
-
   {
     std::vector<HostPort> hp;
-    HostPortsFromPBs(source_masters_, &hp);
+    HostPortsFromPBs(data_.source_masters, &hp);
     remote_client_ =
-        VERIFY_RESULT(client::XClusterRemoteClientHolder::Create(replication_group_id_, hp));
+        VERIFY_RESULT(client::XClusterRemoteClientHolder::Create(data_.replication_group_id, hp));
   }
 
   if (FLAGS_enable_xcluster_auto_flag_validation && !is_alter_replication_) {
@@ -275,14 +253,59 @@ Status XClusterInboundReplicationGroupSetupTask::FirstStep() {
     RETURN_NOT_OK(GetAutoFlagConfigVersionIfCompatible());
   }
 
-  LOG_WITH_PREFIX(INFO) << "Started schema validation for " << source_table_ids_.size()
+  if (data_.automatic_ddl_mode && FLAGS_TEST_xcluster_enable_sequence_replication &&
+      !is_alter_replication_) {
+    // Ensure sequences_data table has been created.
+    // Skip for alter replication as the table should already have been created on initial setup.
+    auto local_client = master_.client_future();
+    RETURN_NOT_OK(tserver::CreateSequencesDataTable(
+        local_client.get(), CoarseMonoClock::now() +
+                                MonoDelta::FromSeconds(FLAGS_xcluster_ysql_statement_timeout_sec)));
+  }
+
+  ScheduleNextStep(
+      std::bind(
+          &XClusterInboundReplicationGroupSetupTask::SetupDDLReplicationExtension,
+          shared_from(this)),
+      "SetupDDLReplicationExtension");
+
+  return Status::OK();
+}
+
+Status XClusterInboundReplicationGroupSetupTask::SetupDDLReplicationExtension() {
+  if (data_.automatic_ddl_mode) {
+    for (const auto& namespace_id : data_.target_namespace_ids) {
+      auto namespace_name = VERIFY_RESULT(catalog_manager_.FindNamespaceById(namespace_id))->name();
+      Synchronizer sync;
+      LOG(INFO) << "Setting up DDL replication extension for namespace " << namespace_id << " ("
+                << namespace_name << ")";
+      RETURN_NOT_OK(master::SetupDDLReplicationExtension(
+          catalog_manager_, namespace_name, XClusterDDLReplicationRole::kTarget,
+          CoarseMonoClock::now() +
+              MonoDelta::FromSeconds(FLAGS_xcluster_ysql_statement_timeout_sec),
+          sync.AsStdStatusCallback()));
+      RETURN_NOT_OK_PREPEND(sync.Wait(), "Failed to setup xCluster DDL replication extension");
+    }
+  }
+
+  ScheduleNextStep(
+      std::bind(&XClusterInboundReplicationGroupSetupTask::CreateTableTasks, shared_from(this)),
+      "CreateTableTasks");
+  return Status::OK();
+}
+
+Status XClusterInboundReplicationGroupSetupTask::CreateTableTasks() {
+  LOG_WITH_PREFIX(INFO) << "Started schema validation for " << data_.source_table_ids.size()
                         << " table(s)";
 
   std::vector<std::shared_ptr<MultiStepMonitoredTask>> child_tasks;
-  for (size_t i = 0; i < source_table_ids_.size(); i++) {
-    const auto stream_id = stream_ids_provided_ ? stream_ids_[i] : xrepl::StreamId::Nil();
-    auto table_setup_info = std::shared_ptr<XClusterTableSetupTask>(
-        new XClusterTableSetupTask(shared_from(this), source_table_ids_[i], stream_id));
+  for (size_t i = 0; i < data_.source_table_ids.size(); i++) {
+    const auto target_table_id_opt =
+        data_.TargetTableIdsProvided() ? std::optional(data_.target_table_ids[i]) : std::nullopt;
+    const auto stream_id = data_.StreamIdsProvided() ? data_.stream_ids[i] : xrepl::StreamId::Nil();
+
+    auto table_setup_info = std::shared_ptr<XClusterTableSetupTask>(new XClusterTableSetupTask(
+        shared_from(this), data_.source_table_ids[i], target_table_id_opt, stream_id));
 
     table_setup_info->Start();
   }
@@ -310,9 +333,9 @@ void XClusterInboundReplicationGroupSetupTask::TableTaskCompletionCallback(
     source_table_infos_[source_table_id] = std::move(*table_setup_result);
 
     VLOG_WITH_PREFIX(1) << "Processed " << source_table_infos_.size() << " tables out of "
-                        << source_table_ids_.size();
+                        << data_.source_table_ids.size();
 
-    if (source_table_infos_.size() != source_table_ids_.size()) {
+    if (source_table_infos_.size() != data_.source_table_ids.size()) {
       // We still have uncompleted tasks. The final task will proceed with the setup.
       return;
     }
@@ -326,13 +349,13 @@ void XClusterInboundReplicationGroupSetupTask::TableTaskCompletionCallback(
 }
 
 Status XClusterInboundReplicationGroupSetupTask::SetupReplicationAfterProcessingAllTables() {
-  if (stream_ids_provided_) {
+  if (data_.StreamIdsProvided()) {
     RETURN_NOT_OK_PREPEND(
         UpdateSourceStreamOptions(), "Failed to update xCluster stream options on source universe");
   }
 
   LOG_WITH_PREFIX(INFO) << "Table validation and stream setup completed successfully for "
-                        << source_table_ids_.size() << " table(s)";
+                        << data_.source_table_ids.size() << " table(s)";
 
   return SetupReplicationGroup();
 }
@@ -357,7 +380,7 @@ Status XClusterInboundReplicationGroupSetupTask::UpdateSourceStreamOptions() {
         new_option->set_value(value);
       }
       new_entry.set_state(master::SysCDCStreamEntryPB::ACTIVE);
-      new_entry.set_transactional(transactional_);
+      new_entry.set_transactional(data_.transactional);
 
       update_bootstrap_ids.push_back(table_info.stream_id);
       update_entries.push_back(new_entry);
@@ -380,7 +403,7 @@ Status XClusterInboundReplicationGroupSetupTask::SetupReplicationGroup() {
   RETURN_NOT_OK(ValidateNamespaceListForDbScoped());
   RETURN_NOT_OK(ValidateTableListForDbScoped());
 
-  const auto original_id = xcluster::GetOriginalReplicationGroupId(replication_group_id_);
+  const auto original_id = xcluster::GetOriginalReplicationGroupId(data_.replication_group_id);
 
   auto universe = catalog_manager_.GetUniverseReplication(original_id);
   std::optional<UniverseReplicationInfo::WriteLock> universe_lock;
@@ -390,7 +413,7 @@ Status XClusterInboundReplicationGroupSetupTask::SetupReplicationGroup() {
   } else {
     SCHECK(
         universe == nullptr, AlreadyPresent, "Replication group $0 already present",
-        replication_group_id_);
+        data_.replication_group_id);
 
     universe = VERIFY_RESULT(CreateNewUniverseReplicationInfo());
   }
@@ -408,7 +431,7 @@ Status XClusterInboundReplicationGroupSetupTask::SetupReplicationGroup() {
         cluster_config_producer_map.count(original_id.ToString()), 1, InvalidArgument,
         Format("ClusterConfig producer_map missing for ReplicationGroup $0", original_id));
 
-    LOG(INFO) << "Merging xCluster ReplicationGroup: " << replication_group_id_ << " into "
+    LOG(INFO) << "Merging xCluster ReplicationGroup: " << data_.replication_group_id << " into "
               << original_id;
 
     SCHECK(
@@ -430,7 +453,8 @@ Status XClusterInboundReplicationGroupSetupTask::SetupReplicationGroup() {
         Format("ReplicationGroup $0 already exists in ClusterConfig producer_map", original_id));
 
     cdc::ProducerEntryPB producer_entry;
-    producer_entry.mutable_master_addrs()->CopyFrom(source_masters_);
+    producer_entry.mutable_master_addrs()->CopyFrom(data_.source_masters);
+    producer_entry.set_automatic_ddl_mode(data_.automatic_ddl_mode);
 
     if (FLAGS_enable_xcluster_auto_flag_validation) {
       auto auto_flag_config_version = VERIFY_RESULT(GetAutoFlagConfigVersionIfCompatible());
@@ -498,7 +522,7 @@ Result<uint32> XClusterInboundReplicationGroupSetupTask::GetAutoFlagConfigVersio
 
   auto local_config = master_.GetAutoFlagsConfig();
   VLOG_WITH_FUNC(2) << "Validating AutoFlags config for replication group: "
-                    << replication_group_id_
+                    << data_.replication_group_id
                     << " with target config version: " << local_config.config_version();
 
   auto validate_result =
@@ -506,7 +530,7 @@ Result<uint32> XClusterInboundReplicationGroupSetupTask::GetAutoFlagConfigVersio
 
   if (!validate_result) {
     VLOG_WITH_FUNC(2)
-        << "Source universe of replication group " << replication_group_id_
+        << "Source universe of replication group " << data_.replication_group_id
         << " is running a version that does not support the AutoFlags compatibility check yet";
     return kInvalidAutoFlagsConfigVersion;
   }
@@ -522,12 +546,12 @@ Result<uint32> XClusterInboundReplicationGroupSetupTask::GetAutoFlagConfigVersio
 }
 
 Status XClusterInboundReplicationGroupSetupTask::ValidateNamespaceListForDbScoped() {
-  if (!is_db_scoped_) {
+  if (data_.source_namespace_ids.empty()) {
     return Status::OK();
   }
 
   for (const auto& universe : catalog_manager_.GetAllUniverseReplications()) {
-    for (const auto& target_namespace_id : target_namespace_ids_) {
+    for (const auto& target_namespace_id : data_.target_namespace_ids) {
       SCHECK_FORMAT(
           !IncludesConsumerNamespace(*universe, target_namespace_id), AlreadyPresent,
           "Namespace $0 already included in replication group $1", target_namespace_id,
@@ -539,7 +563,7 @@ Status XClusterInboundReplicationGroupSetupTask::ValidateNamespaceListForDbScope
 }
 
 Status XClusterInboundReplicationGroupSetupTask::ValidateTableListForDbScoped() {
-  if (!is_db_scoped_) {
+  if (data_.source_namespace_ids.empty()) {
     return Status::OK();
   }
 
@@ -549,14 +573,16 @@ Status XClusterInboundReplicationGroupSetupTask::ValidateTableListForDbScoped() 
   }
 
   std::set<TableId> validated_tables;
-  for (const auto& namespace_id : target_namespace_ids_) {
-    auto table_infos =
-        VERIFY_RESULT(GetTablesEligibleForXClusterReplication(catalog_manager_, namespace_id));
+  for (const auto& namespace_id : data_.target_namespace_ids) {
+    auto table_designators = VERIFY_RESULT(GetTablesEligibleForXClusterReplication(
+        catalog_manager_, namespace_id,
+        /*include_sequences_data=*/
+        (data_.automatic_ddl_mode && FLAGS_TEST_xcluster_enable_sequence_replication)));
 
     std::vector<TableId> missing_tables;
 
-    for (const auto& table_info : table_infos) {
-      const auto& table_id = table_info->id();
+    for (const auto& designator : table_designators) {
+      auto table_id = designator.id;
       if (target_table_ids.contains(table_id)) {
         validated_tables.insert(table_id);
       } else {
@@ -568,7 +594,7 @@ Status XClusterInboundReplicationGroupSetupTask::ValidateTableListForDbScoped() 
         missing_tables.empty(), IllegalState,
         "Namespace $0 has additional tables that were not added to xCluster DB Scoped replication "
         "group $1: $2",
-        namespace_id, replication_group_id_, yb::ToString(missing_tables));
+        namespace_id, data_.replication_group_id, yb::ToString(missing_tables));
   }
 
   auto diff = STLSetSymmetricDifference(target_table_ids, validated_tables);
@@ -576,24 +602,25 @@ Status XClusterInboundReplicationGroupSetupTask::ValidateTableListForDbScoped() 
       diff.empty(), IllegalState,
       "xCluster DB Scoped replication group $0 contains tables $1 that do not belong to replicated "
       "namespaces $2",
-      replication_group_id_, yb::ToString(diff), yb::ToString(target_namespace_ids_));
+      data_.replication_group_id, yb::ToString(diff), yb::ToString(data_.target_namespace_ids));
 
   return Status::OK();
 }
 
 Result<scoped_refptr<UniverseReplicationInfo>>
 XClusterInboundReplicationGroupSetupTask::CreateNewUniverseReplicationInfo() {
-  scoped_refptr<UniverseReplicationInfo> ri = new UniverseReplicationInfo(replication_group_id_);
+  scoped_refptr<UniverseReplicationInfo> ri =
+      new UniverseReplicationInfo(data_.replication_group_id);
   ri->mutable_metadata()->StartMutation();
   SysUniverseReplicationEntryPB* metadata = &ri->mutable_metadata()->mutable_dirty()->pb;
-  metadata->set_replication_group_id(replication_group_id_.ToString());
-  metadata->mutable_producer_master_addresses()->CopyFrom(source_masters_);
+  metadata->set_replication_group_id(data_.replication_group_id.ToString());
+  metadata->mutable_producer_master_addresses()->CopyFrom(data_.source_masters);
 
   metadata->set_state(SysUniverseReplicationEntryPB::ACTIVE);
-  metadata->set_transactional(transactional_);
+  metadata->set_transactional(data_.transactional);
 
   if (is_db_scoped_) {
-    metadata->mutable_db_scoped_info()->set_automatic_ddl_mode(automatic_ddl_mode_);
+    metadata->mutable_db_scoped_info()->set_automatic_ddl_mode(data_.automatic_ddl_mode);
   }
 
   return ri;
@@ -601,19 +628,19 @@ XClusterInboundReplicationGroupSetupTask::CreateNewUniverseReplicationInfo() {
 
 void XClusterInboundReplicationGroupSetupTask::PopulateUniverseReplication(
     SysUniverseReplicationEntryPB& universe_pb) {
-  if (!source_namespace_ids_.empty()) {
+  if (!data_.source_namespace_ids.empty()) {
     auto* db_scoped_info = universe_pb.mutable_db_scoped_info();
-    for (size_t i = 0; i < source_namespace_ids_.size(); i++) {
+    for (size_t i = 0; i < data_.source_namespace_ids.size(); i++) {
       auto* ns_info = db_scoped_info->mutable_namespace_infos()->Add();
-      ns_info->set_producer_namespace_id(source_namespace_ids_[i]);
-      ns_info->set_consumer_namespace_id(target_namespace_ids_[i]);
+      ns_info->set_producer_namespace_id(data_.source_namespace_ids[i]);
+      ns_info->set_consumer_namespace_id(data_.target_namespace_ids[i]);
     }
   }
 
   // We need to preserve the input table order, so loop on source_table_ids_ list instead of the
   // source_table_infos_ map. This has been the behavior since the beginning, and tests rely on
   // this.
-  for (const auto& source_table_id : source_table_ids_) {
+  for (const auto& source_table_id : data_.source_table_ids) {
     const auto& table_info = source_table_infos_[source_table_id];
 
     universe_pb.add_tables(source_table_id);
@@ -624,15 +651,17 @@ void XClusterInboundReplicationGroupSetupTask::PopulateUniverseReplication(
 
 XClusterTableSetupTask::XClusterTableSetupTask(
     std::shared_ptr<XClusterInboundReplicationGroupSetupTask> parent_task,
-    const TableId& source_table_id, const xrepl::StreamId& stream_id)
+    const TableId& source_table_id, const std::optional<TableId>& target_table_id,
+    const xrepl::StreamId& stream_id)
     : MultiStepMonitoredTask(
           *parent_task->catalog_manager_.AsyncTaskPool(), *parent_task->master_.messenger()),
       parent_task_(parent_task),
-      source_table_id_(source_table_id) {
+      source_table_id_(source_table_id),
+      target_table_id_(target_table_id) {
   table_setup_info_.stream_id = stream_id;
   log_prefix_ = Format(
       "xCluster InboundReplicationGroup [$0] Source Table [$1]: ",
-      parent_task_->replication_group_id_, source_table_id_);
+      parent_task_->data_.replication_group_id, source_table_id_);
 }
 
 Status XClusterTableSetupTask::RegisterTask() {
@@ -670,8 +699,16 @@ Status XClusterTableSetupTask::FirstStep() {
   }
 
   auto table_info = std::make_shared<client::YBTableInfo>();
+  auto stripped_source_table_id = xcluster::StripSequencesDataAliasIfPresent(source_table_id_);
+
+  if (target_table_id_) {
+    SCHECK(!target_table_id_->empty(), InvalidArgument, "Expected non-empty target table id.");
+    // If we have a specific target table ID, then skip fetching schemas. Automatic DDL replication
+    // will ensure that the schemas will (eventually) be in sync.
+    return ProcessTableWithoutSchemaValidation();
+  }
   return parent_task_->GetYbClient().GetTableSchemaById(
-      source_table_id_, table_info,
+      stripped_source_table_id, table_info,
       Bind(&XClusterTableSetupTask::GetTableSchemaCallback, shared_from(this), table_info));
 }
 
@@ -693,6 +730,10 @@ Status XClusterTableSetupTask::ProcessTable(
       source_info->table_name.namespace_name(), master::kSystemNamespaceName, NotSupported,
       "Cannot replicate system tables");
 
+  // Restore alias if any for sequences_data.  (We called GetTableSchemaById with the stripped table
+  // ID so it returns that one, not the alias ID.)
+  source_info->table_id = source_table_id_;
+
   auto target_schema = VERIFY_RESULT(ValidateSourceSchemaAndGetTargetSchema(*source_info));
 
   const auto& target_table_id = target_schema.identifier().table_id();
@@ -706,6 +747,18 @@ Status XClusterTableSetupTask::ProcessTable(
 
   RETURN_NOT_OK(
       PopulateTableStreamEntry(target_schema.identifier().table_id(), target_schema.version()));
+
+  return ValidateBootstrapAndSetupStreams();
+}
+
+Status XClusterTableSetupTask::ProcessTableWithoutSchemaValidation() {
+  VLOG_WITH_PREFIX_AND_FUNC(1);
+  // Just need to map the initial schema versions (ie 0 -> 0).
+  auto* schema_versions = table_setup_info_.stream_entry.mutable_schema_versions();
+  schema_versions->set_current_producer_schema_version(0);
+  schema_versions->set_current_consumer_schema_version(0);
+
+  RETURN_NOT_OK(PopulateTableStreamEntry(*target_table_id_, 0));
 
   return ValidateBootstrapAndSetupStreams();
 }
@@ -793,7 +846,7 @@ Status XClusterTableSetupTask::ProcessTablegroup(
 Result<GetTableSchemaResponsePB> XClusterTableSetupTask::ValidateSourceSchemaAndGetTargetSchema(
     const client::YBTableInfo& source_table_info) {
   bool is_ysql_table = source_table_info.table_type == client::YBTableType::PGSQL_TABLE_TYPE;
-  if (parent_task_->transactional_ &&
+  if (parent_task_->data_.transactional &&
       !GetAtomicFlag(&FLAGS_TEST_allow_ycql_transactional_xcluster) && !is_ysql_table) {
     return STATUS_FORMAT(
         NotSupported, "Transactional replication is not supported for non-YSQL tables: $0",
@@ -865,6 +918,9 @@ Result<GetTableSchemaResponsePB> XClusterTableSetupTask::ValidateSourceSchemaAnd
     RETURN_NOT_OK(SchemaFromPB(table_schema_resp.schema(), &target_schema));
 
     // We now have a table match. Validate the schema.
+    if (FLAGS_TEST_skip_schema_validation) {
+      break;  // TODO(#23078): Will replace this with better checks.
+    }
     SCHECK(
         target_schema.EquivalentForDataCopy(source_schema), IllegalState,
         Format(
@@ -906,6 +962,12 @@ Result<GetTableSchemaResponsePB> XClusterTableSetupTask::ValidateSourceSchemaAnd
             target_clc_id));
   }
 
+  if (table_schema_resp.identifier().table_id() == kPgSequencesDataTableId) {
+    table_schema_resp.mutable_identifier()->set_table_id(
+        xcluster::GetSequencesDataAliasForNamespace(
+            VERIFY_RESULT(parent_task_->ConvertSourceToTargetNamespace(
+                VERIFY_RESULT(xcluster::GetReplicationNamespaceBelongsTo(source_table_id_))))));
+  }
   return table_schema_resp;
 }
 
@@ -932,9 +994,13 @@ Status XClusterTableSetupTask::PopulateTableStreamEntry(
   stream_entry.mutable_producer_schema()->set_last_compatible_consumer_schema_version(
       target_schema_version);
 
-  if (parent_task_->automatic_ddl_mode_) {
+  if (parent_task_->data_.automatic_ddl_mode) {
     // Mark this stream as special if it is for the ddl_queue table.
-    auto yb_table_info = parent_task_->catalog_manager_.GetTableInfo(target_table_id);
+    auto stripped_target_table_id = xcluster::StripSequencesDataAliasIfPresent(target_table_id);
+    auto yb_table_info = parent_task_->catalog_manager_.GetTableInfo(stripped_target_table_id);
+    SCHECK(
+        yb_table_info, NotFound,
+        Format("Table unexpectedly missing during replication: $0", stripped_target_table_id));
     stream_entry.set_is_ddl_queue_table(
         yb_table_info->GetTableType() == PGSQL_TABLE_TYPE &&
         yb_table_info->name() == xcluster::kDDLQueueTableName &&
@@ -980,7 +1046,7 @@ void XClusterTableSetupTask::SetupStreams() {
     // Streams are used as soon as they are created so set state to active.
     parent_task_->GetXClusterClient().CreateXClusterStreamAsync(
         source_table_id_, /*active=*/true,
-        cdc::StreamModeTransactional(parent_task_->transactional_),
+        cdc::StreamModeTransactional(parent_task_->data_.transactional),
         std::bind(&XClusterTableSetupTask::CreateXClusterStreamCallback, shared_from(this), _1));
     return;
   }
@@ -1051,11 +1117,14 @@ Status XClusterTableSetupTask::ProcessNewStream(const Result<xrepl::StreamId>& s
 void XClusterTableSetupTask::PopulateTabletMapping() {
   VLOG_WITH_PREFIX_AND_FUNC(1);
 
+  auto stripped_source_table_id = xcluster::StripSequencesDataAliasIfPresent(source_table_id_);
+  // If we have a specific target table ID, then allow fetching hidden tables.
+  // This is needed if the target table was dropped before we could replicate the create table.
   parent_task_->GetYbClient().GetTableLocations(
-      source_table_id_, /* max_tablets = */ std::numeric_limits<int32_t>::max(),
+      stripped_source_table_id, /* max_tablets = */ std::numeric_limits<int32_t>::max(),
       RequireTabletsRunning::kTrue, PartitionsOnly::kTrue,
       std::bind(&XClusterTableSetupTask::PopulateTabletMappingCallback, shared_from(this), _1),
-      IncludeInactive::kFalse);
+      IncludeInactive(parent_task_->data_.TargetTableIdsProvided()));
 }
 
 void XClusterTableSetupTask::PopulateTabletMappingCallback(
@@ -1089,8 +1158,10 @@ Status XClusterTableSetupTask::ProcessTabletMapping(
 
   auto& tablets = resp.tablet_locations();
 
-  auto target_tablet_keys = VERIFY_RESULT(
-      parent_task_->catalog_manager_.GetTableKeyRanges(table_setup_info_.target_table_id));
+  auto stripped_target_table_id =
+      xcluster::StripSequencesDataAliasIfPresent(table_setup_info_.target_table_id);
+  auto target_tablet_keys =
+      VERIFY_RESULT(parent_task_->catalog_manager_.GetTableKeyRanges(stripped_target_table_id));
 
   RETURN_NOT_OK(PopulateXClusterStreamEntryTabletMapping(
       source_table_id_, table_setup_info_.target_table_id, target_tablet_keys,
@@ -1129,6 +1200,18 @@ Status ValidateMasterAddressesBelongToDifferentCluster(
   }
 
   return Status::OK();
+}
+
+Result<NamespaceId> XClusterInboundReplicationGroupSetupTask::ConvertSourceToTargetNamespace(
+    const NamespaceId& source_namespace) {
+  for (size_t i = 0; i < data_.source_namespace_ids.size(); i++) {
+    if (data_.source_namespace_ids[i] == source_namespace) {
+      return data_.target_namespace_ids[i];
+    }
+  }
+  return STATUS_FORMAT(
+      NotFound, "Couldn't find source namespace $0 in replication group's namespace mapping",
+      source_namespace);
 }
 
 }  // namespace yb::master

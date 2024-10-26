@@ -470,7 +470,7 @@ public class NodeManager extends DevopsBase {
               && ((ManageOtelCollector.Params) params).installOtelCollector;
       if (provider.getCloudCode() == CloudType.onprem
           && providerDetails.skipProvisioning
-          && getNodeAgentClient().isClientEnabled(provider)
+          && getNodeAgentClient().isClientEnabled(provider, null /* Universe */)
           && !installOtelCol) {
         subCommand.add("--ssh_user");
         subCommand.add("yugabyte");
@@ -880,7 +880,8 @@ public class NodeManager extends DevopsBase {
         taskParam);
   }
 
-  private List<String> getConfigureSubCommand(AnsibleConfigureServers.Params taskParam) {
+  private List<String> getConfigureSubCommand(
+      AnsibleConfigureServers.Params taskParam, Map<String, String> sensitiveData) {
     Universe universe = Universe.getOrBadRequest(taskParam.getUniverseUUID());
     Config config = runtimeConfigFactory.forUniverse(universe);
     UserIntent userIntent = getUserIntentFromParams(universe, taskParam);
@@ -1124,8 +1125,7 @@ public class NodeManager extends DevopsBase {
             }
             Map<String, String> gflags = new TreeMap<>(taskParam.gflags);
             processGFlags(config, universe, node, taskParam, gflags, useHostname);
-            subcommand.add("--gflags");
-            subcommand.add(Json.stringify(Json.toJson(gflags)));
+            sensitiveData.put("--gflags", Json.stringify(Json.toJson(gflags)));
           } else if (taskSubType.equals(
               UpgradeTaskParams.UpgradeTaskSubType.YbcInstall.toString())) {
             subcommand.add("--tags");
@@ -1186,8 +1186,7 @@ public class NodeManager extends DevopsBase {
               }
             }
           }
-          subcommand.add("--gflags");
-          subcommand.add(Json.stringify(Json.toJson(gflags)));
+          sensitiveData.put("--gflags", Json.stringify(Json.toJson(gflags)));
 
           subcommand.add("--tags");
           subcommand.add("override_gflags");
@@ -1299,8 +1298,7 @@ public class NodeManager extends DevopsBase {
                         universe,
                         Arrays.asList(GFlagsUtil.CERTS_DIR, GFlagsUtil.CERTS_FOR_CLIENT_DIR)));
                 processGFlags(config, universe, node, taskParam, gflags, useHostname);
-                subcommand.add("--gflags");
-                subcommand.add(Json.stringify(Json.toJson(gflags)));
+                sensitiveData.put("--gflags", Json.stringify(Json.toJson(gflags)));
                 subcommand.add("--tags");
                 subcommand.add("override_gflags");
                 break;
@@ -1367,8 +1365,7 @@ public class NodeManager extends DevopsBase {
               gflags.putAll(filterCertsAndTlsGFlags(taskParam, universe, tlsGflagsToReplace));
             }
             processGFlags(config, universe, node, taskParam, gflags, useHostname, true);
-            subcommand.add("--gflags");
-            subcommand.add(Json.stringify(Json.toJson(gflags)));
+            sensitiveData.put("--gflags", Json.stringify(Json.toJson(gflags)));
 
             subcommand.add("--tags");
             subcommand.add("override_gflags");
@@ -1388,8 +1385,7 @@ public class NodeManager extends DevopsBase {
               log.warn("Round2 upgrade not required when there is no change in node-to-node");
             }
             processGFlags(config, universe, node, taskParam, gflags, useHostname);
-            subcommand.add("--gflags");
-            subcommand.add(Json.stringify(Json.toJson(gflags)));
+            sensitiveData.put("--gflags", Json.stringify(Json.toJson(gflags)));
 
             subcommand.add("--tags");
             subcommand.add("override_gflags");
@@ -1600,7 +1596,7 @@ public class NodeManager extends DevopsBase {
     NodeInstanceData instanceData = nodeInstance.getDetails();
     if (StringUtils.isNotBlank(instanceData.ip)) {
       getNodeAgentClient()
-          .maybeGetNodeAgent(instanceData.ip, provider)
+          .maybeGetNodeAgent(instanceData.ip, provider, null /* universe */)
           .ifPresent(
               nodeAgent -> {
                 if (nodeAgentPoller.upgradeNodeAgent(nodeAgent.getUuid(), true)) {
@@ -1743,7 +1739,7 @@ public class NodeManager extends DevopsBase {
     if (StringUtils.isNotBlank(nodeIp) && StringUtils.isNotBlank(userIntent.provider)) {
       Provider provider = Provider.getOrBadRequest(UUID.fromString(userIntent.provider));
       getNodeAgentClient()
-          .maybeGetNodeAgent(nodeIp, provider)
+          .maybeGetNodeAgent(nodeIp, provider, universe)
           .ifPresent(
               nodeAgent -> {
                 if (nodeAgentPoller.upgradeNodeAgent(nodeAgent.getUuid(), true)) {
@@ -1751,7 +1747,8 @@ public class NodeManager extends DevopsBase {
                 }
                 commandArgs.add("--connection_type");
                 commandArgs.add("node_agent_rpc");
-                if (getNodeAgentClient().isAnsibleOffloadingEnabled(nodeAgent, provider)) {
+                if (getNodeAgentClient()
+                    .isAnsibleOffloadingEnabled(nodeAgent, provider, universe)) {
                   commandArgs.add("--offload_ansible");
                 }
                 nodeAgentClient.addNodeAgentClientParams(nodeAgent, commandArgs, redactedVals);
@@ -1963,11 +1960,6 @@ public class NodeManager extends DevopsBase {
               // Backward compatiblity.
               imageBundleDefaultImage = taskParam.getRegion().getYbImage();
             }
-            if (StringUtils.isNotBlank(taskParam.getMachineImage())) {
-              // YBM use case - in case machineImage is used for deploying the universe we should
-              // fallback to sshUser configured in the provider.
-              taskParam.sshUserOverride = provider.getDetails().getSshUser();
-            }
             String ybImage =
                 Optional.ofNullable(taskParam.getMachineImage()).orElse(imageBundleDefaultImage);
             if (ybImage != null && !ybImage.isEmpty()) {
@@ -2040,11 +2032,6 @@ public class NodeManager extends DevopsBase {
           } else {
             imageBundleDefaultImage = taskParam.getRegion().getYbImage();
           }
-          if (StringUtils.isNotBlank(taskParam.machineImage)) {
-            // YBM use case - in case machineImage is used for deploying the universe we should
-            // fallback to sshUser configured in the provider.
-            taskParam.sshUserOverride = provider.getDetails().getSshUser();
-          }
           String ybImage =
               Optional.ofNullable(taskParam.machineImage).orElse(imageBundleDefaultImage);
           if (ybImage != null && !ybImage.isEmpty()) {
@@ -2072,6 +2059,10 @@ public class NodeManager extends DevopsBase {
           } else if (taskParam.useSystemd) {
             // Systemd for new universes
             commandArgs.add("--systemd_services");
+          }
+
+          if (taskParam.rebootNodeAllowed) {
+            commandArgs.add("--reboot_node_allowed");
           }
 
           if (taskParam.useTimeSync
@@ -2150,7 +2141,7 @@ public class NodeManager extends DevopsBase {
             throw new RuntimeException("NodeTaskParams is not AnsibleConfigureServers.Params");
           }
           AnsibleConfigureServers.Params taskParam = (AnsibleConfigureServers.Params) nodeTaskParam;
-          commandArgs.addAll(getConfigureSubCommand(taskParam));
+          commandArgs.addAll(getConfigureSubCommand(taskParam, sensitiveData));
           if (taskParam.isSystemdUpgrade) {
             // Cron to Systemd Upgrade
             commandArgs.add("--tags");
@@ -2630,6 +2621,10 @@ public class NodeManager extends DevopsBase {
     addNodeAgentCommandArgs(universe, nodeTaskParam, commandArgs, redactedVals);
     addCustomTmpDirectoryCommandArgs(universe, nodeTaskParam, commandArgs);
     if (userIntent.providerType == CloudType.local) {
+      if (sensitiveData.containsKey("--gflags")) {
+        commandArgs.add("--gflags");
+        commandArgs.add(sensitiveData.get("--gflags"));
+      }
       return localNodeManager.nodeCommand(type, nodeTaskParam, commandArgs);
     }
     commandArgs.add(nodeTaskParam.nodeName);

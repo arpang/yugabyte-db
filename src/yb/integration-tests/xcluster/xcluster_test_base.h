@@ -36,11 +36,12 @@
 #include "yb/yql/pgwrapper/libpq_utils.h"
 #include "yb/yql/pgwrapper/pg_wrapper.h"
 
-DECLARE_bool(TEST_check_broadcast_address);
 DECLARE_bool(TEST_allow_ycql_transactional_xcluster);
+DECLARE_bool(TEST_check_broadcast_address);
+DECLARE_bool(flush_rocksdb_on_shutdown);
+
 DECLARE_int32(cdc_read_rpc_timeout_ms);
 DECLARE_int32(cdc_write_rpc_timeout_ms);
-DECLARE_bool(flush_rocksdb_on_shutdown);
 DECLARE_int32(xcluster_safe_time_update_interval_secs);
 
 namespace yb {
@@ -278,7 +279,7 @@ class XClusterTestBase : public YBTest {
   Status WaitForReplicationDrain(
       int expected_num_nondrained = 0, int timeout_secs = kRpcTimeout,
       std::optional<uint64> target_time = std::nullopt,
-      std::vector<TableId> producer_table_ids = {});
+      std::vector<TableId> producer_table_ids = {}, YBClient* source_client = nullptr);
 
   YBClient* producer_client() {
     return producer_cluster_.client_.get();
@@ -344,7 +345,7 @@ class XClusterTestBase : public YBTest {
   Status PauseResumeXClusterProducerStreams(
       const std::vector<xrepl::StreamId>& stream_ids, bool is_paused);
 
-  Result<TableId> GetColocatedDatabaseParentTableId();
+  Result<TableId> GetColocatedDatabaseParentTableId(Cluster* cluster = nullptr);
 
   Result<master::MasterReplicationProxy> GetProducerMasterProxy();
 

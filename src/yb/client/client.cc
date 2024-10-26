@@ -688,6 +688,11 @@ Result<master::GetBackfillStatusResponsePB> YBClient::GetBackfillStatus(
   return data_->GetBackfillStatus(table_ids, deadline);
 }
 
+Result<bool> YBClient::IsBackfillIndexStarted(
+    const TableId& index_table_id, const TableId& indexed_table_id, CoarseTimePoint deadline) {
+  return data_->IsBackfillIndexStarted(this, index_table_id, indexed_table_id, deadline);
+}
+
 Status YBClient::DeleteTable(const YBTableName& table_name, bool wait) {
   auto deadline = CoarseMonoClock::Now() + default_admin_operation_timeout();
   return data_->DeleteTable(this,
@@ -792,6 +797,13 @@ Result<YBTableInfo> YBClient::GetYBTableInfo(const YBTableName& table_name) {
   YBTableInfo info;
   auto deadline = CoarseMonoClock::Now() + default_admin_operation_timeout();
   RETURN_NOT_OK(data_->GetTableSchema(this, table_name, deadline, &info));
+  return info;
+}
+
+Result<YBTableInfo> YBClient::GetYBTableInfoById(const TableId& table_id) {
+  YBTableInfo info;
+  auto deadline = CoarseMonoClock::Now() + default_admin_operation_timeout();
+  RETURN_NOT_OK(data_->GetTableSchema(this, table_id, deadline, &info));
   return info;
 }
 
@@ -1075,8 +1087,8 @@ Status YBClient::DeleteNamespace(const std::string& namespace_name,
       deadline, req, &resp, "DeleteNamespace", &MasterDdlProxy::DeleteNamespaceAsync));
 
   // Verify that, once this request returns, the namespace has been successfully marked as deleted.
-  RETURN_NOT_OK(data_->WaitForDeleteNamespaceToFinish(this, namespace_name, database_type,
-      namespace_id, CoarseMonoClock::Now() + default_admin_operation_timeout()));
+  RETURN_NOT_OK(data_->WaitForDeleteNamespaceToFinish(
+      this, namespace_name, database_type, namespace_id, deadline));
 
   return Status::OK();
 }
@@ -1141,6 +1153,12 @@ Status YBClient::GetNamespaceInfo(const std::string& namespace_id,
 
   CALL_SYNC_LEADER_MASTER_RPC(req, resp, GetNamespaceInfo);
   ret->Swap(&resp);
+  return Status::OK();
+}
+
+Status YBClient::ListClones(master::ListClonesResponsePB* ret) {
+  master::ListClonesRequestPB req;
+  CALL_SYNC_LEADER_MASTER_RPC_EX(Backup, req, *ret, ListClones);
   return Status::OK();
 }
 
@@ -1621,7 +1639,12 @@ Result<CDCSDKStreamInfo> YBClient::GetCDCStream(
   if (replica_identities) {
     replica_identities->reserve(resp.stream().replica_identity_map_size());
     for (const auto& entry : resp.stream().replica_identity_map()) {
-      replica_identities->emplace(VERIFY_RESULT(GetPgsqlTableOid(entry.first)), entry.second);
+      auto table_info = VERIFY_RESULT(GetYBTableInfoById(entry.first));
+
+      const auto pg_table_id = table_info.pg_table_id;
+      auto table_oid = VERIFY_RESULT(
+          (!pg_table_id.empty()) ? GetPgsqlTableOid(pg_table_id) : GetPgsqlTableOid(entry.first));
+      replica_identities->emplace(table_oid, entry.second);
     }
   }
 
@@ -2568,10 +2591,8 @@ Result<bool> YBClient::CheckIfPitrActive() {
   return data_->CheckIfPitrActive(deadline);
 }
 
-Result<std::vector<YBTableName>> YBClient::ListTables(const std::string& filter,
-                                                      bool exclude_ysql,
-                                                      const std::string& ysql_db_filter,
-                                                      bool skip_hidden) {
+Result<master::ListTablesResponsePB> YBClient::ListTables(
+    const std::string& filter, const std::string& ysql_db_filter) {
   ListTablesRequestPB req;
   ListTablesResponsePB resp;
 
@@ -2585,6 +2606,19 @@ Result<std::vector<YBTableName>> YBClient::ListTables(const std::string& filter,
   }
 
   CALL_SYNC_LEADER_MASTER_RPC(req, resp, ListTables);
+
+  if (resp.has_error()) {
+    return StatusFromPB(resp.error().status());
+  }
+
+  return resp;
+}
+
+Result<std::vector<YBTableName>> YBClient::ListTables(
+    const std::string& filter, bool exclude_ysql, const std::string& ysql_db_filter,
+    bool skip_hidden) {
+  auto resp = VERIFY_RESULT(ListTables(filter, ysql_db_filter));
+
   std::vector<YBTableName> result;
   result.reserve(resp.tables_size());
 
@@ -2991,6 +3025,10 @@ Result<master::StatefulServiceInfoPB> YBClient::GetStatefulServiceLocation(
 
 void YBClient::ClearAllMetaCachesOnServer() {
   data_->meta_cache_->ClearAll();
+}
+
+Status YBClient::ClearMetacache(const std::string& namespace_id) {
+  return data_->meta_cache_->ClearCacheEntries(namespace_id);
 }
 
 bool YBClient::RefreshTabletInfoWithConsensusInfo(

@@ -16,49 +16,6 @@ rightNav:
   hideH4: true
 ---
 
-### Contents
-
-##### YugabyteDB Aeon
-
-- [What is YugabyteDB Aeon?](#what-is-yugabytedb-aeon)
-- [How is YugabyteDB Aeon priced?](#how-is-yugabytedb-aeon-priced)
-- [What regions are available?](#what-regions-are-available)
-
-##### Clusters
-
-- [What are the differences between Sandbox and Dedicated clusters?](#what-are-the-differences-between-sandbox-and-dedicated-clusters)
-- [What can I do if I run out of resources on my Sandbox cluster?](#what-can-i-do-if-i-run-out-of-resources-on-my-sandbox-cluster)
-- [Can I migrate my Sandbox to a Dedicated cluster?](#can-i-migrate-my-sandbox-to-a-dedicated-cluster)
-- [What is the upgrade policy for clusters?](#what-is-the-upgrade-policy-for-clusters)
-
-##### YugabyteDB
-
-- [What version of YugabyteDB does my cluster run on?](#what-version-of-yugabytedb-does-my-cluster-run-on)
-- [Can I test YugabyteDB locally?](#can-i-test-yugabytedb-locally)
-
-##### Support
-
-- [Is support included in the base price?](#is-support-included-in-the-base-price)
-- [Where can I find the support policy and SLA?](#where-can-i-find-the-support-policy-and-sla)
-- [How do I check the status of YugabyteDB Aeon?](#how-do-i-check-the-status-of-yugabytedb-aeon)
-
-##### Security
-
-- [How secure is my cluster?](#how-secure-is-my-cluster)
-
-##### Cluster management
-
-- [What cluster configurations can I create?](#what-cluster-configurations-can-i-create)
-- [How do I connect to my cluster?](#how-do-i-connect-to-my-cluster)
-- [Why is my Sandbox cluster paused?](#why-is-my-sandbox-cluster-paused)
-- [How do I keep my Sandbox cluster from being paused or deleted?](#how-do-i-keep-my-sandbox-cluster-from-being-paused-or-deleted)
-- [What qualifies as activity on a cluster?](#what-qualifies-as-activity-on-a-cluster)
-
-##### Backups
-
-- [How are clusters backed up?](#how-are-clusters-backed-up)
-- [Can I download backups?](#can-i-download-backups)
-
 ## YugabyteDB Aeon
 
 ### What is YugabyteDB Aeon?
@@ -77,13 +34,21 @@ Yugabyte bills for its services as follows:
 - Tabulates costs daily.
 - Displays your current monthly costs under **Invoices** on the **Usage & Billing** tab.
 
-For information on YugabyteDB Aeon pricing, refer to [YugabyteDB Pricing](https://www.yugabyte.com/pricing/). For a description of how cluster configurations are costed, refer to [Cluster costs](../../yugabyte-cloud/cloud-admin/cloud-billing-costs/).
+{{<lead link="https://www.yugabyte.com/pricing/">}}
+YugabyteDB Aeon Pricing
+{{</lead>}}
+
+{{<lead link="/preview/yugabyte-cloud/cloud-admin/cloud-billing-costs/">}}
+For a description of how cluster configurations are costed, refer to [Cluster costs](/preview/yugabyte-cloud/cloud-admin/cloud-billing-costs/).
+{{</lead>}}
 
 ### What regions are available?
 
-Refer to [Cloud provider regions](../../yugabyte-cloud/cloud-basics/create-clusters-overview/#cloud-provider-regions) for a list currently supported regions.
-
 YugabyteDB Aeon supports all the regions that have robust infrastructure and sufficient demand from customers. If there are regions you would like added, reach out to {{% support-cloud %}}.
+
+{{<lead link="../../yugabyte-cloud/cloud-basics/create-clusters-overview/#cloud-provider-regions">}}
+Refer to [Cloud provider regions](../../yugabyte-cloud/cloud-basics/create-clusters-overview/#cloud-provider-regions) for a list currently supported regions.
+{{</lead>}}
 
 ## Clusters
 
@@ -138,7 +103,9 @@ Yugabyte only upgrades clusters during scheduled maintenance windows. Yugabyte n
 
 Updates to fault-tolerant clusters are done on a rolling basis to avoid any downtime.
 
-For more information, refer to [Maintenance windows](../../yugabyte-cloud/cloud-clusters/cloud-maintenance/).
+{{<lead link="../../yugabyte-cloud/cloud-clusters/cloud-maintenance/">}}
+Manage cluster maintenance windows and set exclusion periods
+{{</lead>}}
 
 ## YugabyteDB
 
@@ -155,6 +122,14 @@ In addition to the Innovation and Early Access tracks, Sandbox clusters can be p
 Once a cluster is created, it is upgraded with releases from the track that was assigned at creation.
 
 To view the database version running on a particular cluster, navigate to the **Clusters** page; the database version is displayed next to the cluster name; hover over the version to see the release track.
+
+### Why does the database admin user not have superuser privileges?
+
+For security reasons, in YugabyteDB Aeon you can't use the yugabyte or postgres users that are available in open-source YugabyteDB, and the cluster database admin user does not have YSQL superuser privileges. Instead, the admin is a member of yb_superuser, a role specific to YugabyteDB Aeon clusters.
+
+{{<lead link="../../yugabyte-cloud/cloud-secure-clusters/cloud-users/">}}
+Default YugabyteDB users and roles in YugabyteDB Aeon clusters
+{{</lead>}}
 
 ### Can I test YugabyteDB locally?
 
@@ -188,7 +163,11 @@ Your data is processed at the YugabyteDB Aeon account level, and each account is
 
 YugabyteDB Aeon uses both encryption in transit and encryption at rest to protect clusters and cloud infrastructure. YugabyteDB Aeon also provides DDoS and application layer protection, and automatically blocks network protocol and volumetric DDoS attacks.
 
-YugabyteDB Aeon uses a shared responsibility model for security. For more information on YugabyteDB Aeon security, refer to [Security architecture](../../yugabyte-cloud/cloud-security/).
+YugabyteDB Aeon uses a shared responsibility model for security.
+
+{{<lead link="../../yugabyte-cloud/cloud-security/">}}
+Security architecture
+{{</lead>}}
 
 ## Cluster management
 
@@ -205,7 +184,11 @@ The Fault Tolerance of a cluster determines how resilient the cluster is to fail
 
 For production clusters, a minimum of Availability Zone Level is recommended. Whether you choose Region or Availability Zone Level depends on your application architecture, design, and latency requirements.
 
-For multi-region deployments, you can deploy a variety of topologies, including synchronously replicated, geo-level partitioned, and read replicas. For more information, refer to [Topologies](../../yugabyte-cloud/cloud-basics/create-clusters-topology/).
+For multi-region deployments, you can deploy a variety of topologies, including synchronously replicated, geo-level partitioned, and read replicas.
+
+{{<lead link="../../yugabyte-cloud/cloud-basics/create-clusters-topology/">}}
+Topologies
+{{</lead>}}
 
 Sandbox clusters are limited to a single node in a single region.
 
@@ -217,7 +200,7 @@ You can connect to clusters in the following ways:
 
   {{% tab header="Cloud Shell" lang="Cloud Shell" %}}
 
-Run the [ysqlsh](../../admin/ysqlsh/) or [ycqlsh](../../admin/ycqlsh/) shell from your browser to connect to and interact with your YugabyteDB database. Cloud Shell does not require a CA certificate or any special network access configured.
+Run the [ysqlsh](../../api/ysqlsh/) or [ycqlsh](../../api/ycqlsh/) shell from your browser to connect to and interact with your YugabyteDB database. Cloud Shell does not require a CA certificate or any special network access configured.
 
 When you connect using Cloud Shell with the YSQL API, the shell window also incorporates a [Quick Start Guide](../../yugabyte-cloud/cloud-quickstart/), with a series of pre-built queries for you to run.
 
@@ -225,7 +208,7 @@ When you connect using Cloud Shell with the YSQL API, the shell window also inco
 
   {{% tab header="Client Shell" lang="Client Shell" %}}
 
-Connect to your YugabyteDB cluster using the YugabyteDB [ysqlsh](../../admin/ysqlsh/) and [ycqlsh](../../admin/ycqlsh/) client shells installed on your computer.
+Connect to your YugabyteDB cluster using the YugabyteDB [ysqlsh](../../api/ysqlsh/) and [ycqlsh](../../api/ycqlsh/) client shells installed on your computer.
 
 Before you can connect using a client shell, you need to add your computer to the cluster IP allow list. Refer to [Assign IP Allow Lists](../../yugabyte-cloud/cloud-secure-clusters/add-connections/).
 
@@ -262,13 +245,17 @@ Before you can connect, your application has to be able to reach your YugabyteDB
 
 {{< /tabpane >}}
 
-For more details, refer to [Connect to clusters](../../yugabyte-cloud/cloud-connect/).
+{{<lead link="../../yugabyte-cloud/cloud-connect/">}}
+Connect to clusters
+{{</lead>}}
 
 ### Why is my Sandbox cluster paused?
 
 Sandbox clusters are paused after 10 days of [inactivity](#what-qualifies-as-activity-on-a-cluster).
 
-For more details, refer to [Inactive Sandbox clusters](../../yugabyte-cloud/cloud-basics/create-clusters/create-clusters-free/#inactive-sandbox-clusters).
+{{<lead link="../../yugabyte-cloud/cloud-basics/create-clusters/create-clusters-free/#inactive-sandbox-clusters">}}
+Inactive Sandbox clusters
+{{</lead>}}
 
 ### How do I keep my Sandbox cluster from being paused or deleted?
 
@@ -294,13 +281,19 @@ Sandbox clusters are paused after 10 days of inactivity. To keep your cluster fr
 
 By default, every cluster is backed up automatically every 24 hours, and these automatic backups are retained for 8 days. The first automatic backup is triggered 24 hours after creating a table, and is scheduled every 24 hours thereafter. You can change the default backup intervals by adjusting the backup policy settings.
 
-YugabyteDB Aeon runs full backups, not incremental.
-
-Backups are retained in the same region as the cluster.
+YugabyteDB Aeon supports full backups, and incremental backups.
 
 Backups for AWS clusters are encrypted using AWS S3 server-side encryption. Backups for GCP clusters are encrypted using Google-managed server-side encryption keys. Backups for Azure clusters are encrypted using Azure-managed server-side encryption keys and client-side encryption is done using [GCM mode with AES](https://learn.microsoft.com/en-us/azure/storage/common/storage-service-encryption#client-side-encryption-for-blobs-and-queues).
 
 Currently, YugabyteDB Aeon does not support backups of Sandbox clusters.
+
+### Where are clusters backed up?
+
+Backups are located in cloud storage of the provider where the cluster is deployed. The storage is located is the same region as the cluster.
+
+For [Replicate across region](/preview/yugabyte-cloud/cloud-basics/create-clusters/create-clusters-multisync/) clusters, the backup is stored in one of the cluster regions, as determined automatically by Aeon when the cluster is created.
+
+For [Partition by region](/preview/yugabyte-cloud/cloud-basics/create-clusters/create-clusters-geopartition/) clusters, the database schema and tablet details are stored in the primary region, and the regional tablespace data is stored in its respective region to preserve data residency.
 
 ### Can I download backups?
 

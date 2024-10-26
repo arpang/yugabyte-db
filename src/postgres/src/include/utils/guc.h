@@ -245,6 +245,9 @@ typedef enum
 
 #define GUC_UNIT				(GUC_UNIT_MEMORY | GUC_UNIT_TIME)
 
+#define GUC_YB_CUSTOM_STICKY	0x100000 /* stickiness for custom string
+										  * variables */
+
 
 /* GUC vars that are actually declared in guc.c, rather than elsewhere */
 extern PGDLLIMPORT bool Debug_print_plan;
@@ -304,6 +307,7 @@ extern PGDLLIMPORT bool  yb_bnl_enable_hashing;
 extern PGDLLIMPORT int yb_explicit_row_locking_batch_size;
 extern PGDLLIMPORT bool yb_lock_pk_single_rpc;
 extern PGDLLIMPORT int yb_toast_catcache_threshold;
+extern PGDLLIMPORT bool yb_enable_fkey_catcache;
 
 /*
  * Functions exported by guc.c

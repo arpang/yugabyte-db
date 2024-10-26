@@ -239,7 +239,8 @@ export const getFormData = (
       communicationPorts,
       customizePort: false, //** */
       ybcPackagePath: null, //** */,
-      enablePGCompatibitilty: isPGEnabledFromIntent(userIntent)
+      enablePGCompatibitilty: isPGEnabledFromIntent(userIntent),
+      enableConnectionPooling: _.get(userIntent, 'enableConnectionPooling', false)
     },
     instanceTags: transformInstanceTags(userIntent.instanceTags),
     gFlags: userIntent?.specificGFlags
@@ -251,10 +252,6 @@ export const getFormData = (
     universeOverrides: userIntent.universeOverrides,
     inheritFlagsFromPrimary: userIntent?.specificGFlags?.inheritFromPrimary
   };
-
-  if (!_.isEmpty(userIntent?.enableConnectionPooling)) {
-    data.advancedConfig.enableConnectionPooling = userIntent.enableConnectionPooling;
-  }
 
   if (data.cloudConfig.masterPlacement === MasterPlacementMode.DEDICATED) {
     data.instanceConfig.masterInstanceType = userIntent.masterInstanceType;
@@ -319,6 +316,7 @@ export const getUserIntent = (
     enableIPV6: advancedConfig.enableIPV6,
     enableExposingService: advancedConfig.enableExposingService,
     useSystemd: advancedConfig.useSystemd,
+    enableConnectionPooling: _.get(advancedConfig, 'enableConnectionPooling', false),
     imageBundleUUID: instanceConfig.imageBundleUUID!
   };
 
@@ -354,9 +352,6 @@ export const getUserIntent = (
   if (!_.isEmpty(azOverrides)) intent.userIntentOverrides = { azOverrides };
   if (!_.isEmpty(proxyConfig)) intent.proxyConfig = proxyConfig;
   if (!_.isEmpty(universeOverrides)) intent.universeOverrides = universeOverrides;
-  if (!_.isEmpty(advancedConfig?.enableConnectionPooling)) {
-    intent.enableConnectionPooling = advancedConfig.enableConnectionPooling;
-  }
 
   if (
     cloudConfig.provider?.code === CloudType.kubernetes &&
@@ -510,7 +505,9 @@ export const getKubernetesDiffClusterData = (
       oldMasterNumCores: 0,
       newMasterNumCores: 0,
       oldMasterMemory: 0,
-      newMasterMemory: 0
+      newMasterMemory: 0,
+      oldTServerVolumeCount: 0,
+      newTServerVolumeCount: 0
     };
   }
 
@@ -530,7 +527,9 @@ export const getKubernetesDiffClusterData = (
     oldMasterNumCores: currentClusterConfig?.userIntent?.masterK8SNodeResourceSpec?.cpuCoreCount,
     newMasterNumCores: newClusterConfig?.userIntent?.masterK8SNodeResourceSpec?.cpuCoreCount,
     oldMasterMemory: currentClusterConfig?.userIntent?.masterK8SNodeResourceSpec?.memoryGib,
-    newMasterMemory: newClusterConfig?.userIntent?.masterK8SNodeResourceSpec?.memoryGib
+    newMasterMemory: newClusterConfig?.userIntent?.masterK8SNodeResourceSpec?.memoryGib,
+    oldTServerVolumeCount: currentClusterConfig?.userIntent?.deviceInfo?.numVolumes,
+    newTServerVolumeCount: newClusterConfig?.userIntent?.deviceInfo?.numVolumes
   };
 };
 

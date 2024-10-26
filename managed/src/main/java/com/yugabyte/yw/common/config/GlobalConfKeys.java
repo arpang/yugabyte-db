@@ -647,6 +647,14 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Enforce server certificate verification for LDAPs/LDAP-TLS",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static ConfKeyInfo<Integer> ldapPageQuerySize =
+      new ConfKeyInfo<>(
+          "yb.security.ldap.page_query_size",
+          ScopeType.GLOBAL,
+          "Pagination query size for LDAP server",
+          "Pagination query size for LDAP server",
+          ConfDataType.IntegerType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static ConfKeyInfo<Boolean> enableDetailedLogs =
       new ConfKeyInfo<>(
           "yb.security.enable_detailed_logs",
@@ -777,14 +785,6 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "It indicates whether creating disaster recovery configs are enabled",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Boolean> dbScopedXClusterEnabled =
-      new ConfKeyInfo<>(
-          "yb.xcluster.db_scoped.enabled",
-          ScopeType.GLOBAL,
-          "Flag to enable db scoped xcluster replication",
-          "If flag is enabled, allows DR support with db scoped xcluster replication",
-          ConfDataType.BooleanType,
-          ImmutableList.of(ConfKeyTags.INTERNAL));
   public static final ConfKeyInfo<Boolean> xclusterEnableAutoFlagValidation =
       new ConfKeyInfo<>(
           "yb.xcluster.enable_auto_flag_validation",
@@ -1355,7 +1355,7 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "If this flag is enabled, user will be able to enable/disable connection pooling on"
               + " universes.",
           ConfDataType.BooleanType,
-          ImmutableList.of(ConfKeyTags.INTERNAL));
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Duration> xClusterSyncSchedulerInterval =
       new ConfKeyInfo<>(
           "yb.xcluster.xcluster_sync_scheduler_interval",
@@ -1483,14 +1483,48 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
               + " will be evaluated and returned",
           ConfDataType.IntegerType,
           ImmutableList.of(ConfKeyTags.INTERNAL));
-  public static final ConfKeyInfo<String> k8sUniverseDefaultServiceScope =
+  public static final ConfKeyInfo<Integer> numCloudYbaBackupsRetention =
       new ConfKeyInfo<>(
-          "yb.universe.default_service_scope_for_k8s",
+          "yb.auto_yba_backups.num_cloud_retention",
           ScopeType.GLOBAL,
-          "Default service scope for K8s universe",
-          "The default service scope for K8s service endpoints. Can be AZ/Namespaced. 'AZ' will"
-              + " create a service in each Availability zone, whereas 'Namespaced' will create one"
-              + " service per Namespace",
+          "Number of cloud YBA backups to retain",
+          "When continuous backups feature is enabled only the most recent n backups will be"
+              + " retained in the storage bucket",
+          ConfDataType.IntegerType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Duration> autoRetryTasksOnYbaRestartTimeWindow =
+      new ConfKeyInfo<>(
+          "yb.task.auto_retry_on_yba_restart_time_window",
+          ScopeType.GLOBAL,
+          "Auto Retry Aborted Tasks on YBA Restart Time Window",
+          "On YBA startup, retry tasks automatically that were aborted due to YBA shutdown if time"
+              + " window is non-zero",
+          ConfDataType.DurationType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
+  public static final ConfKeyInfo<String> metricScrapeIntervalStandby =
+      new ConfKeyInfo<>(
+          "yb.metrics.scrape_interval_standby",
+          ScopeType.GLOBAL,
+          "Standby Prometheus scrape interval",
+          "Need to increase it in case federation metrics request takes more time "
+              + " than main Prometheus scrape period to complete",
           ConfDataType.StringType,
-          ImmutableList.of(ConfKeyTags.BETA));
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<String> oidcGroupClaim =
+      new ConfKeyInfo<>(
+          "yb.security.oidc_group_claim",
+          ScopeType.GLOBAL,
+          "OIDC Group Claim",
+          "Claim in the ID token containing the list of groups. Default value: \"groups\"",
+          ConfDataType.StringType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
+
+  public static final ConfKeyInfo<Boolean> disableV1APIToken =
+      new ConfKeyInfo<>(
+          "yb.user.disable_v1_api_token",
+          ScopeType.GLOBAL,
+          "Disable V1 API Token",
+          "Disable support for V1 API Token",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
 }

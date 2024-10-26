@@ -32,6 +32,7 @@ import com.yugabyte.yw.commissioner.Commissioner;
 import com.yugabyte.yw.commissioner.DefaultExecutorServiceProvider;
 import com.yugabyte.yw.commissioner.ExecutorServiceProvider;
 import com.yugabyte.yw.commissioner.TaskExecutor;
+import com.yugabyte.yw.commissioner.tasks.local.LocalProviderUniverseTestBase;
 import com.yugabyte.yw.commissioner.tasks.subtasks.CheckFollowerLag;
 import com.yugabyte.yw.commissioner.tasks.subtasks.CheckLeaderlessTablets;
 import com.yugabyte.yw.commissioner.tasks.subtasks.CheckUnderReplicatedTablets;
@@ -249,6 +250,8 @@ public abstract class CommissionerBaseTest extends PlatformGuiceApplicationBaseT
     when(mockBaseTaskDependencies.getNodeUIApiHelper()).thenReturn(mockNodeUIApiHelper);
     when(mockBaseTaskDependencies.getReleaseManager()).thenReturn(mockReleaseManager);
     when(mockBaseTaskDependencies.getYsqlQueryExecutor()).thenReturn(mockYsqlQueryExecutor);
+    when(mockBaseTaskDependencies.getGFlagsValidation()).thenReturn(mockGFlagsValidation);
+    when(mockBaseTaskDependencies.getNodeUniverseManager()).thenReturn(mockNodeUniverseManager);
     releaseMetadata = ReleaseManager.ReleaseMetadata.create("1.0.0.0-b1");
     releaseContainer =
         new ReleaseContainer(releaseMetadata, mockCloudUtilFactory, mockConfig, mockReleasesUtils);
@@ -634,6 +637,10 @@ public abstract class CommissionerBaseTest extends PlatformGuiceApplicationBaseT
         commissioner.resumeTask(taskUuid);
         // Wait for the task to abort.
         TaskInfo taskInfo = waitForTask(taskUuid);
+        if (taskInfo.getTaskState() == State.Failure) {
+          throw new IllegalStateException(
+              "Task failed " + LocalProviderUniverseTestBase.getAllErrorsStr(taskInfo));
+        }
         if (pendingSubTaskCount <= 1) {
           assertEquals(State.Success, taskInfo.getTaskState());
         } else {

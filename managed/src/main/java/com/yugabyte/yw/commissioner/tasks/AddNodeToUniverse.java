@@ -29,6 +29,7 @@ import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.UserIntent;
 import com.yugabyte.yw.models.NodeInstance;
 import com.yugabyte.yw.models.Universe;
 import com.yugabyte.yw.models.helpers.NodeDetails;
+import com.yugabyte.yw.models.helpers.NodeDetails.MasterState;
 import com.yugabyte.yw.models.helpers.NodeDetails.NodeState;
 import java.util.Collection;
 import java.util.Collections;
@@ -134,6 +135,9 @@ public class AddNodeToUniverse extends UniverseDefinitionTaskBase {
   private void freezeUniverseInTxn(Universe universe) {
     NodeDetails universeNode = universe.getNode(taskParams().nodeName);
     universeNode.nodeUuid = currentNode.nodeUuid;
+    if (addMaster) {
+      universeNode.masterState = MasterState.ToStart;
+    }
     // Confirm the node on hold.
     commitReservedNodes();
   }
@@ -197,7 +201,12 @@ public class AddNodeToUniverse extends UniverseDefinitionTaskBase {
       // ignore node status is true because generic callee checks for node state To Be Added.
       boolean isNextFallThrough =
           createCreateNodeTasks(
-              universe, nodeSet, true /* ignoreNodeStatus */, null /* param customizer */);
+              universe,
+              nodeSet,
+              true /* ignoreNodeStatus */,
+              setupServerParams -> {
+                setupServerParams.rebootNodeAllowed = true;
+              });
 
       Set<NodeDetails> mastersToAdd = null;
       Set<NodeDetails> tServersToAdd = null;

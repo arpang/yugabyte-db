@@ -351,8 +351,11 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
 
   std::shared_ptr<qlexpr::IndexMap> index_map(const TableId& table_id = "") const;
 
+  SchemaVersion primary_table_schema_version() const;
+
+  // Non-colocated tables should use primary_table_schema_version().
   [[deprecated]]
-  SchemaVersion schema_version(const TableId& table_id = "") const;
+  SchemaVersion schema_version(const TableId& table_id) const;
 
   Result<SchemaVersion> schema_version(ColocationId colocation_id) const;
 
@@ -493,6 +496,10 @@ class RaftGroupMetadata : public RefCountedThreadSafe<RaftGroupMetadata>,
                  const SchemaVersion version,
                  const OpId& op_id,
                  const TableId& table_id = "") REQUIRES(data_mutex_);
+
+  void InsertPackedSchemaForXClusterTarget(
+      const Schema& schema, const qlexpr::IndexMap& index_map, const SchemaVersion version,
+      const OpId& op_id, const TableId& table_id);
 
   void SetPartitionSchema(const dockv::PartitionSchema& partition_schema);
 

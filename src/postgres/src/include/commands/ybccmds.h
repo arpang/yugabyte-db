@@ -67,7 +67,7 @@ extern void YBCCreateTable(CreateStmt *stmt,
 
 extern void YBCDropTable(Relation rel);
 
-extern void YbTruncate(Relation rel);
+extern void YbUnsafeTruncate(Relation rel);
 
 extern void YBCCreateIndex(const char *indexName,
 						   IndexInfo *indexInfo,
@@ -97,8 +97,7 @@ extern List* YBCPrepareAlterTable(List** subcmds,
 										   int subcmds_size,
 										   Oid relationId,
 										   YBCPgStatement *rollbackHandle,
-										   bool isPartitionOfAlteredTable,
-										   int rewriteState);
+										   bool isPartitionOfAlteredTable);
 
 extern void YBCExecAlterTable(YBCPgStatement handle, Oid relationId);
 

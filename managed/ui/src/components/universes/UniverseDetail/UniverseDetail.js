@@ -91,10 +91,30 @@ import ConnectionPoolDisabled from '../../../redesign/assets/connection-pool-dis
 
 import './UniverseDetail.scss';
 
-const INSTANCE_WITH_EPHEMERAL_STORAGE_ONLY = ['i3', 'c5d', 'c6gd'];
+const INSTANCE_WITH_EPHEMERAL_STORAGE_ONLY = [
+  'g5',
+  'g6',
+  'g6e',
+  'gr6',
+  'i3',
+  'i3en',
+  'i4g',
+  'i4i',
+  'im4gn',
+  'is4gen',
+  'p5',
+  'p5e',
+  'trn1',
+  'trn1n',
+  'x1',
+  'x1e'
+];
 
 export const isEphemeralAwsStorageInstance = (instanceType) => {
-  return INSTANCE_WITH_EPHEMERAL_STORAGE_ONLY.includes(instanceType?.split?.('.')[0]);
+  return (
+    INSTANCE_WITH_EPHEMERAL_STORAGE_ONLY.includes(instanceType?.split?.('.')[0]) ||
+    instanceType?.split?.('.')[0].includes('d')
+  );
 };
 
 class UniverseDetail extends Component {
@@ -406,11 +426,6 @@ class UniverseDetail extends Component {
     const isK8OperatorBlocked =
       runtimeConfigs?.data?.configEntries?.find(
         (config) => config.key === RuntimeConfigKey.BLOCK_K8_OPERATOR
-      )?.value === 'true';
-
-    const isRollingUpradeMutlipleNodesEnabled =
-      runtimeConfigs?.data?.configEntries?.find(
-        (c) => c.key === RuntimeConfigKey.BATCH_ROLLING_UPGRADE_FEATURE_FLAG
       )?.value === 'true';
 
     const isAuditLogEnabled =
@@ -780,11 +795,6 @@ class UniverseDetail extends Component {
         universeDetails: { nodeDetailsSet }
       }
     } = currentUniverse;
-
-    const isEphemeralAwsStorage =
-      nodeDetailsSet.find?.((node) => {
-        return isEphemeralAwsStorageInstance(node.cloudInfo?.instance_type);
-      }) !== undefined;
 
     /**
      * Handle the backup state toggle.
@@ -1227,7 +1237,6 @@ class UniverseDetail extends Component {
                     </RbacValidator>
                   )}
                   {!universePaused &&
-                    !isItKubernetesUniverse &&
                     isConnectionPoolEnabled &&
                     isConfigureYSQLEnabled &&
                     isYSQLEnabledInUniverse &&
@@ -1431,7 +1440,6 @@ class UniverseDetail extends Component {
                   */}
 
                   {isPausableUniverse(currentUniverse?.data) &&
-                    !isEphemeralAwsStorage &&
                     (featureFlags.test['pausedUniverse'] ||
                       featureFlags.released['pausedUniverse']) && (
                       <RbacValidator
@@ -1545,7 +1553,6 @@ class UniverseDetail extends Component {
           }}
           isGFlagMultilineConfEnabled={isGFlagMultilineConfEnabled}
           universeData={currentUniverse.data}
-          isRollingUpradeMutlipleNodesEnabled={isRollingUpradeMutlipleNodesEnabled}
         />
         <UpgradeLinuxVersionModal
           visible={showModal && visibleModal === 'linuxVersionUpgradeModal'}
@@ -1670,6 +1677,7 @@ class UniverseDetail extends Component {
             this.props.getUniverseInfo(currentUniverse.data.universeUUID);
           }}
           universeData={currentUniverse.data}
+          isItKubernetesUniverse={isItKubernetesUniverse}
         />
 
         <Measure onMeasure={this.onResize.bind(this)}>

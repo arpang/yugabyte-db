@@ -249,7 +249,14 @@ CopyGetData(CopyFromState cstate, void *databuf, int minread, int maxread)
 	switch (cstate->copy_src)
 	{
 		case COPY_FILE:
+			if (IsYugaByteEnabled())
+				pgstat_report_wait_start(WAIT_EVENT_YB_COPY_COMMAND_STREAM_READ);
+
 			bytesread = fread(databuf, 1, maxread, cstate->copy_file);
+
+			if (IsYugaByteEnabled())
+				pgstat_report_wait_end();
+
 			if (ferror(cstate->copy_file))
 				ereport(ERROR,
 						(errcode_for_file_access(),

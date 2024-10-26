@@ -15,12 +15,13 @@ import com.yugabyte.yw.commissioner.tasks.upgrade.SoftwareUpgrade;
 import com.yugabyte.yw.commissioner.tasks.upgrade.SoftwareUpgradeYB;
 import com.yugabyte.yw.common.PlacementInfoUtil;
 import com.yugabyte.yw.common.PlatformServiceException;
+import com.yugabyte.yw.common.config.RuntimeConfGetter;
+import com.yugabyte.yw.common.config.UniverseConfKeys;
 import com.yugabyte.yw.common.gflags.GFlagsUtil;
 import com.yugabyte.yw.common.kms.util.EncryptionAtRestUtil;
 import com.yugabyte.yw.forms.RollMaxBatchSize;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams;
 import com.yugabyte.yw.forms.UniverseTaskParams;
-import com.yugabyte.yw.forms.UniverseTaskParams.CommunicationPorts;
 import com.yugabyte.yw.forms.UpgradeTaskParams;
 import com.yugabyte.yw.forms.UpgradeTaskParams.UpgradeOption;
 import com.yugabyte.yw.forms.UpgradeTaskParams.UpgradeTaskSubType;
@@ -338,6 +339,12 @@ public abstract class UpgradeTaskBase extends UniverseDefinitionTaskBase {
       List<NodeDetails> tServerNodes,
       UpgradeContext context,
       boolean isYbcPresent) {
+
+    if (context.processTServersFirst) {
+      createRollingUpgradeTaskFlow(
+          rollingUpgradeLambda, tServerNodes, ServerType.TSERVER, context, true, isYbcPresent);
+    }
+
     if (context.processInactiveMaster) {
       createRollingUpgradeTaskFlow(
           rollingUpgradeLambda,
@@ -346,11 +353,6 @@ public abstract class UpgradeTaskBase extends UniverseDefinitionTaskBase {
           context,
           false,
           isYbcPresent);
-    }
-
-    if (context.processTServersFirst) {
-      createRollingUpgradeTaskFlow(
-          rollingUpgradeLambda, tServerNodes, ServerType.TSERVER, context, true, isYbcPresent);
     }
 
     createRollingUpgradeTaskFlow(
@@ -377,7 +379,7 @@ public abstract class UpgradeTaskBase extends UniverseDefinitionTaskBase {
         lambda, nodeSet, NodeDetails::getAllProcesses, context, true, isYbcPresent);
   }
 
-  private void createRollingUpgradeTaskFlow(
+  protected void createRollingUpgradeTaskFlow(
       IUpgradeSubTask rollingUpgradeLambda,
       Collection<NodeDetails> nodes,
       ServerType baseProcessType,
@@ -414,6 +416,15 @@ public abstract class UpgradeTaskBase extends UniverseDefinitionTaskBase {
     }
 
     return result;
+  }
+
+  public static boolean isBatchRollEnabled(Universe universe, RuntimeConfGetter confGetter) {
+    boolean isK8s =
+        universe.getUniverseDetails().getPrimaryCluster().userIntent.providerType
+            == Common.CloudType.kubernetes;
+    return isK8s
+        ? confGetter.getConfForScope(universe, UniverseConfKeys.upgradeBatchRollK8sEnabled)
+        : confGetter.getConfForScope(universe, UniverseConfKeys.upgradeBatchRollEnabled);
   }
 
   /**
@@ -630,10 +641,7 @@ public abstract class UpgradeTaskBase extends UniverseDefinitionTaskBase {
 
           if (processType.equals(ServerType.TSERVER) && nodeList.iterator().next().isYsqlServer) {
             createWaitForServersTasks(
-                    nodeList,
-                    ServerType.YSQLSERVER,
-                    context.getUserIntent(),
-                    context.getCommunicationPorts())
+                    nodeList, ServerType.YSQLSERVER, context.getTargetUniverseState())
                 .setSubTaskGroupType(subGroupType);
           }
 
@@ -739,7 +747,7 @@ public abstract class UpgradeTaskBase extends UniverseDefinitionTaskBase {
     }
   }
 
-  private List<NodeDetails> getNonMasterNodes(
+  protected List<NodeDetails> getNonMasterNodes(
       List<NodeDetails> masterNodes, List<NodeDetails> tServerNodes) {
     Universe universe = getUniverse();
     UUID primaryClusterUuid = universe.getUniverseDetails().getPrimaryCluster().uuid;
@@ -753,7 +761,7 @@ public abstract class UpgradeTaskBase extends UniverseDefinitionTaskBase {
         : null;
   }
 
-  private void createNonRollingUpgradeTaskFlow(
+  protected void createNonRollingUpgradeTaskFlow(
       IUpgradeSubTask nonRollingUpgradeLambda,
       List<NodeDetails> nodes,
       ServerType processType,
@@ -1223,11 +1231,9 @@ public abstract class UpgradeTaskBase extends UniverseDefinitionTaskBase {
     boolean runBeforeStopping;
     boolean processInactiveMaster;
     @Builder.Default boolean processTServersFirst = false;
-    // Set this field to access client userIntent during runtime as
-    // usually universeDetails are updated only at the end of task.
-    UniverseDefinitionTaskParams.UserIntent userIntent;
-    // Set this field to provide custom communication ports during runtime.
-    CommunicationPorts communicationPorts;
+    // This is transient universe state to keep track of changes already applied
+    // (as actual universe in DB is usually updated at the end of task).
+    Universe targetUniverseState;
     @Builder.Default boolean skipStartingProcesses = false;
     String targetSoftwareVersion;
     Consumer<NodeDetails> postAction;

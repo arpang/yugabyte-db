@@ -163,7 +163,10 @@ public class ThirdPartyLoginHandler {
                 idToken.getJWTClaimsSet().getStringClaim("oid"),
                 profile.getAccessToken().toAuthorizationHeader());
       } else {
-        groups = idToken.getJWTClaimsSet().getStringListClaim("groups");
+        groups =
+            idToken
+                .getJWTClaimsSet()
+                .getStringListClaim(confGetter.getGlobalConf(GlobalConfKeys.oidcGroupClaim));
       }
       // return if groups claim not found in token
       if (groups == null) {
@@ -209,7 +212,9 @@ public class ThirdPartyLoginHandler {
     headers.put("Authorization", authHeader);
     JsonNode result = apiHelper.getRequest(url, headers);
     List<String> groups = new ArrayList<>();
-    log.trace("Result from microsoft endpoint = {}", result.toPrettyString());
+    if (log.isTraceEnabled()) {
+      log.trace("Result from microsoft endpoint = {}", result.toPrettyString());
+    }
     if (result.has("error")) {
       log.error(
           "Fetching group membership from MicroSoft failed with the following error: {}\n"

@@ -8,6 +8,7 @@ import { useInterval } from 'react-use';
 import _ from 'lodash';
 import { Box, Typography, useTheme } from '@material-ui/core';
 import moment from 'moment';
+import { Trans, useTranslation } from 'react-i18next';
 
 import { closeDialog, openDialog } from '../../../actions/modal';
 import {
@@ -24,13 +25,14 @@ import {
   TRANSITORY_XCLUSTER_CONFIG_STATUSES,
   XClusterConfigState,
   XClusterModalName,
-  XClusterTableStatus,
   XCLUSTER_CONFIG_REFETCH_INTERVAL_MS,
   XCLUSTER_METRIC_REFETCH_INTERVAL_MS,
   MetricName,
   liveMetricTimeRangeUnit,
   liveMetricTimeRangeValue,
-  XClusterConfigType
+  XClusterConfigType,
+  XCLUSTER_REPLICATION_DDL_STEPS_DOCUMENTATION_URL,
+  I18N_KEY_PREFIX_XCLUSTER_TERMS
 } from '../constants';
 import {
   MaxAcceptableLag,
@@ -38,7 +40,8 @@ import {
   getEnabledConfigActions,
   getStrictestReplicationLagAlertThreshold,
   getInConfigTableUuid,
-  getIsXClusterConfigAllBidirectional
+  getIsXClusterConfigAllBidirectional,
+  getTableCountsOfConcern
 } from '../ReplicationUtils';
 import { LagGraph } from './LagGraph';
 import { ReplicationTables } from './ReplicationTables';
@@ -83,6 +86,8 @@ const ActionMenu = {
   ADVANCED: 'advanced'
 } as const;
 
+const TRANSLATION_KEY_PREFIX_XCLUSTER_SHARED_COMPONENT = 'clusterDetail.xCluster.shared';
+
 export function ReplicationDetails({
   params: { uuid: currentUniverseUuid, replicationUUID: xClusterConfigUuid }
 }: Props) {
@@ -91,8 +96,13 @@ export function ReplicationDetails({
   const dispatch = useDispatch();
   const queryClient = useQueryClient();
   const theme = useTheme();
+  const { t } = useTranslation('translation');
 
-  const xClusterConfigQuery = useQuery(xClusterQueryKey.detail(xClusterConfigUuid), () =>
+  const xClusterConfigQuery = useQuery(
+    xClusterQueryKey.detail(xClusterConfigUuid, false /* syncWithDb */),
+    () => fetchXClusterConfig(xClusterConfigUuid, false /* syncWithDb */)
+  );
+  const xClusterConfigFullQuery = useQuery(xClusterQueryKey.detail(xClusterConfigUuid), () =>
     fetchXClusterConfig(xClusterConfigUuid)
   );
   const sourceUniverseQuery = useQuery(
@@ -227,7 +237,7 @@ export function ReplicationDetails({
   const allowedTasks = sourceUniverseQuery.data?.allowedTasks;
   const hideModal = () => dispatch(closeDialog());
   const isDeleteConfigModalVisible = showModal && visibleModal === XClusterModalName.DELETE_CONFIG;
-  const xClusterConfig = xClusterConfigQuery.data;
+  const xClusterConfig = xClusterConfigFullQuery.data ?? xClusterConfigQuery.data;
   if (
     xClusterConfig.sourceUniverseUUID === undefined ||
     xClusterConfig.targetUniverseUUID === undefined
@@ -308,17 +318,10 @@ export function ReplicationDetails({
     });
   }
 
-  const numTablesRequiringBootstrap = xClusterConfig.tableDetails.reduce(
-    (errorCount: number, xClusterTableDetails) => {
-      return xClusterTableDetails.status === XClusterTableStatus.ERROR
-        ? errorCount + 1
-        : errorCount;
-    },
-    0
-  );
-
+  const tableCountsOfConcern = getTableCountsOfConcern(xClusterConfig.tableDetails);
   const xClusterConfigTables = xClusterConfigQuery.data?.tableDetails ?? [];
-  const shouldShowConfigError = numTablesRequiringBootstrap > 0;
+  const shouldShowConfigError = tableCountsOfConcern.error > 0;
+  const shouldShowMismatchedTablesBanner = tableCountsOfConcern.mismatchedTable > 0;
   const shouldShowTableLagWarning =
     replicationLagAlertConfigQuery.isSuccess &&
     tableReplicationLagQuery.isSuccess &&
@@ -564,8 +567,8 @@ export function ReplicationDetails({
               <YBBanner variant={YBBannerVariant.DANGER}>
                 <div className="replication-info-banner-content">
                   <b>Error!</b>
-                  {` Write-ahead logs are deleted for ${numTablesRequiringBootstrap} ${
-                    numTablesRequiringBootstrap > 1 ? 'tables' : 'table'
+                  {` Write-ahead logs are deleted for ${tableCountsOfConcern.error} ${
+                    tableCountsOfConcern.error > 1 ? 'tables' : 'table'
                   } and replication restart is
                 required.`}
                   <RbacValidator
@@ -596,6 +599,35 @@ export function ReplicationDetails({
                     />
                   </RbacValidator>
                 </div>
+              </YBBanner>
+            )}
+            {shouldShowMismatchedTablesBanner && (
+              <YBBanner variant={YBBannerVariant.DANGER}>
+                <Box display="flex" alignItems="center" minHeight="41px">
+                  <Typography variant="body2">
+                    <Trans
+                      i18nKey={`${TRANSLATION_KEY_PREFIX_XCLUSTER_SHARED_COMPONENT}.banner.mismatchedTables`}
+                      components={{
+                        bold: <b />,
+                        ddlChangeStepsDocsLink: (
+                          <a
+                            href={XCLUSTER_REPLICATION_DDL_STEPS_DOCUMENTATION_URL}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          />
+                        )
+                      }}
+                      values={{
+                        sourceUniverseTerm: t('source.xClusterReplication', {
+                          keyPrefix: I18N_KEY_PREFIX_XCLUSTER_TERMS
+                        }),
+                        targetUniverseTerm: t('target.xClusterReplication', {
+                          keyPrefix: I18N_KEY_PREFIX_XCLUSTER_TERMS
+                        })
+                      }}
+                    />
+                  </Typography>
+                </Box>
               </YBBanner>
             )}
             {shouldShowTableLagWarning && (
@@ -667,6 +699,7 @@ export function ReplicationDetails({
                 <Tab eventKey={'tables'} title={'Tables'}>
                   <ReplicationTables
                     xClusterConfig={xClusterConfig}
+                    isTableInfoIncludedInConfig={xClusterConfigFullQuery.isSuccess}
                     isActive={window.location.search === '?tab=tables'}
                     isDrInterface={false}
                   />

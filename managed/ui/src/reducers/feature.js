@@ -38,7 +38,7 @@ const initialStateFeatureInTest = {
   enableNewAdvancedRestoreModal: false,
   showReplicationSlots: true,
   newTaskDetailsUI: false,
-  enableNewAuthAndMappings: false
+  enableNewAuthAndMappings: true
 };
 
 const initialStateFeatureReleased = {
@@ -67,7 +67,8 @@ const initialStateFeatureReleased = {
   enableRestore: true,
   enablePrefillKubeConfig: true,
   enableCustomEmailTemplates: true,
-  enableBackupPITR: false
+  enableBackupPITR: false,
+  showReplicationSlots: true
   // enableRRGflags: true
 };
 

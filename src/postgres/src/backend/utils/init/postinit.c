@@ -86,10 +86,12 @@
 #include "pg_yb_utils.h"
 #include "catalog/pg_auth_members.h"
 #include "catalog/pg_yb_catalog_version.h"
+#include "catalog/pg_yb_logical_client_version.h"
 #include "catalog/pg_yb_profile.h"
 #include "catalog/pg_yb_role_profile.h"
 #include "catalog/pg_yb_tablegroup.h"
 #include "catalog/yb_catalog_version.h"
+#include "catalog/yb_logical_client_version.h"
 #include "utils/yb_inheritscache.h"
 
 static HeapTuple GetDatabaseTuple(const char *dbname);
@@ -881,7 +883,6 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 		 */
 		YbUpdateCatalogCacheVersion(YbGetMasterCatalogVersion());
 	}
-
 	/*
 	 * Load relcache entries for the shared system catalogs.  This must create
 	 * at least entries for pg_database and catalogs used for authentication.
@@ -1077,6 +1078,8 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 		MyDatabaseTableSpace = dbform->dattablespace;
 		/* take database name from the caller, just for paranoia */
 		strlcpy(dbname, in_dbname, sizeof(dbname));
+		if (IsYugaByteEnabled())
+			SetDatabaseEncoding(dbform->encoding);
 	}
 	else if (OidIsValid(dboid))
 	{
@@ -1097,6 +1100,8 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 		/* pass the database name back to the caller */
 		if (out_dbname)
 			strcpy(out_dbname, dbname);
+		if (IsYugaByteEnabled())
+			SetDatabaseEncoding(dbform->encoding);
 	}
 	else
 	{
@@ -1111,6 +1116,38 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 			pgstat_bestart();
 			CommitTransactionCommand();
 		}
+		return;
+	}
+
+	/*
+	 * We are done with the authentication. Now we can send the db oid to the
+	 * connection, process the startup options and return.
+	 *
+	 * This block of code must be after the values of global variables such as
+	 * MyDatabaseId are set, since YbCreateClientIdWithDatabaseOid relies on it.
+	 */
+	if (yb_is_auth_backend)
+	{
+		/*
+		 * Initialize the client id and also send the db oid back to the
+		 * connection manager.
+		 */
+		YbCreateClientIdWithDatabaseOid(MyDatabaseId);
+
+		/*
+		 * Process any options passed in the startup packet. This is important
+		 * to do here since this is what sets the GUC values sent to the client.
+		 */
+		if (MyProcPort != NULL)
+			process_startup_options(MyProcPort, am_superuser);
+
+		/* close the transaction we started above */
+		CommitTransactionCommand();
+
+		/*
+		 * The auth-backend is only responsible for authentication, so we skip
+		 * the remaining steps below.
+		 */
 		return;
 	}
 
@@ -1179,6 +1216,13 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 	InvalidateCatalogSnapshot();
 	if (IsYugaByteEnabled() && YBCIsSysTablePrefetchingStarted())
 		YBCStopSysTablePrefetching();
+
+	if (YBIsDBLogicalClientVersionMode())
+	{
+		int32_t logical_client_version = YbGetMasterLogicalClientVersion();
+		elog(LOG, "logical_client_version = %d", logical_client_version);
+		YbSetLogicalClientCacheVersion(logical_client_version);
+	}
 
 	/*
 	 * Recheck pg_database to make sure the target database hasn't gone away.

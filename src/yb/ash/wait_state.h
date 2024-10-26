@@ -136,6 +136,7 @@ YB_DEFINE_TYPED_ENUM(WaitStateCode, uint32_t,
     (kCatalogWrite)
     (kIndexWrite)
     (kTableWrite)
+    (kWaitingOnTServer)
 
     // Common wait states
     ((kOnCpu_Active, YB_ASH_MAKE_EVENT(Common)))
@@ -210,6 +211,55 @@ YB_DEFINE_TYPED_ENUM(WaitStateType, uint8_t,
   (kWaitOnCondition)
 );
 
+// List of pggate sync RPCs instrumented (in pg_client.cc)
+// Make sure that kAsyncRPC is always 0
+YB_DEFINE_TYPED_ENUM(PggateRPC, uint16_t,
+  ((kNoRPC, 0))
+  (kAlterDatabase)
+  (kAlterTable)
+  (kBackfillIndex)
+  (kCreateDatabase)
+  (kCreateReplicationSlot)
+  (kCreateTable)
+  (kCreateTablegroup)
+  (kDropReplicationSlot)
+  (kDropDatabase)
+  (kDropTable)
+  (kDropTablegroup)
+  (kFinishTransaction)
+  (kGetLockStatus)
+  (kGetReplicationSlot)
+  (kListLiveTabletServers)
+  (kListReplicationSlots)
+  (kGetIndexBackfillProgress)
+  (kOpenTable)
+  (kGetTablePartitionList)
+  (kReserveOids)
+  (kRollbackToSubTransaction)
+  (kTabletServerCount)
+  (kTruncateTable)
+  (kValidatePlacement)
+  (kGetTableDiskSize)
+  (kWaitForBackendsCatalogVersion)
+  (kInsertSequenceTuple)
+  (kUpdateSequenceTuple)
+  (kFetchSequenceTuple)
+  (kReadSequenceTuple)
+  (kDeleteSequenceTuple)
+  (kDeleteDBSequences)
+  (kCheckIfPitrActive)
+  (kIsObjectPartOfXRepl)
+  (kGetTserverCatalogVersionInfo)
+  (kCancelTransaction)
+  (kGetActiveTransactionList)
+  (kGetTableKeyRanges)
+  (kGetNewObjectId)
+  (kTabletsMetadata)
+  (kYCQLStatementStats)
+  (kServersMetrics)
+  (kListClones)
+);
+
 struct WaitStatesDescription {
   ash::WaitStateCode code;
   std::string description;
@@ -222,7 +272,7 @@ WaitStateType GetWaitStateType(WaitStateCode code);
 
 struct AshMetadata {
   Uuid root_request_id = Uuid::Nil();
-  Uuid yql_endpoint_tserver_uuid = Uuid::Nil();
+  Uuid top_level_node_id = Uuid::Nil();
   uint64_t query_id = 0;
   pid_t pid = 0;
   uint32_t database_id = 0;
@@ -231,6 +281,7 @@ struct AshMetadata {
   uint8_t addr_family = AF_UNSPEC;
 
   void set_client_host_port(const HostPort& host_port);
+  void clear_rpc_request_id();
 
   std::string ToString() const;
 
@@ -238,8 +289,8 @@ struct AshMetadata {
     if (!other.root_request_id.IsNil()) {
       root_request_id = other.root_request_id;
     }
-    if (!other.yql_endpoint_tserver_uuid.IsNil()) {
-      yql_endpoint_tserver_uuid = other.yql_endpoint_tserver_uuid;
+    if (!other.top_level_node_id.IsNil()) {
+      top_level_node_id = other.top_level_node_id;
     }
     if (other.query_id != 0) {
       query_id = other.query_id;
@@ -268,10 +319,10 @@ struct AshMetadata {
     } else {
       pb->clear_root_request_id();
     }
-    if (!yql_endpoint_tserver_uuid.IsNil()) {
-      yql_endpoint_tserver_uuid.ToBytes(pb->mutable_yql_endpoint_tserver_uuid());
+    if (!top_level_node_id.IsNil()) {
+      top_level_node_id.ToBytes(pb->mutable_top_level_node_id());
     } else {
-      pb->clear_yql_endpoint_tserver_uuid();
+      pb->clear_top_level_node_id();
     }
     if (query_id != 0) {
       pb->set_query_id(query_id);
@@ -315,17 +366,17 @@ struct AshMetadata {
         root_request_id = *result;
       }
     }
-    Uuid yql_endpoint_tserver_uuid = Uuid::Nil();
-    if (pb.has_yql_endpoint_tserver_uuid()) {
-      Result<Uuid> result = Uuid::FromSlice(pb.yql_endpoint_tserver_uuid());
+    Uuid top_level_node_id = Uuid::Nil();
+    if (pb.has_top_level_node_id()) {
+      Result<Uuid> result = Uuid::FromSlice(pb.top_level_node_id());
       WARN_NOT_OK(result, "Could not decode uuid from protobuf.");
       if (result.ok()) {
-        yql_endpoint_tserver_uuid = *result;
+        top_level_node_id = *result;
       }
     }
     return AshMetadata{
         root_request_id,                       // root_request_id
-        yql_endpoint_tserver_uuid,             // yql_endpoint_tserver_uuid
+        top_level_node_id,                     // top_level_node_id
         pb.query_id(),                         // query_id
         pb.pid(),                              // pid
         pb.database_id(),                      // database_id
@@ -368,7 +419,7 @@ class WaitStateInfo {
   std::atomic<WaitStateCode>& mutable_code();
 
   void set_root_request_id(const Uuid& id) EXCLUDES(mutex_);
-  void set_yql_endpoint_tserver_uuid(const Uuid& yql_endpoint_tserver_uuid) EXCLUDES(mutex_);
+  void set_top_level_node_id(const Uuid& top_level_node_id) EXCLUDES(mutex_);
   uint64_t query_id() EXCLUDES(mutex_);
   void set_query_id(uint64_t query_id) EXCLUDES(mutex_);
   int64_t rpc_request_id() EXCLUDES(mutex_);
@@ -385,7 +436,10 @@ class WaitStateInfo {
   static void UpdateMetadataFromPB(const PB& pb) {
     const auto& wait_state = CurrentWaitState();
     if (wait_state) {
-      wait_state->UpdateMetadata(AshMetadata::FromPB(pb));
+      // rpc_request_id is generated for each RPC, we don't populate it from PB
+      auto metadata = AshMetadata::FromPB(pb);
+      metadata.clear_rpc_request_id();
+      wait_state->UpdateMetadata(metadata);
     }
   }
 

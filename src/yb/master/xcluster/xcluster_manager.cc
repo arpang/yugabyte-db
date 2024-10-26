@@ -21,6 +21,7 @@
 #include "yb/master/catalog_manager.h"
 #include "yb/master/master_cluster.pb.h"
 #include "yb/master/xcluster/xcluster_status.h"
+#include "yb/master/xcluster/xcluster_universe_replication_setup_helper.h"
 #include "yb/util/backoff_waiter.h"
 #include "yb/util/is_operation_done_result.h"
 #include "yb/master/xcluster/xcluster_config.h"
@@ -42,9 +43,25 @@ DEFINE_RUNTIME_AUTO_bool(enable_tablet_split_of_xcluster_replicated_tables, kExt
     "When set, it enables automatic tablet splitting for tables that are part of an "
     "xCluster replication setup");
 
+DEFINE_RUNTIME_uint32(xcluster_ysql_statement_timeout_sec, 120,
+    "Timeout for YSQL statements executed during xCluster operations.");
+
 // This flag will be converted to a PREVIEW, and then a kExternal Auto flag as the feature matures.
 DEFINE_test_flag(bool, xcluster_enable_ddl_replication, false,
     "Enables xCluster automatic DDL replication.");
+
+DEFINE_test_flag(bool, xcluster_enable_sequence_replication, false,
+    "Enable xCluster automatic replication of sequences (requires automatic DB-scoped "
+    "replication).");
+
+DEFINE_test_flag(bool, force_automatic_ddl_replication_mode, false,
+    "Make XClusterCreateOutboundReplicationGroup always use automatic instead of semi-automatic "
+    "xCluster replication mode.");
+
+DEFINE_RUNTIME_bool(auto_add_new_index_to_bidirectional_xcluster, false,
+    "If the indexed table is part of a bi-directional xCluster setup, then automatically add new "
+    "indexes for this table to replication. This flag must be set on both universes, and the index "
+    "must be created concurrently on both universes.");
 
 #define LOG_FUNC_AND_RPC \
   LOG_WITH_FUNC(INFO) << req->ShortDebugString() << ", from: " << RequestorString(rpc)
@@ -257,8 +274,11 @@ Status XClusterManager::GetXClusterSafeTime(
   return XClusterTargetManager::GetXClusterSafeTime(resp, epoch);
 }
 
-Result<HybridTime> XClusterManager::GetXClusterSafeTime(const NamespaceId& namespace_id) const {
-  return XClusterTargetManager::GetXClusterSafeTime(namespace_id);
+Result<std::optional<HybridTime>> XClusterManager::TryGetXClusterSafeTimeForBackfill(
+    const std::vector<TableId>& index_table_ids, const TableInfoPtr& indexed_table,
+    const LeaderEpoch& epoch) const {
+  return XClusterTargetManager::TryGetXClusterSafeTimeForBackfill(
+      index_table_ids, indexed_table, epoch);
 }
 
 Status XClusterManager::GetXClusterSafeTimeForNamespace(
@@ -285,8 +305,10 @@ Status XClusterManager::XClusterCreateOutboundReplicationGroup(
   LOG_FUNC_AND_RPC;
   SCHECK(FLAGS_enable_xcluster_api_v2, IllegalState, "xCluster API v2 is not enabled.");
   SCHECK_PB_FIELDS_NOT_EMPTY(*req, replication_group_id, namespace_ids);
+  bool automatic_ddl_mode =
+      req->automatic_ddl_mode() || FLAGS_TEST_force_automatic_ddl_replication_mode;
   SCHECK(
-      !req->automatic_ddl_mode() || FLAGS_TEST_xcluster_enable_ddl_replication, InvalidArgument,
+      !automatic_ddl_mode || FLAGS_TEST_xcluster_enable_ddl_replication, InvalidArgument,
       "Automatic DDL replication (TEST_xcluster_enable_ddl_replication) is not enabled.");
 
   std::vector<NamespaceId> namespace_ids;
@@ -296,7 +318,7 @@ Status XClusterManager::XClusterCreateOutboundReplicationGroup(
 
   RETURN_NOT_OK(CreateOutboundReplicationGroup(
       xcluster::ReplicationGroupId(req->replication_group_id()), namespace_ids,
-      req->automatic_ddl_mode(), epoch));
+      automatic_ddl_mode, epoch));
 
   return Status::OK();
 }
@@ -701,6 +723,14 @@ bool XClusterManager::IsTableReplicated(const TableId& table_id) const {
          XClusterTargetManager::IsTableReplicated(table_id);
 }
 
+bool XClusterManager::IsTableBiDirectionallyReplicated(const TableId& table_id) const {
+  // In theory this would return true for B in the case of chaining A -> B -> C, but we don't
+  // support chaining in xCluster.
+  // Replicating between 3 universes will need bi-directional xCluster A <=> B <=> C <=> A.
+  return XClusterSourceManager::IsTableReplicated(table_id) &&
+         XClusterTargetManager::IsTableReplicated(table_id);
+}
+
 Status XClusterManager::HandleTabletSplit(
     const TableId& consumer_table_id, const SplitTabletIds& split_tablet_ids,
     const LeaderEpoch& epoch) {
@@ -740,6 +770,14 @@ Status XClusterManager::SetupUniverseReplication(
       "Automatic DDL replication (TEST_xcluster_enable_ddl_replication) is not enabled.");
 
   return XClusterTargetManager::SetupUniverseReplication(req, resp, epoch);
+}
+
+Status XClusterManager::SetupUniverseReplication(
+    XClusterSetupUniverseReplicationData&& data, const LeaderEpoch& epoch) {
+  SCHECK(
+      !data.automatic_ddl_mode || FLAGS_TEST_xcluster_enable_ddl_replication, InvalidArgument,
+      "Automatic DDL replication (TEST_xcluster_enable_ddl_replication) is not enabled.");
+  return XClusterTargetManager::SetupUniverseReplication(std::move(data), epoch);
 }
 
 /*
@@ -820,6 +858,29 @@ Status XClusterManager::DeleteUniverseReplication(
             << RequestorString(rpc);
 
   return Status::OK();
+}
+
+Status XClusterManager::AddTableToReplicationGroup(
+    const xcluster::ReplicationGroupId& replication_group_id, const TableId& source_table_id,
+    const xrepl::StreamId& bootstrap_id, const std::optional<TableId>& target_table_id,
+    const LeaderEpoch& epoch) {
+  LOG(INFO) << "Adding table " << source_table_id << " to replication group "
+            << replication_group_id
+            << (target_table_id ? " with target table " + *target_table_id : "");
+
+  return XClusterTargetManager::AddTableToReplicationGroup(
+      replication_group_id, source_table_id, bootstrap_id, target_table_id, epoch);
+}
+
+// Inserts the sent schema into the historical packing schema for the target table.
+Status XClusterManager::InsertPackedSchemaForXClusterTarget(
+    const InsertPackedSchemaForXClusterTargetRequestPB* req,
+    InsertPackedSchemaForXClusterTargetResponsePB* resp, rpc::RpcContext* rpc,
+    const LeaderEpoch& epoch) {
+  LOG_FUNC_AND_RPC;
+  SCHECK_PB_FIELDS_NOT_EMPTY(*req, table_id);
+  return XClusterTargetManager::InsertPackedSchemaForXClusterTarget(
+      req->table_id(), req->packed_schema(), req->current_schema_version(), epoch);
 }
 
 Status XClusterManager::RegisterMonitoredTask(server::MonitoredTaskPtr task) {

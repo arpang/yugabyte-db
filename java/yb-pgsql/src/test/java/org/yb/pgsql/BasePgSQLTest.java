@@ -178,6 +178,28 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
         "variables at the beginning of transaction boundaries, causing erroneous results in " +
         "the test, leading to failure.";
 
+  protected static final String INCORRECT_CONN_STATE_BEHAVIOR =
+      "Skipping this test with Connection Manager enabled. The connections may not be in the " +
+        "expected state due to the way physical connections are attached and detached from " +
+        "logical connections, where certain setting changes should only exist in new connections.";
+
+  protected static final String CONFIGURABLE_DEBUG_LOGS_NEEDED =
+      "(DB-12742) Skipping this test with Connection Manager enabled. The test requires the " +
+        "ability to configure debug logs for connection manager to be at the same levels as " +
+        "tserver log levels.";
+
+  protected static final String LONG_PASSWORD_SUPPORT_NEEDED =
+      "(DB-10387) This test leads to certain I/O errors due to the usage of long passwords when " +
+        "Connection Manager is enabled. Skipping this test with Connection Manager enabled.";
+
+  protected static final String RECREATE_USER_SUPPORT_NEEDED =
+      "(DB-10760) This test needs stricter statistic updates for when roles are recreated when " +
+        "Connection Manager is enabled. Skipping this test with Connection Manager enabled " +
+        "until the relevant code is pushed to master.";
+
+  protected static final String EXTENSION_NOT_SUPPORTED =
+      "The extension being used as part of the test is not supported with connection manager.";
+
   // Warmup modes for Connection Manager during test runs.
   protected static enum ConnectionManagerWarmupMode {
     NONE,
@@ -329,6 +351,7 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
       builder.enableYsqlConnMgr(true);
       builder.addCommonTServerFlag("ysql_conn_mgr_stats_interval",
         Integer.toString(CONNECTIONS_STATS_UPDATE_INTERVAL_SECS));
+      builder.addCommonTServerFlag("ysql_conn_mgr_superuser_sticky", "false");
     }
   }
 
@@ -495,6 +518,9 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
    */
   private void cleanUpCustomDatabases() throws Exception {
     LOG.info("Cleaning up custom databases");
+    if (isTestRunningWithConnectionManager()) {
+      waitForStatsToGetUpdated();
+    }
     try (Statement stmt = connection.createStatement()) {
       for (int i = 0; i < 2; i++) {
         try {
@@ -619,6 +645,18 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
         LOG.info ("expected to fail");
       }
     }
+  }
+
+  protected
+  void enableStickySuperuserConnsAndRestartCluster() throws Exception {
+    if (!isTestRunningWithConnectionManager()) {
+      return;
+    }
+
+    Map<String, String> tsFlagMap = getTServerFlags();
+    tsFlagMap.put("ysql_conn_mgr_superuser_sticky", "true");
+    Map<String, String> masterFlagMap = getMasterFlags();
+    restartClusterWithFlags(masterFlagMap, tsFlagMap);
   }
 
   protected

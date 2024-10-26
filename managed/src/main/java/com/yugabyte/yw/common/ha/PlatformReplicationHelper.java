@@ -36,6 +36,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -206,7 +207,7 @@ public class PlatformReplicationHelper {
     return Json.newObject().put("frequency_milliseconds", frequency).put("is_running", isRunning);
   }
 
-  Path getReplicationDirFor(String leader) {
+  public Path getReplicationDirFor(String leader) {
     String storagePath = confGetter.getStaticConf().getString(AppConfigHelper.YB_STORAGE_PATH);
     return Paths.get(storagePath, REPLICATION_DIR, leader);
   }
@@ -224,7 +225,10 @@ public class PlatformReplicationHelper {
 
       // Fill in the context.
       VelocityContext context = new VelocityContext();
-      context.put("interval", SwamperHelper.getScrapeIntervalSeconds(confGetter.getStaticConf()));
+      context.put(
+          "interval",
+          SwamperHelper.getScrapeIntervalSeconds(
+              confGetter.getGlobalConf(GlobalConfKeys.metricScrapeIntervalStandby)));
       context.put("address", remoteAddr);
       context.put("https", https);
       context.put("auth", confGetter.getGlobalConf(GlobalConfKeys.metricsAuth));
@@ -304,7 +308,7 @@ public class PlatformReplicationHelper {
 
   void switchPrometheusToFederated(URL remoteAddr) {
     try {
-      LOG.info("Switching local prometheus to federated");
+      LOG.info("Switching local prometheus to federated or updating it");
       File configFile = prometheusConfigHelper.getPrometheusConfigFile();
       File configDir = configFile.getParentFile();
       File previousConfigFile = new File(configDir, "previous_prometheus.yml");
@@ -358,7 +362,7 @@ public class PlatformReplicationHelper {
     }
   }
 
-  void ensurePrometheusConfig() {
+  public void ensurePrometheusConfig() {
     HighAvailabilityConfig.get()
         .ifPresent(
             haConfig ->
@@ -439,9 +443,10 @@ public class PlatformReplicationHelper {
     backups.subList(0, numBackups - numToRetain).forEach(File::delete);
   }
 
-  Optional<File> getMostRecentBackup() {
+  public Optional<File> getMostRecentBackup() {
     try {
-      return Optional.of(FileUtils.listFiles(this.getBackupDir(), BACKUP_FILE_PATTERN).get(0));
+      return FileUtils.listFiles(this.getBackupDir(), BACKUP_FILE_PATTERN).stream()
+          .max(Comparator.comparingLong(File::lastModified));
     } catch (Exception exception) {
       LOG.error("Could not locate recent backup", exception);
     }
@@ -449,10 +454,11 @@ public class PlatformReplicationHelper {
     return Optional.empty();
   }
 
-  void cleanupCreatedBackups() {
+  public void cleanupCreatedBackups() {
     try {
       List<File> backups = FileUtils.listFiles(this.getBackupDir(), BACKUP_FILE_PATTERN);
-      this.cleanupBackups(backups, 0);
+      // Keep 3 most recent backups to avoid interference between continuous backups and HA
+      this.cleanupBackups(backups, 3);
     } catch (IOException ioException) {
       LOG.warn("Failed to list or delete backups");
     }
@@ -528,7 +534,7 @@ public class PlatformReplicationHelper {
     return Optional.empty();
   }
 
-  synchronized <T extends PlatformBackupParams> ShellResponse runCommand(T params) {
+  public synchronized <T extends PlatformBackupParams> ShellResponse runCommand(T params) {
     List<String> commandArgs = params.getCommandArgs();
     Map<String, String> extraVars = params.getExtraVars();
 

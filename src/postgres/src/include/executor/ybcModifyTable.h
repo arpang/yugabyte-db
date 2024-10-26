@@ -51,6 +51,14 @@ typedef void (*yb_bind_for_write_function) (YBCPgStatement stmt,
 											Datum ybbasectid,
 											bool ybctid_as_value);
 
+typedef void (*yb_assign_for_write_function) (YBCPgStatement stmt,
+											  Relation index,
+											  Datum *values,
+											  bool *isnull,
+											  int natts,
+											  Datum old_ybbasectid,
+											  Datum new_ybbasectid);
+
 /*
  * Insert data into YugaByte table.
  * This function is equivalent to "heap_insert", but it sends data to DocDB (YugaByte storage).
@@ -63,6 +71,11 @@ extern void YBCHeapInsert(ResultRelInfo *resultRelInfo,
 						  TupleTableSlot *slot,
 						  YBCPgStatement blockInsertStmt,
 						  EState *estate);
+
+/*
+ * Whether INSERT ON CONFLICT read batching is enabled.
+ */
+extern bool YbIsInsertOnConflictReadBatchingEnabled(ResultRelInfo *resultRelInfo);
 
 /*
  * Insert a tuple into a YugaByte table. Will execute within a distributed
@@ -152,6 +165,14 @@ extern void YBCExecuteDeleteIndex(Relation index,
                                   Datum ybctid,
 								  yb_bind_for_write_function callback,
 								  void *indexstate);
+
+extern void YBCExecuteUpdateIndex(Relation index,
+								  Datum *values,
+								  bool *isnull,
+								  Datum oldYbctid,
+								  Datum newYbctid,
+								  yb_assign_for_write_function callback);
+
 /*
  * Update a row (identified by ybctid) in a YugaByte table.
  * If this is a single row op we will return false in the case that there was
@@ -227,3 +248,9 @@ extern Datum YBCComputeYBTupleIdFromSlot(Relation rel, TupleTableSlot *slot);
  * Returns if a table has secondary indices.
  */
 extern bool YBCRelInfoHasSecondaryIndices(ResultRelInfo *resultRelInfo);
+
+/*
+ * Returns whether the current slot satisfies the partial index's predicate.
+ */
+extern bool YbIsPartialIndexPredicateSatisfied(IndexInfo *indexInfo,
+											   EState *estate);

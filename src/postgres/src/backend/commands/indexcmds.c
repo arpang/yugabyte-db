@@ -71,6 +71,7 @@
 #include "utils/syscache.h"
 
 /* YB includes. */
+#include "catalog/binary_upgrade.h"
 #include "catalog/pg_database.h"
 #include "commands/progress.h"
 #include "commands/tablegroup.h"
@@ -743,12 +744,15 @@ DefineIndex(Oid relationId,
 		 * - the index is primary
 		 * - the indexed table is temporary
 		 * - we are in bootstrap mode
+		 * - we are in binary upgrade mode (major PG version upgrade)
 		 * This logic works because
 		 * - primary key indexes are on the main table, and index backfill doesn't
 		 *   apply to them.
 		 * - temporary tables cannot have concurrency issues when building indexes.
 		 * - system table indexes created during initdb cannot have concurrency
 		 *   issues.
+		 * - index creation during a major PG version upgrade is for the index
+		 *   metadata (catalog tables) only.
 		 * Concurrent index build is currently also disabled for
 		 * - indexes in nested DDL
 		 * - system table indexes
@@ -782,6 +786,20 @@ DefineIndex(Oid relationId,
 		{
 			Assert(stmt->concurrent != YB_CONCURRENCY_EXPLICIT_ENABLED);
 			concurrent = false;
+		}
+		/*
+		 * YB: For a major PG version upgrade, we're just creating the new
+		 * version's metadata for the index, so it's not concurrent.
+		 */
+		if (concurrent && IsYugaByteEnabled() && IsBinaryUpgrade)
+		{
+			if (stmt->concurrent == YB_CONCURRENCY_EXPLICIT_ENABLED)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("CREATE INDEX CONCURRENTLY is not supported "
+								"during a binary upgrade")));
+			else
+				concurrent = false;
 		}
 		/*
 		* Use fast path create index when in nested DDL. This is desired
@@ -1012,9 +1030,9 @@ DefineIndex(Oid relationId,
 			is_colocated_via_database && !MyColocatedDatabaseLegacy)
 		{
 			char *tablegroup_name = NULL;
-		
-			if (OidIsValid(tablespaceId)) 
-		{
+
+			if (OidIsValid(tablespaceId))
+			{
 				/*
 				 * We look in pg_shdepend rather than directly use the derived name,
 				 * as later we might need to associate an existing implicit tablegroup to a tablespace
@@ -1028,9 +1046,31 @@ DefineIndex(Oid relationId,
 				tablegroup_name = OidIsValid(tablegroupId) ? get_tablegroup_name(tablegroupId) : 
 					get_implicit_tablegroup_name(tablespaceId);
 
-			} 
-		else 
-		{
+			}
+			else if (yb_binary_restore && OidIsValid(binary_upgrade_next_tablegroup_oid))
+			{
+				/*
+				 * In yb_binary_restore if tablespaceId is not valid but
+				 * binary_upgrade_next_tablegroup_oid is valid, that implies we are
+				 * restoring without tablespace information.
+				 * In this case all tables are restored to default tablespace,
+				 * while maintaining the colocation properties, and tablegroup's name
+				 * will be colocation_restore_tablegroupId, while default tablegroup's
+				 * name would still be default.
+				 */
+				tablegroup_name = binary_upgrade_next_tablegroup_default ?
+									DEFAULT_TABLEGROUP_NAME :
+									get_restore_tablegroup_name(
+										binary_upgrade_next_tablegroup_oid);
+				binary_upgrade_next_tablegroup_default = false;
+				tablegroupId = get_tablegroup_oid(tablegroup_name, true);
+			}
+			else if (yb_binary_restore && OidIsValid(tablegroupId))
+			{
+				tablegroup_name = get_tablegroup_name(tablegroupId);
+			}
+			else
+			{
 				tablegroup_name = DEFAULT_TABLEGROUP_NAME;
 				tablegroupId = get_tablegroup_oid(tablegroup_name, true);
 			}
@@ -1230,6 +1270,13 @@ DefineIndex(Oid relationId,
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("access method \"%s\" does not support exclusion constraints",
+						accessMethodName)));
+
+	/* YB: Inlined indexes are only supported in colocated mode right now. */
+	if (!MyDatabaseColocated && amRoutine->yb_amiscoveredbymaintable)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("access method \"%s\" requires colocation",
 						accessMethodName)));
 
 	amcanorder = amRoutine->amcanorder;
@@ -2127,7 +2174,9 @@ DefineIndex(Oid relationId,
 		/* TODO(jason): handle exclusion constraints, possibly not here. */
 
 		/* Do backfill. */
-		HandleYBStatus(YBCPgBackfillIndex(databaseId, indexRelationId));
+		/* YB: Do backfill if this is a separate DocDB table from the main table. */
+		if (!YBIsOidCoveredByMainTable(indexRelationId))
+			HandleYBStatus(YBCPgBackfillIndex(databaseId, indexRelationId));
 
 		YbTestGucFailIfStrEqual(yb_test_fail_index_state_change, "postbackfill");
 

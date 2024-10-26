@@ -177,8 +177,10 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
    * rels when computing system catalog checksum.
    */
   private static final String SHARED_ENTITY_PREFIX = "pg_yb_test_";
-  private static final String CATALOG_VERSION_TABLE = "pg_yb_catalog_version";
-  private static final String MIGRATIONS_TABLE      = "pg_yb_migration";
+
+  private static final String CATALOG_VERSION_TABLE        = "pg_yb_catalog_version";
+  private static final String MIGRATIONS_TABLE             = "pg_yb_migration";
+  private static final String LOGICAL_CLIENT_VERSION_TABLE = "pg_yb_logical_client_version";
 
   /** Guaranteed to be greated than any real OID, needed for sorted entities to appear at the end */
   private static final long PLACEHOLDER_OID = 1234567890L;
@@ -897,8 +899,10 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
    */
   @Test
   public void dmlsUpdatePgCache() throws Exception {
-    setConnMgrWarmupModeAndRestartCluster(ConnectionManagerWarmupMode.NONE);
+    // (DB-13032) This test touches system tables, so enable stickiness for
+    // superuser connections when Connection Manager is enabled.
     if (isTestRunningWithConnectionManager()) {
+      enableStickySuperuserConnsAndRestartCluster();
       beforeTestYsqlUpgrade();
     }
     // Querying pg_sequence_parameters involves pg_sequence cache lookup, not an actual table scan.
@@ -940,7 +944,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
    * Clear applied migrations table, re-run migrations and expect nothing to change from reapplying
    * migrations.
    */
-  @Ignore("YB_TODO: Ignore test till pg15-based snapshot is available (towards the end of project)")
+  @Ignore("YB_TODO: Ignore test till pg15-based snapshot is available (2025.1 release)")
   @Test
   public void upgradeIsIdempotent() throws Exception {
     recreateWithYsqlVersion(YsqlSnapshotVersion.EARLIEST);
@@ -956,7 +960,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
    * Single-connection variant of {@code upgradeIsIdempotent} test, also ensures there's never too
    * many connections opened.
    */
-  @Ignore("YB_TODO: Ignore test till pg15-based snapshot is available (towards the end of project)")
+  @Ignore("YB_TODO: Ignore test till pg15-based snapshot is available (2025.1 release)")
   @Test
   public void upgradeIsIdempotentSingleConn() throws Exception {
     recreateWithYsqlVersion(YsqlSnapshotVersion.EARLIEST);
@@ -1009,7 +1013,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
    * If you see this test failing, please make sure you've added a new YSQL migration as described
    * in {@code src/yb/yql/pgwrapper/ysql_migrations/README.md}.
    */
-  @Ignore("YB_TODO: Ignore test till pg15-based snapshot is available (towards the end of project)")
+  @Ignore("YB_TODO: Ignore test till pg15-based snapshot is available (2025.1 release)")
   @Test
   public void migratingIsEquivalentToReinitdb() throws Exception {
     final SysCatalogSnapshot preSnapshotCustom, preSnapshotTemplate1;
@@ -1900,7 +1904,8 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
     SysCatalogSnapshot simplifiedFreshSnapshot = simplifyCatalogSnapshot.apply(freshSnapshot);
     SysCatalogSnapshot simplifiedMigratedSnapshot = simplifyCatalogSnapshot.apply(migratedSnapshot);
 
-    List<String> tablesToSkip = Arrays.asList(MIGRATIONS_TABLE, CATALOG_VERSION_TABLE);
+    List<String> tablesToSkip = Arrays.asList(
+      MIGRATIONS_TABLE, CATALOG_VERSION_TABLE, LOGICAL_CLIENT_VERSION_TABLE);
 
     simplifiedMigratedSnapshot.catalog.forEach((tableName, migratedRows) -> {
       if (tablesToSkip.contains(tableName))

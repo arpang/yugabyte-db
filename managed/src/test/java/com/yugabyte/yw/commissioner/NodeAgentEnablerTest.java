@@ -23,8 +23,10 @@ import com.yugabyte.yw.common.FakeDBApplication;
 import com.yugabyte.yw.common.ModelFactory;
 import com.yugabyte.yw.common.PlatformExecutorFactory;
 import com.yugabyte.yw.common.PlatformScheduler;
+import com.yugabyte.yw.common.Util;
 import com.yugabyte.yw.common.config.ProviderConfKeys;
 import com.yugabyte.yw.common.config.RuntimeConfGetter;
+import com.yugabyte.yw.common.config.UniverseConfKeys;
 import com.yugabyte.yw.common.config.impl.SettableRuntimeConfigFactory;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams;
 import com.yugabyte.yw.forms.UniverseTaskParams;
@@ -63,7 +65,6 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
   private NodeAgentInstaller mockNodeAgentInstaller;
   private NodeAgentEnabler nodeAgentEnabler;
   private TestUniverseTaskBase universeTaskBase;
-  private BaseTaskDependencies baseTaskDependencies;
 
   @Before
   public void setUp() {
@@ -81,14 +82,16 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     settableRuntimeConfigFactory = app.injector().instanceOf(SettableRuntimeConfigFactory.class);
     platformExecutorFactory = app.injector().instanceOf(PlatformExecutorFactory.class);
     platformScheduler = app.injector().instanceOf(PlatformScheduler.class);
-    baseTaskDependencies = app.injector().instanceOf(BaseTaskDependencies.class);
     executorService = Executors.newCachedThreadPool();
     mockNodeAgentInstaller = mock(NodeAgentInstaller.class);
     nodeAgentEnabler =
         new NodeAgentEnabler(
             confGetter, platformExecutorFactory, platformScheduler, mockNodeAgentInstaller);
     nodeAgentEnabler.setUniverseInstallerExecutor(executorService);
-    universeTaskBase = new TestUniverseTaskBase(baseTaskDependencies);
+    nodeAgentEnabler.enable();
+    universeTaskBase =
+        new TestUniverseTaskBase(
+            app.injector().instanceOf(BaseTaskDependencies.class), nodeAgentEnabler);
   }
 
   @After
@@ -99,12 +102,23 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
   }
 
   private static class TestUniverseTaskBase extends UniverseTaskBase {
+    private final NodeAgentEnabler nodeAgentEnabler;
     private final RunnableTask runnableTask;
 
-    public TestUniverseTaskBase(BaseTaskDependencies baseTaskDependencies) {
+    public TestUniverseTaskBase(
+        BaseTaskDependencies baseTaskDependencies, NodeAgentEnabler nodeAgentEnabler) {
       super(baseTaskDependencies);
+      this.nodeAgentEnabler = nodeAgentEnabler;
       runnableTask = mock(RunnableTask.class);
       taskParams = mock(UniverseTaskParams.class);
+    }
+
+    @Override
+    protected <T> T getInstanceOf(Class<T> clazz) {
+      if (clazz == NodeAgentEnabler.class) {
+        return clazz.cast(nodeAgentEnabler);
+      }
+      return super.getInstanceOf(clazz);
     }
 
     public UniverseTaskParams getMockParams() {
@@ -137,6 +151,7 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     userIntent.provider = provider.getUuid().toString();
     userIntent.universeName = name;
     userIntent.deviceInfo = ApiUtils.getDummyDeviceInfo(1, 100);
+    userIntent.useSystemd = true;
     Universe universe = ModelFactory.createUniverse(name, customer.getId(), providerType);
     universe =
         Universe.saveDetails(
@@ -145,6 +160,7 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     UniverseDefinitionTaskParams universeDetails = universe.getUniverseDetails();
     for (NodeDetails node : universeDetails.nodeDetailsSet) {
       node.cloudInfo.private_ip = ipPrefix + "." + node.getNodeIdx();
+      node.nodeUuid = UUID.randomUUID();
     }
     universe.setUniverseDetails(universeDetails);
     universe.save();
@@ -160,7 +176,7 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     nodeAgent.setCustomerUuid(customerUuid);
     nodeAgent.setOsType(NodeAgent.OSType.LINUX);
     nodeAgent.setArchType(NodeAgent.ArchType.AMD64);
-    nodeAgent.setVersion("2024.2.0.0");
+    nodeAgent.setVersion(Util.getYbaVersion());
     nodeAgent.setHome("/home/yugabyte/node-agent");
     nodeAgent.setState(state);
     nodeAgent.setConfig(new NodeAgent.Config());
@@ -178,9 +194,9 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     Universe universe1 = Universe.getOrBadRequest(universeUuid1);
     Universe universe01 = Universe.getOrBadRequest(universeUuid01);
     Universe universe2 = Universe.getOrBadRequest(universeUuid2);
-    assertEquals(true, universe1.getUniverseDetails().disableNodeAgent);
-    assertEquals(true, universe01.getUniverseDetails().disableNodeAgent);
-    assertEquals(false, universe2.getUniverseDetails().disableNodeAgent);
+    assertEquals(true, universe1.getUniverseDetails().installNodeAgent);
+    assertEquals(true, universe01.getUniverseDetails().installNodeAgent);
+    assertEquals(false, universe2.getUniverseDetails().installNodeAgent);
   }
 
   @Test
@@ -192,16 +208,16 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     Universe universe1 = Universe.getOrBadRequest(universeUuid1);
     Universe universe01 = Universe.getOrBadRequest(universeUuid01);
     Universe universe2 = Universe.getOrBadRequest(universeUuid2);
-    assertEquals(false, universe1.getUniverseDetails().disableNodeAgent);
-    assertEquals(false, universe01.getUniverseDetails().disableNodeAgent);
-    assertEquals(false, universe2.getUniverseDetails().disableNodeAgent);
+    assertEquals(false, universe1.getUniverseDetails().installNodeAgent);
+    assertEquals(false, universe01.getUniverseDetails().installNodeAgent);
+    assertEquals(false, universe2.getUniverseDetails().installNodeAgent);
     nodeAgentEnabler.markUniverses();
     universe1 = Universe.getOrBadRequest(universeUuid1);
     universe01 = Universe.getOrBadRequest(universeUuid01);
     universe2 = Universe.getOrBadRequest(universeUuid2);
-    assertEquals(true, universe1.getUniverseDetails().disableNodeAgent);
-    assertEquals(true, universe01.getUniverseDetails().disableNodeAgent);
-    assertEquals(false, universe2.getUniverseDetails().disableNodeAgent);
+    assertEquals(true, universe1.getUniverseDetails().installNodeAgent);
+    assertEquals(true, universe01.getUniverseDetails().installNodeAgent);
+    assertEquals(false, universe2.getUniverseDetails().installNodeAgent);
   }
 
   @Test
@@ -216,16 +232,16 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     Universe universe1 = Universe.getOrBadRequest(universeUuid1);
     Universe universe01 = Universe.getOrBadRequest(universeUuid01);
     Universe universe2 = Universe.getOrBadRequest(universeUuid2);
-    assertEquals(false, universe1.getUniverseDetails().disableNodeAgent);
-    assertEquals(false, universe01.getUniverseDetails().disableNodeAgent);
-    assertEquals(false, universe2.getUniverseDetails().disableNodeAgent);
+    assertEquals(false, universe1.getUniverseDetails().installNodeAgent);
+    assertEquals(false, universe01.getUniverseDetails().installNodeAgent);
+    assertEquals(false, universe2.getUniverseDetails().installNodeAgent);
     nodeAgentEnabler.markUniverses();
     universe1 = Universe.getOrBadRequest(universeUuid1);
     universe01 = Universe.getOrBadRequest(universeUuid01);
     universe2 = Universe.getOrBadRequest(universeUuid2);
-    assertEquals(true, universe1.getUniverseDetails().disableNodeAgent);
-    assertEquals(true, universe01.getUniverseDetails().disableNodeAgent);
-    assertEquals(false, universe2.getUniverseDetails().disableNodeAgent);
+    assertEquals(true, universe1.getUniverseDetails().installNodeAgent);
+    assertEquals(true, universe01.getUniverseDetails().installNodeAgent);
+    assertEquals(false, universe2.getUniverseDetails().installNodeAgent);
   }
 
   @Test
@@ -239,8 +255,8 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
         .setValue(ProviderConfKeys.enableNodeAgentClient.getKey(), String.valueOf(false));
     Universe universe1 = Universe.getOrBadRequest(universeUuid1);
     Universe universe2 = Universe.getOrBadRequest(universeUuid2);
-    assertEquals(false, universe1.getUniverseDetails().disableNodeAgent);
-    assertEquals(false, universe2.getUniverseDetails().disableNodeAgent);
+    assertEquals(false, universe1.getUniverseDetails().installNodeAgent);
+    assertEquals(false, universe2.getUniverseDetails().installNodeAgent);
     // Node agent is disabled for provider1.
     when(universeTaskBase.getMockParams().getUniverseUUID()).thenReturn(universeUuid1);
     universeTaskBase.createInstallNodeAgentTasks(
@@ -251,8 +267,8 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
         Universe.getOrBadRequest(universeUuid2).getNodes());
     universe1 = Universe.getOrBadRequest(universeUuid1);
     universe2 = Universe.getOrBadRequest(universeUuid2);
-    assertEquals(true, universe1.getUniverseDetails().disableNodeAgent);
-    assertEquals(false, universe2.getUniverseDetails().disableNodeAgent);
+    assertEquals(true, universe1.getUniverseDetails().installNodeAgent);
+    assertEquals(false, universe2.getUniverseDetails().installNodeAgent);
   }
 
   @Test
@@ -343,8 +359,8 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     verify(mockNodeAgentInstaller, times(1)).migrate(eq(customer1.getUuid()), eq(universeUuid01));
     verify(mockNodeAgentInstaller, times(0)).migrate(eq(customer2.getUuid()), eq(universeUuid2));
     universe01 = Universe.getOrBadRequest(universeUuid01);
-    // Field disableNodeAgent must not be cleared because migration did not succeed.
-    assertEquals(true, universe01.getUniverseDetails().disableNodeAgent);
+    // Field installNodeAgent must not be cleared because migration did not succeed.
+    assertEquals(true, universe01.getUniverseDetails().installNodeAgent);
   }
 
   @Test
@@ -378,8 +394,8 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     verify(mockNodeAgentInstaller, times(1)).migrate(eq(customer1.getUuid()), eq(universeUuid01));
     verify(mockNodeAgentInstaller, times(0)).migrate(eq(customer2.getUuid()), eq(universeUuid2));
     universe01 = Universe.getOrBadRequest(universeUuid01);
-    // Field disableNodeAgent must not be cleared because migration did not succeed.
-    assertEquals(true, universe01.getUniverseDetails().disableNodeAgent);
+    // Field installNodeAgent must not be cleared because migration did not succeed.
+    assertEquals(true, universe01.getUniverseDetails().installNodeAgent);
   }
 
   @Test
@@ -409,9 +425,9 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     verify(mockNodeAgentInstaller, times(0)).migrate(eq(customer2.getUuid()), eq(universeUuid2));
     universe1 = Universe.getOrBadRequest(universeUuid1);
     universe01 = Universe.getOrBadRequest(universeUuid01);
-    // Field disableNodeAgent must not be cleared because migration did not succeed.
-    assertEquals(true, universe1.getUniverseDetails().disableNodeAgent);
-    assertEquals(true, universe01.getUniverseDetails().disableNodeAgent);
+    // Field installNodeAgent must not be cleared because migration did not succeed.
+    assertEquals(true, universe1.getUniverseDetails().installNodeAgent);
+    assertEquals(true, universe01.getUniverseDetails().installNodeAgent);
   }
 
   @Test
@@ -445,6 +461,9 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     Universe universe1 = Universe.getOrBadRequest(universeUuid1);
     Universe universe01 = Universe.getOrBadRequest(universeUuid01);
     Universe universe2 = Universe.getOrBadRequest(universeUuid2);
+    settableRuntimeConfigFactory
+        .forUniverse(universe1)
+        .setValue(UniverseConfKeys.nodeAgentEnablerReinstallCooldown.getKey(), "0s");
     NodeDetails reinstallNode = Iterables.getLast(universe1.getNodes());
     // Node agent is already installed in a universe marked with installNodeAgent.
     createNodeAgent(customer1.getUuid(), reinstallNode, NodeAgent.State.REGISTERING);
@@ -453,7 +472,7 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     for (NodeDetails node : universe1.getNodes()) {
       if (reinstallNode.equals(node)) {
         verify(mockNodeAgentInstaller, times(1))
-            .reinstall(eq(customer1.getUuid()), eq(universeUuid1), eq(node), any());
+            .reinstall(eq(customer1.getUuid()), eq(universeUuid1), eq(node), any(), any());
       } else {
         verify(mockNodeAgentInstaller, times(1))
             .install(eq(customer1.getUuid()), eq(universeUuid1), eq(node));
@@ -478,17 +497,26 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     Universe universe1 = Universe.getOrBadRequest(universeUuid1);
     Universe universe01 = Universe.getOrBadRequest(universeUuid01);
     Universe universe2 = Universe.getOrBadRequest(universeUuid2);
+    settableRuntimeConfigFactory
+        .forUniverse(universe1)
+        .setValue(UniverseConfKeys.nodeAgentEnablerReinstallCooldown.getKey(), "1m");
     // Node agent is already installed in a universe marked with installNodeAgent.
     NodeDetails reinstallNode = Iterables.getFirst(universe1.getNodes(), null);
     createNodeAgent(customer1.getUuid(), reinstallNode, NodeAgent.State.REGISTERING);
     when(mockNodeAgentInstaller.install(any(), any(), any())).thenReturn(true);
-    when(mockNodeAgentInstaller.reinstall(any(), any(), eq(reinstallNode), any())).thenReturn(true);
+    when(mockNodeAgentInstaller.reinstall(any(), any(), eq(reinstallNode), any(), any()))
+        .thenReturn(true);
     nodeAgentEnabler.scanUniverses();
     nodeAgentEnabler.waitFor(Duration.ofSeconds(10));
     for (NodeDetails node : universe1.getNodes()) {
       if (reinstallNode.equals(node)) {
         verify(mockNodeAgentInstaller, times(1))
-            .reinstall(eq(customer1.getUuid()), eq(universeUuid1), eq(node), any());
+            .reinstall(
+                eq(customer1.getUuid()),
+                eq(universeUuid1),
+                eq(node),
+                any(),
+                eq(Duration.ofMinutes(1)));
       } else {
         verify(mockNodeAgentInstaller, times(1))
             .install(eq(customer1.getUuid()), eq(universeUuid1), eq(node));
@@ -507,9 +535,9 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     verify(mockNodeAgentInstaller, times(0)).migrate(eq(customer2.getUuid()), eq(universeUuid2));
     universe1 = Universe.getOrBadRequest(universeUuid1);
     universe01 = Universe.getOrBadRequest(universeUuid01);
-    // Field disableNodeAgent must not be cleared because migration did not succeed.
-    assertEquals(true, universe1.getUniverseDetails().disableNodeAgent);
-    assertEquals(true, universe01.getUniverseDetails().disableNodeAgent);
+    // Field installNodeAgent must not be cleared because migration did not succeed.
+    assertEquals(true, universe1.getUniverseDetails().installNodeAgent);
+    assertEquals(true, universe01.getUniverseDetails().installNodeAgent);
   }
 
   @Test
@@ -521,7 +549,7 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
               UUID universeUuid = (UUID) objects[1];
               Universe universe = Universe.getOrBadRequest(universeUuid);
               UniverseDefinitionTaskParams universeDetails = universe.getUniverseDetails();
-              universeDetails.disableNodeAgent = false;
+              universeDetails.installNodeAgent = false;
               universe.setUniverseDetails(universeDetails);
               universe.save();
               return true;
@@ -538,9 +566,9 @@ public class NodeAgentEnablerTest extends FakeDBApplication {
     Universe universe1 = Universe.getOrBadRequest(universeUuid1);
     Universe universe01 = Universe.getOrBadRequest(universeUuid01);
     Universe universe2 = Universe.getOrBadRequest(universeUuid2);
-    // Field disableNodeAgent must be cleared because migration did not succeed.
-    assertEquals(false, universe1.getUniverseDetails().disableNodeAgent);
-    assertEquals(false, universe01.getUniverseDetails().disableNodeAgent);
+    // Field installNodeAgent must be cleared because migration did not succeed.
+    assertEquals(false, universe1.getUniverseDetails().installNodeAgent);
+    assertEquals(false, universe01.getUniverseDetails().installNodeAgent);
     // Run scan again that should not have any effect.
     nodeAgentEnabler.scanUniverses();
     nodeAgentEnabler.waitFor(Duration.ofSeconds(10));

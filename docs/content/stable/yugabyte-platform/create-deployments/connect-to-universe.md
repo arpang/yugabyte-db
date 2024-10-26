@@ -12,7 +12,7 @@ menu:
 type: docs
 ---
 
-Connect to your YugabyteDB database from your desktop using the YugabyteDB [ysqlsh](../../../admin/ysqlsh/) and [ycqlsh](../../../admin/ycqlsh) client shells. Because YugabyteDB is compatible with PostgreSQL and Cassandra, you can also use [psql](https://www.postgresql.org/docs/current/app-psql.html) and third-party tools to connect.
+Connect to your YugabyteDB database from your desktop using the YugabyteDB [ysqlsh](../../../api/ysqlsh/) and [ycqlsh](../../../api/ycqlsh) client shells. Because YugabyteDB is compatible with PostgreSQL and Cassandra, you can also use [psql](https://www.postgresql.org/docs/current/app-psql.html) and third-party tools to connect.
 
 You can connect to the database on a universe in the following ways:
 
@@ -109,7 +109,7 @@ By default, YugabyteDB Anywhere uses OpenSSH for SSH to remote nodes. YugabyteDB
 
 [Tectia SSH](https://www.ssh.com/products/tectia-ssh/) is used for secure file transfer, secure remote access and tunnelling. YugabyteDB Anywhere is shipped with a trial version of Tectia SSH client that requires a license to notify YugabyteDB Anywhere to permanently use Tectia instead of OpenSSH.
 
-To upload the Tectia license, manually copy it at `${storage_path}/yugaware/data/licenses/<license.txt>`, where _storage_path_ is the path provided during the Replicated installation.
+To upload the Tectia license, manually copy it at `${storage_path}/yugaware/data/licenses/<license.txt>`, where _storage_path_ is the path provided during installation.
 
 After the license is uploaded, YugabyteDB Anywhere exposes the runtime flag `yb.security.ssh2_enabled` that you need to enable, as per the following example:
 
@@ -126,7 +126,7 @@ curl --location --request PUT 'http://<ip>/api/v1/customers/<customer_uuid>/runt
 
 ### Prerequisites
 
-- If you are using [ysqlsh](../../../admin/ysqlsh/) or [ycqlsh](../../../admin/ycqlsh/), ensure you are running the latest versions of the shells.
+- If you are using [ysqlsh](../../../api/ysqlsh/) or [ycqlsh](../../../api/ycqlsh/), ensure you are running the latest versions of the shells.
 
 - If your universe has Client-to-Node encryption in transit enabled, you need to [download the certificate](#download-the-universe-certificate) to your computer.
 
@@ -355,7 +355,7 @@ ycqlsh> SELECT * FROM ybdemo_keyspace.cassandrakeyvalue LIMIT 5;
 ## Learn more
 
 - [Securing YugabyteDB: Client-to-Server Encryption in Transit](https://www.yugabyte.com/blog/securing-yugabytedb-client-to-server-encryption/#verification-of-server-certificates)
-- [ysqlsh](../../../admin/ysqlsh/) — Overview of the command line interface (CLI), syntax, and commands.
+- [ysqlsh](../../../api/ysqlsh/) — Overview of the command line interface (CLI), syntax, and commands.
 - [YSQL API](../../../api/ysql/) — Reference for supported YSQL statements, data types, functions, and operators.
-- [ycqlsh](../../../admin/ycqlsh/) — Overview of the command line interface (CLI), syntax, and commands.
+- [ycqlsh](../../../api/ycqlsh/) — Overview of the command line interface (CLI), syntax, and commands.
 - [YCQL API](../../../api/ycql/) — Reference for supported YCQL statements, data types, functions, and operators.

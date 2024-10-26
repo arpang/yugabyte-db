@@ -302,6 +302,11 @@ ADD_YB_LIBRARY(yb_util
 
 add_dependencies(yb_util gen_version_info)
 
+configure_file(
+  ${CMAKE_SOURCE_DIR}/src/yb/gflag_allowlist.txt
+  ${CMAKE_BINARY_DIR}/gflag_allowlist.txt
+  COPYONLY)
+
 #######################################
 # yb_test_util
 #######################################
@@ -353,6 +358,7 @@ ADD_YB_TEST(fast_varint-test)
 ADD_YB_TEST(flags/auto_flags-test)
 ADD_YB_TEST(flags/flag_tags-test)
 ADD_YB_TEST(flags/flags-test)
+ADD_YB_TEST(flags/flag_validators-test)
 ADD_YB_TEST(flags/flags_callback-test)
 ADD_YB_TEST(format-test RUN_SERIAL true)
 ADD_YB_TEST(hash_util-test)

@@ -85,11 +85,13 @@
 #include "storage/smgr.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
+#include "utils/catcache.h"
 #include "utils/datum.h"
 #include "utils/fmgroids.h"
 #include "utils/inval.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#include "utils/relcache.h"
 #include "utils/relmapper.h"
 #include "utils/resowner_private.h"
 #include "utils/snapmgr.h"
@@ -1919,7 +1921,7 @@ YbCompleteAttrProcessingImpl(const YbAttrProcessorState *state)
 	{
 		pfree(constr);
 		relation->rd_att->constr = NULL;
-	}
+	}	
 
 	/* Fetch rules and triggers that affect this relation */
 	if (relation->rd_rel->relhasrules)
@@ -2212,6 +2214,7 @@ typedef enum YbPFetchTable
 	YB_PFETCH_TABLE_PG_AUTHID,
 	YB_PFETCH_TABLE_PG_CAST,
 	YB_PFETCH_TABLE_PG_CLASS,
+	YB_PFETCH_TABLE_PG_COLLATION,
 	YB_PFETCH_TABLE_PG_CONSTRAINT,
 	YB_PFETCH_TABLE_PG_DATABASE,
 	YB_PFETCH_TABLE_PG_DB_ROLE_SETTINGS,
@@ -2273,6 +2276,7 @@ static const YbCatNamePfId YbCatalogNamesPfIds[] = {
 	{"pg_authid", YB_PFETCH_TABLE_PG_AUTHID},
 	{"pg_cast", YB_PFETCH_TABLE_PG_CAST},
 	{"pg_class", YB_PFETCH_TABLE_PG_CLASS},
+	{"pg_collation", YB_PFETCH_TABLE_PG_COLLATION},
 	{"pg_constraint", YB_PFETCH_TABLE_PG_CONSTRAINT},
 	{"pg_database", YB_PFETCH_TABLE_PG_DATABASE},
 	{"pg_db_role_setting", YB_PFETCH_TABLE_PG_DB_ROLE_SETTINGS},
@@ -2362,8 +2366,10 @@ YbGetPrefetchableTableInfo(YbPFetchTable table)
 			(YbPFetchTableInfo){ CastRelationId, {YB_TABLE_CACHE_TYPE_CAT_CACHE_NO_INDEX, .cat_cache = {CASTSOURCETARGET}}},
 		[YB_PFETCH_TABLE_PG_CLASS] =
 			(YbPFetchTableInfo){ RelationRelationId, {YB_TABLE_CACHE_TYPE_CAT_CACHE_WITH_INDEX, .cat_cache = {RELOID, RELNAMENSP}}},
+		[YB_PFETCH_TABLE_PG_COLLATION] =
+			(YbPFetchTableInfo){ CollationRelationId, {YB_TABLE_CACHE_TYPE_CAT_CACHE_WITH_INDEX, .cat_cache = {COLLOID, COLLNAMEENCNSP}}},
 		[YB_PFETCH_TABLE_PG_CONSTRAINT] =
-			(YbPFetchTableInfo){ ConstraintRelationId, {YB_TABLE_CACHE_TYPE_CAT_CACHE_NO_INDEX, .cat_cache = {CONSTROID}}},
+			(YbPFetchTableInfo){ ConstraintRelationId, {YB_TABLE_CACHE_TYPE_CAT_CACHE_WITH_INDEX, .cat_cache = {CONSTROID, YBCONSTRAINTRELIDTYPIDNAME}}},
 		[YB_PFETCH_TABLE_PG_DATABASE] =
 			(YbPFetchTableInfo){ DatabaseRelationId, {YB_TABLE_CACHE_TYPE_CAT_CACHE_NO_INDEX, .cat_cache = {DATABASEOID}}},
 		[YB_PFETCH_TABLE_PG_DB_ROLE_SETTINGS] =
@@ -2598,7 +2604,13 @@ YbRunWithPrefetcher(
 	static const size_t kStartersCount = lengthof(prefetcher_starters);
 
 	size_t starter_idx = kStartersCount - 1;
+	/*
+	 * YB_TODO: Decide whether skipping this block during IsBinaryUpgrade is the
+	 * right solution to avoid catalog refreshes during pg_upgrade, which can
+	 * confuse various DDLs we do on the PG15 catalog during the upgrade.
+	 */
 	if (!YBCIsInitDbModeEnvVarSet() &&
+		!IsBinaryUpgrade &&
 		*YBCGetGFlags()->ysql_enable_read_request_caching)
 	{
 		starter_idx = 0;
@@ -2842,6 +2854,7 @@ YbPreloadRelCacheImpl(YbRunWithPrefetcherContext *ctx)
 		YB_PFETCH_TABLE_PG_ATTRIBUTE,
 		YB_PFETCH_TABLE_PG_AUTHID,
 		YB_PFETCH_TABLE_PG_CLASS,
+		YB_PFETCH_TABLE_PG_COLLATION,
 		YB_PFETCH_TABLE_PG_CONSTRAINT,
 		YB_PFETCH_TABLE_PG_DATABASE,
 		YB_PFETCH_TABLE_PG_INDEX,
@@ -5850,7 +5863,7 @@ RelationSetNewRelfilenode(Relation relation, char persistence,
 			   relation->rd_rel->relkind == RELKIND_RELATION);
 
 		if (relation->rd_rel->relkind == RELKIND_INDEX &&
-			!relation->rd_index->indisprimary)
+			!YBIsCoveredByMainTable(relation))
 			/*
 			 * Note: caller is responsible for dropping the old DocDB table
 			 * associated with the index, if required.
@@ -6819,6 +6832,8 @@ RelationGetFKeyList(Relation relation)
 	HeapTuple	htup;
 	List	   *oldlist;
 	MemoryContext oldcxt;
+	YbCatCListIterator iterator;
+	bool use_catcache;
 
 	/* Quick exit if we already computed the list. */
 	if (relation->rd_fkeyvalid)
@@ -6837,17 +6852,24 @@ RelationGetFKeyList(Relation relation)
 	 */
 	result = NIL;
 
-	/* Prepare to scan pg_constraint for entries having conrelid = this rel. */
-	ScanKeyInit(&skey,
+	use_catcache = IsYugaByteEnabled() && yb_enable_fkey_catcache;
+
+	if (use_catcache)
+	{
+		iterator = YbCatCListIteratorBegin(SearchSysCacheList1(YBCONSTRAINTRELIDTYPIDNAME, RelationGetRelid(relation)));
+	}
+	else
+	{
+		/* Prepare to scan pg_constraint for entries having conrelid = this rel. */
+		ScanKeyInit(&skey,
 				Anum_pg_constraint_conrelid,
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(RelationGetRelid(relation)));
-
-	conrel = table_open(ConstraintRelationId, AccessShareLock);
-	conscan = systable_beginscan(conrel, ConstraintRelidTypidNameIndexId, true,
+		conrel = table_open(ConstraintRelationId, AccessShareLock);
+		conscan = systable_beginscan(conrel, ConstraintRelidTypidNameIndexId, true,
 								 NULL, 1, &skey);
-
-	while (HeapTupleIsValid(htup = systable_getnext(conscan)))
+	}
+	while (HeapTupleIsValid(htup = use_catcache ? YbCatCListIteratorGetNext(&iterator) : systable_getnext(conscan)))
 	{
 		Form_pg_constraint constraint = (Form_pg_constraint) GETSTRUCT(htup);
 		ForeignKeyCacheInfo *info;
@@ -6871,8 +6893,13 @@ RelationGetFKeyList(Relation relation)
 		result = lappend(result, info);
 	}
 
-	systable_endscan(conscan);
-	table_close(conrel, AccessShareLock);
+	if (use_catcache)
+		YbCatCListIteratorFree(&iterator);
+	else
+	{
+		systable_endscan(conscan);
+		table_close(conrel, AccessShareLock);
+	}
 
 	/* Now save a copy of the completed list in the relcache entry. */
 	oldcxt = MemoryContextSwitchTo(CacheMemoryContext);

@@ -34,43 +34,80 @@
 #include "yb/util/status.h"
 
 #include "yb/vector/distance.h"
+#include "yb/vector/index_wrapper_base.h"
 
 namespace yb::vectorindex {
 
-namespace detail {
+using hnswlib::Stats;
+
+namespace {
+
 template<IndexableVectorType Vector, ValidDistanceResultType DistanceResult>
-class HnswlibIndexImpl {
+class HnswlibIndex :
+    public IndexWrapperBase<HnswlibIndex<Vector, DistanceResult>, Vector, DistanceResult> {
  public:
   using Scalar = typename Vector::value_type;
 
   using HNSWImpl = typename hnswlib::HierarchicalNSW<DistanceResult>;
 
-  explicit HnswlibIndexImpl(const HNSWOptions& options)
+  explicit HnswlibIndex(const HNSWOptions& options)
       : options_(options) {
   }
 
-  Status Reserve(size_t num_vectors) {
+  Status Reserve(size_t num_vectors) override {
     if (hnsw_) {
       return STATUS_FORMAT(
           IllegalState, "Cannot reserve space for $0 vectors: Hnswlib index already initialized",
           num_vectors);
     }
     RETURN_NOT_OK(CreateSpaceImpl());
+    // Please be careful about adding and removing arguments here and make sure they match the
+    // actual list of arguments in hnswalg.h.
     hnsw_ = std::make_unique<HNSWImpl>(
-        space_.get(),
+        /* s= */ space_.get(),
         /* max_elements= */ num_vectors,
-        /* M= */ options_.max_neighbors_per_vertex,
-        /* ef_construction= */ options_.ef_construction);
+        /* M= */ options_.num_neighbors_per_vertex,
+        /* ef_construction= */ options_.ef_construction,
+        /* random_seed= */ 100,              // Default value from hnswalg.h
+        /* allow_replace_deleted= */ false,  // Default value from hnswalg.h
+        /* ef= */ options_.ef);
     return Status::OK();
   }
 
-  Status Insert(VertexId vertex_id, const Vector& v) {
+  Status DoInsert(VertexId vertex_id, const Vector& v) {
+    CHECK_NOTNULL(hnsw_);
     hnsw_->addPoint(v.data(), vertex_id);
     return Status::OK();
   }
 
-  std::vector<VertexWithDistance<DistanceResult>> Search(
-      const Vector& query_vector, size_t max_num_results) {
+  Status DoSaveToFile(const std::string& path) {
+    try {
+      hnsw_->saveIndex(path);
+    } catch (std::exception& e) {
+      return STATUS_FORMAT(
+          IOError, "Failed to save Hnswlib index to file $0: $1", path, e.what());
+    }
+    return Status::OK();
+  }
+
+  Status DoLoadFromFile(const std::string& path) {
+    // Create hnsw_ before loading from file.
+    RETURN_NOT_OK(Reserve(0));
+    try {
+      hnsw_->loadIndex(path, space_.get());
+    } catch (std::exception& e) {
+      return STATUS_FORMAT(
+          IOError, "Failed to load Hnswlib index from file $0: $1", path, e.what());
+    }
+    return Status::OK();
+  }
+
+  DistanceResult Distance(const Vector& lhs, const Vector& rhs) const override {
+    return space_->get_dist_func()(lhs.data(), rhs.data(), space_->get_dist_func_param());
+  }
+
+  std::vector<VertexWithDistance<DistanceResult>> DoSearch(
+      const Vector& query_vector, size_t max_num_results) const {
     std::vector<VertexWithDistance<DistanceResult>> result;
     auto tmp_result = hnsw_->searchKnnCloserFirst(query_vector.data(), max_num_results);
     result.reserve(tmp_result.size());
@@ -87,10 +124,49 @@ class HnswlibIndexImpl {
     return result;
   }
 
-  Result<Vector> GetVector(VertexId vertex_id) const {
+  Result<Vector> GetVector(VertexId vertex_id) const override {
     return STATUS(
         NotSupported, "Hnswlib wrapper currently does not allow retriving vectors by id");
   }
+
+  static std::string StatsToStringHelper(const Stats& stats) {
+    return Format(
+        "$0 nodes, $1 edges, $2 average edges per node",
+        stats.nodes,
+        stats.edges,
+        StringPrintf("%.2f", stats.edges * 1.0 / stats.nodes));
+  }
+
+  std::string IndexStatsStr() const override {
+    auto internal_params = hnsw_->getInternalParameters();
+    std::ostringstream output;
+
+    // Get the maximum level of the index
+    auto max_level = hnsw_->getMaxLevel();
+    output << "Hnswlib index with " << (max_level + 1) << " levels" << std::endl;
+    output << "    max_elements: " << internal_params.max_elements << std::endl;
+    output << "    M: " << internal_params.M << std::endl;
+    output << "    maxM: " << internal_params.maxM << std::endl;
+    output << "    maxM0: " << internal_params.maxM0 << std::endl;
+    output << "    ef_construction: " << internal_params.ef_construction << std::endl;
+    output << "    ef: " << internal_params.ef << std::endl;
+    output << "    mult: " << internal_params.mult << std::endl;
+
+    // Prepare stats per level
+    std::vector<Stats> stats_per_level(max_level + 1);
+    Stats total_stats = hnsw_->getStats(stats_per_level.data(), max_level);
+
+    // Print connectivity distribution for each level
+    for (int level = 0; level <= max_level; ++level) {
+        output << "    Level " << level
+               << ": " << StatsToStringHelper(stats_per_level[level]) << std::endl;
+    }
+
+    // Print the total stats for all levels
+    output << "    Totals: " << StatsToStringHelper(total_stats) << std::endl;
+
+    return output.str();
+}
 
  private:
   Status CreateSpaceImpl() {
@@ -121,17 +197,15 @@ class HnswlibIndexImpl {
   std::unique_ptr<HNSWImpl> hnsw_;
 };
 
-}  // namespace detail
+}  // namespace
 
-template<IndexableVectorType Vector, ValidDistanceResultType DistanceResult>
-HnswlibIndex<Vector, DistanceResult>::HnswlibIndex(const HNSWOptions& options)
-    : VectorIndexBase<Impl, Vector, DistanceResult>(std::make_unique<Impl>(options)) {
+template <IndexableVectorType Vector, ValidDistanceResultType DistanceResult>
+VectorIndexIfPtr<Vector, DistanceResult> HnswlibIndexFactory<Vector, DistanceResult>::Create(
+    const HNSWOptions& options) {
+  return std::make_shared<HnswlibIndex<Vector, DistanceResult>>(options);
 }
 
-template<IndexableVectorType Vector, ValidDistanceResultType DistanceResult>
-HnswlibIndex<Vector, DistanceResult>::~HnswlibIndex() = default;
-
-template class HnswlibIndex<FloatVector, float>;
-template class HnswlibIndex<UInt8Vector, int32_t>;
+template class HnswlibIndexFactory<FloatVector, float>;
+template class HnswlibIndexFactory<UInt8Vector, int32_t>;
 
 }  // namespace yb::vectorindex

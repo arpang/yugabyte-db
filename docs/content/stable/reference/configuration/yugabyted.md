@@ -324,13 +324,13 @@ Enable point-in-time recovery for a database:
 Disable point-in-time recovery for a database:
 
 ```sh
-./bin/yugabyted configure point_in_time_recovery --disable --database <database_name> 
+./bin/yugabyted configure point_in_time_recovery --disable --database <database_name>
 ```
 
 Display point-in-time schedules configured on the cluster:
 
 ```sh
-./bin/yugabyted configure point_in_time_recovery --status 
+./bin/yugabyted configure point_in_time_recovery --status
 ```
 
 #### admin_operation
@@ -457,7 +457,7 @@ For example, delete a read replica cluster using the following command:
 
 ### connect
 
-Use the `yugabyted connect` command to connect to the cluster using [ysqlsh](../../../admin/ysqlsh/) or [ycqlsh](../../../admin/ycqlsh).
+Use the `yugabyted connect` command to connect to the cluster using [ysqlsh](../../../api/ysqlsh/) or [ycqlsh](../../../api/ycqlsh).
 
 #### Syntax
 
@@ -474,11 +474,11 @@ The following sub-commands are available for the `yugabyted connect` command:
 
 #### ysql
 
-Use the `yugabyted connect ysql` sub-command to connect to YugabyteDB with [ysqlsh](../../../admin/ysqlsh/).
+Use the `yugabyted connect ysql` sub-command to connect to YugabyteDB with [ysqlsh](../../../api/ysqlsh/).
 
 #### ycql
 
-Use the `yugabyted connect ycql` sub-command to connect to YugabyteDB with [ycqlsh](../../../admin/ycqlsh).
+Use the `yugabyted connect ycql` sub-command to connect to YugabyteDB with [ycqlsh](../../../api/ycqlsh).
 
 #### Flags
 
@@ -519,7 +519,7 @@ Use the `yugabyted demo connect` sub-command to load the  [Northwind sample data
 
 #### destroy
 
-Use the `yuagbyted demo destroy` sub-command to shut down the yugabyted single-node cluster and remove data, configuration, and log directories. This sub-command also deletes the `yb_demo_northwind` database.
+Use the `yugabyted demo destroy` sub-command to shut down the yugabyted single-node cluster and remove data, configuration, and log directories. This sub-command also deletes the `yb_demo_northwind` database.
 
 #### Flags
 
@@ -747,7 +747,7 @@ For on-premises deployments, consider racks as zones to treat them as fault doma
 : Enable or disable the backup daemon with yugabyted start. Default: `false`
 : If you start a cluster using the `--backup_daemon` flag, you also need to download and extract the [YB Controller release](https://downloads.yugabyte.com/ybc/2.1.0.0-b9/ybc-2.1.0.0-b9-linux-x86_64.tar.gz) to the yugabyte-{{< yb-version version="stable" >}} release directory.
 
---enable_pg_parity_early_access *PostgreSQL-compatibilty*
+--enable_pg_parity_tech_preview *PostgreSQL-compatibilty*
 : Enable Enhanced PostgreSQL Compatibility Mode. Default: `false`
 
 #### Advanced flags
@@ -1236,7 +1236,7 @@ To create a secure multi-zone cluster:
     ```sh
     ./bin/yugabyted start --secure --advertise_address=<host-ip> \
         --cloud_location=aws.us-east-1.us-east-1a \
-        --fault_tolerance=zone 
+        --fault_tolerance=zone
     ```
 
 1. Create certificates for the second and third virtual machine (VM) for SSL and TLS connection, as follows:
@@ -1451,7 +1451,7 @@ You can set the replication factor of the cluster manually using the `--rf` flag
 
 ### Create a multi-region cluster in Docker
 
-Docker-based deployments are in {{<badge/ea>}}.
+Docker-based deployments are in {{<tags/feature/ea>}}.
 
 You can run yugabyted in a Docker container. For more information, see the [Quick Start](/preview/quick-start/docker/).
 
@@ -1610,7 +1610,7 @@ To create the read replica cluster, do the following:
         --base_dir=$HOME/yugabyte-{{< yb-version version="stable" >}}/node6 \
         --cloud_location=aws.us-east-1.us-east-1e \
         --read_replica
-    
+
     ./bin/yugabyted start \
         --advertise_address=127.0.0.7 \
         --join=127.0.0.1 \

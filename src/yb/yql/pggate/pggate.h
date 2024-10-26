@@ -1,4 +1,4 @@
-// Copyright (c) YugaByteDB, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -16,8 +16,10 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include "yb/client/tablet_server.h"
 
@@ -120,7 +122,7 @@ class PgApiImpl {
  public:
   PgApiImpl(PgApiContext context, const YBCPgTypeEntity *YBCDataTypeTable, int count,
             YBCPgCallbacks pg_callbacks, std::optional<uint64_t> session_id,
-            const YBCPgAshConfig* ash_config);
+            const YBCPgAshConfig& ash_config);
   ~PgApiImpl();
 
   const YBCPgCallbacks* pg_callbacks() {
@@ -134,7 +136,7 @@ class PgApiImpl {
   void ResetCatalogReadTime();
 
   // Initialize a session to process statements that come from the same client connection.
-  Status InitSession(YBCPgExecStatsState& session_stats);
+  Status InitSession(YBCPgExecStatsState& session_stats, bool is_binary_upgrade);
 
   uint64_t GetSessionID() const;
 
@@ -361,6 +363,8 @@ class PgApiImpl {
   Status GetTableDesc(const PgObjectId& table_id,
                       PgTableDesc **handle);
 
+  Result<tserver::PgListClonesResponsePB> GetDatabaseClones();
+
   Result<YBCPgColumnInfo> GetColumnInfo(YBCPgTableDesc table_desc,
                                         int16_t attr_number);
 
@@ -538,8 +542,7 @@ class PgApiImpl {
                    bool is_region_local,
                    PgStatement **handle,
                    YBCPgTransactionSetting transaction_setting =
-                       YBCPgTransactionSetting::YB_TRANSACTIONAL,
-                   PgStatement *block_insert_handle = nullptr);
+                       YBCPgTransactionSetting::YB_TRANSACTIONAL);
 
   Status ExecInsert(PgStatement *handle);
 
@@ -600,7 +603,7 @@ class PgApiImpl {
   Status FetchRequestedYbctids(PgStatement *handle, const PgExecParameters *exec_params,
                                ConstSliceVector ybctids);
 
-  Status DmlANNBindVector(PgStatement *handle, PgExpr *vector);
+  Status DmlANNBindVector(PgStatement *handle, int vec_att_no, PgExpr *vector);
 
   Status DmlANNSetPrefetchSize(PgStatement *handle, int prefetch_size);
 
@@ -626,13 +629,9 @@ class PgApiImpl {
 
   //------------------------------------------------------------------------------------------------
   // Analyze.
-  Status NewSample(const PgObjectId& table_id,
-                   const int targrows,
-                   bool is_region_local,
-                   PgStatement **handle);
-
-  Status InitRandomState(
-      PgStatement *handle, double rstate_w, uint64_t rand_state_s0, uint64_t rand_state_s1);
+  Status NewSample(
+      const PgObjectId& table_id, bool is_region_local, int targrows,
+      const SampleRandomState& rand_state, PgStatement **handle);
 
   Result<bool> SampleNextBlock(PgStatement* handle);
 
@@ -717,8 +716,9 @@ class PgApiImpl {
 
   Status AddExplicitRowLockIntent(
       const PgObjectId& table_id, const Slice& ybctid,
-      const PgExplicitRowLockParams& params, bool is_region_local);
-  Status FlushExplicitRowLockIntents();
+      const PgExplicitRowLockParams& params, bool is_region_local,
+      PgExplicitRowLockErrorInfo& error_info);
+  Status FlushExplicitRowLockIntents(PgExplicitRowLockErrorInfo& error_info);
 
   // Sets the specified timeout in the rpc service.
   void SetTimeout(int timeout_ms);
@@ -798,7 +798,11 @@ class PgApiImpl {
 
   Result<tserver::PgTabletsMetadataResponsePB> TabletsMetadata();
 
+  Result<tserver::PgServersMetricsResponsePB> ServersMetrics();
+
   bool IsCronLeader() const;
+  Status SetCronLastMinute(int64_t last_minute);
+  Result<int64_t> GetCronLastMinute();
 
   [[nodiscard]] uint64_t GetCurrentReadTimePoint() const;
   Status RestoreReadTimePoint(uint64_t read_time_point_handle);
@@ -832,6 +836,10 @@ class PgApiImpl {
 
   std::unique_ptr<rpc::ProxyCache> proxy_cache_;
 
+  YBCPgCallbacks pg_callbacks_;
+
+  const WaitEventWatcher wait_event_watcher_;
+
   // TODO Rename to client_ when YBClient is removed.
   PgClient pg_client_;
 
@@ -839,8 +847,6 @@ class PgApiImpl {
 
   // Local tablet-server shared memory segment handle.
   tserver::TServerSharedObject tserver_shared_object_;
-
-  YBCPgCallbacks pg_callbacks_;
 
   scoped_refptr<PgTxnManager> pg_txn_manager_;
 

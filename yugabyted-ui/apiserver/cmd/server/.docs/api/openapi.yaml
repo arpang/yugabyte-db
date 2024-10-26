@@ -1174,13 +1174,31 @@ components:
       description: Information regarding a specific voyager migration task
       example:
         complexity: complexity
-        database_name: database_name
+        migration_type: migration_type
         migration_uuid: 046b6c7f-0b8a-43b9-b35d-6489e6daee91
+        start_timestamp: start_timestamp
+        source_db:
+          schema: schema
+          database: database
+          port: port
+          engine: engine
+          ip: ip
+          version: version
+        target_cluster:
+          port: port
+          engine: engine
+          ip: ip
+          version: version
+        voyager:
+          os: os
+          avail_disk_bytes: avail_disk_bytes
+          machine_ip: machine_ip
+          exported_schema_location: exported_schema_location
+          export_dir: export_dir
         migration_phase: 0
-        source_db: source_db
         invocation_sequence: 6
+        progress: progress
         migration_name: migration_name
-        schema_name: schema_name
         invocation_timestamp: invocation_timestamp
         status: status
       properties:
@@ -1189,21 +1207,27 @@ components:
           type: string
         migration_name:
           type: string
+        migration_type:
+          type: string
         migration_phase:
           type: integer
         invocation_sequence:
           type: integer
         source_db:
-          type: string
+          $ref: '#/components/schemas/VoyagerMigrationDetails_source_db'
+        voyager:
+          $ref: '#/components/schemas/VoyagerMigrationDetails_voyager'
+        target_cluster:
+          $ref: '#/components/schemas/VoyagerMigrationDetails_target_cluster'
         complexity:
-          type: string
-        database_name:
-          type: string
-        schema_name:
           type: string
         status:
           type: string
+        progress:
+          type: string
         invocation_timestamp:
+          type: string
+        start_timestamp:
           type: string
       title: Voyager task details
       type: object
@@ -1212,23 +1236,59 @@ components:
       example:
         migrations:
         - complexity: complexity
-          database_name: database_name
+          migration_type: migration_type
           migration_uuid: 046b6c7f-0b8a-43b9-b35d-6489e6daee91
+          start_timestamp: start_timestamp
+          source_db:
+            schema: schema
+            database: database
+            port: port
+            engine: engine
+            ip: ip
+            version: version
+          target_cluster:
+            port: port
+            engine: engine
+            ip: ip
+            version: version
+          voyager:
+            os: os
+            avail_disk_bytes: avail_disk_bytes
+            machine_ip: machine_ip
+            exported_schema_location: exported_schema_location
+            export_dir: export_dir
           migration_phase: 0
-          source_db: source_db
           invocation_sequence: 6
+          progress: progress
           migration_name: migration_name
-          schema_name: schema_name
           invocation_timestamp: invocation_timestamp
           status: status
         - complexity: complexity
-          database_name: database_name
+          migration_type: migration_type
           migration_uuid: 046b6c7f-0b8a-43b9-b35d-6489e6daee91
+          start_timestamp: start_timestamp
+          source_db:
+            schema: schema
+            database: database
+            port: port
+            engine: engine
+            ip: ip
+            version: version
+          target_cluster:
+            port: port
+            engine: engine
+            ip: ip
+            version: version
+          voyager:
+            os: os
+            avail_disk_bytes: avail_disk_bytes
+            machine_ip: machine_ip
+            exported_schema_location: exported_schema_location
+            export_dir: export_dir
           migration_phase: 0
-          source_db: source_db
           invocation_sequence: 6
+          progress: progress
           migration_name: migration_name
-          schema_name: schema_name
           invocation_timestamp: invocation_timestamp
           status: status
       properties:
@@ -1278,6 +1338,7 @@ components:
         top_errors:
         - top_errors
         - top_errors
+        operating_system: operating_system
         top_suggestions:
         - top_suggestions
         - top_suggestions
@@ -1296,6 +1357,8 @@ components:
           items:
             $ref: '#/components/schemas/AssesmentComplexityInfo'
           type: array
+        operating_system:
+          type: string
       title: Details for Voyager migrations assesment
       type: object
     ErrorsAndSuggestionsDetails:
@@ -2185,16 +2248,40 @@ components:
           $ref: '#/components/schemas/TargetSchemaRecommendations'
       title: Target YugabyteDB cluster size and schema recommendations
       type: object
+    UnsupportedSqlObjectData:
+      description: Unsupported SQL Object Data
+      example:
+        object_name: object_name
+        sql_statement: sql_statement
+      properties:
+        object_name:
+          type: string
+        sql_statement:
+          type: string
+      title: Unsupported SQL Object Data
+      type: object
     UnsupportedSqlInfo:
       description: Unsupported SQL Info
       example:
         unsupported_type: unsupported_type
+        objects:
+        - object_name: object_name
+          sql_statement: sql_statement
+        - object_name: object_name
+          sql_statement: sql_statement
         count: 1
+        docs_link: docs_link
       properties:
         unsupported_type:
           type: string
         count:
           type: integer
+        objects:
+          items:
+            $ref: '#/components/schemas/UnsupportedSqlObjectData'
+          type: array
+        docs_link:
+          type: string
       title: Unsupported SQL Info
       type: object
     MigrationAssessmentReport:
@@ -2219,9 +2306,21 @@ components:
           recommendation_summary: recommendation_summary
         unsupported_features:
         - unsupported_type: unsupported_type
+          objects:
+          - object_name: object_name
+            sql_statement: sql_statement
+          - object_name: object_name
+            sql_statement: sql_statement
           count: 1
+          docs_link: docs_link
         - unsupported_type: unsupported_type
+          objects:
+          - object_name: object_name
+            sql_statement: sql_statement
+          - object_name: object_name
+            sql_statement: sql_statement
           count: 1
+          docs_link: docs_link
         recommended_refactoring:
           refactor_details:
           - sql_object_type: sql_object_type
@@ -2230,6 +2329,7 @@ components:
           - sql_object_type: sql_object_type
             automatic: 1
             manual: 6
+        assessment_status: true
         source_environment:
           total_memory: total_memory
           total_disk_size: total_disk_size
@@ -2237,9 +2337,21 @@ components:
           total_vcpu: total_vcpu
         unsupported_functions:
         - unsupported_type: unsupported_type
+          objects:
+          - object_name: object_name
+            sql_statement: sql_statement
+          - object_name: object_name
+            sql_statement: sql_statement
           count: 1
+          docs_link: docs_link
         - unsupported_type: unsupported_type
+          objects:
+          - object_name: object_name
+            sql_statement: sql_statement
+          - object_name: object_name
+            sql_statement: sql_statement
           count: 1
+          docs_link: docs_link
         source_database:
           table_size: 0
           total_index_size: 5
@@ -2247,10 +2359,24 @@ components:
           total_table_size: 1
         unsupported_data_types:
         - unsupported_type: unsupported_type
+          objects:
+          - object_name: object_name
+            sql_statement: sql_statement
+          - object_name: object_name
+            sql_statement: sql_statement
           count: 1
+          docs_link: docs_link
         - unsupported_type: unsupported_type
+          objects:
+          - object_name: object_name
+            sql_statement: sql_statement
+          - object_name: object_name
+            sql_statement: sql_statement
           count: 1
+          docs_link: docs_link
       properties:
+        assessment_status:
+          type: boolean
         summary:
           $ref: '#/components/schemas/AssessmentReportSummary'
         source_environment:
@@ -3879,6 +4005,7 @@ components:
           top_errors:
           - top_errors
           - top_errors
+          operating_system: operating_system
           top_suggestions:
           - top_suggestions
           - top_suggestions
@@ -4327,9 +4454,21 @@ components:
             recommendation_summary: recommendation_summary
           unsupported_features:
           - unsupported_type: unsupported_type
+            objects:
+            - object_name: object_name
+              sql_statement: sql_statement
+            - object_name: object_name
+              sql_statement: sql_statement
             count: 1
+            docs_link: docs_link
           - unsupported_type: unsupported_type
+            objects:
+            - object_name: object_name
+              sql_statement: sql_statement
+            - object_name: object_name
+              sql_statement: sql_statement
             count: 1
+            docs_link: docs_link
           recommended_refactoring:
             refactor_details:
             - sql_object_type: sql_object_type
@@ -4338,6 +4477,7 @@ components:
             - sql_object_type: sql_object_type
               automatic: 1
               manual: 6
+          assessment_status: true
           source_environment:
             total_memory: total_memory
             total_disk_size: total_disk_size
@@ -4345,9 +4485,21 @@ components:
             total_vcpu: total_vcpu
           unsupported_functions:
           - unsupported_type: unsupported_type
+            objects:
+            - object_name: object_name
+              sql_statement: sql_statement
+            - object_name: object_name
+              sql_statement: sql_statement
             count: 1
+            docs_link: docs_link
           - unsupported_type: unsupported_type
+            objects:
+            - object_name: object_name
+              sql_statement: sql_statement
+            - object_name: object_name
+              sql_statement: sql_statement
             count: 1
+            docs_link: docs_link
           source_database:
             table_size: 0
             total_index_size: 5
@@ -4355,9 +4507,21 @@ components:
             total_table_size: 1
           unsupported_data_types:
           - unsupported_type: unsupported_type
+            objects:
+            - object_name: object_name
+              sql_statement: sql_statement
+            - object_name: object_name
+              sql_statement: sql_statement
             count: 1
+            docs_link: docs_link
           - unsupported_type: unsupported_type
+            objects:
+            - object_name: object_name
+              sql_statement: sql_statement
+            - object_name: object_name
+              sql_statement: sql_statement
             count: 1
+            docs_link: docs_link
       properties:
         data:
           $ref: '#/components/schemas/MigrationAssessmentReport'
@@ -4775,6 +4939,63 @@ components:
       required:
       - restore
       title: Restore Details
+      type: object
+    VoyagerMigrationDetails_source_db:
+      example:
+        schema: schema
+        database: database
+        port: port
+        engine: engine
+        ip: ip
+        version: version
+      properties:
+        ip:
+          type: string
+        port:
+          type: string
+        engine:
+          type: string
+        version:
+          type: string
+        database:
+          type: string
+        schema:
+          type: string
+      type: object
+    VoyagerMigrationDetails_voyager:
+      example:
+        os: os
+        avail_disk_bytes: avail_disk_bytes
+        machine_ip: machine_ip
+        exported_schema_location: exported_schema_location
+        export_dir: export_dir
+      properties:
+        machine_ip:
+          type: string
+        os:
+          type: string
+        avail_disk_bytes:
+          type: string
+        export_dir:
+          type: string
+        exported_schema_location:
+          type: string
+      type: object
+    VoyagerMigrationDetails_target_cluster:
+      example:
+        port: port
+        engine: engine
+        ip: ip
+        version: version
+      properties:
+        ip:
+          type: string
+        port:
+          type: string
+        engine:
+          type: string
+        version:
+          type: string
       type: object
     ApiError_error:
       properties:

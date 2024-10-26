@@ -3,7 +3,8 @@ title: View metadata for YSQL/YCQL/system tablets on a server
 linkTitle: Tablet metadata
 description: View metadata for YSQL, YCQL, and system tablets on a server.
 headerTitle: View metadata for YSQL/YCQL/system tablets on a server
-badges: tp
+tags:
+  feature: tech-preview
 menu:
   preview:
     identifier: yb-local-tablets
@@ -33,7 +34,7 @@ The columns of the `yb_local_tablets` view are described in the following table.
 
 {{% explore-setup-single %}}
 
-Note that as this view is accessible via YSQL, run your examples using [ysqlsh](../../../admin/ysqlsh/#starting-ysqlsh).
+Note that as this view is accessible via YSQL, run your examples using [ysqlsh](../../../api/ysqlsh/#starting-ysqlsh).
 
 ### Describe the columns in the view
 

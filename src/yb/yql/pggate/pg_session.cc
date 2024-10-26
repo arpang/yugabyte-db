@@ -105,8 +105,10 @@ bool IsNeedTransaction(const PgsqlOp& op, bool non_ddl_txn_for_sys_tables_allowe
   return op.need_transaction() || (op.is_write() && non_ddl_txn_for_sys_tables_allowed);
 }
 
-Result<bool> ShouldHandleTransactionally(
-  const PgTxnManager& txn_manager, const PgTableDesc& table, const PgsqlOp& op) {
+Result<bool> ShouldHandleTransactionally(const PgTxnManager& txn_manager,
+                                         const PgTableDesc& table,
+                                         const PgsqlOp& op,
+                                         bool non_ddl_txn_for_sys_tables_allowed) {
   if (!table.schema().table_properties().is_transactional() ||
       !IsNeedTransaction(op, yb_non_ddl_txn_for_sys_tables_allowed) ||
       YBCIsInitDbModeEnvVarSet()) {
@@ -117,11 +119,7 @@ Result<bool> ShouldHandleTransactionally(
     SCHECK(has_non_ddl_txn, IllegalState, "Transactional operation requires transaction");
     return true;
   }
-  // Previously, yb_non_ddl_txn_for_sys_tables_allowed flag caused CREATE VIEW to fail with
-  // read restart error because subsequent cache refresh used an outdated txn to read from the
-  // system catalog,
-  // As a quick fix, we prevent yb_non_ddl_txn_for_sys_tables_allowed from affecting reads.
-  if (txn_manager.IsDdlMode() || (yb_non_ddl_txn_for_sys_tables_allowed && has_non_ddl_txn)) {
+  if (txn_manager.IsDdlMode() || (non_ddl_txn_for_sys_tables_allowed && has_non_ddl_txn)) {
     return true;
   }
   if (op.is_write()) {
@@ -133,9 +131,12 @@ Result<bool> ShouldHandleTransactionally(
   return false;
 }
 
-Result<SessionType> GetRequiredSessionType(
-  const PgTxnManager& txn_manager, const PgTableDesc& table, const PgsqlOp& op) {
-  if (VERIFY_RESULT(ShouldHandleTransactionally(txn_manager, table, op))) {
+Result<SessionType> GetRequiredSessionType(const PgTxnManager& txn_manager,
+                                           const PgTableDesc& table,
+                                           const PgsqlOp& op,
+                                           bool non_ddl_txn_for_sys_tables_allowed) {
+  if (VERIFY_RESULT(ShouldHandleTransactionally(txn_manager, table, op,
+                                                non_ddl_txn_for_sys_tables_allowed))) {
     return SessionType::kTransactional;
   }
 
@@ -280,7 +281,7 @@ class PgSession::RunHelper {
 
     // Try buffering this operation if it is a write operation, buffering is enabled and no
     // operations have been already applied to current session (yb session does not exist).
-    if (operations_.empty() && pg_session_.buffering_enabled_ &&
+    if (operations_.Empty() && pg_session_.buffering_enabled_ &&
         !force_non_bufferable_ && op->is_write()) {
         if (PREDICT_FALSE(yb_debug_log_docdb_requests)) {
           LOG_WITH_PREFIX(INFO) << "Buffering operation: " << op->ToString();
@@ -292,7 +293,7 @@ class PgSession::RunHelper {
     bool read_only = op->is_read();
     // Flush all buffered operations (if any) before performing non-bufferable operation
     if (!Empty(buffer)) {
-      SCHECK(operations_.empty(),
+      SCHECK(operations_.Empty(),
             IllegalState,
             "Buffered operations must be flushed before applying first non-bufferable operation");
       // Buffered write operations can't be combined within a single RPC with non-bufferable read
@@ -315,7 +316,7 @@ class PgSession::RunHelper {
         RETURN_NOT_OK(buffer.Flush());
       } else {
         operations_ = VERIFY_RESULT(buffer.FlushTake(table, *op, IsTransactional()));
-        read_only = read_only && operations_.empty();
+        read_only = read_only && operations_.Empty();
       }
     }
 
@@ -325,7 +326,7 @@ class PgSession::RunHelper {
 
     const auto row_mark_type = GetRowMarkType(*op);
 
-    operations_.Add(std::move(op), table.relfilenode_id());
+    operations_.Add(std::move(op), table);
 
     if (!IsTransactional()) {
       return Status::OK();
@@ -341,14 +342,14 @@ class PgSession::RunHelper {
   }
 
   Result<PerformFuture> Flush(std::optional<CacheOptions>&& cache_options) {
-    if (operations_.empty()) {
+    if (operations_.Empty()) {
       // All operations were buffered, no need to flush.
       return PerformFuture();
     }
 
     if (PREDICT_FALSE(yb_debug_log_docdb_requests)) {
       LOG_WITH_PREFIX(INFO) << "Flushing collected operations, using session type: "
-                            << ToString(session_type_) << " num ops: " << operations_.size();
+                            << ToString(session_type_) << " num ops: " << operations_.Size();
     }
 
     return pg_session_.Perform(
@@ -393,7 +394,9 @@ PgSession::PgSession(
     scoped_refptr<PgTxnManager> pg_txn_manager,
     const YBCPgCallbacks& pg_callbacks,
     YBCPgExecStatsState& stats_state,
-    YbctidReader&& ybctid_reader)
+    YbctidReader&& ybctid_reader,
+    bool is_pg_binary_upgrade,
+    std::reference_wrapper<const WaitEventWatcher> wait_event_watcher)
     : pg_client_(pg_client),
       pg_txn_manager_(std::move(pg_txn_manager)),
       ybctid_reader_(std::move(ybctid_reader)),
@@ -406,7 +409,9 @@ PgSession::PgSession(
             return PgOperationBuffer::PerformFutureEx{
                 VERIFY_RESULT(FlushOperations(std::move(ops), transactional)), this};
           },
-          metrics_, buffering_settings_) {
+          metrics_, buffering_settings_),
+      is_major_pg_version_upgrade_(is_pg_binary_upgrade),
+      wait_event_watcher_(wait_event_watcher) {
   Update(&buffering_settings_);
 }
 
@@ -492,6 +497,10 @@ Result<std::pair<int64_t, bool>> PgSession::ReadSequenceTuple(int64_t db_oid,
                                                               int64_t seq_oid,
                                                               uint64_t ysql_catalog_version,
                                                               bool is_db_catalog_version_mode) {
+  if (yb_read_time != 0) {
+    return pg_client_.ReadSequenceTuple(
+        db_oid, seq_oid, ysql_catalog_version, is_db_catalog_version_mode, yb_read_time);
+  }
   return pg_client_.ReadSequenceTuple(
       db_oid, seq_oid, ysql_catalog_version, is_db_catalog_version_mode);
 }
@@ -657,7 +666,7 @@ Result<PerformFuture> PgSession::FlushOperations(BufferableOperations&& ops, boo
   if (PREDICT_FALSE(yb_debug_log_docdb_requests)) {
     LOG_WITH_PREFIX(INFO) << "Flushing buffered operations, using "
                           << (transactional ? "transactional" : "non-transactional")
-                          << " session (num ops: " << ops.size() << ")";
+                          << " session (num ops: " << ops.Size() << ")";
   }
 
   if (transactional) {
@@ -685,7 +694,7 @@ Result<PerformFuture> PgSession::FlushOperations(BufferableOperations&& ops, boo
 }
 
 Result<PerformFuture> PgSession::Perform(BufferableOperations&& ops, PerformOptions&& ops_options) {
-  DCHECK(!ops.empty());
+  DCHECK(!ops.Empty());
   tserver::PgPerformOptionsPB options;
   if (ops_options.use_catalog_session) {
     if (catalog_read_time_) {
@@ -697,16 +706,17 @@ Result<PerformFuture> PgSession::Perform(BufferableOperations&& ops, PerformOpti
     if (pg_txn_manager_->IsTxnInProgress()) {
       options.mutable_in_txn_limit_ht()->set_value(ops_options.in_txn_limit.ToUint64());
     }
-    auto ops_read_time = VERIFY_RESULT(GetReadTime(ops.operations));
+    auto ops_read_time = VERIFY_RESULT(GetReadTime(ops.operations()));
     if (ops_read_time) {
       RETURN_NOT_OK(UpdateReadTime(&options, ops_read_time));
     }
   }
-  bool global_transaction = yb_force_global_transaction;
-  for (auto i = ops.operations.begin(); !global_transaction && i != ops.operations.end(); ++i) {
-    global_transaction = !(*i)->is_region_local();
-  }
-  options.set_force_global_transaction(global_transaction);
+
+  options.set_force_global_transaction(
+      yb_force_global_transaction ||
+      std::any_of(
+          ops.operations().begin(), ops.operations().end(),
+          [](const auto& op) { return !op->is_region_local(); }));
 
   // For DDLs, ysql_upgrades and PGCatalog accesses, we always use the default read-time
   // and effectively skip xcluster_database_consistency which enables reads as of xcluster safetime.
@@ -729,9 +739,9 @@ Result<PerformFuture> PgSession::Perform(BufferableOperations&& ops, PerformOpti
   // If all operations belong to the same database then set the namespace.
   // System database template1 is ignored as we may read global system catalog like tablespaces
   // in the same batch.
-  if (!ops.relations.empty()) {
-    PgOid database_oid = kPgInvalidOid;
-    for (const auto& relation : ops.relations) {
+  if (!ops.Empty()) {
+    auto database_oid = kPgInvalidOid;
+    for (const auto& relation : ops.relations()) {
       if (relation.database_oid == kTemplate1Oid) {
         continue;
       }
@@ -779,8 +789,11 @@ Result<PerformFuture> PgSession::Perform(BufferableOperations&& ops, PerformOpti
 
   DCHECK(!options.has_read_time() || options.isolation() != IsolationLevel::SERIALIZABLE_ISOLATION);
 
-  auto future = pg_client_.PerformAsync(&options, &ops.operations);
-  return PerformFuture(std::move(future), std::move(ops.relations));
+  PgsqlOps operations;
+  PgObjectIds relations;
+  std::move(ops).MoveTo(operations, relations);
+  return PerformFuture(
+      pg_client_.PerformAsync(&options, std::move(operations)), std::move(relations));
 }
 
 Result<bool> PgSession::ForeignKeyReferenceExists(
@@ -961,19 +974,32 @@ Result<PerformFuture> PgSession::DoRunAsync(
     std::optional<CacheOptions>&& cache_options) {
   const auto first_table_op = generator();
   RSTATUS_DCHECK(!first_table_op.IsEmpty(), IllegalState, "Operation list must not be empty");
+  // Previously, yb_non_ddl_txn_for_sys_tables_allowed flag caused CREATE VIEW to fail with
+  // read restart error because subsequent cache refresh used an outdated txn to read from the
+  // system catalog.
+  // As a quick fix, we prevent yb_non_ddl_txn_for_sys_tables_allowed from affecting reads.
+  //
+  // If we're in major PG version upgrade mode, then it's safe to use a non-DDL transaction for
+  // access to the PG catalog because it will be the next-version catalog which is only being
+  // accessed by the one process that's currently doing the writes.
+  const auto non_ddl_txn_for_sys_tables_allowed =
+      yb_non_ddl_txn_for_sys_tables_allowed || is_major_pg_version_upgrade_;
   const auto group_session_type = VERIFY_RESULT(GetRequiredSessionType(
-      *pg_txn_manager_, *first_table_op.table, **first_table_op.operation));
+      *pg_txn_manager_, *first_table_op.table, **first_table_op.operation,
+      non_ddl_txn_for_sys_tables_allowed));
   auto table_op = generator();
   const auto multiple_ops_for_processing = !table_op.IsEmpty();
   RunHelper runner(
       this, group_session_type, in_txn_limit, force_non_bufferable,
       ForceFlushBeforeNonBufferableOp{multiple_ops_for_processing});
   const auto is_ddl = pg_txn_manager_->IsDdlMode();
-  auto processor = [this, &runner, is_ddl, group_session_type](const auto& table_op) -> Status {
+  auto processor = [this, &runner, is_ddl, group_session_type,
+                    non_ddl_txn_for_sys_tables_allowed](const auto& table_op) -> Status {
     DCHECK(!table_op.IsEmpty());
     const auto& table = *table_op.table;
     const auto& op = *table_op.operation;
-    const auto session_type = VERIFY_RESULT(GetRequiredSessionType(*pg_txn_manager_, table, *op));
+    const auto session_type = VERIFY_RESULT(GetRequiredSessionType(
+        *pg_txn_manager_, table, *op, non_ddl_txn_for_sys_tables_allowed));
     RSTATUS_DCHECK_EQ(
         session_type, group_session_type,
         IllegalState, "Operations on different sessions can't be mixed");
@@ -1035,7 +1061,8 @@ Result<tserver::PgGetReplicationSlotResponsePB> PgSession::GetReplicationSlot(
 }
 
 PgWaitEventWatcher PgSession::StartWaitEvent(ash::WaitStateCode wait_event) {
-  return {pg_callbacks_.PgstatReportWaitStart, wait_event};
+  DCHECK_NE(wait_event, ash::WaitStateCode::kWaitingOnTServer);
+  return wait_event_watcher_(wait_event, ash::PggateRPC::kNoRPC);
 }
 
 Result<tserver::PgYCQLStatementStatsResponsePB> PgSession::YCQLStatementStats() {
@@ -1053,5 +1080,15 @@ const std::string PgSession::LogPrefix() const {
 Result<yb::tserver::PgTabletsMetadataResponsePB> PgSession::TabletsMetadata() {
   return pg_client_.TabletsMetadata();
 }
+
+Result<yb::tserver::PgServersMetricsResponsePB> PgSession::ServersMetrics() {
+  return pg_client_.ServersMetrics();
+}
+
+Status PgSession::SetCronLastMinute(int64_t last_minute) {
+  return pg_client_.SetCronLastMinute(last_minute);
+}
+
+Result<int64_t> PgSession::GetCronLastMinute() { return pg_client_.GetCronLastMinute(); }
 
 }  // namespace yb::pggate

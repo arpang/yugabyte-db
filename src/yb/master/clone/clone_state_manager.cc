@@ -122,6 +122,20 @@ class CloneStateManagerExternalFunctions : public CloneStateManagerExternalFunct
     return catalog_manager_->ScheduleTask(task);
   }
 
+  Status ScheduleClearMetaCacheTasks(
+      const TSDescriptorVector& tservers, const std::string& namespace_id,
+      AsyncClearMetacache::ClearMetacacheCallbackType callback) override {
+    for (const auto& ts : tservers) {
+      auto task = std::make_shared<AsyncClearMetacache>(
+          master_, catalog_manager_->AsyncTaskPool(), ts->permanent_uuid(), namespace_id, callback);
+      LOG(INFO) << Format(
+          "Scheduling clear metacache entries task for namespace: $0 and tserver with UUID: $1",
+          namespace_id, ts->permanent_uuid());
+      RETURN_NOT_OK(catalog_manager_->ScheduleTask(task));
+    }
+    return Status::OK();
+  }
+
   Status ScheduleEnableDbConnectionsTask(
       const TabletServerId& ts_uuid, const std::string& target_db_name,
       AsyncEnableDbConns::EnableDbConnsCallbackType callback) override {
@@ -164,6 +178,10 @@ class CloneStateManagerExternalFunctions : public CloneStateManagerExternalFunct
     return tservers[0];
   }
 
+  TSDescriptorVector GetTservers() override {
+    return catalog_manager_->GetAllLiveNotBlacklistedTServers();
+  }
+
   // Sys catalog.
   Status Upsert(int64_t leader_term, const CloneStateInfoPtr& clone_state) override {
     return sys_catalog_->Upsert(leader_term, clone_state);
@@ -199,29 +217,33 @@ CloneStateManager::CloneStateManager(
     external_funcs_(std::move(external_funcs)) {}
 
 Status CloneStateManager::ListClones(const ListClonesRequestPB* req, ListClonesResponsePB* resp) {
-  if (!req->has_source_namespace_id()) {
-    return STATUS_FORMAT(InvalidArgument, "Missing source namespace id in request: $0",
-                         req->ShortDebugString());
-  }
-
   // Get matching clone states.
   std::vector<CloneStateInfoPtr> clone_states;
   {
     std::lock_guard l(mutex_);
-    auto it = source_clone_state_map_.find(req->source_namespace_id());
-    if (it != source_clone_state_map_.end()) {
-      std::copy_if(
-        it->second.begin(), it->second.end(), std::back_inserter(clone_states),
-        [req](const auto& clone) {
-          return !req->has_seq_no() ||
-                 req->seq_no() == clone->LockForRead()->pb.clone_request_seq_no();
-      });
+    if (req->has_source_namespace_id()) {
+      auto it = source_clone_state_map_.find(req->source_namespace_id());
+      if (it != source_clone_state_map_.end()) {
+        std::copy_if(
+            it->second.begin(), it->second.end(), std::back_inserter(clone_states),
+            [req](const auto& clone) {
+              return !req->has_seq_no() ||
+                     req->seq_no() == clone->LockForRead()->pb.clone_request_seq_no();
+            });
+      }
+    } else {
+      for (const auto& source_clones : source_clone_state_map_) {
+        std::copy(
+            source_clones.second.begin(), source_clones.second.end(),
+            std::back_inserter(clone_states));
+      }
     }
   }
 
   // Populate the response.
   for (const auto& clone_state : clone_states) {
-    *resp->add_entries() = clone_state->LockForRead()->pb;
+    SysCloneStatePB* list_clone_entry = resp->add_entries();
+    list_clone_entry->CopyFrom(clone_state->LockForRead()->pb);
   }
   return Status::OK();
 }
@@ -337,6 +359,12 @@ Status CloneStateManager::StartTabletsCloning(
     return STATUS_FORMAT(IllegalState, "Expected 1 namespace, got $0", namespace_map.size());
   }
 
+  auto lock = clone_state->LockForWrite();
+  auto target_namespace_id = namespace_map[lock.data().pb.source_namespace_id()].new_namespace_id;
+  lock.mutable_data()->pb.set_target_namespace_id(target_namespace_id);
+  RETURN_NOT_OK(external_funcs_->Upsert(clone_state->Epoch().leader_term, clone_state));
+  lock.Commit();
+
   // Generate a new snapshot.
   // All indexes already are in the request. Do not add them twice.
   // It is safe to trigger the clone op immediately after this since imported snapshots are created
@@ -383,11 +411,10 @@ Status CloneStateManager::ClonePgSchemaObjects(
 
   // Pick one of the live tservers to send ysql_dump and ysqlsh requests to.
   auto ts = VERIFY_RESULT(external_funcs_->PickTserver());
-  auto ts_permanent_uuid = ts->permanent_uuid();
   // Deadline passed to the ClonePgSchemaTask (including rpc time and callback execution deadline)
   auto deadline = MonoTime::Now() + FLAGS_ysql_clone_pg_schema_rpc_timeout_ms * 1ms;
   RETURN_NOT_OK(external_funcs_->ScheduleClonePgSchemaTask(
-      ts_permanent_uuid, source_db_name, target_db_name, pg_source_owner, pg_target_owner,
+      ts->permanent_uuid(), source_db_name, target_db_name, pg_source_owner, pg_target_owner,
       HybridTime(clone_state->LockForRead()->pb.restore_time()),
       MakeDoneClonePgSchemaCallback(
           clone_state, snapshot_schedule_id, target_db_name, ToCoarse(deadline)),
@@ -457,15 +484,16 @@ Result<CloneStateInfoPtr> CloneStateManager::CreateCloneState(
   namespace_lock.mutable_data()->pb.set_clone_request_seq_no(seq_no);
 
   auto clone_state = std::make_shared<CloneStateInfo>(GenerateObjectId());
-  clone_state->SetDatabaseType(database_type);
   clone_state->SetEpoch(epoch);
   clone_state->mutable_metadata()->StartMutation();
   auto* pb = &clone_state->mutable_metadata()->mutable_dirty()->pb;
   pb->set_aggregate_state(SysCloneStatePB::CLONE_SCHEMA_STARTED);
   pb->set_clone_request_seq_no(seq_no);
   pb->set_source_namespace_id(source_namespace->id());
+  pb->set_source_namespace_name(source_namespace->name());
   pb->set_restore_time(restore_time.ToUint64());
   pb->set_target_namespace_name(target_namespace_name);
+  pb->set_database_type(database_type);
   RETURN_NOT_OK(external_funcs_->Upsert(
       clone_state->Epoch().leader_term, clone_state, source_namespace));
   namespace_lock.Commit();
@@ -625,6 +653,28 @@ Status CloneStateManager::HandleCreatingState(const CloneStateInfoPtr& clone_sta
   return Status::OK();
 }
 
+Status CloneStateManager::ClearMetaCaches(const CloneStateInfoPtr& clone_state) {
+  auto callback = [this, clone_state]() -> Status {
+    auto num_tservers_with_stale_metacache = clone_state->NumTserversWithStaleMetacache();
+    num_tservers_with_stale_metacache->CountDown();
+    if (num_tservers_with_stale_metacache->count() == 0) {
+      RETURN_NOT_OK(EnableDbConnections(clone_state));
+    }
+    return Status::OK();
+  };
+  NamespaceIdentifierPB target_namespace_identifier;
+  target_namespace_identifier.set_name(clone_state->LockForRead()->pb.target_namespace_name());
+  target_namespace_identifier.set_database_type(YQL_DATABASE_PGSQL);
+  auto target_namespace_id =
+      VERIFY_RESULT(external_funcs_->FindNamespace(target_namespace_identifier))->id();
+
+  TSDescriptorVector running_tservers = external_funcs_->GetTservers();
+  clone_state->SetNumTserversWithStaleMetacache(running_tservers.size());
+  RETURN_NOT_OK(external_funcs_->ScheduleClearMetaCacheTasks(
+      running_tservers, target_namespace_id, callback));
+  return Status::OK();
+}
+
 Status CloneStateManager::EnableDbConnections(const CloneStateInfoPtr& clone_state) {
   auto callback = [this, clone_state](const Status& enable_db_conns_status) -> Status {
 
@@ -633,6 +683,8 @@ Status CloneStateManager::EnableDbConnections(const CloneStateInfoPtr& clone_sta
       auto lock = clone_state->LockForWrite();
       SCHECK_EQ(lock->pb.aggregate_state(), SysCloneStatePB::RESTORED, IllegalState,
           "Expected clone to be in restored state");
+      LOG(INFO) << Format("Marking clone as complete for source namespace $0 with seq_no $1",
+                          lock->pb.source_namespace_id(), lock->pb.clone_request_seq_no());
       lock.mutable_data()->pb.set_aggregate_state(SysCloneStatePB::COMPLETE);
       auto status = external_funcs_->Upsert(clone_state->Epoch().leader_term, clone_state);
       if (status.ok()) {
@@ -644,11 +696,12 @@ Status CloneStateManager::EnableDbConnections(const CloneStateInfoPtr& clone_sta
     }
     return Status::OK();
   };
-
   auto ts = VERIFY_RESULT(external_funcs_->PickTserver());
-  auto ts_permanent_uuid = ts->permanent_uuid();
+  LOG(INFO) << Format(
+      "Scheduling enable DB Connections Task for database:$0 ",
+      clone_state->LockForRead()->pb.target_namespace_name());
   RETURN_NOT_OK(external_funcs_->ScheduleEnableDbConnectionsTask(
-      ts_permanent_uuid, clone_state->LockForRead()->pb.target_namespace_name(), callback));
+      ts->permanent_uuid(), clone_state->LockForRead()->pb.target_namespace_name(), callback));
   return Status::OK();
 }
 
@@ -666,11 +719,11 @@ Status CloneStateManager::HandleRestoringState(const CloneStateInfoPtr& clone_st
     return Status::OK();
   }
 
-  if (clone_state->DatabaseType() == YQL_DATABASE_PGSQL) {
+  if (lock->pb.database_type() == YQL_DATABASE_PGSQL) {
     lock.mutable_data()->pb.set_aggregate_state(SysCloneStatePB::RESTORED);
     RETURN_NOT_OK(external_funcs_->Upsert(clone_state->Epoch().leader_term, clone_state));
     lock.Commit();
-    return EnableDbConnections(clone_state);
+    return ClearMetaCaches(clone_state);
   } else {
     lock.mutable_data()->pb.set_aggregate_state(SysCloneStatePB::COMPLETE);
     RETURN_NOT_OK(external_funcs_->Upsert(clone_state->Epoch().leader_term, clone_state));

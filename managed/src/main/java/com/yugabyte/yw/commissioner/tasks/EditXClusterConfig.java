@@ -9,6 +9,7 @@ import com.yugabyte.yw.common.DrConfigStates.TargetUniverseState;
 import com.yugabyte.yw.common.XClusterUniverseService;
 import com.yugabyte.yw.common.table.TableInfoUtil;
 import com.yugabyte.yw.forms.XClusterConfigEditFormData;
+import com.yugabyte.yw.models.PitrConfig;
 import com.yugabyte.yw.models.Restore;
 import com.yugabyte.yw.models.Universe;
 import com.yugabyte.yw.models.XClusterConfig;
@@ -100,7 +101,7 @@ public class EditXClusterConfig extends CreateXClusterConfig {
           if (!CollectionUtils.isEmpty(taskParams().getTableIdsToRemove())) {
             createSubTaskToRemoveTables(xClusterConfig, sourceUniverse);
           }
-        } else if (editFormData.databases != null) { // Used for DB scoped replication only.
+        } else if (editFormData.dbs != null) { // Used for DB scoped replication only.
           if (!xClusterConfig.getType().equals(ConfigType.Db)) {
             throw new IllegalArgumentException(
                 "The databases must be provided only for DB scoped replication");
@@ -112,7 +113,8 @@ public class EditXClusterConfig extends CreateXClusterConfig {
             addSubtasksToAddDatabasesToXClusterConfig(xClusterConfig, databaseIdsToAdd);
           }
           if (!databaseIdsToRemove.isEmpty()) {
-            addSubtasksToRemoveDatabasesFromXClusterConfig(xClusterConfig, databaseIdsToRemove);
+            addSubtasksToRemoveDatabasesFromXClusterConfig(
+                xClusterConfig, databaseIdsToRemove, false /* keepEntry */);
           }
 
         } else {
@@ -148,9 +150,9 @@ public class EditXClusterConfig extends CreateXClusterConfig {
         xClusterConfig.updateStatusForTables(
             tablesInPendingStatus, XClusterTableConfig.Status.Failed);
       }
-      if (editFormData.databases != null) {
+      if (editFormData.dbs != null) {
         // Set databases in updating status to failed.
-        Set<String> dbIds = editFormData.databases;
+        Set<String> dbIds = editFormData.dbs;
         Set<String> namespacesInPendingStatus =
             xClusterConfig.getNamespaceIdsInStatus(
                 dbIds, X_CLUSTER_NAMESPACE_CONFIG_PENDING_STATUS_LIST);
@@ -285,7 +287,8 @@ public class EditXClusterConfig extends CreateXClusterConfig {
             xClusterConfig,
             true /* keepEntry */,
             taskParams().isForced(),
-            false /* deletePitrConfigs */);
+            false /* deleteSourcePitrConfigs */,
+            false /* deleteTargetPitrConfigs */);
 
         if (xClusterConfig.isUsedForDr()) {
           createSetDrStatesTask(
@@ -461,11 +464,27 @@ public class EditXClusterConfig extends CreateXClusterConfig {
   }
 
   protected void addSubtasksToRemoveDatabasesFromXClusterConfig(
-      XClusterConfig xClusterConfig, Set<String> databases) {
+      XClusterConfig xClusterConfig, Set<String> databases, boolean keepEntry) {
+    Universe sourceUniverse = Universe.getOrBadRequest(xClusterConfig.getSourceUniverseUUID());
+    Set<String> dbNames =
+        getNamespaces(ybService, sourceUniverse, databases).stream()
+            .map(namespaceDetails -> namespaceDetails.getName())
+            .collect(Collectors.toSet());
+    Set<PitrConfig> pitrConfigsToBeDropped =
+        xClusterConfig.getPitrConfigs().stream()
+            .filter(pitr -> dbNames.contains(pitr.getDbName()) && pitr.isCreatedForDr())
+            .collect(Collectors.toSet());
+    for (PitrConfig pitrConfig : pitrConfigsToBeDropped) {
+      createDeletePitrConfigTask(
+          pitrConfig.getUuid(),
+          pitrConfig.getUniverse().getUniverseUUID(),
+          false /* ignoreErrors */);
+    }
 
     for (String dbId : databases) {
       createXClusterRemoveNamespaceFromTargetUniverseTask(xClusterConfig, dbId);
-      createXClusterRemoveNamespaceFromOutboundReplicationGroupTask(xClusterConfig, dbId);
+      createXClusterRemoveNamespaceFromOutboundReplicationGroupTask(
+          xClusterConfig, dbId, keepEntry);
     }
 
     if (xClusterConfig.isUsedForDr()) {

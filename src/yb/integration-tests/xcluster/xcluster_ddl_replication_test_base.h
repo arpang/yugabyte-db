@@ -24,16 +24,18 @@ class XClusterDDLReplicationTestBase : public XClusterYsqlTestBase {
 
   virtual void SetUp() override;
 
+  bool UseAutomaticMode() override {
+    // All these tests use automatic.
+    return true;
+  }
+
   Status SetUpClusters(bool is_colocated = false);
 
   Status EnableDDLReplicationExtension();
 
-  // Set automatic_ddl_mode to true by default.
   virtual Status CheckpointReplicationGroup(
-      const xcluster::ReplicationGroupId& replication_group_id = kReplicationGroupId,
-      bool automatic_ddl_mode = true) override {
-    return XClusterYsqlTestBase::CheckpointReplicationGroup(
-        replication_group_id, automatic_ddl_mode);
+      const xcluster::ReplicationGroupId& replication_group_id = kReplicationGroupId) override {
+    return XClusterYsqlTestBase::CheckpointReplicationGroup(replication_group_id);
   }
 
   Result<std::shared_ptr<client::YBTable>> GetProducerTable(
@@ -43,6 +45,8 @@ class XClusterDDLReplicationTestBase : public XClusterYsqlTestBase {
       const client::YBTableName& producer_table_name);
 
   void InsertRowsIntoProducerTableAndVerifyConsumer(const client::YBTableName& producer_table_name);
+
+  Status WaitForSafeTimeToAdvanceToNowWithoutDDLQueue();
 
   Status PrintDDLQueue(Cluster& cluster);
 };

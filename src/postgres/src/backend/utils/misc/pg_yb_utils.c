@@ -74,9 +74,11 @@
 #include "catalog/pg_trigger.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_yb_catalog_version.h"
+#include "catalog/pg_yb_logical_client_version.h"
 #include "catalog/pg_yb_profile.h"
 #include "catalog/pg_yb_role_profile.h"
 #include "catalog/yb_catalog_version.h"
+#include "catalog/yb_logical_client_version.h"
 #include "catalog/yb_type.h"
 #include "commands/dbcommands.h"
 #include "commands/defrem.h"
@@ -102,6 +104,7 @@
 #include "utils/spccache.h"
 #include "utils/syscache.h"
 #include "utils/uuid.h"
+#include "utils/jsonb.h"
 #include "fmgr.h"
 #include "funcapi.h"
 #include "mb/pg_wchar.h"
@@ -121,6 +124,8 @@
 static uint64_t yb_catalog_cache_version = YB_CATCACHE_VERSION_UNINITIALIZED;
 static uint64_t yb_last_known_catalog_cache_version =
 	YB_CATCACHE_VERSION_UNINITIALIZED;
+
+static uint64_t yb_logical_client_cache_version = YB_CATCACHE_VERSION_UNINITIALIZED;
 
 uint64_t YBGetActiveCatalogCacheVersion() {
 	if (yb_catalog_version_type == CATALOG_VERSION_CATALOG_TABLE &&
@@ -173,6 +178,13 @@ YbUpdateCatalogCacheVersion(uint64_t catalog_cache_version)
 		ereport(LOG,
 				(errmsg("set local catalog version: %" PRIu64,
 						yb_catalog_cache_version)));
+}
+
+void
+YbSetLogicalClientCacheVersion(uint64_t logical_client_cache_version)
+{
+	if (yb_logical_client_cache_version == YB_CATCACHE_VERSION_UNINITIALIZED)
+		yb_logical_client_cache_version = logical_client_cache_version;
 }
 
 void
@@ -391,6 +403,33 @@ Bitmapset *YBGetTableFullPrimaryKeyBms(Relation rel)
 			true /* includeYBSystemColumns */);
 	}
 	return rel->full_primary_key_bms;
+}
+
+bool
+YBIsOidCoveredByMainTable(Oid index_oid)
+{
+	Relation index = RelationIdGetRelation(index_oid);
+	bool     result = YBIsCoveredByMainTable(index);
+	RelationClose(index);
+	return result;
+}
+
+bool
+YBIsCoveredByMainTable(Relation index)
+{
+	if (!IsYBRelation(index))
+		return false;
+
+	if (index->rd_index == NULL)
+		return true;
+
+	if (index->rd_index->indisprimary)
+		return true;
+
+	if (index->rd_indam->yb_amiscoveredbymaintable)
+		return true;
+
+	return false;
 }
 
 extern bool YBRelHasOldRowTriggers(Relation rel, CmdType operation)
@@ -613,6 +652,31 @@ YBIsDBCatalogVersionMode()
 
 	/* We cannot enable per-db catalog version mode yet. */
 	return false;
+}
+
+bool
+YBIsDBLogicalClientVersionMode()
+{
+	static bool cached_is_db_logical_client_version_mode = false;
+
+	if (cached_is_db_logical_client_version_mode)
+		return true;
+
+	if (!IsYugaByteEnabled() ||
+		YbGetLogicalClientVersionType() != LOGICAL_CLIENT_VERSION_CATALOG_TABLE||
+		!*YBCGetGFlags()->TEST_ysql_enable_db_logical_client_version_mode)
+		return false;
+	
+	/*
+	 * During second phase of initdb, logical client version mode is supported.
+	 */
+	if (YBCIsInitDbModeEnvVarSet())
+	{
+		cached_is_db_logical_client_version_mode = true;
+		return true;
+	}
+
+	return true;
 }
 
 static bool
@@ -913,17 +977,26 @@ YBInitPostgresBackend(
 		IpAddressToBytes(&ash_config);
 		YBCInitPgGate(type_table, count, callbacks, session_id, &ash_config);
 		YBCInstallTxnDdlHook();
-		if (yb_ash_enable_infra)
-			YbAshInit();
 
-		if (YBIsEnabledInPostgresEnvVar() && YBIsQueryDiagnosticsEnabled())
-			YbQueryDiagnosticsInstallHook();
+		/*
+		 * The auth-backend doesn't execute user queries. So we don't need ASH
+		 * and query diagnostics.
+		 */
+		if (!YbIsAuthBackend())
+		{
+			if (yb_ash_enable_infra)
+				YbAshInit();
+
+			if (YBIsEnabledInPostgresEnvVar() && YBIsQueryDiagnosticsEnabled())
+				YbQueryDiagnosticsInstallHook();
+		}
 
 		/*
 		 * For each process, we create one YBC session for PostgreSQL to use
 		 * when accessing YugaByte storage.
 		 */
-		HandleYBStatus(YBCPgInitSession(&yb_session_stats.current_state));
+		HandleYBStatus(YBCPgInitSession(&yb_session_stats.current_state,
+										IsBinaryUpgrade));
 		YBCSetTimeout(StatementTimeout, NULL);
 
 		/*
@@ -1553,6 +1626,7 @@ bool yb_enable_index_aggregate_pushdown = true;
 bool yb_enable_optimizer_statistics = false;
 bool yb_bypass_cond_recheck = true;
 bool yb_make_next_ddl_statement_nonbreaking = false;
+bool yb_make_next_ddl_statement_nonincrementing = false;
 bool yb_plpgsql_disable_prefetch_in_for_query = false;
 bool yb_enable_sequence_pushdown = true;
 bool yb_disable_wait_for_backends_catalog_version = false;
@@ -1563,8 +1637,14 @@ bool yb_explain_hide_non_deterministic_fields = false;
 bool yb_enable_saop_pushdown = true;
 int yb_toast_catcache_threshold = -1;
 int yb_parallel_range_size = 1024 * 1024;
+int yb_insert_on_conflict_read_batch_size = 1024;
+bool yb_enable_fkey_catcache = true;
+bool yb_enable_nop_alter_role_optimization = true;
+bool yb_enable_inplace_index_update = true;
 
 YBUpdateOptimizationOptions yb_update_optimization_options = {
+	.has_infra = true,
+	.is_enabled = true,
 	.num_cols_to_compare = 50,
 	.max_cols_size_to_compare = 10 * 1024
 };
@@ -1750,7 +1830,7 @@ MergeCatalogModificationAspects(
 }
 
 static void
-YBResetEnableNonBreakingDDLMode()
+YBResetEnableSpecialDDLMode()
 {
 	/*
 	 * Reset yb_make_next_ddl_statement_nonbreaking to avoid its further side
@@ -1762,6 +1842,17 @@ YBResetEnableNonBreakingDDLMode()
 	if (YbIsClientYsqlConnMgr() && yb_make_next_ddl_statement_nonbreaking)
 		YbSendParameterStatusForConnectionManager("yb_make_next_ddl_statement_nonbreaking", "false");
 	yb_make_next_ddl_statement_nonbreaking = false;
+
+	/*
+	 * Reset yb_make_next_ddl_statement_nonincrementing to avoid its further side
+	 * effect that may not be intended.
+	 *
+	 * Also, reset Connection Manager cache if the value was cached to begin
+	 * with.
+	 */
+	if (YbIsClientYsqlConnMgr() && yb_make_next_ddl_statement_nonincrementing)
+		YbSendParameterStatusForConnectionManager("yb_make_next_ddl_statement_nonincrementing", "false");
+	yb_make_next_ddl_statement_nonincrementing = false;
 }
 
 /*
@@ -1805,7 +1896,7 @@ YBResetDdlState()
 		status = YbMemCtxReset(ddl_transaction_state.mem_context);
 	}
 	ddl_transaction_state = (struct DdlTransactionState){0};
-	YBResetEnableNonBreakingDDLMode();
+	YBResetEnableSpecialDDLMode();
 	HandleYBStatus(YBCPgClearSeparateDdlTxnMode());
 	HandleYBStatus(status);
 }
@@ -1834,6 +1925,11 @@ YBIncrementDdlNestingLevel(YbDdlMode mode)
 		HandleYBStatus(YBCPgEnterSeparateDdlTxnMode());
 	}
 	++ddl_transaction_state.nesting_level;
+	ddl_transaction_state.catalog_modification_aspects.pending |= mode;
+}
+
+void
+YBAddModificationAspects(YbDdlMode mode) {
 	ddl_transaction_state.catalog_modification_aspects.pending |= mode;
 }
 
@@ -1879,7 +1975,7 @@ YBDecrementDdlNestingLevel()
 		if (GetCurrentMemoryContext() == ddl_transaction_state.mem_context)
 			MemoryContextSwitchTo(ddl_transaction_state.mem_context->parent);
 
-		YBResetEnableNonBreakingDDLMode();
+		YBResetEnableSpecialDDLMode();
 		bool increment_done = false;
 		bool is_silent_altering = false;
 		if (has_write)
@@ -1916,7 +2012,7 @@ YBDecrementDdlNestingLevel()
 			{
 				/* Wait for tserver hearbeat */
 				int32_t sleep = 1000 * 2 * YBGetHeartbeatIntervalMs();
-				elog(LOG,
+				elog(LOG_SERVER_ONLY,
 					 "connection manager: adding sleep of %d microseconds "
 					 "after DDL commit",
 					 sleep);
@@ -1974,6 +2070,37 @@ GetActualStmtNode(PlannedStmt *pstmt)
 	return pstmt->utilityStmt;
 }
 
+static bool
+YbShouldIncrementLogicalClientVersion(PlannedStmt *pstmt)
+{
+	Node *parsetree = GetActualStmtNode(pstmt);
+	NodeTag node_tag = nodeTag(parsetree);
+	switch (node_tag) {
+		case T_AlterDatabaseSetStmt:
+		case T_AlterRoleSetStmt:
+			return true;
+		case T_AlterRoleStmt:
+		{
+			AlterRoleStmt *stmt = castNode(AlterRoleStmt, parsetree);
+			if (list_length(stmt->options) == 1)
+			{
+				DefElem *def = (DefElem *) linitial(stmt->options);
+				/*
+				 * In case of ALTER ROLE <role> superuser, increment the
+				 * logical client as for the new backends, the role will have
+				 * superuser priviledges.
+				 */
+				if (strcmp(def->defname, "superuser") == 0)
+					return true;
+			}
+			break;
+		}
+		default:
+			return false;
+	}
+	return false;
+}
+
 YbDdlModeOptional YbGetDdlMode(
 	PlannedStmt *pstmt, ProcessUtilityContext context)
 {
@@ -1984,6 +2111,20 @@ YbDdlModeOptional YbGetDdlMode(
 
 	Node *parsetree = GetActualStmtNode(pstmt);
 	NodeTag node_tag = nodeTag(parsetree);
+
+	/*
+	 * During a major PG version upgrade, the logical state of the catalog is
+	 * kept constant, and we're merely creating a new-major-version catalog
+	 * that's semantically equivalent to the old-major version catalog. During
+	 * this process we need to keep the catalog version constant, to avoid
+	 * needing to refresh the catalog. This is safe because the only DDLs
+	 * allowed are being performed by the new-major-version pg_restore process.
+	 */
+	if (IsBinaryUpgrade)
+		return (YbDdlModeOptional){
+			.has_value = true,
+			.value = YbCatalogModificationAspectsToDdlMode(YB_DDL_MODE_NO_ALTERING)
+		};
 
 	/*
 	 * Note: REFRESH MATVIEW (CONCURRENTLY) executes subcommands using SPI.
@@ -2451,6 +2592,18 @@ YbDdlModeOptional YbGetDdlMode(
 	 */
 	if (yb_make_next_ddl_statement_nonbreaking)
 		is_breaking_change = false;
+	/*
+	 * If yb_make_next_ddl_statement_nonincrementing is true, then no DDL statement
+	 * will cause a catalog version to increment. Note that we also disable breaking
+	 * catalog change as well because it does not make sense to only increment
+	 * breaking breaking catalog version.
+	 */
+	if (yb_make_next_ddl_statement_nonincrementing)
+	{
+		is_version_increment = false;
+		is_breaking_change = false;
+	}
+
 
 	is_altering_existing_data |= is_version_increment;
 
@@ -2509,6 +2662,11 @@ YBTxnDdlProcessUtility(
 #endif
 
 			YBIncrementDdlNestingLevel(ddl_mode.value);
+
+			if (YbShouldIncrementLogicalClientVersion(pstmt) &&
+				YbIsClientYsqlConnMgr() &&
+				YbIncrementMasterLogicalClientVersionTableEntry())
+				elog(LOG, "Logical client version incremented");
 		}
 
 		if (prev_ProcessUtility)
@@ -2992,6 +3150,94 @@ yb_table_properties(PG_FUNCTION_ARGS)
 	relation_close(rel, AccessShareLock);
 
 	return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls));
+}
+
+Datum
+yb_database_clones(PG_FUNCTION_ARGS)
+{
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	TupleDesc	tupdesc;
+	Tuplestorestate *tupstore;
+	MemoryContext per_query_ctx;
+	MemoryContext oldcontext;
+	int			i;
+#define YB_DATABASE_CLONES_COLS 7
+
+	/* check to see if caller supports us returning a tuplestore */
+	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("set-valued function called in context that cannot accept a set")));
+
+	if (!(rsinfo->allowedModes & SFRM_Materialize))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("materialize mode required, but it is not " \
+						"allowed in this context")));
+
+	/*
+	 * Switch context to construct returned data structures and store
+	 * returned values from tserver.
+	 */
+	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
+	oldcontext = MemoryContextSwitchTo(per_query_ctx);
+
+	/* Build a tuple descriptor */
+	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+		ereport(ERROR,
+				(errmsg_internal("return type must be a row type")));
+
+	tupstore = tuplestore_begin_heap(true, false, work_mem);
+	rsinfo->returnMode = SFRM_Materialize;
+	rsinfo->setResult = tupstore;
+	rsinfo->setDesc = tupdesc;
+
+	YBCPgDatabaseCloneInfo	*database_clones_info = NULL;
+	size_t		num_clones = 0;
+	HandleYBStatus(YBCDatabaseClones(&database_clones_info, &num_clones));
+
+	for (i = 0; i < num_clones; ++i)
+	{
+		YBCPgDatabaseCloneInfo *clone_info = (YBCPgDatabaseCloneInfo *)database_clones_info + i;
+		Datum		values[YB_DATABASE_CLONES_COLS];
+		bool		nulls[YB_DATABASE_CLONES_COLS];
+
+		memset(values, 0, sizeof(values));
+		memset(nulls, 0, sizeof(nulls));
+
+
+		values[1] = CStringGetTextDatum(clone_info->db_name);
+		values[2] = ObjectIdGetDatum(clone_info->parent_db_id);
+		values[3] = CStringGetTextDatum(clone_info->parent_db_name);
+		values[4] = CStringGetTextDatum(clone_info->state);
+		values[5] = TimestampTzGetDatum(clone_info->as_of_time);
+
+		/* Optional values that are not set all the time */
+		if (OidIsValid(clone_info->db_id))
+		{
+			values[0] = ObjectIdGetDatum(clone_info->db_id);
+		}
+		else
+			nulls[0] = true;
+
+		if (strlen(clone_info->failure_reason))
+		{
+			values[6] = CStringGetTextDatum(clone_info->failure_reason);
+		}
+		else
+			nulls[6] = true;
+
+		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
+	}
+
+#undef YB_DATABASE_CLONES_COLS
+
+	/* clean up and return the tuplestore */
+	tuplestore_donestoring(tupstore);
+
+	MemoryContextSwitchTo(oldcontext);
+
+	return (Datum) 0;
 }
 
 /*
@@ -3763,6 +4009,105 @@ yb_local_tablets(PG_FUNCTION_ARGS)
 	return (Datum) 0;
 }
 
+static Datum GetMetricsAsJsonbDatum(YBCMetricsInfo* metrics, size_t metricsCount){
+	JsonbParseState *state = NULL;
+	JsonbValue result;
+	JsonbValue key;
+	JsonbValue value;
+	pushJsonbValue(&state, WJB_BEGIN_OBJECT, NULL);
+	for (int j = 0; j < metricsCount; j++) {
+		key.type = jbvString;
+		key.val.string.val = (char *)metrics[j].name;
+		key.val.string.len = strlen(metrics[j].name);
+		pushJsonbValue(&state, WJB_KEY, &key);
+
+		value.type = jbvString;
+		value.val.string.val = (char *)metrics[j].value;
+		value.val.string.len = strlen(metrics[j].value);
+		pushJsonbValue(&state, WJB_VALUE, &value);
+	}
+	result = *pushJsonbValue(&state, WJB_END_OBJECT, NULL);
+	Jsonb *jsonb = JsonbValueToJsonb(&result);
+	return JsonbPGetDatum(jsonb);
+} 
+
+Datum
+yb_servers_metrics(PG_FUNCTION_ARGS)
+{
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	TupleDesc	tupdesc;
+	Tuplestorestate *tupstore;
+	MemoryContext per_query_ctx;
+	MemoryContext oldcontext;
+	int			i;
+#define YB_SERVERS_METRICS_COLS 4
+
+	/* only superuser and yb_db_admin can query this function */
+	if (!superuser() && !IsYbDbAdminUser(GetUserId()))
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 (errmsg("only superusers and yb_db_admin can query yb_servers_metrics"))));
+
+	/* check to see if caller supports us returning a tuplestore */
+	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("set-valued function called in context that cannot accept a set")));
+
+	if (!(rsinfo->allowedModes & SFRM_Materialize))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("materialize mode required, but it is not " \
+						"allowed in this context")));
+
+	/*
+	 * Switch context to construct returned data structures and store
+	 * returned values from tserver.
+	 */
+	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
+	oldcontext = MemoryContextSwitchTo(per_query_ctx);
+
+	/* Build a tuple descriptor */
+	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+		ereport(ERROR,
+				(errmsg_internal("return type must be a row type")));
+
+	tupstore = tuplestore_begin_heap(true, false, work_mem);
+	rsinfo->returnMode = SFRM_Materialize;
+	rsinfo->setResult = tupstore;
+	rsinfo->setDesc = tupdesc;
+
+	YBCPgServerMetricsInfo	*servers_metrics_info = NULL;
+	size_t		num_servers = 0;
+	HandleYBStatus(YBCServersMetrics(&servers_metrics_info, &num_servers));
+
+	for (i = 0; i < num_servers; ++i)
+	{
+		YBCPgServerMetricsInfo *metricsInfo = (YBCPgServerMetricsInfo *)servers_metrics_info + i;
+		Datum		values[YB_SERVERS_METRICS_COLS];
+		bool		nulls[YB_SERVERS_METRICS_COLS];
+
+		memset(values, 0, sizeof(values));
+		memset(nulls, 0, sizeof(nulls));
+
+		values[0] = CStringGetTextDatum(metricsInfo->uuid);
+		values[1] = GetMetricsAsJsonbDatum(metricsInfo->metrics, metricsInfo->metrics_count);
+		values[2] = CStringGetTextDatum(metricsInfo->status);
+		values[3] = CStringGetTextDatum(metricsInfo->error);
+
+		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
+	}
+
+#undef YB_SERVERS_METRICS_COLS
+
+	/* clean up and return the tuplestore */
+	tuplestore_donestoring(tupstore);
+
+	MemoryContextSwitchTo(oldcontext);
+
+	return (Datum) 0;
+}
+
 /*---------------------------------------------------------------------------*/
 /* Deterministic DETAIL order                                                */
 /*---------------------------------------------------------------------------*/
@@ -4256,6 +4601,9 @@ void YbRegisterSysTableForPrefetching(int sys_table_id) {
 			sys_table_index_id = ClassNameNspIndexId;
 			sys_only_filter_attr = Anum_pg_class_oid;
 			break;
+		case CollationRelationId:                         // pg_collation
+			sys_table_index_id = CollationNameEncNspIndexId;
+			break;
 		case RangeRelationId:                             // pg_range
 			sys_only_filter_attr = Anum_pg_range_rngtypid;
 			break;
@@ -4669,8 +5017,10 @@ uint64_t YbGetSharedCatalogVersion()
 	return version;
 }
 
-void YBSetRowLockPolicy(int *docdb_wait_policy, LockWaitPolicy pg_wait_policy)
+LockWaitPolicy YBGetDocDBWaitPolicy(LockWaitPolicy pg_wait_policy)
 {
+	LockWaitPolicy result = pg_wait_policy;
+
 	if (XactIsoLevel == XACT_REPEATABLE_READ && pg_wait_policy == LockWaitError)
 	{
 		/* The user requested NOWAIT, which isn't allowed in RR. */
@@ -4689,14 +5039,10 @@ void YBSetRowLockPolicy(int *docdb_wait_policy, LockWaitPolicy pg_wait_policy)
 						  "(GH issue #11761)",
 						  pg_wait_policy == LockWaitSkip ? "SKIP LOCKED" : "NO WAIT");
 
-		*docdb_wait_policy = LockWaitBlock;
-	}
-	else
-	{
-		*docdb_wait_policy = pg_wait_policy;
+		result = LockWaitBlock;
 	}
 
-	if (*docdb_wait_policy == LockWaitBlock && !YBIsWaitQueueEnabled())
+	if (result == LockWaitBlock && !YBIsWaitQueueEnabled())
 	{
 		/*
 		 * If wait-queues are not enabled, we default to the "Fail-on-Conflict" policy which is
@@ -4705,9 +5051,10 @@ void YBSetRowLockPolicy(int *docdb_wait_policy, LockWaitPolicy pg_wait_policy)
 		 * semantics but to Fail-on-Conflict semantics).
 		 */
 		elog(DEBUG1, "Falling back to LockWaitError since wait-queues are not enabled");
-		*docdb_wait_policy = LockWaitError;
+		result = LockWaitError;
 	}
-	elog(DEBUG2, "docdb_wait_policy=%d pg_wait_policy=%d", *docdb_wait_policy, pg_wait_policy);
+	elog(DEBUG2, "docdb_wait_policy=%d pg_wait_policy=%d", result, pg_wait_policy);
+	return result;
 }
 
 uint32_t YbGetNumberOfDatabases()
@@ -4831,12 +5178,37 @@ int ysql_conn_mgr_sticky_object_count = 0;
 bool yb_ysql_conn_mgr_sticky_guc = false;
 
 /*
- * ```YbIsConnectionMadeStickyUsingGUC()``` returns whether or not the a
- * connection is made sticky using via specific GUC variables.
+ * `yb_ysql_conn_mgr_superuser_existed` denotes whether the session user was
+ * ever a superuser.
+ */
+bool yb_ysql_conn_mgr_superuser_existed = false;
+
+bool YbIsSuperuserConnSticky()
+{
+	return *(YBCGetGFlags()->ysql_conn_mgr_superuser_sticky);
+}
+
+/*
+ * ```YbIsConnectionMadeStickyUsingGUC()``` returns whether or not a
+ * connection is made sticky using specific GUC variables. This also includes
+ * making the connection sticky if the "session user" was ever a superuser,
+ * provided that the flag ysql_conn_mgr_superuser_sticky is enabled.
  */
 static bool YbIsConnectionMadeStickyUsingGUC()
 {
-	return yb_ysql_conn_mgr_sticky_guc;
+	/*
+	 * If the user on this backend was ever a superuser, let the connection
+	 * remain sticky to avoid potential errors during deploy phase for
+	 * superuser-only GUC variables. Deliberately leave superuser() as the last
+	 * condition to avoid unnecessary calls to superuser(), while also allowing
+	 * the history stored in yb_ysql_conn_mgr_superuser_existed to be used on
+	 * priority.
+	 */
+	yb_ysql_conn_mgr_superuser_existed = yb_ysql_conn_mgr_superuser_existed ||
+		session_auth_is_superuser ||
+		(IsTransactionState() && superuser());
+	return yb_ysql_conn_mgr_sticky_guc = yb_ysql_conn_mgr_sticky_guc ||
+		(YbIsSuperuserConnSticky() && yb_ysql_conn_mgr_superuser_existed);
 }
 
 /*
@@ -5157,8 +5529,9 @@ YbGetRedactedQueryString(const char* query, int query_len,
 bool
 YbIsUpdateOptimizationEnabled()
 {
-	/* TODO(kramanathan): Placeholder until a flag strategy is agreed upon */
-	return yb_update_optimization_options.num_cols_to_compare > 0 &&
+	return yb_update_optimization_options.has_infra &&
+		   yb_update_optimization_options.is_enabled &&
+		   yb_update_optimization_options.num_cols_to_compare > 0 &&
 		   yb_update_optimization_options.max_cols_size_to_compare > 0;
 }
 
@@ -5268,10 +5641,41 @@ bool YbIsYsqlConnMgrWarmupModeEnabled()
 	return strcmp(YBCGetGFlags()->TEST_ysql_conn_mgr_dowarmup_all_pools_mode, "none") != 0;
 }
 
+bool YbIsAuthBackend()
+{
+	return yb_is_auth_backend;
+}
+
 /* Used in YB to check if an attribute is a key column. */
 bool YbIsAttrPrimaryKeyColumn(Relation rel, AttrNumber attnum)
 {
 	Bitmapset *pkey = YBGetTablePrimaryKeyBms(rel);
 	return bms_is_member(attnum -
 		YBGetFirstLowInvalidAttributeNumber(rel), pkey);
+}
+
+/* Retrieve the sort ordering of the first key element of an index. */
+SortByDir YbGetIndexKeySortOrdering(Relation indexRel)
+{
+	if (IndexRelationGetNumberOfKeyAttributes(indexRel) == 0)
+		return SORTBY_DEFAULT;
+	/*
+	 * If there are key columns, check the indoption of the first
+	 * key attribute.
+	 */
+	if (indexRel->rd_indoption[0] & INDOPTION_HASH)
+		return SORTBY_HASH;
+	if (indexRel->rd_indoption[0] & INDOPTION_DESC)
+		return SORTBY_DESC;
+	return SORTBY_ASC;
+}
+
+/*
+ * Determine if the unsafe truncate (i.e., without table rewrite) should
+ * be used for a given relation and its indexes.
+ */
+bool YbUseUnsafeTruncate(Relation rel)
+{
+	return IsYBRelation(rel) &&
+		(IsSystemRelation(rel) || !yb_enable_alter_table_rewrite);
 }

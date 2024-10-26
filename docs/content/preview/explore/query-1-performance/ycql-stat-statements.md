@@ -3,7 +3,8 @@ title: Get query statistics using ycql_stat_statements
 linkTitle: Get query statistics
 description: Track planning and execution statistics for all YCQL statements executed by a server.
 headerTitle: Get query statistics using ycql_stat_statements
-badges: tp
+tags:
+  feature: tech-preview
 menu:
   preview:
     identifier: ycql-stat-statements
@@ -41,7 +42,7 @@ The columns of the `ycql_stat_statements` view are described in the following ta
 
 {{% setup/local %}}
 
-Note that as this view is accessible via YSQL, run your examples using [ysqlsh](../../../admin/ysqlsh/#starting-ysqlsh).
+Note that as this view is accessible via YSQL, run your examples using [ysqlsh](../../../api/ysqlsh/#starting-ysqlsh).
 
 ### Describe the columns in the view
 

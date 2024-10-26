@@ -49,6 +49,13 @@ class PgCatalogVersionTest : public LibPqTestBase {
         "--allowed_preview_flags_csv=ysql_enable_db_catalog_version_mode");
   }
 
+  Result<int64_t> GetCatalogVersion(PGConn* conn) {
+    const auto db_oid = VERIFY_RESULT(conn->FetchRow<PGOid>(Format(
+        "SELECT oid FROM pg_database WHERE datname = '$0'", PQdb(conn->get()))));
+    return conn->FetchRow<PGUint64>(
+        Format("SELECT current_version FROM pg_yb_catalog_version where db_oid = $0", db_oid));
+  }
+
   // Prepare the table pg_yb_catalog_version according to 'per_database_mode':
   // * if 'per_database_mode' is true, we prepare table pg_yb_catalog_version
   //   for per-database catalog version mode by updating the table to have one
@@ -818,7 +825,7 @@ TEST_F(PgCatalogVersionTest, FixCatalogVersionTable) {
   CHECK_EQ(versions.size(), 1);
   ASSERT_OK(CheckMatch(versions.begin()->second, kCurrentCatalogVersion));
   // A global-impact DDL statement that increments catalog version still works.
-  ASSERT_OK(conn_yugabyte.Execute("ALTER ROLE yugabyte SUPERUSER"));
+  ASSERT_OK(conn_yugabyte.Execute("ALTER ROLE yugabyte NOSUPERUSER"));
   constexpr CatalogVersion kNewCatalogVersion{2, 2};
   versions = ASSERT_RESULT(GetMasterCatalogVersionMap(&conn_yugabyte));
   CHECK_EQ(versions.size(), 1);
@@ -1150,7 +1157,7 @@ TEST_F(PgCatalogVersionTest, ResetIsGlobalDdlState) {
   ASSERT_OK(conn_yugabyte.Execute("SET yb_test_fail_next_inc_catalog_version=true"));
   // The following ALTER ROLE is a global impact DDL statement. It will
   // fail due to yb_test_fail_next_inc_catalog_version=true.
-  auto status = conn_yugabyte.Execute("ALTER ROLE yugabyte SUPERUSER");
+  auto status = conn_yugabyte.Execute("ALTER ROLE yugabyte NOSUPERUSER");
   ASSERT_TRUE(status.IsNetworkError()) << status;
   ASSERT_STR_CONTAINS(status.ToString(), "Failed increment catalog version as requested");
 
@@ -1527,6 +1534,112 @@ TEST_F(PgCatalogVersionTest, NonBreakingDDLMode) {
   ASSERT_OK(conn1.Execute("ABORT"));
 }
 
+TEST_F(PgCatalogVersionTest, NonIncrementingDDLMode) {
+  const string kDatabaseName = "yugabyte";
+
+  auto conn = ASSERT_RESULT(ConnectToDB(kDatabaseName));
+  ASSERT_OK(conn.Execute("GRANT CREATE ON SCHEMA public TO yb_db_admin"));
+  ASSERT_OK(conn.Execute("SET ROLE yb_db_admin"));
+  ASSERT_OK(conn.Execute("CREATE TABLE t1(a int)"));
+  auto version = ASSERT_RESULT(GetCatalogVersion(&conn));
+
+  // REVOKE bumps up the catalog version by 1.
+  ASSERT_OK(conn.Execute("REVOKE SELECT ON t1 FROM public"));
+  auto new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version + 1);
+  version = new_version;
+
+  // GRANT bumps up the catalog version by 1.
+  ASSERT_OK(conn.Execute("GRANT SELECT ON t1 TO public"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version + 1);
+  version = new_version;
+
+  ASSERT_OK(conn.Execute("CREATE INDEX idx1 ON t1(a)"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  // By default CREATE INDEX runs concurrently and its algorithm requires to bump up catalog
+  // version 3 times.
+  ASSERT_EQ(new_version, version + 3);
+  version = new_version;
+
+  // CREATE INDEX CONCURRENTLY bumps up catalog version by 1.
+  ASSERT_OK(conn.Execute("CREATE INDEX NONCONCURRENTLY idx2 ON t1(a)"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version + 1);
+  version = new_version;
+
+  // Let's start over, but this time use yb_make_next_ddl_statement_nonincrementing to suppress
+  // incrementing catalog version.
+  ASSERT_OK(conn.Execute("SET yb_make_next_ddl_statement_nonincrementing TO TRUE"));
+  ASSERT_OK(conn.Execute("REVOKE SELECT ON t1 FROM public"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version);
+
+  ASSERT_OK(conn.Execute("SET yb_make_next_ddl_statement_nonincrementing TO TRUE"));
+  ASSERT_OK(conn.Execute("GRANT SELECT ON t1 TO public"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version);
+
+  ASSERT_OK(conn.Execute("SET yb_make_next_ddl_statement_nonincrementing TO TRUE"));
+  ASSERT_OK(conn.Execute("CREATE INDEX idx3 ON t1(a)"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  // By default CREATE INDEX runs concurrently and its algorithm requires to bump up catalog
+  // version 3 times, only the first bump is suppressed.
+  ASSERT_EQ(new_version, version + 2);
+  version = new_version;
+
+  ASSERT_OK(conn.Execute("SET yb_make_next_ddl_statement_nonincrementing TO TRUE"));
+  ASSERT_OK(conn.Execute("CREATE INDEX NONCONCURRENTLY idx4 ON t1(a)"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version);
+
+  // Verify that the session variable yb_make_next_ddl_statement_nonbreaking auto-resets to false.
+  ASSERT_OK(conn.Execute("REVOKE SELECT ON t1 FROM public"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version + 1);
+  version = new_version;
+
+  // Since yb_make_next_ddl_statement_nonbreaking auto-resets to false, we should see catalog
+  // version gets bumped up as before.
+  ASSERT_OK(conn.Execute("GRANT SELECT ON t1 TO public"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version + 1);
+  version = new_version;
+
+  ASSERT_OK(conn.Execute("CREATE INDEX idx5 ON t1(a)"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version + 3);
+  version = new_version;
+
+  ASSERT_OK(conn.Execute("CREATE INDEX NONCONCURRENTLY idx6 ON t1(a)"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version + 1);
+  version = new_version;
+
+  // Now test the scenario where we create a new table, followed by create index nonconcurrently
+  // on the new table. Use yb_make_next_ddl_statement_nonbreaking to suppress catalog version
+  // increment on the create index statement.
+  // First create a second connection conn2.
+  auto conn2 = ASSERT_RESULT(ConnectToDB(kDatabaseName));
+
+  ASSERT_OK(conn.Execute("CREATE TABLE demo (a INT, b INT)"));
+  ASSERT_OK(conn.Execute("SET yb_make_next_ddl_statement_nonincrementing TO TRUE"));
+  ASSERT_OK(conn.Execute("CREATE INDEX NONCONCURRENTLY a_idx ON demo (a)"));
+  new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(new_version, version);
+
+  // Sanity test on conn2 write, count, select and delete on the new table created on conn.
+  ASSERT_OK(conn2.Execute("INSERT INTO demo SELECT n, n FROM generate_series(1,100) n"));
+  auto row_count = ASSERT_RESULT(conn.FetchRow<PGUint64>("SELECT COUNT(*) FROM demo"));
+  ASSERT_EQ(row_count, 100);
+  std::tuple<int32_t, int32_t> expected_row = {50, 50};
+  auto row = ASSERT_RESULT((conn2.FetchRow<int32_t, int32_t>("SELECT * FROM demo WHERE a = 50")));
+  ASSERT_EQ(row, expected_row);
+  ASSERT_OK(conn2.Execute("DELETE FROM demo WHERE a = 50"));
+  row_count = ASSERT_RESULT(conn.FetchRow<PGUint64>("SELECT COUNT(*) FROM demo"));
+  ASSERT_EQ(row_count, 99);
+}
+
 TEST_F(PgCatalogVersionTest, SimulateRollingUpgrade) {
   // Manually switch back to non-per-db catalog version mode.
   RestartClusterWithoutDBCatalogVersionMode();
@@ -1562,6 +1675,23 @@ TEST_F(PgCatalogVersionTest, SimulateRollingUpgrade) {
   ASSERT_TRUE(status.IsNetworkError()) << status;
   const string msg = "permission denied for table t";
   ASSERT_STR_CONTAINS(status.ToString(), msg);
+}
+
+// This test that ALTER ROLE statement will increment catalog version
+// if --FLAGS_ysql_yb_enable_nop_alter_role_optimization=false.
+TEST_F(PgCatalogVersionTest, DisableNopAlterRoleOptimization) {
+  auto conn = ASSERT_RESULT(Connect());
+  auto v1 = ASSERT_RESULT(GetCatalogVersion(&conn));
+  // This ALTER ROLE should be a nop DDL.
+  ASSERT_OK(conn.Execute("ALTER ROLE yugabyte SUPERUSER"));
+  auto v2 = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(v2, v1);
+  ASSERT_OK(cluster_->SetFlagOnTServers(
+      "ysql_yb_enable_nop_alter_role_optimization", "false"));
+  // This ALTER ROLE is not a nop DDL because the nop alter role optimization is disabled.
+  ASSERT_OK(conn.Execute("ALTER ROLE yugabyte SUPERUSER"));
+  auto v3 = ASSERT_RESULT(GetCatalogVersion(&conn));
+  ASSERT_EQ(v3, v2 + 1);
 }
 
 } // namespace pgwrapper

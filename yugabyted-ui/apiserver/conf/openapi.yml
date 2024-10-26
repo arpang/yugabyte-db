@@ -689,21 +689,60 @@ components:
           format: uuid
         migration_name:
           type: string
+        migration_type:
+          type: string
         migration_phase:
           type: integer
         invocation_sequence:
           type: integer
         source_db:
-          type: string
+          type: object
+          properties:
+            ip:
+              type: string
+            port:
+              type: string
+            engine:
+              type: string
+            version:
+              type: string
+            database:
+              type: string
+            schema:
+              type: string
+        voyager:
+          type: object
+          properties:
+            machine_ip:
+              type: string
+            os:
+              type: string
+            avail_disk_bytes:
+              type: string
+            export_dir:
+              type: string
+            exported_schema_location:
+              type: string
+        target_cluster:
+          type: object
+          properties:
+            ip:
+              type: string
+            port:
+              type: string
+            engine:
+              type: string
+            version:
+              type: string
         complexity:
-          type: string
-        database_name:
-          type: string
-        schema_name:
           type: string
         status:
           type: string
+        progress:
+          type: string
         invocation_timestamp:
+          type: string
+        start_timestamp:
           type: string
     VoyagerMigrationsInfo:
       title: YB Voyager migrations Info
@@ -759,6 +798,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AssesmentComplexityInfo'
+        operating_system:
+          type: string
     ErrorsAndSuggestionsDetails:
       title: Errors and Suggestions details
       description: Errors and suggestions details
@@ -997,6 +1038,15 @@ components:
           $ref: '#/components/schemas/TargetClusterSpec'
         target_schema_recommendation:
           $ref: '#/components/schemas/TargetSchemaRecommendations'
+    UnsupportedSqlObjectData:
+      title: Unsupported SQL Object Data
+      description: Unsupported SQL Object Data
+      type: object
+      properties:
+        object_name:
+          type: string
+        sql_statement:
+          type: string
     UnsupportedSqlInfo:
       title: Unsupported SQL Info
       description: Unsupported SQL Info
@@ -1006,11 +1056,19 @@ components:
           type: string
         count:
           type: integer
+        objects:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnsupportedSqlObjectData'
+        docs_link:
+          type: string
     MigrationAssessmentReport:
       title: Details of the migration assessment report
       description: Details of the migration assessment report
       type: object
       properties:
+        assessment_status:
+          type: boolean
         summary:
           $ref: '#/components/schemas/AssessmentReportSummary'
         source_environment:

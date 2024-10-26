@@ -1237,12 +1237,15 @@ bool AsyncAlterTable::SendRequest(int attempt) {
 
     if (table_type() == TableType::PGSQL_TABLE_TYPE && !transaction_id_.IsNil()) {
       VLOG_WITH_PREFIX(1) << "Transaction ID is provided for tablet " << tablet_->tablet_id()
-          << " with ID " << transaction_id_.ToString() << " for ALTER TABLE operation";
+                          << " with ID " << transaction_id_.ToString()
+                          << " for ALTER TABLE operation";
       req.set_should_abort_active_txns(true);
       req.set_transaction_id(transaction_id_.ToString());
     }
 
     schema_version_ = l->pb.version();
+
+    HandleInsertPackedSchema(req);
   }
 
   ts_admin_proxy_->AlterSchemaAsync(req, &resp_, &rpc_, BindRpcCallback());
@@ -1277,6 +1280,15 @@ bool AsyncBackfillDone::SendRequest(int attempt) {
       << "Send backfill done request to " << permanent_uuid() << " for " << tablet_->tablet_id()
       << " (attempt " << attempt << "):\n" << req.DebugString();
   return true;
+}
+
+void AsyncInsertPackedSchemaForXClusterTarget::HandleInsertPackedSchema(
+    tablet::ChangeMetadataRequestPB& req) {
+  // Update insert_packed_schema and update the schema to the packed schema to insert.
+  // This schema will get inserted into the historical packing schemas with [schema_version - 1],
+  // and then the current schema will be reinserted with [schema_version].
+  req.set_insert_packed_schema(true);
+  req.mutable_schema()->CopyFrom(packed_schema_);
 }
 
 // ============================================================================
@@ -2032,6 +2044,41 @@ bool AsyncClonePgSchema::SendRequest(int attempt) {
 }
 
 MonoTime AsyncClonePgSchema::ComputeDeadline() { return deadline_; }
+
+// ============================================================================
+//  Class AsyncClearMetacache.
+// ============================================================================
+AsyncClearMetacache::AsyncClearMetacache(
+    Master* master, ThreadPool* callback_pool, const std::string& permanent_uuid,
+    const std::string& namespace_id, ClearMetacacheCallbackType callback)
+    : RetrySpecificTSRpcTask(
+          master, callback_pool, permanent_uuid, /* async_task_throttler */ nullptr),
+      namespace_id(namespace_id),
+      callback_(callback) {}
+
+std::string AsyncClearMetacache::description() const { return "Async ClearMetacache RPC"; }
+
+void AsyncClearMetacache::HandleResponse(int attempt) {
+  Status resp_status = Status::OK();
+  if (resp_.has_error()) {
+    resp_status = StatusFromPB(resp_.error().status());
+    LOG(WARNING) << "Clear Metacache entries for namespace " << namespace_id
+                 << " failed: " << resp_status;
+    TransitionToFailedState(state(), resp_status);
+  } else {
+    TransitionToCompleteState();
+  }
+  WARN_NOT_OK(callback_(), "Failed to execute the callback of AsyncClearMetacache");
+}
+
+bool AsyncClearMetacache::SendRequest(int attempt) {
+  tserver::ClearMetacacheRequestPB req;
+  req.set_namespace_id(namespace_id);
+  ts_proxy_->ClearMetacacheAsync(req, &resp_, &rpc_, BindRpcCallback());
+  VLOG_WITH_PREFIX(1) << Format(
+      "Sent clear metacache entries request of namespace: $0 to $1", namespace_id, tablet_id());
+  return true;
+}
 
 // ============================================================================
 //  Class AsyncEnableDbConns.

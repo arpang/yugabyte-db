@@ -560,6 +560,30 @@ typedef struct ResultRelInfo
 	 * one of its ancestors; see ExecCrossPartitionUpdateForeignKey().
 	 */
 	List	   *ri_ancestorResultRels;
+
+	/*
+	 * YB batch insert stuff:
+	 * - batching mode:
+	 *   - ri_NumSlots: index of next slot to add to batch
+	 * - flushing mode:
+	 *   - ri_YbFlushCurrentSlotIdx: index of next slot to flush from batch
+	 *   - ri_YbFlushNumSlots: total number of slots to flush from batch.  It's
+	 *     a copy of ri_NumSlots before that overwritten.  0 <
+	 *     ri_YbFlushNumSlots < ri_BatchSize.
+	 *   - ri_YbFlushResultRelInfo: for partitioned tables, this is set on the
+	 *     root's ResultRelInfo to point to the partition that is in flushing
+	 *     mode.
+	 *   - ri_YbConflictMap: the map used for constraint checking of ON
+	 *     CONFLICT decisions.
+	 * If ri_NumSlots == ri_BatchSize when trying to add another slot to the
+	 * batch or ExecPendingInserts is requested, enter flushing mode.
+	 * ri_YbFlushCurrentSlotIdx > 0 indicates flushing mode is still ongoing.
+	 * If ri_YbFlushCurrentSlotIdx == ri_YbFlushNumSlots, exit flushing mode.
+	 */
+	int			ri_YbFlushCurrentSlotIdx;
+	int			ri_YbFlushNumSlots;
+	struct ResultRelInfo *ri_YbFlushResultRelInfo;
+	struct yb_insert_on_conflict_batching_hash **ri_YbConflictMap;
 } ResultRelInfo;
 
 /*
@@ -1375,6 +1399,18 @@ typedef struct ModifyTableState
 	/* YB specific attributes. */
 	bool yb_fetch_target_tuple; /* Perform initial scan to populate
 								 * the ybctid. */
+	/*
+	 * If enabled, execution seeks to optimize secondary index updates,
+	 * constraint checks etc. This field is set to false for single row txns.
+	 */
+	bool yb_is_update_optimization_enabled;
+
+	/*
+	 * If enabled, execution seeks to perform inplace update of non-key columns
+	 * of secondary indexes. This field is not applicable to single row txns
+	 * because they do not involve updates to secondary indexes.
+	 */
+	bool yb_is_inplace_index_update_enabled;
 } ModifyTableState;
 
 /* ----------------

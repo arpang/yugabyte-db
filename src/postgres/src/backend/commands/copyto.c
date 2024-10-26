@@ -206,10 +206,16 @@ CopySendEndOfRow(CopyToState cstate)
 #endif
 			}
 
+			if (IsYugaByteEnabled())
+				pgstat_report_wait_start(WAIT_EVENT_YB_COPY_COMMAND_STREAM_WRITE);
+
 			if (fwrite(fe_msgbuf->data, fe_msgbuf->len, 1,
 					   cstate->copy_file) != 1 ||
 				ferror(cstate->copy_file))
 			{
+				if (IsYugaByteEnabled())
+					pgstat_report_wait_end();
+
 				if (cstate->is_program)
 				{
 					if (errno == EPIPE)
@@ -238,6 +244,8 @@ CopySendEndOfRow(CopyToState cstate)
 							(errcode_for_file_access(),
 							 errmsg("could not write to COPY file: %m")));
 			}
+			if (IsYugaByteEnabled())
+				pgstat_report_wait_end();
 			break;
 		case COPY_FRONTEND:
 			/* The FE/BE protocol uses \n as newline for all platforms */

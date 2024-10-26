@@ -42,6 +42,7 @@ import com.yugabyte.yw.models.Schedule;
 import com.yugabyte.yw.models.Universe;
 import com.yugabyte.yw.models.helpers.CommonUtils;
 import com.yugabyte.yw.models.helpers.NodeDetails;
+import com.yugabyte.yw.models.helpers.UpgradeDetails.YsqlMajorVersionUpgradeState;
 import com.yugabyte.yw.models.helpers.audit.AuditLogConfig;
 import com.yugabyte.yw.models.helpers.audit.YCQLAuditConfig;
 import com.yugabyte.yw.models.helpers.audit.YSQLAuditConfig;
@@ -183,6 +184,7 @@ public class GFlagsUtil {
   public static final String NOTIFY_PEER_OF_REMOVAL_FROM_CLUSTER =
       "notify_peer_of_removal_from_cluster";
   public static final String MASTER_JOIN_EXISTING_UNIVERSE = "master_join_existing_universe";
+  public static final String LOG_MIN_SECONDS_TO_RETAIN = "log_min_seconds_to_retain";
 
   public static final String ALLOWED_PREVIEW_FLAGS_CSV = "allowed_preview_flags_csv";
 
@@ -650,11 +652,18 @@ public class GFlagsUtil {
     // Add timestamp_history_retention_sec gflag if required.
     Duration timestampHistoryRetentionForPITR =
         Schedule.getMaxBackupIntervalInUniverseForPITRestore(
-            universe.getUniverseUUID(), true /* includeIntermediate */);
+            universe.getUniverseUUID(),
+            true /* includeIntermediate */,
+            null /* excludeScheduleUUID */);
     if (timestampHistoryRetentionForPITR.toSeconds() > 0L) {
       gflags.put(
           TIMESTAMP_HISTORY_RETENTION_INTERVAL_SEC,
           Long.toString(timestampHistoryRetentionForPITR.toSeconds() + historyRetentionBufferSecs));
+    }
+    if (taskParam.ysqlMajorVersionUpgradeState != null
+        && !taskParam.ysqlMajorVersionUpgradeState.equals(YsqlMajorVersionUpgradeState.FINALIZE)) {
+      gflags.put("ysql_enable_db_catalog_version_mode", "false");
+      gflags.put("TEST_online_pg11_to_pg15_upgrade", "true");
     }
     return gflags;
   }
@@ -771,9 +780,14 @@ public class GFlagsUtil {
     return gflags;
   }
 
-  private static String getYsqlPgConfCsv(AnsibleConfigureServers.Params taskParams) {
-    List<String> ysqlPgConfCsvEntries = new ArrayList<>();
+  public static String getYsqlPgConfCsv(AnsibleConfigureServers.Params taskParams) {
     AuditLogConfig auditLogConfig = taskParams.auditLogConfig;
+    return getYsqlPgConfCsv(auditLogConfig, taskParams.ysqlMajorVersionUpgradeState);
+  }
+
+  public static String getYsqlPgConfCsv(
+      AuditLogConfig auditLogConfig, YsqlMajorVersionUpgradeState ysqlMajorVersionUpgradeState) {
+    List<String> ysqlPgConfCsvEntries = new ArrayList<>();
     if (auditLogConfig != null) {
       if (auditLogConfig.getYsqlAuditConfig() != null
           && auditLogConfig.getYsqlAuditConfig().isEnabled()) {
@@ -809,6 +823,10 @@ public class GFlagsUtil {
             encodeBooleanPgAuditFlag(
                 "pgaudit.log_statement_once", ysqlAuditConfig.isLogStatementOnce()));
       }
+    }
+    if (ysqlMajorVersionUpgradeState != null
+        && !ysqlMajorVersionUpgradeState.equals(YsqlMajorVersionUpgradeState.FINALIZE)) {
+      ysqlPgConfCsvEntries.add("yb_enable_expression_pushdown=false");
     }
     return String.join(",", ysqlPgConfCsvEntries);
   }
@@ -1008,6 +1026,11 @@ public class GFlagsUtil {
       // addresses are set by mistake. Once the master joins an existing cluster, this is ignored.
       gflags.put(MASTER_JOIN_EXISTING_UNIVERSE, "true");
       gflags.merge(UNDEFOK, MASTER_JOIN_EXISTING_UNIVERSE, (v1, v2) -> mergeCSVs(v1, v2, false));
+    }
+    if (taskParam.ysqlMajorVersionUpgradeState != null
+        && !taskParam.ysqlMajorVersionUpgradeState.equals(YsqlMajorVersionUpgradeState.FINALIZE)) {
+      gflags.put("ysql_enable_db_catalog_version_mode", "false");
+      gflags.put("TEST_online_pg11_to_pg15_upgrade", "true");
     }
     return gflags;
   }

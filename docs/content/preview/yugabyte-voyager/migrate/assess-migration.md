@@ -9,7 +9,8 @@ menu:
     identifier: assess-migration
     parent: migration-types
     weight: 101
-badges: tp
+tags:
+  feature: tech-preview
 type: docs
 ---
 The Voyager Migration Assessment feature streamlines database migration from PostgreSQL and Oracle to YugabyteDB. It analyzes the source database, captures essential metadata, and generates a report with recommended migration strategies and cluster configurations for optimal performance with YugabyteDB.
@@ -190,18 +191,18 @@ After the bulk assessment is completed, the top-level directory specified using 
 
 ```sh
 /bulk-assessment-dir/
-├── bulkAssessmentReport.html
-├── bulkAssessmentReport.json
+├── bulk_assessment_report.html
+├── bulk_assessment_report.json
 ├── DBNAME-SCHEMA1-export-dir/
 │    └── assessment/
 │          └── reports/
-│                 ├── assessmentReport.html
-│                 └── assessmentReport.json
+│                 ├── migration_assessment_report.html
+│                 └── migration_assessment_report.json
 ├── SID-SCHEMA2-export-dir/
 │    └── assessment/
 │          └── reports/
-│                 ├── assessmentReport.html
-│                 └── assessmentReport.json
+│                 ├── migration_assessment_report.html
+│                 └── migration_assessment_report.json
 └── logs/
      └── yb-voyager-assess-migration-bulk.log
 ```

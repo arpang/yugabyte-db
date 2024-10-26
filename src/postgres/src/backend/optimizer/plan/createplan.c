@@ -3389,6 +3389,7 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 		foreach (values, build_path_tlist(root, (Path *) projection_path))
 		{
 			TargetEntry *tle = lfirst_node(TargetEntry, values);
+			AttrNumber varattno = InvalidAttrNumber;
 
 			/* Ignore junk columns. */
 			if (IsA(tle->expr, Var))
@@ -3401,6 +3402,8 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 				{
 					continue;
 				}
+
+				varattno = var->varattno;
 			}
 
 			/*
@@ -3444,6 +3447,13 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			 */
 			int resno = tle->resno =
 				list_nth_int(update_colnos, update_col_index++);
+
+			/*
+			 * If the column is set to itself (SET col = col), it will not
+			 * get updated. So it has no impact on single row computation.
+			 */
+			if (varattno == tle->resno)
+				continue;
 
 			/* Updates involving primary key columns are not single-row. */
 			if (bms_is_member(resno - attr_offset, primary_key_attrs))
@@ -4325,14 +4335,14 @@ create_indexscan_plan(PlannerInfo *root,
 		if (bitmapindex)
 			need_idx_remote = true;
 		/*
-		 * For hypothetical index where primary index isn't involved, there is
+		 * For hypothetical index where no covered index is involved, there is
 		 * no Relation. Hence don't make change to need_idx_remote.
 		 */
 		else if (!indexonly && !best_path->indexinfo->hypothetical)
 		{
 			Relation index;
 			index = RelationIdGetRelation(best_path->indexinfo->indexoid);
-			need_idx_remote = !index->rd_index->indisprimary;
+			need_idx_remote = !YBIsCoveredByMainTable(index);
 			RelationClose(index);
 		}
 		else

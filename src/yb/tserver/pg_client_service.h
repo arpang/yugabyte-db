@@ -76,6 +76,7 @@ class TserverXClusterContextIf;
     (InsertSequenceTuple) \
     (IsInitDbDone) \
     (IsObjectPartOfXRepl) \
+    (ListClones) \
     (ListLiveTabletServers) \
     (ListReplicationSlots) \
     (OpenTable) \
@@ -83,6 +84,7 @@ class TserverXClusterContextIf;
     (ReserveOids) \
     (GetNewObjectId) \
     (RollbackToSubTransaction) \
+    (ServersMetrics) \
     (SetActiveSubTransaction) \
     (TabletsMetadata) \
     (TabletServerCount) \
@@ -91,6 +93,8 @@ class TserverXClusterContextIf;
     (ValidatePlacement) \
     (WaitForBackendsCatalogVersion) \
     (YCQLStatementStats) \
+    (CronSetLastMinute) \
+    (CronGetLastMinute) \
     /**/
 
 // Forwards call to corresponding PgClientSession async method (see

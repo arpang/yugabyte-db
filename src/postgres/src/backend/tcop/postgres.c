@@ -204,9 +204,6 @@ static bool yb_need_cache_refresh = false;
 /* whether or not we are executing a multi-statement query received via simple query protocol */
 static bool yb_is_multi_statement_query = false;
 
-/* whether ASH metadata is set or not */
-static bool yb_is_ash_metadata_set = false;
-
 /*
  * String constants used for redacting text after the password token in
  * CREATE/ALTER ROLE commands.
@@ -5527,6 +5524,28 @@ PostgresMain(const char *dbname, const char *username)
 	BeginReportingGUCOptions();
 
 	/*
+	 * The authentication backend is only responsible for authentication and
+	 * sending initial GUC options.
+	 */
+	if (yb_is_auth_backend)
+	{
+		/*
+		 * Send a dummy READY_FOR_QUERY packet to the connection manager to
+		 * indicate that the auth backend is done.
+		 */
+		ReadyForQuery(whereToSendOutput);
+
+		/*
+		 * Reset whereToSendOutput to prevent ereport from attempting
+		 * to send any more messages to client.
+		 */
+		if (whereToSendOutput == DestRemote)
+			whereToSendOutput = DestNone;
+
+		proc_exit(0);
+	}
+
+	/*
 	 * Also set up handler to log session end; we have to wait till now to be
 	 * sure Log_disconnections has its final value.
 	 */
@@ -5854,10 +5873,10 @@ PostgresMain(const char *dbname, const char *username)
 			 * ASH metadata because here we are sure that the previous request
 			 * has been completely processed by the server.
 			 */
-			if (IsYugaByteEnabled() && yb_enable_ash && yb_is_ash_metadata_set)
+			if (IsYugaByteEnabled() && yb_enable_ash && MyProc->yb_is_ash_metadata_set)
 			{
 				YbAshUnsetMetadata();
-				yb_is_ash_metadata_set = false;
+				MyProc->yb_is_ash_metadata_set = false;
 			}
 
 			ReadyForQuery(whereToSendOutput);
@@ -5913,10 +5932,10 @@ PostgresMain(const char *dbname, const char *username)
 		 * parse, bind, describe, execute and sync. We only want to set the metadata
 		 * once during this process.
 		 */
-		if (IsYugaByteEnabled() && yb_enable_ash && !yb_is_ash_metadata_set)
+		if (IsYugaByteEnabled() && yb_enable_ash && !MyProc->yb_is_ash_metadata_set)
 		{
 			YbAshSetMetadata();
-			yb_is_ash_metadata_set = true;
+			MyProc->yb_is_ash_metadata_set = true;
 		}
 
 		/*

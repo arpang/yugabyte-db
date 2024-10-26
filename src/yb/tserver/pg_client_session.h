@@ -29,6 +29,8 @@
 #include <boost/preprocessor/seq/for_each.hpp>
 #include <boost/range/iterator_range.hpp>
 
+#include "yb/ash/wait_state.h"
+
 #include "yb/client/client_fwd.h"
 
 #include "yb/common/consistent_read_point.h"
@@ -38,9 +40,11 @@
 #include "yb/gutil/casts.h"
 
 #include "yb/rpc/rpc_fwd.h"
+#include "yb/rpc/scheduler.h"
 
 #include "yb/tserver/tserver_fwd.h"
 #include "yb/tserver/pg_client.pb.h"
+#include "yb/tserver/pg_shared_mem_pool.h"
 #include "yb/tserver/tserver_shared_mem.h"
 
 #include "yb/util/coding_consts.h"
@@ -142,7 +146,10 @@ class PgClientSession {
       client::YBClient* client, const scoped_refptr<ClockBase>& clock, PgTableCache* table_cache,
       const TserverXClusterContextIf* xcluster_context,
       PgMutationCounter* pg_node_level_mutation_counter, PgResponseCache* response_cache,
-      PgSequenceCache* sequence_cache);
+      PgSequenceCache* sequence_cache, PgSharedMemoryPool& shared_mem_pool,
+      const EventStatsPtr& stats_exchange_response_size, rpc::Scheduler& scheduler);
+
+  virtual ~PgClientSession() = default;
 
   uint64_t id() const { return id_; }
 
@@ -167,26 +174,10 @@ class PgClientSession {
 
   size_t SaveData(const RefCntBuffer& buffer, WriteBuffer&& sidecars);
 
-  Status GetReplicaIdentityEnumValue(
-      PgReplicaIdentityType replica_identity_proto, PgReplicaIdentity *replica_identity_enum) {
-    switch (replica_identity_proto) {
-      case DEFAULT:
-        *replica_identity_enum = PgReplicaIdentity::DEFAULT;
-        break;
-      case FULL:
-        *replica_identity_enum = PgReplicaIdentity::FULL;
-        break;
-      case NOTHING:
-        *replica_identity_enum = PgReplicaIdentity::NOTHING;
-        break;
-      case CHANGE:
-        *replica_identity_enum = PgReplicaIdentity::CHANGE;
-        break;
-      default:
-        RSTATUS_DCHECK(false, InvalidArgument, "Invalid Replica Identity Type");
-    }
-    return Status::OK();
-  }
+  std::pair<uint64_t, std::byte*> ObtainBigSharedMemorySegment(size_t size);
+
+  virtual void StartShutdown();
+  virtual void CompleteShutdown();
 
  private:
   struct SetupSessionResult {
@@ -217,7 +208,9 @@ class PgClientSession {
       ClampUncertaintyWindow clamp);
 
   client::YBClient& client();
-  client::YBSessionPtr& EnsureSession(PgClientSessionKind kind, CoarseTimePoint deadline);
+  client::YBSessionPtr& EnsureSession(
+      PgClientSessionKind kind, CoarseTimePoint deadline,
+      std::optional<uint64_t> read_time = std::nullopt);
 
   template <class T>
   static auto& DoSessionData(T* that, PgClientSessionKind kind) {
@@ -238,10 +231,6 @@ class PgClientSession {
 
   const client::YBSessionPtr& Session(PgClientSessionKind kind) const {
     return GetSessionData(kind).session;
-  }
-
-  client::YBTransactionPtr& Transaction(PgClientSessionKind kind) {
-    return GetSessionData(kind).transaction;
   }
 
   const client::YBTransactionPtr& Transaction(PgClientSessionKind kind) const {
@@ -296,6 +285,11 @@ class PgClientSession {
 
   Status CheckPlainSessionPendingUsedReadTime(uint64_t txn_serial_no);
   Status CheckPlainSessionReadTimeIsSet() const;
+  Status DdlAtomicityFinishTransaction(
+      bool has_docdb_schema_changes, const TransactionMetadata* metadata,
+      std::optional<bool> commit);
+
+  void ScheduleBigSharedMemExpirationCheck(std::chrono::steady_clock::duration delay);
 
   struct PendingUsedReadTime {
     UsedReadTime value;
@@ -327,6 +321,13 @@ class PgClientSession {
   PgMutationCounter* pg_node_level_mutation_counter_;
   PgResponseCache& response_cache_;
   PgSequenceCache& sequence_cache_;
+  PgSharedMemoryPool& shared_mem_pool_;
+  std::mutex big_shared_mem_mutex_;
+  std::atomic<CoarseTimePoint> last_big_shared_memory_access_;
+  SharedMemorySegmentHandle big_shared_mem_handle_ GUARDED_BY(big_shared_mem_mutex_);
+  bool big_shared_mem_expiration_task_scheduled_ GUARDED_BY(big_shared_mem_mutex_) = false;
+  rpc::ScheduledTaskTracker big_shared_mem_expiration_task_;
+  EventStatsPtr stats_exchange_response_size_;
 
   std::array<SessionData, kPgClientSessionKindMapSize> sessions_;
   uint64_t txn_serial_no_ = 0;
@@ -339,5 +340,36 @@ class PgClientSession {
   simple_spinlock pending_data_mutex_;
   std::vector<WriteBuffer> pending_data_ GUARDED_BY(pending_data_mutex_);
 };
+
+template <class Pb>
+concept PbWith_AshMetadataPB = requires (const Pb& t) {
+  t.ash_metadata();
+}; // NOLINT
+
+template <PbWith_AshMetadataPB Pb>
+void TryUpdateAshWaitState(const Pb& req) {
+  if (req.has_ash_metadata()) {
+    ash::WaitStateInfo::UpdateMetadataFromPB(req.ash_metadata());
+  }
+}
+
+// Overloads for RPCs which intentionally doesn't have the ash_metadata
+// field, either because they are deprecated, or they are async RPCs, or
+// they are called before ASH is able to sample them as of 08-10-2024
+//
+// NOTE: New sync RPCs should have ASH metadata along with it, and it shouldn't
+// be overloaded here. PG background workers RPCs should also be overloaded
+// until #23901 is done
+inline void TryUpdateAshWaitState(const PgHeartbeatRequestPB&) {}
+inline void TryUpdateAshWaitState(const PgActiveSessionHistoryRequestPB&) {}
+inline void TryUpdateAshWaitState(const PgFetchDataRequestPB&) {}
+inline void TryUpdateAshWaitState(const PgGetCatalogMasterVersionRequestPB&) {}
+inline void TryUpdateAshWaitState(const PgGetReplicationSlotStatusRequestPB&) {}
+inline void TryUpdateAshWaitState(const PgSetActiveSubTransactionRequestPB&) {}
+inline void TryUpdateAshWaitState(const PgGetDatabaseInfoRequestPB&) {}
+inline void TryUpdateAshWaitState(const PgIsInitDbDoneRequestPB&) {}
+inline void TryUpdateAshWaitState(const PgCreateSequencesDataTableRequestPB&) {}
+inline void TryUpdateAshWaitState(const PgCronSetLastMinuteRequestPB&) {}
+inline void TryUpdateAshWaitState(const PgCronGetLastMinuteRequestPB&) {}
 
 }  // namespace yb::tserver

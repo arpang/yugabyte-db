@@ -3,11 +3,11 @@ package com.yugabyte.yw.common;
 
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 
-import autovalue.shaded.com.google.common.collect.Sets;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Sets;
 import com.google.inject.Inject;
 import com.typesafe.config.Config;
 import com.yugabyte.yw.cloud.PublicCloudConstants.Architecture;
@@ -973,7 +973,7 @@ public class ReleaseManager {
       }
       if (release.getArtifactForArchitecture(arch) == null) {
         ReleaseArtifact artifact =
-            ReleaseArtifact.create("", ReleaseArtifact.Platform.LINUX, arch, url);
+            ReleaseArtifact.create(em.sha256, ReleaseArtifact.Platform.LINUX, arch, url);
         release.addArtifact(artifact);
       }
     }
@@ -1126,6 +1126,10 @@ public class ReleaseManager {
   }
 
   private void copyReleasesFromDockerRelease(String destinationDir, Set<String> skipVersions) {
+    if (appConfig.getBoolean("yb.cloud.enabled")) {
+      log.debug("Skipping copy of releases into release directory for cloud");
+      return;
+    }
     String ybReleasePath = appConfig.getString("yb.docker.release");
     String ybHelmChartPath = appConfig.getString("yb.helm.packagePath");
     Pattern ybPackagePatternCopy =

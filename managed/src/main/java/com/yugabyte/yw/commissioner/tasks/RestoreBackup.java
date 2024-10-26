@@ -90,26 +90,27 @@ public class RestoreBackup extends UniverseTaskBase {
           restore.update(getTaskUUID(), Restore.State.Completed);
         }
       } catch (CancellationException ce) {
-        unlockUniverseForUpdate(false);
+        unlockUniverseForUpdate();
         isAbort = true;
         // Aborted
         if (restore != null) {
           restore.update(getTaskUUID(), Restore.State.Aborted);
           RestoreKeyspace.update(restore, TaskInfo.State.Aborted);
         }
-        kubernetesStatus.updateRestoreJobStatus("Aborted Restore task", getUserTaskUUID());
+        kubernetesStatus.updateRestoreJobStatus(
+            "Aborted Restore task", getUserTaskUUID(), universe);
         throw ce;
       }
     } catch (Throwable t) {
       log.error("Error executing task {} with error='{}'.", getName(), t.getMessage(), t);
       handleFailedBackupAndRestore(
           null, Arrays.asList(restore), isAbort, taskParams().alterLoadBalancer);
-      kubernetesStatus.updateRestoreJobStatus("Failed Restore task", getUserTaskUUID());
+      kubernetesStatus.updateRestoreJobStatus("Failed Restore task", getUserTaskUUID(), universe);
       throw t;
     } finally {
       unlockUniverseForUpdate();
     }
-    kubernetesStatus.updateRestoreJobStatus("Finished Restore", getUserTaskUUID());
+    kubernetesStatus.updateRestoreJobStatus("Finished Restore", getUserTaskUUID(), universe);
     log.info("Finished {} task.", getName());
   }
 }

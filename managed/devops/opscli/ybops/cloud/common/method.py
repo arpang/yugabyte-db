@@ -775,6 +775,8 @@ class ProvisionInstancesMethod(AbstractInstancesMethod):
                                  help="Path to GCP credentials file used for logs export.")
         self.parser.add_argument('--ycql_audit_log_level', default=None,
                                  help="YCQL audit log level.")
+        self.parser.add_argument('--reboot_node_allowed', action='store_true', default=False,
+                                 help='If set YBA will reboot the node for configuring the ulimits')
 
     def callback(self, args):
         host_info = self.cloud.get_host_info(args)
@@ -808,6 +810,9 @@ class ProvisionInstancesMethod(AbstractInstancesMethod):
                 # copy and run the script
                 self.cloud.execute_boot_script(args, self.extra_vars)
 
+        if args.air_gap:
+            self.extra_vars.update({"air_gap": args.air_gap})
+
         if not args.skip_preprovision:
             self.preprovision(args)
             self.extra_vars["device_names"] = self.get_device_names(args, host_info)
@@ -815,8 +820,6 @@ class ProvisionInstancesMethod(AbstractInstancesMethod):
         self.extra_vars.update(self.get_server_host_port(host_info, args.custom_ssh_port))
         if args.local_package_path:
             self.extra_vars.update({"local_package_path": args.local_package_path})
-        if args.air_gap:
-            self.extra_vars.update({"air_gap": args.air_gap})
         if args.node_exporter_port:
             self.extra_vars.update({"node_exporter_port": args.node_exporter_port})
         if args.install_node_exporter:
@@ -846,6 +849,8 @@ class ProvisionInstancesMethod(AbstractInstancesMethod):
             self.extra_vars.update({"otel_col_gcp_creds_local": args.otel_col_gcp_creds_file})
         if args.ycql_audit_log_level:
             self.extra_vars.update({"ycql_audit_log_level": args.ycql_audit_log_level})
+        if args.reboot_node_allowed:
+            self.extra_vars.update({"reboot_node_allowed": args.reboot_node_allowed})
 
         if wait_for_server(self.extra_vars):
             self.cloud.setup_ansible(args).run("yb-server-provision.yml",

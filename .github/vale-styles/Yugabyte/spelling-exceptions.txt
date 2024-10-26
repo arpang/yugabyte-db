@@ -110,9 +110,11 @@ chatbots
 ChatOps
 checksummed
 checksumming
+chrony
 CIDRs
 Citrix
 Citus
+CLion
 clonable
 Cloudwatch
 CMake
@@ -297,6 +299,7 @@ hotfixes
 hotfixing
 http
 https
+Hudi
 idempotence
 idmapper
 Iglu
@@ -320,6 +323,7 @@ Javafuzz
 JavaScript
 Jenkins
 Jenkinsfile
+Jepsen
 Jira
 jq
 jQuery

@@ -70,6 +70,7 @@
 #include "yb/master/master_encryption.fwd.h"
 #include "yb/master/master_heartbeat.pb.h"
 #include "yb/master/master_types.h"
+#include "yb/master/object_lock_info_manager.h"
 #include "yb/master/scoped_leader_shared_lock.h"
 #include "yb/master/snapshot_coordinator_context.h"
 #include "yb/master/sys_catalog.h"
@@ -99,6 +100,7 @@
 #include "yb/util/status_fwd.h"
 #include "yb/util/test_macros.h"
 #include "yb/util/version_tracker.h"
+#include "yb/yql/pggate/ybc_pg_typedefs.h"
 
 namespace yb {
 
@@ -145,6 +147,7 @@ namespace master {
 struct DeferredAssignmentActions;
 struct SysCatalogLoadingState;
 struct KeyRange;
+class YsqlInitDBAndMajorUpgradeHandler;
 
 using PlacementId = std::string;
 
@@ -217,7 +220,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   };
 
  public:
-  explicit CatalogManager(Master *master);
+  explicit CatalogManager(Master *master, SysCatalogTable* sys_catalog);
   virtual ~CatalogManager();
 
   Status Init();
@@ -411,6 +414,8 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   void ReleaseObjectLocks(
       const tserver::ReleaseObjectLockRequestPB* req, tserver::ReleaseObjectLockResponsePB* resp,
       rpc::RpcContext rpc);
+  void ExportObjectLockInfo(const std::string& tserver_uuid, tserver::DdlLockEntriesPB* resp);
+  ObjectLockInfoManager* object_lock_info_manager() { return object_lock_info_manager_.get(); }
 
   // Gets the progress of ongoing index backfills.
   Status GetIndexBackfillProgress(const GetIndexBackfillProgressRequestPB* req,
@@ -483,7 +488,8 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
                                 Result<std::optional<bool>> is_committed,
                                 const LeaderEpoch& epoch);
 
-  Status YsqlDdlTxnCompleteCallback(const std::string& pb_txn_id,
+  Status YsqlDdlTxnCompleteCallback(TableInfoPtr table,
+                                    const std::string& pb_txn_id,
                                     std::optional<bool> is_committed,
                                     const LeaderEpoch& epoch,
                                     const std::string& debug_caller_info);
@@ -505,6 +511,9 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
 
   Status YsqlDdlTxnDropTableHelper(const YsqlTableDdlTxnState txn_data, bool success);
 
+  void UpdateDdlVerificationStateUnlocked(const TransactionId& txn,
+                                          YsqlDdlVerificationState state)
+      REQUIRES_SHARED(ddl_txn_verifier_mutex_);
   void UpdateDdlVerificationState(const TransactionId& txn, YsqlDdlVerificationState state);
 
   void RemoveDdlTransactionStateUnlocked(
@@ -613,7 +622,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
 
   // Register the tablet server with the ts manager using the Raft config. This is called for
   // servers that are part of the Raft config but haven't registered as yet.
-  Status RegisterTsFromRaftConfig(const consensus::RaftPeerPB& peer);
+  Status RegisterTsFromRaftConfig(const consensus::RaftPeerPB& peer, const LeaderEpoch& epoch);
 
   // Create a new Namespace with the specified attributes.
   //
@@ -653,7 +662,9 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   void DeleteYsqlDatabaseAsync(scoped_refptr<NamespaceInfo> database, const LeaderEpoch& epoch);
 
   // Delete all tables in YSQL database.
-  Status DeleteYsqlDBTables(const scoped_refptr<NamespaceInfo>& database, const LeaderEpoch& epoch);
+  Status DeleteYsqlDBTables(const scoped_refptr<NamespaceInfo>& database,
+                            const bool is_for_ysql_major_upgrade,
+                            const LeaderEpoch& epoch);
 
   // List all the current namespaces.
   Status ListNamespaces(const ListNamespacesRequestPB* req,
@@ -768,7 +779,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
 
   Status FillHeartbeatResponse(const TSHeartbeatRequestPB& req, TSHeartbeatResponsePB* resp);
 
-  SysCatalogTable* sys_catalog() override { return sys_catalog_.get(); }
+  SysCatalogTable* sys_catalog() override { return sys_catalog_; }
 
   // Tablet peer for the sys catalog tablet's peer.
   std::shared_ptr<tablet::TabletPeer> tablet_peer() const override;
@@ -787,8 +798,8 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   bool IsLoadBalancerEnabled() override;
 
   // Return the table info for the table with the specified UUID, if it exists.
-  TableInfoPtr GetTableInfo(const TableId& table_id) EXCLUDES(mutex_) override;
-  TableInfoPtr GetTableInfoUnlocked(const TableId& table_id) REQUIRES_SHARED(mutex_);
+  TableInfoPtr GetTableInfo(const TableId& table_id) const EXCLUDES(mutex_) override;
+  TableInfoPtr GetTableInfoUnlocked(const TableId& table_id) const REQUIRES_SHARED(mutex_);
 
   // Gets the table info for each table id, or sets it to null if the table id was not found.
   std::unordered_map<TableId, TableInfoPtr> GetTableInfos(const std::vector<TableId>& table_ids)
@@ -1057,6 +1068,10 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
     leader_lock_.AssertAcquiredForReading();
   }
 
+  void AssertLeaderLockAcquiredForWriting() const {
+    leader_lock_.AssertAcquiredForWriting();
+  }
+
   std::string GenerateId() override {
     return GenerateId(boost::none);
   }
@@ -1122,17 +1137,34 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Status DdlLog(
       const DdlLogRequestPB* req, DdlLogResponsePB* resp, rpc::RpcContext* rpc);
 
-  // Not implemented.
+  // Initiates initdb for the new version of a major YSQL version upgrade. The system must be in
+  // upgrade mode (TEST_online_pg11_to_pg15_upgrade set to true) for this to work.
+  //
+  // Returns immediately. Call IsYsqlMajorVersionUpgradeInitdbDone to wait until it's finished.
+  //
+  // Can be called more than once, but not while it's already running. It internally performs a
+  // rollback before running initdb.
   Status StartYsqlMajorVersionUpgradeInitdb(const StartYsqlMajorVersionUpgradeInitdbRequestPB* req,
                                             StartYsqlMajorVersionUpgradeInitdbResponsePB* resp,
                                             rpc::RpcContext* rpc, const LeaderEpoch& epoch);
 
-  // Not implemented.
+  // Checks if initdb has been completed for a YSQL major version upgrade.
   Status IsYsqlMajorVersionUpgradeInitdbDone(
       const IsYsqlMajorVersionUpgradeInitdbDoneRequestPB* req,
       IsYsqlMajorVersionUpgradeInitdbDoneResponsePB* resp, rpc::RpcContext* rpc);
 
-  // Not implemented.
+  // Rolls back an in-progress major YSQL version upgrade. Deletes all of the new YSQL version's
+  // catalog tables, and resets all upgrade-related state to initial values. Blocks until the
+  // rollback is finished or fails. The system must have been in upgrade mode
+  // (TEST_online_pg11_to_pg15_upgrade set to true), with no DDLs performed, since the beginning of
+  // the upgrade for this to work.
+  //
+  // Takes a long time to run. Set a timeout of at least 5 minutes when calling.
+  //
+  // Can be called more than once, but not at the same time.
+  //
+  // After the rollback successfully completes, it's safe to restart the masters on the old major
+  // YSQL version.
   Status RollbackYsqlMajorVersionUpgrade(const RollbackYsqlMajorVersionUpgradeRequestPB* req,
                                          RollbackYsqlMajorVersionUpgradeResponsePB* resp,
                                          rpc::RpcContext* rpc, const LeaderEpoch& epoch);
@@ -1658,12 +1690,21 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Status CreateTransactionAwareSnapshot(
       const CreateSnapshotRequestPB& req, CreateSnapshotResponsePB* resp, CoarseTimePoint deadline);
 
+  scoped_refptr<SysConfigInfo> GetYsqlCatalogConfig() {
+    CHECK_NOTNULL(ysql_catalog_config_);
+    return ysql_catalog_config_;
+  }
+
+  InitialSysCatalogSnapshotWriter& AllocateAndGetInitialSysCatalogSnapshotWriter();
+
   Result<std::vector<SysCatalogEntryDumpPB>> FetchFromSysCatalog(
       SysRowEntryType type, const std::string& item_id_filter);
 
   Status WriteToSysCatalog(
       SysRowEntryType type, const std::string& item_id, const std::string& debug_string,
       QLWriteRequestPB::QLStmtType op_type);
+
+  Result<TSDescriptorPtr> GetClosestLiveTserver() const override;
 
  protected:
   // TODO Get rid of these friend classes and introduce formal interface.
@@ -1684,6 +1725,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   friend class BackendsCatalogVersionJob;
   friend class AddTableToXClusterTargetTask;
   friend class VerifyDdlTransactionTask;
+  friend class ObjectLockLoader;
 
   FRIEND_TEST(yb::MasterPartitionedTest, VerifyOldLeaderStepsDown);
 
@@ -1731,7 +1773,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
 
   // Starts an asynchronous run of initdb. Errors are handled in the callback. Returns true
   // if started running initdb, false if decided that it is not needed.
-  Result<bool> StartRunningInitDbIfNeeded(int64_t term) REQUIRES_SHARED(mutex_);
+  Result<bool> StartRunningInitDbIfNeeded(const LeaderEpoch& epoch) REQUIRES_SHARED(mutex_);
 
   Status PrepareDefaultNamespaces(int64_t term) REQUIRES(mutex_);
 
@@ -2289,7 +2331,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Master* const master_;
   Atomic32 closing_;
 
-  std::unique_ptr<SysCatalogTable> sys_catalog_;
+  SysCatalogTable* sys_catalog_;
 
   // Mutex to avoid concurrent remote bootstrap sessions.
   std::mutex remote_bootstrap_mtx_;
@@ -2374,6 +2416,8 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
 
   scoped_refptr<Counter> metric_create_table_too_many_tablets_;
 
+  scoped_refptr<AtomicGauge<uint64_t>> metric_max_follower_heartbeat_delay_;
+
   friend class ClusterLoadBalancer;
 
   // Policy for load balancing tablets on tablet servers.
@@ -2393,7 +2437,8 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   std::unique_ptr<YsqlTablegroupManager> tablegroup_manager_
       GUARDED_BY(mutex_);
 
-  boost::optional<std::future<Status>> initdb_future_;
+  std::unique_ptr<ObjectLockInfoManager> object_lock_info_manager_;
+
   boost::optional<InitialSysCatalogSnapshotWriter> initial_snapshot_writer_;
 
   std::unique_ptr<PermissionsManager> permissions_manager_;
@@ -2932,7 +2977,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
       const std::unordered_set<TableId>& tables_in_stream_metadata);
 
   Status RemoveTableFromCDCStreamMetadataAndMaps(
-      const CDCStreamInfoPtr stream, const TableId table_id);
+      const CDCStreamInfoPtr stream, const TableId table_id, const LeaderEpoch& epoch);
 
   // Should be bumped up when tablet locations are changed.
   std::atomic<uintptr_t> tablet_locations_version_{0};
@@ -2968,6 +3013,8 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
     // delete table calls.
     std::vector<scoped_refptr<TableInfo>> tables;
     std::unordered_set<TableId> processed_tables;
+    // Set of tables whose DocDB schema do not change.
+    std::unordered_set<TableId> nochange_tables;
   };
 
   // This map stores the transaction ids of all the DDL transactions undergoing verification.
@@ -3087,6 +3134,8 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   std::unique_ptr<cdc::CDCStateTable> cdc_state_table_;
 
   std::atomic<bool> pg_cron_service_created_{false};
+
+  std::unique_ptr<YsqlInitDBAndMajorUpgradeHandler> ysql_initdb_and_major_upgrade_helper_;
 
   DISALLOW_COPY_AND_ASSIGN(CatalogManager);
 };

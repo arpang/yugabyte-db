@@ -17,7 +17,7 @@ menu:
 
 YugabyteDB Voyager is a powerful open-source data migration engine that accelerates cloud native adoption by removing barriers to moving applications to the public or private cloud. It helps you migrate databases to YugabyteDB quickly and securely.
 
-![Voyager Architecture](/images/migrate/voyager-architecture.png)
+![Voyager Architecture](/images/migrate/voyager-architecture2.png)
 
 You manage the entire lifecycle of a database migration, including cluster preparation for data import, schema migration, and data migration, using the [yb-voyager](https://github.com/yugabyte/yb-voyager) command line interface (CLI).
 
@@ -34,17 +34,17 @@ YugabyteDB Voyager has the following features:
 - In case of failures, data import can be resumed.
 - Parallelism of data across tables.
 - Support for direct data import from CSV or TEXT format files present on local disk or on any cloud storage.
-- Live migration of Oracle databases with fall-forward and fall-back. {{<badge/tp>}}
-- Live migration of PostgreSQL databases with fall-forward and fall-back. {{<badge/tp>}}
+- Live migration of Oracle databases with fall-forward and fall-back. {{<tags/feature/tp>}}
+- Live migration of PostgreSQL databases with fall-forward and fall-back. {{<tags/feature/tp>}}
 
 ## Migration types
 
 You can perform migration by choosing one of the following options:
 
 - [Offline migration](../migrate/migrate-steps/) - Take your applications offline to perform the migration.
-- [Live migration](../migrate/live-migrate/) {{<badge/tp>}} - Migrate your data while your application is running (currently Oracle and PostgreSQL only).
-- [Live migration with fall-forward](../migrate/live-fall-forward/) {{<badge/tp>}} - Fall forward to the source-replica database for your live migration (currently Oracle and PostgreSQL only).
-- [Live migration with fall-back](../migrate/live-fall-back/) {{<badge/tp>}} - Fall back to the source database for your live migration (currently Oracle and PostgreSQL only).
+- [Live migration](../migrate/live-migrate/) {{<tags/feature/tp>}} - Migrate your data while your application is running (currently Oracle and PostgreSQL only).
+- [Live migration with fall-forward](../migrate/live-fall-forward/) {{<tags/feature/tp>}} - Fall forward to the source-replica database for your live migration (currently Oracle and PostgreSQL only).
+- [Live migration with fall-back](../migrate/live-fall-back/) {{<tags/feature/tp>}} - Fall back to the source database for your live migration (currently Oracle and PostgreSQL only).
 
 ## Source databases
 

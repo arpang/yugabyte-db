@@ -13,6 +13,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.api.client.util.Throwables;
 import com.google.common.base.Stopwatch;
 import com.google.common.net.HostAndPort;
 import com.yugabyte.yw.cloud.PublicCloudConstants;
@@ -24,15 +25,17 @@ import com.yugabyte.yw.commissioner.tasks.UniverseTaskBase;
 import com.yugabyte.yw.commissioner.tasks.UniverseTaskBase.ServerType;
 import com.yugabyte.yw.commissioner.tasks.subtasks.CheckClusterConsistency;
 import com.yugabyte.yw.common.ApiUtils;
+import com.yugabyte.yw.common.ConfigHelper;
+import com.yugabyte.yw.common.CustomerTaskManager;
 import com.yugabyte.yw.common.LocalNodeManager;
 import com.yugabyte.yw.common.LocalNodeUniverseManager;
 import com.yugabyte.yw.common.ModelFactory;
 import com.yugabyte.yw.common.NodeUIApiHelper;
 import com.yugabyte.yw.common.PlacementInfoUtil;
-import com.yugabyte.yw.common.PlatformGuiceApplicationBaseTest;
 import com.yugabyte.yw.common.ReleaseManager;
 import com.yugabyte.yw.common.RetryTaskUntilCondition;
 import com.yugabyte.yw.common.ShellResponse;
+import com.yugabyte.yw.common.UnrecoverableException;
 import com.yugabyte.yw.common.Util;
 import com.yugabyte.yw.common.YcqlQueryExecutor;
 import com.yugabyte.yw.common.backuprestore.BackupHelper;
@@ -99,6 +102,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import kamon.instrumentation.play.GuiceModule;
 import lombok.extern.slf4j.Slf4j;
@@ -122,7 +126,7 @@ import play.inject.guice.GuiceApplicationBuilder;
 import play.libs.Json;
 
 @Slf4j
-public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplicationBaseTest {
+public abstract class LocalProviderUniverseTestBase extends CommissionerBaseTest {
   private static final boolean IS_LINUX = System.getProperty("os.name").equalsIgnoreCase("linux");
   private static final Set<String> CONTROL_FILES =
       Set.of(LocalNodeManager.MASTER_EXECUTABLE, LocalNodeManager.TSERVER_EXECUTABLE);
@@ -147,7 +151,7 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
 
   private static final String YBC_BASE_S3_URL = "https://downloads.yugabyte.com/ybc/";
   private static final String YBC_BIN_ENV_KEY = "YBC_PATH";
-  private static final boolean KEEP_FAILED_UNIVERSE = true;
+  private static boolean KEEP_FAILED_UNIVERSE = true;
   private static final boolean KEEP_ALWAYS = false;
 
   public static Map<String, String> GFLAGS = new HashMap<>();
@@ -214,7 +218,6 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
   protected YcqlQueryExecutor ycqlQueryExecutor;
   protected UniverseTableHandler tableHandler;
   protected CertificateHelper certificateHelper;
-  protected Commissioner commissioner;
   protected SettableRuntimeConfigFactory settableRuntimeConfigFactory;
   protected RuntimeConfService runtimeConfService;
   protected JobScheduler jobScheduler;
@@ -423,6 +426,7 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
     runtimeConfService = app.injector().instanceOf(RuntimeConfService.class);
     jobScheduler = app.injector().instanceOf(JobScheduler.class);
     autoMasterFailoverScheduler = app.injector().instanceOf(AutoMasterFailoverScheduler.class);
+    customerTaskManager = app.injector().instanceOf(CustomerTaskManager.class);
   }
 
   @Before
@@ -432,7 +436,14 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
     settableRuntimeConfigFactory.globalRuntimeConf().setValue("yb.releases.use_redesign", "false");
     settableRuntimeConfigFactory
         .globalRuntimeConf()
-        .setValue("yb.universe.consistency_check_enabled", "true");
+        .setValue(GlobalConfKeys.startMasterOnRemoveNode.getKey(), "true");
+    settableRuntimeConfigFactory
+        .globalRuntimeConf()
+        .setValue(GlobalConfKeys.startMasterOnStopNode.getKey(), "true");
+
+    settableRuntimeConfigFactory
+        .globalRuntimeConf()
+        .setValue("yb.universe.consistency_check.enabled", "true");
     Pair<Integer, Integer> ipRange = getIpRange();
     localNodeManager.setIpRangeStart(ipRange.getFirst());
     localNodeManager.setIpRangeEnd(ipRange.getSecond());
@@ -455,6 +466,11 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
         ReleaseManager.YBC_CONFIG_TYPE.name(),
         getMetadataJson("ybc-" + YBC_VERSION, true),
         "release");
+    ObjectNode ywMetadata = Json.newObject();
+    ywMetadata.put("yugaware_uuid", UUID.randomUUID().toString());
+    ywMetadata.put("version", ybVersion);
+    YugawareProperty.addConfigProperty(
+        ConfigHelper.ConfigType.YugawareMetadata.name(), ywMetadata, "Yugaware Metadata");
 
     customer = ModelFactory.testCustomer();
     user = ModelFactory.testUser(customer);
@@ -666,11 +682,14 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
   }
 
   protected void initYSQL(Universe universe) {
-    initYSQL(universe, "some_table", false);
+    initYSQL(universe, "some_table");
   }
 
   protected void initYSQL(Universe universe, String tableName) {
-    initYSQL(universe, tableName, false);
+    initYSQL(
+        universe,
+        tableName,
+        universe.getUniverseDetails().getPrimaryCluster().userIntent.isYSQLAuthEnabled());
   }
 
   protected void initYSQL(Universe universe, String tableName, boolean authEnabled) {
@@ -720,7 +739,9 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
 
   protected void verifyYSQL(
       Universe universe, boolean readFromRR, String dbName, String tableName) {
-    verifyYSQL(universe, readFromRR, dbName, tableName, false);
+    boolean authEnabled =
+        universe.getUniverseDetails().getPrimaryCluster().userIntent.isYSQLAuthEnabled();
+    verifyYSQL(universe, readFromRR, dbName, tableName, authEnabled);
   }
 
   protected void verifyYSQL(
@@ -1030,7 +1051,7 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
     return SpecificGFlags.construct(gflags, gflags);
   }
 
-  protected String getAllErrorsStr(TaskInfo taskInfo) {
+  public static String getAllErrorsStr(TaskInfo taskInfo) {
     StringBuilder sb = new StringBuilder(taskInfo.getErrorMessage());
     for (TaskInfo subTask : taskInfo.getSubTasks()) {
       if (!StringUtils.isEmpty(subTask.getErrorMessage())) {
@@ -1078,6 +1099,18 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
     }
   }
 
+  protected void startProcessesOnNode(UUID universeUuid, String nodeName)
+      throws IOException, InterruptedException {
+    Universe universe = Universe.getOrBadRequest(universeUuid);
+    NodeDetails node = universe.getNode(nodeName);
+    if (node.isTserver) {
+      localNodeManager.startProcess(universeUuid, nodeName, ServerType.TSERVER);
+    }
+    if (node.isMaster) {
+      localNodeManager.startProcess(universeUuid, nodeName, ServerType.MASTER);
+    }
+  }
+
   protected void killProcessOnNode(UUID universeUuid, String nodeName, ServerType serverType)
       throws IOException, InterruptedException {
     Universe universe = Universe.getOrBadRequest(universeUuid);
@@ -1106,6 +1139,24 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
     return localNodeManager.isProcessRunning(nodeName, ServerType.MASTER);
   }
 
+  protected void waitTillNumOfTservers(YBClient ybClient, int expected) {
+    RetryTaskUntilCondition<Integer> condition =
+        new RetryTaskUntilCondition<>(
+            () -> getNumberOfTservers(ybClient), (num) -> num == expected);
+    boolean success = condition.retryUntilCond(500, TimeUnit.SECONDS.toMillis(60));
+    if (!success) {
+      throw new RuntimeException("Failed to wait till expected number of tservers");
+    }
+  }
+
+  protected Integer getNumberOfTservers(YBClient ybClient) {
+    try {
+      return ybClient.listTabletServers().getTabletServersCount();
+    } catch (Exception e) {
+      return 0;
+    }
+  }
+
   // This method waits for the next task to complete.
   protected TaskInfo waitForNextTask(UUID universeUuid, UUID lastTaskUuid, Duration timeout)
       throws InterruptedException {
@@ -1117,7 +1168,7 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
           && !lastTaskUuid.equals(details.placementModificationTaskUuid)) {
         // A new task has already started, wait for it to complete.
         TaskInfo taskInfo = TaskInfo.getOrBadRequest(details.placementModificationTaskUuid);
-        return CommissionerBaseTest.waitForTask(taskInfo.getTaskUUID());
+        return CommissionerBaseTest.waitForTask(taskInfo.getUuid());
       }
       CustomerTask customerTask = CustomerTask.getLastTaskByTargetUuid(universeUuid);
       if (!lastTaskUuid.equals(customerTask.getTaskUUID())) {
@@ -1149,5 +1200,46 @@ public abstract class LocalProviderUniverseTestBase extends PlatformGuiceApplica
         metaMasterHandler.getMasterLBState(customer.getUuid(), universe.getUniverseUUID());
     assertEquals(resp.isEnabled, isEnabled);
     assertEquals(resp.isIdle, isLoadBalancerIdle);
+  }
+
+  public void doWithRetry(
+      Function<Duration, Duration> waitBeforeRetryFunct, Duration timeout, Runnable funct)
+      throws RuntimeException {
+    long currentDelayMs = 0;
+    long timeoutMs = timeout.toMillis();
+    long startTime = System.currentTimeMillis();
+    while (true) {
+      currentDelayMs = waitBeforeRetryFunct.apply(Duration.ofMillis(currentDelayMs)).toMillis();
+      try {
+        funct.run();
+        return;
+      } catch (UnrecoverableException e) {
+        log.error(
+            "Won't retry; Unrecoverable error while running the function: {}", e.getMessage());
+        throw e;
+      } catch (Exception e) {
+        if (System.currentTimeMillis() < startTime + timeoutMs - currentDelayMs) {
+          log.warn("Will retry; Error while running the function: {}", e.getMessage());
+        } else {
+          log.error("Retry timed out; Error while running the function: {}", e.getMessage());
+          Throwables.propagate(e);
+        }
+      }
+      log.debug(
+          "Waiting for {} ms between retry, total delay remaining {} ms",
+          currentDelayMs,
+          timeoutMs - (System.currentTimeMillis() - startTime));
+      try {
+        // Busy waiting is okay here since this is being used in tests.
+        Thread.sleep(currentDelayMs);
+      } catch (InterruptedException e) {
+        log.error("Interrupted while waiting for retry", e);
+        throw new RuntimeException(e);
+      }
+    }
+  }
+
+  protected void doWithRetry(Duration waitBeforeRetry, Duration timeout, Runnable funct) {
+    doWithRetry((prevDelay) -> waitBeforeRetry, timeout, funct);
   }
 }

@@ -86,6 +86,7 @@ public class ScheduleUtilTest extends FakeDBApplication {
         TaskType.CreateBackup,
         500000L,
         null,
+        true /* useLocalTimezone */,
         TimeUnit.HOURS,
         "test-1");
     backupRequestParams.incrementalBackupFrequency = 120000L;
@@ -96,6 +97,7 @@ public class ScheduleUtilTest extends FakeDBApplication {
         TaskType.CreateBackup,
         500000L,
         null,
+        true /* useLocalTimezone */,
         TimeUnit.HOURS,
         "test-2");
     backupRequestParams.incrementalBackupFrequency = 150000L;
@@ -103,7 +105,7 @@ public class ScheduleUtilTest extends FakeDBApplication {
         ScheduleUtil.getFinalHistoryRetentionUniverseForPITRestore(
                 defaultUniverse.getUniverseUUID(),
                 backupRequestParams,
-                false /* toBeDeleted */,
+                null /* deleteScheduleUUID */,
                 Duration.ofSeconds(0))
             .toSeconds(),
         150L);
@@ -120,6 +122,7 @@ public class ScheduleUtilTest extends FakeDBApplication {
         TaskType.CreateBackup,
         500000L,
         null,
+        true /* useLocalTimezone */,
         TimeUnit.HOURS,
         "test-1");
     backupRequestParams.incrementalBackupFrequency = 120000L;
@@ -130,6 +133,7 @@ public class ScheduleUtilTest extends FakeDBApplication {
         TaskType.CreateBackup,
         500000L,
         null,
+        true /* useLocalTimezone */,
         TimeUnit.HOURS,
         "test-2");
     backupRequestParams.incrementalBackupFrequency = 110000L;
@@ -137,7 +141,7 @@ public class ScheduleUtilTest extends FakeDBApplication {
         ScheduleUtil.getFinalHistoryRetentionUniverseForPITRestore(
                 defaultUniverse.getUniverseUUID(),
                 backupRequestParams,
-                false /* toBeDeleted */,
+                null /* deleteScheduleUUID */,
                 Duration.ofSeconds(0))
             .toSeconds(),
         0L);
@@ -154,6 +158,7 @@ public class ScheduleUtilTest extends FakeDBApplication {
         TaskType.CreateBackup,
         500000L,
         null,
+        true /* useLocalTimezone */,
         TimeUnit.HOURS,
         "test-1");
     backupRequestParams.incrementalBackupFrequency = 120000L;
@@ -164,14 +169,26 @@ public class ScheduleUtilTest extends FakeDBApplication {
         TaskType.CreateBackup,
         500000L,
         null,
+        true /* useLocalTimezone */,
         TimeUnit.HOURS,
         "test-2");
     backupRequestParams.incrementalBackupFrequency = 150000L;
+    Schedule toDelete =
+        Schedule.create(
+            defaultCustomer.getUuid(),
+            defaultUniverse.getUniverseUUID(),
+            backupRequestParams,
+            TaskType.CreateBackup,
+            500000L,
+            null,
+            true /* useLocalTimezone */,
+            TimeUnit.HOURS,
+            "test-3");
     assertEquals(
         ScheduleUtil.getFinalHistoryRetentionUniverseForPITRestore(
                 defaultUniverse.getUniverseUUID(),
                 backupRequestParams,
-                true /* toBeDeleted */,
+                toDelete.getScheduleUUID() /* deleteScheduleUUID */,
                 Duration.ofSeconds(0))
             .toSeconds(),
         120L);
@@ -181,11 +198,22 @@ public class ScheduleUtilTest extends FakeDBApplication {
   public void testGetFinalHistoryRetentionUniverseForPITRestoreSecsAllDeleted() {
     backupRequestParams.enablePointInTimeRestore = true;
     backupRequestParams.incrementalBackupFrequency = 110000L;
+    Schedule toDelete =
+        Schedule.create(
+            defaultCustomer.getUuid(),
+            defaultUniverse.getUniverseUUID(),
+            backupRequestParams,
+            TaskType.CreateBackup,
+            500000L,
+            null,
+            true /* useLocalTimezone */,
+            TimeUnit.HOURS,
+            "test-1");
     assertEquals(
         ScheduleUtil.getFinalHistoryRetentionUniverseForPITRestore(
                 defaultUniverse.getUniverseUUID(),
                 backupRequestParams,
-                true /* toBeDeleted */,
+                toDelete.getScheduleUUID() /* deleteScheduleUUID */,
                 Duration.ofSeconds(100))
             .toSeconds(),
         -1L);

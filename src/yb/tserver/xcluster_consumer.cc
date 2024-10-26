@@ -42,6 +42,7 @@
 
 #include "yb/util/callsite_profiling.h"
 #include "yb/util/flags.h"
+#include "yb/util/flag_validators.h"
 #include "yb/util/logging.h"
 #include "yb/util/shared_lock.h"
 #include "yb/util/size_literals.h"
@@ -79,18 +80,10 @@ DEFINE_RUNTIME_int32(xcluster_safe_time_update_interval_secs, 1,
     "seen when performing database level xcluster consistent reads. If there is any additional lag "
     "in the replication, then it will add to the overall staleness of the data.");
 
+DEFINE_validator(xcluster_safe_time_update_interval_secs, FLAG_GT_VALUE_VALIDATOR(0));
+
 DEFINE_RUNTIME_int32(apply_changes_max_send_rate_mbps, 100,
     "Server-wide max apply rate for xcluster traffic.");
-
-static bool ValidateXClusterSafeTimeUpdateInterval(const char* flag_name, int32 value) {
-  if (value <= 0) {
-    LOG_FLAG_VALIDATION_ERROR(flag_name, value) << "Must be greater than 0";
-    return false;
-  }
-  return true;
-}
-
-DEFINE_validator(xcluster_safe_time_update_interval_secs, &ValidateXClusterSafeTimeUpdateInterval);
 
 DEFINE_test_flag(bool, xcluster_disable_delete_old_pollers, false,
     "Disables the deleting of old xcluster pollers that are no longer needed.");
@@ -237,7 +230,7 @@ void XClusterConsumer::RunThread() {
     {
       UniqueLock l(shutdown_mutex_);
       if (run_thread_cond_.wait_for(
-              GetLockForCondition(&l), 1s, [this]() { return is_shutdown_.load(); })) {
+              GetLockForCondition(l), 1s, [this]() { return is_shutdown_.load(); })) {
         return;
       }
     }
@@ -415,7 +408,8 @@ void XClusterConsumer::UpdateReplicationGroupInMemState(
         auto xCluster_tablet_info = xcluster::XClusterTabletInfo{
             .producer_tablet_info = {replication_group_id, stream_id, producer_tablet_id},
             .consumer_tablet_info = {consumer_tablet_id, stream_entry_pb.consumer_table_id()},
-            .disable_stream = producer_entry_pb.disable_stream()};
+            .disable_stream = producer_entry_pb.disable_stream(),
+            .automatic_ddl_mode = producer_entry_pb.automatic_ddl_mode()};
         producer_consumer_tablet_map_from_master_.emplace(std::move(xCluster_tablet_info));
       }
     }
@@ -525,7 +519,8 @@ void XClusterConsumer::TriggerPollForNewTablets() {
             auto_flags_version_handler_->GetAutoFlagsCompatibleVersion(
                 producer_tablet_info.replication_group_id),
             thread_pool_.get(), rpcs_.get(), local_client_, remote_clients_[replication_group_id],
-            this, last_compatible_consumer_schema_version, leader_term, get_leader_term_func_);
+            this, last_compatible_consumer_schema_version, leader_term, get_leader_term_func_,
+            entry.automatic_ddl_mode);
 
         if (ddl_queue_streams_.contains(producer_tablet_info.stream_id)) {
           xcluster_poller->InitDDLQueuePoller(

@@ -292,11 +292,6 @@ DEFINE_test_flag(uint64, inject_sleep_before_applying_intents_ms, 0,
 DEFINE_test_flag(bool, skip_remove_intent, false,
                  "If true, remove intent will be skipped");
 
-DEFINE_test_flag(bool, cdc_immediate_transaction_cleanup_cleanup_intent_files, false,
-                 "Do intent SST file cleanup even when cdc_immediate_transaction_cleanup is on. "
-                 "This can cause data loss (#22227) but we don't run into that issue during some "
-                 "unit tests.");
-
 DECLARE_bool(TEST_invalidate_last_change_metadata_op);
 
 using namespace std::placeholders;
@@ -491,11 +486,36 @@ Result<HybridTime> CheckSafeTime(HybridTime time, HybridTime min_allowed) {
 
 } // namespace
 
-class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
+class Tablet::RocksDbListener : public rocksdb::EventListener {
  public:
-  RegularRocksDbListener(Tablet* tablet, const std::string& log_prefix)
-      : tablet_(*CHECK_NOTNULL(tablet)),
-        log_prefix_(log_prefix) {}
+  RocksDbListener(Tablet& tablet, const std::string& log_prefix)
+      : tablet_(tablet), log_prefix_(log_prefix) {}
+
+  void OnFlushCompleted(rocksdb::DB*, const rocksdb::FlushJobInfo&) override {
+    if (auto* participant = tablet_.transaction_participant()) {
+      VLOG_WITH_PREFIX_AND_FUNC(2)
+          << "RocksDB flush completed, triggering cleanup of recently applied transactions";
+      auto status = participant->ProcessRecentlyAppliedTransactions();
+      if (!status.ok() && !tablet_.shutdown_requested_.load(std::memory_order_acquire)) {
+        LOG_WITH_PREFIX_AND_FUNC(DFATAL)
+            << "Failed to clean up recently applied transactions: " << status;
+      }
+    }
+  }
+
+ protected:
+  const std::string& LogPrefix() const {
+    return log_prefix_;
+  }
+
+  Tablet& tablet_;
+  const std::string log_prefix_;
+};
+
+class Tablet::RegularRocksDbListener : public Tablet::RocksDbListener {
+ public:
+  RegularRocksDbListener(Tablet& tablet, const std::string& log_prefix)
+      : RocksDbListener(tablet, log_prefix) {}
 
   void OnCompactionCompleted(rocksdb::DB* db, const rocksdb::CompactionJobInfo& ci) override {
     auto& metadata = *CHECK_NOTNULL(tablet_.metadata());
@@ -528,7 +548,7 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
     {
       auto scoped_read_operation = tablet_.CreateScopedRWOperationNotBlockingRocksDbShutdownStart();
       if (!scoped_read_operation.ok()) {
-        VLOG_WITH_FUNC(4) << "Skip";
+        VLOG_WITH_PREFIX_AND_FUNC(4) << "Skip";
         return;
       }
 
@@ -552,7 +572,7 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
     if(!tablet_.metadata()->colocated()) {
       auto schema_version = tablet_.get_min_xcluster_schema_version_(primary_table_id,
           kColocationIdNotSet);
-      VLOG_WITH_FUNC(4) <<
+      VLOG_WITH_PREFIX_AND_FUNC(4) <<
           Format("MinNonXClusterSchemaVersion, MinXClusterSchemaVersion for $0:$1,$2",
               primary_table_id, min_schema_versions[Uuid::Nil()], schema_version);
       if (schema_version < min_schema_versions[Uuid::Nil()]) {
@@ -566,7 +586,7 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
       ColocationId colocation_id = colocated_tables[table_id.ToHexString()];
       auto xcluster_min_schema_version = tablet_.get_min_xcluster_schema_version_(primary_table_id,
           colocation_id);
-      VLOG_WITH_FUNC(4) <<
+      VLOG_WITH_PREFIX_AND_FUNC(4) <<
           Format("MinNonXClusterSchemaVersion, MinXClusterSchemaVersion for $0,$1:$2,$3",
               primary_table_id, colocation_id, min_schema_versions[table_id],
               xcluster_min_schema_version);
@@ -595,9 +615,6 @@ class Tablet::RegularRocksDbListener : public rocksdb::EventListener {
       smallest.MakeExternalSchemaVersionsAtMost(table_id_to_min_schema_version);
     }
   }
-
-  Tablet& tablet_;
-  const std::string log_prefix_;
 };
 
 Tablet::Tablet(const TabletInitData& data)
@@ -635,7 +652,7 @@ Tablet::Tablet(const TabletInitData& data)
       get_min_xcluster_schema_version_(std::move(data.get_min_xcluster_schema_version)) {
   CHECK(schema()->has_column_ids());
   LOG_WITH_PREFIX(INFO) << "Schema version for " << metadata_->table_name() << " is "
-                        << metadata_->schema_version();
+                        << metadata_->primary_table_schema_version();
 
   if (data.metric_registry) {
     MetricEntity::AttributeMap attrs;
@@ -972,7 +989,7 @@ Status Tablet::OpenKeyValueTablet() {
 
   rocksdb::Options regular_rocksdb_options(rocksdb_options);
   regular_rocksdb_options.listeners.push_back(
-      std::make_shared<RegularRocksDbListener>(this, regular_rocksdb_options.log_prefix));
+      std::make_shared<RegularRocksDbListener>(*this, regular_rocksdb_options.log_prefix));
 
   const string db_dir = metadata()->rocksdb_dir();
   RETURN_NOT_OK(CreateTabletDirectories(db_dir, metadata()->fs_manager()));
@@ -1020,6 +1037,9 @@ Status Tablet::OpenKeyValueTablet() {
     }
     intents_rocksdb_options.statistics = intentsdb_statistics_;
 
+    intents_rocksdb_options.listeners.push_back(
+        std::make_shared<RocksDbListener>(*this, intents_rocksdb_options.log_prefix));
+
     rocksdb::DB* intents_db = nullptr;
     RETURN_NOT_OK(
         rocksdb::DB::Open(intents_rocksdb_options, db_dir + kIntentsDBSuffix, &intents_db));
@@ -1030,9 +1050,12 @@ Status Tablet::OpenKeyValueTablet() {
   if (transaction_participant_) {
     // We need to set the "cdc_sdk_min_checkpoint_op_id" so that intents don't get
     // garbage collected after transactions are loaded.
+    // Passing HybridTime::kInvalid for "min_start_ht_cdc_unstreamed_txns" to prevent
+    // unintended cleanup of intent SST files.
     transaction_participant_->SetIntentRetainOpIdAndTime(
         metadata_->cdc_sdk_min_checkpoint_op_id(),
-        MonoDelta::FromMilliseconds(GetAtomicFlag(&FLAGS_cdc_intent_retention_ms)));
+        MonoDelta::FromMilliseconds(GetAtomicFlag(&FLAGS_cdc_intent_retention_ms)),
+        /* min_start_ht_cdc_unstreamed_txns */ HybridTime::kInvalid);
     RETURN_NOT_OK(transaction_participant_->SetDB(
         doc_db(), &pending_op_counter_blocking_rocksdb_shutdown_start_));
     if (GetAtomicFlag(&FLAGS_cdc_immediate_transaction_cleanup)) {
@@ -1084,23 +1107,39 @@ void Tablet::CleanupIntentFiles() {
       "Submit cleanup intent files failed");
 }
 
+// Calls GetMinStartTimeAmongAllRunningTransactions() on transaction participant. If the result
+// obtained is invalid then returns leader safe time.
+HybridTime Tablet::GetMinStartHTRunningTxnsOrLeaderSafeTime() {
+  HybridTime min_start_ht_running_txns = HybridTime::kInvalid;
+  if (transaction_participant()) {
+    min_start_ht_running_txns =
+        transaction_participant()->GetMinStartTimeAmongAllRunningTransactions();
+    VLOG_WITH_PREFIX(2) << "min_start_ht_running_txns from txn participant: "
+                        << min_start_ht_running_txns;
+  }
+
+  if (min_start_ht_running_txns != HybridTime::kInvalid) {
+    return min_start_ht_running_txns;
+  }
+
+  auto safe_time_result = SafeTime();
+  if (safe_time_result.ok() && *safe_time_result != HybridTime::kInvalid) {
+    min_start_ht_running_txns = *safe_time_result;
+    VLOG_WITH_PREFIX(2) << "min_start_ht_running_txns from tablet leader safe time: "
+                        << min_start_ht_running_txns;
+    return min_start_ht_running_txns;
+  }
+
+  LOG_WITH_PREFIX(WARNING) << "Could not retrive a valid safe time so setting minimum start time "
+                              "of running txns to kInitial.";
+
+  return HybridTime::kInitial;
+}
+
 void Tablet::DoCleanupIntentFiles() {
   if (metadata_->IsUnderXClusterReplication()) {
     VLOG_WITH_PREFIX_AND_FUNC(4) << "Exit because of xCluster replication";
     return;
-  }
-
-  // This codepath may in some cases delete SST files that we still need for CDC, if
-  // cdc_immediate_transaction_cleanup is enabled (#22227). This is a temporary fix and should
-  // be removed when #22227 is resolved.
-  if (GetAtomicFlag(&FLAGS_cdc_immediate_transaction_cleanup) &&
-      !GetAtomicFlag(&FLAGS_TEST_cdc_immediate_transaction_cleanup_cleanup_intent_files)) {
-    auto cdc_op_id = transaction_participant_->GetLatestCheckPoint();
-    if (cdc_op_id != OpId::Max()) {
-      VLOG_WITH_PREFIX_AND_FUNC(1)
-          << "Skipping because CDC is in use with cdc_immediate_transaction_cleanup enabled";
-      return;
-    }
   }
 
   HybridTime best_file_max_ht = HybridTime::kMax;
@@ -1152,12 +1191,15 @@ void Tablet::DoCleanupIntentFiles() {
       break;
     }
 
-    if (GetAtomicFlag(&FLAGS_cdc_immediate_transaction_cleanup)) {
-      auto cdc_op_id = transaction_participant_->GetLatestCheckPoint();
-      if (cdc_op_id.valid() && (!best_file_op_id.valid() || cdc_op_id < best_file_op_id)) {
+    auto min_start_ht_cdc_unstreamed_txns =
+        transaction_participant_->GetMinStartHTCDCUnstreamedTxns();
+    if (GetAtomicFlag(&FLAGS_cdc_immediate_transaction_cleanup) &&
+        metadata_->is_under_cdc_sdk_replication()) {
+      if (!min_start_ht_cdc_unstreamed_txns.is_valid() ||
+          min_start_ht_cdc_unstreamed_txns <= best_file_max_ht) {
         VLOG_WITH_PREFIX_AND_FUNC(4)
-            << "Cannot delete because of CDC: " << cdc_op_id
-            << ", best file op id: " << best_file_op_id;
+            << "Cannot delete because of CDC, min_start_ht_cdc_unstreamed_txns: "
+            << min_start_ht_cdc_unstreamed_txns << ", best file max ht: " << best_file_max_ht;
         break;
       }
     }
@@ -1170,8 +1212,9 @@ void Tablet::DoCleanupIntentFiles() {
 
     LOG_WITH_PREFIX_AND_FUNC(INFO)
         << "Intents SST file will be deleted: " << best_file->ToString()
-        << ", max ht: " << best_file_max_ht << ", min running transaction start ht: "
-        << min_running_start_ht;
+        << ", max ht: " << best_file_max_ht
+        << ", min running transaction start ht: " << min_running_start_ht
+        << ", min_start_ht_cdc_unstreamed_txns: " << min_start_ht_cdc_unstreamed_txns;
     auto flush_status = regular_db_->Flush(rocksdb::FlushOptions());
     if (!flush_status.ok()) {
       LOG_WITH_PREFIX_AND_FUNC(WARNING) << "Failed to flush regular db: " << flush_status;
@@ -1724,7 +1767,7 @@ Status Tablet::HandleQLReadRequest(
   docdb::QLRocksDBStorage storage{doc_db(metrics_scope.metrics())};
 
   bool schema_version_compatible = IsSchemaVersionCompatible(
-      metadata()->schema_version(), ql_read_request.schema_version(),
+      metadata()->primary_table_schema_version(), ql_read_request.schema_version(),
       ql_read_request.is_compatible_with_previous_version());
 
   Status status;
@@ -1737,7 +1780,7 @@ Status Tablet::HandleQLReadRequest(
         *txn_op_ctx, storage, scoped_read_operation, result, rows_data);
 
     schema_version_compatible = IsSchemaVersionCompatible(
-        metadata()->schema_version(), ql_read_request.schema_version(),
+        metadata()->primary_table_schema_version(), ql_read_request.schema_version(),
         ql_read_request.is_compatible_with_previous_version());
   }
 
@@ -1748,7 +1791,7 @@ Status Tablet::HandleQLReadRequest(
     result->response.set_error_message(Format(
         "schema version mismatch for table $0: expected $1, got $2 (compt with prev: $3)",
         metadata()->table_id(),
-        metadata()->schema_version(),
+        metadata()->primary_table_schema_version(),
         ql_read_request.schema_version(),
         ql_read_request.is_compatible_with_previous_version()));
     return Status::OK();
@@ -2263,9 +2306,8 @@ Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::CreateCDCSnapshotIt
 
 Status Tablet::SetAllCDCRetentionBarriersUnlocked(
     int64 cdc_wal_index, OpId cdc_sdk_intents_op_id, MonoDelta cdc_sdk_op_id_expiration,
-    HybridTime cdc_sdk_history_cutoff, bool require_history_cutoff,
-    bool initial_retention_barrier) {
-
+    HybridTime cdc_sdk_history_cutoff, bool require_history_cutoff, bool initial_retention_barrier,
+    HybridTime min_start_ht_cdc_unstreamed_txns) {
   // WAL, History, Intents Retention
   if (VERIFY_RESULT(metadata_->SetAllCDCRetentionBarriers(cdc_wal_index,
                                                           cdc_sdk_intents_op_id,
@@ -2275,12 +2317,16 @@ Status Tablet::SetAllCDCRetentionBarriersUnlocked(
     // Intents Retention setting on txn_participant
     // 1. cdc_sdk_intents_op_id - opid beyond which GC will not happen
     // 2. cdc_sdk_op_id_expiration - time limit upto which intents barrier setting holds
+    // 3. min_start_ht_cdc_unstreamed_txns - time up to which intents SST files retained for CDC can
+    // be deleted, provided their maximum record time is earlier than this value.
     auto txn_participant = transaction_participant();
     if (txn_participant) {
-
-      VLOG_WITH_PREFIX(1) << "Intents opid retention duration = " << cdc_sdk_op_id_expiration;
+      VLOG_WITH_PREFIX_AND_FUNC(1)
+          << "Intents opid retention duration = " << cdc_sdk_op_id_expiration
+          << ", Minimum start time for CDC unstreamed txns from available gc log segments = "
+          << min_start_ht_cdc_unstreamed_txns;
       txn_participant->SetIntentRetainOpIdAndTime(
-          cdc_sdk_intents_op_id, cdc_sdk_op_id_expiration);
+          cdc_sdk_intents_op_id, cdc_sdk_op_id_expiration, min_start_ht_cdc_unstreamed_txns);
       if (GetAtomicFlag(&FLAGS_cdc_immediate_transaction_cleanup)) {
         CleanupIntentFiles();
       }
@@ -2306,9 +2352,13 @@ Status Tablet::SetAllInitialCDCRetentionBarriers(
   }
   auto intent_retention_duration =
       MonoDelta::FromMilliseconds(GetAtomicFlag(&FLAGS_cdc_intent_retention_ms));
+
+  auto min_start_ht_cdc_unstreamed_txns = GetMinStartHTCDCUnstreamedTxns(log);
+
   return SetAllCDCRetentionBarriersUnlocked(
       cdc_wal_index, cdc_sdk_intents_op_id, intent_retention_duration, cdc_sdk_history_cutoff,
-      require_history_cutoff, true /* initial_retention_barrier */);
+      require_history_cutoff, true /* initial_retention_barrier */,
+      min_start_ht_cdc_unstreamed_txns);
 }
 
 // This is called From ChangeMetadaOperation::Apply during the
@@ -2358,15 +2408,29 @@ Result<bool> Tablet::MoveForwardAllCDCRetentionBarriers(
     if (log) {
       log->set_cdc_min_replicated_index(cdc_wal_index);
     }
+
+    auto min_start_ht_cdc_unstreamed_txns = GetMinStartHTCDCUnstreamedTxns(log);
+
     RETURN_NOT_OK(SetAllCDCRetentionBarriersUnlocked(
         cdc_wal_index, cdc_sdk_intents_op_id, cdc_sdk_op_id_expiration, cdc_sdk_history_cutoff,
-        require_history_cutoff, false /* initial_retention_barrier */));
+        require_history_cutoff, false /* initial_retention_barrier */,
+        min_start_ht_cdc_unstreamed_txns));
     return true;
   } else {
     VLOG_WITH_PREFIX(1) << "Revision of CDC retention barriers is currently blocked";
   }
 
   return false;
+}
+
+HybridTime Tablet::GetMinStartHTCDCUnstreamedTxns(log::Log* log) const {
+  if (log) {
+    return log->GetMinStartHTOfRunningTxnsFromGCSegments();
+  }
+
+  VLOG_WITH_PREFIX_AND_FUNC(1)
+      << "log not available, returning invalid HT for min_start_ht_cdc_unstreamed_txns";
+  return HybridTime::kInvalid;
 }
 
 Status Tablet::CreatePreparedChangeMetadata(
@@ -2470,6 +2534,11 @@ Status Tablet::AlterSchema(ChangeMetadataOperation *operation) {
     return Status::OK();
   }
 
+  // Handle insert_packed_schema separately.
+  if (operation->request()->insert_packed_schema()) {
+    return InsertPackedSchemaForXClusterTarget(operation, current_table_info);
+  }
+
   LOG_WITH_PREFIX(INFO) << "Alter schema from " << current_table_info->schema().ToString()
                         << " version " << current_table_info->schema_version
                         << " to " << operation->schema()->ToString()
@@ -2523,6 +2592,22 @@ Status Tablet::AlterSchema(ChangeMetadataOperation *operation) {
       }
     }
   }
+
+  // Flush the updated schema metadata to disk.
+  return metadata_->Flush();
+}
+
+Status Tablet::InsertPackedSchemaForXClusterTarget(
+    ChangeMetadataOperation* operation, std::shared_ptr<yb::tablet::TableInfo> current_table_info) {
+  SCHECK(operation->schema()->has_column_ids(), IllegalState, "Schema must have column ids");
+  // TODO(#22318) handle colocated tables later.
+  SCHECK(
+      !metadata_->colocated(), IllegalState,
+      "Colocated tables are not supported for automatic DDL replication.");
+
+  metadata_->InsertPackedSchemaForXClusterTarget(
+      *operation->schema(), operation->index_map(), operation->schema_version(), operation->op_id(),
+      current_table_info->table_id);
 
   // Flush the updated schema metadata to disk.
   return metadata_->Flush();
@@ -5230,6 +5315,35 @@ void ScopedReadOperation::Reset() {
     }
     tablet_ = nullptr;
   }
+}
+
+Result<google::protobuf::RepeatedPtrField<tablet::FilePB>> ListFiles(const std::string& dir) {
+  std::vector<std::string> files;
+  auto env = Env::Default();
+  auto status = env->GetChildren(dir, ExcludeDots::kTrue, &files);
+  if (!status.ok()) {
+    return STATUS_FORMAT(IllegalState, "Unable to get files in dir $0: $1", dir, status.ToString());
+  }
+
+  google::protobuf::RepeatedPtrField<tablet::FilePB> result;
+  result.Reserve(narrow_cast<int>(files.size()));
+  for (const auto& file : files) {
+    auto full_path = JoinPathSegments(dir, file);
+    if (VERIFY_RESULT(env->IsDirectory(full_path))) {
+      auto sub_files = VERIFY_RESULT(ListFiles(full_path));
+      for (auto& subfile : sub_files) {
+        subfile.set_name(JoinPathSegments(file, subfile.name()));
+        *result.Add() = std::move(subfile);
+      }
+      continue;
+    }
+    auto file_pb = result.Add();
+    file_pb->set_name(file);
+    file_pb->set_size_bytes(VERIFY_RESULT(env->GetFileSize(full_path)));
+    file_pb->set_inode(VERIFY_RESULT(env->GetFileINode(full_path)));
+  }
+
+  return result;
 }
 
 }  // namespace tablet

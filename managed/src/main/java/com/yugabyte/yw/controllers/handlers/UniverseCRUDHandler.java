@@ -32,6 +32,7 @@ import com.yugabyte.yw.commissioner.tasks.ReadOnlyKubernetesClusterDelete;
 import com.yugabyte.yw.commissioner.tasks.UniverseTaskBase;
 import com.yugabyte.yw.commissioner.tasks.UniverseTaskBase.ServerType;
 import com.yugabyte.yw.commissioner.tasks.XClusterConfigTaskBase;
+import com.yugabyte.yw.commissioner.tasks.subtasks.KubernetesCommandExecutor;
 import com.yugabyte.yw.common.AppConfigHelper;
 import com.yugabyte.yw.common.ImageBundleUtil;
 import com.yugabyte.yw.common.KubernetesManagerFactory;
@@ -213,7 +214,9 @@ public class UniverseCRUDHandler {
             || isRegionListUpdate(cluster, currentCluster)
             || cluster.userIntent.replicationFactor != currentCluster.userIntent.replicationFactor
             || isKubernetesVolumeUpdate(cluster, currentCluster)
-            || isKubernetesNodeSpecUpdate(cluster, currentCluster);
+            || isKubernetesNodeSpecUpdate(cluster, currentCluster)
+            || cluster.userIntent.enableExposingService
+                != currentCluster.userIntent.enableExposingService;
 
     boolean nodeSettingsChanges =
         isAwsArnChanged(cluster, currentCluster)
@@ -856,6 +859,20 @@ public class UniverseCRUDHandler {
           throw new PlatformServiceException(
               BAD_REQUEST, "YSQL RPC port cannot be the same as internal YSQL RPC port");
         }
+
+        if (userIntent.providerType.equals(Common.CloudType.kubernetes)) {
+          if (taskParams.communicationPorts.ysqlServerRpcPort
+              != KubernetesCommandExecutor.DEFAULT_YSQL_SERVER_RPC_PORT) {
+            throw new PlatformServiceException(
+                BAD_REQUEST, "Custom YSQL RPC port is not yet supported for Kubernetes universes.");
+          }
+          if (taskParams.communicationPorts.internalYsqlServerRpcPort
+              != KubernetesCommandExecutor.DEFAULT_INTERNAL_YSQL_SERVER_RPC_PORT) {
+            throw new PlatformServiceException(
+                BAD_REQUEST,
+                "Custom Internal YSQL RPC port is not yet supported for Kubernetes universes.");
+          }
+        }
       }
 
       // update otel port
@@ -934,19 +951,22 @@ public class UniverseCRUDHandler {
           universe.updateConfig(
               ImmutableMap.of(Universe.LABEL_K8S_RESOURCES, Boolean.toString(true)));
           checkHelmChartExists(primaryCluster.userIntent.ybSoftwareVersion);
+          Provider primaryClusterProvider =
+              Provider.getOrBadRequest(UUID.fromString(primaryIntent.provider));
           String serviceScope =
-              confGetter.getGlobalConf(GlobalConfKeys.k8sUniverseDefaultServiceScope);
+              confGetter.getConfForScope(
+                  primaryClusterProvider, ProviderConfKeys.k8sUniverseDefaultServiceScope);
           if (KubernetesUtil.shouldConfigureNamespacedService(taskParams, universe.getConfig())) {
             if (serviceScope.equals("Namespaced")) {
               // Default service scope should be 'Namespaced'
               primaryIntent.defaultServiceScopeAZ = false;
             }
-            // Validate service endpoints
-            try {
-              KubernetesUtil.validateServiceEndpoints(taskParams, universe.getConfig());
-            } catch (IOException e) {
-              throw new RuntimeException("Failed to parse Kubernetes overrides!", e.getCause());
-            }
+          }
+          // Validate service endpoints
+          try {
+            KubernetesUtil.validateServiceEndpoints(taskParams, universe.getConfig());
+          } catch (IOException e) {
+            throw new RuntimeException("Failed to parse Kubernetes overrides!", e.getCause());
           }
         } else {
           if (primaryCluster.userIntent.enableIPV6) {
@@ -2461,7 +2481,7 @@ public class UniverseCRUDHandler {
     if (null == primaryCluster
         || runtimeConfigFactory.forCustomer(customer).getBoolean("yb.cloud.enabled")
         || Util.compareYBVersions(
-                primaryCluster.userIntent.ybSoftwareVersion, "2.23.0.0", "2024.1.0.0", true)
+                primaryCluster.userIntent.ybSoftwareVersion, "2024.1.0.0", "2.23.0.0", true)
             < 0
         || !primaryCluster.userIntent.providerType.isVM()
         || primaryCluster.userIntent.dedicatedNodes) {

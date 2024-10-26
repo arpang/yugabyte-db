@@ -17,17 +17,19 @@
 #include "yb/client/client.h"
 #include "yb/client/xcluster_client.h"
 #include "yb/common/wire_protocol.pb.h"
+#include "yb/common/xcluster_util.h"
+
 #include "yb/master/catalog_entity_info.h"
 #include "yb/master/catalog_manager-internal.h"
 #include "yb/master/catalog_manager.h"
 #include "yb/master/catalog_manager_util.h"
+#include "yb/master/sys_catalog.h"
 #include "yb/master/xcluster/master_xcluster_util.h"
+#include "yb/master/xcluster/xcluster_manager_if.h"
+#include "yb/master/xcluster_rpc_tasks.h"
+
 #include "yb/util/flags/auto_flags_util.h"
 #include "yb/util/is_operation_done_result.h"
-#include "yb/master/xcluster_rpc_tasks.h"
-#include "yb/master/xcluster/xcluster_manager_if.h"
-#include "yb/common/xcluster_util.h"
-#include "yb/master/sys_catalog.h"
 #include "yb/util/result.h"
 
 DEFINE_RUNTIME_bool(xcluster_skip_health_check_on_replication_setup, false,
@@ -35,6 +37,8 @@ DEFINE_RUNTIME_bool(xcluster_skip_health_check_on_replication_setup, false,
 
 DEFINE_test_flag(bool, exit_unfinished_deleting, false,
     "Whether to exit part way through the deleting universe process.");
+
+DECLARE_bool(auto_add_new_index_to_bidirectional_xcluster);
 
 namespace yb::master {
 
@@ -305,6 +309,13 @@ Result<bool> ShouldAddTableToReplicationGroup(
     CatalogManager& catalog_manager) {
   const auto& table_pb = table_info.old_pb();
 
+  SCHECK(
+      !table_info.IsColocationParentTable(), IllegalState,
+      Format(
+          "Colocated parent tables can only be added during the initial xCluster replication "
+          "setup: $0",
+          table_info.ToString()));
+
   if (!IsTableEligibleForXClusterReplication(table_info)) {
     return false;
   }
@@ -337,37 +348,37 @@ Result<bool> ShouldAddTableToReplicationGroup(
   }
 
   // Skip if the table has already been added to this replication group.
+  return !VERIFY_RESULT(HasTable(universe, table_info, catalog_manager));
+}
+
+Result<bool> HasTable(
+    UniverseReplicationInfo& universe, const TableInfo& table_info,
+    CatalogManager& catalog_manager) {
   auto cluster_config = catalog_manager.ClusterConfig();
-  {
-    auto l = cluster_config->LockForRead();
-    const auto& consumer_registry = l->pb.consumer_registry();
+  auto l = cluster_config->LockForRead();
+  const auto& consumer_registry = l->pb.consumer_registry();
 
-    auto producer_entry =
-        FindOrNull(consumer_registry.producer_map(), universe.ReplicationGroupId().ToString());
-    if (producer_entry) {
-      SCHECK(
-          !producer_entry->disable_stream(), IllegalState,
-          "Table belongs to xCluster replication group $0 which is currently disabled",
-          universe.ReplicationGroupId());
-      for (auto& [stream_id, stream_info] : producer_entry->stream_map()) {
-        if (stream_info.consumer_table_id() == table_info.id()) {
-          VLOG(1) << "Table " << table_info.ToString()
-                  << " is already part of xcluster replication " << stream_id;
-
-          return false;
-        }
-      }
-    }
+  auto producer_entry =
+      FindOrNull(consumer_registry.producer_map(), universe.ReplicationGroupId().ToString());
+  if (!producer_entry) {
+    return false;
   }
 
   SCHECK(
-      !table_info.IsColocationParentTable(), IllegalState,
-      Format(
-          "Colocated parent tables can only be added during the initial xCluster replication "
-          "setup: $0",
-          table_info.ToString()));
+      !producer_entry->disable_stream(), IllegalState,
+      "Table belongs to xCluster replication group $0 which is currently disabled",
+      universe.ReplicationGroupId());
 
-  return true;
+  for (auto& [stream_id, stream_info] : producer_entry->stream_map()) {
+    if (stream_info.consumer_table_id() == table_info.id()) {
+      VLOG(1) << "Table " << table_info.ToString() << " is already part of xcluster replication "
+              << stream_id;
+
+      return true;
+    }
+  }
+
+  return false;
 }
 
 Result<NamespaceId> GetProducerNamespaceId(
@@ -484,11 +495,11 @@ Status RemoveNamespaceFromReplicationGroup(
     return Status::OK();
   }
 
-  auto consumer_tables =
-      VERIFY_RESULT(catalog_manager.GetTableInfosForNamespace(consumer_namespace_id));
+  auto consumer_designators = VERIFY_RESULT(GetTablesEligibleForXClusterReplication(
+      catalog_manager, consumer_namespace_id, /*include_sequences_data=*/true));
   std::unordered_set<TableId> consumer_table_ids;
-  for (const auto& table_info : consumer_tables) {
-    consumer_table_ids.insert(table_info->id());
+  for (const auto& table_designator : consumer_designators) {
+    consumer_table_ids.insert(table_designator.id);
   }
 
   std::vector<TableId> producer_table_ids;

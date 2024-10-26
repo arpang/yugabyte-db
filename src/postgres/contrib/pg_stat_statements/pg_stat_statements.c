@@ -1950,6 +1950,9 @@ done:
 Datum
 pg_stat_statements_reset_1_7(PG_FUNCTION_ARGS)
 {
+	if (YBIsQueryDiagnosticsEnabled())
+		*yb_pgss_last_reset_time = GetCurrentTimestamp();
+
 	Oid			userid;
 	Oid			dbid;
 	uint64		queryid;
@@ -1969,6 +1972,9 @@ pg_stat_statements_reset_1_7(PG_FUNCTION_ARGS)
 Datum
 pg_stat_statements_reset(PG_FUNCTION_ARGS)
 {
+	if (YBIsQueryDiagnosticsEnabled())
+		*yb_pgss_last_reset_time = GetCurrentTimestamp();
+
 	entry_reset(0, 0, 0);
 
 	PG_RETURN_VOID();
@@ -3621,7 +3627,12 @@ yb_track_nested_queries(void)
 	return pgss_track == PGSS_TRACK_ALL;
 }
 
-
+/*
+ * Get the normalized query text from the pgss_query_texts.stat file
+ * and copy it to the normalized_query buffer.
+ * Note that normalized_query is expected to be a buffer of at least
+ * query_len + 1 bytes.
+ */
 static void
 YbGetPgssNormalizedQueryText(Size query_offset, int query_len, char *normalized_query)
 {
@@ -3631,7 +3642,7 @@ YbGetPgssNormalizedQueryText(Size query_offset, int query_len, char *normalized_
 	qbuffer = qtext_load_file(&qbuffer_size);
 	memcpy(normalized_query, qtext_fetch(query_offset, query_len,
 										 qbuffer, qbuffer_size), query_len);
-	normalized_query[query_len - 1] = '\0'; /* Ensure null-termination */
+	normalized_query[query_len] = '\0'; /* Ensure null-termination */
 
 	free(qbuffer);
 }

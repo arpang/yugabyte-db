@@ -57,6 +57,7 @@
 #include "yb/rpc/sidecars.h"
 
 #include "yb/util/algorithm_util.h"
+#include "yb/util/debug.h"
 #include "yb/util/enums.h"
 #include "yb/util/flags.h"
 #include "yb/util/logging.h"
@@ -101,16 +102,14 @@ DEFINE_UNKNOWN_bool(pgsql_consistent_transactional_paging, true,
 DEFINE_test_flag(int32, slowdown_pgsql_aggregate_read_ms, 0,
                  "If set > 0, slows down the response to pgsql aggregate read by this amount.");
 
-// TODO: only enabled for new installs only for now, will enable it for upgrades in 2.22+ release.
-#ifndef NDEBUG
 // Disable packed row by default in debug builds.
-DEFINE_RUNTIME_bool(ysql_enable_packed_row, false,
-#else
-DEFINE_RUNTIME_AUTO_bool(ysql_enable_packed_row, kNewInstallsOnly, false, true,
-#endif
-                    "Whether packed row is enabled for YSQL.");
+// TODO: only enabled for new installs only for now, will enable it for upgrades in 2.22+ release.
+constexpr bool kYsqlEnablePackedRowTargetVal = !yb::kIsDebug;
+DEFINE_RUNTIME_AUTO_bool(ysql_enable_packed_row, kNewInstallsOnly,
+                         !kYsqlEnablePackedRowTargetVal, kYsqlEnablePackedRowTargetVal,
+                         "Whether packed row is enabled for YSQL.");
 
-DEFINE_RUNTIME_bool(ysql_enable_packed_row_for_colocated_table, false,
+DEFINE_RUNTIME_bool(ysql_enable_packed_row_for_colocated_table, true,
                     "Whether to enable packed row for colocated tables.");
 
 DEFINE_UNKNOWN_uint64(
@@ -1217,7 +1216,18 @@ Status PgsqlWriteOperation::ApplyUpdate(const DocOperationApplyData& data) {
   // skipped is set to false if this operation produces some data to write.
   bool skipped = true;
 
-  if (request_.has_ybctid_column_value()) {
+  // This function is invoked by three different callers:
+  // 1. Main table updates: requests have the YBCTID column field populated.
+  // 2. Secondary index updates: requests do not have the YBCTID column field populated.
+  //      The tuple identifier is constructed from partition and range key columns.
+  // 3. Sequence updates: requests are similar to secondary index updates. These updates are sent
+  //      by calling pggate directly, without going through the PostgreSQL layer.
+  // Since we cannot distinguish between (2) and (3), we make use of the table ID to determine the
+  // type of UPDATE to be performed. Sequence updates are always on the PG sequences data table.
+  bool is_sequence_update =
+      GetPgsqlTableId(kPgSequencesDataDatabaseOid, kPgSequencesDataTableOid) == request_.table_id();
+
+  if (!is_sequence_update) {
     const auto& schema = doc_read_context_->schema();
     ExpressionHelper expression_helper;
     RETURN_NOT_OK(expression_helper.Init(schema, projection(), request_, table_row));
@@ -1950,7 +1960,6 @@ Result<size_t> PgsqlReadOperation::ExecuteVectorSearch(
     HybridTime* restart_read_ht, bool* has_paging_state) {
   // Build the vectorann and then make an index_doc_read_context on the vectorann
   // to get the index iterator. Then do ExecuteBatchKeys on the index iterator.
-  auto dims = doc_read_context.vector_idx_options().dimensions();
 
   if (!request_.vector_idx_options().has_vector()) {
     return STATUS(InvalidArgument, "Query vector not provided");
@@ -1960,16 +1969,11 @@ Result<size_t> PgsqlReadOperation::ExecuteVectorSearch(
 
   auto ysql_query_vec = pointer_cast<const vectorindex::YSQLVector*>(query_vec.data());
 
-  SCHECK_EQ(ysql_query_vec->dim, dims, InvalidArgument, "Vector dimensions mismatch");
-
   auto query_vec_ref = VERIFY_RESULT(
       VectorANN<FloatVector>::GetVectorFromYSQLWire(*ysql_query_vec, query_vec.size()));
 
-  if (dims != ysql_query_vec->dim) {
-    return STATUS(InvalidArgument, "Vector dimensions mismatch");
-  }
   DummyANNFactory<FloatVector> ann_factory;
-  auto ann_store = ann_factory.Create(dims);
+  auto ann_store = ann_factory.Create(ysql_query_vec->dim);
 
   auto index_extraction_schema = Schema();
   std::vector<ColumnSchema> indexed_column_ids;
@@ -1981,6 +1985,11 @@ Result<size_t> PgsqlReadOperation::ExecuteVectorSearch(
   // Vector should be the first value after the key.
   auto vector_col_id =
       doc_read_context.schema().column_id(doc_read_context.schema().num_key_columns());
+
+  if (request_.vector_idx_options().has_vector_column_id()) {
+    vector_col_id = request_.vector_idx_options().vector_column_id();
+  }
+
   index_doc_projection.Init(doc_read_context.schema(), {key_col_id, vector_col_id});
 
   FilteringIterator table_iter(&table_iter_);
@@ -2007,7 +2016,7 @@ Result<size_t> PgsqlReadOperation::ExecuteVectorSearch(
           *pointer_cast<const vectorindex::YSQLVector*>(vec_value->binary_value().data()),
           vec_value->binary_value().size()));
       auto doc_iter = down_cast<DocRowwiseIterator*>(table_iter_.get());
-      ann_store->Add(vec, doc_iter->GetRowKey());
+      ann_store->Add(vec, doc_iter->GetTupleId());
     }
   }
 

@@ -149,6 +149,10 @@ struct FullCompactionStatus {
 // Information on a current replica of a tablet.
 // This is copyable so that no locking is needed.
 struct TabletReplica {
+  // todo(zdrudi): this is not safe because we can free TSDescriptor objects now. Safe-ish for now
+  // because we look at these structs to verify no raw pointers exist before freeing any
+  // TSDescriptor object.
+  // https://github.com/yugabyte/yugabyte-db/issues/24044
   TSDescriptor* ts_desc;
   tablet::RaftGroupStatePB state;
   PeerRole role;
@@ -614,8 +618,7 @@ class TableInfo : public RefCountedThreadSafe<TableInfo>,
     return GetTableType() == REDIS_TABLE_TYPE;
   }
 
-  bool IsBeingDroppedDueToDdlTxn(
-      const std::string& txn_id_pb, std::optional<bool> txn_success) const;
+  bool IsBeingDroppedDueToDdlTxn(const std::string& txn_id_pb, bool txn_success) const;
 
   // Add a tablet to this table.
   Status AddTablet(const TabletInfoPtr& tablet);
@@ -788,10 +791,13 @@ class TableInfo : public RefCountedThreadSafe<TableInfo>,
   // At any point in time it contains only the active tablets (defined in the comment on tablets_).
   std::map<PartitionKey, std::weak_ptr<TabletInfo>> partitions_ GUARDED_BY(lock_);
   // At any point in time it contains both active and inactive tablets.
+  //
   // Currently there are two cases for a tablet to be categorized as inactive:
-  // 1) Not yet deleted split parent tablets for which we've already
-  //    registered child split tablets.
-  // 2) Tablets that are marked as HIDDEN for PITR.
+  // 1) Tablets that have been marked HIDDEN; for example, for PITR or xCluster.
+  // 2) Tablets that have been/are being DELETED.
+  //
+  // Currently, we do not remove tablets we have deleted from tablets_.
+  // TODO(#15043): remove tablets from tablets_ once they have been deleted from all TServers.
   std::unordered_map<TabletId, std::weak_ptr<TabletInfo>> tablets_ GUARDED_BY(lock_);
 
   // Protects partitions_ and tablets_.
@@ -867,6 +873,8 @@ class NamespaceInfo : public RefCountedThreadSafe<NamespaceInfo>,
 
   ::yb::master::SysNamespaceEntryPB_State state() const;
 
+  ::yb::master::SysNamespaceEntryPB_YsqlNextMajorVersionState ysql_next_major_version_state() const;
+
   std::string ToString() const override;
 
  private:
@@ -940,6 +948,25 @@ class UDTypeInfo : public RefCountedThreadSafe<UDTypeInfo>,
   const UDTypeId udtype_id_;
 
   DISALLOW_COPY_AND_ASSIGN(UDTypeInfo);
+};
+
+// This wraps around the proto containing information about what locks have been taken.
+// It will be used for LockObject persistence.
+struct PersistentObjectLockInfo : public Persistent<SysObjectLockEntryPB> {};
+
+class ObjectLockInfo : public MetadataCowWrapper<PersistentObjectLockInfo> {
+ public:
+  explicit ObjectLockInfo(const std::string& ts_uuid) : ts_uuid_(ts_uuid) {}
+  ~ObjectLockInfo() = default;
+
+  // Return the user defined type's ID. Does not require synchronization.
+  virtual const std::string& id() const override { return ts_uuid_; }
+
+ private:
+  // The ID field is used in the sys_catalog table.
+  const std::string ts_uuid_;
+
+  DISALLOW_COPY_AND_ASSIGN(ObjectLockInfo);
 };
 
 // This wraps around the proto containing cluster level config information. It will be used for
@@ -1211,6 +1238,7 @@ struct PersistentUniverseReplicationInfo
   }
 
   bool IsDbScoped() const;
+  bool IsAutomaticDdlMode() const;
 };
 
 class UniverseReplicationInfo : public UniverseReplicationInfoBase,
@@ -1233,6 +1261,8 @@ class UniverseReplicationInfo : public UniverseReplicationInfoBase,
   Status GetSetupUniverseReplicationErrorStatus() const;
 
   bool IsDbScoped() const;
+
+  bool IsAutomaticDdlMode() const;
 
  private:
   friend class RefCountedThreadSafe<UniverseReplicationInfo>;

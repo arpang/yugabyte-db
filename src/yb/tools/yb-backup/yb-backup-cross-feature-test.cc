@@ -19,6 +19,7 @@
 
 #include "yb/tools/yb-backup/yb-backup-test_base.h"
 
+#include "yb/gutil/callback.h"
 #include "yb/util/backoff_waiter.h"
 
 #include "yb/yql/pgwrapper/libpq_test_base.h"
@@ -70,6 +71,7 @@ class YBBackupTestColocatedTablesWithTablespaces : public YBBackupTest {
  public:
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     YBBackupTest::UpdateMiniClusterOptions(options);
+    options->replication_factor = 3;
     options->extra_master_flags.emplace_back(
         "--allowed_preview_flags_csv=ysql_enable_colocated_tables_with_tablespaces");
     options->extra_master_flags.emplace_back(
@@ -1036,7 +1038,7 @@ TEST_F(
   SetDbName(backup_db_name);
 
   ASSERT_NO_FATALS(CreateTable("CREATE TABLE t1 (a INT PRIMARY KEY) TABLESPACE tsp1"));
-  ASSERT_NO_FATALS(CreateTable("CREATE TABLE t2 (a INT PRIMARY KEY) TABLESPACE tsp1"));
+  ASSERT_NO_FATALS(CreateTable("CREATE TABLE t2 (a INT PRIMARY KEY)"));
 
   for (int i = 0; i < 3; ++i) {
     ASSERT_NO_FATALS(InsertOneRow(Format("INSERT INTO t1 VALUES ($0)", i)));
@@ -1080,8 +1082,7 @@ TEST_F(
     --------+---------+-----------+----------+---------
      a      | integer |           | not null |
     Indexes:
-        "t2_pkey" PRIMARY KEY, lsm (a ASC), tablespace "tsp1", colocation: true
-    Tablespace: "tsp1"
+        "t2_pkey" PRIMARY KEY, lsm (a ASC), colocation: true
     Colocation: true
   )#");
 }
@@ -1109,9 +1110,47 @@ TEST_F(
       ]
     }'
   )#";
+  ASSERT_OK(cluster_->AddTabletServer(ExternalMiniClusterOptions::kDefaultStartCqlProxy,
+    {"--placement_cloud=cloud1", "--placement_region=datacenter1", "--placement_zone=rack2"}));
+  const std::string placement_info_2 = R"#(
+    '{
+      "num_replicas" : 1,
+      "placement_blocks": [
+          {
+            "cloud"            : "cloud1",
+            "region"           : "datacenter1",
+            "zone"             : "rack2",
+            "min_num_replicas" : 1
+          }
+      ]
+    }'
+  )#";
 
+  ASSERT_OK(cluster_->AddTabletServer(ExternalMiniClusterOptions::kDefaultStartCqlProxy,
+    {"--placement_cloud=cloud1", "--placement_region=datacenter1", "--placement_zone=rack3"}));
+  const std::string placement_info_3 = R"#(
+    '{
+      "num_replicas" : 1,
+      "placement_blocks": [
+          {
+            "cloud"            : "cloud1",
+            "region"           : "datacenter1",
+            "zone"             : "rack3",
+            "min_num_replicas" : 1
+          }
+      ]
+    }'
+  )#";
   ASSERT_NO_FATALS(RunPsqlCommand(
       "CREATE TABLESPACE tsp1 WITH (replica_placement=" + placement_info_1 + ")",
+      "CREATE TABLESPACE"));
+
+  ASSERT_NO_FATALS(RunPsqlCommand(
+      "CREATE TABLESPACE tsp2 WITH (replica_placement=" + placement_info_2 + ")",
+      "CREATE TABLESPACE"));
+
+  ASSERT_NO_FATALS(RunPsqlCommand(
+      "CREATE TABLESPACE tsp3 WITH (replica_placement=" + placement_info_3 + ")",
       "CREATE TABLESPACE"));
 
   ASSERT_NO_FATALS(RunPsqlCommand(
@@ -1119,7 +1158,10 @@ TEST_F(
   SetDbName(backup_db_name);
 
   ASSERT_NO_FATALS(CreateTable("CREATE TABLE t1 (a INT PRIMARY KEY) TABLESPACE tsp1"));
-  ASSERT_NO_FATALS(CreateTable("CREATE TABLE t2 (a INT PRIMARY KEY) TABLESPACE tsp1"));
+  ASSERT_NO_FATALS(CreateTable("CREATE TABLE t2 (a INT PRIMARY KEY) TABLESPACE tsp2"));
+  ASSERT_NO_FATALS(CreateTable("CREATE TABLE t3 (a INT PRIMARY KEY) TABLESPACE tsp3"));
+  ASSERT_NO_FATALS(CreateTable("CREATE TABLE t4 (a INT PRIMARY KEY)"));
+  ASSERT_NO_FATALS(CreateTable("CREATE TABLE t5 (a INT PRIMARY KEY) TABLESPACE tsp1"));
 
   for (int i = 0; i < 3; ++i) {
     ASSERT_NO_FATALS(InsertOneRow(Format("INSERT INTO t1 VALUES ($0)", i)));
@@ -1164,6 +1206,48 @@ TEST_F(
     Indexes:
         "t2_pkey" PRIMARY KEY, lsm (a ASC), colocation: true
     Colocation: true
+  )#");
+  RunPsqlCommand(" \\d t3",
+  R"#(
+                    Table "public.t3"
+     Column |  Type   | Collation | Nullable | Default
+    --------+---------+-----------+----------+---------
+     a      | integer |           | not null |
+    Indexes:
+        "t3_pkey" PRIMARY KEY, lsm (a ASC), colocation: true
+    Colocation: true
+  )#");
+  RunPsqlCommand(" \\d t4",
+  R"#(
+                    Table "public.t4"
+     Column |  Type   | Collation | Nullable | Default
+    --------+---------+-----------+----------+---------
+     a      | integer |           | not null |
+    Indexes:
+        "t4_pkey" PRIMARY KEY, lsm (a ASC), colocation: true
+    Colocation: true
+  )#");
+  RunPsqlCommand(" \\d t5",
+  R"#(
+                    Table "public.t5"
+     Column |  Type   | Collation | Nullable | Default
+    --------+---------+-----------+----------+---------
+     a      | integer |           | not null |
+    Indexes:
+        "t5_pkey" PRIMARY KEY, lsm (a ASC), colocation: true
+    Colocation: true
+  )#");
+  RunPsqlCommand(" \\dgrt",
+  R"#(
+                  List of tablegroup tables
+          Group Name        | Group Owner | Name | Type  |  Owner
+  --------------------------+-------------+------+-------+----------
+   colocation_restore_16387 | postgres    | t1   | table | yugabyte
+   colocation_restore_16387 | postgres    | t5   | table | yugabyte
+   colocation_restore_16393 | postgres    | t2   | table | yugabyte
+   colocation_restore_16399 | postgres    | t3   | table | yugabyte
+   default                  | postgres    | t4   | table | yugabyte
+  (5 rows)
   )#");
 }
 
@@ -2452,6 +2536,71 @@ TEST_F_EX(
     SetDbName("yugabyte_new");
     ASSERT_NO_FATALS(RunPsqlCommand(query, *query_result));
   }
+}
+
+TEST_F(
+    YBBackupTest, YB_DISABLE_TEST_IN_SANITIZERS(TestRenamedColumns)) {
+  ASSERT_NO_FATALS(CreateTable("CREATE TABLE table_1 (a INT, b INT, c INT, d INT)"));
+  ASSERT_NO_FATALS(InsertRows("INSERT INTO table_1 VALUES (1, 1, 1, 1), (2, 2, 2, 2)", 2));
+  ASSERT_NO_FATALS(RunPsqlCommand("CREATE TABLE table_2 AS SELECT b, d FROM table_1", "SELECT 2"));
+  ASSERT_NO_FATALS(CreateIndex("CREATE INDEX index_1 ON table_1 (b, d)"));
+  ASSERT_NO_FATALS(RunPsqlCommand(
+      "CREATE MATERIALIZED VIEW matview AS SELECT b, d FROM table_1", "SELECT 2"));
+  ASSERT_NO_FATALS(RunPsqlCommand("ALTER TABLE table_1 RENAME COLUMN b TO b1", "ALTER TABLE"));
+  ASSERT_NO_FATALS(RunPsqlCommand("ALTER TABLE table_1 DROP COLUMN c", "ALTER TABLE"));
+  ASSERT_NO_FATALS(RunPsqlCommand("ALTER TABLE table_1 RENAME COLUMN d TO d1", "ALTER TABLE"));
+  // Backup then restore to a new database.
+  const string backup_dir = GetTempDir("backup");
+  ASSERT_OK(RunBackupCommand(
+      {"--backup_location", backup_dir, "--keyspace", "ysql.yugabyte", "create"}));
+  ASSERT_OK(RunBackupCommand(
+      {"--backup_location", backup_dir, "--keyspace", "ysql.yugabyte_new", "restore"}));
+  // Verify that the restored index has the new column names.
+  auto client = ASSERT_RESULT(cluster_->CreateClient());
+  auto table_id = ASSERT_RESULT(GetTableIdByTableName(client.get(), "yugabyte_new", "index_1"));
+  Synchronizer sync;
+  auto table_info = std::make_shared<client::YBTableInfo>();
+  ASSERT_OK(client_->GetTableSchemaById(table_id, table_info, sync.AsStatusCallback()));
+  ASSERT_OK(sync.Wait());
+  ASSERT_EQ(table_info->schema.columns()[0].name(), "b1");
+  ASSERT_EQ(table_info->schema.columns()[1].name(), "d1");
+  SetDbName("yugabyte_new");
+  // Verify that the index works correctly.
+  ASSERT_NO_FATALS(RunPsqlCommand(
+      "EXPLAIN (COSTS OFF) SELECT b1, d1 FROM table_1 WHERE b1 = 1 AND d1 = 1",
+      R"#(
+                      QUERY PLAN
+      ------------------------------------------
+       Index Only Scan using index_1 on table_1
+         Index Cond: ((b1 = 1) AND (d1 = 1))
+      (2 rows)
+
+      )#"));
+  ASSERT_NO_FATALS(RunPsqlCommand(
+      "SELECT b1, d1 FROM table_1 WHERE b1 = 1 AND d1 = 1", R"#(
+         b1 | d1
+        ----+----
+          1 |  1
+        (1 row)
+      )#"));
+  // Lastly, also perform some sanity check on the other objects.
+  ASSERT_NO_FATALS(RunPsqlCommand(
+      "SELECT b, d FROM table_2 ORDER BY b", R"#(
+         b | d
+        ---+---
+         1 | 1
+         2 | 2
+        (2 rows)
+      )#"));
+
+  ASSERT_NO_FATALS(RunPsqlCommand(
+      "SELECT b, d FROM matview ORDER BY b", R"#(
+         b | d
+        ---+---
+         1 | 1
+         2 | 2
+        (2 rows)
+      )#"));
 }
 }  // namespace tools
 }  // namespace yb

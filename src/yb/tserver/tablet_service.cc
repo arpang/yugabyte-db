@@ -739,7 +739,9 @@ void TabletServiceAdminImpl::BackfillIndex(
     return;
   }
 
-  const uint32_t our_schema_version = tablet.peer->tablet_metadata()->schema_version();
+  // TODO(asrivastava): This does not correctly handle colocated tables.
+  const uint32_t our_schema_version =
+      tablet.peer->tablet_metadata()->primary_table_schema_version();
   const uint32_t their_schema_version = req->schema_version();
   bool all_at_backfill = true;
   bool all_past_backfill = true;
@@ -1221,7 +1223,9 @@ void TabletServiceImpl::UpdateTransaction(const UpdateTransactionRequestPB* req,
   state->set_completion_callback(MakeRpcOperationCompletionCallback(
       std::move(context), resp, server_->Clock()));
 
-  if (req->state().status() == TransactionStatus::APPLYING || cleanup) {
+  if (req->state().status() == TransactionStatus::APPLYING ||
+      req->state().status() == TransactionStatus::PROMOTING ||
+      cleanup) {
     auto* participant = tablet.tablet->transaction_participant();
     if (participant) {
       participant->Handle(std::move(state), tablet.leader_term);
@@ -1414,27 +1418,8 @@ Status TabletServiceImpl::HandleUpdateTransactionStatusLocation(
     return STATUS(InvalidArgument, "No transaction participant to process transaction status move");
   }
 
-  auto metadata = participant->UpdateTransactionStatusLocation(txn_id, req->new_status_tablet_id());
-  if (!metadata.ok()) {
-    return metadata.status();
-  }
-
-  auto query = std::make_unique<tablet::WriteQuery>(
-      tablet.leader_term, context->GetClientDeadline(), tablet.peer.get(),
-      tablet.tablet, nullptr);
-  auto* request = query->operation().AllocateRequest();
-  metadata->ToPB(request->mutable_write_batch()->mutable_transaction());
-
-  query->set_callback([resp, context](const Status& status) {
-    if (!status.ok()) {
-      LOG(WARNING) << status;
-      SetupErrorAndRespond(resp->mutable_error(), status, context.get());
-    } else {
-      context->RespondSuccess();
-    }
-  });
-  tablet.peer->WriteAsync(std::move(query));
-
+  RETURN_NOT_OK(participant->UpdateTransactionStatusLocation(txn_id, req->new_status_tablet_id()));
+  context->RespondSuccess();
   return Status::OK();
 }
 
@@ -1537,6 +1522,8 @@ void TabletServiceImpl::GetCompatibleSchemaVersion(
     if (result.ok()) {
       schema_version = *result;
     } else {
+      // Also set the latest schema version.
+      resp->set_latest_schema_version(schema_version);
       SetupErrorAndRespond(
           resp->mutable_error(), result.status(), TabletServerErrorPB::MISMATCHED_SCHEMA, &context);
       return;
@@ -3101,6 +3088,19 @@ void TabletServiceImpl::CheckTserverTabletHealth(const CheckTserverTabletHealthR
   context.RespondSuccess();
 }
 
+void TabletServiceImpl::GetMetrics(const GetMetricsRequestPB* req,
+                                   GetMetricsResponsePB* resp,
+                                   rpc::RpcContext context) {
+  auto result = server_->GetMetrics();
+  if (!result.ok()) {
+    SetupErrorAndRespond(resp->mutable_error(), result.status(), &context);
+    return;
+  }
+  vector<TserverMetricsInfoPB> metrics = result.get();
+  *resp->mutable_metrics() = {metrics.begin(), metrics.end()};
+  context.RespondSuccess();
+}
+
 void TabletServiceImpl::GetLockStatus(const GetLockStatusRequestPB* req,
                                       GetLockStatusResponsePB* resp,
                                       rpc::RpcContext context) {
@@ -3339,6 +3339,21 @@ void TabletServiceImpl::ClearAllMetaCachesOnServer(
   context.RespondSuccess();
 }
 
+void TabletServiceImpl::ClearMetacache(
+    const ClearMetacacheRequestPB* req, ClearMetacacheResponsePB* resp, rpc::RpcContext context) {
+  if (!req->has_namespace_id()) {
+    SetupErrorAndRespond(
+        resp->mutable_error(), STATUS(InvalidArgument, "namespace_id is not specified"), &context);
+    return;
+  }
+  auto s = server_->ClearMetacache(req->namespace_id());
+  if (!s.ok()) {
+    SetupErrorAndRespond(resp->mutable_error(), s, &context);
+  } else {
+    context.RespondSuccess();
+  }
+}
+
 void TabletServiceImpl::AcquireObjectLocks(
     const AcquireObjectLockRequestPB* req, AcquireObjectLockResponsePB* resp,
     rpc::RpcContext context) {
@@ -3382,6 +3397,28 @@ void TabletServiceImpl::ReleaseObjectLocks(
   auto s = ts_local_lock_manager->ReleaseObjectLocks(*req);
   if (!s.ok()) {
     SetupErrorAndRespond(resp->mutable_error(), s, &context);
+  } else {
+    context.RespondSuccess();
+  }
+}
+
+void TabletServiceImpl::AdminExecutePgsql(
+    const AdminExecutePgsqlRequestPB* req, AdminExecutePgsqlResponsePB* resp,
+    rpc::RpcContext context) {
+  auto execute_pg_sql = [&req, &context, &server = server_]() -> Status {
+    const auto& deadline = context.GetClientDeadline();
+    auto pg_conn = VERIFY_RESULT(server->CreateInternalPGConn(req->database_name(), deadline));
+    for (const auto& stmt : req->pgsql_statements()) {
+      SCHECK_LT(
+          CoarseMonoClock::Now(), deadline, TimedOut, "Timed out while executing Ysql statements");
+      RETURN_NOT_OK(pg_conn.Execute(stmt));
+    }
+    return Status::OK();
+  };
+
+  auto status = execute_pg_sql();
+  if (!status.ok()) {
+    SetupErrorAndRespond(resp->mutable_error(), status, &context);
   } else {
     context.RespondSuccess();
   }

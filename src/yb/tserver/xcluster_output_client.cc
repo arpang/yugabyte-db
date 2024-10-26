@@ -23,6 +23,7 @@
 #include "yb/client/client_utils.h"
 #include "yb/client/meta_cache.h"
 #include "yb/client/table.h"
+#include "yb/client/xcluster_client.h"
 #include "yb/dockv/doc_key.h"
 
 #include "yb/master/master_replication.pb.h"
@@ -79,6 +80,15 @@ DECLARE_bool(TEST_running_test);
   std::lock_guard l(lock_); \
   SCHECK(!IsOffline(), Aborted, LogPrefix(), "xCluster output client went offline")
 
+#define STORE_REPLICATION_ERROR_AND_HANDLE_ERROR(replication_error, status) \
+  do { \
+    { \
+      ACQUIRE_MUTEX_IF_ONLINE_ELSE_RETURN; \
+      xcluster_poller_->StoreReplicationError(replication_error); \
+    } \
+    HandleError(status); \
+  } while (0)
+
 using namespace std::placeholders;
 
 namespace yb {
@@ -87,7 +97,7 @@ namespace tserver {
 XClusterOutputClient::XClusterOutputClient(
     XClusterPoller* xcluster_poller, const xcluster::ConsumerTabletInfo& consumer_tablet_info,
     const xcluster::ProducerTabletInfo& producer_tablet_info, client::YBClient& local_client,
-    ThreadPool* thread_pool, rpc::Rpcs* rpcs, bool use_local_tserver,
+    ThreadPool* thread_pool, rpc::Rpcs* rpcs, bool use_local_tserver, bool is_automatic_mode,
     rocksdb::RateLimiter* rate_limiter)
     : XClusterAsyncExecutor(thread_pool, local_client.messenger(), rpcs),
       xcluster_poller_(xcluster_poller),
@@ -95,6 +105,7 @@ XClusterOutputClient::XClusterOutputClient(
       producer_tablet_info_(producer_tablet_info),
       local_client_(local_client),
       use_local_tserver_(use_local_tserver),
+      is_automatic_mode_(is_automatic_mode),
       all_tablets_result_(STATUS(Uninitialized, "Result has not been initialized.")),
       rate_limiter_(rate_limiter) {}
 
@@ -542,10 +553,37 @@ void XClusterOutputClient::DoSchemaVersionCheckDone(
         req.schema().DebugString(), producer_schema_version);
     LOG_WITH_PREFIX(WARNING) << msg << ": " << status;
     if (resp.error().code() == TabletServerErrorPB::MISMATCHED_SCHEMA) {
-      ACQUIRE_MUTEX_IF_ONLINE_ELSE_RETURN;
-      xcluster_poller_->StoreReplicationError(replication_error);
+      // For automatic DDL replication, we need to insert this packing schema into the historical
+      // set of schemas - this will allow us to correctly map packing schema versions until the
+      // replicated DDL is run via ddl_queue.
+      if (is_automatic_mode_) {
+        // Also pass the latest schema version so that we don't repeatedly insert the same schema.
+        if (!resp.has_latest_schema_version()) {
+          STORE_REPLICATION_ERROR_AND_HANDLE_ERROR(
+              ReplicationErrorPb::REPLICATION_SYSTEM_ERROR,
+              STATUS(IllegalState, "Missing latest schema version in response"));
+          return;
+        }
+        auto s =
+            client::XClusterClient(local_client_)
+                .InsertPackedSchemaForXClusterTarget(
+                    consumer_tablet_info_.table_id, req.schema(), resp.latest_schema_version());
+
+        if (s.ok()) {
+          VLOG_WITH_PREFIX(2) << "Inserted schema for automatic DDL replication: "
+                              << req.schema().ShortDebugString();
+          // Can now retry creating the schema version mapping.
+          tserver::GetCompatibleSchemaVersionRequestPB new_req(req);
+          UpdateSchemaVersionMapping(&new_req);
+          return;
+        }
+
+        LOG_WITH_PREFIX(WARNING) << "Failed to insert schema for automatic DDL replication: " << s;
+        STORE_REPLICATION_ERROR_AND_HANDLE_ERROR(ReplicationErrorPb::REPLICATION_SYSTEM_ERROR, s);
+        return;
+      }
     }
-    HandleError(status);
+    STORE_REPLICATION_ERROR_AND_HANDLE_ERROR(replication_error, status);
     return;
   }
 
@@ -701,11 +739,11 @@ bool XClusterOutputClient::IncProcessedRecordCount() {
 std::shared_ptr<XClusterOutputClient> CreateXClusterOutputClient(
     XClusterPoller* xcluster_poller, const xcluster::ConsumerTabletInfo& consumer_tablet_info,
     const xcluster::ProducerTabletInfo& producer_tablet_info, client::YBClient& local_client,
-    ThreadPool* thread_pool, rpc::Rpcs* rpcs, bool use_local_tserver,
+    ThreadPool* thread_pool, rpc::Rpcs* rpcs, bool use_local_tserver, bool is_automatic_mode,
     rocksdb::RateLimiter* rate_limiter) {
   return std::make_unique<XClusterOutputClient>(
       xcluster_poller, consumer_tablet_info, producer_tablet_info, local_client, thread_pool, rpcs,
-      use_local_tserver, rate_limiter);
+      use_local_tserver, is_automatic_mode, rate_limiter);
 }
 
 }  // namespace tserver

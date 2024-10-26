@@ -43,6 +43,7 @@
 #include "yb/rocksdb/metadata.h"
 #include "yb/rocksdb/options.h"
 #include "yb/rocksdb/rate_limiter.h"
+#include "yb/rocksdb/statistics.h"
 #include "yb/rocksdb/table.h"
 #include "yb/rocksdb/table/block_based_table_reader.h"
 #include "yb/rocksdb/table/filtering_iterator.h"
@@ -52,6 +53,7 @@
 #include "yb/rocksutil/yb_rocksdb_logger.h"
 
 #include "yb/util/flags.h"
+#include "yb/util/flag_validators.h"
 #include "yb/util/priority_thread_pool.h"
 #include "yb/util/result.h"
 #include "yb/util/size_literals.h"
@@ -225,32 +227,11 @@ namespace docdb {
 
 } // namespace yb
 
-namespace {
+DEFINE_validator(compression_type,
+    FLAG_OK_VALIDATOR(yb::GetConfiguredCompressionType(_value)));
 
-bool CompressionTypeValidator(const char* flag_name, const std::string& flag_compression_type) {
-  auto res = yb::GetConfiguredCompressionType(flag_compression_type);
-  if (!res.ok()) {
-    // Below we CHECK_RESULT on the same value returned here, and validating the result here ensures
-    // that CHECK_RESULT will never fail once the process is running.
-    LOG_FLAG_VALIDATION_ERROR(flag_name, flag_compression_type) << res.status().ToString();
-    return false;
-  }
-  return true;
-}
-
-bool KeyValueEncodingFormatValidator(const char* flag_name, const std::string& flag_value) {
-  auto res = yb::docdb::GetConfiguredKeyValueEncodingFormat(flag_value);
-  bool ok = res.ok();
-  if (!ok) {
-    LOG_FLAG_VALIDATION_ERROR(flag_name, flag_value) << res.status();
-  }
-  return ok;
-}
-
-} // namespace
-
-DEFINE_validator(compression_type, &CompressionTypeValidator);
-DEFINE_validator(regular_tablets_data_block_key_value_encoding, &KeyValueEncodingFormatValidator);
+DEFINE_validator(regular_tablets_data_block_key_value_encoding,
+    FLAG_OK_VALIDATOR(yb::docdb::GetConfiguredKeyValueEncodingFormat(_value)));
 
 using std::shared_ptr;
 using std::string;
@@ -280,6 +261,7 @@ rocksdb::ReadOptions PrepareReadOptions(
     const rocksdb::QueryId query_id,
     std::shared_ptr<rocksdb::ReadFileFilter> file_filter,
     const Slice* iterate_upper_bound,
+    rocksdb::CacheRestartBlockKeys cache_restart_block_keys,
     rocksdb::Statistics* statistics) {
   rocksdb::ReadOptions read_opts;
   read_opts.query_id = query_id;
@@ -293,7 +275,12 @@ rocksdb::ReadOptions PrepareReadOptions(
   }
   read_opts.file_filter = std::move(file_filter);
   read_opts.iterate_upper_bound = iterate_upper_bound;
+  read_opts.cache_restart_block_keys = cache_restart_block_keys;
   return read_opts;
+}
+
+rocksdb::Statistics* GetRegularDBStatistics(const DocDBStatistics* statistics) {
+  return statistics ? statistics->RegularDBStatistics() : nullptr;
 }
 
 } // namespace
@@ -306,9 +293,11 @@ BoundedRocksDbIterator CreateRocksDBIterator(
     const rocksdb::QueryId query_id,
     std::shared_ptr<rocksdb::ReadFileFilter> file_filter,
     const Slice* iterate_upper_bound,
+    const rocksdb::CacheRestartBlockKeys cache_restart_block_keys,
     rocksdb::Statistics* statistics) {
   rocksdb::ReadOptions read_opts = PrepareReadOptions(rocksdb, bloom_filter_mode,
-      user_key_for_filter, query_id, std::move(file_filter), iterate_upper_bound, statistics);
+      user_key_for_filter, query_id, std::move(file_filter), iterate_upper_bound,
+      cache_restart_block_keys, statistics);
   return BoundedRocksDbIterator(rocksdb, read_opts, docdb_key_bounds);
 }
 
@@ -322,11 +311,13 @@ unique_ptr<IntentAwareIterator> CreateIntentAwareIterator(
     std::shared_ptr<rocksdb::ReadFileFilter> file_filter,
     const Slice* iterate_upper_bound,
     const FastBackwardScan use_fast_backward_scan) {
+  // Current policy is to enable restart block keys caching only when fast backward scan is enabled.
+  const auto cache_restart_block_keys = rocksdb::CacheRestartBlockKeys { use_fast_backward_scan };
+
   // TODO(dtxn) do we need separate options for intents db?
   rocksdb::ReadOptions read_opts = PrepareReadOptions(doc_db.regular, bloom_filter_mode,
       user_key_for_filter, query_id, std::move(file_filter), iterate_upper_bound,
-      read_operation_data.statistics ? read_operation_data.statistics->RegularDBStatistics()
-                                     : nullptr);
+      cache_restart_block_keys, GetRegularDBStatistics(read_operation_data.statistics));
   return std::make_unique<IntentAwareIterator>(
       doc_db, read_opts, read_operation_data, txn_op_context, use_fast_backward_scan);
 }
@@ -336,6 +327,7 @@ BoundedRocksDbIterator CreateIntentsIteratorWithHybridTimeFilter(
     const TransactionStatusManager* status_manager,
     const KeyBounds* docdb_key_bounds,
     const Slice* iterate_upper_bound,
+    const rocksdb::CacheRestartBlockKeys cache_restart_block_keys,
     rocksdb::Statistics* statistics) {
   auto min_running_ht = status_manager->MinRunningHybridTime();
   if (min_running_ht == HybridTime::kMax) {
@@ -350,6 +342,7 @@ BoundedRocksDbIterator CreateIntentsIteratorWithHybridTimeFilter(
       rocksdb::kDefaultQueryId,
       CreateIntentHybridTimeFileFilter(min_running_ht),
       iterate_upper_bound,
+      cache_restart_block_keys,
       statistics);
 }
 

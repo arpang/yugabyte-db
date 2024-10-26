@@ -9,7 +9,7 @@ import { Prereqs } from "./Prereqs";
 import { StepCard } from "./StepCard";
 import { SchemaAnalysis } from "./SchemaAnalysis";
 import { MigrateSchemaTaskInfo, useGetVoyagerMigrateSchemaTasksQuery } from "@app/api/src";
-
+import { Trans } from "react-i18next";
 const useStyles = makeStyles((theme) => ({
   heading: {
     marginBottom: theme.spacing(4),
@@ -40,6 +40,12 @@ const useStyles = makeStyles((theme) => ({
   },
   menuIcon: {
     marginRight: theme.spacing(1),
+  },
+  dividerWrapper: {
+    margin: theme.spacing(3, -2, 3, -9)
+  },
+  divider: {
+    backgroundColor: theme.palette.grey[300],
   },
 }));
 
@@ -90,10 +96,11 @@ const importSchemaPrereqs: React.ReactNode[] = [
 
 interface MigrationSchemaProps {
   heading: string;
-  migration: Migration;
+  migration: Migration | undefined;
   step: number;
   onRefetch: () => void;
   isFetching?: boolean;
+  isNewMigration?: boolean;
 }
 
 export const MigrationSchema: FC<MigrationSchemaProps> = ({
@@ -101,6 +108,7 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
   migration,
   onRefetch,
   isFetching = false,
+  isNewMigration = false,
 }) => {
   const classes = useStyles();
   const { t } = useTranslation();
@@ -111,7 +119,7 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
     isFetching: isFetchingAPI,
     isError: isErrorMigrationSchemaTasks,
   } = useGetVoyagerMigrateSchemaTasksQuery({
-    uuid: migration.migration_uuid || "migration_uuid_not_found",
+    uuid: migration?.migration_uuid || "migration_uuid_not_found",
   });
 
   const schemaAPI = (data as MigrateSchemaTaskInfo) || {};
@@ -122,6 +130,12 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
       "https://docs.yugabyte.com/preview/yugabyte-voyager/migrate/migrate-steps/#analyze-schema"
   const IMPORT_SCHEMA_DOCS_URL =
       "https://docs.yugabyte.com/preview/yugabyte-voyager/migrate/migrate-steps/#import-schema"
+  let manualSum: number = (
+        schemaAPI?.current_analysis_report?.recommended_refactoring?.refactor_details?.reduce(
+          (sum, detail) => {
+            return sum + (detail?.manual ?? 0);
+          }, 0) || 0);
+  const manualRefactorRequired: boolean = manualSum !== 0;
 
   return (
     <Box>
@@ -134,33 +148,43 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
         </YBButton>
       </Box>
 
-      {isErrorMigrationSchemaTasks && <GenericFailure />}
+      {isErrorMigrationSchemaTasks && !isNewMigration && <GenericFailure />}
 
-      {(isFetching || isFetchingAPI) && (
+      {(isFetching || isFetchingAPI) && !isNewMigration && (
         <Box textAlign="center" pt={2} pb={2} width="100%">
           <LinearProgress />
         </Box>
       )}
 
-      {!(isFetching || isFetchingAPI || isErrorMigrationSchemaTasks) && (
+      {(!(isFetching || isFetchingAPI || isErrorMigrationSchemaTasks) || isNewMigration) && (
         <>
           <Box display="flex" flexDirection="column" gridGap={theme.spacing(2)}>
             <StepCard
-              title={t("clusterDetail.voyager.migrateSchema.schemaExportSourceDB")}
+              title={
+                <Trans
+                  i18nKey="clusterDetail.voyager.migrateSchema.schemaExportSourceDB"
+                  components={[<strong key="0" />]}
+                />
+              }
               isDone={schemaAPI.export_schema === "complete"}
               isLoading={schemaAPI.export_schema === "in-progress"}
               showInProgress={schemaAPI.export_schema === "in-progress"}
-              showTodo={!schemaAPI.export_schema || schemaAPI.export_schema === "N/A"}
-              hideContent={!(!schemaAPI.export_schema || schemaAPI.export_schema === "N/A")}
+              accordion={!(!schemaAPI.export_schema || schemaAPI.export_schema === "N/A")}
+              contentSeparator={true}
             >
               {(status) => {
-                if (status === "TODO") {
+                if (status === "TODO" || status === "DONE" || status === "IN_PROGRESS") {
                   return (
                     <>
-                      <Prereqs items={exportSchemaPrereqs} />
-                      <Box mt={2} mb={2} width="fit-content">
+                      <Box my={4}>
+                        <Prereqs items={exportSchemaPrereqs}/>
+                      </Box>
+                      <Box my={2} width="fit-content">
                         <Typography variant="body2">
-                          {t("clusterDetail.voyager.migrateSchema.schemaExportDesc")}
+                          <Trans
+                            i18nKey="clusterDetail.voyager.migrateSchema.schemaExportDesc"
+                            components={[<strong key="0" />, <strong key="1" />]}
+                          />
                         </Typography>
                       </Box>
                       <YBCodeBlock
@@ -179,6 +203,7 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
                         }
                         showCopyIconButton={true}
                         preClassName={classes.commandCodeBlock}
+                        highlightSyntax={true}
                       />
                       <Box mt={2} mb={2} width="fit-content">
                         <Link
@@ -187,9 +212,7 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
                           target="_blank"
                         >
                           <BookIcon className={classes.menuIcon} />
-                          <Typography
-                            variant="body2"
-                          >
+                          <Typography variant="body2">
                             {t("clusterDetail.voyager.migrateSchema.schemaExportLearn")}
                           </Typography>
                         </Link>
@@ -198,41 +221,35 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
                   );
                 }
 
-                if (status === "IN_PROGRESS") {
-                  return (<></>);
-                }
 
                 return null;
               }}
             </StepCard>
             <StepCard
-              title={t("clusterDetail.voyager.migrateSchema.schemaAnalysis")}
+              title={
+                <Trans
+                  i18nKey="clusterDetail.voyager.migrateSchema.schemaAnalysis"
+                  components={[<strong key="0" />]}
+                />
+              }
               isDone={schemaAPI.analyze_schema === "complete"}
+              isTodo={manualRefactorRequired}
               isLoading={schemaAPI.analyze_schema === "in-progress"}
               showInProgress={schemaAPI.analyze_schema === "in-progress"}
               accordion={schemaAPI.analyze_schema === "complete"}
+              contentSeparator={true}
               defaultExpanded={
-                schemaAPI.analyze_schema === "complete" &&
-                (!schemaAPI.import_schema || schemaAPI.import_schema === "N/A")
-              }
-              showTooltip={
-                schemaAPI.export_schema !== "complete" &&
-                (!schemaAPI.analyze_schema || schemaAPI.analyze_schema === "N/A")
-              }
-              showTodo={
+                (schemaAPI.analyze_schema === "complete" &&
                 schemaAPI.export_schema === "complete" &&
-                (!schemaAPI.analyze_schema || schemaAPI.analyze_schema === "N/A")
-              }
-              hideContent={
-                schemaAPI.export_schema !== "complete" &&
-                (!schemaAPI.analyze_schema || schemaAPI.analyze_schema === "N/A")
+                (!schemaAPI.import_schema || schemaAPI.import_schema === "N/A")) ||
+                manualRefactorRequired
               }
             >
               {(status) => {
                 if (status === "TODO") {
                   return (
                     <>
-                      <Box mt={2} mb={2} width="fit-content">
+                      <Box my={2} width="fit-content">
                         <Typography variant="body2">
                           {t("clusterDetail.voyager.migrateSchema.schemaAnalysisDesc")}
                         </Typography>
@@ -246,6 +263,7 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
                         }
                         showCopyIconButton={true}
                         preClassName={classes.commandCodeBlock}
+                        highlightSyntax={true}
                       />
                       <Box mt={2} mb={2} width="fit-content">
                         <Link
@@ -266,14 +284,19 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
                 }
 
                 if (status === "IN_PROGRESS") {
-                  return (<></>);
+                  return;
                 }
 
                 return <SchemaAnalysis migration={migration} schemaAPI={schemaAPI} />;
               }}
             </StepCard>
             <StepCard
-              title={t("clusterDetail.voyager.migrateSchema.schemaImportTargetDB")}
+              title={
+                <Trans
+                  i18nKey="clusterDetail.voyager.migrateSchema.schemaImportTargetDB"
+                  components={[<strong key="0" />]}
+                />
+              }
               isDone={schemaAPI.import_schema === "complete"}
               isLoading={schemaAPI.import_schema === "in-progress"}
               showInProgress={schemaAPI.import_schema === "in-progress"}
@@ -281,20 +304,23 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
                 schemaAPI.analyze_schema !== "complete" &&
                 (!schemaAPI.import_schema || schemaAPI.import_schema === "N/A")
               }
-              showTodo={
+              accordion={
                 schemaAPI.analyze_schema === "complete" &&
-                (!schemaAPI.import_schema || schemaAPI.import_schema === "N/A")
+                !!schemaAPI.import_schema && schemaAPI.import_schema === "complete"
               }
-              hideContent={
-                schemaAPI.analyze_schema !== "complete" &&
-                (!schemaAPI.import_schema || schemaAPI.import_schema === "N/A")
+              defaultExpanded={
+                schemaAPI.analyze_schema === "complete" &&
+                schemaAPI.import_schema === "complete"
               }
+              contentSeparator={true}
             >
               {(status) => {
-                if (status === "TODO") {
+                if (status) {
                   return (
                     <>
-                      <Prereqs items={importSchemaPrereqs} />
+                      <Box my={4}>
+                        <Prereqs items={importSchemaPrereqs} />
+                      </Box>
                       <Box mt={2} mb={2} width="fit-content">
                         <Typography variant="body2">
                           {t("clusterDetail.voyager.migrateSchema.schemaImportDesc")}
@@ -314,6 +340,7 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
                         }
                         showCopyIconButton={true}
                         preClassName={classes.commandCodeBlock}
+                        highlightSyntax={true}
                       />
                       <Box mt={2} mb={2} width="fit-content">
                         <Link
@@ -334,7 +361,7 @@ export const MigrationSchema: FC<MigrationSchemaProps> = ({
                 }
 
                 if (status === "IN_PROGRESS") {
-                  return (<></>);
+                  return;
                 }
 
                 return null;

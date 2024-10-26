@@ -521,7 +521,8 @@ static ObjectAddress ATExecAddConstraint(List **wqueue,
 										 LOCKMODE lockmode);
 static char *ChooseForeignKeyConstraintNameAddition(List *colnames);
 static ObjectAddress ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
-											  IndexStmt *stmt, LOCKMODE lockmode);
+											  IndexStmt *stmt, LOCKMODE lockmode,
+											  List **yb_wqueue);
 static ObjectAddress ATAddCheckConstraint(List **wqueue,
 										  AlteredTableInfo *tab, Relation rel,
 										  Constraint *constr,
@@ -619,7 +620,8 @@ static void ATExecDropCluster(Relation rel, LOCKMODE lockmode);
 static void ATPrepSetAccessMethod(AlteredTableInfo *tab, Relation rel, const char *amname);
 static bool ATPrepChangePersistence(Relation rel, bool toLogged);
 static void ATPrepSetTableSpace(AlteredTableInfo *tab, Relation rel,
-								const char *tablespacename, LOCKMODE lockmode);
+								const char *tablespacename, LOCKMODE lockmode,
+								bool yb_cascade);
 static void ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode);
 static void ATExecSetTableSpaceNoStorage(Relation rel, Oid newTableSpace);
 static void ATExecSetRelOptions(Relation rel, List *defList,
@@ -691,14 +693,14 @@ static Relation YbATCloneRelationSetColumnType(Relation old_rel,
 											   Oid altered_collation_id,
 											   TypeName *altered_type_name,
 											   List *new_column_values);
-static bool YbATIsRangePk(IndexStmt *stmt,
-						  bool is_colocated, bool is_tablegroup);
+static bool YbATIsRangePk(SortByDir ordering, bool is_colocated,
+						  bool is_tablegroup);
 static void YbATSetPKRewriteChildPartitions(List **yb_wqueue,
 											AlteredTableInfo *tab,
 											bool skip_copy_split_options);
 static void YbATCopyIndexSplitOptions(Oid oldId, IndexStmt *stmt,
 									  AlteredTableInfo *tab);
-static void YbATInvalidateTableCacheAfterAlter(List *handles);
+static void YbATInvalidateTableCacheAfterAlter(List *ybAlteredTableIds);
 /* ----------------------------------------------------------------
  *		DefineRelation
  *				Creates a new relation.
@@ -758,6 +760,15 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	/*
 	 * Check consistency of arguments
 	 */
+	if (IsYugaByteEnabled() && stmt->relation->relpersistence == RELPERSISTENCE_UNLOGGED)
+	{
+		/* UNLOGGED persistence is NO-OP in YugabyteDB. */
+		ereport(NOTICE,
+				(errmsg("unlogged option is currently ignored in YugabyteDB, "
+								"all non-temp relations will be logged")));
+		stmt->relation->relpersistence = RELPERSISTENCE_PERMANENT;
+	}
+
 	if (stmt->oncommit != ONCOMMIT_NOOP
 		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
 		ereport(ERROR,
@@ -2233,12 +2244,10 @@ ExecuteTruncateGuts(List *explicit_rels,
 		 * a new relfilenode in the current (sub)transaction, then we can just
 		 * truncate it in-place, because a rollback would cause the whole
 		 * table or the current physical file to be thrown away anyway.
+		 * YB: Check if the unsafe truncate method should be used.
 		 */
-		if (IsYBRelation(rel) && !yb_enable_alter_table_rewrite)
-		{
-			// Call YugaByte API to truncate tables.
-			YbTruncate(rel);
-		}
+		if (YbUseUnsafeTruncate(rel))
+			YbUnsafeTruncate(rel);
 		else if (rel->rd_createSubid == mySubid ||
 				 rel->rd_newRelfilenodeSubid == mySubid || !IsYBRelation(rel))
 		{
@@ -4116,11 +4125,11 @@ RenameRelation(RenameStmt *stmt, bool yb_is_internal_clone_rename)
 	/* Do the work */
 	RenameRelationInternal(relid, stmt->newname, false, is_index_stmt);
 
-	/* YB rename is not needed for a primary key dummy index. */
+	/* YB rename is not needed for a covered dummy index. */
 	rel             = RelationIdGetRelation(relid);
 	needs_yb_rename = IsYBRelation(rel) &&
 					  !(rel->rd_rel->relkind == RELKIND_INDEX &&
-						rel->rd_index->indisprimary) &&
+						YBIsCoveredByMainTable(rel)) &&
 					  rel->rd_rel->relkind != RELKIND_PARTITIONED_INDEX
 					  && !yb_is_internal_clone_rename;
 	RelationClose(rel);
@@ -4736,7 +4745,7 @@ ATController(AlterTableStmt *parsetree,
 
 	/* Phase 2: update system catalogs */
 	List *rollbackHandles = NIL;
-	List *volatile handles = NIL;
+	List *volatile ybAlteredTableIds = NIL;
 	PG_TRY();
 	{
 		/*
@@ -4744,11 +4753,11 @@ ATController(AlterTableStmt *parsetree,
 		 * If Phase 3 fails, rollbackHandle will specify how to rollback the
 		 * changes done to DocDB.
 		 */
-		ATRewriteCatalogs(&wqueue, lockmode, context, &rollbackHandles, &handles);
+		ATRewriteCatalogs(&wqueue, lockmode, context, &rollbackHandles, &ybAlteredTableIds);
 	}
 	PG_CATCH();
 	{
-		YbATInvalidateTableCacheAfterAlter(handles);
+		YbATInvalidateTableCacheAfterAlter(ybAlteredTableIds);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -4757,7 +4766,7 @@ ATController(AlterTableStmt *parsetree,
 	PG_TRY();
 	{
 		ATRewriteTables(parsetree, &wqueue, lockmode, context);
-		YbATInvalidateTableCacheAfterAlter(handles);
+		YbATInvalidateTableCacheAfterAlter(ybAlteredTableIds);
 	}
 	PG_CATCH();
 	{
@@ -4775,7 +4784,7 @@ ATController(AlterTableStmt *parsetree,
 				YBCExecAlterTable(handle, RelationGetRelid(rel));
 			}
 		}
-		YbATInvalidateTableCacheAfterAlter(handles);
+		YbATInvalidateTableCacheAfterAlter(ybAlteredTableIds);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -5031,6 +5040,16 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("cannot change persistence setting twice")));
 			tab->chgPersistence = ATPrepChangePersistence(rel, false);
+
+			if (IsYugaByteEnabled())
+			{
+				/* UNLOGGED persistence is NO-OP in YB. */
+				tab->chgPersistence = false;
+				ereport(NOTICE,
+						(errmsg("unlogged option is currently ignored in YugabyteDB, "
+										"all non-temp relations will be logged")));
+			}
+
 			/* force rewrite if necessary; see comment in ATRewriteTables */
 			if (tab->chgPersistence)
 			{
@@ -5065,7 +5084,7 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			ATSimplePermissions(cmd->subtype, rel, ATT_TABLE | ATT_MATVIEW | ATT_INDEX |
 								ATT_PARTITIONED_INDEX);
 			/* This command never recurses */
-			ATPrepSetTableSpace(tab, rel, cmd->name, lockmode);
+			ATPrepSetTableSpace(tab, rel, cmd->name, lockmode, cmd->yb_cascade);
 			pass = AT_PASS_MISC;	/* doesn't actually matter */
 			break;
 		case AT_SetRelOptions:	/* SET (...) */
@@ -5179,7 +5198,7 @@ static void
 ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 				  AlterTableUtilityContext *context,
 				  List **rollbackHandles,
-				  List *volatile *handles)
+				  List *volatile *ybAlteredTableIds)
 {
 	int			pass;
 	ListCell   *ltab;
@@ -5196,12 +5215,13 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 	AlteredTableInfo* info       = (AlteredTableInfo *) linitial(*wqueue);
 	Oid               main_relid = info->relid;
 	YBCPgStatement rollbackHandle = NULL;
-	*handles = YBCPrepareAlterTable(info->subcmds,
+	List *handles = YBCPrepareAlterTable(info->subcmds,
 										 AT_NUM_PASSES,
 										 main_relid,
 										 &rollbackHandle,
-										 false /* isPartitionOfAlteredTable */,
-										 info->rewrite);
+										 false /* isPartitionOfAlteredTable */);
+	if (handles)
+		*ybAlteredTableIds = lappend_oid(*ybAlteredTableIds, main_relid);
 	if (rollbackHandle)
 		*rollbackHandles = lappend(*rollbackHandles, rollbackHandle);
 
@@ -5225,13 +5245,14 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 												   AT_NUM_PASSES,
 												   childrelid,
 												   &childRollbackHandle,
-												   true /*isPartitionOfAlteredTable */,
-												   info->rewrite);
+												   true /*isPartitionOfAlteredTable */);
+		if (child_handles)
+			*ybAlteredTableIds = lappend_oid(*ybAlteredTableIds, childrelid);
 		ListCell *listcell = NULL;
 		foreach(listcell, child_handles)
 		{
 			YBCPgStatement child = (YBCPgStatement) lfirst(listcell);
-			*handles = lappend(*handles, child);
+			handles = lappend(handles, child);
 		}
 		if (childRollbackHandle)
 			*rollbackHandles = lappend(*rollbackHandles, childRollbackHandle);
@@ -5260,7 +5281,7 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 		 */
 		if (pass == AT_PASS_ADD_INDEX)
 		{
-			foreach(lc, *handles)
+			foreach(lc, handles)
 			{
 				YBCPgStatement handle = (YBCPgStatement) lfirst(lc);
 				YBCExecAlterTable(handle, main_relid);
@@ -5337,7 +5358,7 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 		 */
 		if (yb_table_cloned)
 		{
-			foreach (lc, *handles)
+			foreach (lc, handles)
 			{
 				YBCPgStatement handle = (YBCPgStatement) lfirst(lc);
 				YBCPgAlterTableSetTableId(
@@ -5514,7 +5535,7 @@ ATExecCmd(List **wqueue, AlteredTableInfo *tab,
 			break;
 		case AT_AddIndexConstraint: /* ADD CONSTRAINT USING INDEX */
 			address = ATExecAddIndexConstraint(tab, rel, (IndexStmt *) cmd->def,
-											   lockmode);
+											   lockmode, wqueue);
 			break;
 		case AT_AlterConstraint:	/* ALTER CONSTRAINT */
 			address = ATExecAlterConstraint(rel, cmd, false, false, lockmode);
@@ -6524,7 +6545,13 @@ ATRewriteTable(AlteredTableInfo *tab, Oid OIDNewHeap, LOCKMODE lockmode)
 						{
 							/* If YugaByte is enabled, the add constraint operation is not atomic.
 							 * So we must delete the relevant entries from the catalog tables. */
-							if (IsYugaByteEnabled())
+							/*
+							 * YB_TODO(fizaa) : clean this up -- this condition
+							 * is incomplete as we don't want to drop the
+							 * constraint if we are performing the check
+							 * as part of a VALIDATE CONSTRAINT operation.
+							 */
+							if (IsYugaByteEnabled() && !YbDdlRollbackEnabled())
 							{
 								/*
 								 * Even though we pass oldrel as a reference, it won't change
@@ -9264,7 +9291,8 @@ ATExecAddIndex(List **yb_wqueue, AlteredTableInfo *tab, Relation *mutable_rel,
 		{
 			YbGetTableProperties(*mutable_rel);
 			/* Don't copy split options if we are creating a range key. */
-			bool skip_copy_split_options = YbATIsRangePk(stmt,
+			bool skip_copy_split_options = YbATIsRangePk(
+				linitial_node(IndexElem, stmt->indexParams)->ordering,
 				(*mutable_rel)->yb_table_properties->is_colocated, OidIsValid(
 					(*mutable_rel)->yb_table_properties->tablegroup_oid));
 			if (!skip_build)
@@ -9336,7 +9364,8 @@ ATExecAddStatistics(AlteredTableInfo *tab, Relation rel,
  */
 static ObjectAddress
 ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
-						 IndexStmt *stmt, LOCKMODE lockmode)
+						 IndexStmt *stmt, LOCKMODE lockmode,
+						 List **yb_wqueue)
 {
 	Oid			index_oid = stmt->indexOid;
 	Relation	indexRel;
@@ -9360,11 +9389,6 @@ ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("ALTER TABLE / ADD CONSTRAINT USING INDEX is not supported on partitioned tables")));
 
-	if (IsYugaByteEnabled() && stmt->primary)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("ALTER TABLE / ADD CONSTRAINT PRIMARY KEY USING INDEX is not supported")));
-
 	indexRel = index_open(index_oid, AccessShareLock);
 
 	indexName = pstrdup(RelationGetRelationName(indexRel));
@@ -9374,6 +9398,29 @@ ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
 	/* this should have been checked at parse time */
 	if (!indexInfo->ii_Unique)
 		elog(ERROR, "index \"%s\" is not unique", indexName);
+
+	/*
+	 * YB: Adding a primary key requires table rewrite.
+	 * We do not need to rewrite any children as this operation is not supported
+	 * on partitioned tables (checked above).
+	 */
+	if (IsYBRelation(rel) && stmt->primary)
+	{
+		YbGetTableProperties(rel);
+		/* Don't copy split options if we are creating a range key. */
+		bool skip_copy_split_options = YbATIsRangePk(
+			YbGetIndexKeySortOrdering(indexRel),
+			rel->yb_table_properties->is_colocated, OidIsValid(
+				rel->yb_table_properties->tablegroup_oid));
+		tab->rewrite |= YB_AT_REWRITE_ALTER_PRIMARY_KEY;
+		tab->yb_skip_copy_split_options = tab->yb_skip_copy_split_options
+			|| skip_copy_split_options;
+		/*
+		 * Since this index is going to be upgraded to a pkey, we can drop the
+		 * DocDB table associated with the secondary index.
+		 */
+		YBCDropIndex(indexRel);
+	}
 
 	/*
 	 * Determine name to assign to constraint.  We require a constraint to
@@ -15068,7 +15115,9 @@ ATPrepSetAccessMethod(AlteredTableInfo *tab, Relation rel, const char *amname)
  * ALTER TABLE SET TABLESPACE
  */
 static void
-ATPrepSetTableSpace(AlteredTableInfo *tab, Relation rel, const char *tablespacename, LOCKMODE lockmode)
+ATPrepSetTableSpace(AlteredTableInfo *tab, Relation rel,
+					const char *tablespacename, LOCKMODE lockmode,
+					bool yb_cascade)
 {
 	Oid			tablespaceId;
 
@@ -15084,9 +15133,9 @@ ATPrepSetTableSpace(AlteredTableInfo *tab, Relation rel, const char *tablespacen
 				 errmsg("cannot set tablespaces for temporary tables")));
 	}
 
-	if (IsYugaByteEnabled() && tablespacename && 
+	if (IsYugaByteEnabled() && tablespacename &&
 		rel->rd_index &&
-		rel->rd_index->indisprimary) {
+		YBIsCoveredByMainTable(rel)) {
 		/*
 		 * Disable setting tablespaces for primary key indexes in Yugabyte
 		 * clusters.
@@ -15094,6 +15143,19 @@ ATPrepSetTableSpace(AlteredTableInfo *tab, Relation rel, const char *tablespacen
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 				 errmsg("cannot set tablespace for primary key index")));
+	}
+
+	if (IsYugaByteEnabled() && !yb_cascade && MyDatabaseColocated &&
+		YbGetTableProperties(rel)->is_colocated)
+	{
+		/*
+		 * Cannot move one colocated relation alone
+		 * Use Alter TABLE ALL IN TABLESPACE <tsp> SET TABLESPACE <new tsp> CASCADE;
+		 */
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("cannot move one colocated relation alone"),
+				 errhint("Use ALTER ... ALL ... CASCADE to move all colocated relations.")));
 	}
 
 	/* Check that the tablespace exists */
@@ -15538,6 +15600,21 @@ AlterTableMoveAll(AlterTableMoveAllStmt *stmt)
 	yb_new_tablegroup_name = get_implicit_tablegroup_name(new_tablespaceoid);
 	yb_orig_tablegroup_oid = get_tablegroup_oid(yb_orig_tablegroup_name, true);
 	yb_new_tablegroup_oid = get_tablegroup_oid(yb_new_tablegroup_name, true);
+	/*
+	 * If a relation name is passed with the ALTER TABLE ALL ... COLOCATED WITH
+	 * ... SET TABLESPACE ... CASCADE command then we get the relation being
+	 * passed.
+	 */
+	if (stmt->yb_relation != NULL)
+	{
+		yb_table_oid = RangeVarGetRelid(stmt->yb_relation, NoLock, false);
+		yb_table_rel = RelationIdGetRelation(yb_table_oid);
+		yb_colocated_with_tablegroup_oid =
+			YbGetTableProperties(yb_table_rel)->tablegroup_oid;
+		RelationClose(yb_table_rel);
+		yb_orig_tablegroup_oid = yb_colocated_with_tablegroup_oid;
+		yb_orig_tablegroup_name = get_tablegroup_name(yb_orig_tablegroup_oid);
+	}
 
 	/*
 	 * The new tablespace must not have any colocated relations present in
@@ -15562,20 +15639,6 @@ AlterTableMoveAll(AlterTableMoveAllStmt *stmt)
 				 errmsg("cannot move colocated relations present in"
 						" tablespace %s", stmt->orig_tablespacename),
 				 errhint("Use ALTER ... CASCADE to move colcated relations.")));
-
-	/*
-	 * If a relation name is passed with the ALTER TABLE ALL ... COLOCATED WITH
-	 * ... SET TABLESPACE ... CASCADE command then we get the relation being
-	 * passed.
-	 */
-	if (stmt->yb_relation != NULL)
-	{
-		yb_table_oid = RangeVarGetRelid(stmt->yb_relation, NoLock, false);
-		yb_table_rel = RelationIdGetRelation(yb_table_oid);
-		yb_colocated_with_tablegroup_oid =
-			YbGetTableProperties(yb_table_rel)->tablegroup_oid;
-		RelationClose(yb_table_rel);
-	}
 
 	if (OidIsValid(yb_table_oid) && !MyDatabaseColocated)
 		ereport(ERROR,
@@ -15665,23 +15728,23 @@ AlterTableMoveAll(AlterTableMoveAllStmt *stmt)
 			continue;
 
 		/*
-		 * In YB, a primary key index is an intrinsic part of its base table.
-		 * For a primary key index, we only need to update the
+		 * In YB, a covered index is an intrinsic part of its base table.
+		 * For a covered index, we only need to update the
 		 * new_tablespaceoid field in pg_class.
 		 */
 		if (relForm->relkind == RELKIND_INDEX ||
 			relForm->relkind == RELKIND_PARTITIONED_INDEX)
 		{
 			yb_index_rel = RelationIdGetRelation(relOid);
-			bool isPrimaryIndex = (yb_index_rel != NULL &&
-								   yb_index_rel->rd_index->indisprimary);
+			bool isCoveredByMainTable = (yb_index_rel != NULL &&
+				YBIsCoveredByMainTable(yb_index_rel));
 
 			RelationClose(yb_index_rel);
 
-			if (isPrimaryIndex)
+			if (isCoveredByMainTable)
 			{
 				/*
-				 * We move the primary key indexes along with the tables that
+				 * We move the covered indexes along with the tables that
 				 * they are associated with when using the following commands
 				 * ALTER TABLE/INDEX/MATERIALIZED VIEW ... SET TABLESPACE ...
 				 */
@@ -15783,6 +15846,7 @@ AlterTableMoveAll(AlterTableMoveAllStmt *stmt)
 
 		cmd->subtype = AT_SetTableSpace;
 		cmd->name = stmt->new_tablespacename;
+		cmd->yb_cascade = true;
 
 		cmds = lappend(cmds, cmd);
 
@@ -15798,7 +15862,7 @@ AlterTableMoveAll(AlterTableMoveAllStmt *stmt)
 	 * database.
 	 */
 	if (yb_cascade && OidIsValid(new_tablespaceoid) &&
-		OidIsValid(orig_tablespaceoid) && MyDatabaseColocated &&
+		MyDatabaseColocated &&
 		!OidIsValid(yb_new_tablegroup_oid) &&
 		OidIsValid(yb_orig_tablegroup_oid))
 	{
@@ -17684,10 +17748,11 @@ AlterRelationNamespaceInternal(Relation classRel, Oid relOid,
 
 		/*
 		 * Call SetSchema handler for the related internal YB DocDB table.
-		 * No YB DocDB table for a primary key dummy index.
+		 * No YB DocDB table for a covered index.
 		 */
 		const Relation rel = RelationIdGetRelation(relOid);
-		if (IsYBRelation(rel) && !(rel->rd_index && rel->rd_index->indisprimary))
+		if (IsYBRelation(rel) && !(rel->rd_index &&
+			YBIsCoveredByMainTable(rel)))
 			YBCAlterTableNamespace(classForm, relOid);
 
 		RelationClose(rel);
@@ -19280,7 +19345,8 @@ AttachPartitionEnsureIndexes(Relation rel, Relation attachrel, List **yb_wqueue)
 				tab->rewrite = YB_AT_REWRITE_ALTER_PRIMARY_KEY;
 				YbGetTableProperties(attachrel);
 				/* Don't copy split options if we are creating a range key. */
-				bool skip_copy_split_options = YbATIsRangePk(stmt,
+				bool skip_copy_split_options = YbATIsRangePk(
+					linitial_node(IndexElem, stmt->indexParams)->ordering,
 					attachrel->yb_table_properties->is_colocated,
 					OidIsValid(
 						attachrel->yb_table_properties->tablegroup_oid));
@@ -20988,11 +21054,11 @@ YbATGetRenameStmt(const char *namespace_name, const char *current_name,
 }
 
 static bool
-YbATIsRangePk(IndexStmt *stmt, bool is_colocated, bool is_tablegroup)
+YbATIsRangePk(SortByDir ordering, bool is_colocated, bool is_tablegroup)
 {
 	SortByDir yb_ordering =
-		YbSortOrdering(linitial_node(IndexElem, stmt->indexParams)->ordering,
-					   is_colocated, is_tablegroup, true /* is_first_key */);
+		YbSortOrdering(ordering, is_colocated, is_tablegroup,
+					   true /* is_first_key */);
 
 	if (yb_ordering == SORTBY_ASC || yb_ordering == SORTBY_DESC)
 		return true;
@@ -22347,7 +22413,8 @@ YbATCloneRelationSetPrimaryKey(Relation old_rel, IndexStmt *stmt,
 
 	if (stmt)
 		is_range_pk = YbATIsRangePk(
-			stmt, old_rel->yb_table_properties->is_colocated,
+			linitial_node(IndexElem, stmt->indexParams)->ordering,
+			old_rel->yb_table_properties->is_colocated,
 			OidIsValid(old_rel->yb_table_properties->tablegroup_oid));
 
 	/*
@@ -22686,9 +22753,9 @@ static void YbATCopyIndexSplitOptions(Oid oldId, IndexStmt *stmt,
  * Used in YB to re-invalidate table cache entries at the end of an ALTER TABLE
  * operation.
  */
-static void YbATInvalidateTableCacheAfterAlter(List *handles)
+static void YbATInvalidateTableCacheAfterAlter(List *ybAlteredTableIds)
 {
-	if (YbDdlRollbackEnabled() && handles)
+	if (YbDdlRollbackEnabled() && ybAlteredTableIds)
 	{
 		/*
 		 * As part of DDL transaction verification, we may have incremented
@@ -22696,10 +22763,23 @@ static void YbATInvalidateTableCacheAfterAlter(List *handles)
 		 * the table cache entries of the affected tables.
 		 */
 		ListCell *lc = NULL;
-		foreach(lc, handles)
+		foreach(lc, ybAlteredTableIds)
 		{
-			YBCPgStatement handle = (YBCPgStatement) lfirst(lc);
-			HandleYBStatus(YBCPgAlterTableInvalidateTableCacheEntry(handle));
+			Oid relid = lfirst_oid(lc);
+			Relation rel = RelationIdGetRelation(relid);
+			/*
+			 * The relation may no longer exist if it was dropped as part of
+			 * a legacy rewrite operation. We can skip invalidation in that
+			 * case.
+			 */
+			if (!rel)
+			{
+				Assert(!yb_enable_alter_table_rewrite);
+				continue;
+			}
+			YBCPgAlterTableInvalidateTableByOid(YBCGetDatabaseOidByRelid(relid),
+				YbGetRelfileNodeIdFromRelId(relid));
+			RelationClose(rel);
 		}
 	}
 }

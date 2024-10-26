@@ -185,7 +185,9 @@ class TransactionParticipant : public TransactionStatusManager {
 
   TransactionParticipantContext* context() const;
 
-  void SetMinRunningHybridTimeLowerBound(HybridTime lower_bound);
+  void SetMinReplayTxnStartTimeLowerBound(HybridTime start_ht);
+
+  HybridTime MinReplayTxnStartTime() const;
 
   HybridTime MinRunningHybridTime() const override;
 
@@ -215,18 +217,22 @@ class TransactionParticipant : public TransactionStatusManager {
   void IgnoreAllTransactionsStartedBefore(HybridTime limit);
 
   // Update transaction metadata to change the status tablet for the given transaction.
-  Result<TransactionMetadata> UpdateTransactionStatusLocation(
+  Status UpdateTransactionStatusLocation(
       const TransactionId& transaction_id, const TabletId& new_status_tablet);
 
   std::string DumpTransactions() const;
 
-  void SetIntentRetainOpIdAndTime(const yb::OpId& op_id, const MonoDelta& cdc_sdk_op_id_expiration);
+  void SetIntentRetainOpIdAndTime(
+      const yb::OpId& op_id, const MonoDelta& cdc_sdk_op_id_expiration,
+      HybridTime min_start_ht_cdc_unstreamed_txns);
 
   OpId GetRetainOpId() const;
 
   CoarseTimePoint GetCheckpointExpirationTime() const;
 
   OpId GetLatestCheckPoint() const;
+
+  HybridTime GetMinStartHTCDCUnstreamedTxns() const;
 
   HybridTime GetMinStartTimeAmongAllRunningTransactions() const;
 
@@ -240,7 +246,7 @@ class TransactionParticipant : public TransactionStatusManager {
 
   size_t GetNumRunningTransactions() const;
 
-  void SetMinRunningHybridTimeUpdateCallback(std::function<void(HybridTime)> callback);
+  void SetMinReplayTxnStartTimeUpdateCallback(std::function<void(HybridTime)> callback);
 
   struct CountIntentsResult {
     size_t num_intents;
@@ -252,6 +258,13 @@ class TransactionParticipant : public TransactionStatusManager {
   Result<CountIntentsResult> TEST_CountIntents() const;
 
   OneWayBitmap TEST_TransactionReplicatedBatches(const TransactionId& id) const;
+
+  Result<HybridTime> SimulateProcessRecentlyAppliedTransactions(
+      const OpId& retryable_requests_flushed_op_id);
+
+  void SetRetryableRequestsFlushedOpId(const OpId& flushed_op_id);
+
+  Status ProcessRecentlyAppliedTransactions();
 
  private:
   Result<int64_t> RegisterRequest() override;

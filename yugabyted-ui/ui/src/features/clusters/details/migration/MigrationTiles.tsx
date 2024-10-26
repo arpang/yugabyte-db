@@ -1,9 +1,8 @@
 import React, { FC } from "react";
 import { Typography, makeStyles, Box } from "@material-ui/core";
 import { BadgeVariant, YBBadge } from "@app/components/YBBadge/YBBadge";
-import { useTranslation } from "react-i18next";
 import clsx from "clsx";
-import { STATUS_TYPES, YBStatus, YBTooltip } from "@app/components";
+import { YBTooltip } from "@app/components";
 import { MigrationPhase, MigrationStep, migrationSteps } from "./migration";
 import {
   MigrateSchemaTaskInfo,
@@ -15,12 +14,12 @@ import {
   useGetVoyagerMigrationAssesmentDetailsQuery,
 } from "@app/api/src";
 import type { Migration } from "./MigrationOverview";
-import TodoIcon from "@app/assets/todo.svg";
+import CaretRightIcon from "@app/assets/caret-right.svg";
 
 const useStyles = makeStyles((theme) => ({
   wrapper: {
     display: "flex",
-    flexDirection: "column",
+    flexDirection: "row",
   },
   tile: {
     padding: theme.spacing(2, 3, 2, 3),
@@ -32,7 +31,7 @@ const useStyles = makeStyles((theme) => ({
     cursor: "pointer",
     transition: "background-color 0.2s",
     "&:hover": {
-      backgroundColor: theme.palette.primary[100],
+      boxShadow: `inset 0 -3px ${theme.palette.grey[300]}`,
     },
   },
   tileDisabled: {
@@ -40,11 +39,23 @@ const useStyles = makeStyles((theme) => ({
     cursor: "not-allowed",
     "&:hover": {
       backgroundColor: "transparent",
+      boxShadow: "none",
     },
   },
   tileSelected: {
-    backgroundColor: theme.palette.primary[100],
-    boxShadow: `inset 5px 0 0 -1px ${theme.palette.primary[600]}`,
+    boxShadow: `inset 0 -3px ${theme.palette.grey[600]}`,
+    "&:hover": {
+      boxShadow: `inset 0 -3px ${theme.palette.grey[600]}`,
+    },
+  },
+  emptyIcon: {
+    backgroundColor: theme.palette.common.white,
+    boxShadow: `inset 0px 0px 0px 2px ${theme.palette.grey[100]}`,
+  },
+  badge: {
+    height: "32px",
+    width: "32px",
+    borderRadius: "100%",
   },
 }));
 
@@ -52,9 +63,10 @@ interface MigrationTilesProps {
   steps: string[];
   currentStep?: number;
   phase?: number;
-  migration: Migration;
+  migration: Migration | undefined;
   onStepChange?: (step: number) => void;
   isFetching?: boolean;
+  isNewMigration?: boolean;
 }
 
 export const MigrationTiles: FC<MigrationTilesProps> = ({
@@ -64,27 +76,27 @@ export const MigrationTiles: FC<MigrationTilesProps> = ({
   phase,
   migration,
   isFetching = false,
+  isNewMigration = false,
 }) => {
-  const { t } = useTranslation();
   const classes = useStyles();
 
   const { data: migrationAssessmentData } = useGetVoyagerMigrationAssesmentDetailsQuery({
-    uuid: migration.migration_uuid || "migration_uuid_not_found",
+    uuid: migration?.migration_uuid || "migration_uuid_not_found",
   });
 
   const { data: migrationSchemaData } = useGetVoyagerMigrateSchemaTasksQuery({
-    uuid: migration.migration_uuid || "migration_uuid_not_found",
+    uuid: migration?.migration_uuid || "migration_uuid_not_found",
   });
 
   const { data: migrationMetricsData } = useGetVoyagerDataMigrationMetricsQuery({
-    uuid: migration.migration_uuid || "migration_uuid_not_found",
+    uuid: migration?.migration_uuid || "migration_uuid_not_found",
   });
 
   const { data: newMigrationAPIData } = useGetMigrationAssessmentInfoQuery({
-    uuid: migration.migration_uuid || "migration_uuid_not_found",
+    uuid: migration?.migration_uuid || "migration_uuid_not_found",
   });
 
-  const mNewAssessment = (newMigrationAPIData as MigrationAssessmentReport | undefined)/* ?.data */;
+  const mNewAssessment = newMigrationAPIData as MigrationAssessmentReport | undefined;
 
   const mAssessmentData = migrationAssessmentData as MigrationAssesmentInfo;
   const mSchemaData = migrationSchemaData as MigrateSchemaTaskInfo;
@@ -105,13 +117,19 @@ export const MigrationTiles: FC<MigrationTilesProps> = ({
 
   return (
     <Box className={classes.wrapper}>
-      {steps.map((step, stepIndex) => {
+      {steps.map((step, stepIndex, allSteps) => {
         let disabled = false;
         let notStarted = false;
         let completed = false;
         let running = false;
 
-        if (phase != null) {
+        if (isNewMigration) {
+            if (stepIndex === MigrationStep["Verification"]) {
+              disabled = true;
+            } else {
+              notStarted = true;
+            }
+        } else if (phase != null) {
           if (phase === MigrationPhase["Verify"]) {
             // Everything will be completed
             completed = true;
@@ -176,6 +194,7 @@ export const MigrationTiles: FC<MigrationTilesProps> = ({
         const tooltip = getTooltip(step);
 
         return (
+        <>
           <Box
             key={step}
             className={clsx(
@@ -185,6 +204,33 @@ export const MigrationTiles: FC<MigrationTilesProps> = ({
             )}
             onClick={() => !disabled && onStepChange?.(stepIndex)}
           >
+            {isFetching ? (
+              <Box className={clsx(
+                classes.badge,
+                classes.emptyIcon, currentStep === stepIndex && classes.tileSelected)}
+              />
+            ) : (
+              <>
+                {completed && (
+                  <YBBadge
+                    className={classes.badge}
+                    text=""
+                    variant={BadgeVariant.Success}
+                  />
+                )}
+                {running && (
+                  <YBBadge
+                    className={classes.badge}
+                    text=""
+                    variant={BadgeVariant.InProgress}
+                  />
+                )}
+                {(notStarted || disabled) && (
+                  <Box className={clsx(classes.badge, classes.emptyIcon)}
+                  />
+                )}
+              </>
+            )}
             <Box display="flex" alignItems="center" gridGap={10}>
               <Typography variant="body2">{step}</Typography>
               {tooltip && (
@@ -193,30 +239,13 @@ export const MigrationTiles: FC<MigrationTilesProps> = ({
                 </Box>
               )}
             </Box>
-            {isFetching ? (
-              <YBStatus
-                type={STATUS_TYPES.IN_PROGRESS}
-                label={t("clusterDetail.voyager.refreshing")}
-              />
-            ) : (
-              <>
-                {completed && (
-                  <YBBadge
-                    variant={BadgeVariant.Success}
-                    text={t("clusterDetail.voyager.completed")}
-                  />
-                )}
-                {running && <YBBadge variant={BadgeVariant.InProgress} />}
-                {notStarted && (
-                  <YBBadge
-                    variant={BadgeVariant.InProgress}
-                    text={t("clusterDetail.voyager.todo")}
-                    iconComponent={TodoIcon}
-                  />
-                )}
-              </>
-            )}
           </Box>
+          {allSteps.length - 1 > stepIndex && (
+            <Box display={"flex"} alignItems={"center"}>
+              <CaretRightIcon/>
+            </Box>
+          )}
+          </>
         );
       })}
     </Box>

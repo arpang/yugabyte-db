@@ -133,6 +133,24 @@ func CreateSingletonList(in interface{}) []interface{} {
 	return []interface{}{in}
 }
 
+// GetFloat64SliceFromString returns a slice of float64 from a string
+func GetFloat64SliceFromString(in string) ([]float64, error) {
+	if in == "" {
+		return nil, nil
+	}
+	in = strings.Trim(in, "[ ]")
+	s := strings.Split(in, ",")
+	var out []float64
+	for _, v := range s {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
 // YbaStructuredError is a structure mimicking YBPError, with error being an interface{}
 // to accomodate errors thrown as YBPStructuredError
 type YbaStructuredError struct {
@@ -177,14 +195,21 @@ func ErrorFromResponseBody(errorBlock YbaStructuredError) string {
 
 	errorMap := (*errorBlock.Error).(map[string]interface{})
 	for k, v := range errorMap {
+		logrus.Debug("Key: ", k, " Value: ", v, "\n", "Type is ", reflect.TypeOf(v))
 		if k != "" {
 			errorString = fmt.Sprintf("Field: %s, Error:", k)
 		}
 		var checkType []interface{}
+		var checkTypeMap map[string]interface{}
 		if reflect.TypeOf(v) == reflect.TypeOf(checkType) {
 			for _, s := range *StringSlice(v.([]interface{})) {
 				errorString = fmt.Sprintf("%s %s", errorString, s)
 			}
+		} else if reflect.TypeOf(v) == reflect.TypeOf(checkTypeMap) {
+			for _, s := range *StringMap(v.(map[string]interface{})) {
+				errorString = fmt.Sprintf("%s %s", errorString, s)
+			}
+			errorString = fmt.Sprintf("%s %v", errorString, v)
 		} else {
 			errorString = fmt.Sprintf("%s %s", errorString, v.(string))
 		}
@@ -345,4 +370,18 @@ func YAMLtoString(filePath string) string {
 // IsOutputType check if the output type is t
 func IsOutputType(t string) bool {
 	return viper.GetString("output") == t
+}
+
+// RemoveComponentFromSlice removes the component from the slice
+func RemoveComponentFromSlice(sliceInterface interface{}, index int) interface{} {
+	slice := sliceInterface.([]interface{})
+	length := len(slice)
+	for i := range slice {
+		if i == index && i != length-1 {
+			return append(slice[:i], slice[i+1:]...)
+		} else if i == length-1 {
+			return slice[:i]
+		}
+	}
+	return slice
 }

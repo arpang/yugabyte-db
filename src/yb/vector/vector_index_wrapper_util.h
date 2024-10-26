@@ -17,41 +17,15 @@
 
 namespace yb::vectorindex {
 
-// A base class for vector index implementations implementing the pointer-to-implementation idiom.
-template <typename Impl, typename Vector, typename DistanceResult>
-class VectorIndexBase : public VectorIndexIf<Vector, DistanceResult> {
- public:
-  explicit VectorIndexBase(std::unique_ptr<Impl> impl)
-      : impl_(std::move(impl)) {}
-
-  ~VectorIndexBase() override = default;
-
-  // Implementations for the VectorIndexReaderIf interface
-  std::vector<VertexWithDistance<DistanceResult>> Search(
-      const Vector& query_vector, size_t max_num_results) const override {
-    return impl_->Search(query_vector, max_num_results);
-  }
-
-  // Implementations for the VectorIndexWriterIf interface
-  Status Reserve(size_t num_vectors) override {
-    return impl_->Reserve(num_vectors);
-  }
-
-  Status Insert(VertexId vertex_id, const Vector& vector) override {
-    return impl_->Insert(vertex_id, vector);
-  }
-
-  Result<Vector> GetVector(VertexId vertex_id) const override {
-    return impl_->GetVector(vertex_id);
-  }
-
- protected:
-  std::unique_ptr<Impl> impl_;
-};
-
 // An adapter that allows us to view an index reader with one vector type as an index reader with a
 // different vector type. Casts the queries to the vector type supported by the index, and then
 // casts the distance type in the results to the distance type expected by the caller.
+//
+// Terminology:
+//   - SourceVector: The vector type supported by the underlying index reader.
+//   - SourceDistanceResult: The distance type supported by the underlying index reader.
+//   - DestinationVector: The vector type expected by the caller.
+//   - DestinationDistanceResult: The distance type expected by the caller.
 template<
   IndexableVectorType SourceVector,
   ValidDistanceResultType SourceDistanceResult,
@@ -86,6 +60,17 @@ class VectorIndexReaderAdapter
     }
 
     return destination_results;
+  }
+
+  DestinationDistanceResult Distance(
+      const DestinationVector& lhs, const DestinationVector& rhs) const override {
+    return static_cast<DestinationDistanceResult>(source_reader_.Distance(
+        vector_cast<SourceVector>(lhs),
+        vector_cast<SourceVector>(rhs)));
+  }
+
+  std::string IndexStatsStr() const override {
+    return source_reader_.IndexStatsStr();
   }
 
  private:

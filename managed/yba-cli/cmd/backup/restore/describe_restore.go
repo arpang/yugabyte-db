@@ -21,12 +21,9 @@ var describeRestoreCmd = &cobra.Command{
 	Aliases: []string{"get"},
 	Short:   "List YugabyteDB Anywhere restores",
 	Long:    "List restores in YugabyteDB Anywhere",
+	Example: `yba backup restore describe --uuid <restore-uuid>`,
 	Run: func(cmd *cobra.Command, args []string) {
-		authAPI, err := ybaAuthClient.NewAuthAPIClient()
-		if err != nil {
-			logrus.Fatalf(formatter.Colorize(err.Error()+"\n", formatter.RedColor))
-		}
-		authAPI.GetCustomerUUID()
+		authAPI := ybaAuthClient.NewAuthAPIClientAndCustomer()
 
 		restoreUUID, err := cmd.Flags().GetString("uuid")
 		if err != nil {
