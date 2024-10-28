@@ -274,10 +274,9 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 							TupleTableSlot *slot, EState *estate)
 {
 	bool using_index = false;
-
-	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
 	Relation source_rel = NULL;
 
+	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
 	Relation idx_rel = RelationIdGetRelation(riinfo->conindid);
 
 	if (idx_rel->rd_index != NULL && !YBIsCoveredByMainTable(idx_rel))
@@ -306,30 +305,36 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		{
 			RelationClose(pk_rel);
 			source_rel = RelationIdGetRelation(partoid);
-			if (using_index)
+			ListCell *lc;
+
+			bool found = false;
+			// todo: should i use RelationGetFKeyList?
+			foreach (lc, YbRelationGetFKeyReferencedByList(source_rel))
 			{
-				RelationClose(idx_rel);
-				ListCell *lc;
+				ForeignKeyCacheInfo *info =
+					lfirst_node(ForeignKeyCacheInfo, lc);
+				if (info->ybconparentid != riinfo->constraint_id)
+					continue;
 
-				bool found = false;
-				foreach (lc, YbRelationGetFKeyReferencedByList(source_rel))
+				found = true;
+				if (using_index)
 				{
-					ForeignKeyCacheInfo *info =
-						lfirst_node(ForeignKeyCacheInfo, lc);
-					if (info->ybconparentid != riinfo->constraint_id)
-						continue;
-
-					found = true;
+					RelationClose(idx_rel);
 					RelationClose(source_rel);
 					source_rel = RelationIdGetRelation(info->ybconindid);
-					break;
 				}
-				Assert(found);
+				elog(INFO, "Updating riinfo (current name: %s)", riinfo->conname.data);
+				riinfo = ri_LoadConstraintInfo(info->conoid);
+				elog(INFO, "New name: %s", riinfo->conname.data);
+				break;
 			}
+			Assert(found);
+
 		}
 	} else if (using_index)
 		RelationClose(pk_rel);
 	elog(INFO, "source_rel final %s", RelationGetRelationName(source_rel));
+	elog(INFO, "Constraint name %s", riinfo->conname.data);
 
 	Oid source_rel_relfilenode_oid = YbGetRelfileNodeId(source_rel);
 	Oid source_dboid = YBCGetDatabaseOid(source_rel);
@@ -348,6 +353,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	{
 		next_attr->attr_num = using_index ? (i + 1) : riinfo->pk_attnums[i];
 		const int fk_attnum = riinfo->fk_attnums[i];
+		elog(INFO, "next_attr->attr_num %d, fk_attnum %d", next_attr->attr_num, fk_attnum);
 		const Oid type_id = TupleDescAttr(slot->tts_tupleDescriptor, fk_attnum - 1)->atttypid;
 		/*
 		 * In case source_rel and fk_rel has different type of same attribute conversion is required
