@@ -286,6 +286,8 @@ typedef struct ForeignKeyCacheInfo
 	AttrNumber	conkey[INDEX_MAX_KEYS]; /* cols in referencing table */
 	AttrNumber	confkey[INDEX_MAX_KEYS];	/* cols in referenced table */
 	Oid			conpfeqop[INDEX_MAX_KEYS];	/* PK = FK operator OIDs */
+	Oid			ybconindid;
+	Oid 		ybconparentid;
 } ForeignKeyCacheInfo;
 
 

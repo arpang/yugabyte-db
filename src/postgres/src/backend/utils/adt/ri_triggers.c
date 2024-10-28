@@ -251,6 +251,7 @@ helper(const RI_ConstraintInfo *riinfo, TupleTableSlot *slot, TupleDesc pkdesc)
 	{
 		const int fk_attnum = riinfo->fk_attnums[i];
 		const int pk_attnum = riinfo->pk_attnums[i];
+		elog(INFO, "fk_attnum %d, pk_attnum %d", fk_attnum, pk_attnum);
 		pkslot->tts_values[pk_attnum-1] =
 			slot_getattr(slot, fk_attnum, &pkslot->tts_isnull[pk_attnum-1]);
 	}
@@ -274,35 +275,62 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 {
 	bool using_index = false;
 
+	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
+	Relation source_rel = NULL;
+
 	Relation idx_rel = RelationIdGetRelation(riinfo->conindid);
-	Relation source_rel = idx_rel;
+
 	if (idx_rel->rd_index != NULL && !YBIsCoveredByMainTable(idx_rel))
 	{
+		source_rel = idx_rel;
 		Assert(IndexRelationGetNumberOfKeyAttributes(idx_rel) == riinfo->nkeys);
 		using_index = true;
 	} else
 	{
 		RelationClose(idx_rel);
-		source_rel = RelationIdGetRelation(riinfo->pk_relid);
-		if (source_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
+		source_rel = pk_rel;
+	}
+
+	if (pk_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
+	{
+		TupleTableSlot *pkslot = helper(riinfo, slot, RelationGetDescr(pk_rel));
+		PartitionTupleRouting *proute =
+			ExecSetupPartitionTupleRouting(estate, pk_rel);
+		ResultRelInfo *pkrelinfo = makeNode(ResultRelInfo);
+		pkrelinfo->ri_RelationDesc = pk_rel;
+		Oid partoid = FindLeafPartitionOid(pkrelinfo, proute, pkslot, estate);
+		pfree(pkrelinfo);
+		ExecDropSingleTupleTableSlot(pkslot);
+		ExecCleanupTupleRouting(NULL, proute);
+		if (partoid != InvalidOid)
 		{
-			TupleTableSlot *pkslot =
-				helper(riinfo, slot, RelationGetDescr(source_rel));
-			PartitionTupleRouting *proute =
-				ExecSetupPartitionTupleRouting(estate, source_rel);
-			ResultRelInfo *pkrelinfo = makeNode(ResultRelInfo);
-			pkrelinfo->ri_RelationDesc = source_rel;
-			Oid partoid = FindLeafPartitionOid(pkrelinfo, proute, pkslot, estate);
-			pfree(pkrelinfo);
-			ExecDropSingleTupleTableSlot(pkslot);
-			ExecCleanupTupleRouting(NULL, proute);
-			if (partoid != InvalidOid)
+			RelationClose(pk_rel);
+			source_rel = RelationIdGetRelation(partoid);
+			if (using_index)
 			{
-				RelationClose(source_rel);
-				source_rel = RelationIdGetRelation(partoid);
+				RelationClose(idx_rel);
+				ListCell *lc;
+
+				bool found = false;
+				foreach (lc, YbRelationGetFKeyReferencedByList(source_rel))
+				{
+					ForeignKeyCacheInfo *info =
+						lfirst_node(ForeignKeyCacheInfo, lc);
+					if (info->ybconparentid != riinfo->constraint_id)
+						continue;
+
+					found = true;
+					RelationClose(source_rel);
+					source_rel = RelationIdGetRelation(info->ybconindid);
+					break;
+				}
+				Assert(found);
 			}
 		}
-	}
+	} else if (using_index)
+		RelationClose(pk_rel);
+	elog(INFO, "source_rel final %s", RelationGetRelationName(source_rel));
+
 	Oid source_rel_relfilenode_oid = YbGetRelfileNodeId(source_rel);
 	Oid source_dboid = YBCGetDatabaseOid(source_rel);
 	YBCPgYBTupleIdDescriptor* result = YBCCreateYBTupleIdDescriptor(
