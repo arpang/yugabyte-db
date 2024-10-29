@@ -425,3 +425,4 @@ CREATE TABLE pk(id INT, name INT, add INT, PRIMARY KEY (id, name, add), UNIQUE (
 CREATE TABLE fk(id INT, name INT, FOREIGN KEY(id, name) REFERENCES pk(id, name));
 INSERT INTO pk VALUES (1, 500, 1000);
 INSERT INTO fk VALUES (1, 500);
+SELECT * from fk;
