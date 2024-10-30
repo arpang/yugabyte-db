@@ -1588,31 +1588,47 @@ YbUseScanTupleInUpdate(Relation relation, Bitmapset *updatedCols, List *returnin
 	/*
 	 * Scenarios when the new tuple must contain non-modified columns in UPDATE:
 	 *  - partitions: to check partition constraints and to perform
-	 * cross-partition update (deletion followed by insertion).
+	 *    cross-partition update (deletion followed by insertion).
 	 *  - constraints: to check for constraint violation.
 	 *  - secondary index: index update works by deletion followed by
-	 * re-insertion, and a multi-column secondary index can contain some updated
-	 * and some non-updated columns.
+	 *    re-insertion, and a multi-column secondary index can contain some
+	 *    updated and some non-updated columns.
 	 *  - BR update triggers: to correctly check for "extra updated" columns.
-	 *  - PK update: works by deletion followed by re-insertion, hence the old
-	 * tuple is required.
+	 *  - PK update: works by deletion followed by re-insertion, hence the
+	 *    non-modified columns are required. No additional check required as
+	 *    it is already covered by 'constraints'.
 	 *  - Updates with RETURNING clause: to serve any non-modified columns
-	 * in the returning clause.
-	 * YB_TODO: Check if RETURNING clause can be optimized to work with
-	 * only requested columns instead of using wholerow junk attribute.
-	 *
+	 *    in the returning clause.
+	 *    YB_TODO: Check if RETURNING clause can be optimized to work with
+	 *    only requested columns instead of using wholerow junk attribute.
+	 *  - When some foreign constraint keys are updated, to check for FK
+	 * 	  violation.
 	 * In these cases, the non-modified columns in "new tuple" are populated
 	 * from the old scanned tuple.
 	 */
-	if (relation->rd_partkey != NULL || relation->rd_rel->relispartition ||
+	if ((relation->rd_rel->relispartition &&
+		 relation->rd_rel->relkind != RELKIND_PARTITIONED_TABLE) ||
 		relation->rd_att->constr || YBRelHasSecondaryIndices(relation) ||
 		YbRelHasBRUpdateTrigger(relation) ||
-		!YbReturningListSubsetOfUpdatedCols(relation, updatedCols, returningList))
+		!YbReturningListSubsetOfUpdatedCols(relation, updatedCols,
+											returningList))
 		return true;
 
-	Bitmapset *primary_key_bms = YBGetTablePrimaryKeyBms(relation);
-	bool is_pk_updated = bms_overlap(primary_key_bms, updatedCols);
-	return is_pk_updated;
+	ListCell *lc;
+	foreach (lc, RelationGetFKeyList(relation))
+	{
+		ForeignKeyCacheInfo *info = lfirst_node(ForeignKeyCacheInfo, lc);
+		int updatedFKs = 0;
+		for (int i = 0; i < info->nkeys; i++)
+		{
+			if (YbIsAttrBmsMember(relation, info->conkey[i], updatedCols))
+				updatedFKs++;
+		}
+		if (updatedFKs > 0 && updatedFKs < info->nkeys)
+			return true;
+	}
+
+	return false;
 }
 
 //------------------------------------------------------------------------------
@@ -5644,6 +5660,14 @@ bool YbIsYsqlConnMgrWarmupModeEnabled()
 bool YbIsAuthBackend()
 {
 	return yb_is_auth_backend;
+}
+
+/* Used in YB to check if an attribute is part of given Bitmapset. */
+bool
+YbIsAttrBmsMember(Relation rel, AttrNumber attnum, Bitmapset *bms)
+{
+	return bms_is_member(attnum - YBGetFirstLowInvalidAttributeNumber(rel),
+						 bms);
 }
 
 /* Used in YB to check if an attribute is a key column. */

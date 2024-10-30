@@ -1253,4 +1253,6 @@ SortByDir YbGetIndexKeySortOrdering(Relation indexRel);
 
 bool YbUseUnsafeTruncate(Relation rel);
 
+bool YbIsAttrBmsMember(Relation rel, AttrNumber attnum, Bitmapset * bms);
+
 #endif /* PG_YB_UTILS_H */

@@ -419,3 +419,14 @@ UPDATE child_2 SET v = (v - 1000000) * 2 + 1000000 WHERE k <= 5001; -- should fa
 
 UPDATE child_1 SET v = v * 2 WHERE k < 5001;
 UPDATE child_2 SET v = (v - 1000000) * 2 + 1000000 WHERE k < 5001;
+
+-- test updating a subset of foreign constraint keys.
+CREATE TABLE pk(id INT, name INT, PRIMARY KEY (id, name));
+CREATE TABLE fk(id INT, name INT, FOREIGN KEY(id, name) REFERENCES pk(id, name));
+INSERT INTO pk VALUES (1, 500);
+INSERT INTO pk VALUES (1, 505);
+INSERT INTO fk VALUES (1, 500);
+UPDATE fk set name = name + 1; -- should fail
+UPDATE fk set name = name + 5; -- should pass
+SELECT * from fk;
+DROP TABLE pk, fk;
