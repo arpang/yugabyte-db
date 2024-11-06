@@ -941,6 +941,7 @@ std::vector<scoped_refptr<NamespaceInfo>> CatalogManager::NamespaceNameMapper::G
 CatalogManager::CatalogManager(Master* master, SysCatalogTable* sys_catalog)
     : master_(DCHECK_NOTNULL(master)),
       sys_catalog_(DCHECK_NOTNULL(sys_catalog)),
+      ysql_catalog_config_(*sys_catalog),
       tablet_exists_(false),
       state_(kConstructed),
       leader_ready_term_(-1),
@@ -1231,7 +1232,7 @@ Status CatalogManager::MaybeRestoreInitialSysCatalogSnapshotAndReloadSysCatalog(
     return Status::OK();
   }
 
-  if (ysql_catalog_config_->LockForRead()->pb.ysql_catalog_config().initdb_done()) {
+  if (ysql_catalog_config_.IsInitDbDone()) {
     LOG_WITH_PREFIX(INFO) << "initdb has been run before, no need to restore sys catalog from "
                           << "the initial snapshot";
     return Status::OK();
@@ -1258,7 +1259,7 @@ Status CatalogManager::MaybeRestoreInitialSysCatalogSnapshotAndReloadSysCatalog(
       state->epoch.leader_term, /* recreate = */ true));
 
   LOG_WITH_PREFIX(INFO) << "Restoring snapshot completed, considering initdb finished";
-  RETURN_NOT_OK(InitDbFinished(Status::OK(), state->epoch.leader_term));
+  RETURN_NOT_OK(ysql_catalog_config_.SetInitDbDone(Status::OK(), state->epoch));
   // TODO(asrivastava): Can we get rid of this Reset() by calling RunLoaders just once
   // instead of calling it here and in VisitSysCatalog?
   state->Reset();
@@ -1387,7 +1388,7 @@ Status CatalogManager::VisitSysCatalog(SysCatalogLoadingState* state) {
       // If we are not running initdb, this is an existing cluster, and we need to check whether we
       // need to do a one-time migration to make YSQL system catalog tables transactional.
       RETURN_NOT_OK(MakeYsqlSysCatalogTablesTransactional(
-          tables_->GetAllTables(), sys_catalog_, ysql_catalog_config_.get(), state->epoch));
+          tables_->GetAllTables(), sys_catalog_, ysql_catalog_config_, state->epoch));
     }
   }  // Exclusive mutex_ scope.
   return Status::OK();
@@ -1432,7 +1433,7 @@ Status CatalogManager::RunLoaders(SysCatalogLoadingState* state) {
   object_lock_info_manager_->Clear();
 
   // Clear ysql catalog config.
-  ysql_catalog_config_.reset();
+  ysql_catalog_config_.Reset();
 
   // Clear transaction tables config.
   transaction_tables_config_.reset();
@@ -1489,7 +1490,8 @@ Status CatalogManager::RunLoaders(SysCatalogLoadingState* state) {
 
   RETURN_NOT_OK(xcluster_manager_->RunLoaders(hidden_tablets_));
   RETURN_NOT_OK(master_->clone_state_manager().ClearAndRunLoaders(state->epoch));
-  RETURN_NOT_OK(master_->ts_manager()->RunLoader());
+  RETURN_NOT_OK(
+      master_->ts_manager()->RunLoader(master_->MakeCloudInfoPB(), &master_->proxy_cache()));
 
   return Status::OK();
 }
@@ -1668,21 +1670,7 @@ Status CatalogManager::PrepareDefaultSysConfig(int64_t term) {
     RETURN_NOT_OK(permissions_manager()->PrepareDefaultSecurityConfigUnlocked(term));
   }
 
-  if (!ysql_catalog_config_) {
-    SysYSQLCatalogConfigEntryPB ysql_catalog_config;
-    ysql_catalog_config.set_version(0);
-
-    // Create in memory objects.
-    ysql_catalog_config_ = new SysConfigInfo(kYsqlCatalogConfigType);
-
-    // Prepare write.
-    auto l = ysql_catalog_config_->LockForWrite();
-    *l.mutable_data()->pb.mutable_ysql_catalog_config() = std::move(ysql_catalog_config);
-
-    // Write to sys_catalog and in memory.
-    RETURN_NOT_OK(sys_catalog_->Upsert(term, ysql_catalog_config_));
-    l.Commit();
-  }
+  RETURN_NOT_OK(ysql_catalog_config_.PrepareDefaultIfNeeded(term));
 
   if (!transaction_tables_config_) {
     RETURN_NOT_OK(InitializeTransactionTablesConfig(term));
@@ -1692,12 +1680,9 @@ Status CatalogManager::PrepareDefaultSysConfig(int64_t term) {
 }
 
 Result<bool> CatalogManager::StartRunningInitDbIfNeeded(const LeaderEpoch& epoch) {
-  {
-    auto l = ysql_catalog_config_->LockForRead();
-    if (l->pb.ysql_catalog_config().initdb_done()) {
-      LOG(INFO) << "Cluster configuration indicates that initdb has already completed";
-      return false;
-    }
+  if (ysql_catalog_config_.IsInitDbDone()) {
+    LOG(INFO) << "Cluster configuration indicates that initdb has already completed";
+    return false;
   }
 
   if (pg_proc_exists_.load(std::memory_order_acquire)) {
@@ -1706,7 +1691,7 @@ Result<bool> CatalogManager::StartRunningInitDbIfNeeded(const LeaderEpoch& epoch
     // We assume pg_proc table means initdb is done.
     // We do NOT handle the case when initdb was terminated mid-run (neither here nor in
     // MakeYsqlSysCatalogTablesTransactional).
-    RETURN_NOT_OK(InitDbFinished(Status::OK(), epoch.leader_term));
+    RETURN_NOT_OK(ysql_catalog_config_.SetInitDbDone(Status::OK(), epoch));
     return false;
   }
 
@@ -3248,13 +3233,7 @@ Status CatalogManager::IsYsqlMajorVersionUpgradeInitdbDone(
     const IsYsqlMajorVersionUpgradeInitdbDoneRequestPB* req,
     IsYsqlMajorVersionUpgradeInitdbDoneResponsePB* resp, rpc::RpcContext* rpc) {
   LOG(INFO) << "Checking if ysql major version upgrade initdb is done";
-  auto l = CHECK_NOTNULL(ysql_catalog_config_.get())->LockForRead();
-  const auto& ysql_catalog_config = l->pb.ysql_catalog_config();
-  resp->set_done(ysql_catalog_config.ysql_major_upgrade_info().next_ver_initdb_done());
-  if (ysql_catalog_config.ysql_major_upgrade_info().has_next_ver_initdb_error()) {
-    resp->mutable_initdb_error()->CopyFrom(
-        ysql_catalog_config.ysql_major_upgrade_info().next_ver_initdb_error());
-  }
+  ysql_catalog_config_.IsYsqlMajorVersionUpgradeInitdbDone(*resp);
   return Status::OK();
 }
 
@@ -3561,8 +3540,7 @@ Status CatalogManager::GetYsqlCatalogConfig(const GetYsqlCatalogConfigRequestPB*
     return Status::OK();
   }
 
-  auto l = CHECK_NOTNULL(ysql_catalog_config_.get())->LockForRead();
-  resp->set_version(l->pb.ysql_catalog_config().version());
+  resp->set_version(ysql_catalog_config_.GetVersion());
   return Status::OK();
 }
 
@@ -3823,6 +3801,12 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
     TRACE("Locking indexed table");
     RETURN_NOT_OK(CatalogManagerUtil::CheckIfTableDeletedOrNotVisibleToClient(
         indexed_table->LockForRead(), resp));
+
+    if (xcluster_manager_->ShouldAutoAddIndexesToBiDirectionalXCluster(*indexed_table)) {
+      resp->set_notice_message(
+          "This index belongs to a table that is under bi-directional xCluster replication. Create "
+          "the index on the other xCluster universe parallelly in order for this DDL to complete.");
+    }
   }
 
   // Validate schema.
@@ -8212,11 +8196,11 @@ void CatalogManager::NotifyPrepareDeleteTransactionTabletFinished(
 void CatalogManager::NotifyTabletDeleteFinished(
     const TabletServerId& tserver_uuid, const TabletId& tablet_id, const TableInfoPtr& table,
     const LeaderEpoch& epoch, server::MonitoredTaskState task_state) {
-  shared_ptr<TSDescriptor> ts_desc;
-  if (!master_->ts_manager()->LookupTSByUUID(tserver_uuid, &ts_desc)) {
+  auto ts_desc_result = master_->ts_manager()->LookupTSByUUID(tserver_uuid);
+  if (!ts_desc_result.ok()) {
     LOG(WARNING) << "Unable to find tablet server " << tserver_uuid;
   } else {
-    auto num_removed = ts_desc->ClearPendingTabletDelete(tablet_id);
+    auto num_removed = ts_desc_result.get()->ClearPendingTabletDelete(tablet_id);
     if (num_removed == 0) {
       LOG(WARNING) << "Pending delete for tablet " << tablet_id << " in ts " << tserver_uuid
                    << " doesn't exist";
@@ -9917,55 +9901,15 @@ Status CatalogManager::ListUDTypes(const ListUDTypesRequestPB* req,
 }
 
 Result<uint64_t> CatalogManager::IncrementYsqlCatalogVersion() {
-
-  auto l = CHECK_NOTNULL(ysql_catalog_config_.get())->LockForWrite();
-  uint64_t new_version = l->pb.ysql_catalog_config().version() + 1;
-  l.mutable_data()->pb.mutable_ysql_catalog_config()->set_version(new_version);
-
-  // Write to sys_catalog and in memory.
-  RETURN_NOT_OK(sys_catalog_->Upsert(leader_ready_term(), ysql_catalog_config_));
-  l.Commit();
-
-  if (FLAGS_log_ysql_catalog_versions) {
-    LOG_WITH_FUNC(WARNING) << "set catalog version: " << new_version
-                           << " (using old protobuf method)";
-  }
-
-  return new_version;
-}
-
-Status CatalogManager::InitDbFinished(Status initdb_status, int64_t term) {
-  if (initdb_status.ok()) {
-    LOG(INFO) << "Global initdb completed successfully";
-  } else {
-    LOG(ERROR) << "Global initdb failed: " << initdb_status;
-  }
-
-  auto l = CHECK_NOTNULL(ysql_catalog_config_.get())->LockForWrite();
-  auto* mutable_ysql_catalog_config = l.mutable_data()->pb.mutable_ysql_catalog_config();
-  mutable_ysql_catalog_config->set_initdb_done(true);
-  if (initdb_status.ok()) {
-    mutable_ysql_catalog_config->clear_initdb_error();
-  } else {
-    mutable_ysql_catalog_config->set_initdb_error(initdb_status.ToString());
-  }
-
-  RETURN_NOT_OK(sys_catalog_->Upsert(term, ysql_catalog_config_));
-  l.Commit();
-  return Status::OK();
+  return ysql_catalog_config_.IncrementVersion(GetLeaderEpochInternal());
 }
 
 Status CatalogManager::IsInitDbDone(
     const IsInitDbDoneRequestPB* req,
     IsInitDbDoneResponsePB* resp) {
-  auto l = CHECK_NOTNULL(ysql_catalog_config_.get())->LockForRead();
-  const auto& ysql_catalog_config = l->pb.ysql_catalog_config();
   resp->set_pg_proc_exists(pg_proc_exists_.load(std::memory_order_acquire));
-  resp->set_done(ysql_catalog_config.initdb_done());
-  if (ysql_catalog_config.has_initdb_error() &&
-      !ysql_catalog_config.initdb_error().empty()) {
-    resp->set_initdb_error(ysql_catalog_config.initdb_error());
-  }
+  ysql_catalog_config_.IsInitDbDone(*resp);
+
   return Status::OK();
 }
 
@@ -10010,15 +9954,15 @@ Status CatalogManager::GetYsqlDBCatalogVersion(uint32_t db_oid,
     // In this case we'd like to fall back to the legacy approach.
   }
 
-  auto l = ysql_catalog_config_->LockForRead();
+  const auto version = ysql_catalog_config_.GetVersion();
   // last_breaking_version is the last version (change) that invalidated ongoing transactions.
   // If using the old (protobuf-based) version method, we do not have any information about
   // breaking changes so assuming every change is a breaking change.
   if (catalog_version) {
-    *catalog_version = l->pb.ysql_catalog_config().version();
+    *catalog_version = version;
   }
   if (last_breaking_version) {
-    *last_breaking_version = l->pb.ysql_catalog_config().version();
+    *last_breaking_version = version;
   }
   return Status::OK();
 }
@@ -10516,9 +10460,9 @@ void CatalogManager::DeleteTabletReplicas(
   auto locations = tablet->GetReplicaLocations();
   LOG(INFO) << "Sending DeleteTablet for " << locations->size()
             << " replicas of tablet " << tablet->tablet_id();
-  for (const auto& r : *locations) {
+  for (const auto& [ts_uuid, _] : *locations) {
     SendDeleteTabletRequest(tablet->tablet_id(), TABLET_DATA_DELETED, boost::none, tablet->table(),
-                            r.second.ts_desc, msg, epoch, hide_only, keep_data);
+                            ts_uuid, msg, epoch, hide_only, keep_data);
   }
 }
 
@@ -10674,7 +10618,7 @@ void CatalogManager::SendDeleteTabletRequest(
     TabletDataState delete_type,
     const boost::optional<int64_t>& cas_config_opid_index_less_or_equal,
     const scoped_refptr<TableInfo>& table,
-    TSDescriptor* ts_desc,
+    const std::string& ts_uuid,
     const string& reason,
     const LeaderEpoch& epoch,
     HideOnly hide_only,
@@ -10684,12 +10628,12 @@ void CatalogManager::SendDeleteTabletRequest(
   }
   LOG_WITH_PREFIX(INFO)
       << (hide_only ? "Hiding" : "Deleting") << " tablet " << tablet_id << " on peer "
-      << ts_desc->permanent_uuid() << " with delete type "
+      << ts_uuid << " with delete type "
       << TabletDataState_Name(delete_type) << " (" << reason << ")";
   auto call = std::make_shared<AsyncDeleteReplica>(
-      master_, AsyncTaskPool(), ts_desc->permanent_uuid(), table, tablet_id, delete_type,
+      master_, AsyncTaskPool(), ts_uuid, table, tablet_id, delete_type,
       cas_config_opid_index_less_or_equal, epoch,
-      GetDeleteReplicaTaskThrottler(ts_desc->permanent_uuid()), reason);
+      GetDeleteReplicaTaskThrottler(ts_uuid), reason);
   if (hide_only) {
     call->set_hide_only(hide_only);
   }
@@ -10722,8 +10666,8 @@ void CatalogManager::SetTabletReplicaLocations(
 }
 
 void CatalogManager::UpdateTabletReplicaLocations(
-    const TabletInfoPtr& tablet, const TabletReplica& replica) {
-  tablet->UpdateReplicaLocations(replica);
+    const TabletInfoPtr& tablet, const std::string& ts_uuid, const TabletReplica& replica) {
+  tablet->UpdateReplicaLocations(ts_uuid, replica);
   tablet_locations_version_.fetch_add(1, std::memory_order_acq_rel);
 }
 
@@ -11749,15 +11693,18 @@ Status CatalogManager::BuildLocationsForTablet(
     }
 
     locs_pb->mutable_replicas()->Reserve(narrow_cast<int32_t>(locs->size()));
-    for (const auto& [_, tablet_replica] : *locs) {
+    for (const auto& [ts_uuid, tablet_replica] : *locs) {
       TabletLocationsPB_ReplicaPB* replica_pb = locs_pb->add_replicas();
       replica_pb->set_role(tablet_replica.role);
       replica_pb->set_member_type(tablet_replica.member_type);
       replica_pb->set_state(tablet_replica.state);
       TSInfoPB* out_ts_info = replica_pb->mutable_ts_info();
-      out_ts_info->set_permanent_uuid(tablet_replica.ts_desc->permanent_uuid());
-      CopyRegistration(tablet_replica.ts_desc->GetRegistration(), out_ts_info);
-      out_ts_info->set_placement_uuid(tablet_replica.ts_desc->placement_uuid());
+      out_ts_info->set_permanent_uuid(ts_uuid);
+      auto strong_ts_desc_ptr = tablet_replica.ts_desc.lock();
+      if (strong_ts_desc_ptr) {
+        CopyRegistration(strong_ts_desc_ptr->GetRegistration(), out_ts_info);
+        out_ts_info->set_placement_uuid(strong_ts_desc_ptr->placement_uuid());
+      }
     }
   } else if (cstate.IsInitialized()) {
     // If the locations were not cached.
@@ -12264,7 +12211,8 @@ int64_t CatalogManager::GetNumRelevantReplicas(const BlacklistPB& blacklist, boo
         continue;
       }
       for (const auto& host : blacklist.hosts()) {
-        if (replica.second.ts_desc->IsRunningOn(host)) {
+        auto ts_desc_ptr = replica.second.ts_desc.lock();
+        if (ts_desc_ptr && ts_desc_ptr->IsRunningOn(host)) {
           ++res;
           break;
         }
@@ -13410,7 +13358,11 @@ Result<TablegroupId> CatalogManager::GetTablegroupId(const TableId& table_id) {
   return tablegroup->id();
 }
 
-Result<TSDescriptorPtr> CatalogManager::GetClosestLiveTserver() const {
+Result<TSDescriptorPtr> CatalogManager::GetClosestLiveTserver(bool* local_ts) const {
+  if (local_ts) {
+    *local_ts = false;
+  }
+
   ServerRegistrationPB local_registration;
   RETURN_NOT_OK(master_->GetMasterRegistration(&local_registration));
 
@@ -13443,6 +13395,9 @@ Result<TSDescriptorPtr> CatalogManager::GetClosestLiveTserver() const {
       // If this tserver is on the same node as master pick it.
       for (const auto& addr : ts_info.registration().common().private_rpc_addresses()) {
         if (local_hosts.contains(addr.host())) {
+          if (local_ts) {
+            *local_ts = true;
+          }
           return desc;
         }
       }

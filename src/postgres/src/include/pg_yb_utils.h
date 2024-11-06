@@ -1255,4 +1255,6 @@ bool YbUseUnsafeTruncate(Relation rel);
 
 extern AttrNumber YbGetIndexAttnum(Relation index, AttrNumber table_attno);
 
+extern bool yb_ysql_conn_mgr_superuser_existed;
+
 #endif /* PG_YB_UTILS_H */

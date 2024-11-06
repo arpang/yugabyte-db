@@ -438,7 +438,13 @@ class PgClient::Impl : public BigDataFetcher {
         } else {
           auto instance_id = heartbeat_resp_.instance_id();
           if (!instance_id.empty()) {
-            exchange_.emplace(instance_id, heartbeat_resp_.session_id(), tserver::Create::kFalse);
+            auto exchange = tserver::SharedExchange::Make(
+                instance_id, heartbeat_resp_.session_id(), tserver::Create::kFalse);
+            if (exchange.ok()) {
+              exchange_.emplace(std::move(*exchange));
+            } else {
+              LOG(DFATAL) << "Failed to create exchange: " << exchange.status();
+            }
           }
           create_session_promise_.set_value(heartbeat_resp_.session_id());
         }
@@ -1317,6 +1323,19 @@ class PgClient::Impl : public BigDataFetcher {
     return resp.last_minute();
   }
 
+  Result<tserver::PgCreateTableResponsePB> CreateTable(
+      tserver::PgCreateTableRequestPB& req, CoarseTimePoint deadline) {
+    req.set_session_id(session_id_);
+    tserver::PgCreateTableResponsePB resp;
+
+    RETURN_NOT_OK(DoSyncRPC(
+        &tserver::PgClientServiceProxy::CreateTable, req, resp, ash::PggateRPC::kCreateTable,
+        deadline));
+    RETURN_NOT_OK(ResponseStatus(resp));
+
+    return resp;
+  }
+
  private:
   std::string LogPrefix() const {
     return Format("Session id $0: ", session_id_);
@@ -1695,6 +1714,11 @@ Status PgClient::SetCronLastMinute(int64_t last_minute) {
 }
 
 Result<int64_t> PgClient::GetCronLastMinute() { return impl_->GetCronLastMinute(); }
+
+Result<tserver::PgCreateTableResponsePB> PgClient::CreateTable(
+    tserver::PgCreateTableRequestPB& req, CoarseTimePoint deadline) {
+  return impl_->CreateTable(req, deadline);
+}
 
 void PerformExchangeFuture::wait() const {
   if (!value_) {
