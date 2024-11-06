@@ -261,9 +261,9 @@ void PgCreateTable::EnsureYBbasectidColumnCreated() {
   auto yb_type = QLType::Create(DataType::BINARY);
 
   // Add YBUniqueIdxKeySuffix column to store key suffix for handling multiple NULL values in
-  // column with unique index that uses nulls-are-distinct mode.
+  // column with unique index.
   // Value of this column is set to ybctid (same as ybbasectid) for index row in case index
-  // is unique and at least one of its key column is NULL.
+  // is unique, uses nulls-are-distinct mode, and at least one of its key column is NULL.
   // In all other case value of this column is NULL.
   if (req_.is_unique_index()) {
     auto name = "ybuniqueidxkeysuffix";
