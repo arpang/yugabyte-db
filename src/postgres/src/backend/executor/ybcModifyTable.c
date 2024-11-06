@@ -517,8 +517,6 @@ YbIsInsertOnConflictReadBatchingEnabled(ResultRelInfo *resultRelInfo)
 {
 	/*
 	 * TODO(jason): figure out how to enable triggers.
-	 * TODO(jason): disable (or handle) NULLS NOT DISTINCT indexes once that is
-	 * officially allowed.
 	 */
 	return (IsYBRelation(resultRelInfo->ri_RelationDesc) &&
 			!IsCatalogRelation(resultRelInfo->ri_RelationDesc) &&

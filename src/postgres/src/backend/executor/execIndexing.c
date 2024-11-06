@@ -1382,16 +1382,6 @@ retry:
 								 * conflict */
 		}
 
-		if (ybConflictMap)
-		{
-			YbInsertOnConflictBatchingMapInsert(ybConflictMap,
-												indnkeyatts,
-												values,
-												isnull,
-												NULL /* slot */);
-			break;
-		}
-
 		/*
 		 * At this point we have either a conflict or a potential conflict.
 		 *
@@ -1434,6 +1424,18 @@ retry:
 		 * We have a definite conflict (or a potential one, but the caller
 		 * didn't want to wait).  Return it to caller, or report it.
 		 */
+
+		if (ybConflictMap)
+		{
+			YbInsertOnConflictBatchingMapInsert(
+				ybConflictMap, indnkeyatts, values, isnull, NULL /* slot */);
+			/*
+			 * TODO(arpan): There can be multiple conflicting rows once EXCLUDE
+			 * constraint is supported.
+			 */
+			break;
+		}
+
 		if (violationOK)
 		{
 			conflict = true;
