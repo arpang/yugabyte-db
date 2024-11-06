@@ -277,7 +277,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo, TupleTableSlot *slo
 	for (int i = 0; i < riinfo->nkeys; ++i, ++next_attr)
 	{
 		next_attr->attr_num =
-			using_index ? YbGetIndexAttnum(riinfo->pk_attnums[i], source_rel) :
+			using_index ? YbGetIndexAttnum(source_rel, riinfo->pk_attnums[i]) :
 						  riinfo->pk_attnums[i];
 		const int fk_attnum = riinfo->fk_attnums[i];
 		const Oid type_id = TupleDescAttr(slot->tts_tupleDescriptor, fk_attnum - 1)->atttypid;

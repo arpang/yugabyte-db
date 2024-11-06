@@ -5686,7 +5686,7 @@ bool YbUseUnsafeTruncate(Relation rel)
  * Throw an error if it is not found.
  */
 AttrNumber
-YbGetIndexAttnum(AttrNumber table_attno, Relation index)
+YbGetIndexAttnum(Relation index, AttrNumber table_attno)
 {
 	for (int i = 0; i < IndexRelationGetNumberOfAttributes(index); ++i)
 	{

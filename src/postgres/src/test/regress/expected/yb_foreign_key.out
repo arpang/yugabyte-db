@@ -678,6 +678,9 @@ CREATE TABLE pk(id INT, name INT, add INT, PRIMARY KEY (id, name, add), UNIQUE (
 CREATE TABLE fk(id INT, name INT, FOREIGN KEY(id, name) REFERENCES pk(id, name));
 INSERT INTO pk VALUES (1, 500, 1000);
 INSERT INTO fk VALUES (1, 500);
+INSERT INTO fk VALUES (500, 1); -- should fail
+ERROR:  insert or update on table "fk" violates foreign key constraint "fk_id_name_fkey"
+DETAIL:  Key (id, name)=(500, 1) is not present in table "pk".
 SELECT * from fk;
  id | name 
 ----+------

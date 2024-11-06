@@ -1253,6 +1253,6 @@ SortByDir YbGetIndexKeySortOrdering(Relation indexRel);
 
 bool YbUseUnsafeTruncate(Relation rel);
 
-extern AttrNumber YbGetIndexAttnum(AttrNumber table_attno, Relation index);
+extern AttrNumber YbGetIndexAttnum(Relation index, AttrNumber table_attno);
 
 #endif /* PG_YB_UTILS_H */
