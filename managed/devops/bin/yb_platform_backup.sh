@@ -84,10 +84,10 @@ docker_aware_cmd() {
 }
 
 run_sudo_cmd() {
-  if [[ "${USER}" = "root" ]]; then
-    $1
-  else
+  if sudo -n true 2>/dev/null; then
     sudo $1
+  else
+    $1
   fi
 }
 
@@ -312,7 +312,7 @@ delete_db_backup() {
 }
 
 create_backup() {
-  now=$(date +"%y-%m-%d-%H-%M")
+  now=$(date -u +"%y-%m-%d-%H-%M")
   output_path="${1}"
   data_dir="${2}"
   exclude_prometheus="${3}"

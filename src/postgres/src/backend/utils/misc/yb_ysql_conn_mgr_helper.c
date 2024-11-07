@@ -760,6 +760,14 @@ YbSendDatabaseOidAndSetupSharedMemory(Oid database_oid, Oid user, bool is_superu
 {
 	/* Send back the database oid */
 	send_oid_info('d', database_oid);
+	if (database_oid == InvalidOid)
+	{
+		YbSendFatalForLogicalConnectionPacket();
+		ereport(WARNING,
+				(errmsg("database \"%s\" does not exist",
+						MyProcPort->database_name)));
+		return;
+	}
 
 	/*
 	 * Create a shared memory block for a client connection if YB_GUC_SUPPORT_VIA_SHMEM
@@ -790,7 +798,8 @@ YbCreateClientId(void)
 	/* This feature is only for Ysql Connection Manager */
 	Assert(yb_is_client_ysqlconnmgr);
 
-	if (SetLogicalClientUserDetailsIfValid(MyProcPort->user_name, &is_superuser, &user) < 0)
+	if (SetLogicalClientUserDetailsIfValid(MyProcPort->user_name, &is_superuser,
+										   &user) < 0)
 		return;
 
 	database = get_database_oid(MyProcPort->database_name, true);
@@ -882,8 +891,12 @@ yb_is_client_ysqlconnmgr_assign_hook(bool newval, void *extras)
 	 * Parallel workers are created and maintained by postmaster. So physical
 	 * connections can never be of parallel worker type, therefore it makes no
 	 * sense to perform any ysql connection manager specific operations on it.
-	*/
-	if (yb_is_client_ysqlconnmgr && !yb_is_parallel_worker)
+	 *
+	 * For the auth-backend, we already send the database_oid information to the
+	 * client when initializing the shared memory. So we can skip it here.
+	 */
+	if (yb_is_client_ysqlconnmgr && !yb_is_parallel_worker &&
+		!yb_is_auth_backend)
 		send_oid_info('d', get_database_oid(MyProcPort->database_name, false));
 }
 

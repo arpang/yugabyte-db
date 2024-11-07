@@ -991,21 +991,6 @@ YbGetLengthOfKey(ScanKey *key_ptr)
 }
 
 /*
- * Given a table attribute number, get a corresponding index attribute number.
- * Throw an error if it is not found.
- */
-static AttrNumber
-YbGetIndexAttnum(AttrNumber table_attno, Relation index)
-{
-	for (int i = 0; i < IndexRelationGetNumberOfAttributes(index); ++i)
-	{
-		if (table_attno == index->rd_index->indkey.values[i])
-			return i + 1;
-	}
-	elog(ERROR, "column is not in index");
-}
-
-/*
  * Add ordinary key to ybScan.
  */
 static void
@@ -2716,7 +2701,7 @@ YbDmlAppendTargetsAggregate(List *aggrefs, TupleDesc tupdesc, Relation index,
 					 * attribute number to an index-based one.
 					 */
 					if (index && xs_want_itup)
-						attno = YbGetIndexAttnum(attno, index);
+						attno = YbGetIndexAttnum(index, attno);
 					Form_pg_attribute attr = TupleDescAttr(tupdesc, attno - 1);
 					YBCPgTypeAttrs type_attrs = {attr->atttypmod};
 
@@ -3232,7 +3217,7 @@ SysScanDesc ybc_systable_begin_default_scan(Relation relation,
 			 *   must be used for bindings.
 			 */
 			for (int i = 0; i < nkeys; ++i)
-				key[i].sk_attno = YbGetIndexAttnum(key[i].sk_attno, index);
+				key[i].sk_attno = YbGetIndexAttnum(index, key[i].sk_attno);
 		}
 	}
 
@@ -3750,7 +3735,7 @@ YbFetchHeapTuple(Relation relation, Datum ybctid, HeapTuple* tuple)
 		}
 	}
 
-	
+
 	/* Free up memory and return data */
 	pfree(values);
 	pfree(nulls);
@@ -3937,28 +3922,23 @@ ybBeginSample(Relation rel, int targrows)
 	ybSample->deadrows = 0;
 	elog(DEBUG1, "Sampling %d rows from table %s", targrows, RelationGetRelationName(rel));
 
+	reservoir_init_selection_state(&rstate, targrows);
 	/*
 	 * Create new sampler command
 	 */
 	HandleYBStatus(YBCPgNewSample(dboid,
 								  YbGetRelfileNodeId(rel),
-								  targrows,
 								  YBCIsRegionLocal(rel),
+								  targrows,
+								  rstate.W,
+								  rstate.randstate.s0,
+								  rstate.randstate.s1,
 								  &ybSample->handle));
 	for (AttrNumber attnum = 1; attnum <= tupdesc->natts; attnum++)
 	{
 		if (!TupleDescAttr(tupdesc, attnum - 1)->attisdropped)
 			YbDmlAppendTargetRegular(tupdesc, attnum, ybSample->handle);
 	}
-
-	/*
-	 * Initialize sampler random state
-	 */
-	reservoir_init_selection_state(&rstate, targrows);
-	HandleYBStatus(YBCPgInitRandomState(ybSample->handle,
-										rstate.W,
-										rstate.randstate.s0,
-										rstate.randstate.s1));
 
 	return ybSample;
 }

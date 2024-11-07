@@ -91,7 +91,9 @@ class XClusterManager : public XClusterManagerIf,
   Status GetXClusterSafeTime(
       const GetXClusterSafeTimeRequestPB* req, GetXClusterSafeTimeResponsePB* resp,
       rpc::RpcContext* rpc, const LeaderEpoch& epoch);
-  Result<HybridTime> GetXClusterSafeTime(const NamespaceId& namespace_id) const override;
+  Result<std::optional<HybridTime>> TryGetXClusterSafeTimeForBackfill(
+      const std::vector<TableId>& index_table_ids, const TableInfoPtr& indexed_table,
+      const LeaderEpoch& epoch) const override;
 
   Status GetXClusterSafeTimeForNamespace(
       const GetXClusterSafeTimeForNamespaceRequestPB* req,
@@ -138,6 +140,12 @@ class XClusterManager : public XClusterManagerIf,
       const xcluster::ReplicationGroupId& replication_group_id, const TableId& source_table_id,
       const xrepl::StreamId& bootstrap_id, const std::optional<TableId>& target_table_id,
       const LeaderEpoch& epoch) override;
+
+  // Inserts the sent schema into the historical packing schema for the target table.
+  Status InsertPackedSchemaForXClusterTarget(
+      const InsertPackedSchemaForXClusterTargetRequestPB* req,
+      InsertPackedSchemaForXClusterTargetResponsePB* resp, rpc::RpcContext* rpc,
+      const LeaderEpoch& epoch);
 
   // OutboundReplicationGroup RPCs.
   Status XClusterCreateOutboundReplicationGroup(
@@ -249,6 +257,10 @@ class XClusterManager : public XClusterManagerIf,
   bool IsTableReplicated(const TableId& table_id) const;
 
   bool IsTableReplicationConsumer(const TableId& table_id) const override;
+
+  bool IsTableBiDirectionallyReplicated(const TableId& table_id) const override;
+
+  bool ShouldAutoAddIndexesToBiDirectionalXCluster(const TableInfo& indexed_table) const override;
 
   Status HandleTabletSplit(
       const TableId& consumer_table_id, const SplitTabletIds& split_tablet_ids,

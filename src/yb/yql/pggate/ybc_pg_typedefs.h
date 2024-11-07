@@ -355,6 +355,16 @@ typedef struct PgAttrValueDescriptor {
   int collation_id;
 } YBCPgAttrValueDescriptor;
 
+typedef struct WaitEventInfo {
+  uint32_t wait_event;
+  uint16_t rpc_code;
+} YBCWaitEventInfo;
+
+typedef struct WaitEventInfoPtr {
+  uint32_t* wait_event;
+  uint16_t* rpc_code;
+} YBCWaitEventInfoPtr;
+
 typedef struct PgCallbacks {
   YBCPgMemctx (*GetCurrentYbMemctx)();
   const char* (*GetDebugQueryString)();
@@ -365,7 +375,7 @@ typedef struct PgCallbacks {
   /* hba.c */
   int (*CheckUserMap)(const char *, const char *, const char *, bool case_insensitive);
   /* pgstat.h */
-  uint32_t (*PgstatReportWaitStart)(uint32_t);
+  YBCWaitEventInfo (*PgstatReportWaitStart)(YBCWaitEventInfo);
 } YBCPgCallbacks;
 
 typedef struct PgGFlagsAccessor {
@@ -395,6 +405,7 @@ typedef struct PgGFlagsAccessor {
   const bool*     ysql_use_fast_backward_scan;
   const char*     TEST_ysql_conn_mgr_dowarmup_all_pools_mode;
   const bool*     TEST_ysql_enable_db_logical_client_version_mode;
+  const bool*     ysql_conn_mgr_superuser_sticky;
 } YBCPgGFlagsAccessor;
 
 typedef struct YbTablePropertiesData {
@@ -789,6 +800,16 @@ typedef struct PgServerMetricsInfo {
   const char* error;
 } YBCPgServerMetricsInfo;
 
+typedef struct PgDatabaseCloneInfo {
+  YBCPgOid db_id;
+  const char* db_name;
+  YBCPgOid parent_db_id;
+  const char* parent_db_name;
+  const char* state;
+  int64_t as_of_time;
+  const char* failure_reason;
+} YBCPgDatabaseCloneInfo;
+
 typedef struct PgExplicitRowLockParams {
   int rowmark;
   int pg_wait_policy;
@@ -827,6 +848,16 @@ typedef struct PgThreadLocalRegexpCache {
 } YBCPgThreadLocalRegexpCache;
 
 typedef void (*YBCPgThreadLocalRegexpCacheCleanup)(YBCPgThreadLocalRegexpCache*);
+
+typedef struct YbInsertOnConflictKeyInfo {
+  void *slot;
+} YBCPgInsertOnConflictKeyInfo;
+
+typedef enum YbInsertOnConflictKeyState {
+  KEY_NOT_FOUND,
+  KEY_READ,
+  KEY_JUST_INSERTED,
+} YBCPgInsertOnConflictKeyState;
 
 #ifdef __cplusplus
 }  // extern "C"

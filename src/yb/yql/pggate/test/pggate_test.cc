@@ -73,8 +73,8 @@ const char* GetDebugQueryStringStub() {
   return "GetDebugQueryString not implemented in test";
 }
 
-uint32_t PgstatReportWaitStartNoOp(uint32_t wait_event) {
-  return wait_event;
+YBCWaitEventInfo PgstatReportWaitStartNoOp(YBCWaitEventInfo info) {
+  return info;
 }
 
 // Not defined locally in PggateTest::Init to avoid asan use-after-return error
@@ -230,7 +230,11 @@ void PggateTest::CommitTransaction() {
 
 void PggateTest::ExecCreateTableTransaction(YBCPgStatement pg_stmt) {
   BeginDDLTransaction();
-  CHECK_YBC_STATUS(YBCPgExecCreateTable(pg_stmt));
+  const char* notice_msg;
+  CHECK_YBC_STATUS(YBCPgExecCreateTable(pg_stmt, &notice_msg));
+  if (notice_msg) {
+    LOG(INFO) << "Notice: " << notice_msg;
+  }
   CommitDDLTransaction();
 }
 

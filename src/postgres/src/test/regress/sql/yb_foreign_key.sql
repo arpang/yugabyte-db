@@ -432,3 +432,11 @@ CREATE TABLE fk_full(b INT, c INT, FOREIGN KEY (b,c) REFERENCES pk(b, c) MATCH F
 INSERT INTO fk_full VALUES (NULL, 1);
 INSERT INTO fk_full VALUES (1, 1);
 INSERT INTO fk_full VALUES (NULL, NULL);
+
+-- Test foreign key on unique index such that column orders in fk and unique constraints differ.
+CREATE TABLE pk(id INT, name INT, add INT, PRIMARY KEY (id, name, add), UNIQUE (name, id));
+CREATE TABLE fk(id INT, name INT, FOREIGN KEY(id, name) REFERENCES pk(id, name));
+INSERT INTO pk VALUES (1, 500, 1000);
+INSERT INTO fk VALUES (1, 500);
+INSERT INTO fk VALUES (500, 1); -- should fail
+SELECT * from fk;

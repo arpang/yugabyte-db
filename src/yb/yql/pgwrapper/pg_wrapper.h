@@ -97,8 +97,9 @@ class PgWrapper : public ProcessWrapper {
   struct PgUpgradeParams {
     std::string data_dir;
     std::string old_version_pg_address;
+    std::string old_version_socket_dir;
     uint16_t old_version_pg_port;
-    std::string new_version_pg_address;
+    std::string new_version_socket_dir;
     uint16_t new_version_pg_port;
   };
 
@@ -145,6 +146,9 @@ class PgWrapper : public ProcessWrapper {
   static std::string GetPostgresThirdPartyLibPath();
   static std::string GetInitDbExecutablePath();
 
+  Status CleanupPreviousPostgres();
+  Status CleanupLockFileAndKillHungPg(const std::string& lock_file);
+
   // Set common environment for a child process (initdb or postgres itself).
   void SetCommonEnv(Subprocess* proc, bool yb_enabled);
   PgProcessConf conf_;
@@ -170,7 +174,6 @@ class PgSupervisor : public ProcessSupervisor {
   key_t GetYsqlConnManagerStatsShmkey();
 
  private:
-  Status CleanupOldServerUnlocked();
   Status RegisterPgFlagChangeNotifications() REQUIRES(mtx_);
   Status RegisterReloadPgConfigCallback(const void* flag_ptr) REQUIRES(mtx_);
   void DeregisterPgFlagChangeNotifications() REQUIRES(mtx_);

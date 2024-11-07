@@ -203,6 +203,14 @@ class XClusterTargetManager {
       const xrepl::StreamId& bootstrap_id, const std::optional<TableId>& target_table_id,
       const LeaderEpoch& epoch);
 
+  Result<std::optional<HybridTime>> TryGetXClusterSafeTimeForBackfill(
+      const std::vector<TableId>& index_table_ids, const TableInfoPtr& indexed_table,
+      const LeaderEpoch& epoch) const;
+
+  Status InsertPackedSchemaForXClusterTarget(
+      const TableId& table_id, const SchemaPB& packed_schema_to_insert,
+      uint32_t current_schema_version, const LeaderEpoch& epoch);
+
  private:
   // Gets the replication group status for the given replication group id. Does not populate the
   // table statuses.
@@ -222,6 +230,10 @@ class XClusterTargetManager {
       const TableId& table_id) const EXCLUDES(table_stream_ids_map_mutex_);
 
   Status ProcessPendingSchemaChanges(const LeaderEpoch& epoch);
+
+  Result<HybridTime> PrepareAndGetBackfillTimeForBiDirectionalIndex(
+      const std::vector<TableId>& index_table_ids, const TableId& indexed_table,
+      const LeaderEpoch& epoch) const;
 
   Master& master_;
   CatalogManager& catalog_manager_;

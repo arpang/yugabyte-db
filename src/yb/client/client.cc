@@ -50,7 +50,6 @@
 #include "yb/cdc/cdc_types.h"
 
 #include "yb/client/client_fwd.h"
-#include "yb/client/callbacks.h"
 #include "yb/client/client-internal.h"
 #include "yb/client/client_builder-internal.h"
 #include "yb/client/client_utils.h"
@@ -346,45 +345,8 @@ void FillFromRepeatedTabletLocations(
             BOOST_PP_CAT(method, Async))); \
   } while(0);
 
-// Adapts between the internal LogSeverity and the client's YBLogSeverity.
-static void LoggingAdapterCB(YBLoggingCallback* user_cb,
-                             LogSeverity severity,
-                             const char* filename,
-                             int line_number,
-                             const struct ::tm* time,
-                             const char* message,
-                             size_t message_len) {
-  YBLogSeverity client_severity;
-  switch (severity) {
-    case yb::SEVERITY_INFO:
-      client_severity = SEVERITY_INFO;
-      break;
-    case yb::SEVERITY_WARNING:
-      client_severity = SEVERITY_WARNING;
-      break;
-    case yb::SEVERITY_ERROR:
-      client_severity = SEVERITY_ERROR;
-      break;
-    case yb::SEVERITY_FATAL:
-      client_severity = SEVERITY_FATAL;
-      break;
-    default:
-      LOG(FATAL) << "Unknown YB log severity: " << severity;
-  }
-  user_cb->Run(client_severity, filename, line_number, time,
-               message, message_len);
-}
-
 void InitLogging() {
   InitGoogleLoggingSafeBasic("yb_client");
-}
-
-void InstallLoggingCallback(YBLoggingCallback* cb) {
-  RegisterLoggingCallback(Bind(&LoggingAdapterCB, Unretained(cb)));
-}
-
-void UninstallLoggingCallback() {
-  UnregisterLoggingCallback();
 }
 
 void SetVerboseLogLevel(int level) {
@@ -598,14 +560,7 @@ YBClient::~YBClient() {
 }
 
 void YBClient::Shutdown() {
-  data_->StartShutdown();
-  if (data_->messenger_holder_) {
-    data_->messenger_holder_->Shutdown();
-  }
-  if (data_->threadpool_) {
-    data_->threadpool_->Shutdown();
-  }
-  data_->CompleteShutdown();
+  data_->Shutdown();
 }
 
 std::unique_ptr<YBTableCreator> YBClient::NewTableCreator() {
@@ -686,6 +641,11 @@ Result<master::GetBackfillStatusResponsePB> YBClient::GetBackfillStatus(
     const std::vector<std::string_view>& table_ids) {
   const auto deadline = CoarseMonoClock::Now() + default_admin_operation_timeout();
   return data_->GetBackfillStatus(table_ids, deadline);
+}
+
+Result<bool> YBClient::IsBackfillIndexStarted(
+    const TableId& index_table_id, const TableId& indexed_table_id, CoarseTimePoint deadline) {
+  return data_->IsBackfillIndexStarted(this, index_table_id, indexed_table_id, deadline);
 }
 
 Status YBClient::DeleteTable(const YBTableName& table_name, bool wait) {
@@ -1148,6 +1108,12 @@ Status YBClient::GetNamespaceInfo(const std::string& namespace_id,
 
   CALL_SYNC_LEADER_MASTER_RPC(req, resp, GetNamespaceInfo);
   ret->Swap(&resp);
+  return Status::OK();
+}
+
+Status YBClient::ListClones(master::ListClonesResponsePB* ret) {
+  master::ListClonesRequestPB req;
+  CALL_SYNC_LEADER_MASTER_RPC_EX(Backup, req, *ret, ListClones);
   return Status::OK();
 }
 
@@ -2580,10 +2546,8 @@ Result<bool> YBClient::CheckIfPitrActive() {
   return data_->CheckIfPitrActive(deadline);
 }
 
-Result<std::vector<YBTableName>> YBClient::ListTables(const std::string& filter,
-                                                      bool exclude_ysql,
-                                                      const std::string& ysql_db_filter,
-                                                      bool skip_hidden) {
+Result<master::ListTablesResponsePB> YBClient::ListTables(
+    const std::string& filter, const std::string& ysql_db_filter) {
   ListTablesRequestPB req;
   ListTablesResponsePB resp;
 
@@ -2597,6 +2561,19 @@ Result<std::vector<YBTableName>> YBClient::ListTables(const std::string& filter,
   }
 
   CALL_SYNC_LEADER_MASTER_RPC(req, resp, ListTables);
+
+  if (resp.has_error()) {
+    return StatusFromPB(resp.error().status());
+  }
+
+  return resp;
+}
+
+Result<std::vector<YBTableName>> YBClient::ListTables(
+    const std::string& filter, bool exclude_ysql, const std::string& ysql_db_filter,
+    bool skip_hidden) {
+  auto resp = VERIFY_RESULT(ListTables(filter, ysql_db_filter));
+
   std::vector<YBTableName> result;
   result.reserve(resp.tables_size());
 

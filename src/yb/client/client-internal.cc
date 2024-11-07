@@ -312,6 +312,7 @@ YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, GetUDTypeMetadata);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, GetTableSchemaFromSysCatalog);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, UpdateConsumerOnProducerSplit);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, UpdateConsumerOnProducerMetadata);
+YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, InsertPackedSchemaForXClusterTarget);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, GetXClusterSafeTime);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, BootstrapProducer);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, XClusterReportNewAutoFlagConfigVersion);
@@ -332,6 +333,7 @@ YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, GetXClusterOutboundReplicationGroups
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, GetXClusterOutboundReplicationGroupInfo);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, GetUniverseReplications);
 YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, GetUniverseReplicationInfo);
+YB_CLIENT_SPECIALIZE_SIMPLE_EX(Replication, WaitForReplicationDrain);
 
 #define YB_CLIENT_SPECIALIZE_SIMPLE_EX_EACH(i, data, set) YB_CLIENT_SPECIALIZE_SIMPLE_EX set
 
@@ -486,11 +488,9 @@ Status YBClient::Data::GetTabletServer(YBClient* client,
   return Status::OK();
 }
 
-Status YBClient::Data::CreateTable(YBClient* client,
-                                   const CreateTableRequestPB& req,
-                                   const YBSchema& schema,
-                                   CoarseTimePoint deadline,
-                                   string* table_id) {
+Result<CreateTableResponsePB> YBClient::Data::CreateTable(
+    YBClient* client, const CreateTableRequestPB& req, const YBSchema& schema,
+    CoarseTimePoint deadline, string* table_id) {
   CreateTableResponsePB resp;
 
   int attempts = 0;
@@ -565,14 +565,14 @@ Status YBClient::Data::CreateTable(YBClient* client,
         }
       }
 
-      return Status::OK();
+      return resp;
     }
 
     return StatusFromPB(resp.error().status());
   }
 
-  // Use the status only if the response has no error.
-  return s;
+  RETURN_NOT_OK(s);
+  return resp;
 }
 
 Status YBClient::Data::IsCreateTableInProgress(YBClient* client,
@@ -999,6 +999,42 @@ Status YBClient::Data::WaitForBackfillIndexToFinish(
       "Timed out waiting for Backfill Index",
       std::bind(
           &YBClient::Data::IsBackfillIndexInProgress, this, client, table_id, index_id, _1, _2));
+}
+
+Result<bool> YBClient::Data::IsBackfillIndexStarted(
+    YBClient* client, const TableId& index_table_id, const TableId& indexed_table_id,
+    CoarseTimePoint deadline) {
+  YBTableInfo yb_table_info;
+  master::GetTableSchemaResponsePB resp;
+  RETURN_NOT_OK(GetTableSchema(
+      client, indexed_table_id, deadline, &yb_table_info, master::IncludeInactive::kFalse, &resp));
+
+  for (const auto& index : resp.indexes()) {
+    if (index.table_id() == index_table_id) {
+      SCHECK_FORMAT(
+          index.backfill_error_message().empty(), IllegalState, "Index $0 has backfill error: $1",
+          index_table_id, index.backfill_error_message());
+
+      auto index_permissions = index.index_permissions();
+
+      // Anything above INDEX_PERM_READ_WRITE_AND_DELETE means index is being deleted.
+      SCHECK_LE(
+          index_permissions, INDEX_PERM_READ_WRITE_AND_DELETE, IllegalState,
+          Format(
+              "Index permissions $0 for index $1 is unexpected",
+              IndexPermissions_Name(index_permissions), index_table_id));
+
+      // YSQL indexes start with permission INDEX_PERM_WRITE_AND_DELETE, and directly moves to
+      // INDEX_PERM_READ_WRITE_AND_DELETE. The actual stages are tracked in postgres fields
+      // indislive, indisready and indisvalid. So use index_permissions to determine if the index is
+      // currently backfilling.
+      return resp.is_backfilling() ||
+             index_permissions == IndexPermissions::INDEX_PERM_READ_WRITE_AND_DELETE;
+    }
+  }
+
+  // We can get here if the indexed table schema is not yet fully applied.
+  return false;
 }
 
 Result<master::GetBackfillStatusResponsePB> YBClient::Data::GetBackfillStatus(
@@ -2579,7 +2615,7 @@ void YBClient::Data::SetMasterServerProxyAsync(CoarseTimePoint deadline,
         &Data::DoSetMasterServerProxy, this, deadline, skip_resolution, wait_for_leader_election);
     auto submit_status = threadpool_->SubmitFunc(functor);
     if (!submit_status.ok()) {
-      callback(submit_status);
+      LeaderMasterDetermined(submit_status, HostPort());
     }
   }
 }
@@ -3009,8 +3045,35 @@ void YBClient::Data::UpdateLatestObservedHybridTime(uint64_t hybrid_time) {
   latest_observed_hybrid_time_.StoreMax(hybrid_time);
 }
 
-void YBClient::Data::StartShutdown() {
+void YBClient::Data::Shutdown() {
   closing_.store(true, std::memory_order_release);
+
+  if (messenger_holder_) {
+    messenger_holder_->Shutdown();
+  }
+  if (threadpool_) {
+    threadpool_->Shutdown();
+    // Abort all in-progress rpcs using handle leader_master_rpc_.
+    rpc::RpcCommandPtr rpc_to_abort = nullptr;
+    {
+      std::lock_guard l(leader_master_lock_);
+      if (leader_master_rpc_ != rpcs_.InvalidHandle()) {
+        rpc_to_abort = *leader_master_rpc_;
+      }
+    }
+    if (rpc_to_abort) {
+      rpc_to_abort->Abort();
+    }
+    // The tasks submitted to the threadpool_ in SetMasterServerProxyAsync would expect the
+    // callbacks to be triggered at some point. Since threadpool_->Shutdown() destroys the
+    // enqueued (but not currently running) tasks, invoke the callbacks inline.
+    LeaderMasterDetermined(STATUS_FORMAT(ShutdownInProgress, "YBClient shutting down"), HostPort());
+  }
+
+  while (running_sync_requests_.load(std::memory_order_acquire)) {
+    YB_LOG_EVERY_N_SECS(INFO, 5) << "Waiting sync requests to finish";
+    std::this_thread::sleep_for(100ms);
+  }
 }
 
 bool YBClient::Data::IsMultiMaster() {
@@ -3038,13 +3101,6 @@ bool YBClient::Data::IsMultiMaster() {
   std::vector<Endpoint> addrs;
   status = host_ports[0].ResolveAddresses(&addrs);
   return status.ok() && (addrs.size() > 1);
-}
-
-void YBClient::Data::CompleteShutdown() {
-  while (running_sync_requests_.load(std::memory_order_acquire)) {
-    YB_LOG_EVERY_N_SECS(INFO, 5) << "Waiting sync requests to finish";
-    std::this_thread::sleep_for(100ms);
-  }
 }
 
 } // namespace client

@@ -3152,6 +3152,94 @@ yb_table_properties(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls));
 }
 
+Datum
+yb_database_clones(PG_FUNCTION_ARGS)
+{
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	TupleDesc	tupdesc;
+	Tuplestorestate *tupstore;
+	MemoryContext per_query_ctx;
+	MemoryContext oldcontext;
+	int			i;
+#define YB_DATABASE_CLONES_COLS 7
+
+	/* check to see if caller supports us returning a tuplestore */
+	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("set-valued function called in context that cannot accept a set")));
+
+	if (!(rsinfo->allowedModes & SFRM_Materialize))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("materialize mode required, but it is not " \
+						"allowed in this context")));
+
+	/*
+	 * Switch context to construct returned data structures and store
+	 * returned values from tserver.
+	 */
+	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
+	oldcontext = MemoryContextSwitchTo(per_query_ctx);
+
+	/* Build a tuple descriptor */
+	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+		ereport(ERROR,
+				(errmsg_internal("return type must be a row type")));
+
+	tupstore = tuplestore_begin_heap(true, false, work_mem);
+	rsinfo->returnMode = SFRM_Materialize;
+	rsinfo->setResult = tupstore;
+	rsinfo->setDesc = tupdesc;
+
+	YBCPgDatabaseCloneInfo	*database_clones_info = NULL;
+	size_t		num_clones = 0;
+	HandleYBStatus(YBCDatabaseClones(&database_clones_info, &num_clones));
+
+	for (i = 0; i < num_clones; ++i)
+	{
+		YBCPgDatabaseCloneInfo *clone_info = (YBCPgDatabaseCloneInfo *)database_clones_info + i;
+		Datum		values[YB_DATABASE_CLONES_COLS];
+		bool		nulls[YB_DATABASE_CLONES_COLS];
+
+		memset(values, 0, sizeof(values));
+		memset(nulls, 0, sizeof(nulls));
+
+
+		values[1] = CStringGetTextDatum(clone_info->db_name);
+		values[2] = ObjectIdGetDatum(clone_info->parent_db_id);
+		values[3] = CStringGetTextDatum(clone_info->parent_db_name);
+		values[4] = CStringGetTextDatum(clone_info->state);
+		values[5] = TimestampTzGetDatum(clone_info->as_of_time);
+
+		/* Optional values that are not set all the time */
+		if (OidIsValid(clone_info->db_id))
+		{
+			values[0] = ObjectIdGetDatum(clone_info->db_id);
+		}
+		else
+			nulls[0] = true;
+
+		if (strlen(clone_info->failure_reason))
+		{
+			values[6] = CStringGetTextDatum(clone_info->failure_reason);
+		}
+		else
+			nulls[6] = true;
+
+		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
+	}
+
+#undef YB_DATABASE_CLONES_COLS
+
+	/* clean up and return the tuplestore */
+	tuplestore_donestoring(tupstore);
+
+	MemoryContextSwitchTo(oldcontext);
+
+	return (Datum) 0;
+}
+
 /*
  * This function is adapted from code of PQescapeLiteral() in fe-exec.c.
  * If use_quote_strategy_token is false, the string value will be converted
@@ -5090,12 +5178,36 @@ int ysql_conn_mgr_sticky_object_count = 0;
 bool yb_ysql_conn_mgr_sticky_guc = false;
 
 /*
- * ```YbIsConnectionMadeStickyUsingGUC()``` returns whether or not the a
- * connection is made sticky using via specific GUC variables.
+ * `yb_ysql_conn_mgr_superuser_existed` denotes whether the session user was
+ * ever a superuser.
+ */
+bool yb_ysql_conn_mgr_superuser_existed = false;
+
+bool YbIsSuperuserConnSticky()
+{
+	return *(YBCGetGFlags()->ysql_conn_mgr_superuser_sticky);
+}
+
+/*
+ * ```YbIsConnectionMadeStickyUsingGUC()``` returns whether or not a
+ * connection is made sticky using specific GUC variables. This also includes
+ * making the connection sticky if the "session user" was ever a superuser,
+ * provided that the flag ysql_conn_mgr_superuser_sticky is enabled.
  */
 static bool YbIsConnectionMadeStickyUsingGUC()
 {
-	return yb_ysql_conn_mgr_sticky_guc;
+	/*
+	 * If the user on this backend was ever a superuser, let the connection
+	 * remain sticky to avoid potential errors during deploy phase for
+	 * superuser-only GUC variables. Deliberately leave superuser() as the last
+	 * condition to avoid unnecessary calls to superuser(), while also allowing
+	 * the history stored in yb_ysql_conn_mgr_superuser_existed to be used on
+	 * priority.
+	 */
+	yb_ysql_conn_mgr_superuser_existed = yb_ysql_conn_mgr_superuser_existed ||
+		session_auth_is_superuser;
+	return yb_ysql_conn_mgr_sticky_guc = yb_ysql_conn_mgr_sticky_guc ||
+		(YbIsSuperuserConnSticky() && yb_ysql_conn_mgr_superuser_existed);
 }
 
 /*
@@ -5342,7 +5454,7 @@ YbIndexSetNewRelfileNode(Relation indexRel, Oid newRelfileNodeId,
 				   RelationGetDescr(indexRel),
 				   indexRel->rd_indoption,
 				   reloptions,
-				   newRelfileNodeId,
+				   RelationGetRelid(indexRel),
 				   indexedRel,
 				   yb_copy_split_options ? YbGetSplitOptions(indexRel) : NULL,
 				   true /* skip_index_backfill */,
@@ -5350,7 +5462,7 @@ YbIndexSetNewRelfileNode(Relation indexRel, Oid newRelfileNodeId,
 				   indexRel->yb_table_properties->tablegroup_oid,
 				   InvalidOid /* colocation ID */,
 				   indexRel->rd_rel->reltablespace,
-				   RelationGetRelid(indexRel),
+				   newRelfileNodeId,
 				   YbGetRelfileNodeId(indexRel));
 
 	table_close(indexedRel, ShareLock);
@@ -5453,11 +5565,11 @@ YbRelationSetNewRelfileNode(Relation rel, Oid newRelfileNodeId,
 	ReleaseSysCache(tuple);
 	YBCCreateTable(dummyStmt, RelationGetRelationName(rel),
 					rel->rd_rel->relkind, RelationGetDescr(rel),
-					newRelfileNodeId,
+					RelationGetRelid(rel),
 					RelationGetNamespace(rel),
 					YbGetTableProperties(rel)->tablegroup_oid,
 					InvalidOid, rel->rd_rel->reltablespace,
-					RelationGetRelid(rel),
+					newRelfileNodeId,
 					rel->rd_rel->relfilenode,
 					is_truncate);
 
@@ -5565,4 +5677,20 @@ bool YbUseUnsafeTruncate(Relation rel)
 {
 	return IsYBRelation(rel) &&
 		(IsSystemRelation(rel) || !yb_enable_alter_table_rewrite);
+}
+
+
+/*
+ * Given a table attribute number, get a corresponding index attribute number.
+ * Throw an error if it is not found.
+ */
+AttrNumber
+YbGetIndexAttnum(Relation index, AttrNumber table_attno)
+{
+	for (int i = 0; i < IndexRelationGetNumberOfAttributes(index); ++i)
+	{
+		if (table_attno == index->rd_index->indkey.values[i])
+			return i + 1;
+	}
+	elog(ERROR, "column is not in index");
 }
