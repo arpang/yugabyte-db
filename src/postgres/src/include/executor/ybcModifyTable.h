@@ -245,7 +245,7 @@ extern Datum YBCGetYBTupleIdFromSlot(TupleTableSlot *slot);
 extern Datum YBCComputeYBTupleIdFromSlot(Relation rel, TupleTableSlot *slot);
 
 extern YBCPgYBTupleIdDescriptor*
-YBCBuildNonNullUniqueIndexYBTupleId(Relation unique_index, Datum *values, bool *nulls);
+YBCBuildNonNullUniqueIndexYBTupleId(Relation unique_index, Datum *values);
 
 /*
  * Returns if a table has secondary indices.

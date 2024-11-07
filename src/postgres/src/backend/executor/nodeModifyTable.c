@@ -5564,7 +5564,7 @@ YbExecCheckIndexConstraints(EState *estate,
 		 * TODO(jason): revisit when exclusion constraint is supported.
 		 */
 		YBCPgYBTupleIdDescriptor *descr =
-			YBCBuildNonNullUniqueIndexYBTupleId(index, values, isnull);
+			YBCBuildNonNullUniqueIndexYBTupleId(index, values);
 
 		/*
 		 * If this function is invoked from YbExecUpdateAct, we can skip the
