@@ -633,8 +633,7 @@ YBCForeignKeyReferenceCacheDeleteIndex(Relation index, Datum *values, bool *isnu
 			if (isnulls[i])
 				return;
 
-		YBCPgYBTupleIdDescriptor *descr =
-			YBCBuildNonNullUniqueIndexYBTupleId(index, values);
+		YBCPgYBTupleIdDescriptor* descr = YBCBuildNonNullUniqueIndexYBTupleId(index, values);
 		HandleYBStatus(YBCPgForeignKeyReferenceCacheDelete(descr));
 		pfree(descr);
 	}

@@ -172,6 +172,8 @@ SELECT * FROM ioc_defaults ORDER BY b, c;
 -- Reset.
 DELETE FROM ab_tab WHERE a IS null;
 DROP INDEX ioc_defaults_bc_idx;
+TRUNCATE ioc_defaults;
+
 -- NULLS NOT DISTINCT
 DROP INDEX ah_idx;
 CREATE UNIQUE INDEX NONCONCURRENTLY ah_idx ON ab_tab (a HASH) NULLS NOT DISTINCT;
@@ -185,10 +187,12 @@ SELECT * FROM ab_tab WHERE a IS NULL ORDER BY b;
 DELETE FROM ab_tab;
 -- Similarly, columns with default NULL values should be treated as the same logical row.
 CREATE UNIQUE INDEX NONCONCURRENTLY ioc_defaults_bc_idx ON ioc_defaults (b, c) NULLS NOT DISTINCT;
-INSERT INTO ioc_defaults VALUES (1), (1) ON CONFLICT (b, c) DO UPDATE SET a = EXCLUDED.a;
+INSERT INTO ioc_defaults VALUES (1);
+INSERT INTO ioc_defaults VALUES (2), (3) ON CONFLICT (b, c) DO UPDATE SET a = EXCLUDED.a;
 SELECT * FROM ioc_defaults ORDER BY b, c;
 -- Reset.
 DROP INDEX ioc_defaults_bc_idx;
+TRUNCATE ioc_defaults;
 
 -- Index key attributes > 1
 CREATE TABLE ab_tab2 (a int, b int);

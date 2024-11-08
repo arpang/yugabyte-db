@@ -1749,7 +1749,6 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 				break;
 			}
 		}
-
 		if (found_null)
 			continue;
 
