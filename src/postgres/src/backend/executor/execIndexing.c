@@ -138,7 +138,8 @@ static bool check_exclusion_or_unique_constraint(Relation heap, Relation index,
 												 CEOUC_WAIT_MODE waitMode,
 												 bool errorOK,
 												 ItemPointer conflictTid,
-												 TupleTableSlot **ybConflictSlot);
+												 TupleTableSlot **ybConflictSlot,
+												 bool update_map);
 
 static bool index_recheck_constraint(Relation index, Oid *constr_procs,
 									 Datum *existing_values, bool *existing_isnull,
@@ -415,7 +416,8 @@ YbExecDoInsertIndexTuple(ResultRelInfo *resultRelInfo,
 												 tupleid, values, isnull,
 												 estate, false,
 												 waitMode, violationOK, NULL,
-												 NULL /* ybConflictSlot */);
+												 NULL /* ybConflictSlot */,
+												 false /* update_map */);
 	}
 
 	if ((checkUnique == UNIQUE_CHECK_PARTIAL ||
@@ -1135,7 +1137,8 @@ ExecCheckIndexConstraints(ResultRelInfo *resultRelInfo, TupleTableSlot *slot,
 													 values, isnull, estate, false,
 													 CEOUC_WAIT, true,
 													 conflictTid,
-													 ybConflictSlot);
+													 ybConflictSlot,
+													 false /* update_map */);
 		}
 		if (!satisfiesConstraint)
 			return false;
@@ -1198,7 +1201,8 @@ check_exclusion_or_unique_constraint(Relation heap, Relation index,
 									 CEOUC_WAIT_MODE waitMode,
 									 bool violationOK,
 									 ItemPointer conflictTid,
-									 TupleTableSlot **ybConflictSlot)
+									 TupleTableSlot **ybConflictSlot,
+									 bool update_map)
 {
 	Oid		   *constr_procs;
 	uint16	   *constr_strats;
@@ -1213,6 +1217,7 @@ check_exclusion_or_unique_constraint(Relation heap, Relation index,
 	ExprContext *econtext;
 	TupleTableSlot *existing_slot;
 	TupleTableSlot *save_scantuple;
+	bool		ybDropSlot = true;
 
 	if (indexInfo->ii_ExclusionOps)
 	{
@@ -1369,6 +1374,28 @@ retry:
 		 * We have a definite conflict (or a potential one, but the caller
 		 * didn't want to wait).  Return it to caller, or report it.
 		 */
+
+		if (update_map)
+		{
+			YBCPgInsertOnConflictKeyState keyState;
+			YBCPgYBTupleIdDescriptor *descr =
+				YBCBuildNonNullUniqueIndexYBTupleId(index, existing_values, existing_isnull);
+
+			/* Handle duplicate keys having NULL values */
+			HandleYBStatus(YBCPgInsertOnConflictKeyExists(descr, &keyState));
+			if (keyState != KEY_READ)
+			{
+				YBCPgInsertOnConflictKeyInfo info = {existing_slot};
+				HandleYBStatus(YBCPgAddInsertOnConflictKey(descr, &info));
+				ybDropSlot = false;
+			}
+			/*
+			 * TODO(arpan): There can be multiple conflicting rows once EXCLUDE
+			 * constraint is supported.
+			 */
+			break;
+		}
+
 		if (violationOK)
 		{
 			conflict = true;
@@ -1428,7 +1455,8 @@ retry:
 	 * TODO(jason): this is not necessary for DO NOTHING, so it could be freed
 	 * here as a minor optimization in that case.
 	 */
-	if (!*ybConflictSlot)
+	ybDropSlot &= (!ybConflictSlot || !*ybConflictSlot);
+	if (ybDropSlot)
 		ExecDropSingleTupleTableSlot(existing_slot);
 	return !conflict;
 }
@@ -1450,7 +1478,8 @@ check_exclusion_constraint(Relation heap, Relation index,
 												values, isnull,
 												estate, newIndex,
 												CEOUC_WAIT, false, NULL,
-												NULL /* ybConflictSlot */);
+												NULL /* ybConflictSlot */,
+												false /* update_map */);
 }
 
 /*
@@ -1708,6 +1737,7 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	 */
 	Datum dvalues[num_slots];
 	bool dnulls[num_slots];
+	bool has_nulls = false;
 	int array_len = 0;
 	for (i = 0; i < num_slots; ++i)
 	{
@@ -1738,8 +1768,6 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 					   values,
 					   isnull);
 
-		Assert(!indexInfo->ii_NullsNotDistinct);
-
 		bool found_null = false;
 		for (int j = 0; j < indnkeyatts; j++)
 		{
@@ -1749,8 +1777,39 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 				break;
 			}
 		}
+
 		if (found_null)
+		{
+			/*
+			 * If any of the input values are NULL, and the index uses the
+			 * - nulls-not-distinct mode: Since NULLs cannot be looked up in
+			 * 		batched fashion, do a one-off loopup.
+			 * - nulls-are-distinct mode: the constraint check is assumed
+			 * 		to pass (i.e., we assume the operators are strict).
+			 */
+			if (indexInfo->ii_NullsNotDistinct)
+			{
+				/*
+				 * Re-use check_exclusion_or_unique_constraint to populate
+				 * batching map to avoid code duplication.
+				 */
+				check_exclusion_or_unique_constraint(heap,
+													 index,
+													 indexInfo,
+													 NULL /* tupleid */,
+													 values,
+													 isnull,
+													 estate,
+													 false /* newIndex */,
+													 CEOUC_WAIT,
+													 true /* violationOK */,
+													 NULL /* conflictTid */,
+													 NULL /* ybConflictSlot */,
+													 true /* update_map */);
+				has_nulls = true;
+			}
 			continue;
+		}
 
 		if (indnkeyatts == 1)
 		{
@@ -1786,7 +1845,7 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	 * Optimization to bail out early in case there is no batch read RPC to
 	 * send.  An ON CONFLICT batching map will not be created for this index.
 	 */
-	if (array_len == 0)
+	if (array_len == 0 && !has_nulls)
 	{
 		econtext->ecxt_scantuple = save_scantuple;
 		return;
@@ -1913,7 +1972,7 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 		oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
 		YBCPgInsertOnConflictKeyInfo info = {existing_slot};
 		YBCPgYBTupleIdDescriptor *descr =
-			YBCBuildNonNullUniqueIndexYBTupleId(index, existing_values);
+			YBCBuildNonNullUniqueIndexYBTupleId(index, existing_values, NULL);
 		HandleYBStatus(YBCPgAddInsertOnConflictKey(descr, &info));
 		MemoryContextSwitchTo(oldcontext);
 

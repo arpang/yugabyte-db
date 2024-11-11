@@ -173,7 +173,6 @@ SELECT * FROM ioc_defaults ORDER BY b, c;
 DELETE FROM ab_tab WHERE a IS null;
 DROP INDEX ioc_defaults_bc_idx;
 TRUNCATE ioc_defaults;
-
 -- NULLS NOT DISTINCT
 DROP INDEX ah_idx;
 CREATE UNIQUE INDEX NONCONCURRENTLY ah_idx ON ab_tab (a HASH) NULLS NOT DISTINCT;

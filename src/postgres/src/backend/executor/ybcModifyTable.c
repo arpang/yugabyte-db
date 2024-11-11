@@ -518,15 +518,6 @@ YbIsInsertOnConflictReadBatchingEnabled(ResultRelInfo *resultRelInfo)
 	/*
 	 * TODO(jason): figure out how to enable triggers.
 	 */
-	/*
-	 * TODO(GH#24834): Enable INSERT ON CONFLICT batching for null-not-distinct
-	 * indexes.
-	 */
-	for (int i = 0; i < resultRelInfo->ri_NumIndices; i++)
-	{
-		if (resultRelInfo->ri_IndexRelationInfo[i]->ii_NullsNotDistinct)
-			return false;
-	}
 	return (IsYBRelation(resultRelInfo->ri_RelationDesc) &&
 			!IsCatalogRelation(resultRelInfo->ri_RelationDesc) &&
 			resultRelInfo->ri_BatchSize > 1 &&
@@ -552,7 +543,7 @@ YbIsInsertOnConflictReadBatchingEnabled(ResultRelInfo *resultRelInfo)
  * secondary index.
  */
 YBCPgYBTupleIdDescriptor *
-YBCBuildNonNullUniqueIndexYBTupleId(Relation unique_index, Datum *values)
+YBCBuildNonNullUniqueIndexYBTupleId(Relation unique_index, Datum *values, bool *nulls)
 {
 	Assert(IsYBRelation(unique_index));
 
@@ -601,7 +592,7 @@ YBCBuildNonNullUniqueIndexYBTupleId(Relation unique_index, Datum *values)
 		next_attr->collation_id = ybc_get_attcollation(tupdesc, attnum);
 		next_attr->attr_num = attnum;
 		next_attr->datum = values[i];
-		next_attr->is_null = false;
+		next_attr->is_null = nulls == NULL ? false : nulls[i];
 		YBCPgColumnInfo column_info = {0};
 		HandleYBTableDescStatus(YBCPgGetColumnInfo(ybc_table_desc,
 												   attnum,
@@ -633,7 +624,8 @@ YBCForeignKeyReferenceCacheDeleteIndex(Relation index, Datum *values, bool *isnu
 			if (isnulls[i])
 				return;
 
-		YBCPgYBTupleIdDescriptor* descr = YBCBuildNonNullUniqueIndexYBTupleId(index, values);
+		YBCPgYBTupleIdDescriptor *descr =
+			YBCBuildNonNullUniqueIndexYBTupleId(index, values, NULL);
 		HandleYBStatus(YBCPgForeignKeyReferenceCacheDelete(descr));
 		pfree(descr);
 	}
