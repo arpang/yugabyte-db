@@ -1669,6 +1669,7 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	ExprContext *econtext;
 	TupleTableSlot *existing_slot;
 	TupleTableSlot *save_scantuple;
+	MemoryContext oldcontext;
 
 	if (indexInfo->ii_ExclusionOps)
 	{
@@ -1752,14 +1753,14 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 		{
 			/*
 			 * If any of the input values are NULL, and the index uses the
+			 * - nulls-are-distinct mode (default): the constraint check is
+			 * 		assumed to pass (i.e., we assume the operators are strict).
 			 * - nulls-not-distinct mode: Since NULLs cannot be looked up in
-			 * 		batched fashion, do a one-off loopup.
-			 * - nulls-are-distinct mode: the constraint check is assumed
-			 * 		to pass (i.e., we assume the operators are strict).
+			 * 		batched fashion, do one lookup for each slot.
 			 */
 			if (indexInfo->ii_NullsNotDistinct)
 			{
-				// TODO: switch context
+				oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
 				YBCPgInsertOnConflictKeyState keyState;
 				TupleTableSlot *ybConflictSlot = NULL;
 
@@ -1768,9 +1769,11 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 				HandleYBStatus(
 					YBCPgInsertOnConflictKeyExists(descr, &keyState));
 
-				/* skip checking conflicts, if we have already found one. */
 				if (keyState == KEY_READ)
+				{
+					/* A conflicting slot is found already, skip rechecking. */
 					continue;
+				}
 
 				bool check_passed = check_exclusion_or_unique_constraint(
 					heap, index, indexInfo, NULL /* tupleid */, values, isnull,
@@ -1783,6 +1786,7 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 					YBCPgInsertOnConflictKeyInfo info = {ybConflictSlot};
 					HandleYBStatus(YBCPgAddInsertOnConflictKey(descr, &info));
 				}
+				MemoryContextSwitchTo(oldcontext);
 			}
 			continue;
 		}
@@ -1929,7 +1933,6 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	{
 		Datum		existing_values[INDEX_MAX_KEYS];
 		bool		existing_isnull[INDEX_MAX_KEYS];
-		MemoryContext oldcontext;
 
 		/*
 		 * Extract the index column values and isnull flags from the existing
