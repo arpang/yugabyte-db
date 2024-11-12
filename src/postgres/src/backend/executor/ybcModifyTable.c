@@ -543,7 +543,7 @@ YbIsInsertOnConflictReadBatchingEnabled(ResultRelInfo *resultRelInfo)
  * secondary index.
  */
 YBCPgYBTupleIdDescriptor *
-YBCBuildNonNullUniqueIndexYBTupleId(Relation unique_index, Datum *values, bool *nulls)
+YBCBuildUniqueIndexYBTupleId(Relation unique_index, Datum *values, bool *nulls)
 {
 	Assert(IsYBRelation(unique_index));
 
@@ -603,7 +603,11 @@ YBCBuildNonNullUniqueIndexYBTupleId(Relation unique_index, Datum *values, bool *
 
 	/* Primary keys do not have the YBUniqueIdxKeySuffix attribute */
 	if (!is_pkey)
+	{
+		Assert(unique_index->rd_index->indnullsnotdistinct ||
+			   !(nulls && YbIsAnyIndexKeyColumnNull(nattrs, nulls)));
 		YBCFillUniqueIndexNullAttribute(result);
+	}
 
 	return result;
 }
@@ -625,7 +629,7 @@ YBCForeignKeyReferenceCacheDeleteIndex(Relation index, Datum *values, bool *isnu
 				return;
 
 		YBCPgYBTupleIdDescriptor *descr =
-			YBCBuildNonNullUniqueIndexYBTupleId(index, values, NULL);
+			YBCBuildUniqueIndexYBTupleId(index, values, NULL);
 		HandleYBStatus(YBCPgForeignKeyReferenceCacheDelete(descr));
 		pfree(descr);
 	}

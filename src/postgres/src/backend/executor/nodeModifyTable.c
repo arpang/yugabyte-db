@@ -5554,7 +5554,7 @@ YbExecCheckIndexConstraints(EState *estate,
 		 * KEY_JUST_INSERTED branch will not be executed.
 		 */
 		if (!indexInfo->ii_NullsNotDistinct &&
-			YbIsAnyIndexKeyColumnNull(indexInfo, isnull))
+			YbIsAnyIndexKeyColumnNull(indexInfo->ii_NumIndexKeyAttrs, isnull))
 			continue;
 
 		/*
@@ -5564,7 +5564,7 @@ YbExecCheckIndexConstraints(EState *estate,
 		 * TODO(jason): revisit when exclusion constraint is supported.
 		 */
 		YBCPgYBTupleIdDescriptor *descr =
-			YBCBuildNonNullUniqueIndexYBTupleId(index, values, isnull);
+			YBCBuildUniqueIndexYBTupleId(index, values, isnull);
 
 		/*
 		 * If this function is invoked from YbExecUpdateAct, we can skip the

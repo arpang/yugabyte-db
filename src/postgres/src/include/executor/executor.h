@@ -707,7 +707,7 @@ extern bool YbShouldCheckUniqueOrExclusionIndex(IndexInfo *indexInfo,
 												Relation indexRelation,
 												Relation heapRelation,
 												List *arbiterIndexes);
-extern bool YbIsAnyIndexKeyColumnNull(IndexInfo *indexInfo,
+extern bool YbIsAnyIndexKeyColumnNull(int numIndexKeyAttrs,
 									  bool isnull[INDEX_MAX_KEYS]);
 
 #endif							/* EXECUTOR_H  */
