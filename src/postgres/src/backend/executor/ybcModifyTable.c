@@ -605,10 +605,10 @@ YBCBuildUniqueIndexYBTupleId(Relation unique_index, Datum *values, bool *nulls)
 	if (!is_pkey)
 	{
 		/*
-		 * If unique_index is not PK, this function should only used for
-		 * indexes that use nulls-not-distinct mode or for the index tuples that
-		 * have non-null values for all the index key columns.
-		 * YBUniqueIdxKeySuffix is null in both these cases.
+		 * If unique_index is not PK, this function should be used only for
+		 * indexes that use nulls-not-distinct mode or for the index tuples with
+		 * non-null values for all the index key columns. YBUniqueIdxKeySuffix
+		 * is null in both these cases.
 		 */
 		Assert(unique_index->rd_index->indnullsnotdistinct ||
 			   !(nulls && YbIsAnyIndexKeyColumnNull(nattrs, nulls)));
