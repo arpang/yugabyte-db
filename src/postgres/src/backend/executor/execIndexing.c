@@ -1775,14 +1775,15 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 					continue;
 				}
 
-				bool check_passed = check_exclusion_or_unique_constraint(
+				bool satisfiesConstraint = check_exclusion_or_unique_constraint(
 					heap, index, indexInfo, NULL /* tupleid */, values, isnull,
 					estate, false /* newIndex */, CEOUC_WAIT,
 					true /* violationOK */, NULL /* conflictTid */,
 					&ybConflictSlot /* ybConflictSlot */);
 
-				if (!check_passed)
+				if (!satisfiesConstraint)
 				{
+					/* Found conflict slot, insert it to the conflict buffer. */
 					YBCPgInsertOnConflictKeyInfo info = {ybConflictSlot};
 					HandleYBStatus(YBCPgAddInsertOnConflictKey(descr, &info));
 				}
