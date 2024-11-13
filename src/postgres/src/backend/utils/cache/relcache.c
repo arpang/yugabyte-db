@@ -6883,7 +6883,7 @@ RelationGetFKeyList(Relation relation)
 		info->conrelid = constraint->conrelid;
 		info->confrelid = constraint->confrelid;
 		info->ybconindid = constraint->conindid;
-		info->ybconparentid = constraint->conparentid;
+		// info->ybconparentid = constraint->conparentid;
 
 		DeconstructFkConstraintRow(htup, &info->nkeys,
 								   info->conkey,
@@ -6967,7 +6967,7 @@ YbRelationGetFKeyReferencedByList(Relation relation)
 		info->conrelid = constraint->conrelid;
 		info->confrelid = constraint->confrelid;
 		info->ybconindid = constraint->conindid;
-		info->ybconparentid = constraint->conparentid;
+		// info->ybconparentid = constraint->conparentid;
 
 		DeconstructFkConstraintRow(htup, &info->nkeys, info->conkey,
 								   info->confkey, info->conpfeqop, NULL, NULL,

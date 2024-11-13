@@ -351,6 +351,18 @@ ExecFindPartition(ModifyTableState *mtstate,
 				Assert(dispatch->indexes[partidx] < proute->num_partitions);
 				rri = proute->partitions[dispatch->indexes[partidx]];
 			}
+			else if (mtstate == NULL)
+			{
+				Oid partOid = dispatch->partdesc->oids[partidx];
+				MemoryContext oldcxt2 = MemoryContextSwitchTo(proute->memcxt);
+				rri = makeNode(ResultRelInfo);
+				Relation partrel = table_open(partOid, RowExclusiveLock);
+				InitResultRelInfo(rri, partrel, 0, rootResultRelInfo,
+								  estate->es_instrument);
+				ExecInitRoutingInfo(mtstate, estate, proute, dispatch, rri,
+									partidx, false);
+				MemoryContextSwitchTo(oldcxt2);
+			}
 			else
 			{
 				/*
@@ -1156,7 +1168,7 @@ ExecInitRoutingInfo(ModifyTableState *mtstate,
 	 * If the partition is a foreign table, let the FDW init itself for
 	 * routing tuples to the partition.
 	 */
-	if (partRelInfo->ri_FdwRoutine != NULL &&
+	if (mtstate && partRelInfo->ri_FdwRoutine != NULL &&
 		partRelInfo->ri_FdwRoutine->BeginForeignInsert != NULL)
 		partRelInfo->ri_FdwRoutine->BeginForeignInsert(mtstate, partRelInfo);
 
@@ -1167,7 +1179,7 @@ ExecInitRoutingInfo(ModifyTableState *mtstate,
 	 *
 	 * If the FDW does not support batching, we set the batch size to 1.
 	 */
-	if (mtstate->operation == CMD_INSERT &&
+	if (mtstate && mtstate->operation == CMD_INSERT &&
 		partRelInfo->ri_FdwRoutine != NULL &&
 		partRelInfo->ri_FdwRoutine->GetForeignModifyBatchSize &&
 		partRelInfo->ri_FdwRoutine->ExecForeignBatchInsert)

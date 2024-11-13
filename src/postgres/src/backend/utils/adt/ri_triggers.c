@@ -251,7 +251,7 @@ helper(const RI_ConstraintInfo *riinfo, TupleTableSlot *slot, TupleDesc pkdesc)
 	{
 		const int fk_attnum = riinfo->fk_attnums[i];
 		const int pk_attnum = riinfo->pk_attnums[i];
-		elog(INFO, "fk_attnum %d, pk_attnum %d", fk_attnum, pk_attnum);
+		// elog(INFO, "fk_attnum %d, pk_attnum %d", fk_attnum, pk_attnum);
 		pkslot->tts_values[pk_attnum-1] =
 			slot_getattr(slot, fk_attnum, &pkslot->tts_isnull[pk_attnum-1]);
 	}
@@ -273,6 +273,9 @@ static YBCPgYBTupleIdDescriptor *
 YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 							TupleTableSlot *slot, EState *estate)
 {
+	// elog(INFO, "start riinfo->constraint_id %d", riinfo->constraint_id);
+
+	AttrMap *map = NULL;
 	bool using_index = false;
 	Relation source_rel = NULL;
 
@@ -303,8 +306,9 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		ExecCleanupTupleRouting(NULL, proute);
 		if (partoid != InvalidOid)
 		{
-			RelationClose(pk_rel);
 			source_rel = RelationIdGetRelation(partoid);
+			map = build_attrmap_by_name_if_req(RelationGetDescr(source_rel), RelationGetDescr(pk_rel));
+			RelationClose(pk_rel);
 			ListCell *lc;
 
 			bool found = false;
@@ -313,8 +317,18 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 			{
 				ForeignKeyCacheInfo *info =
 					lfirst_node(ForeignKeyCacheInfo, lc);
-				if (info->ybconparentid != riinfo->constraint_id)
+				// elog(INFO, "info->conoid %d", info->conoid);
+				// elog(INFO, "get_ri_constraint_root(info->conoid) %d",
+				// 	 get_ri_constraint_root(info->conoid));
+				// elog(INFO, "riinfo->constraint_id %d", riinfo->constraint_id);
+				// elog(INFO, "riinfo->constraint_root_id %d",
+				// 	 riinfo->constraint_root_id);
+
+				if (get_ri_constraint_root(info->conoid) !=
+					riinfo->constraint_root_id)
 					continue;
+				// if (info->ybconparentid != riinfo->constraint_id)
+				// 	continue;
 
 				found = true;
 				if (using_index)
@@ -323,18 +337,18 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 					RelationClose(source_rel);
 					source_rel = RelationIdGetRelation(info->ybconindid);
 				}
-				elog(INFO, "Updating riinfo (current name: %s)", riinfo->conname.data);
-				riinfo = ri_LoadConstraintInfo(info->conoid);
-				elog(INFO, "New name: %s", riinfo->conname.data);
+				// elog(INFO, "Updating riinfo (current name: %s)",
+				// riinfo->conname.data); riinfo =
+				// ri_LoadConstraintInfo(info->conoid); elog(INFO, "New name:
+				// %s", riinfo->conname.data);
 				break;
 			}
 			Assert(found);
-
 		}
 	} else if (using_index)
 		RelationClose(pk_rel);
-	elog(INFO, "source_rel final %s", RelationGetRelationName(source_rel));
-	elog(INFO, "Constraint name %s", riinfo->conname.data);
+	// elog(INFO, "source_rel final %s", RelationGetRelationName(source_rel));
+	// elog(INFO, "Constraint name %s", riinfo->conname.data);
 
 	Oid source_rel_relfilenode_oid = YbGetRelfileNodeId(source_rel);
 	Oid source_dboid = YBCGetDatabaseOid(source_rel);
@@ -351,11 +365,20 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	TupleDesc source_tupdesc = source_rel->rd_att;
 	for (int i = 0; i < riinfo->nkeys; ++i, ++next_attr)
 	{
+		int pk_attnum = riinfo->pk_attnums[i];
+		if (map)
+		{
+			// elog(INFO, "pk_attnum %d", pk_attnum);
+			pk_attnum = map->attnums[pk_attnum - 1];
+			// elog(INFO, "newattnum %d", pk_attnum);
+
+		}
 		next_attr->attr_num =
-			using_index ? YbGetIndexAttnum(source_rel, riinfo->pk_attnums[i]) :
-						  riinfo->pk_attnums[i];
+			using_index ? YbGetIndexAttnum(source_rel, pk_attnum) :
+						  pk_attnum;
 		const int fk_attnum = riinfo->fk_attnums[i];
-		elog(INFO, "next_attr->attr_num %d, fk_attnum %d", next_attr->attr_num, fk_attnum);
+		// elog(INFO, "next_attr->attr_num %d, fk_attnum %d",
+		// next_attr->attr_num, fk_attnum);
 		const Oid type_id = TupleDescAttr(slot->tts_tupleDescriptor, fk_attnum - 1)->atttypid;
 		/*
 		 * In case source_rel and fk_rel has different type of same attribute conversion is required
@@ -3239,6 +3262,8 @@ RI_FKey_trigger_type(Oid tgfoid)
 void
 YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel, TupleTableSlot *new_slot, EState* estate)
 {
+	// elog(INFO, "YbAddTriggerFKReferenceIntent fk_rel %s",
+	// 	 RelationGetRelationName(fk_rel));
 	YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(
 		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot, estate);
 	/*

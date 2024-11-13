@@ -2192,7 +2192,7 @@ CREATE TABLE ref2 PARTITION OF ref FOR VALUES in (2);
 ALTER TABLE ref ADD FOREIGN KEY(f1,f2) REFERENCES pt;
 ALTER TABLE ref ALTER CONSTRAINT ref_f1_f2_fkey
   DEFERRABLE INITIALLY DEFERRED;
-ERROR:  ALTER TABLE ALTER CONSTRAINT not supported yet
+ERROR:  ALTER action ALTER CONSTRAINT not supported yet
 LINE 1: ALTER TABLE ref ALTER CONSTRAINT ref_f1_f2_fkey
                         ^
 HINT:  See https://github.com/yugabyte/yugabyte-db/issues/1124. React with thumbs up to raise its priority
