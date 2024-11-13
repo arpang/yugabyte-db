@@ -2453,7 +2453,6 @@ ExecCallTriggerFunc(TriggerData *trigdata,
 void
 ExecBSInsertTriggers(EState *estate, ResultRelInfo *relinfo)
 {
-	// elog(INFO, "ExecBSInsertTriggers");
 	TriggerDesc *trigdesc;
 	int			i;
 	TriggerData LocTriggerData = {0};
@@ -2520,7 +2519,6 @@ bool
 ExecBRInsertTriggers(EState *estate, ResultRelInfo *relinfo,
 					 TupleTableSlot *slot)
 {
-	//elog(INFO, "ExecBRInsertTriggers");
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
 	HeapTuple	newtuple = NULL;
 	bool		should_free;
@@ -2615,7 +2613,6 @@ bool
 ExecIRInsertTriggers(EState *estate, ResultRelInfo *relinfo,
 					 TupleTableSlot *slot)
 {
-	//elog(INFO, "ExecIRInsertTriggers");
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
 	HeapTuple	newtuple = NULL;
 	bool		should_free;
@@ -6141,13 +6138,6 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 					  bool is_crosspart_update)
 {
 	Relation	rel = relinfo->ri_RelationDesc;
-	// elog(INFO, "AfterTriggerSaveEvent relation: %s, event %d", RelationGetRelationName(rel), event);
-
-	// Relation srcrel = NULL;
-	// if (src_partinfo)
-	// 	srcrel = src_partinfo->ri_RelationDesc;
-	// elog(INFO, "AfterTriggerSaveEvent rel: %s partrel: %s, src_partinfo: %p", RelationGetRelationName(rel), srcrel ? RelationGetRelationName(rel) : "NULL", src_partinfo);
-
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
 	AfterTriggerEventData new_event;
 	AfterTriggerSharedData new_shared;
@@ -6441,17 +6431,13 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 					if (is_crosspart_update &&
 						TRIGGER_FIRED_BY_DELETE(event) &&
 						trigger->tgisclone)
-					{
-						// elog(INFO, "Skipping this RI_TRIGGER_PK event (delete, cross partition)");
 						continue;
-					}
 
 					/* Update or delete on trigger's PK table */
 					if (!RI_FKey_pk_upd_check_required(trigger, rel,
 													   oldslot, newslot,
 													   &estate->yb_skip_entities))
 					{
-						// elog(INFO, "Skipping this RI_TRIGGER_PK event");
 						/* skip queuing this event */
 						continue;
 					}
@@ -6475,7 +6461,6 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 													   oldslot, newslot,
 													   &estate->yb_skip_entities))
 					{
-						// elog(INFO, "Skipping this RI_TRIGGER_FK event");
 						/* skip queuing this event */
 						continue;
 					}

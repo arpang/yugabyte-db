@@ -12360,7 +12360,6 @@ YbFKTriggerScanBegin(TableScanDesc scan,
 					  &YbFKTriggerScanVTableNotYugaByteEnabled;
 	descr->per_batch_cxt = per_batch_cxt;
 	descr->estate = CreateExecutorState();
-	// elog(INFO, "descr->estate %p", descr->estate);
 	return descr;
 }
 
@@ -12451,7 +12450,6 @@ validateForeignKeyConstraint(char *conname,
 	{
 		LOCAL_FCINFO(fcinfo, 0);
 		TriggerData trigdata = {0};
-		// elog(INFO, "TriggerData in validateForeignKeyConstraint");
 
 		CHECK_FOR_INTERRUPTS();
 

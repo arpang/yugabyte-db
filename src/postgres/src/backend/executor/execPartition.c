@@ -1447,8 +1447,6 @@ FormPartitionKeyDatum(PartitionDispatch pd,
 	ListCell   *partexpr_item;
 	int			i;
 
-	// bool is_virtual = TTS_IS_VIRTUAL(slot);
-	// elog(INFO, "FormPartitionKeyDatum is_virtual %d", is_virtual);
 	if (pd->key->partexprs != NIL && pd->keystate == NIL)
 	{
 		/* Check caller has set up context correctly */
@@ -1469,12 +1467,6 @@ FormPartitionKeyDatum(PartitionDispatch pd,
 		if (keycol != 0)
 		{
 			/* Plain column; get the value directly from the heap tuple */
-			// if (is_virtual)
-			// {
-			// 	datum = slot->tts_values[keycol-1];
-			// 	isNull = slot->tts_isnull[keycol-1];
-			// }
-			// else
 			datum = slot_getattr(slot, keycol, &isNull);
 		}
 		else
