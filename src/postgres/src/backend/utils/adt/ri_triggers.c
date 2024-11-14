@@ -268,6 +268,9 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	AttrMap *map = NULL;
 	bool using_index = false;
 	Relation source_rel = NULL;
+	PartitionTupleRouting *proute = NULL;
+	ResultRelInfo *part_rri = NULL;
+	ResultRelInfo *pkrelinfo = NULL;
 
 	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
 	Relation idx_rel = RelationIdGetRelation(riinfo->conindid);
@@ -279,26 +282,23 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		using_index = true;
 	} else
 	{
-		RelationClose(idx_rel);
+		// RelationClose(idx_rel);
 		source_rel = pk_rel;
 	}
 
 	if (pk_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
 		TupleTableSlot *pkslot = helper(riinfo, slot, RelationGetDescr(pk_rel));
-		PartitionTupleRouting *proute =
-			ExecSetupPartitionTupleRouting(estate, pk_rel);
-		ResultRelInfo *pkrelinfo = makeNode(ResultRelInfo);
+		proute = ExecSetupPartitionTupleRouting(estate, pk_rel);
+		pkrelinfo = makeNode(ResultRelInfo);
 		pkrelinfo->ri_RelationDesc = pk_rel;
-		Oid partoid = FindLeafPartitionOid(pkrelinfo, proute, pkslot, estate);
-		pfree(pkrelinfo);
+		part_rri = ExecFindPartition(NULL, pkrelinfo, proute, pkslot, estate);
 		ExecDropSingleTupleTableSlot(pkslot);
-		ExecCleanupTupleRouting(NULL, proute);
-		if (partoid != InvalidOid)
+		if (part_rri)
 		{
-			source_rel = RelationIdGetRelation(partoid);
+			source_rel = part_rri->ri_RelationDesc;
 			map = build_attrmap_by_name_if_req(RelationGetDescr(source_rel), RelationGetDescr(pk_rel));
-			RelationClose(pk_rel);
+			// RelationClose(pk_rel);
 			ListCell *lc;
 
 			bool found = false;
@@ -314,16 +314,17 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 				found = true;
 				if (using_index)
 				{
-					RelationClose(idx_rel);
-					RelationClose(source_rel);
+					// RelationClose(idx_rel);
+					// RelationClose(source_rel);
 					source_rel = RelationIdGetRelation(info->ybconindid);
 				}
 				break;
 			}
 			Assert(found);
 		}
-	} else if (using_index)
-		RelationClose(pk_rel);
+	}
+	// else if (using_index)
+	// 	RelationClose(pk_rel);
 
 	Oid source_rel_relfilenode_oid = YbGetRelfileNodeId(source_rel);
 	Oid source_dboid = YBCGetDatabaseOid(source_rel);
@@ -342,7 +343,11 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	{
 		int pk_attnum = riinfo->pk_attnums[i];
 		if (map)
+		{
+			int tmp = pk_attnum;
 			pk_attnum = map->attnums[pk_attnum - 1];
+			elog(INFO, "Mapping attnum %d to %d", tmp, pk_attnum);
+		}
 		next_attr->attr_num =
 			using_index ? YbGetIndexAttnum(source_rel, pk_attnum) :
 						  pk_attnum;
@@ -374,10 +379,18 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 												   &column_info), ybc_source_table_desc);
 		YBSetupAttrCollationInfo(next_attr, &column_info);
 	}
-	RelationClose(source_rel);
+	RelationClose(pk_rel);
+	RelationClose(idx_rel);
+	if (pkrelinfo)
+		pfree(pkrelinfo);
+	if (part_rri && using_index)
+		RelationClose(source_rel);
+	if (proute)
+		ExecCleanupTupleRouting(NULL, proute);
 	if (using_index && result)
 		YBCFillUniqueIndexNullAttribute(result);
-
+	if (map)
+		free_attrmap(map);
 	return result;
 }
 

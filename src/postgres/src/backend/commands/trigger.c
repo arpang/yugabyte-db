@@ -2473,6 +2473,7 @@ ExecBSInsertTriggers(EState *estate, ResultRelInfo *relinfo)
 	LocTriggerData.tg_event = TRIGGER_EVENT_INSERT |
 		TRIGGER_EVENT_BEFORE;
 	LocTriggerData.tg_relation = relinfo->ri_RelationDesc;
+	// TODO: Why do I need to set this?
 	LocTriggerData.estate = estate;
 	for (i = 0; i < trigdesc->numtriggers; i++)
 	{
