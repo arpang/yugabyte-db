@@ -265,7 +265,6 @@ static YBCPgYBTupleIdDescriptor *
 YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 							TupleTableSlot *slot, EState *estate)
 {
-	AttrMap *map = NULL;
 	bool using_index = false;
 	Relation source_rel = NULL;
 	PartitionTupleRouting *proute = NULL;
@@ -281,10 +280,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		Assert(IndexRelationGetNumberOfKeyAttributes(idx_rel) == riinfo->nkeys);
 		using_index = true;
 	} else
-	{
-		// RelationClose(idx_rel);
 		source_rel = pk_rel;
-	}
 
 	if (pk_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
@@ -297,8 +293,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		if (part_rri)
 		{
 			source_rel = part_rri->ri_RelationDesc;
-			map = build_attrmap_by_name_if_req(RelationGetDescr(source_rel), RelationGetDescr(pk_rel));
-			// RelationClose(pk_rel);
 			ListCell *lc;
 
 			bool found = false;
@@ -313,18 +307,12 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 
 				found = true;
 				if (using_index)
-				{
-					// RelationClose(idx_rel);
-					// RelationClose(source_rel);
 					source_rel = RelationIdGetRelation(info->ybconindid);
-				}
 				break;
 			}
 			Assert(found);
 		}
 	}
-	// else if (using_index)
-	// 	RelationClose(pk_rel);
 
 	Oid source_rel_relfilenode_oid = YbGetRelfileNodeId(source_rel);
 	Oid source_dboid = YBCGetDatabaseOid(source_rel);
@@ -342,12 +330,8 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	for (int i = 0; i < riinfo->nkeys; ++i, ++next_attr)
 	{
 		int pk_attnum = riinfo->pk_attnums[i];
-		if (map)
-		{
-			int tmp = pk_attnum;
-			pk_attnum = map->attnums[pk_attnum - 1];
-			elog(INFO, "Mapping attnum %d to %d", tmp, pk_attnum);
-		}
+		if (part_rri && part_rri->ri_RootToPartitionMap)
+			pk_attnum = part_rri->ri_RootToPartitionMap->attrMap->attnums[pk_attnum - 1];
 		next_attr->attr_num =
 			using_index ? YbGetIndexAttnum(source_rel, pk_attnum) :
 						  pk_attnum;
@@ -389,8 +373,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		ExecCleanupTupleRouting(NULL, proute);
 	if (using_index && result)
 		YBCFillUniqueIndexNullAttribute(result);
-	if (map)
-		free_attrmap(map);
 	return result;
 }
 
