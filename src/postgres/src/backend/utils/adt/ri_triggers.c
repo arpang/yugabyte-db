@@ -267,7 +267,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 {
 	bool using_index = false;
 	Relation source_rel = NULL;
-	// PartitionTupleRouting *proute = NULL;
 	ResultRelInfo *part_rri = NULL;
 	ResultRelInfo *pkrelinfo = NULL;
 
@@ -287,7 +286,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		TupleTableSlot *pkslot = helper(riinfo, slot, RelationGetDescr(pk_rel));
 		if (!estate->yb_es_pk_proute)
 		{
-			// elog(INFO, "Creating new ExecSetupPartitionTupleRouting");
 			MemoryContext oldcxt = MemoryContextSwitchTo(estate->es_query_cxt);
 			estate->yb_es_pk_proute =
 				ExecSetupPartitionTupleRouting(estate, pk_rel);
@@ -385,8 +383,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		pfree(pkrelinfo);
 	if (part_rri && using_index)
 		RelationClose(source_rel);
-	// if (proute)
-	// 	ExecCleanupTupleRouting(NULL, proute);
 	if (using_index && result)
 		YBCFillUniqueIndexNullAttribute(result);
 	return result;
@@ -400,7 +396,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 static Datum
 RI_FKey_check(TriggerData *trigdata)
 {
-	// elog(INFO, "RI_FKey_check estate: %p", trigdata->estate);
 	const RI_ConstraintInfo *riinfo;
 	Relation	fk_rel;
 	Relation	pk_rel;
@@ -3242,8 +3237,6 @@ RI_FKey_trigger_type(Oid tgfoid)
 void
 YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel, TupleTableSlot *new_slot, EState* estate)
 {
-	// elog(INFO, "YbAddTriggerFKReferenceIntent estate: %p, context: %s",
-	// estate, 	 estate->es_query_cxt->name);
 	YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(
 		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot, estate);
 	/*

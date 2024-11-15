@@ -4112,7 +4112,6 @@ ExecModifyTable(PlanState *pstate)
 	 */
 	for (;;)
 	{
-		// elog(INFO, "Processing new row from modify table's subplan");
 		/*
 		 * Reset the per-output-tuple exprcontext.  This is needed because
 		 * triggers expect to use that context as workspace.  It's a bit ugly
