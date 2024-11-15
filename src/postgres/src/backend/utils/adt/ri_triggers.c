@@ -267,7 +267,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 {
 	bool using_index = false;
 	Relation source_rel = NULL;
-	PartitionTupleRouting *proute = NULL;
+	// PartitionTupleRouting *proute = NULL;
 	ResultRelInfo *part_rri = NULL;
 	ResultRelInfo *pkrelinfo = NULL;
 
@@ -285,32 +285,48 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	if (pk_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
 		TupleTableSlot *pkslot = helper(riinfo, slot, RelationGetDescr(pk_rel));
-		proute = ExecSetupPartitionTupleRouting(estate, pk_rel);
+		if (!estate->yb_es_pk_proute)
+		{
+			// elog(INFO, "Creating new ExecSetupPartitionTupleRouting");
+			MemoryContext oldcxt = MemoryContextSwitchTo(estate->es_query_cxt);
+			estate->yb_es_pk_proute =
+				ExecSetupPartitionTupleRouting(estate, pk_rel);
+			MemoryContextSwitchTo(oldcxt);
+		}
 		pkrelinfo = makeNode(ResultRelInfo);
 		pkrelinfo->ri_RelationDesc = pk_rel;
-		part_rri = ExecFindPartition(NULL, pkrelinfo, proute, pkslot, estate);
+		PG_TRY();
+		{
+			part_rri = ExecFindPartition(
+				NULL, pkrelinfo, estate->yb_es_pk_proute, pkslot, estate);
+		}
+		PG_END_TRY();
 		ExecDropSingleTupleTableSlot(pkslot);
 		if (part_rri)
 		{
-			source_rel = part_rri->ri_RelationDesc;
-			ListCell *lc;
-
-			bool found = false;
-			// todo: should i use RelationGetFKeyList?
-			foreach (lc, YbRelationGetFKeyReferencedByList(source_rel))
+			if (!using_index)
+				source_rel = part_rri->ri_RelationDesc;
+			else
 			{
-				ForeignKeyCacheInfo *info =
-					lfirst_node(ForeignKeyCacheInfo, lc);
-				if (get_ri_constraint_root(info->conoid) !=
-					riinfo->constraint_root_id)
-					continue;
+				ListCell *lc;
+				bool found = false;
 
-				found = true;
-				if (using_index)
-					source_rel = RelationIdGetRelation(info->ybconindid);
-				break;
+				foreach (lc, YbRelationGetFKeyReferencedByList(
+								 part_rri->ri_RelationDesc))
+				{
+					ForeignKeyCacheInfo *info =
+						lfirst_node(ForeignKeyCacheInfo, lc);
+					if (get_ri_constraint_root(info->conoid) !=
+						riinfo->constraint_root_id)
+						continue;
+
+					found = true;
+					if (using_index)
+						source_rel = RelationIdGetRelation(info->ybconindid);
+					break;
+				}
+				Assert(found);
 			}
-			Assert(found);
 		}
 	}
 
@@ -369,8 +385,8 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		pfree(pkrelinfo);
 	if (part_rri && using_index)
 		RelationClose(source_rel);
-	if (proute)
-		ExecCleanupTupleRouting(NULL, proute);
+	// if (proute)
+	// 	ExecCleanupTupleRouting(NULL, proute);
 	if (using_index && result)
 		YBCFillUniqueIndexNullAttribute(result);
 	return result;
@@ -384,6 +400,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 static Datum
 RI_FKey_check(TriggerData *trigdata)
 {
+	// elog(INFO, "RI_FKey_check estate: %p", trigdata->estate);
 	const RI_ConstraintInfo *riinfo;
 	Relation	fk_rel;
 	Relation	pk_rel;
@@ -496,6 +513,7 @@ RI_FKey_check(TriggerData *trigdata)
 		 * Use fast path for FK check in case ybctid for row in source table can be build from
 		 * referenced table tuple.
 		 */
+		Assert(trigdata->estate);
 		YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(riinfo, newslot, trigdata->estate);
 
 		if (descr)
@@ -3224,6 +3242,8 @@ RI_FKey_trigger_type(Oid tgfoid)
 void
 YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel, TupleTableSlot *new_slot, EState* estate)
 {
+	// elog(INFO, "YbAddTriggerFKReferenceIntent estate: %p, context: %s",
+	// estate, 	 estate->es_query_cxt->name);
 	YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(
 		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot, estate);
 	/*

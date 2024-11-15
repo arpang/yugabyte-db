@@ -759,6 +759,7 @@ typedef struct EState
 	 * an extra memory allocation per tuple.
 	 */
 	YbSkippableEntities yb_skip_entities;
+	struct PartitionTupleRouting *yb_es_pk_proute;
 } EState;
 
 /*

@@ -12320,6 +12320,7 @@ YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 				ExecDropSingleTupleTableSlot(new_slot);
 				break;
 			}
+			// elog(INFO, "Calling YbAddTriggerFKReferenceIntent from YbGetNext");
 			YbAddTriggerFKReferenceIntent(desc->trigger, desc->fk_rel, new_slot, desc->estate);
 			desc->buffered_tuples[desc->buffered_tuples_size++] = new_slot;
 		}
@@ -12360,6 +12361,7 @@ YbFKTriggerScanBegin(TableScanDesc scan,
 					  &YbFKTriggerScanVTableNotYugaByteEnabled;
 	descr->per_batch_cxt = per_batch_cxt;
 	descr->estate = CreateExecutorState();
+	// elog(INFO, "YbFKTriggerScanDesc CreateExecutorState %p, context: %s", descr->estate, GetCurrentMemoryContext()->name);
 	return descr;
 }
 

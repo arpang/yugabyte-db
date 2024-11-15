@@ -425,11 +425,13 @@ ExecFindPartition(ModifyTableState *mtstate,
 				 * Create the new PartitionDispatch.  We pass the current one
 				 * in as the parent PartitionDispatch
 				 */
+				// elog(INFO, "rootResultRelInfo: %s", RelationGetRelationName(rootResultRelInfo->ri_RelationDesc));
+				// elog(INFO, "mtstate->rootResultRelInfo: %s", RelationGetRelationName(mtstate->rootResultRelInfo->ri_RelationDesc));
 				subdispatch = ExecInitPartitionDispatchInfo(estate,
 															proute,
 															partdesc->oids[partidx],
 															dispatch, partidx,
-															mtstate->rootResultRelInfo);
+															mtstate ? mtstate->rootResultRelInfo : rootResultRelInfo);
 				Assert(dispatch->indexes[partidx] >= 0 &&
 					   dispatch->indexes[partidx] < proute->num_dispatch);
 
