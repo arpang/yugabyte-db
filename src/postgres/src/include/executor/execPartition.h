@@ -32,6 +32,7 @@ extern ResultRelInfo *ExecFindPartition(ModifyTableState *mtstate,
 extern void ExecCleanupTupleRouting(ModifyTableState *mtstate,
 									PartitionTupleRouting *proute);
 
+
 /*
  * PartitionedRelPruningData - Per-partitioned-table data for run-time pruning
  * of partitions.  For a multilevel partitioned table, we have one of these

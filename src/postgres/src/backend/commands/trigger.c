@@ -6549,9 +6549,7 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 		}
 
 		if (IsYBBackedRelation(rel) && RI_FKey_trigger_type(trigger->tgfoid) == RI_TRIGGER_FK)
-		{
 			YbAddTriggerFKReferenceIntent(trigger, rel, newslot, estate);
-		}
 
 		afterTriggerAddEvent(&afterTriggers.query_stack[afterTriggers.query_depth].events,
 							 &new_event, &new_shared);
