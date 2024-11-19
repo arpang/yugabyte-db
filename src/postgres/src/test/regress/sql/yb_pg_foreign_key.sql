@@ -1514,8 +1514,7 @@ INSERT into dropfk VALUES (1), (1000), (1500), (2000);
 ALTER TABLE droppk DETACH PARTITION droppk_d;
 ALTER TABLE droppk2 DETACH PARTITION droppk2_d;
 ALTER TABLE droppk DETACH PARTITION droppk1;
--- TODO(arpan): Enable once GH #24981 is resolved.
--- ALTER TABLE droppk DETACH PARTITION droppk2;
+ALTER TABLE droppk DETACH PARTITION droppk2;
 ALTER TABLE droppk2 DETACH PARTITION droppk21;
 -- dropping partitions is disallowed
 DROP TABLE droppk_d;
