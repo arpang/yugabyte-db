@@ -271,12 +271,32 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	ResultRelInfo *pk_part_rri = NULL;
 	YBCPgYBTupleIdDescriptor *result = NULL;
 	TupleTableSlot *pkslot = NULL;
+	Relation pk_idx_rel = NULL;
+	bool using_index = false;
 
 	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
-	Relation pk_idx_rel = RelationIdGetRelation(riinfo->conindid);
+	for (int i = 0; i < riinfo->nkeys; ++i)
+	{
+		const int pk_attnum = riinfo->pk_attnums[i];
+		const Oid pk_type_id =
+			TupleDescAttr(RelationGetDescr(pk_rel), pk_attnum - 1)->atttypid;
 
-	bool using_index = pk_idx_rel->rd_index != NULL &&
-					   !YBIsCoveredByMainTable(pk_idx_rel);
+		const int fk_attnum = riinfo->fk_attnums[i];
+		const Oid fk_type_id =
+			TupleDescAttr(fkslot->tts_tupleDescriptor, fk_attnum - 1)->atttypid;
+		/*
+		 * In case referenced_rel and fk_rel has different type of same
+		 * attribute, conversion is required to build referenced_rel tuple id
+		 * from fk_rel tuple. But is might be non trivial due to user defined
+		 * postgres CAST, just return NULL.
+		 * TODO(dmitry): Cast primitive types when possible int8 -> int, etc.
+		 */
+		if (pk_type_id != fk_type_id)
+			goto cleanup;
+	}
+	pk_idx_rel = RelationIdGetRelation(riinfo->conindid);
+	using_index = pk_idx_rel->rd_index != NULL &&
+				  !YBIsCoveredByMainTable(pk_idx_rel);
 
 	if (pk_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
@@ -344,7 +364,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		referenced_rel = pk_rel;
 
 	Assert(referenced_rel);
-
 	if (using_index)
 		Assert(IndexRelationGetNumberOfKeyAttributes(referenced_rel) ==
 			   riinfo->nkeys);
@@ -366,30 +385,19 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	{
 		int pk_attnum = riinfo->pk_attnums[i];
 		/* If PK relation is partitioned, find partititon's attnum. */
-		if (pk_part_rri && pk_part_rri->ri_RootToPartitionMap)
-			pk_attnum = pk_part_rri->ri_RootToPartitionMap->attrMap
-							->attnums[pk_attnum - 1];
+		if (pk_part_rri && ExecGetChildToRootMap(pk_part_rri))
+			pk_attnum = ExecGetChildToRootMap(pk_part_rri)->attrMap->attnums[pk_attnum - 1];
+		Assert(pk_attnum > 0);
 
 		next_attr->attr_num = using_index ?
 								  YbGetIndexAttnum(referenced_rel, pk_attnum) :
 								  pk_attnum;
-		const int fk_attnum = riinfo->fk_attnums[i];
+
 		const Oid type_id =
-			TupleDescAttr(fkslot->tts_tupleDescriptor, fk_attnum - 1)->atttypid;
-		/*
-		 * In case referenced_rel and fk_rel has different type of same
-		 * attribute conversion is required to build referenced_rel tuple id
-		 * from fk_rel tuple. But is might be non trivial due to user defined
-		 * postgres CAST, just return NULL.
-		 * TODO(dmitry): Cast primitive types when possible int8 -> int, etc.
-		 */
-		if (TupleDescAttr(referenced_tupdesc, next_attr->attr_num - 1)->atttypid != type_id)
-		{
-			pfree(result);
-			result = NULL;
-			break;
-		}
-		next_attr->type_entity = YbDataTypeFromOidMod(fk_attnum, type_id);
+			TupleDescAttr(referenced_tupdesc, next_attr->attr_num - 1)->atttypid;
+
+		next_attr->type_entity =
+			YbDataTypeFromOidMod(next_attr->attr_num, type_id);
 		/*
 		 * The foreign key search will happen on referenced_rel so we need to
 		 * use the collation from the referenced_rel column, not from fk_rel
@@ -397,6 +405,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		 */
 		next_attr->collation_id =
 			TupleDescAttr(referenced_tupdesc, next_attr->attr_num - 1)->attcollation;
+		const int fk_attnum = riinfo->fk_attnums[i];
 		next_attr->datum = slot_getattr(fkslot, fk_attnum, &next_attr->is_null);
 		YBCPgColumnInfo column_info = {0};
 		HandleYBTableDescStatus(YBCPgGetColumnInfo(ybc_referenced_table_desc,
@@ -408,7 +417,8 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 
 cleanup:
 	RelationClose(pk_rel);
-	RelationClose(pk_idx_rel);
+	if (pk_idx_rel)
+		RelationClose(pk_idx_rel);
 	if (pk_root_rri)
 		pfree(pk_root_rri);
 	if (pk_part_rri && using_index)
@@ -417,6 +427,7 @@ cleanup:
 		ExecDropSingleTupleTableSlot(pkslot);
 	if (using_index && result)
 		YBCFillUniqueIndexNullAttribute(result);
+
 	return result;
 }
 
