@@ -321,12 +321,14 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 			referenced_rel = pk_part_rri->ri_RelationDesc;
 		else
 		{
+			/* Find the partition's index supporting the FK constraint. */
 			ListCell *lc;
 			foreach (lc, YbRelationGetFKeyReferencedByList(
 							 pk_part_rri->ri_RelationDesc))
 			{
 				ForeignKeyCacheInfo *info =
 					lfirst_node(ForeignKeyCacheInfo, lc);
+
 				if (get_ri_constraint_root(info->conoid) !=
 					riinfo->constraint_root_id)
 					continue;
@@ -363,9 +365,11 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	for (int i = 0; i < riinfo->nkeys; ++i, ++next_attr)
 	{
 		int pk_attnum = riinfo->pk_attnums[i];
+		/* If PK relation is partitioned, find partititon's attnum. */
 		if (pk_part_rri && pk_part_rri->ri_RootToPartitionMap)
 			pk_attnum = pk_part_rri->ri_RootToPartitionMap->attrMap
 							->attnums[pk_attnum - 1];
+
 		next_attr->attr_num = using_index ?
 								  YbGetIndexAttnum(referenced_rel, pk_attnum) :
 								  pk_attnum;
@@ -379,8 +383,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		 * postgres CAST, just return NULL.
 		 * TODO(dmitry): Cast primitive types when possible int8 -> int, etc.
 		 */
-		if (TupleDescAttr(referenced_tupdesc, next_attr->attr_num - 1)
-				->atttypid != type_id)
+		if (TupleDescAttr(referenced_tupdesc, next_attr->attr_num - 1)->atttypid != type_id)
 		{
 			pfree(result);
 			result = NULL;
@@ -393,8 +396,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		 * column.
 		 */
 		next_attr->collation_id =
-			TupleDescAttr(referenced_tupdesc, next_attr->attr_num - 1)
-				->attcollation;
+			TupleDescAttr(referenced_tupdesc, next_attr->attr_num - 1)->attcollation;
 		next_attr->datum = slot_getattr(fkslot, fk_attnum, &next_attr->is_null);
 		YBCPgColumnInfo column_info = {0};
 		HandleYBTableDescStatus(YBCPgGetColumnInfo(ybc_referenced_table_desc,
