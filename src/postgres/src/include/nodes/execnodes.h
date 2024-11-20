@@ -759,6 +759,11 @@ typedef struct EState
 	 * an extra memory allocation per tuple.
 	 */
 	YbSkippableEntities yb_skip_entities;
+
+	/*
+	 * Used by YBCBuildYBTupleIdDescriptor() to perform partition routing on a
+	 * partitioned PK relation referenced by a FK relation.
+	 */
 	struct PartitionTupleRouting *yb_es_pk_proute;
 } EState;
 
