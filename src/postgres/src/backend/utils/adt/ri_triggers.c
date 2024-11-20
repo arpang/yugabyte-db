@@ -312,13 +312,13 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		/*
 		 * Create PK slot and populate it from FK slot. This should contain
 		 * enough information to perform routing because
-		 *  1. referenced index keys of PK can be derived from FK slot.
-		 *  2. partition key is a subset of all the unique indexes.
+		 *  1. keys of PK's referenced index can be derived from FK slot.
+		 *  2. partition key of PK is a subset of all its unique indexes.
 		 */
 		pkslot = MakeTupleTableSlot(RelationGetDescr(pk_rel), &TTSOpsVirtual);
 		YBCFillPKFromFKSlot(riinfo, fkslot, pkslot);
 
-		/* Make dummy root ResultRelInfo. */
+		/* Make ResultRelInfo for pk_rel. */
 		pk_root_rri = makeNode(ResultRelInfo);
 		pk_root_rri->ri_RelationDesc = pk_rel;
 
@@ -330,6 +330,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		}
 		PG_CATCH();
 		{
+			/* Partition not found, no point in building ybctid. */
 			*part_not_found = true;
 			goto cleanup;
 		}
