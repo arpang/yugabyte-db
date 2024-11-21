@@ -353,15 +353,23 @@ ExecFindPartition(ModifyTableState *mtstate,
 			}
 			else if (mtstate == NULL)
 			{
+				/*
+				 * YBCBuildYBTupleIdDescriptor() calls this function with
+				 * mstate == NULL when performing partition routing on a
+				 * partitioned PK referenced by a FK.
+				 */
+				MemoryContext currentCxt =
+					MemoryContextSwitchTo(proute->memcxt);
+
 				Oid partOid = dispatch->partdesc->oids[partidx];
-				MemoryContext oldcxt2 = MemoryContextSwitchTo(proute->memcxt);
-				rri = makeNode(ResultRelInfo);
 				Relation partrel = table_open(partOid, RowExclusiveLock);
+
+				rri = makeNode(ResultRelInfo);
 				InitResultRelInfo(rri, partrel, 0, rootResultRelInfo,
 								  estate->es_instrument);
 				ExecInitRoutingInfo(mtstate, estate, proute, dispatch, rri,
 									partidx, false);
-				MemoryContextSwitchTo(oldcxt2);
+				MemoryContextSwitchTo(currentCxt);
 			}
 			else
 			{

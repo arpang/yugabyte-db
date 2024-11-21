@@ -476,7 +476,7 @@ DROP TABLE pk, fk;
 
 -- PK is partitioned, root and leaf partition have different column orders
 CREATE TABLE pk(a INT, b INT, c INT, d INT, primary key(a, c)) PARTITION BY RANGE(a);
-CREATE TABLE pk_1_100(d INT, b INT, c INT not null, a INT not null);
+CREATE TABLE pk_1_100(a INT NOT NULL, c INT NOT NULL, d INT, b INT);
 ALTER TABLE pk ATTACH PARTITION pk_1_100 FOR VALUES FROM (1) TO (100);
 CREATE TABLE fk(a INT, c INT, FOREIGN KEY (a, c) REFERENCES pk(a, c));
 

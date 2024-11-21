@@ -239,51 +239,68 @@ static void ri_ReportViolation(const RI_ConstraintInfo *riinfo,
 							   TupleTableSlot *violatorslot, TupleDesc tupdesc,
 							   int queryno, bool partgone) pg_attribute_noreturn();
 
-TupleTableSlot *
-helper(const RI_ConstraintInfo *riinfo, TupleTableSlot *slot, TupleDesc pkdesc)
+static void
+YBCFillPKFromFKSlot(const RI_ConstraintInfo *riinfo, TupleTableSlot *fkslot,
+					TupleTableSlot *pkslot)
 {
-	TupleTableSlot *pkslot = MakeTupleTableSlot(pkdesc, &TTSOpsVirtual);
 	for (int i = 0; i < riinfo->nkeys; i++)
 	{
 		const int fk_attnum = riinfo->fk_attnums[i];
 		const int pk_attnum = riinfo->pk_attnums[i];
-		pkslot->tts_values[pk_attnum-1] =
-			slot_getattr(slot, fk_attnum, &pkslot->tts_isnull[pk_attnum-1]);
+		pkslot->tts_values[pk_attnum - 1] =
+			slot_getattr(fkslot, fk_attnum, &pkslot->tts_isnull[pk_attnum - 1]);
 	}
 	ExecStoreVirtualTuple(pkslot);
-	return pkslot;
 }
 
 /* ----------
  * YBCBuildYBTupleIdDescriptor -
  *
- *	Creates ybctid descriptor for row in source table from tuple in referenced table.
- *	Returns NULL in case at least one attribute type in source and referenced table doesn't match.
+ *	Creates ybctid descriptor for row in referenced relation from tuple in
+ *  referencing relation. Returns NULL in case at least one attribute type in
+ *  referenced and referencing relation doesn't match.
  * ----------
  */
 static YBCPgYBTupleIdDescriptor *
 YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
-							TupleTableSlot *slot, EState *estate)
+							TupleTableSlot *fkslot, EState *estate,
+							bool *part_not_found)
 {
+	Relation referenced_rel = NULL;
+	ResultRelInfo *pk_root_rri = NULL;
+	ResultRelInfo *pk_part_rri = NULL;
+	YBCPgYBTupleIdDescriptor *result = NULL;
+	TupleTableSlot *pkslot = NULL;
+	Relation pk_idx_rel = NULL;
 	bool using_index = false;
-	Relation source_rel = NULL;
-	ResultRelInfo *part_rri = NULL;
-	ResultRelInfo *pkrelinfo = NULL;
 
 	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
-	Relation idx_rel = RelationIdGetRelation(riinfo->conindid);
-
-	if (idx_rel->rd_index != NULL && !YBIsCoveredByMainTable(idx_rel))
+	for (int i = 0; i < riinfo->nkeys; ++i)
 	{
-		source_rel = idx_rel;
-		Assert(IndexRelationGetNumberOfKeyAttributes(idx_rel) == riinfo->nkeys);
-		using_index = true;
-	} else
-		source_rel = pk_rel;
+		const int pk_attnum = riinfo->pk_attnums[i];
+		const Oid pk_type_id =
+			TupleDescAttr(RelationGetDescr(pk_rel), pk_attnum - 1)->atttypid;
+
+		const int fk_attnum = riinfo->fk_attnums[i];
+		const Oid fk_type_id =
+			TupleDescAttr(fkslot->tts_tupleDescriptor, fk_attnum - 1)->atttypid;
+		/*
+		 * In case referenced_rel and fk_rel has different type of same
+		 * attribute, conversion is required to build referenced_rel tuple id
+		 * from fk_rel tuple. But is might be non trivial due to user defined
+		 * postgres CAST, just return NULL.
+		 * TODO(dmitry): Cast primitive types when possible int8 -> int, etc.
+		 */
+		if (pk_type_id != fk_type_id)
+			goto cleanup;
+	}
+	pk_idx_rel = RelationIdGetRelation(riinfo->conindid);
+	using_index = pk_idx_rel->rd_index != NULL &&
+				  !YBIsCoveredByMainTable(pk_idx_rel);
 
 	if (pk_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
-		TupleTableSlot *pkslot = helper(riinfo, slot, RelationGetDescr(pk_rel));
+		/* Initialize yb_es_pk_proute, if not done already. */
 		if (!estate->yb_es_pk_proute)
 		{
 			MemoryContext oldcxt = MemoryContextSwitchTo(estate->es_query_cxt);
@@ -291,100 +308,127 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 				ExecSetupPartitionTupleRouting(estate, pk_rel);
 			MemoryContextSwitchTo(oldcxt);
 		}
-		pkrelinfo = makeNode(ResultRelInfo);
-		pkrelinfo->ri_RelationDesc = pk_rel;
+
+		/*
+		 * Create PK slot and populate it from FK slot. This should contain
+		 * enough information to perform routing because
+		 *  1. keys of PK's referenced index can be derived from FK slot.
+		 *  2. partition key of PK is a subset of all its unique indexes.
+		 */
+		pkslot = MakeTupleTableSlot(RelationGetDescr(pk_rel), &TTSOpsVirtual);
+		YBCFillPKFromFKSlot(riinfo, fkslot, pkslot);
+
+		/* Make ResultRelInfo for pk_rel. */
+		pk_root_rri = makeNode(ResultRelInfo);
+		pk_root_rri->ri_RelationDesc = pk_rel;
+
 		PG_TRY();
 		{
-			part_rri = ExecFindPartition(
-				NULL, pkrelinfo, estate->yb_es_pk_proute, pkslot, estate);
+			pk_part_rri = ExecFindPartition(NULL /* mtstate */, pk_root_rri,
+											estate->yb_es_pk_proute, pkslot,
+											estate);
+		}
+		PG_CATCH();
+		{
+			/* Partition not found, no point in building ybctid. */
+			*part_not_found = true;
+			goto cleanup;
 		}
 		PG_END_TRY();
-		ExecDropSingleTupleTableSlot(pkslot);
-		if (part_rri)
+
+		Assert(pk_part_rri);
+
+		if (!using_index)
+			referenced_rel = pk_part_rri->ri_RelationDesc;
+		else
 		{
-			if (!using_index)
-				source_rel = part_rri->ri_RelationDesc;
-			else
+			/* Find the partition's index supporting the FK constraint. */
+			ListCell *lc;
+			foreach (lc, YbRelationGetFKeyReferencedByList(
+							 pk_part_rri->ri_RelationDesc))
 			{
-				ListCell *lc;
-				bool found = false;
+				ForeignKeyCacheInfo *info =
+					lfirst_node(ForeignKeyCacheInfo, lc);
 
-				foreach (lc, YbRelationGetFKeyReferencedByList(
-								 part_rri->ri_RelationDesc))
-				{
-					ForeignKeyCacheInfo *info =
-						lfirst_node(ForeignKeyCacheInfo, lc);
-					if (get_ri_constraint_root(info->conoid) !=
-						riinfo->constraint_root_id)
-						continue;
+				if (get_ri_constraint_root(info->conoid) !=
+					riinfo->constraint_root_id)
+					continue;
 
-					found = true;
-					if (using_index)
-						source_rel = RelationIdGetRelation(info->ybconindid);
-					break;
-				}
-				Assert(found);
+				referenced_rel = RelationIdGetRelation(info->ybconindid);
+				break;
 			}
 		}
 	}
+	else if (using_index)
+		referenced_rel = pk_idx_rel;
+	else
+		referenced_rel = pk_rel;
 
-	Oid source_rel_relfilenode_oid = YbGetRelfileNodeId(source_rel);
-	Oid source_dboid = YBCGetDatabaseOid(source_rel);
-	YBCPgYBTupleIdDescriptor* result = YBCCreateYBTupleIdDescriptor(
-		source_dboid, source_rel_relfilenode_oid,
+	Assert(referenced_rel);
+	if (using_index)
+		Assert(IndexRelationGetNumberOfKeyAttributes(referenced_rel) ==
+			   riinfo->nkeys);
+
+	Oid referenced_rel_relfilenode_oid = YbGetRelfileNodeId(referenced_rel);
+	Oid referenced_dboid = YBCGetDatabaseOid(referenced_rel);
+	result = YBCCreateYBTupleIdDescriptor(
+		referenced_dboid, referenced_rel_relfilenode_oid,
 		riinfo->nkeys + (using_index ? 1 : 0));
 	YBCPgAttrValueDescriptor *next_attr = result->attrs;
 
-	YBCPgTableDesc ybc_source_table_desc = NULL;
-	HandleYBStatus(YBCPgGetTableDesc(source_dboid,
-									 source_rel_relfilenode_oid,
-									 &ybc_source_table_desc));
+	YBCPgTableDesc ybc_referenced_table_desc = NULL;
+	HandleYBStatus(YBCPgGetTableDesc(referenced_dboid,
+									 referenced_rel_relfilenode_oid,
+									 &ybc_referenced_table_desc));
 
-	TupleDesc source_tupdesc = source_rel->rd_att;
+	TupleDesc referenced_tupdesc = referenced_rel->rd_att;
 	for (int i = 0; i < riinfo->nkeys; ++i, ++next_attr)
 	{
 		int pk_attnum = riinfo->pk_attnums[i];
-		if (part_rri && part_rri->ri_RootToPartitionMap)
-			pk_attnum = part_rri->ri_RootToPartitionMap->attrMap->attnums[pk_attnum - 1];
-		next_attr->attr_num =
-			using_index ? YbGetIndexAttnum(source_rel, pk_attnum) :
-						  pk_attnum;
-		const int fk_attnum = riinfo->fk_attnums[i];
-		const Oid type_id = TupleDescAttr(slot->tts_tupleDescriptor, fk_attnum - 1)->atttypid;
+		/* If PK relation is partitioned, find partititon's attnum. */
+		if (pk_part_rri && ExecGetChildToRootMap(pk_part_rri))
+			pk_attnum = ExecGetChildToRootMap(pk_part_rri)->attrMap->attnums[pk_attnum - 1];
+		Assert(pk_attnum > 0);
+
+		next_attr->attr_num = using_index ?
+								  YbGetIndexAttnum(referenced_rel, pk_attnum) :
+								  pk_attnum;
+
+		const Oid type_id =
+			TupleDescAttr(referenced_tupdesc, next_attr->attr_num - 1)->atttypid;
+
+		next_attr->type_entity =
+			YbDataTypeFromOidMod(next_attr->attr_num, type_id);
 		/*
-		 * In case source_rel and fk_rel has different type of same attribute conversion is required
-		 * to build source_rel tuple id from fk_rel tuple.
-		 * But is might be non trivial due to user defined postgres CAST, just return NULL.
-		 * TODO(dmitry): Cast primitive types when possible int8 -> int, etc.
-		 */
-		if (TupleDescAttr(source_tupdesc, next_attr->attr_num - 1)->atttypid != type_id)
-		{
-			pfree(result);
-			result = NULL;
-			break;
-		}
-		next_attr->type_entity = YbDataTypeFromOidMod(fk_attnum, type_id);
-		/*
-		 * The foreign key search will happen on source_rel so we need to use the collation from
-		 * the source_rel column, not from fk_rel column.
+		 * The foreign key search will happen on referenced_rel so we need to
+		 * use the collation from the referenced_rel column, not from fk_rel
+		 * column.
 		 */
 		next_attr->collation_id =
-			TupleDescAttr(source_tupdesc, next_attr->attr_num - 1)->attcollation;
-		next_attr->datum = slot_getattr(slot, fk_attnum, &next_attr->is_null);
+			TupleDescAttr(referenced_tupdesc, next_attr->attr_num - 1)->attcollation;
+		const int fk_attnum = riinfo->fk_attnums[i];
+		next_attr->datum = slot_getattr(fkslot, fk_attnum, &next_attr->is_null);
 		YBCPgColumnInfo column_info = {0};
-		HandleYBTableDescStatus(YBCPgGetColumnInfo(ybc_source_table_desc,
+		HandleYBTableDescStatus(YBCPgGetColumnInfo(ybc_referenced_table_desc,
 												   next_attr->attr_num,
-												   &column_info), ybc_source_table_desc);
+												   &column_info),
+								ybc_referenced_table_desc);
 		YBSetupAttrCollationInfo(next_attr, &column_info);
 	}
+
+cleanup:
 	RelationClose(pk_rel);
-	RelationClose(idx_rel);
-	if (pkrelinfo)
-		pfree(pkrelinfo);
-	if (part_rri && using_index)
-		RelationClose(source_rel);
+	if (pk_idx_rel)
+		RelationClose(pk_idx_rel);
+	if (pk_root_rri)
+		pfree(pk_root_rri);
+	if (pk_part_rri && using_index)
+		RelationClose(referenced_rel);
+	if (pkslot)
+		ExecDropSingleTupleTableSlot(pkslot);
 	if (using_index && result)
 		YBCFillUniqueIndexNullAttribute(result);
+
 	return result;
 }
 
@@ -505,17 +549,22 @@ RI_FKey_check(TriggerData *trigdata)
 	if (IsYBRelation(pk_rel))
 	{
 		/*
-		 * Use fast path for FK check in case ybctid for row in source table can be build from
-		 * referenced table tuple.
+		 * Use fast path for FK check in case ybctid for row in referenced
+		 * relation can be build from referencing table tuple.
 		 */
 		Assert(trigdata->estate);
-		YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(riinfo, newslot, trigdata->estate);
+		bool part_not_found = false;
+		YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(
+			riinfo, newslot, trigdata->estate, &part_not_found);
 
-		if (descr)
+		if (descr || part_not_found)
 		{
 			bool found = false;
-			HandleYBStatus(YBCForeignKeyReferenceExists(descr, &found));
-			pfree(descr);
+			if (descr)
+			{
+				HandleYBStatus(YBCForeignKeyReferenceExists(descr, &found));
+				pfree(descr);
+			}
 			if (!found)
 			{
 				ri_BuildQueryKey(&qkey, riinfo, RI_PLAN_CHECK_LOOKUPPK);
@@ -3237,8 +3286,10 @@ RI_FKey_trigger_type(Oid tgfoid)
 void
 YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel, TupleTableSlot *new_slot, EState* estate)
 {
+	bool part_not_found = false;
 	YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(
-		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */), new_slot, estate);
+		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */),
+		new_slot, estate, &part_not_found);
 	/*
 	 * Check that ybctid for row in source table can be build from referenced table tuple
 	 * (i.e. no type casting is required)

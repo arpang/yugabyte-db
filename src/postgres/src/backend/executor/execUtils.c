@@ -256,7 +256,8 @@ FreeExecutorState(EState *estate)
 	}
 
 	if (estate->yb_es_pk_proute)
-		ExecCleanupTupleRouting(NULL, estate->yb_es_pk_proute);
+		ExecCleanupTupleRouting(NULL /* mtstate */, estate->yb_es_pk_proute);
+
 	/*
 	 * Free the per-query memory context, thereby releasing all working
 	 * memory, including the EState node itself.
