@@ -39,7 +39,6 @@ class MasterReplicationServiceImpl : public MasterServiceBase, public MasterRepl
     (UpdateConsumerOnProducerMetadata)
     (ListCDCStreams)
     (IsObjectPartOfXRepl)
-    (SetUniverseReplicationEnabled)
     (UpdateCDCStream)
     (GetCDCDBStreamInfo)
     (IsBootstrapRequired)
@@ -84,6 +83,8 @@ class MasterReplicationServiceImpl : public MasterServiceBase, public MasterRepl
       (AlterUniverseReplication)
       (DeleteUniverseReplication)
       (InsertPackedSchemaForXClusterTarget)
+      (XClusterEnsureSequenceUpdatesAreInWal)
+      (SetUniverseReplicationEnabled)
   )
 };
 

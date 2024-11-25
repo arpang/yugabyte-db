@@ -46,6 +46,9 @@ Review limitations and implement suggested workarounds to successfully migrate d
 - [XID functions is not supported](#xid-functions-is-not-supported)
 - [REFERENCING clause for triggers](#referencing-clause-for-triggers)
 - [BEFORE ROW triggers on partitioned tables](#before-row-triggers-on-partitioned-tables)
+- [Advisory locks is not yet implemented](#advisory-locks-is-not-yet-implemented)
+- [System columns is not yet supported](#system-columns-is-not-yet-supported)
+- [XML functions is not yet supported](#xml-functions-is-not-yet-supported)
 
 ### Adding primary key to a partitioned table results in an error
 
@@ -1096,7 +1099,6 @@ CREATE TABLE xid_example (
 
 ---
 
-
 ### REFERENCING clause for triggers
 
 **GitHub**: [Issue #1668](https://github.com/yugabyte/yugabyte-db/issues/1668)
@@ -1133,13 +1135,13 @@ $$ LANGUAGE plpgsql
 CREATE TRIGGER projects_loose_fk_trigger
 AFTER DELETE ON projects
 REFERENCING OLD TABLE AS old_table
-FOR EACH STATEMENT                                                        
+FOR EACH STATEMENT
 EXECUTE FUNCTION log_deleted_projects();
 ```
 
 ---
 
-### BEFORE ROW triggers on partitioned tables 
+### BEFORE ROW triggers on partitioned tables
 
 **GitHub**: [Issue #24830](https://github.com/yugabyte/yugabyte-db/issues/24830)
 
@@ -1227,3 +1229,62 @@ FOR EACH ROW
 EXECUTE FUNCTION check_and_modify_val();
 
 ```
+
+---
+
+### Advisory locks is not yet implemented
+
+**GitHub**: [Issue #3642](https://github.com/yugabyte/yugabyte-db/issues/3642)
+
+**Description**: YugabyteDB does not support PostgreSQL advisory locks (for example, pg_advisory_lock, pg_try_advisory_lock). Any attempt to use advisory locks will result in a "function-not-implemented" error as per the following example:
+
+```sql
+yugabyte=# SELECT pg_advisory_lock(100), COUNT(*) FROM cars;
+```
+
+```output
+ERROR:  advisory locks are not yet implemented
+HINT:  If the app doesn't need strict functionality, this error can be silenced by using the GFlag yb_silence_advisory_locks_not_supported_error. See https://github.com/yugabyte/yugabyte-db/issues/3642 for details
+```
+
+**Workaround**: Implement a custom locking mechanism in the application to coordinate actions without relying on database-level advisory locks.
+
+---
+
+### System columns is not yet supported
+
+**GitHub**: [Issue #24843](https://github.com/yugabyte/yugabyte-db/issues/24843)
+
+**Description**: System columns, including `xmin`, `xmax`, `cmin`, `cmax`, and `ctid`, are not available in YugabyteDB. Queries or applications referencing these columns will fail as per the following example:
+
+```sql
+yugabyte=# SELECT xmin, xmax FROM employees where id = 100;
+```
+
+```output
+ERROR:  System column "xmin" is not supported yet
+```
+
+**Workaround**: Use the application layer to manage tracking instead of relying on system columns.
+
+---
+
+### XML functions is not yet supported
+
+**GitHub**: [Issue #1043](https://github.com/yugabyte/yugabyte-db/issues/1043)
+
+**Description**: XML functions and the XML data type are unsupported in YugabyteDB. If you use functions like `xpath`, `xmlconcat`, and `xmlparse`, it will fail with an error as per the following example:
+
+```sql
+yugabyte=# SELECT xml_is_well_formed_content('<project>Alpha</project>') AS is_well_formed_content;
+```
+
+```output
+ERROR:  unsupported XML feature
+DETAIL:  This functionality requires the server to be built with libxml support.
+HINT:  You need to rebuild PostgreSQL using --with-libxml.
+```
+
+**Workaround**: Convert XML data to JSON format for compatibility with YugabyteDB, or handle XML processing at the application layer before inserting data.
+
+---

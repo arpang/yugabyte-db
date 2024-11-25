@@ -1,126 +1,116 @@
-sha: 0470ebd2684b8e38d6b6214e25cc08390b16f8e8
+sha: e037b775bdedfa0e256cc6447cabcdc9e16426e0
 archives:
+
+  - os_type: almalinux8
+    architecture: aarch64
+    compiler_type: clang17
+    tag: v20241118152543-e037b775bd-almalinux8-aarch64-clang17
+
+  - os_type: almalinux8
+    architecture: aarch64
+    compiler_type: clang17
+    lto_type: full
+    tag: v20241118152549-e037b775bd-almalinux8-aarch64-clang17-full-lto
+
+  - os_type: almalinux8
+    architecture: aarch64
+    compiler_type: clang18
+    tag: v20241118152421-e037b775bd-almalinux8-aarch64-clang18
+
+  - os_type: almalinux8
+    architecture: aarch64
+    compiler_type: clang18
+    lto_type: full
+    tag: v20241118152605-e037b775bd-almalinux8-aarch64-clang18-full-lto
 
   - os_type: almalinux8
     architecture: x86_64
     compiler_type: clang17
-    tag: v20241014144502-0470ebd268-almalinux8-x86_64-clang17
+    tag: v20241118152336-e037b775bd-almalinux8-x86_64-clang17
+
+  - os_type: almalinux8
+    architecture: x86_64
+    compiler_type: clang17
+    lto_type: full
+    tag: v20241118152345-e037b775bd-almalinux8-x86_64-clang17-full-lto
 
   - os_type: almalinux8
     architecture: x86_64
     compiler_type: clang18
-    tag: v20241014144502-0470ebd268-almalinux8-x86_64-clang18
+    tag: v20241118152322-e037b775bd-almalinux8-x86_64-clang18
+
+  - os_type: almalinux8
+    architecture: x86_64
+    compiler_type: clang18
+    lto_type: full
+    tag: v20241118152329-e037b775bd-almalinux8-x86_64-clang18-full-lto
 
   - os_type: almalinux8
     architecture: x86_64
     compiler_type: gcc11
-    tag: v20241014144504-0470ebd268-almalinux8-x86_64-gcc11
+    tag: v20241118152339-e037b775bd-almalinux8-x86_64-gcc11
 
   - os_type: almalinux8
     architecture: x86_64
     compiler_type: gcc12
-    tag: v20241014144502-0470ebd268-almalinux8-x86_64-gcc12
+    tag: v20241118152328-e037b775bd-almalinux8-x86_64-gcc12
 
   - os_type: almalinux8
     architecture: x86_64
     compiler_type: gcc13
-    tag: v20241014144503-0470ebd268-almalinux8-x86_64-gcc13
+    tag: v20241118152333-e037b775bd-almalinux8-x86_64-gcc13
 
   - os_type: almalinux9
     architecture: x86_64
     compiler_type: clang17
-    tag: v20241014144513-0470ebd268-almalinux9-x86_64-clang17
+    tag: v20241118152343-e037b775bd-almalinux9-x86_64-clang17
 
   - os_type: almalinux9
     architecture: x86_64
     compiler_type: gcc12
-    tag: v20241014144512-0470ebd268-almalinux9-x86_64-gcc12
+    tag: v20241118152341-e037b775bd-almalinux9-x86_64-gcc12
 
   - os_type: almalinux9
     architecture: x86_64
     compiler_type: gcc13
-    tag: v20241014144512-0470ebd268-almalinux9-x86_64-gcc13
-
-  - os_type: amzn2
-    architecture: aarch64
-    compiler_type: clang17
-    tag: v20241014144836-0470ebd268-amzn2-aarch64-clang17
-
-  - os_type: amzn2
-    architecture: aarch64
-    compiler_type: clang17
-    lto_type: full
-    tag: v20241014144844-0470ebd268-amzn2-aarch64-clang17-full-lto
-
-  - os_type: amzn2
-    architecture: aarch64
-    compiler_type: clang18
-    tag: v20241014144844-0470ebd268-amzn2-aarch64-clang18
-
-  - os_type: amzn2
-    architecture: aarch64
-    compiler_type: clang18
-    lto_type: full
-    tag: v20241014144853-0470ebd268-amzn2-aarch64-clang18-full-lto
-
-  - os_type: amzn2
-    architecture: x86_64
-    compiler_type: clang17
-    tag: v20241014144510-0470ebd268-amzn2-x86_64-clang17
-
-  - os_type: amzn2
-    architecture: x86_64
-    compiler_type: clang17
-    lto_type: full
-    tag: v20241014144512-0470ebd268-amzn2-x86_64-clang17-full-lto
-
-  - os_type: amzn2
-    architecture: x86_64
-    compiler_type: clang18
-    tag: v20241014144511-0470ebd268-amzn2-x86_64-clang18
-
-  - os_type: amzn2
-    architecture: x86_64
-    compiler_type: clang18
-    lto_type: full
-    tag: v20241014144507-0470ebd268-amzn2-x86_64-clang18-full-lto
+    tag: v20241118152346-e037b775bd-almalinux9-x86_64-gcc13
 
   - os_type: macos
     architecture: arm64
     compiler_type: clang
-    tag: v20241014144257-0470ebd268-macos-arm64
+    tag: v20241118152221-e037b775bd-macos-arm64
 
   - os_type: macos
     architecture: x86_64
     compiler_type: clang
-    tag: v20241014144655-0470ebd268-macos-x86_64
+    tag: v20241118152420-e037b775bd-macos-x86_64
 
   - os_type: ubuntu20.04
     architecture: x86_64
     compiler_type: clang16
-    tag: v20241014144453-0470ebd268-ubuntu2004-x86_64-clang16
+    tag: v20241118152332-e037b775bd-ubuntu2004-x86_64-clang16
 
   - os_type: ubuntu22.04
     architecture: x86_64
     compiler_type: clang17
-    tag: v20241014144442-0470ebd268-ubuntu2204-x86_64-clang17
+    tag: v20241118152316-e037b775bd-ubuntu2204-x86_64-clang17
 
   - os_type: ubuntu22.04
     architecture: x86_64
     compiler_type: gcc11
-    tag: v20241014144447-0470ebd268-ubuntu2204-x86_64-gcc11
+    tag: v20241118152324-e037b775bd-ubuntu2204-x86_64-gcc11
 
   - os_type: ubuntu22.04
     architecture: x86_64
     compiler_type: gcc12
-    tag: v20241014144438-0470ebd268-ubuntu2204-x86_64-gcc12
+    tag: v20241118152321-e037b775bd-ubuntu2204-x86_64-gcc12
 
   - os_type: ubuntu24.04
     architecture: x86_64
     compiler_type: clang17
-    tag: v20241014144502-0470ebd268-ubuntu2404-x86_64-clang17
+    tag: v20241118152341-e037b775bd-ubuntu2404-x86_64-clang17
 
   - os_type: ubuntu24.04
     architecture: x86_64
     compiler_type: gcc13
-    tag: v20241014144457-0470ebd268-ubuntu2404-x86_64-gcc13
+    tag: v20241118152342-e037b775bd-ubuntu2404-x86_64-gcc13

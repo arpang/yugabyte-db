@@ -716,8 +716,9 @@ YBCCreateTable(CreateStmt *stmt, char *tableName, char relkind, TupleDesc desc,
 		{
 			/*
 			 * In yb_binary_restore if tablespaceId is not valid but
-			 * binary_upgrade_next_tablegroup_oid is valid, that implies we are
-			 * restoring without tablespace information.
+			 * binary_upgrade_next_tablegroup_oid is valid, that implies either:
+			 * 1. it is a default tablespace.
+			 * 2. we are restoring without tablespace information.
 			 * In this case all tables are restored to default tablespace,
 			 * while maintaining the colocation properties, and tablegroup's name
 			 * will be colocation_restore_tablegroupId, while default tablegroup's
@@ -758,6 +759,13 @@ YBCCreateTable(CreateStmt *stmt, char *tableName, char relkind, TupleDesc desc,
 			tablegroupId = CreateTableGroup(tablegroup_stmt);
 			stmt->tablegroupname = pstrdup(tablegroup_name);
 		}
+		/*
+		 * Reset the binary_upgrade params as these are not needed anymore (only
+		 * required in CreateTableGroup), to ensure these parameter values are
+		 * not reused in subsequent unrelated statements.
+		 */
+		binary_upgrade_next_tablegroup_oid = InvalidOid;
+		binary_upgrade_next_tablegroup_default = false;
 
 		/* Record dependency between the table and tablegroup. */
 		ObjectAddress myself, tablegroup;
@@ -1023,10 +1031,10 @@ YbUnsafeTruncate(Relation rel)
 /* Utility function to handle split points */
 static void
 CreateIndexHandleSplitOptions(YBCPgStatement handle,
-                              TupleDesc desc,
-                              OptSplit *split_options,
-                              int16 * coloptions,
-                              int numIndexKeyAttrs)
+							  TupleDesc desc,
+							  OptSplit *split_options,
+							  int16 * coloptions,
+							  int numIndexKeyAttrs)
 {
 	/* Address both types of split options */
 	switch (split_options->split_type)
@@ -1175,7 +1183,7 @@ YBCCreateIndex(const char *indexName,
 	/* Handle SPLIT statement, if present */
 	if (split_options)
 		CreateIndexHandleSplitOptions(handle, indexTupleDesc, split_options, coloptions,
-		                              indexInfo->ii_NumIndexKeyAttrs);
+									  indexInfo->ii_NumIndexKeyAttrs);
 
 	/* Create the index. */
 	HandleYBStatus(YBCPgExecCreateIndex(handle));
@@ -1638,6 +1646,12 @@ YBCPrepareAlterTableCmd(AlterTableCmd* cmd, Relation rel, List *handles,
 					(errmsg("storage parameters are currently ignored in YugabyteDB")));
 			break;
 
+		case AT_AddOf:
+			switch_fallthrough();
+		case AT_DropOf:
+			*needsYBAlter = false;
+			break;
+
 		default:
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					errmsg("This ALTER TABLE command is not yet supported.")));
@@ -1990,7 +2004,8 @@ void
 YBCCreateReplicationSlot(const char *slot_name,
 						 const char *plugin_name,
 						 CRSSnapshotAction snapshot_action,
-						 uint64_t *consistent_snapshot_time)
+						 uint64_t *consistent_snapshot_time,
+						 CRSLsnType lsn_type)
 {
 	YBCPgStatement handle;
 
@@ -2008,10 +2023,18 @@ YBCCreateReplicationSlot(const char *slot_name,
 			pg_unreachable();
 	}
 
+	// If lsn_type is specified as HYBRID_TIME, it would be handled
+	// in the if block, otherwise for the default case when nothing is
+	// specified or when SEQUENCE is specified, the value will stay the same.
+	YBCLsnType repl_slot_lsn_type = YB_REPLICATION_SLOT_LSN_TYPE_SEQUENCE;
+	if (lsn_type == CRS_HYBRID_TIME)
+		repl_slot_lsn_type = YB_REPLICATION_SLOT_LSN_TYPE_HYBRID_TIME;
+
 	HandleYBStatus(YBCPgNewCreateReplicationSlot(slot_name,
 												 plugin_name,
 												 MyDatabaseId,
 												 repl_slot_snapshot_action,
+												 repl_slot_lsn_type,
 												 &handle));
 
 	YBCStatus status = YBCPgExecCreateReplicationSlot(handle, consistent_snapshot_time);
