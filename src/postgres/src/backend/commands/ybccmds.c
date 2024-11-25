@@ -1207,8 +1207,7 @@ static List*
 YBCPrepareAlterTableCmd(AlterTableCmd* cmd, Relation rel, List *handles,
 						int* col, bool* needsYBAlter,
 						YBCPgStatement* rollbackHandle,
-						bool isPartitionOfAlteredTable,
-						List *volatile *ybAlteredTableIds)
+						bool isPartitionOfAlteredTable)
 {
 	Oid relationId = RelationGetRelid(rel);
 	Oid relfileNodeId = YbGetRelfileNodeId(rel);
@@ -1602,7 +1601,6 @@ YBCPrepareAlterTableCmd(AlterTableCmd* cmd, Relation rel, List *handles,
 				HandleYBStatus(
 					YBCPgAlterTableIncrementSchemaVersion(alter_cmd_handle));
 				handles = lappend(handles, alter_cmd_handle);
-				*ybAlteredTableIds = lappend_oid(*ybAlteredTableIds, relationId);
 				table_close(dependent_rel, AccessExclusiveLock);
 			}
 			*needsYBAlter = true;
@@ -1653,8 +1651,7 @@ YBCPrepareAlterTable(List** subcmds,
 					 int subcmds_size,
 					 Oid relationId,
 					 YBCPgStatement *rollbackHandle,
-					 bool isPartitionOfAlteredTable,
-					 List *volatile *ybAlteredTableIds)
+					 bool isPartitionOfAlteredTable)
 {
 	/* Appropriate lock was already taken */
 	Relation rel = relation_open(relationId, NoLock);
@@ -1682,8 +1679,7 @@ YBCPrepareAlterTable(List** subcmds,
 			handles = YBCPrepareAlterTableCmd(
 						(AlterTableCmd *) lfirst(lcmd), rel, handles,
 						&col, &needsYBAlter, rollbackHandle,
-						isPartitionOfAlteredTable,
-						ybAlteredTableIds);
+						isPartitionOfAlteredTable);
 		}
 	}
 	relation_close(rel, NoLock);
@@ -1692,7 +1688,6 @@ YBCPrepareAlterTable(List** subcmds,
 	{
 		return NULL;
 	}
-	*ybAlteredTableIds = lappend_oid(*ybAlteredTableIds, relationId);
 	return handles;
 }
 

@@ -1081,6 +1081,12 @@ YBCStatus YBCPgAlterTableInvalidateTableCacheEntry(YBCPgStatement handle) {
   return ToYBCStatus(pgapi->AlterTableInvalidateTableCacheEntry(handle));
 }
 
+YBCStatus YBCPgAlterTableGetTableId(YBCPgStatement handle, YBCPgOid* table_oid) {
+  return ExtractValueFromResult(pgapi->AlterTableGetTableId(handle), [table_oid](auto value) {
+    *table_oid = value.object_oid;
+  });
+}
+
 YBCStatus YBCPgNewDropTable(const YBCPgOid database_oid,
                             const YBCPgOid table_relfilenode_oid,
                             bool if_exist,
