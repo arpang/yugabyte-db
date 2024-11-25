@@ -254,32 +254,6 @@ METRIC_DEFINE_entity(cdcsdk);
       xrepl::StreamId::FromString(stream_id_str), resp->mutable_error(), \
       CDCErrorPB::INVALID_REQUEST, context)
 
-// TODO(22655): Remove the below macro once YB_LOG_EVERY_N_SECS_OR_VLOG() is fixed.
-#define YB_CDC_LOG_EVERY_N_SECS_OR_VLOG(oss, n_secs, verbose_level) \
-  do { \
-    if (VLOG_IS_ON(verbose_level)) { \
-      switch (verbose_level) { \
-        case 1: \
-          VLOG(1) << (oss).str(); \
-          break; \
-        case 2: \
-          VLOG(2) << (oss).str(); \
-          break; \
-        case 3: \
-          VLOG(3) << (oss).str(); \
-          break; \
-        case 4: \
-          VLOG(4) << (oss).str(); \
-          break; \
-        default: \
-          LOG(INFO) << (oss).str(); \
-          break; \
-      } \
-    } else { \
-      YB_LOG_EVERY_N_SECS(INFO, n_secs) << (oss).str(); \
-    } \
-  } while (0)
-
 using namespace std::literals;
 using namespace std::placeholders;
 
@@ -1533,7 +1507,8 @@ void CDCServiceImpl::GetChanges(
   if (!CheckOnline(req, resp, &context)) {
     return;
   }
-  YB_LOG_EVERY_N_SECS(INFO, 300) << "Received GetChanges request " << req->ShortDebugString();
+  YB_LOG_EVERY_N_SECS_OR_VLOG(INFO, 300, 5)
+      << "Received GetChanges request " << req->ShortDebugString();
 
   RPC_CHECK_AND_RETURN_ERROR(
       req->has_tablet_id(),
@@ -1700,6 +1675,8 @@ void CDCServiceImpl::GetChanges(
     if (is_replication_paused_for_stream && VLOG_IS_ON(1)) {
       YB_LOG_EVERY_N_SECS(INFO, 300)
           << "Replication is paused from the producer for stream: " << req->stream_id();
+      // Below log line used in tests to detect when streams are paused.
+      VLOG(3) << "Replication is paused from the producer for stream: " << req->stream_id();
     }
     // Returning success to slow down polling on the consumer side while replication is paused or
     // early exit for testing purpose.
@@ -4856,9 +4833,8 @@ void CDCServiceImpl::GetConsistentChanges(
     return;
   }
 
-  std::ostringstream oss;
-  oss << "Received GetConsistentChanges request: " << req->ShortDebugString();
-  YB_CDC_LOG_EVERY_N_SECS_OR_VLOG(oss, 300, 1);
+  YB_LOG_EVERY_N_SECS_OR_VLOG(INFO, 300, 1)
+      << "Received GetConsistentChanges request: " << req->ShortDebugString();
 
   RPC_CHECK_AND_RETURN_ERROR(
       req->has_session_id(),
@@ -4995,9 +4971,8 @@ void CDCServiceImpl::UpdateAndPersistLSN(
     return;
   }
 
-  std::ostringstream oss;
-  oss << "Received UpdateAndPersistLSN request: " << req->ShortDebugString();
-  YB_CDC_LOG_EVERY_N_SECS_OR_VLOG(oss, 300, 1);
+  YB_LOG_EVERY_N_SECS_OR_VLOG(INFO, 300, 1)
+      << "Received UpdateAndPersistLSN request: " << req->ShortDebugString();
 
   RPC_CHECK_AND_RETURN_ERROR(
       req->has_session_id(),
@@ -5046,10 +5021,9 @@ void CDCServiceImpl::UpdateAndPersistLSN(
 
   resp->set_restart_lsn(*res);
 
-  oss.clear();
-  oss << "Succesfully persisted LSN values for stream_id: " << stream_id
+  YB_LOG_EVERY_N_SECS_OR_VLOG(INFO, 300, 1)
+      << "Successfully persisted LSN values for stream_id: " << stream_id
       << ", confirmed_flush_lsn = " << confirmed_flush_lsn << ", restart_lsn = " << *res;
-  YB_CDC_LOG_EVERY_N_SECS_OR_VLOG(oss, 300, 1);
 
   context.RespondSuccess();
 }

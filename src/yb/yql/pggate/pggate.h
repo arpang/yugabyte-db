@@ -370,7 +370,7 @@ class PgApiImpl {
   Result<YBCPgColumnInfo> GetColumnInfo(YBCPgTableDesc table_desc,
                                         int16_t attr_number);
 
-  Status DmlModifiesRow(PgStatement *handle, bool *modifies_row);
+  Result<bool> DmlModifiesRow(PgStatement* handle);
 
   Status SetIsSysCatalogVersionChange(PgStatement *handle);
 
@@ -423,7 +423,7 @@ class PgApiImpl {
 
   Status ExecDropIndex(PgStatement *handle);
 
-  Result<int> WaitForBackendsCatalogVersion(PgOid dboid, uint64_t version);
+  Result<int> WaitForBackendsCatalogVersion(PgOid dboid, uint64_t version, pid_t pid);
 
   Status BackfillIndex(const PgObjectId& table_id);
 
@@ -475,7 +475,7 @@ class PgApiImpl {
   Status DmlBindColumnCondIsNotNull(PgStatement *handle, int attr_num);
   Status DmlBindRow(YBCPgStatement handle, uint64_t ybctid, YBCBindColumn* columns, int count);
 
-  void DmlBindHashCode(
+  Status DmlBindHashCode(
       PgStatement* handle, const std::optional<Bound>& start, const std::optional<Bound>& end);
 
   Status DmlBindRange(YBCPgStatement handle,
@@ -779,6 +779,7 @@ class PgApiImpl {
                                   const char *plugin_name,
                                   const PgOid database_oid,
                                   YBCPgReplicationSlotSnapshotAction snapshot_action,
+                                  YBCLsnType lsn_type,
                                   PgStatement **handle);
   Result<tserver::PgCreateReplicationSlotResponsePB> ExecCreateReplicationSlot(
       PgStatement *handle);
