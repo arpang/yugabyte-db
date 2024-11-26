@@ -1688,7 +1688,6 @@ YBCPrepareAlterTable(List** subcmds,
 	{
 		return NULL;
 	}
-
 	return handles;
 }
 
