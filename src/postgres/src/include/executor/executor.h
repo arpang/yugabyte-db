@@ -553,6 +553,7 @@ extern ExprContext *CreateWorkExprContext(EState *estate);
 extern ExprContext *CreateStandaloneExprContext(void);
 extern void FreeExprContext(ExprContext *econtext, bool isCommit);
 extern void ReScanExprContext(ExprContext *econtext);
+extern void YbInitPKProutes(EState *estate);
 
 #define ResetExprContext(econtext) \
 	MemoryContextReset((econtext)->ecxt_per_tuple_memory)

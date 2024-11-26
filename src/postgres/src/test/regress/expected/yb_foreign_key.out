@@ -792,3 +792,27 @@ SELECT * FROM fk;
 (1 row)
 
 DROP TABLE pk, fk;
+-- Multiple partitioned PKs referenced
+CREATE TABLE pk(a INT, b INT UNIQUE, PRIMARY KEY (a, b)) PARTITION BY RANGE(b);
+CREATE TABLE pk_1_100 PARTITION OF pk FOR VALUES FROM (1) TO (100);
+CREATE TABLE pk_101_200 PARTITION OF pk FOR VALUES FROM (101) TO (200);
+CREATE TABLE pk2(a INT, b INT UNIQUE, PRIMARY KEY (a, b)) PARTITION BY RANGE(b);
+CREATE TABLE pk2_1_100 PARTITION OF pk2 FOR VALUES FROM (1) TO (100);
+CREATE TABLE pk2_101_200 PARTITION OF pk2 FOR VALUES FROM (101) TO (200);
+CREATE TABLE fk(b INT REFERENCES pk(b), b2 INT REFERENCES pk2(b));
+INSERT INTO pk VALUES (1, 1);
+INSERT INTO pk2 VALUES (1, 1);
+INSERT INTO fk VALUES (1, 1);
+INSERT INTO fk VALUES (10, 1); -- should fail
+ERROR:  insert or update on table "fk" violates foreign key constraint "fk_b_fkey"
+DETAIL:  Key (b)=(10) is not present in table "pk".
+INSERT INTO fk VALUES (1, 10); -- should fail
+ERROR:  insert or update on table "fk" violates foreign key constraint "fk_b2_fkey"
+DETAIL:  Key (b2)=(10) is not present in table "pk2".
+SELECT * from fk;
+ b | b2 
+---+----
+ 1 |  1
+(1 row)
+
+DROP TABLE pk, pk2, fk;

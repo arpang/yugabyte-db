@@ -201,7 +201,7 @@ CreateExecutorState(void)
 
 	estate->yb_exec_params.yb_fetch_row_limit = yb_fetch_row_limit;
 	estate->yb_exec_params.yb_fetch_size_limit = yb_fetch_size_limit;
-	estate->yb_es_pk_proute = NULL;
+	estate->yb_es_pk_proutes = NULL;
 
 	return estate;
 }
@@ -255,14 +255,34 @@ FreeExecutorState(EState *estate)
 		estate->es_partition_directory = NULL;
 	}
 
-	if (estate->yb_es_pk_proute)
-		ExecCleanupTupleRouting(NULL /* mtstate */, estate->yb_es_pk_proute);
-
+	if (estate->yb_es_pk_proutes)
+	{
+		HASH_SEQ_STATUS status;
+		PartitionTupleRouting **proute;
+		hash_seq_init(&status, estate->yb_es_pk_proutes);
+		while ((proute = (PartitionTupleRouting **) hash_seq_search(&status)) !=
+			   NULL)
+			ExecCleanupTupleRouting(NULL /* mtstate */, *proute);
+		hash_destroy(estate->yb_es_pk_proutes);
+	}
 	/*
 	 * Free the per-query memory context, thereby releasing all working
 	 * memory, including the EState node itself.
 	 */
 	MemoryContextDelete(estate->es_query_cxt);
+}
+
+void YbInitPKProutes(EState *estate)
+{
+	HASHCTL ctl;
+	memset(&ctl, 0, sizeof(ctl));
+	ctl.keysize = sizeof(Oid);
+	ctl.entrysize = sizeof(PartitionTupleRouting *);
+	ctl.hcxt = estate->es_query_cxt;
+
+	estate->yb_es_pk_proutes =
+		hash_create("YbESPKProutes", 8, /* start small and extend */
+					&ctl, HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 }
 
 /*

@@ -301,11 +301,18 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	if (pk_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
 		/* Initialize yb_es_pk_proute, if not done already. */
-		if (!estate->yb_es_pk_proute)
+		if (!estate->yb_es_pk_proutes)
+			YbInitPKProutes(estate);
+
+		bool found;
+		PartitionTupleRouting **proute = (PartitionTupleRouting **) hash_search(
+			estate->yb_es_pk_proutes, (void *) &RelationGetRelid(pk_rel),
+			HASH_ENTER, &found);
+
+		if (!found)
 		{
 			MemoryContext oldcxt = MemoryContextSwitchTo(estate->es_query_cxt);
-			estate->yb_es_pk_proute =
-				ExecSetupPartitionTupleRouting(estate, pk_rel);
+			*proute = ExecSetupPartitionTupleRouting(estate, pk_rel);
 			MemoryContextSwitchTo(oldcxt);
 		}
 
@@ -325,8 +332,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		PG_TRY();
 		{
 			pk_part_rri = ExecFindPartition(NULL /* mtstate */, pk_root_rri,
-											estate->yb_es_pk_proute, pkslot,
-											estate);
+											*proute, pkslot, estate);
 		}
 		PG_CATCH();
 		{

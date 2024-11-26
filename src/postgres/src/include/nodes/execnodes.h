@@ -761,10 +761,10 @@ typedef struct EState
 	YbSkippableEntities yb_skip_entities;
 
 	/*
-	 * Used by YBCBuildYBTupleIdDescriptor() to perform partition routing on a
-	 * partitioned PK relation referenced by a FK relation.
+	 * Used by YBCBuildYBTupleIdDescriptor() to perform partition routing on
+	 * partitioned PK relation(s) referenced by a FK relation.
 	 */
-	struct PartitionTupleRouting *yb_es_pk_proute;
+	HTAB *yb_es_pk_proutes;
 } EState;
 
 /*
