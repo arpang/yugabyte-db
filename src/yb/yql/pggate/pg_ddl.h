@@ -285,8 +285,6 @@ class PgAlterTable : public PgDdl {
     req_.set_use_transaction(true);
   }
 
-  Result<PgObjectId> TableId();
-
  private:
   tserver::PgAlterTableRequestPB req_;
 };

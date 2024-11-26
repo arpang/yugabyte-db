@@ -458,11 +458,6 @@ void PgAlterTable::InvalidateTableCacheEntry() {
       PgObjectId::FromPB(req_.table_id()), InvalidateOnPgClient::kTrue);
 }
 
-Result<PgObjectId> PgAlterTable::TableId() {
-  assert(req_.has_table_id());
-  return PgObjectId::FromPB(req_.table_id());
-}
-
 PgAlterTable::~PgAlterTable() {
 }
 

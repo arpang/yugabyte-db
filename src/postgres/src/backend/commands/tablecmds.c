@@ -5220,7 +5220,8 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 										 AT_NUM_PASSES,
 										 main_relid,
 										 &rollbackHandle,
-										 false /* isPartitionOfAlteredTable */);
+										 false /* isPartitionOfAlteredTable */,
+										 ybAlteredTableIds);
 	if (rollbackHandle)
 		*rollbackHandles = lappend(*rollbackHandles, rollbackHandle);
 
@@ -5244,7 +5245,8 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 												   AT_NUM_PASSES,
 												   childrelid,
 												   &childRollbackHandle,
-												   true /*isPartitionOfAlteredTable */);
+												   true /*isPartitionOfAlteredTable */,
+												   ybAlteredTableIds);
 		ListCell *listcell = NULL;
 		foreach(listcell, child_handles)
 		{
@@ -5255,17 +5257,6 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 			*rollbackHandles = lappend(*rollbackHandles, childRollbackHandle);
 	}
 
-	ListCell *lc;
-
-	/* Get the list of relids being being altered. */
-	foreach (lc, handles)
-	{
-		YBCPgStatement handle = (YBCPgStatement) lfirst(lc);
-		Oid relid;
-		YBCPgAlterTableGetTableId(handle, &relid);
-		*ybAlteredTableIds = lappend_oid(*ybAlteredTableIds, relid);
-	}
-
 	bool yb_table_cloned = false;
 	/*
 	 * We process all the tables "in parallel", one pass at a time.  This is
@@ -5274,6 +5265,7 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 	 * re-adding of the foreign key constraint to the other table).  Work can
 	 * only be propagated into later passes, however.
 	 */
+	ListCell *lc = NULL;
 	for (pass = 0; pass < AT_NUM_PASSES; pass++)
 	{
 		Oid relfilenode_id;
