@@ -330,9 +330,16 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		pk_root_rri = makeNode(ResultRelInfo);
 		pk_root_rri->ri_RelationDesc = pk_rel;
 
+		ModifyTableState mtstate = {0};
+		mtstate.ps.plan = NULL;
+		mtstate.ps.state = estate;
+		mtstate.mt_nrels = 1;
+		mtstate.resultRelInfo = pk_root_rri;
+		mtstate.rootResultRelInfo = pk_root_rri;
+
 		PG_TRY();
 		{
-			pk_part_rri = ExecFindPartition(NULL /* mtstate */, pk_root_rri,
+			pk_part_rri = ExecFindPartition(&mtstate, pk_root_rri,
 											*proute, pkslot, estate);
 			if (!using_index)
 				referenced_rel = pk_part_rri->ri_RelationDesc;

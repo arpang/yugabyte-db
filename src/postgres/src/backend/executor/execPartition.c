@@ -351,26 +351,6 @@ ExecFindPartition(ModifyTableState *mtstate,
 				Assert(dispatch->indexes[partidx] < proute->num_partitions);
 				rri = proute->partitions[dispatch->indexes[partidx]];
 			}
-			else if (mtstate == NULL)
-			{
-				/*
-				 * YBCBuildYBTupleIdDescriptor() calls this function with
-				 * mstate == NULL when performing partition routing on a
-				 * partitioned PK referenced by a FK.
-				 */
-				MemoryContext currentCxt =
-					MemoryContextSwitchTo(proute->memcxt);
-
-				Oid partOid = dispatch->partdesc->oids[partidx];
-				Relation partrel = table_open(partOid, RowExclusiveLock);
-
-				rri = makeNode(ResultRelInfo);
-				InitResultRelInfo(rri, partrel, 0, rootResultRelInfo,
-								  estate->es_instrument);
-				ExecInitRoutingInfo(mtstate, estate, proute, dispatch, rri,
-									partidx, false);
-				MemoryContextSwitchTo(currentCxt);
-			}
 			else
 			{
 				/*
@@ -437,7 +417,7 @@ ExecFindPartition(ModifyTableState *mtstate,
 															proute,
 															partdesc->oids[partidx],
 															dispatch, partidx,
-															mtstate ? mtstate->rootResultRelInfo : rootResultRelInfo);
+															mtstate->rootResultRelInfo);
 				Assert(dispatch->indexes[partidx] >= 0 &&
 					   dispatch->indexes[partidx] < proute->num_dispatch);
 
@@ -1053,7 +1033,7 @@ ExecInitRoutingInfo(ModifyTableState *mtstate,
 	 * If the partition is a foreign table, let the FDW init itself for
 	 * routing tuples to the partition.
 	 */
-	if (mtstate && partRelInfo->ri_FdwRoutine != NULL &&
+	if (partRelInfo->ri_FdwRoutine != NULL &&
 		partRelInfo->ri_FdwRoutine->BeginForeignInsert != NULL)
 		partRelInfo->ri_FdwRoutine->BeginForeignInsert(mtstate, partRelInfo);
 
@@ -1064,7 +1044,7 @@ ExecInitRoutingInfo(ModifyTableState *mtstate,
 	 *
 	 * If the FDW does not support batching, we set the batch size to 1.
 	 */
-	if (mtstate && mtstate->operation == CMD_INSERT &&
+	if (mtstate->operation == CMD_INSERT &&
 		partRelInfo->ri_FdwRoutine != NULL &&
 		partRelInfo->ri_FdwRoutine->GetForeignModifyBatchSize &&
 		partRelInfo->ri_FdwRoutine->ExecForeignBatchInsert)
@@ -1289,7 +1269,7 @@ ExecCleanupTupleRouting(ModifyTableState *mtstate,
 		ResultRelInfo *resultRelInfo = proute->partitions[i];
 
 		/* Allow any FDWs to shut down */
-		if (mtstate && resultRelInfo->ri_FdwRoutine != NULL &&
+		if (resultRelInfo->ri_FdwRoutine != NULL &&
 			resultRelInfo->ri_FdwRoutine->EndForeignInsert != NULL)
 			resultRelInfo->ri_FdwRoutine->EndForeignInsert(mtstate->ps.state,
 														   resultRelInfo);
