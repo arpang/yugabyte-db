@@ -1984,7 +1984,7 @@ YbShouldCheckUniqueOrExclusionIndex(IndexInfo *indexInfo,
 /* ----------------------------------------------------------------
  *		YbExecGetIndexRelation
  *
- *		Get index relation from resultRelInfo.
+ *		Given index oid, get index relation from resultRelInfo.
  * ----------------------------------------------------------------
  */
 Relation

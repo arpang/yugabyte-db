@@ -259,9 +259,11 @@ FreeExecutorState(EState *estate)
 		HASH_SEQ_STATUS status;
 		PartitionTupleRouting **proute;
 		hash_seq_init(&status, estate->yb_es_pk_proutes);
+
 		while ((proute = (PartitionTupleRouting **) hash_seq_search(&status)) !=
 			   NULL)
 			ExecCleanupTupleRouting(NULL /* mtstate */, *proute);
+
 		hash_destroy(estate->yb_es_pk_proutes);
 	}
 	/*
