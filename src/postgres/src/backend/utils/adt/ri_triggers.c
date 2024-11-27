@@ -340,7 +340,9 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		{
 			ResultRelInfo *pk_part_rri = ExecFindPartition(
 				&mtstate, &pk_root_rri, *proute, pkslot, estate);
+
 			leaf_root_conversion_map = ExecGetChildToRootMap(pk_part_rri);
+
 			if (!using_index)
 				referenced_rel = pk_part_rri->ri_RelationDesc;
 			else
@@ -357,7 +359,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 						riinfo->constraint_root_id)
 						continue;
 
-					/* We will need to close this relation at the end. */
 					referenced_rel =
 						YbExecGetIndexRelation(pk_part_rri, info->ybconindid);
 					break;
