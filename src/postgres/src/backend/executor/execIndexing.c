@@ -1980,3 +1980,24 @@ YbShouldCheckUniqueOrExclusionIndex(IndexInfo *indexInfo,
 
 	return true;
 }
+
+/* ----------------------------------------------------------------
+ *		YbExecGetIndexRelation
+ *
+ *		Get index relation from resultRelInfo.
+ * ----------------------------------------------------------------
+ */
+Relation
+YbExecGetIndexRelation(ResultRelInfo *resultRelInfo, Oid index_oid)
+{
+	int numIndices = resultRelInfo->ri_NumIndices;
+	RelationPtr indexDescs = resultRelInfo->ri_IndexRelationDescs;
+
+	for (int i = 0; i < numIndices; i++)
+	{
+		if (indexDescs[i] && RelationGetRelid(indexDescs[i]) == index_oid)
+			return indexDescs[i];
+	}
+	ereport(ERROR, (errmsg("Index with oid %d not found in ResultRelInfo",
+						   index_oid)));
+}

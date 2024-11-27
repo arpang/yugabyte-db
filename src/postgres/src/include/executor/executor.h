@@ -667,6 +667,9 @@ extern List *YbExecUpdateIndexTuples(ResultRelInfo *resultRelInfo,
 									 bool is_pk_updated,
 									 bool is_inplace_update_enabled);
 
+extern Relation YbExecGetIndexRelation(ResultRelInfo *resultRelInfo,
+									   Oid index_oid);
+
 /*
  * prototypes from functions in execReplication.c
  */

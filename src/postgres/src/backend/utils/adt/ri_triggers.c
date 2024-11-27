@@ -296,8 +296,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	Relation referenced_rel = using_index ? pk_idx_rel : pk_rel;
 
 	/* If PK is partitioned, set referenced_rel to the leaf relation/index. */
-	ResultRelInfo *pk_root_rri = NULL;
-	ResultRelInfo *pk_part_rri = NULL;
+	TupleConversionMap *leaf_root_conversion_map = NULL;
 	if (pk_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
 		/* Initialize yb_es_pk_proute, if not done already. */
@@ -327,20 +326,21 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		YBCFillPKFromFKSlot(riinfo, fkslot, pkslot);
 
 		/* Make ResultRelInfo for pk_rel. */
-		pk_root_rri = makeNode(ResultRelInfo);
-		pk_root_rri->ri_RelationDesc = pk_rel;
+		ResultRelInfo pk_root_rri = {0};
+		pk_root_rri.ri_RelationDesc = pk_rel;
 
 		ModifyTableState mtstate = {0};
 		mtstate.ps.plan = NULL;
 		mtstate.ps.state = estate;
 		mtstate.mt_nrels = 1;
-		mtstate.resultRelInfo = pk_root_rri;
-		mtstate.rootResultRelInfo = pk_root_rri;
+		mtstate.resultRelInfo = &pk_root_rri;
+		mtstate.rootResultRelInfo = &pk_root_rri;
 
 		PG_TRY();
 		{
-			pk_part_rri = ExecFindPartition(&mtstate, pk_root_rri,
-											*proute, pkslot, estate);
+			ResultRelInfo *pk_part_rri = ExecFindPartition(
+				&mtstate, &pk_root_rri, *proute, pkslot, estate);
+			leaf_root_conversion_map = ExecGetChildToRootMap(pk_part_rri);
 			if (!using_index)
 				referenced_rel = pk_part_rri->ri_RelationDesc;
 			else
@@ -358,7 +358,8 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 						continue;
 
 					/* We will need to close this relation at the end. */
-					referenced_rel = RelationIdGetRelation(info->ybconindid);
+					referenced_rel =
+						YbExecGetIndexRelation(pk_part_rri, info->ybconindid);
 					break;
 				}
 			}
@@ -398,8 +399,8 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	{
 		int pk_attnum = riinfo->pk_attnums[i];
 		/* If PK relation is partitioned, find partititon's attnum. */
-		if (pk_part_rri && ExecGetChildToRootMap(pk_part_rri))
-			pk_attnum = ExecGetChildToRootMap(pk_part_rri)->attrMap->attnums[pk_attnum - 1];
+		if (leaf_root_conversion_map)
+			pk_attnum = leaf_root_conversion_map->attrMap->attnums[pk_attnum - 1];
 		Assert(pk_attnum > 0);
 
 		next_attr->attr_num = using_index ?
@@ -433,10 +434,6 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 
 	RelationClose(pk_rel);
 	RelationClose(pk_idx_rel);
-	if (pk_root_rri)
-		pfree(pk_root_rri);
-	if (pk_part_rri && using_index)
-		RelationClose(referenced_rel);
 	return result;
 }
 
