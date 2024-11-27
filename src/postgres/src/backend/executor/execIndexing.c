@@ -1998,6 +1998,5 @@ YbExecGetIndexRelation(ResultRelInfo *resultRelInfo, Oid index_oid)
 		if (indexDescs[i] && RelationGetRelid(indexDescs[i]) == index_oid)
 			return indexDescs[i];
 	}
-	ereport(ERROR, (errmsg("Index with oid %d not found in ResultRelInfo",
-						   index_oid)));
+	ereport(ERROR, (errmsg("Index with oid %d not found", index_oid)));
 }

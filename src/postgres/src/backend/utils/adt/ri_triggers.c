@@ -261,7 +261,7 @@ YBCFillPKFromFKSlot(const RI_ConstraintInfo *riinfo, TupleTableSlot *fkslot,
  *  referenced and referencing relation doesn't match.
  * ----------
  */
-static YBCPgYBTupleIdDescriptor *
+static YBCPgYBTupleIdDescriptor*
 YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 							TupleTableSlot *fkslot, EState *estate)
 {
@@ -299,14 +299,14 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 	TupleConversionMap *leaf_root_conversion_map = NULL;
 	if (pk_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
-		/* Initialize yb_es_pk_proute, if not done already. */
+		/* Initialize yb_es_pk_proutes, if not done already. */
 		if (!estate->yb_es_pk_proutes)
 			YbInitPKProutes(estate);
 
 		/* Fetch or create PartitionTupleRouting object corresponding to PK. */
 		bool found;
 		PartitionTupleRouting **proute = (PartitionTupleRouting **) hash_search(
-			estate->yb_es_pk_proutes, (void *) &RelationGetRelid(pk_rel),
+			estate->yb_es_pk_proutes, (void *) &riinfo->pk_relid,
 			HASH_ENTER, &found);
 		if (!found)
 		{
@@ -325,10 +325,11 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 			MakeTupleTableSlot(RelationGetDescr(pk_rel), &TTSOpsVirtual);
 		YBCFillPKFromFKSlot(riinfo, fkslot, pkslot);
 
-		/* Make ResultRelInfo for pk_rel. */
+		/* Create ResultRelInfo for pk_rel. */
 		ResultRelInfo pk_root_rri = {0};
 		pk_root_rri.ri_RelationDesc = pk_rel;
 
+		/* Create dummy ModifyTableState object. */
 		ModifyTableState mtstate = {0};
 		mtstate.ps.plan = NULL;
 		mtstate.ps.state = estate;
