@@ -283,21 +283,29 @@ YbInitPKProutes(EState *estate)
 					&ctl, HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 }
 
+/*
+ * For an FK constraint, checks if the type of key colums matchces in the PK and
+ * FK relation.
+ */
 static bool
-YbAllKeyTypesMatch(int nkeys, TupleDesc pk_desc,
-				   const int16 pk_attnums[RI_MAX_NUMKEYS], TupleDesc fk_desc,
-				   const int16 fk_attnums[RI_MAX_NUMKEYS])
+YbAllKeyTypesMatch(const RI_ConstraintInfo *riinfo)
 {
-	for (int i = 0; i < nkeys; ++i)
+	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
+	Relation fk_rel = RelationIdGetRelation(riinfo->fk_relid);
+	int match = true;
+	for (int i = 0; i < riinfo->nkeys; ++i)
 	{
 		const Oid pk_type_id =
-			TupleDescAttr(pk_desc, pk_attnums[i] - 1)->atttypid;
+			TupleDescAttr(RelationGetDescr(pk_rel), riinfo->pk_attnums[i] - 1)->atttypid;
 		const Oid fk_type_id =
-			TupleDescAttr(fk_desc, fk_attnums[i] - 1)->atttypid;
+			TupleDescAttr(RelationGetDescr(fk_rel), riinfo->fk_attnums[i] - 1)->atttypid;
+
 		if (pk_type_id != fk_type_id)
-			return false;
+			match = false;
 	}
-	return true;
+	RelationClose(pk_rel);
+	RelationClose(fk_rel);
+	return match;
 }
 
 static Relation
@@ -405,11 +413,7 @@ static YBCPgYBTupleIdDescriptor*
 YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 							TupleTableSlot *fkslot, EState *estate)
 {
-	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
-
-	if (!YbAllKeyTypesMatch(riinfo->nkeys, RelationGetDescr(pk_rel),
-							riinfo->pk_attnums, fkslot->tts_tupleDescriptor,
-							riinfo->fk_attnums))
+	if (!YbAllKeyTypesMatch(riinfo))
 	{
 		/*
 		 * In case pk_rel and fk_rel has different type for key attribute(s),
@@ -419,10 +423,10 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		 * TODO(dmitry): Cast primitive types when possible int8 -> int,
 		 * etc.
 		 */
-		RelationClose(pk_rel);
 		return NULL;
 	}
 
+	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
 	Relation pk_idx_rel = RelationIdGetRelation(riinfo->conindid);
 	bool using_index = pk_idx_rel->rd_index != NULL &&
 					   !YBIsCoveredByMainTable(pk_idx_rel);
