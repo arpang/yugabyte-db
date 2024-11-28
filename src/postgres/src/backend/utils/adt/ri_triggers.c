@@ -369,11 +369,15 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		PG_CATCH();
 		{
 			/*
-			 * PK partition does not exist, implying FK constraint violation.
-			 * It is okay to let referenced_rel point to the root
-			 * relation/index, the end result will be the same - FK constraint
-			 * violation.
+			 * Got an error when trying to find partition. Best way forward is
+			 * to not use the batched lookup optimization. Reset the error
+			 * state, and return NULL.
 			 */
+			FlushErrorState();
+			RelationClose(pk_rel);
+			RelationClose(pk_idx_rel);
+			ExecDropSingleTupleTableSlot(pkslot);
+			return NULL;
 		}
 		PG_END_TRY();
 
