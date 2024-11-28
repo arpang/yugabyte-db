@@ -12365,8 +12365,17 @@ YbFKTriggerScanBegin(TableScanDesc scan,
 					  &YbFKTriggerScanVTableIsYugaByteEnabled :
 					  &YbFKTriggerScanVTableNotYugaByteEnabled;
 	descr->per_batch_cxt = per_batch_cxt;
+
+	/* TODO(GH#25126): Postpone creating executor state until required. */
 	descr->estate = CreateExecutorState();
 	return descr;
+}
+
+static void YbFKTriggerScanEnd(YbFKTriggerScanDesc descr)
+{
+	if (descr->estate)
+		FreeExecutorState(descr->estate);
+	pfree(descr);
 }
 
 static TupleTableSlot *
@@ -12490,8 +12499,7 @@ validateForeignKeyConstraint(char *conname,
 	MemoryContextSwitchTo(oldcxt);
 	MemoryContextDelete(perTupCxt);
 	table_endscan(scan);
-	FreeExecutorState(fk_scan->estate);
-	pfree(fk_scan);
+	YbFKTriggerScanEnd(fk_scan);
 	UnregisterSnapshot(snapshot);
 	if (!IsYBRelation(rel))
 		ExecDropSingleTupleTableSlot(slot);
