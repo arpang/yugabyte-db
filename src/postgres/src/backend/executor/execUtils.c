@@ -273,19 +273,6 @@ FreeExecutorState(EState *estate)
 	MemoryContextDelete(estate->es_query_cxt);
 }
 
-void YbInitPKProutes(EState *estate)
-{
-	HASHCTL ctl;
-	memset(&ctl, 0, sizeof(ctl));
-	ctl.keysize = sizeof(Oid);
-	ctl.entrysize = sizeof(void *); /* pointer to PartitionTupleRouting */
-	ctl.hcxt = estate->es_query_cxt;
-
-	estate->yb_es_pk_proutes =
-		hash_create("yb_es_pk_proutes", 8, /* start small and extend */
-					&ctl, HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
-}
-
 /*
  * Internal implementation for CreateExprContext() and CreateWorkExprContext()
  * that allows control over the AllocSet parameters.

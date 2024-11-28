@@ -553,7 +553,6 @@ extern ExprContext *CreateWorkExprContext(EState *estate);
 extern ExprContext *CreateStandaloneExprContext(void);
 extern void FreeExprContext(ExprContext *econtext, bool isCommit);
 extern void ReScanExprContext(ExprContext *econtext);
-extern void YbInitPKProutes(EState *estate);
 
 #define ResetExprContext(econtext) \
 	MemoryContextReset((econtext)->ecxt_per_tuple_memory)
@@ -666,9 +665,6 @@ extern List *YbExecUpdateIndexTuples(ResultRelInfo *resultRelInfo,
 									 Bitmapset *updatedCols,
 									 bool is_pk_updated,
 									 bool is_inplace_update_enabled);
-
-extern Relation YbExecGetIndexRelation(ResultRelInfo *resultRelInfo,
-									   Oid index_oid);
 
 /*
  * prototypes from functions in execReplication.c

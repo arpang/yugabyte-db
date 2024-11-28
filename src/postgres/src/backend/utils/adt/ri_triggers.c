@@ -253,6 +253,36 @@ YBCFillPKFromFKSlot(const RI_ConstraintInfo *riinfo, TupleTableSlot *fkslot,
 	ExecStoreVirtualTuple(pkslot);
 }
 
+static Relation
+YbFindIndexRelation(ResultRelInfo *resultRelInfo, Oid indexid)
+{
+	RelationPtr desc = resultRelInfo->ri_IndexRelationDescs;
+	RelationPtr end = desc + resultRelInfo->ri_NumIndices;
+	for (; desc != end; ++desc)
+	{
+		if (*desc && RelationGetRelid(*desc) == indexid)
+			return *desc;
+	}
+
+	/* Should never reach here. */
+	Assert(false);
+	return NULL;
+}
+
+static void
+YbInitPKProutes(EState *estate)
+{
+	HASHCTL ctl;
+	memset(&ctl, 0, sizeof(ctl));
+	ctl.keysize = sizeof(Oid);
+	ctl.entrysize = sizeof(void *); /* pointer to PartitionTupleRouting */
+	ctl.hcxt = estate->es_query_cxt;
+
+	estate->yb_es_pk_proutes =
+		hash_create("yb_es_pk_proutes", 8, /* start small and extend */
+					&ctl, HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+}
+
 /* ----------
  * YBCBuildYBTupleIdDescriptor -
  *
@@ -361,7 +391,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 						continue;
 
 					referenced_rel =
-						YbExecGetIndexRelation(pk_part_rri, info->ybconindid);
+						YbFindIndexRelation(pk_part_rri, info->ybconindid);
 					break;
 				}
 			}
