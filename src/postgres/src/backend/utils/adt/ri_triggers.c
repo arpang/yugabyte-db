@@ -373,10 +373,10 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 			 * to not use the batched lookup optimization. Reset the error
 			 * state, and return NULL.
 			 */
-			FlushErrorState();
 			RelationClose(pk_rel);
 			RelationClose(pk_idx_rel);
 			ExecDropSingleTupleTableSlot(pkslot);
+			FlushErrorState();
 			return NULL;
 		}
 		PG_END_TRY();
