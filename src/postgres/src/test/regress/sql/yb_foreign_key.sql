@@ -444,7 +444,9 @@ INSERT INTO fk VALUES (500, 1); -- should fail
 SELECT * from fk;
 DROP TABLE pk, fk;
 
--- PK is partitioned
+-- Test foreign key referencing partitioned table
+
+-- Base case
 CREATE TABLE pk(id INT PRIMARY KEY) PARTITION BY RANGE(id);
 CREATE TABLE pk_1_100 PARTITION OF pk FOR VALUES FROM (1) TO (100);
 CREATE TABLE pk_101_200 PARTITION OF pk FOR VALUES FROM (101) TO (200);
@@ -459,7 +461,7 @@ SELECT * FROM fk;
 
 DROP TABLE pk, fk;
 
--- PK is partitioned, foreign key constraint on unique index
+-- Foreign key constraint on unique index
 CREATE TABLE pk(a INT, b INT UNIQUE, PRIMARY KEY (a, b)) PARTITION BY RANGE(b);
 CREATE TABLE pk_1_100 PARTITION OF pk FOR VALUES FROM (1) TO (100);
 CREATE TABLE pk_101_200 PARTITION OF pk FOR VALUES FROM (101) TO (200);
@@ -474,8 +476,8 @@ SELECT * FROM fk;
 
 DROP TABLE pk, fk;
 
--- PK is partitioned, root and leaf partition have different column orders
-CREATE TABLE pk(a INT, b INT, c INT, d INT, primary key(a, c)) PARTITION BY RANGE(a);
+-- PK root and leaf partition have different column orders
+CREATE TABLE pk(a INT, b INT, c INT, d INT, PRIMARY KEY(a, c)) PARTITION BY RANGE(a);
 CREATE TABLE pk_1_100(a INT NOT NULL, c INT NOT NULL, d INT, b INT);
 ALTER TABLE pk ATTACH PARTITION pk_1_100 FOR VALUES FROM (1) TO (100);
 CREATE TABLE fk(a INT, c INT, FOREIGN KEY (a, c) REFERENCES pk(a, c));
@@ -483,6 +485,20 @@ CREATE TABLE fk(a INT, c INT, FOREIGN KEY (a, c) REFERENCES pk(a, c));
 INSERT INTO pk VALUES (1, 100, 20, 150);
 INSERT INTO fk VALUES (1, 20);
 INSERT INTO fk VALUES (150, 20); -- should fail
+SELECT * FROM fk;
+
+DROP TABLE pk, fk;
+
+-- Using index, PK root and leaf partition have different column orders
+CREATE TABLE pk(a INT, b INT, c INT, d INT, PRIMARY KEY(a, b), UNIQUE(a, c)) PARTITION BY RANGE(a);
+CREATE TABLE pk_1_100(a INT NOT NULL, c INT NOT NULL, d INT, b INT NOT NULL);
+ALTER TABLE pk ATTACH PARTITION pk_1_100 FOR VALUES FROM (1) TO (100);
+CREATE TABLE fk(b INT, d INT, a INT, c INT, FOREIGN KEY (a, c) REFERENCES pk(a, c));
+
+INSERT INTO pk VALUES (1, 100, 20, 150);
+INSERT INTO fk(a, c) VALUES (1, 20);
+INSERT INTO fk(a, c) VALUES (1, 100); -- should fail
+INSERT INTO fk(a, c) VALUES (150, 20); -- should fail
 SELECT * FROM fk;
 
 DROP TABLE pk, fk;
