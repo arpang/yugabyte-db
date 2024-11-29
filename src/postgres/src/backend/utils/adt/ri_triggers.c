@@ -60,6 +60,8 @@
 #include "pg_yb_utils.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 
+/* Yugabyte includes */
+#include "executor/execPartition.h"
 /*
  * Local definitions
  */
@@ -269,18 +271,26 @@ YbFindIndexRelation(ResultRelInfo *resultRelInfo, Oid indexid)
 	return NULL;
 }
 
-static void
-YbInitPKProutes(EState *estate)
+static PartitionTupleRouting *
+YbFindOrCreateProute(EState *estate, Relation pk_root_rel)
 {
-	HASHCTL ctl;
-	memset(&ctl, 0, sizeof(ctl));
-	ctl.keysize = sizeof(Oid);
-	ctl.entrysize = sizeof(void *); /* pointer to PartitionTupleRouting */
-	ctl.hcxt = estate->es_query_cxt;
+	ListCell *lc;
+	foreach (lc, estate->yb_es_pk_proutes)
+	{
+		PartitionTupleRouting *proute = (PartitionTupleRouting *) lfirst(lc);
+		if (YbPartitionTupleRoutingGetRootRelid(proute) ==
+			RelationGetRelid(pk_root_rel))
+			return proute;
+	}
 
-	estate->yb_es_pk_proutes =
-		hash_create("yb_es_pk_proutes", 8, /* start small and extend */
-					&ctl, HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+	/* Could not find proute for pk_root_rel, create one. */
+	MemoryContext oldcxt = MemoryContextSwitchTo(estate->es_query_cxt);
+	PartitionTupleRouting *proute =
+		ExecSetupPartitionTupleRouting(estate, pk_root_rel);
+	estate->yb_es_pk_proutes = lappend(estate->yb_es_pk_proutes, proute);
+	MemoryContextSwitchTo(oldcxt);
+
+	return proute;
 }
 
 /*
@@ -316,21 +326,8 @@ YbFindReferencedPartition(EState *estate, const RI_ConstraintInfo *riinfo,
 {
 	Assert(pk_root_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE);
 
-	/* Initialize yb_es_pk_proutes, if not done already. */
-	if (!estate->yb_es_pk_proutes)
-		YbInitPKProutes(estate);
-
 	/* Fetch or create PartitionTupleRouting object corresponding to PK. */
-	bool found;
-	PartitionTupleRouting **proute = (PartitionTupleRouting **) hash_search(
-		estate->yb_es_pk_proutes, (void *) &riinfo->pk_relid, HASH_ENTER,
-		&found);
-	if (!found)
-	{
-		MemoryContext oldcxt = MemoryContextSwitchTo(estate->es_query_cxt);
-		*proute = ExecSetupPartitionTupleRouting(estate, pk_root_rel);
-		MemoryContextSwitchTo(oldcxt);
-	}
+	PartitionTupleRouting *proute = YbFindOrCreateProute(estate, pk_root_rel);
 
 	/*
 	 * Create PK slot and populate it from FK slot. This should contain
@@ -358,7 +355,7 @@ YbFindReferencedPartition(EState *estate, const RI_ConstraintInfo *riinfo,
 	PG_TRY();
 	{
 		ResultRelInfo *pk_part_rri =
-			ExecFindPartition(&mtstate, &pk_root_rri, *proute, pkslot, estate);
+			ExecFindPartition(&mtstate, &pk_root_rri, proute, pkslot, estate);
 
 		*leaf_root_conversion_map = ExecGetChildToRootMap(pk_part_rri);
 
