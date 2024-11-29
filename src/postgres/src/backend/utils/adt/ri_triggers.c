@@ -279,7 +279,7 @@ YbFindOrCreateProute(EState *estate, Relation pk_root_rel)
 	foreach (lc, estate->yb_es_pk_proutes)
 	{
 		PartitionTupleRouting *proute = (PartitionTupleRouting *) lfirst(lc);
-		if (YbPartitionTupleRoutingGetRootRelid(proute) ==
+		if (YbPartitionTupleRoutingRootRelid(proute) ==
 			RelationGetRelid(pk_root_rel))
 			return proute;
 	}
@@ -295,7 +295,7 @@ YbFindOrCreateProute(EState *estate, Relation pk_root_rel)
 }
 
 /*
- * For an FK constraint, checks if the type of key colums matchces in the PK and
+ * For an FK constraint, checks if the types of key columns match in the PK and
  * FK relation.
  */
 static bool
