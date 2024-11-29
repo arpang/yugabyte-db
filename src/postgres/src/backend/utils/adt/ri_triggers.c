@@ -62,6 +62,7 @@
 
 /* Yugabyte includes */
 #include "executor/execPartition.h"
+
 /*
  * Local definitions
  */
@@ -242,8 +243,8 @@ static void ri_ReportViolation(const RI_ConstraintInfo *riinfo,
 							   int queryno, bool partgone) pg_attribute_noreturn();
 
 static void
-YBCFillPKFromFKSlot(const RI_ConstraintInfo *riinfo, TupleTableSlot *fkslot,
-					TupleTableSlot *pkslot)
+YbFillPKFromFKSlot(const RI_ConstraintInfo *riinfo, TupleTableSlot *fkslot,
+				   TupleTableSlot *pkslot)
 {
 	for (int i = 0; i < riinfo->nkeys; i++)
 	{
@@ -298,24 +299,20 @@ YbFindOrCreateProute(EState *estate, Relation pk_root_rel)
  * FK relation.
  */
 static bool
-YbAllKeyTypesMatch(const RI_ConstraintInfo *riinfo)
+YbAllKeyTypesMatch(const RI_ConstraintInfo *riinfo, TupleDesc pkdesc,
+				   TupleDesc fkdesc)
 {
-	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
-	Relation fk_rel = RelationIdGetRelation(riinfo->fk_relid);
-	int match = true;
 	for (int i = 0; i < riinfo->nkeys; ++i)
 	{
 		const Oid pk_type_id =
-			TupleDescAttr(RelationGetDescr(pk_rel), riinfo->pk_attnums[i] - 1)->atttypid;
+			TupleDescAttr(pkdesc, riinfo->pk_attnums[i] - 1)->atttypid;
 		const Oid fk_type_id =
-			TupleDescAttr(RelationGetDescr(fk_rel), riinfo->fk_attnums[i] - 1)->atttypid;
+			TupleDescAttr(fkdesc, riinfo->fk_attnums[i] - 1)->atttypid;
 
 		if (pk_type_id != fk_type_id)
-			match = false;
+			return false;
 	}
-	RelationClose(pk_rel);
-	RelationClose(fk_rel);
-	return match;
+	return true;
 }
 
 static Relation
@@ -337,7 +334,7 @@ YbFindReferencedPartition(EState *estate, const RI_ConstraintInfo *riinfo,
 	 */
 	TupleTableSlot *pkslot =
 		MakeTupleTableSlot(RelationGetDescr(pk_root_rel), &TTSOpsVirtual);
-	YBCFillPKFromFKSlot(riinfo, fkslot, pkslot);
+	YbFillPKFromFKSlot(riinfo, fkslot, pkslot);
 
 	/* Create ResultRelInfo for pk_rel. */
 	ResultRelInfo pk_root_rri = {0};
@@ -410,7 +407,9 @@ static YBCPgYBTupleIdDescriptor*
 YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 							TupleTableSlot *fkslot, EState *estate)
 {
-	if (!YbAllKeyTypesMatch(riinfo))
+	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
+	if (!YbAllKeyTypesMatch(riinfo, RelationGetDescr(pk_rel),
+							fkslot->tts_tupleDescriptor))
 	{
 		/*
 		 * In case pk_rel and fk_rel has different type for key attribute(s),
@@ -420,10 +419,10 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		 * TODO(dmitry): Cast primitive types when possible int8 -> int,
 		 * etc.
 		 */
+		RelationClose(pk_rel);
 		return NULL;
 	}
 
-	Relation pk_rel = RelationIdGetRelation(riinfo->pk_relid);
 	Relation pk_idx_rel = RelationIdGetRelation(riinfo->conindid);
 	bool using_index = pk_idx_rel->rd_index != NULL &&
 					   !YBIsCoveredByMainTable(pk_idx_rel);
