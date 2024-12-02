@@ -425,7 +425,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 
 	Relation pk_idx_rel = RelationIdGetRelation(riinfo->conindid);
 	bool using_index = pk_idx_rel->rd_index != NULL &&
-					   !YBIsCoveredByMainTable(pk_idx_rel);
+					   !pk_idx_rel->rd_index->indisprimary;
 	Relation referenced_rel = using_index ? pk_idx_rel : pk_rel;
 
 	/* If PK is partitioned, set referenced_rel to the leaf relation/index. */

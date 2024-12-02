@@ -27,6 +27,7 @@
 #include "yb/client/schema.h"
 #include "yb/client/table_handle.h"
 #include "yb/client/transaction.h"
+#include "yb/consensus/log.h"
 #include "yb/master/catalog_manager_if.h"
 #include "yb/tablet/transaction_participant.h"
 
@@ -835,6 +836,8 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
       bool use_consistent_snapshot_stream);
 
   void TestRemovalOfColocatedTableFromCDCStream(bool start_removal_from_first_table);
+
+  void TestMetricObjectRemovalAfterStreamDeletion(bool use_logical_replication);
 
   Status CreateTables(
       const size_t num_tables, std::vector<YBTableName>* tables,
