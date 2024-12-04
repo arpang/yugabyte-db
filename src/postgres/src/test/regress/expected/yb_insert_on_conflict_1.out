@@ -435,7 +435,7 @@ INSERT INTO ab_tab VALUES (null, 1), (null, 2) ON CONFLICT (a) DO UPDATE SET b =
 ERROR:  ON CONFLICT DO UPDATE command cannot affect row a second time
 HINT:  Ensure that no rows proposed for insertion within the same command have duplicate constrained values.
 SELECT * FROM ab_tab WHERE a IS NULL ORDER BY b;
- a | b
+ a | b 
 ---+---
    |
 (1 row)
@@ -448,9 +448,9 @@ INSERT INTO ioc_defaults VALUES (2), (3) ON CONFLICT (b, c) DO UPDATE SET a = EX
 ERROR:  ON CONFLICT DO UPDATE command cannot affect row a second time
 HINT:  Ensure that no rows proposed for insertion within the same command have duplicate constrained values.
 SELECT * FROM ioc_defaults ORDER BY b, c;
- a | b  | c
+ a | b  | c 
 ---+----+---
- 1 | 42 |
+ 1 | 42 |  
 (1 row)
 
 -- Reset.
@@ -463,12 +463,12 @@ INSERT INTO ab_tab2 VALUES (123, null), (456, null) ON CONFLICT DO NOTHING;
 INSERT INTO ab_tab2 VALUES (null, null);
 INSERT INTO ab_tab2 VALUES (123, null), (456, null), (null, 5), (null, null) ON CONFLICT DO NOTHING;
 SELECT * FROM ab_tab2 ORDER BY a, b;
-  a  | b
+  a  | b 
 -----+---
- 123 |
- 456 |
+ 123 |  
+ 456 |  
      | 5
-     |
+     |  
 (4 rows)
 
 DELETE FROM ab_tab2;
