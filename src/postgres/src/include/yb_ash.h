@@ -31,7 +31,7 @@
 #include "utils/timestamp.h"
 
 #define YbAshIsClientAddrSet() \
-	(YBIsEnabledInPostgresEnvVar() && yb_ash_enable_infra && !IsBootstrapProcessingMode())
+	(yb_ash_enable_infra && !IsBootstrapProcessingMode() && !YBIsInitDbModeEnvVarSet())
 
 /* GUC variables */
 extern bool yb_ash_enable_infra;
@@ -72,6 +72,8 @@ extern void YbAshSetMetadata(void);
 extern void YbAshUnsetMetadata(void);
 
 extern void YbAshSetOneTimeMetadata(void);
+extern void YbAshSetMetadataForBgworkers(void);
+
 extern void GetAshDataForQueryDiagnosticsBundle(TimestampTz start_time, TimestampTz end_time,
 												int64 query_id, StringInfo output_buffer,
 												char *description);

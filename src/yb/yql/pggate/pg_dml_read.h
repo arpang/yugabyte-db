@@ -57,8 +57,6 @@ namespace yb::pggate {
 
 class PgDmlRead : public PgDml {
  public:
-  [[nodiscard]] StmtOp stmt_op() const override { return StmtOp::STMT_SELECT; }
-
   // Allocate binds.
   virtual void PrepareBinds();
 
@@ -106,7 +104,7 @@ class PgDmlRead : public PgDml {
   Status RetrieveYbctidsFromSecondaryIndex(
       const PgExecParameters* exec_params, std::vector<Slice>* ybctids, bool* exceeded_work_mem);
 
-  Status ANNBindVector(int vec_att_no, PgExpr* vector);
+  Status ANNBindVector(PgExpr* vector);
   Status ANNSetPrefetchSize(int32_t prefetch_size);
 
   void SetCatalogCacheVersion(std::optional<PgOid> db_oid, uint64_t version) override {

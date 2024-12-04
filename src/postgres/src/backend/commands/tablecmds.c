@@ -4126,11 +4126,11 @@ RenameRelation(RenameStmt *stmt, bool yb_is_internal_clone_rename)
 	/* Do the work */
 	RenameRelationInternal(relid, stmt->newname, false, is_index_stmt);
 
-	/* YB rename is not needed for a covered dummy index. */
+	/* YB rename is not needed for a primary key dummy index. */
 	rel             = RelationIdGetRelation(relid);
 	needs_yb_rename = IsYBRelation(rel) &&
 					  !(rel->rd_rel->relkind == RELKIND_INDEX &&
-						YBIsCoveredByMainTable(rel)) &&
+						rel->rd_index->indisprimary) &&
 					  rel->rd_rel->relkind != RELKIND_PARTITIONED_INDEX
 					  && !yb_is_internal_clone_rename;
 	RelationClose(rel);
@@ -5220,9 +5220,8 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 										 AT_NUM_PASSES,
 										 main_relid,
 										 &rollbackHandle,
-										 false /* isPartitionOfAlteredTable */);
-	if (handles)
-		*ybAlteredTableIds = lappend_oid(*ybAlteredTableIds, main_relid);
+										 false /* isPartitionOfAlteredTable */,
+										 ybAlteredTableIds);
 	if (rollbackHandle)
 		*rollbackHandles = lappend(*rollbackHandles, rollbackHandle);
 
@@ -5246,9 +5245,8 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 												   AT_NUM_PASSES,
 												   childrelid,
 												   &childRollbackHandle,
-												   true /*isPartitionOfAlteredTable */);
-		if (child_handles)
-			*ybAlteredTableIds = lappend_oid(*ybAlteredTableIds, childrelid);
+												   true /*isPartitionOfAlteredTable */,
+												   ybAlteredTableIds);
 		ListCell *listcell = NULL;
 		foreach(listcell, child_handles)
 		{
@@ -5908,8 +5906,11 @@ ATRewriteTables(AlterTableStmt *parsetree, List **wqueue, LOCKMODE lockmode,
 		/*
 		 * Relations without storage may be ignored here.
 		 * Foreign tables have no storage, nor do partitioned tables and indexes.
+		 * YB: We do not need to rewrite tables during upgrade because we
+		 * link the DocDB table with the data on master.
 		 */
-		if (!RELKIND_HAS_STORAGE(tab->relkind))
+		if (!RELKIND_HAS_STORAGE(tab->relkind) ||
+			(IsYBRelationById(tab->relid) && IsBinaryUpgrade))
 			continue;
 		/*
 		 * YB Note: The following only applies to the old ALTER TYPE code.
@@ -6169,8 +6170,13 @@ ATRewriteTables(AlterTableStmt *parsetree, List **wqueue, LOCKMODE lockmode,
 		Relation	rel = NULL;
 		ListCell   *lcon;
 
-		/* Relations without storage may be ignored here too */
-		if (!RELKIND_HAS_STORAGE(tab->relkind))
+		/*
+		 * Relations without storage may be ignored here too.
+		 * YB: We can also ignore YB relations during upgrade because their
+		 * constraints are already validated by the previous version.
+		 */
+		if (!RELKIND_HAS_STORAGE(tab->relkind) ||
+			(IsYBRelationById(tab->relid) && IsBinaryUpgrade))
 			continue;
 
 		foreach(lcon, tab->constraints)
@@ -15138,9 +15144,9 @@ ATPrepSetTableSpace(AlteredTableInfo *tab, Relation rel,
 				 errmsg("cannot set tablespaces for temporary tables")));
 	}
 
-	if (IsYugaByteEnabled() && tablespacename &&
+	if (IsYugaByteEnabled() && tablespacename && 
 		rel->rd_index &&
-		YBIsCoveredByMainTable(rel)) {
+		rel->rd_index->indisprimary) {
 		/*
 		 * Disable setting tablespaces for primary key indexes in Yugabyte
 		 * clusters.
@@ -15548,7 +15554,7 @@ ATExecSetTableSpaceNoStorage(Relation rel, Oid newTableSpace)
 
 	/* Notify the user that this command is async */
 	ereport(NOTICE,
-			(errmsg("Data movement for table %s is successfully initiated.", 
+			(errmsg("Data movement for table %s is successfully initiated.",
 					RelationGetRelationName(rel)),
 			 errdetail("Data movement is a long running asynchronous process "
 					   "and can be monitored by checking the tablet placement "
@@ -15733,23 +15739,23 @@ AlterTableMoveAll(AlterTableMoveAllStmt *stmt)
 			continue;
 
 		/*
-		 * In YB, a covered index is an intrinsic part of its base table.
-		 * For a covered index, we only need to update the
+		 * In YB, a primary key index is an intrinsic part of its base table.
+		 * For a primary key index, we only need to update the
 		 * new_tablespaceoid field in pg_class.
 		 */
 		if (relForm->relkind == RELKIND_INDEX ||
 			relForm->relkind == RELKIND_PARTITIONED_INDEX)
 		{
 			yb_index_rel = RelationIdGetRelation(relOid);
-			bool isCoveredByMainTable = (yb_index_rel != NULL &&
-				YBIsCoveredByMainTable(yb_index_rel));
+			bool isPrimaryIndex = (yb_index_rel != NULL &&
+								   yb_index_rel->rd_index->indisprimary);
 
 			RelationClose(yb_index_rel);
 
-			if (isCoveredByMainTable)
+			if (isPrimaryIndex)
 			{
 				/*
-				 * We move the covered indexes along with the tables that
+				 * We move the primary key indexes along with the tables that
 				 * they are associated with when using the following commands
 				 * ALTER TABLE/INDEX/MATERIALIZED VIEW ... SET TABLESPACE ...
 				 */
@@ -17753,11 +17759,10 @@ AlterRelationNamespaceInternal(Relation classRel, Oid relOid,
 
 		/*
 		 * Call SetSchema handler for the related internal YB DocDB table.
-		 * No YB DocDB table for a covered index.
+		 * No YB DocDB table for a primary key dummy index.
 		 */
 		const Relation rel = RelationIdGetRelation(relOid);
-		if (IsYBRelation(rel) && !(rel->rd_index &&
-			YBIsCoveredByMainTable(rel)))
+		if (IsYBRelation(rel) && !(rel->rd_index && rel->rd_index->indisprimary))
 			YBCAlterTableNamespace(classForm, relOid);
 
 		RelationClose(rel);

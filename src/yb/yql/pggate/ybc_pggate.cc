@@ -136,8 +136,18 @@ DEFINE_NON_RUNTIME_bool(
     ysql_minimal_catalog_caches_preload, false,
     "Fill postgres' caches with system items only");
 
+DEFINE_RUNTIME_PREVIEW_bool(
+  ysql_conn_mgr_version_matching, false,
+  "If true, does selection of transactional backends based on logical client version");
+
+DEFINE_RUNTIME_PREVIEW_bool(
+    ysql_conn_mgr_version_matching_connect_higher_version, true,
+    "If ysql_conn_mgr_version_matching is enabled is enabled, then connect to higher version "
+    "server if this flag is set to true");
+
 DECLARE_bool(TEST_ash_debug_aux);
 DECLARE_bool(TEST_generate_ybrowid_sequentially);
+DECLARE_bool(TEST_ysql_log_perdb_allocated_new_objectid);
 
 DECLARE_bool(use_fast_backward_scan);
 
@@ -1112,7 +1122,7 @@ YBCStatus YBCPgSetDBCatalogCacheVersion(
 }
 
 YBCStatus YBCPgDmlModifiesRow(YBCPgStatement handle, bool *modifies_row) {
-  return ToYBCStatus(pgapi->DmlModifiesRow(handle, modifies_row));
+  return ExtractValueFromResult(pgapi->DmlModifiesRow(handle), modifies_row);
 }
 
 YBCStatus YBCPgSetIsSysCatalogVersionChange(YBCPgStatement handle) {
@@ -1257,9 +1267,9 @@ YBCStatus YBCPgExecDropIndex(YBCPgStatement handle) {
   return ToYBCStatus(pgapi->ExecDropIndex(handle));
 }
 
-YBCStatus YBCPgWaitForBackendsCatalogVersion(YBCPgOid dboid, uint64_t version,
+YBCStatus YBCPgWaitForBackendsCatalogVersion(YBCPgOid dboid, uint64_t version, pid_t pid,
                                              int* num_lagging_backends) {
-  return ExtractValueFromResult(pgapi->WaitForBackendsCatalogVersion(dboid, version),
+  return ExtractValueFromResult(pgapi->WaitForBackendsCatalogVersion(dboid, version, pid),
                                 num_lagging_backends);
 }
 
@@ -1346,8 +1356,7 @@ YBCStatus YBCPgDmlBindHashCodes(
   const auto start = MakeBound(start_type, start_value);
   const auto end = MakeBound(end_type, end_value);
   DCHECK(start || end);
-  pgapi->DmlBindHashCode(handle, start, end);
-  return YBCStatusOK();
+  return ToYBCStatus(pgapi->DmlBindHashCode(handle, start, end));
 }
 
 YBCStatus YBCPgDmlBindRange(YBCPgStatement handle,
@@ -1372,8 +1381,8 @@ YBCStatus YBCPgDmlAssignColumn(YBCPgStatement handle,
   return ToYBCStatus(pgapi->DmlAssignColumn(handle, attr_num, attr_value));
 }
 
-YBCStatus YBCPgDmlANNBindVector(YBCPgStatement handle, int vec_att_no, YBCPgExpr vector) {
-  return ToYBCStatus(pgapi->DmlANNBindVector(handle, vec_att_no, vector));
+YBCStatus YBCPgDmlANNBindVector(YBCPgStatement handle, YBCPgExpr vector) {
+  return ToYBCStatus(pgapi->DmlANNBindVector(handle, vector));
 }
 
 YBCStatus YBCPgDmlANNSetPrefetchSize(YBCPgStatement handle, int prefetch_size) {
@@ -1534,18 +1543,13 @@ YBCStatus YBCPgExecTruncateColocated(YBCPgStatement handle) {
 }
 
 // SELECT Operations -------------------------------------------------------------------------------
-YBCStatus YBCPgNewSelect(const YBCPgOid database_oid,
-                         const YBCPgOid table_relfilenode_oid,
-                         const YBCPgPrepareParameters *prepare_params,
-                         bool is_region_local,
-                         YBCPgStatement *handle) {
-  const auto index_oid = prepare_params && prepare_params->use_secondary_index
-      ? prepare_params->index_relfilenode_oid
-      : kInvalidOid;
-  const auto index_id =
-      index_oid == kInvalidOid ? PgObjectId{} : PgObjectId{database_oid, index_oid};
+YBCStatus YBCPgNewSelect(
+    YBCPgOid database_oid, YBCPgOid table_relfilenode_oid, const YBCPgPrepareParameters* params,
+    bool is_region_local, YBCPgStatement* handle) {
   return ToYBCStatus(pgapi->NewSelect(
-      {database_oid, table_relfilenode_oid}, index_id, prepare_params, is_region_local, handle));
+      PgObjectId{database_oid, table_relfilenode_oid},
+      PgObjectId{database_oid, params ? params->index_relfilenode_oid : kInvalidOid},
+      params, is_region_local, handle));
 }
 
 YBCStatus YBCPgSetForwardScan(YBCPgStatement handle, bool is_forward_scan) {
@@ -2047,6 +2051,11 @@ const YBCPgGFlagsAccessor* YBCGetGFlags() {
       .TEST_ysql_enable_db_logical_client_version_mode =
           &FLAGS_TEST_ysql_enable_db_logical_client_version_mode,
       .ysql_conn_mgr_superuser_sticky = &FLAGS_ysql_conn_mgr_superuser_sticky,
+      .TEST_ysql_log_perdb_allocated_new_objectid =
+          &FLAGS_TEST_ysql_log_perdb_allocated_new_objectid,
+      .ysql_conn_mgr_version_matching = &FLAGS_ysql_conn_mgr_version_matching,
+      .ysql_conn_mgr_version_matching_connect_higher_version =
+          &FLAGS_ysql_conn_mgr_version_matching_connect_higher_version,
   };
   // clang-format on
   return &accessor;
@@ -2193,11 +2202,11 @@ bool YBCIsSysTablePrefetchingStarted() {
 }
 
 void YBCRegisterSysTableForPrefetching(
-  YBCPgOid database_oid, YBCPgOid table_oid, YBCPgOid index_oid, int row_oid_filtering_attr) {
+    YBCPgOid database_oid, YBCPgOid table_oid, YBCPgOid index_oid, int row_oid_filtering_attr,
+    bool fetch_ybctid) {
   pgapi->RegisterSysTableForPrefetching(
-      PgObjectId(database_oid, table_oid),
-      index_oid == kPgInvalidOid ? PgObjectId() : PgObjectId(database_oid, index_oid),
-      row_oid_filtering_attr);
+      PgObjectId(database_oid, table_oid), PgObjectId(database_oid, index_oid),
+      row_oid_filtering_attr, fetch_ybctid);
 }
 
 YBCStatus YBCPrefetchRegisteredSysTables() {
@@ -2245,11 +2254,13 @@ YBCStatus YBCPgNewCreateReplicationSlot(const char *slot_name,
                                         const char *plugin_name,
                                         YBCPgOid database_oid,
                                         YBCPgReplicationSlotSnapshotAction snapshot_action,
+                                        YBCLsnType lsn_type,
                                         YBCPgStatement *handle) {
   return ToYBCStatus(pgapi->NewCreateReplicationSlot(slot_name,
                                                      plugin_name,
                                                      database_oid,
                                                      snapshot_action,
+                                                     lsn_type,
                                                      handle));
 }
 

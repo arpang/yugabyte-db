@@ -516,7 +516,7 @@ class PackedRowData {
   HistoryCutoff history_cutoff_;
 
   using UsedSchemaVersionsMap =
-      std::unordered_map<Uuid, std::pair<SchemaVersion, SchemaVersion>, UuidHash>;
+      std::unordered_map<Uuid, std::pair<SchemaVersion, SchemaVersion>>;
 
   // Schema version ranges for each found table.
   // That could be a surprise, but when we are talking about range and use pair to represent range
@@ -967,9 +967,7 @@ Status DocDBCompactionFeed::Feed(const Slice& internal_key, const Slice& value) 
     if (key_type == dockv::KeyEntryType::kColumnId ||
         key_type == dockv::KeyEntryType::kSystemColumnId) {
       Slice column_id_slice = key.WithoutPrefix(doc_key_size + 1);
-      auto column_id_as_int64 = VERIFY_RESULT(FastDecodeSignedVarInt(&column_id_slice));
-      ColumnId column_id;
-      RETURN_NOT_OK(ColumnId::FromInt64(column_id_as_int64, &column_id));
+      auto column_id = VERIFY_RESULT(ColumnId::Decode(&column_id_slice));
 
       if (packed_row_.ColumnDeleted(column_id)) {
         return Status::OK();

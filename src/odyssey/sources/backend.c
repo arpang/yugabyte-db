@@ -47,13 +47,15 @@ void od_backend_close_connection(od_server_t *server)
 
 	/* failed to connect to endpoint, so notring to do */
 	if (server->io.io == NULL) {
-		return;
+		/* YB NOTE: Cleanup error_connect and tls even if we cannot connect */
+		goto cleanup;
 	}
 	if (machine_connected(server->io.io))
 		od_backend_terminate(server);
 
 	od_io_close(&server->io);
 
+cleanup:
 	if (server->error_connect) {
 		machine_msg_free(server->error_connect);
 		server->error_connect = NULL;
@@ -365,6 +367,12 @@ static inline int od_backend_startup(od_server_t *server,
 				od_debug(&instance->logger, "startup", NULL, server,
 			 			 "name: %s, value: %s", name, value);
 
+			/* Parse the yb_logical_client_version to store it in server */
+			if (strlen(name) == 25 && strcmp("yb_logical_client_version", name) == 0) {
+				server->logical_client_version = atoi(value);
+				machine_msg_free(msg);
+				break;
+			}
 			/*
 			 * The parameters received during authentication are the initial set
 			 * of parameters that should be set on the transactional backend the
@@ -396,8 +404,10 @@ static inline int od_backend_startup(od_server_t *server,
 						 sizeof("is_superuser")) ||
 				     yb_od_streq(name, name_len,
 					     "session_authorization",
-					     sizeof("session_authorization"))))
+					     sizeof("session_authorization")))) {
+					machine_msg_free(msg);
 					break;
+				}
 
 				/*
 				 * Set client parameters. There are variables such as
@@ -457,6 +467,7 @@ static inline int od_backend_startup(od_server_t *server,
 				yb_handle_fatalforlogicalconnection_pkt(
 					is_authenticating ? client->yb_external_client : client,
 					server);
+			machine_msg_free(msg);
 			return -1;
 		case KIWI_BE_ERROR_RESPONSE:
 			od_backend_error(server, "startup",

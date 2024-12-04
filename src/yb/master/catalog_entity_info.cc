@@ -36,6 +36,7 @@
 
 #include "yb/cdc/xcluster_types.h"
 #include "yb/common/colocated_util.h"
+#include "yb/common/common_consensus_util.h"
 #include "yb/common/doc_hybrid_time.h"
 #include "yb/dockv/partition.h"
 #include "yb/common/schema_pbutil.h"
@@ -119,10 +120,18 @@ void TabletReplica::UpdateLeaderLeaseInfo(const TabletLeaderLeaseInfo& info) {
   const bool initialized = leader_lease_info.initialized;
   const auto old_lease_exp = leader_lease_info.ht_lease_expiration;
   leader_lease_info = info;
-  leader_lease_info.ht_lease_expiration =
-      info.leader_lease_status == consensus::LeaderLeaseStatus::HAS_LEASE
-          ? std::max(info.ht_lease_expiration, old_lease_exp)
-          : 0;
+  leader_lease_info.ht_lease_expiration = 0;
+  if (info.leader_lease_status == consensus::LeaderLeaseStatus::HAS_LEASE) {
+    if (old_lease_exp == consensus::kInfiniteHybridTimeLeaseExpiration) {
+      // It's originally RF-1, so there are two possibilities:
+      // 1. It's still RF-1, and the new lease expiration is the same as the old one.
+      // 2. It's changed to RF>1, and the new lease expiration is less than the old one.
+      // In both cases, we can accept the new lease expiration.
+      leader_lease_info.ht_lease_expiration = info.ht_lease_expiration;
+    } else {
+      leader_lease_info.ht_lease_expiration = std::max(info.ht_lease_expiration, old_lease_exp);
+    }
+  }
   leader_lease_info.initialized = initialized || info.initialized;
 }
 
@@ -447,6 +456,14 @@ bool TableInfo::is_deleted() const {
   return LockForRead()->is_deleted();
 }
 
+bool TableInfo::is_hidden() const {
+  return LockForRead()->is_hidden();
+}
+
+HybridTime TableInfo::hide_hybrid_time() const {
+  return LockForRead()->hide_hybrid_time();
+}
+
 bool TableInfo::IsPreparing() const {
   return LockForRead()->IsPreparing();
 }
@@ -632,9 +649,29 @@ Status TableInfo::AddTabletUnlocked(const TabletInfoPtr& tablet) {
     // todo(zdrudi): for github issue 18257 this function's return type changed from void to Status.
     // To avoid changing existing behaviour we return OK here.
     // But silently passing over this case could cause bugs.
-    return Status::OK();
+
+    // Hidden tablets of live tables should not be included in partitions_
+    // as they are either split parents or children that are inactive.
+    // Including them will result in overlapping partition ranges
+    if (!is_hidden()) {
+      VLOG(1) << Format("Tablet $0 is hidden but table $1 is not, skip add to partitions_",
+          tablet->id(), id());
+      return Status::OK();
+    }
+
+    // If a table is hidden, don't process any tablets that were hidden before the table was hidden
+    // as these are inactive tablets left behind from a split operation.
+    // Only tablets that were active at the time of the table being dropped should be included
+    // in partitions_ structure to support SELECT AS-OF, CLONE, PITR operations.
+    if (dirty.hide_hybrid_time() < hide_hybrid_time()) {
+      VLOG(1) << Format("Tablet $0 hide time is < table $1 hide time, skip add to partitions_",
+          tablet->id(), id());
+      return Status::OK();
+    }
   }
 
+  // Include hidden tablets in partitions_ only for hidden tables to support features
+  // such as CLONE, PITR, and SELECT AS-OF that query previously dropped tables.
   const auto& partition_key_start = tablet_meta.partition().partition_key_start();
   auto [it, inserted] = partitions_.emplace(partition_key_start, tablet);
   if (inserted) {
@@ -655,7 +692,8 @@ Status TableInfo::AddTabletUnlocked(const TabletInfoPtr& tablet) {
 
   if (tablet_meta.split_depth() == old_split_depth) {
     std::string msg = Format(
-        "Two tablets with the same partition key start and split depth: $0 and $1",
+        "Two tablets $0, $1 with the same partition key start and split depth: $2 and $3",
+        tablet->id(), old_tablet->tablet_id(),
         tablet_meta.ShortDebugString(), old_tablet_lock->pb.ShortDebugString());
     LOG(DFATAL) << msg;
     return STATUS(IllegalState, msg);

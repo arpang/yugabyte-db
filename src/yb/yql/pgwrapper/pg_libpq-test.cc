@@ -79,7 +79,8 @@ using std::string;
 
 using namespace std::literals;
 
-DEFINE_NON_RUNTIME_int32(num_iter, 10000, "Number of iterations to run StaleMasterReads test");
+DEFINE_NON_RUNTIME_int32(num_iter, yb::RegularBuildVsSanitizers(10000, 1000),
+                         "Number of iterations to run StaleMasterReads test");
 
 DECLARE_int64(external_mini_cluster_max_log_bytes);
 
@@ -973,25 +974,26 @@ class PgLibPqReadFromSysCatalogTest : public PgLibPqTest {
         "--TEST_get_ysql_catalog_version_from_sys_catalog=true");
   }
 
-  void ReadLatestCatalogVersion() {
-    auto conn = ASSERT_RESULT(Connect());
-    auto client = ASSERT_RESULT(cluster_->CreateClient());
+  Status ReadLatestCatalogVersion() {
+    auto conn = VERIFY_RESULT(Connect());
+    auto client = VERIFY_RESULT(cluster_->CreateClient());
 
     uint64_t ver_orig;
-    ASSERT_OK(client->GetYsqlCatalogMasterVersion(&ver_orig));
+    RETURN_NOT_OK(client->GetYsqlCatalogMasterVersion(&ver_orig));
     for (int i = 1; i <= FLAGS_num_iter; i++) {
       LOG(INFO) << "ITERATION " << i;
-      BumpCatalogVersion(1, &conn, i % 2 == 1 ? "NOSUPERUSER" : "SUPERUSER");
+      RETURN_NOT_OK(BumpCatalogVersion(1, &conn, i % 2 == 1 ? "NOSUPERUSER" : "SUPERUSER"));
       LOG(INFO) << "Fetching CatalogVersion. Expecting " << i + ver_orig;
       uint64_t ver;
-      ASSERT_OK(client->GetYsqlCatalogMasterVersion(&ver));
-      ASSERT_EQ(ver_orig + i, ver);
+      RETURN_NOT_OK(client->GetYsqlCatalogMasterVersion(&ver));
+      SCHECK_EQ(ver_orig + i, ver, IllegalState, "unexpected master catalog version");
     }
+    return Status::OK();
   }
 };
 
 TEST_F_EX(PgLibPqTest, StaleMasterReads, PgLibPqReadFromSysCatalogTest) {
-  ReadLatestCatalogVersion();
+  ASSERT_OK(ReadLatestCatalogVersion());
 }
 
 // A low max clock skew of 1.5ms is used to trigger the following scenario:
@@ -1008,7 +1010,7 @@ class PgLibPqLowClockSkewTest : public PgLibPqReadFromSysCatalogTest {
 };
 
 TEST_F_EX(PgLibPqTest, MasterRestartReadPastGlobalLimit, PgLibPqLowClockSkewTest) {
-  ReadLatestCatalogVersion();
+  ASSERT_OK(ReadLatestCatalogVersion());
 }
 
 TEST_F(PgLibPqTest, CompoundKeyColumnOrder) {
@@ -3189,10 +3191,7 @@ TEST_F(PgLibPqTest, CollationRangePresplit) {
 }
 
 Result<string> PgLibPqTest::GetPostmasterPidViaShell(pid_t backend_pid) {
-  string postmaster_pid;
-  if (!RunShellProcess(Format("ps -o ppid= $0", backend_pid), &postmaster_pid)) {
-    return STATUS_FORMAT(RuntimeError, "Failed to get postmaster pid via shell");
-  }
+  auto postmaster_pid = VERIFY_RESULT(RunShellProcess(Format("ps -o ppid= $0", backend_pid)));
 
   postmaster_pid.erase(
       std::remove(postmaster_pid.begin(), postmaster_pid.end(), '\n'), postmaster_pid.end());
@@ -3258,17 +3257,15 @@ TEST_F_EX(PgLibPqTest,
           PgLibPqYSQLBackendCrash) {
   string postmaster_pid = ASSERT_RESULT(GetPostmasterPid());
 
-  string message;
   for (int i = 0; i < 50; i++) {
     ASSERT_OK(WaitFor([postmaster_pid]() -> Result<bool> {
-      string count;
       // The Mac implementation of pgrep has a bug and requires -P before -f.
       // Otherwise, the -f argument is ignored.
-      RunShellProcess(Format("pgrep -P $0 -f 'YSQL webserver' | wc -l", postmaster_pid), &count);
+      auto count = VERIFY_RESULT(RunShellProcess(
+          Format("pgrep -P $0 -f 'YSQL webserver' | wc -l", postmaster_pid)));
       return count.find("1") != string::npos;
     }, 2500ms, "Webserver restarting..."));
-    ASSERT_TRUE(RunShellProcess(Format("pkill -9 -f 'YSQL webserver' -P $0", postmaster_pid),
-                                &message));
+    ASSERT_OK(RunShellProcess(Format("pkill -9 -f 'YSQL webserver' -P $0", postmaster_pid)));
   }
 }
 
@@ -3286,8 +3283,8 @@ TEST_F_EX(PgLibPqTest, YB_LINUX_ONLY_TEST(TestOomScoreAdjPGWebserver), PgLibPqYS
   string postmaster_pid = ASSERT_RESULT(GetPostmasterPid());
 
   // Get the webserver pid using postmaster pid
-  string webserver_pid;
-  RunShellProcess(Format("pgrep -f 'YSQL webserver' -P $0", postmaster_pid), &webserver_pid);
+  auto webserver_pid = ASSERT_RESULT(RunShellProcess(
+      Format("pgrep -f 'YSQL webserver' -P $0", postmaster_pid)));
   webserver_pid.erase(std::remove(webserver_pid.begin(), webserver_pid.end(), '\n'),
                       webserver_pid.end());
 
@@ -3905,8 +3902,8 @@ TEST_F(PgLibPqTest, TempTableViewFileCountTest) {
 
   // Check that only one file is present in this database and that corresponds to temp table foo.
   auto query = Format(
-      "SELECT pg_ls_dir('$0/pg_data/' || substring(pg_relation_filepath('$1') from '.*/')) = 't1_' "
-      "|| '$1'::regclass::oid::text;",
+      "SELECT pg_ls_dir('$0/pg_data/' || substring(pg_relation_filepath('$1') from '.*/')) ~  "
+      "('t[0-9]_' || '$1'::regclass::oid::text)",
       pg_ts->GetRootDir(), kTableName);
   auto values = ASSERT_RESULT(conn.FetchRows<bool>(query));
   ASSERT_EQ(values, decltype(values){true});
@@ -3957,7 +3954,7 @@ TEST_F(PgLibPqTest, CatalogCacheMemoryLeak) {
                "WHERE name = 'CacheMemoryContext'"s;
   string stable_result;
   for (int i = 0; i < 20; i++) {
-    BumpCatalogVersion(1, &conn1);
+    ASSERT_OK(BumpCatalogVersion(1, &conn1));
     // Wait for heartbeat to propagate the new catalog version to trigger
     // catalog cache refresh on conn2.
     SleepFor(2s);
@@ -4356,9 +4353,8 @@ class PgPostmasterExitTest : public PgLibPqTest {
     // SIGKILL to a signal that can be caught and handled.
     RETURN_NOT_OK(WaitFor(
         [&backend_pid]() -> Result<bool> {
-          string output;
           // Ensure that the backend is no longer running.
-          return !RunShellProcess(Format("ps -p $0", backend_pid), &output);
+          return !RunShellProcess(Format("ps -p $0", backend_pid)).ok();
         },
         500ms, "Backend still running, should have exited"));
 

@@ -425,7 +425,9 @@ class PgClient::Impl : public BigDataFetcher {
       }
     }
     tserver::PgHeartbeatRequestPB req;
-    if (!create) {
+    if (create) {
+      req.set_pid(getpid());
+    } else {
       req.set_session_id(session_id_);
     }
     proxy_->HeartbeatAsync(
@@ -476,14 +478,14 @@ class PgClient::Impl : public BigDataFetcher {
 
   Result<PgTableDescPtr> OpenTable(
       const PgObjectId& table_id, bool reopen, CoarseTimePoint invalidate_cache_time,
-      master::IncludeInactive include_inactive) {
+      master::IncludeHidden include_hidden) {
     tserver::PgOpenTableRequestPB req;
     req.set_table_id(table_id.GetYbTableId());
     req.set_reopen(reopen);
     if (invalidate_cache_time != CoarseTimePoint()) {
       req.set_invalidate_cache_time_us(ToMicroseconds(invalidate_cache_time.time_since_epoch()));
     }
-    req.set_include_inactive(include_inactive);
+    req.set_include_hidden(include_hidden);
     tserver::PgOpenTableResponsePB resp;
 
     RETURN_NOT_OK(DoSyncRPC(&tserver::PgClientServiceProxy::OpenTable,
@@ -1310,7 +1312,8 @@ class PgClient::Impl : public BigDataFetcher {
     req.set_last_minute(last_minute);
     tserver::PgCronSetLastMinuteResponsePB resp;
 
-    RETURN_NOT_OK(proxy_->CronSetLastMinute(req, &resp, PrepareController()));
+    RETURN_NOT_OK(DoSyncRPC(&tserver::PgClientServiceProxy::CronSetLastMinute,
+        req, resp, ash::PggateRPC::kCronSetLastMinute));
     return ResponseStatus(resp);
   }
 
@@ -1318,7 +1321,8 @@ class PgClient::Impl : public BigDataFetcher {
     tserver::PgCronGetLastMinuteRequestPB req;
     tserver::PgCronGetLastMinuteResponsePB resp;
 
-    RETURN_NOT_OK(proxy_->CronGetLastMinute(req, &resp, PrepareController()));
+    RETURN_NOT_OK(DoSyncRPC(&tserver::PgClientServiceProxy::CronGetLastMinute,
+        req, resp, ash::PggateRPC::kCronGetLastMinute));
     RETURN_NOT_OK(ResponseStatus(resp));
     return resp.last_minute();
   }
@@ -1451,8 +1455,8 @@ uint64_t PgClient::SessionID() const { return impl_->SessionID(); }
 
 Result<PgTableDescPtr> PgClient::OpenTable(
     const PgObjectId& table_id, bool reopen, CoarseTimePoint invalidate_cache_time,
-    master::IncludeInactive include_inactive) {
-  return impl_->OpenTable(table_id, reopen, invalidate_cache_time, include_inactive);
+    master::IncludeHidden include_hidden) {
+  return impl_->OpenTable(table_id, reopen, invalidate_cache_time, include_hidden);
 }
 
 Result<client::VersionedTablePartitionList> PgClient::GetTablePartitionList(

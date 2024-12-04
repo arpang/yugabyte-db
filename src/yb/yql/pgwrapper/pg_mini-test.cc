@@ -20,6 +20,9 @@
 
 #include <gtest/gtest.h>
 
+#include "yb/client/table_info.h"
+#include "yb/client/yb_table_name.h"
+
 #include "yb/common/common_flags.h"
 #include "yb/common/pgsql_error.h"
 
@@ -228,6 +231,7 @@ class PgMiniPgClientServiceCleanupTest : public PgMiniTestSingleNode {
 
 TEST_F_EX(PgMiniTest, VerifyPgClientServiceCleanupQueue, PgMiniPgClientServiceCleanupTest) {
   constexpr size_t kTotalConnections = 30;
+  constexpr size_t kAshConnection = 1;
   std::vector<PGConn> connections;
   connections.reserve(kTotalConnections);
   for (size_t i = 0; i < kTotalConnections; ++i) {
@@ -235,10 +239,10 @@ TEST_F_EX(PgMiniTest, VerifyPgClientServiceCleanupQueue, PgMiniPgClientServiceCl
   }
   auto* client_service =
       cluster_->mini_tablet_server(0)->server()->TEST_GetPgClientService();
-  ASSERT_EQ(connections.size(), client_service->TEST_SessionsCount());
+  ASSERT_EQ(connections.size() + kAshConnection, client_service->TEST_SessionsCount());
 
   connections.erase(connections.begin() + connections.size() / 2, connections.end());
-  ASSERT_OK(WaitFor([client_service, expected_count = connections.size()]() {
+  ASSERT_OK(WaitFor([client_service, expected_count = connections.size() + kAshConnection]() {
     return client_service->TEST_SessionsCount() == expected_count;
   }, 4 * FLAGS_pg_client_session_expiration_ms * 1ms, "client session cleanup", 1s));
 }
@@ -1185,6 +1189,17 @@ TEST_F(PgMiniTest, BigSelect) {
 }
 
 TEST_F(PgMiniTest, MoveMaster) {
+  for (;;) {
+    client::YBTableName transactions_table_name(
+        YQL_DATABASE_CQL, master::kSystemNamespaceName, kGlobalTransactionsTableName);
+    auto result = client_->GetYBTableInfo(transactions_table_name);
+    if (result.ok()) {
+      LOG(INFO) << "Transactions table info: " << result->table_id;
+      break;
+    }
+    LOG(INFO) << "Waiting for transactions table";
+    std::this_thread::sleep_for(1s);
+  }
   ShutdownAllMasters(cluster_.get());
   cluster_->mini_master(0)->set_pass_master_addresses(false);
   ASSERT_OK(StartAllMasters(cluster_.get()));
@@ -1195,7 +1210,7 @@ TEST_F(PgMiniTest, MoveMaster) {
     auto status = conn.Execute("CREATE TABLE t (key INT PRIMARY KEY)");
     WARN_NOT_OK(status, "Failed to create table");
     return status.ok();
-  }, 15s, "Create table"));
+  }, 15s * kTimeMultiplier, "Create table"));
 }
 
 TEST_F(PgMiniTest, DDLWithRestart) {
@@ -1446,7 +1461,7 @@ TEST_F(PgMiniTest, AlterTableWithReplicaIdentity) {
   ASSERT_NOK(conn.Execute("CREATE TABLE t4 (a int primary key)"));
 }
 
-TEST_F(PgMiniTest, SkipTableTombstoneCheckMetadata) {
+TEST_F(PgMiniTest, TestSkipTableTombstoneCheck) {
   // Setup test data.
   const auto kNonColocatedTableName = "test";
   const auto kColocatedTableName = "colo_test";
@@ -1480,6 +1495,39 @@ TEST_F(PgMiniTest, SkipTableTombstoneCheckMetadata) {
   ASSERT_TRUE(ASSERT_RESULT(
       colocated_tablet_peer->tablet_metadata()->GetTableInfo(table_id))
       ->skip_table_tombstone_check);
+
+  const auto kRowCount = 100;
+
+  for (int i = 0; i < kRowCount; ++i) {
+    ASSERT_OK(conn.ExecuteFormat("INSERT INTO $0 VALUES ($1, $1)", kColocatedTableName, i));
+  }
+
+  auto RunPointSelectQueriesOnColocatedTable = [&conn, &kColocatedTableName]() {
+    for (int i = 0; i < kRowCount; ++i) {
+      ASSERT_RESULT(conn.FetchFormat("SELECT * FROM $0 WHERE a = $1;", kColocatedTableName, i));
+    }
+  };
+
+  // Verify that read from the colocated table only does 100 seek.
+  auto num_seek_before_read = colocated_tablet_peer->shared_tablet()->regulardb_statistics()
+      ->getTickerCount(rocksdb::Tickers::NUMBER_DB_SEEK);
+
+  RunPointSelectQueriesOnColocatedTable();
+
+  auto num_seek_after_read = colocated_tablet_peer->shared_tablet()->regulardb_statistics()
+      ->getTickerCount(rocksdb::Tickers::NUMBER_DB_SEEK);
+  ASSERT_EQ(kRowCount, num_seek_after_read - num_seek_before_read);
+
+  // Verify that the number of seeks is still 100 even after a TRUNCATE
+  ASSERT_OK(conn.ExecuteFormat("TRUNCATE TABLE $0", kColocatedTableName));
+  num_seek_before_read = colocated_tablet_peer->shared_tablet()->regulardb_statistics()
+      ->getTickerCount(rocksdb::Tickers::NUMBER_DB_SEEK);
+
+  RunPointSelectQueriesOnColocatedTable();
+
+  num_seek_after_read = colocated_tablet_peer->shared_tablet()->regulardb_statistics()
+      ->getTickerCount(rocksdb::Tickers::NUMBER_DB_SEEK);
+  ASSERT_EQ(kRowCount, num_seek_after_read - num_seek_before_read);
 
   // Verify that skip_table_tombstone_check=false for pg system tables.
   table_id = ASSERT_RESULT(GetTableIDFromTableName("pg_class"));
@@ -2454,11 +2502,12 @@ Status MockAbortFailure(
     yb::tserver::PgFinishTransactionResponsePB* resp, yb::rpc::RpcContext* context) {
   LOG(INFO) << "FinishTransaction called for session: " << req->session_id();
 
-  if (req->session_id() == 1) {
+  // ASH collector takes session id 1, the subsequent connections take 2 and 3
+  if (req->session_id() == 2) {
     context->CloseConnection();
     // The return status should not matter here.
     return Status::OK();
-  } else if (req->session_id() == 2) {
+  } else if (req->session_id() == 3) {
     return STATUS(NetworkError, "Mocking network failure on FinishTransaction");
   }
 

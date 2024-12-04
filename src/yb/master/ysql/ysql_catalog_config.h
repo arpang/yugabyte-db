@@ -20,10 +20,11 @@
 
 namespace yb {
 
+class IsOperationDoneResult;
+
 namespace master {
 
 class IsInitDbDoneResponsePB;
-class IsYsqlMajorVersionUpgradeInitdbDoneResponsePB;
 struct LeaderEpoch;
 struct PersistentSysConfigInfo;
 
@@ -32,7 +33,7 @@ class YsqlCatalogConfig {
   explicit YsqlCatalogConfig(SysCatalogTable& sys_catalog);
   ~YsqlCatalogConfig() = default;
 
-  Status PrepareDefaultIfNeeded(int64_t term) EXCLUDES(mutex_);
+  Status PrepareDefaultIfNeeded(const LeaderEpoch& epoch) EXCLUDES(mutex_);
   void SetConfig(scoped_refptr<SysConfigInfo> config) EXCLUDES(mutex_);
   void Reset() EXCLUDES(mutex_);
 
@@ -41,19 +42,25 @@ class YsqlCatalogConfig {
   // Increments and return the new version.
   Result<uint64> IncrementVersion(const LeaderEpoch& epoch) EXCLUDES(mutex_);
 
-  bool IsInitDbDone() const EXCLUDES(mutex_);
-  void IsInitDbDone(IsInitDbDoneResponsePB& resp) const EXCLUDES(mutex_);
+  IsOperationDoneResult IsInitDbDone() const EXCLUDES(mutex_);
 
   Status SetInitDbDone(const Status& initdb_status, const LeaderEpoch& epoch) EXCLUDES(mutex_);
 
   bool IsTransactionalSysCatalogEnabled() const EXCLUDES(mutex_);
   Status SetTransactionalSysCatalogEnabled(const LeaderEpoch& epoch) EXCLUDES(mutex_);
 
-  void IsYsqlMajorVersionUpgradeInitdbDone(
-      IsYsqlMajorVersionUpgradeInitdbDoneResponsePB& resp) const EXCLUDES(mutex_);
-  Status ResetNextVerInitdbStatus(const LeaderEpoch& epoch) EXCLUDES(mutex_);
-  Status SetNextVerInitdbDone(const Status& upgrade_status, const LeaderEpoch& epoch)
-      EXCLUDES(mutex_);
+  IsOperationDoneResult IsYsqlMajorCatalogUpgradeDone() const EXCLUDES(mutex_);
+
+  YsqlMajorCatalogUpgradeInfoPB::State GetMajorCatalogUpgradeState() const EXCLUDES(mutex_);
+
+  bool IsCurrentVersionCatalogEstablished() const EXCLUDES(mutex_);
+
+  // Transition the ysql major catalog upgrade to a new state if allowed.
+  // failed_status must be set to a NonOk status if and only if transitioning to FAILED state.
+  // Check kAllowedTransitions for list of allowed transitions.
+  Status TransitionMajorCatalogUpgradeState(
+      const YsqlMajorCatalogUpgradeInfoPB::State new_state, const LeaderEpoch& epoch,
+      const Status& failed_status = Status::OK()) EXCLUDES(mutex_);
 
  private:
   std::pair<CowReadLock<PersistentSysConfigInfo>, const SysYSQLCatalogConfigEntryPB&> LockForRead()
