@@ -12279,7 +12279,7 @@ typedef struct YbFKTriggerScanDescData
 	int buffered_tuples_size;
 	int current_tuple_idx;
 	bool all_tuples_processed;
-	EState* estate;
+	EState *estate;
 	TupleTableSlot* buffered_tuples[];
 } YbFKTriggerScanDescData;
 

@@ -3353,7 +3353,8 @@ RI_FKey_trigger_type(Oid tgfoid)
 }
 
 void
-YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel, TupleTableSlot *new_slot, EState* estate)
+YbAddTriggerFKReferenceIntent(Trigger *trigger, Relation fk_rel,
+							  TupleTableSlot *new_slot, EState *estate)
 {
 	YBCPgYBTupleIdDescriptor *descr = YBCBuildYBTupleIdDescriptor(
 		ri_FetchConstraintInfo(trigger, fk_rel, false /* rel_is_pk */),
