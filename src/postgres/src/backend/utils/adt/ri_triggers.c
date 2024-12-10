@@ -347,6 +347,9 @@ YbFindReferencedPartition(EState *estate, const RI_ConstraintInfo *riinfo,
 	mtstate.rootResultRelInfo = &pk_root_rri;
 
 	Relation referenced_rel = NULL;
+
+	/* Get current context, will be helpful during error recovery. */
+	MemoryContext cur_context = GetCurrentMemoryContext();
 	PG_TRY();
 	{
 		ResultRelInfo *pk_part_rri =
@@ -380,12 +383,11 @@ YbFindReferencedPartition(EState *estate, const RI_ConstraintInfo *riinfo,
 	PG_CATCH();
 	{
 		/*
-		 * Got an error when trying to find partition. Reset the error
-		 * state, and return NULL.
+		 * Got an error when trying to find partition. Switch to the original
+		 * context and reset the error state.
 		 */
-		ExecDropSingleTupleTableSlot(pkslot);
+		MemoryContextSwitchTo(cur_context);
 		FlushErrorState();
-		return NULL;
 	}
 	PG_END_TRY();
 
