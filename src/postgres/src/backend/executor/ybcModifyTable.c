@@ -600,6 +600,7 @@ YBCBuildUniqueIndexYBTupleId(Relation unique_index, Datum *values, bool *nulls)
 	YBCPgYBTupleIdDescriptor* result = YBCCreateYBTupleIdDescriptor(dboid,
 		relfileNodeId, nattrs + (is_pkey ? 0 : 1));
 	YBCPgAttrValueDescriptor *next_attr = result->attrs;
+	bool has_null = false;
 	for (int i = 0, col = -1; i < nattrs; ++i)
 	{
 		AttrNumber attnum;
@@ -619,6 +620,7 @@ YBCBuildUniqueIndexYBTupleId(Relation unique_index, Datum *values, bool *nulls)
 		next_attr->attr_num = attnum;
 		next_attr->datum = values[i];
 		next_attr->is_null = nulls == NULL ? false : nulls[i];
+		has_null = has_null || next_attr->is_null;
 		YBCPgColumnInfo column_info = {0};
 		HandleYBTableDescStatus(YBCPgGetColumnInfo(ybc_table_desc,
 												   attnum,
@@ -636,8 +638,7 @@ YBCBuildUniqueIndexYBTupleId(Relation unique_index, Datum *values, bool *nulls)
 		 * non-null values for all the index key columns. YBUniqueIdxKeySuffix
 		 * is null in both these cases.
 		 */
-		Assert(unique_index->rd_index->indnullsnotdistinct ||
-			   !(nulls && YbIsAnyIndexKeyColumnNull(nattrs, nulls)));
+		Assert(unique_index->rd_index->indnullsnotdistinct || !has_null);
 		YBCFillUniqueIndexNullAttribute(result);
 	}
 

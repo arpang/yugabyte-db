@@ -5554,7 +5554,7 @@ YbExecCheckIndexConstraints(EState *estate,
 		 * KEY_JUST_INSERTED branch will not be executed.
 		 */
 		if (!indexInfo->ii_NullsNotDistinct &&
-			YbIsAnyIndexKeyColumnNull(indexInfo->ii_NumIndexKeyAttrs, isnull))
+			YbIsAnyIndexKeyColumnNull(indexInfo, isnull))
 			continue;
 
 		/*

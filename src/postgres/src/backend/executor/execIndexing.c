@@ -1912,7 +1912,7 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 		 * filtered out above, and will not be a part of the index scan result.
 		 */
 		Assert(indexInfo->ii_NullsNotDistinct ||
-			   !YbIsAnyIndexKeyColumnNull(indexInfo->ii_NumIndexKeyAttrs,
+			   !YbIsAnyIndexKeyColumnNull(indexInfo,
 										  existing_isnull));
 
 		oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
@@ -1933,9 +1933,9 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 }
 
 bool
-YbIsAnyIndexKeyColumnNull(int numIndexKeyAttrs, bool isnull[INDEX_MAX_KEYS])
+YbIsAnyIndexKeyColumnNull(IndexInfo *indexInfo, bool isnull[INDEX_MAX_KEYS])
 {
-	for (int i = 0; i < numIndexKeyAttrs; i++)
+	for (int i = 0; i < indexInfo->ii_NumIndexKeyAttrs; i++)
 	{
 		if (isnull[i])
 			return true;
