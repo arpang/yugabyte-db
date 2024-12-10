@@ -1669,7 +1669,6 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	ExprContext *econtext;
 	TupleTableSlot *existing_slot;
 	TupleTableSlot *save_scantuple;
-	MemoryContext oldcontext;
 
 	if (indexInfo->ii_ExclusionOps)
 	{
@@ -1834,16 +1833,16 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	/* Fill the scan key used for the batch read RPC. */
 	ScanKeyData this_scan_key_data;
 	ScanKey this_scan_key = &this_scan_key_data;
-	int retain_null_flag =
+	int sk_retain_null_flag =
 		indexInfo->ii_NullsNotDistinct ? YB_SK_SEARCHARRAY_RETAIN_NULL : 0;
 	if (indnkeyatts == 1)
 	{
 		ScanKeyEntryInitialize(this_scan_key,
-							   SK_SEARCHARRAY | retain_null_flag,
+							   SK_SEARCHARRAY | sk_retain_null_flag,
 							   1,
 							   constr_strats[0],
 							   elmtype,
-							   index_collations[0], /* TODO(jason): check this */
+							   index_collations[0],	/* TODO(jason): check this */
 							   constr_procs[0],
 							   PointerGetDatum(result));
 	}
@@ -1871,7 +1870,7 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 		 */
 		MemSet(this_scan_key, 0, sizeof(ScanKeyData));
 		this_scan_key->sk_flags = SK_ROW_HEADER | SK_SEARCHARRAY |
-								  retain_null_flag;
+								  sk_retain_null_flag;
 		this_scan_key->sk_attno = scankeys[0].sk_attno;
 		this_scan_key->sk_strategy = BTEqualStrategyNumber;
 		/* sk_subtype, sk_collation, sk_func not used in a header */
@@ -1899,6 +1898,7 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	{
 		Datum		existing_values[INDEX_MAX_KEYS];
 		bool		existing_isnull[INDEX_MAX_KEYS];
+		MemoryContext oldcontext;
 
 		/*
 		 * Extract the index column values and isnull flags from the existing

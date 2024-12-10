@@ -1779,13 +1779,13 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 														 length_of_key,
 														 &ybScan->keys[i]));
 
-	bool search_for_null = false;
+	bool bind_to_null = false;
 	for (j = 0; j < num_elems; j++)
 	{
 		if (elem_nulls[j])
 		{
 			if (!is_row && YbSearchArrayRetainNull(key))
-				search_for_null = true;
+				bind_to_null = true;
 			continue;
 		}
 
@@ -1797,8 +1797,8 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 			continue;
 
 		/*
-		 * Skip any rows that have NULLs in them, unless
-		 * YB_SK_SEARCHARRAY_RETAIN_NULL is set.
+		 * If YB_SK_SEARCHARRAY_RETAIN_NULL is not set, skip any rows that have
+		 * NULLs in them.
 		 */
 		if (is_row)
 		{
@@ -1822,10 +1822,10 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 	pfree(elem_nulls);
 
 	/*
-	 * If there's no non-nulls, and a lookup for NULL is not required, the scan
+	 * If there are no non-nulls, and binding to NULL is not required, the scan
 	 * qual is unsatisfiable.
 	 */
-	if (num_valid == 0 && !search_for_null)
+	if (num_valid == 0 && !bind_to_null)
 	{
 		*bail_out = true;
 		pfree(elem_values);
@@ -1863,8 +1863,8 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 	}
 	else
 		ybcBindColumnCondIn(ybScan, scan_plan->bind_desc,
-							scan_plan->bind_key_attnums[i],
-							num_elems, elem_values, search_for_null);
+							scan_plan->bind_key_attnums[i], num_elems,
+							elem_values, bind_to_null);
 
 	pfree(elem_values);
 
