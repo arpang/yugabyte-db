@@ -1739,57 +1739,19 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 					   values,
 					   isnull);
 
-		bool found_null = false;
-		for (int j = 0; j < indnkeyatts; j++)
+		if (!indexInfo->ii_NullsNotDistinct)
 		{
-			if (isnull[j])
+			bool found_null = false;
+			for (int j = 0; j < indnkeyatts; j++)
 			{
-				found_null = true;
-				break;
-			}
-		}
-
-		if (found_null)
-		{
-			/*
-			 * If any of the input values are NULL, and the index uses the
-			 * - nulls-are-distinct mode (default): the constraint check is
-			 * 		assumed to pass (i.e., we assume the operators are strict).
-			 * - nulls-not-distinct mode: Since NULLs cannot be looked up in
-			 * 		batched fashion, do one lookup for each slot.
-			 */
-			if (indexInfo->ii_NullsNotDistinct)
-			{
-				oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
-				YBCPgInsertOnConflictKeyState keyState;
-				TupleTableSlot *ybConflictSlot = NULL;
-
-				YBCPgYBTupleIdDescriptor *descr =
-					YBCBuildUniqueIndexYBTupleId(index, values, isnull);
-				HandleYBStatus(
-					YBCPgInsertOnConflictKeyExists(descr, &keyState));
-
-				if (keyState == KEY_READ)
+				if (isnull[j])
 				{
-					/* A conflicting slot is found already, skip rechecking. */
-					continue;
+					found_null = true;
+					break;
 				}
-
-				bool satisfiesConstraint = check_exclusion_or_unique_constraint(
-					heap, index, indexInfo, NULL /* tupleid */, values, isnull,
-					estate, false /* newIndex */, CEOUC_WAIT,
-					true /* violationOK */, NULL /* conflictTid */,
-					&ybConflictSlot /* ybConflictSlot */);
-
-				if (!satisfiesConstraint)
-				{
-					/* Found conflict slot, insert it to the conflict buffer. */
-					YBCPgInsertOnConflictKeyInfo info = {ybConflictSlot};
-					HandleYBStatus(YBCPgAddInsertOnConflictKey(descr, &info));
-				}
-				MemoryContextSwitchTo(oldcontext);
 			}
-			continue;
+			if (found_null)
+				continue;
 		}
 
 		if (indnkeyatts == 1)
@@ -1872,14 +1834,16 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	/* Fill the scan key used for the batch read RPC. */
 	ScanKeyData this_scan_key_data;
 	ScanKey this_scan_key = &this_scan_key_data;
+	int retain_null_flag =
+		indexInfo->ii_NullsNotDistinct ? YB_SK_SEARCHARRAY_RETAIN_NULL : 0;
 	if (indnkeyatts == 1)
 	{
 		ScanKeyEntryInitialize(this_scan_key,
-							   SK_SEARCHARRAY,
+							   SK_SEARCHARRAY | retain_null_flag,
 							   1,
 							   constr_strats[0],
 							   elmtype,
-							   index_collations[0],	/* TODO(jason): check this */
+							   index_collations[0], /* TODO(jason): check this */
 							   constr_procs[0],
 							   PointerGetDatum(result));
 	}
@@ -1906,7 +1870,8 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 		 *   else if (IsA(clause, RowCompareExpr))
 		 */
 		MemSet(this_scan_key, 0, sizeof(ScanKeyData));
-		this_scan_key->sk_flags = SK_ROW_HEADER | SK_SEARCHARRAY;
+		this_scan_key->sk_flags = SK_ROW_HEADER | SK_SEARCHARRAY |
+								  retain_null_flag;
 		this_scan_key->sk_attno = scankeys[0].sk_attno;
 		this_scan_key->sk_strategy = BTEqualStrategyNumber;
 		/* sk_subtype, sk_collation, sk_func not used in a header */
@@ -1943,17 +1908,17 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 					   existing_values, existing_isnull);
 
 		/*
-		 * Irrespective of how distinctness of NULLs are treated by the index,
-		 * the index keys having NULL values are filtered out above, and will
-		 * not be a part of the index scan result.
+		 * In nulls-are-distinct mode, the index keys having NULL values are
+		 * filtered out above, and will not be a part of the index scan result.
 		 */
-		Assert(!YbIsAnyIndexKeyColumnNull(indexInfo->ii_NumIndexKeyAttrs,
+		Assert(indexInfo->ii_NullsNotDistinct ||
+			   !YbIsAnyIndexKeyColumnNull(indexInfo->ii_NumIndexKeyAttrs,
 										  existing_isnull));
 
 		oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
 		YBCPgInsertOnConflictKeyInfo info = {existing_slot};
 		YBCPgYBTupleIdDescriptor *descr =
-			YBCBuildUniqueIndexYBTupleId(index, existing_values, NULL);
+			YBCBuildUniqueIndexYBTupleId(index, existing_values, existing_isnull);
 		HandleYBStatus(YBCPgAddInsertOnConflictKey(descr, &info));
 		MemoryContextSwitchTo(oldcontext);
 

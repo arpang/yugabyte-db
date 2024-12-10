@@ -298,7 +298,7 @@ YbBindColumnNotNull(YbScanDesc ybScan, TupleDesc bind_desc, AttrNumber attnum)
  * Bind an array of scan keys for a column.
  */
 static void ybcBindColumnCondIn(YbScanDesc ybScan, TupleDesc bind_desc, AttrNumber attnum,
-                                int nvalues, Datum *values)
+								int nvalues, Datum *values, bool bind_to_null)
 {
 	Oid	atttypid = ybc_get_atttypid(bind_desc, attnum);
 	Oid	attcollation = YBEncodingCollation(ybScan->handle, attnum,
@@ -307,19 +307,23 @@ static void ybcBindColumnCondIn(YbScanDesc ybScan, TupleDesc bind_desc, AttrNumb
 	YBCPgExpr colref =
 		YBCNewColumnRef(ybScan->handle, attnum, atttypid, attcollation, NULL);
 
-	YBCPgExpr ybc_exprs[nvalues]; /* VLA - scratch space */
-	for (int i = 0; i < nvalues; i++) {
-		/*
-		 * For IN we are removing all null values in ybcBindScanKeys before
-		 * getting here (relying on btree/lsm operators being strict).
-		 * So we can safely set is_null to false for all options left here.
-		 */
+	int total_num_values = nvalues + (bind_to_null ? 1 : 0);
+	YBCPgExpr ybc_exprs[total_num_values]; /* VLA - scratch space */
+
+	/* First, create expr for non-null values. */
+	for (int i = 0; i < nvalues; i++)
+	{
 		ybc_exprs[i] = YBCNewConstant(ybScan->handle, atttypid, attcollation,
 									  values[i], false /* is_null */);
 	}
 
+	/* Create expr for NULL if bind_to_null is set. */
+	if (bind_to_null)
+		ybc_exprs[nvalues] = YBCNewConstant(
+			ybScan->handle, atttypid, attcollation, 0, true /* is_null */);
+
 	HandleYBStatus(
-		YBCPgDmlBindColumnCondIn(ybScan->handle, colref, nvalues, ybc_exprs));
+		YBCPgDmlBindColumnCondIn(ybScan->handle, colref, total_num_values, ybc_exprs));
 }
 
 /*
@@ -1029,6 +1033,12 @@ static bool
 YbIsRowHeader(ScanKey key)
 {
 	return key->sk_flags & SK_ROW_HEADER;
+}
+
+static bool
+YbSearchArrayRetainNull(ScanKey key)
+{
+	return key->sk_flags & YB_SK_SEARCHARRAY_RETAIN_NULL;
 }
 
 /*
@@ -1764,10 +1774,16 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 	bool should_check_row_range = is_row && num_elems > 0 &&
 		YbNeedTupleRangeCheck(elem_values[0], scan_plan->bind_desc,
 							  length_of_key, &ybScan->keys[i]);
+
+	bool search_for_null = false;
 	for (j = 0; j < num_elems; j++)
 	{
 		if (elem_nulls[j])
+		{
+			if (!is_row && YbSearchArrayRetainNull(key))
+				search_for_null = true;
 			continue;
+		}
 
 		/* Skip integer element where the value overflows the column type */
 		if (!is_row && (atttype == INT2OID || atttype == INT4OID) &&
@@ -1776,19 +1792,14 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 								atttype == INT2OID ? SHRT_MAX : INT_MAX))
 			continue;
 
-		/* Skip any rows that have NULLs in them. */
 		/*
-		 * TODO: record_eq considers NULL record elements to
-		 * be equal. However, the only way we receive IN filters
-		 * with tuples is through
-		 * compound batched nested loop joins where NULL
-		 * elements of batched record are not considered equal.
-		 * This needs to be rechecked when row IN filters can
-		 * arise through other means.
+		 * Skip any rows that have NULLs in them, unless
+		 * YB_SK_SEARCHARRAY_RETAIN_NULL is set.
 		 */
 		if (is_row)
 		{
-			if (HeapTupleHeaderHasNulls(
+			if (!YbSearchArrayRetainNull(key) &&
+				HeapTupleHeaderHasNulls(
 					DatumGetHeapTupleHeader(elem_values[j])))
 				continue;
 
@@ -1807,10 +1818,10 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 	pfree(elem_nulls);
 
 	/*
-	 * If there's no non-nulls, the scan qual is unsatisfiable
-	 * Example: SELECT ... FROM ... WHERE h = ... AND r IN (NULL,NULL);
+	 * If there's no non-nulls, and a lookup for NULL is not required, the scan
+	 * qual is unsatisfiable.
 	 */
-	if (num_valid == 0)
+	if (num_valid == 0 && !search_for_null)
 	{
 		*bail_out = true;
 		pfree(elem_values);
@@ -1852,7 +1863,7 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 	{
 		ybcBindColumnCondIn(ybScan, scan_plan->bind_desc,
 							scan_plan->bind_key_attnums[i],
-							num_elems, elem_values);
+							num_elems, elem_values, search_for_null);
 	}
 
 	pfree(elem_values);
