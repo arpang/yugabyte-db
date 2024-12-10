@@ -497,7 +497,7 @@ YBCBuildYBTupleIdDescriptor(const RI_ConstraintInfo *riinfo,
 		YBSetupAttrCollationInfo(next_attr, &column_info);
 	}
 
-	if (using_index && result)
+	if (using_index)
 		YBCFillUniqueIndexNullAttribute(result);
 
 	RelationClose(pk_rel);
