@@ -262,10 +262,8 @@ YbFindIndexRelation(ResultRelInfo *resultRelInfo, Oid indexid)
 	RelationPtr desc = resultRelInfo->ri_IndexRelationDescs;
 	RelationPtr end = desc + resultRelInfo->ri_NumIndices;
 	for (; desc != end; ++desc)
-	{
 		if (*desc && RelationGetRelid(*desc) == indexid)
 			return *desc;
-	}
 
 	/* Should never reach here. */
 	Assert(false);
@@ -273,12 +271,12 @@ YbFindIndexRelation(ResultRelInfo *resultRelInfo, Oid indexid)
 }
 
 static PartitionTupleRouting *
-YbFindOrCreateProute(EState *estate, Relation pk_root_rel)
+YbGetProute(EState *estate, Relation pk_root_rel)
 {
 	ListCell *lc;
 	foreach (lc, estate->yb_es_pk_proutes)
 	{
-		PartitionTupleRouting *proute = (PartitionTupleRouting *) lfirst(lc);
+		PartitionTupleRouting *proute = lfirst(lc);
 		if (YbPartitionTupleRoutingRootRelid(proute) ==
 			RelationGetRelid(pk_root_rel))
 			return proute;
@@ -324,7 +322,7 @@ YbFindReferencedPartition(EState *estate, const RI_ConstraintInfo *riinfo,
 	Assert(pk_root_rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE);
 
 	/* Fetch or create PartitionTupleRouting object corresponding to PK. */
-	PartitionTupleRouting *proute = YbFindOrCreateProute(estate, pk_root_rel);
+	PartitionTupleRouting *proute = YbGetProute(estate, pk_root_rel);
 
 	/*
 	 * Create PK slot and populate it from FK slot. This should contain

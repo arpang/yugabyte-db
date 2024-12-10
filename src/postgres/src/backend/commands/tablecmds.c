@@ -12371,8 +12371,10 @@ YbFKTriggerScanBegin(TableScanDesc scan,
 	return descr;
 }
 
-static void YbFKTriggerScanEnd(YbFKTriggerScanDesc descr)
+static void
+YbFKTriggerScanEnd(YbFKTriggerScanDesc descr)
 {
+	Assert(descr);
 	if (descr->estate)
 		FreeExecutorState(descr->estate);
 	pfree(descr);
