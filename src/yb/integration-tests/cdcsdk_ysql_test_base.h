@@ -28,6 +28,7 @@
 #include "yb/client/table_handle.h"
 #include "yb/client/transaction.h"
 #include "yb/consensus/log.h"
+#include "yb/consensus/raft_consensus.h"
 #include "yb/master/catalog_manager_if.h"
 #include "yb/tablet/transaction_participant.h"
 
@@ -803,6 +804,8 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
       CDCSDKCheckpointPB checkpoint, GetChangesResponsePB* change_resp);
 
   void TestCreateReplicationSlotWithLsnType(const std::string lsn_type);
+
+  void TestCreateReplicationSlotWithLsnTypeParam(const std::string lsn_type);
 
   void TestTableIdAndPkInCDCRecords(bool colocated_db);
 

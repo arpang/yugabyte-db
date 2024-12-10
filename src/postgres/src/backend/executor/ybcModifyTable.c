@@ -1070,8 +1070,7 @@ YBCExecuteUpdate(ResultRelInfo *resultRelInfo,
 	YbDmlAppendTargets(mt_plan->ybReturningColumns, update_stmt);
 
 	/* Column references to prepare data to evaluate pushed down expressions */
-	YbDmlAppendColumnRefs(mt_plan->ybColumnRefs, true /* is_primary */,
-						  update_stmt);
+	YbAppendPrimaryColumnRefs(update_stmt, mt_plan->ybColumnRefs);
 
 	/* Execute the statement. */
 
@@ -1412,6 +1411,7 @@ YBCUpdateSysCatalogTupleForDb(Oid dboid, Relation rel, HeapTuple oldtuple,
 	Bitmapset  *pkey   = YBGetTablePrimaryKeyBms(rel);
 
 	/* Bind the ybctid to the statement. */
+	Assert(HEAPTUPLE_YBCTID(tuple));
 	YBCBindTupleId(update_stmt, HEAPTUPLE_YBCTID(tuple));
 
 	/* Assign values to the non-primary-key columns to update the current row. */
