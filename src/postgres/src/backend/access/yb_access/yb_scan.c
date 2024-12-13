@@ -321,7 +321,8 @@ ybcBindColumnCondIn(YbScanDesc ybScan, TupleDesc bind_desc, AttrNumber attnum,
 	/* Create expr for NULL if bind_to_null is set. */
 	if (bind_to_null)
 		ybc_exprs[nvalues] = YBCNewConstant(ybScan->handle, atttypid,
-											attcollation, 0, true /* is_null */);
+											attcollation, (Datum) 0,
+											true /* is_null */);
 
 	HandleYBStatus(YBCPgDmlBindColumnCondIn(ybScan->handle, colref,
 											total_num_values, ybc_exprs));
@@ -1807,13 +1808,22 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 					DatumGetHeapTupleHeader(elem_values[j])))
 				continue;
 
-			if (should_check_row_range &&
-				!YbIsTupleInRange(elem_values[j],
-								  scan_plan->bind_desc,
-								  length_of_key,
-								  &ybScan->keys[i],
-								  &scan_plan->bind_key_attnums[i]))
-				continue;
+			if (should_check_row_range)
+			{
+				/*
+				 * This is reachable only during BNL, which does not set
+				 * YB_SK_SEARCHARRAY_RETAIN_NULL. If the row had nulls, it would
+				 * have been skipped.
+				 */
+				Assert(!HeapTupleHeaderHasNulls(
+					DatumGetHeapTupleHeader(elem_values[j])));
+				if (!YbIsTupleInRange(elem_values[j],
+									  scan_plan->bind_desc,
+									  length_of_key,
+									  &ybScan->keys[i],
+									  &scan_plan->bind_key_attnums[i]))
+					continue;
+			}
 		}
 
 		elem_values[num_valid++] = elem_values[j];
