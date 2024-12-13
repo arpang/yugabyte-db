@@ -1780,12 +1780,13 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 														 length_of_key,
 														 &ybScan->keys[i]));
 
+	bool retain_nulls = YbSearchArrayRetainNull(key);
 	bool bind_to_null = false;
 	for (j = 0; j < num_elems; j++)
 	{
 		if (elem_nulls[j])
 		{
-			if (!is_row && YbSearchArrayRetainNull(key))
+			if (!is_row && retain_nulls)
 				bind_to_null = true;
 			continue;
 		}
@@ -1803,7 +1804,7 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 		 */
 		if (is_row)
 		{
-			if (!YbSearchArrayRetainNull(key) &&
+			if (!retain_nulls &&
 				HeapTupleHeaderHasNulls(
 					DatumGetHeapTupleHeader(elem_values[j])))
 				continue;
