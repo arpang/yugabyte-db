@@ -1833,12 +1833,12 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 	/* Fill the scan key used for the batch read RPC. */
 	ScanKeyData this_scan_key_data;
 	ScanKey this_scan_key = &this_scan_key_data;
-	int sk_retain_null_flag =
-		indexInfo->ii_NullsNotDistinct ? YB_SK_SEARCHARRAY_RETAIN_NULL : 0;
+	int sk_retain_nulls_flag =
+		indexInfo->ii_NullsNotDistinct ? YB_SK_SEARCHARRAY_RETAIN_NULLS : 0;
 	if (indnkeyatts == 1)
 	{
 		ScanKeyEntryInitialize(this_scan_key,
-							   SK_SEARCHARRAY | sk_retain_null_flag,
+							   SK_SEARCHARRAY | sk_retain_nulls_flag,
 							   1,
 							   constr_strats[0],
 							   elmtype,
@@ -1870,7 +1870,7 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 		 */
 		MemSet(this_scan_key, 0, sizeof(ScanKeyData));
 		this_scan_key->sk_flags = SK_ROW_HEADER | SK_SEARCHARRAY |
-								  sk_retain_null_flag;
+								  sk_retain_nulls_flag;
 		this_scan_key->sk_attno = scankeys[0].sk_attno;
 		this_scan_key->sk_strategy = BTEqualStrategyNumber;
 		/* sk_subtype, sk_collation, sk_func not used in a header */

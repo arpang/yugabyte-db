@@ -43,7 +43,7 @@
  * is because NULL = NULL is undefined in Postgres. But in some scenarios
  * that involve unique indexes in nulls-not-distinct mode, it is desired to
  * lookup NULL values too (for eg, see yb_batch_fetch_conflicting_rows()). Use
- * YB_SK_SEARCHARRAY_RETAIN_NULL flag bit to signal this.
+ * YB_SK_SEARCHARRAY_RETAIN_NULLS flag bit to signal this.
  *
  * A ScanKey can also represent a condition "column IS NULL" or "column
  * IS NOT NULL"; these cases are signaled by the SK_SEARCHNULL and
@@ -189,7 +189,7 @@ typedef ScanKeyData *ScanKey;
 #define SK_SEARCHNOTNULL	0x0080	/* scankey represents "col IS NOT NULL" */
 #define SK_ORDER_BY			0x0100	/* scankey is for ORDER BY op */
 #define YB_SK_IS_HASHED	0x0200	/* scankey represents yb hash code */
-#define YB_SK_SEARCHARRAY_RETAIN_NULL \
+#define YB_SK_SEARCHARRAY_RETAIN_NULLS \
 	0x0400 /* retain NULL values in ScalarArrayOpExpr (see above) */
 
 

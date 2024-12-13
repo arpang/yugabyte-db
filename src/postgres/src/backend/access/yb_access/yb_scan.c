@@ -1045,9 +1045,9 @@ YbIsRowHeader(ScanKey key)
 }
 
 static bool
-YbSearchArrayRetainNull(ScanKey key)
+YbSearchArrayRetainNulls(ScanKey key)
 {
-	return key->sk_flags & YB_SK_SEARCHARRAY_RETAIN_NULL;
+	return key->sk_flags & YB_SK_SEARCHARRAY_RETAIN_NULLS;
 }
 
 /*
@@ -1780,7 +1780,7 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 														 length_of_key,
 														 &ybScan->keys[i]));
 
-	bool retain_nulls = YbSearchArrayRetainNull(key);
+	bool retain_nulls = YbSearchArrayRetainNulls(key);
 	bool bind_to_null = false;
 	for (j = 0; j < num_elems; j++)
 	{
@@ -1799,7 +1799,7 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 			continue;
 
 		/*
-		 * If YB_SK_SEARCHARRAY_RETAIN_NULL is not set, skip any rows that have
+		 * If YB_SK_SEARCHARRAY_RETAIN_NULLS is not set, skip any rows that have
 		 * NULLs in them.
 		 */
 		if (is_row)
@@ -1813,7 +1813,7 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 			{
 				/*
 				 * This is reachable only during BNL, which does not set
-				 * YB_SK_SEARCHARRAY_RETAIN_NULL. If the row had nulls, it would
+				 * YB_SK_SEARCHARRAY_RETAIN_NULLS. If the row had nulls, it would
 				 * have been skipped.
 				 */
 				Assert(!HeapTupleHeaderHasNulls(
