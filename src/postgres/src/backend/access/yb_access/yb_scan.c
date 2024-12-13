@@ -1813,8 +1813,8 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 			{
 				/*
 				 * This is reachable only during BNL, which does not set
-				 * YB_SK_SEARCHARRAY_RETAIN_NULLS. If the row had nulls, it would
-				 * have been skipped.
+				 * YB_SK_SEARCHARRAY_RETAIN_NULLS. If the row had nulls, it
+				 * should have been skipped already.
 				 */
 				Assert(!HeapTupleHeaderHasNulls(
 					DatumGetHeapTupleHeader(elem_values[j])));
