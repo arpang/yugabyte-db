@@ -818,6 +818,10 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("cannot create temporary table within security-restricted operation")));
 
+	if (IsYugaByteEnabled() &&
+		stmt->relation->relpersistence == RELPERSISTENCE_TEMP)
+		YBCForceAllowCatalogModifications(true);
+
 	/*
 	 * Determine the lockmode to use when scanning parents.  A self-exclusive
 	 * lock is needed here.
@@ -1658,6 +1662,7 @@ RemoveRelations(DropStmt *drop)
 	/* Lock and validate each relation; build a list of object addresses */
 	objects = new_object_addresses();
 
+	bool only_temp_tables = IsYugaByteEnabled() && relkind == RELKIND_RELATION;
 	foreach(cell, drop->objects)
 	{
 		RangeVar   *rel = makeRangeVarFromNameList((List *) lfirst(cell));
@@ -1731,6 +1736,14 @@ RemoveRelations(DropStmt *drop)
 									   state.heap_lockmode,
 									   NULL);
 
+		if (only_temp_tables)
+		{
+			Relation relation = table_open(relOid, NoLock);
+			only_temp_tables = relation->rd_rel->relpersistence ==
+							   RELPERSISTENCE_TEMP;
+			table_close(relation, NoLock);
+		}
+
 		/* OK, we're ready to delete this one */
 		obj.classId = RelationRelationId;
 		obj.objectId = relOid;
@@ -1738,6 +1751,9 @@ RemoveRelations(DropStmt *drop)
 
 		add_exact_object_address(&obj, objects);
 	}
+
+	if (only_temp_tables)
+		YBCForceAllowCatalogModifications(true);
 
 	performMultipleDeletions(objects, drop->behavior, flags);
 
@@ -4390,6 +4406,10 @@ AlterTable(AlterTableStmt *stmt, LOCKMODE lockmode,
 	rel = relation_open(context->relid, NoLock);
 
 	CheckTableNotInUse(rel, "ALTER TABLE");
+
+	if (IsYugaByteEnabled() && stmt->relation->relpersistence ==
+										  RELPERSISTENCE_TEMP)
+		YBCForceAllowCatalogModifications(true);
 
 	ATController(stmt, rel, stmt->cmds, stmt->relation->inh, lockmode, context);
 }
@@ -9774,16 +9794,6 @@ ATAddForeignKeyConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	 * Validity checks (permission checks wait till we have the column
 	 * numbers)
 	 */
-	/*
-	 * YB_TODO(feat): begin: Remove after adding support for foreign keys that reference
-	 * partitioned tables
-	 */
-	if (pkrel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
-		ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						errmsg("cannot reference partitioned table \"%s\"",
-							   RelationGetRelationName(pkrel))));
-	/* YB_TODO(feat): end */
-
 	if (rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
 		if (!recurse)
@@ -12289,6 +12299,7 @@ typedef struct YbFKTriggerScanDescData
 	int buffered_tuples_size;
 	int current_tuple_idx;
 	bool all_tuples_processed;
+	EState *estate;
 	TupleTableSlot* buffered_tuples[];
 } YbFKTriggerScanDescData;
 
@@ -12335,7 +12346,7 @@ YbGetNext(YbFKTriggerScanDesc desc, TupleTableSlot *slot)
 				ExecDropSingleTupleTableSlot(new_slot);
 				break;
 			}
-			YbAddTriggerFKReferenceIntent(desc->trigger, desc->fk_rel, new_slot);
+			YbAddTriggerFKReferenceIntent(desc->trigger, desc->fk_rel, new_slot, desc->estate);
 			desc->buffered_tuples[desc->buffered_tuples_size++] = new_slot;
 		}
 	}
@@ -12374,7 +12385,19 @@ YbFKTriggerScanBegin(TableScanDesc scan,
 					  &YbFKTriggerScanVTableIsYugaByteEnabled :
 					  &YbFKTriggerScanVTableNotYugaByteEnabled;
 	descr->per_batch_cxt = per_batch_cxt;
+
+	/* TODO(GH#25126): Postpone creating executor state until required. */
+	descr->estate = CreateExecutorState();
 	return descr;
+}
+
+static void
+YbFKTriggerScanEnd(YbFKTriggerScanDesc descr)
+{
+	Assert(descr);
+	if (descr->estate)
+		FreeExecutorState(descr->estate);
+	pfree(descr);
 }
 
 static TupleTableSlot *
@@ -12483,6 +12506,7 @@ validateForeignKeyConstraint(char *conname,
 		trigdata.tg_trigtuple = ExecFetchSlotHeapTuple(ybSlot, false, NULL);
 		trigdata.tg_trigslot = ybSlot;
 		trigdata.tg_trigger = &trig;
+		trigdata.estate = fk_scan->estate;
 
 		fcinfo->context = (Node *) &trigdata;
 
@@ -12497,7 +12521,7 @@ validateForeignKeyConstraint(char *conname,
 	MemoryContextSwitchTo(oldcxt);
 	MemoryContextDelete(perTupCxt);
 	table_endscan(scan);
-	pfree(fk_scan);
+	YbFKTriggerScanEnd(fk_scan);
 	UnregisterSnapshot(snapshot);
 	if (!IsYBRelation(rel))
 		ExecDropSingleTupleTableSlot(slot);
