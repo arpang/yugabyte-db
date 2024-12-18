@@ -1890,8 +1890,8 @@ yb_batch_fetch_conflicting_rows(int idx, ResultRelInfo *resultRelInfo,
 		 *   else if (IsA(clause, RowCompareExpr))
 		 */
 		MemSet(this_scan_key, 0, sizeof(ScanKeyData));
-		this_scan_key->sk_flags = SK_ROW_HEADER | SK_SEARCHARRAY |
-								  sk_retain_nulls_flag;
+		this_scan_key->sk_flags = (SK_ROW_HEADER | SK_SEARCHARRAY |
+								   sk_retain_nulls_flag);
 		this_scan_key->sk_attno = scankeys[0].sk_attno;
 		this_scan_key->sk_strategy = BTEqualStrategyNumber;
 		/* sk_subtype, sk_collation, sk_func not used in a header */
