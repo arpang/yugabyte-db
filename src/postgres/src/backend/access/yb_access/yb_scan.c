@@ -1786,7 +1786,8 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 	{
 		if (elem_nulls[j])
 		{
-			if (!is_row && retain_nulls)
+			Assert(!is_row);
+			if (retain_nulls)
 				bind_to_null = true;
 			continue;
 		}
