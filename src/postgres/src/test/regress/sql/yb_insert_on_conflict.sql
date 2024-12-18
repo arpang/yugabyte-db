@@ -174,23 +174,22 @@ DROP INDEX ioc_defaults_bc_idx;
 TRUNCATE ioc_defaults;
 
 --- NULLS NOT DISTINCT
-DROP INDEX ah_idx;
-DELETE FROM ab_tab;
-CREATE UNIQUE INDEX NONCONCURRENTLY ah_idx ON ab_tab (a HASH) NULLS NOT DISTINCT;
-INSERT INTO ab_tab VALUES (null, 1);
-INSERT INTO ab_tab VALUES (null, 2) ON CONFLICT DO NOTHING;
-SELECT * FROM ab_tab;
-INSERT INTO ab_tab VALUES (null, 3) ON CONFLICT (a) DO UPDATE SET b = EXCLUDED.b;
-SELECT * FROM ab_tab;
-INSERT INTO ab_tab VALUES (null, 4), (null, 5) ON CONFLICT DO NOTHING;
-SELECT * FROM ab_tab;
-INSERT INTO ab_tab VALUES (null, 6), (null, 7) ON CONFLICT (a) DO UPDATE SET b = EXCLUDED.b;
-SELECT * FROM ab_tab ORDER BY a, b;
-INSERT INTO ab_tab VALUES (null, 8), (null, 9) ON CONFLICT (a) DO UPDATE SET a = EXCLUDED.b;
-SELECT * FROM ab_tab ORDER BY a, b;
-INSERT INTO ab_tab VALUES (null, 10), (null, 11), (null, 12) ON CONFLICT (a) DO UPDATE SET a = EXCLUDED.b;
-SELECT * FROM ab_tab ORDER BY a, b;
-DELETE FROM ab_tab;
+CREATE TABLE ab_tab2 (a int, b int);
+CREATE UNIQUE INDEX NONCONCURRENTLY ah_idx2 ON ab_tab2 (a HASH) NULLS NOT DISTINCT;
+INSERT INTO ab_tab2 VALUES (null, 1);
+INSERT INTO ab_tab2 VALUES (null, 2) ON CONFLICT DO NOTHING;
+SELECT * FROM ab_tab2;
+INSERT INTO ab_tab2 VALUES (null, 3) ON CONFLICT (a) DO UPDATE SET b = EXCLUDED.b;
+SELECT * FROM ab_tab2;
+INSERT INTO ab_tab2 VALUES (null, 4), (null, 5) ON CONFLICT DO NOTHING;
+SELECT * FROM ab_tab2;
+INSERT INTO ab_tab2 VALUES (null, 6), (null, 7) ON CONFLICT (a) DO UPDATE SET b = EXCLUDED.b;
+SELECT * FROM ab_tab2 ORDER BY a, b;
+INSERT INTO ab_tab2 VALUES (null, 8), (null, 9) ON CONFLICT (a) DO UPDATE SET a = EXCLUDED.b;
+SELECT * FROM ab_tab2 ORDER BY a, b;
+INSERT INTO ab_tab2 VALUES (null, 10), (null, 11), (null, 12) ON CONFLICT (a) DO UPDATE SET a = EXCLUDED.b;
+SELECT * FROM ab_tab2 ORDER BY a, b;
+DROP TABLE ab_tab2;
 -- Index key attributes > 1
 CREATE TABLE abc_tab (a int, b int, c int);
 CREATE UNIQUE INDEX NONCONCURRENTLY abh_idx ON abc_tab ((a, b) HASH) NULLS NOT DISTINCT;
@@ -199,7 +198,7 @@ INSERT INTO abc_tab VALUES (123, null, 2), (456, null, 2), (null, null, 2) ON CO
 SELECT * FROM abc_tab ORDER BY a, b;
 INSERT INTO abc_tab VALUES (123, null, 2), (456, null, 2), (null, null, 2) ON CONFLICT (a, b) DO UPDATE SET c = EXCLUDED.c;
 SELECT * FROM abc_tab ORDER BY a, b;
-DELETE FROM abc_tab;
+DROP TABLE abc_tab;
 -- Default NULL values
 CREATE UNIQUE INDEX NONCONCURRENTLY ioc_defaults_bc_idx ON ioc_defaults (b, c) NULLS NOT DISTINCT;
 INSERT INTO ioc_defaults VALUES (1);
@@ -207,7 +206,6 @@ INSERT INTO ioc_defaults VALUES (2) ON CONFLICT (b, c) DO UPDATE SET a = EXCLUDE
 SELECT * FROM ioc_defaults;
 INSERT INTO ioc_defaults VALUES (3), (4) ON CONFLICT (b, c) DO UPDATE SET a = EXCLUDED.a;
 SELECT * FROM ioc_defaults ORDER BY a;
--- Reset
 DROP INDEX ioc_defaults_bc_idx;
 TRUNCATE ioc_defaults;
 
