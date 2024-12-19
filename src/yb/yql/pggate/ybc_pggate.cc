@@ -145,6 +145,11 @@ DEFINE_RUNTIME_PREVIEW_bool(
     "If ysql_conn_mgr_version_matching is enabled is enabled, then connect to higher version "
     "server if this flag is set to true");
 
+DEFINE_NON_RUNTIME_bool(ysql_block_dangerous_roles, false,
+    "Block roles that can potentially be used to escalate to superuser privileges. Intended to be "
+    "used with superuser login disabled, such as in YBM. When true, this assumes those blocked "
+    "roles are not already in use.");
+
 DECLARE_bool(TEST_ash_debug_aux);
 DECLARE_bool(TEST_generate_ybrowid_sequentially);
 DECLARE_bool(TEST_ysql_log_perdb_allocated_new_objectid);
@@ -1288,13 +1293,14 @@ YBCStatus YBCPgDmlAppendTarget(YBCPgStatement handle, YBCPgExpr target) {
   return ToYBCStatus(pgapi->DmlAppendTarget(handle, target));
 }
 
-YBCStatus YbPgDmlAppendQual(YBCPgStatement handle, YBCPgExpr qual, bool is_primary) {
-  return ToYBCStatus(pgapi->DmlAppendQual(handle, qual, is_primary));
+YBCStatus YbPgDmlAppendQual(YBCPgStatement handle, YBCPgExpr qual, bool is_for_secondary_index) {
+  return ToYBCStatus(pgapi->DmlAppendQual(handle, qual, is_for_secondary_index));
 }
 
-YBCStatus YbPgDmlAppendColumnRef(YBCPgStatement handle, YBCPgExpr colref, bool is_primary) {
+YBCStatus YbPgDmlAppendColumnRef(
+    YBCPgStatement handle, YBCPgExpr colref, bool is_for_secondary_index) {
   return ToYBCStatus(pgapi->DmlAppendColumnRef(
-      handle, down_cast<PgColumnRef*>(colref), is_primary));
+      handle, down_cast<PgColumnRef*>(colref), is_for_secondary_index));
 }
 
 YBCStatus YBCPgDmlBindColumn(YBCPgStatement handle, int attr_num, YBCPgExpr attr_value) {
@@ -1571,8 +1577,9 @@ YBCStatus YBCPgExecSelect(YBCPgStatement handle, const YBCPgExecParameters *exec
 YBCStatus YBCPgRetrieveYbctids(YBCPgStatement handle, const YBCPgExecParameters *exec_params,
                                    int natts, SliceVector *ybctids, size_t *count,
                                    bool *exceeded_work_mem) {
-  return ToYBCStatus(pgapi->RetrieveYbctids(handle, exec_params, natts, ybctids, count,
-                                            exceeded_work_mem));
+  return ExtractValueFromResult(
+      pgapi->RetrieveYbctids(handle, exec_params, natts, ybctids, count),
+      [exceeded_work_mem](bool retrieved) { *exceeded_work_mem = !retrieved; });
 }
 
 YBCStatus YBCPgFetchRequestedYbctids(YBCPgStatement handle, const YBCPgExecParameters *exec_params,
@@ -2063,6 +2070,7 @@ const YBCPgGFlagsAccessor* YBCGetGFlags() {
       .ysql_conn_mgr_version_matching = &FLAGS_ysql_conn_mgr_version_matching,
       .ysql_conn_mgr_version_matching_connect_higher_version =
           &FLAGS_ysql_conn_mgr_version_matching_connect_higher_version,
+      .ysql_block_dangerous_roles = &FLAGS_ysql_block_dangerous_roles,
   };
   // clang-format on
   return &accessor;
@@ -2829,6 +2837,19 @@ void YBCForceAllowCatalogModifications(bool allowed) {
   pgapi->ForceAllowCatalogModifications(allowed);
 }
 
-}  // extern "C"
+YBCStatus YBCAcquireAdvisoryLock(
+    YBAdvisoryLockId lock_id, YBAdvisoryLockMode mode, bool wait, bool session) {
+  return ToYBCStatus(pgapi->AcquireAdvisoryLock(lock_id, mode, wait, session));
+}
+
+YBCStatus YBCReleaseAdvisoryLock(YBAdvisoryLockId lock_id, YBAdvisoryLockMode mode) {
+  return ToYBCStatus(pgapi->ReleaseAdvisoryLock(lock_id, mode));
+}
+
+YBCStatus YBCReleaseAllAdvisoryLocks(uint32_t db_oid) {
+  return ToYBCStatus(pgapi->ReleaseAllAdvisoryLocks(db_oid));
+}
+
+} // extern "C"
 
 } // namespace yb::pggate

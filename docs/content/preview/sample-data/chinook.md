@@ -50,13 +50,13 @@ Follow the steps here to install the Chinook sample database.
 
 ### Open the YSQL shell
 
-If you are using a local installation of YugabyteDB, run the `ysqlsh` command from the `yugabyte` root directory.
+If you are using a local installation of YugabyteDB, run the ysqlsh command from the `yugabyte` root directory.
 
 ```sh
 $ ./bin/ysqlsh
 ```
 
-If you are connecting to YugabyteDB Aeon, open the [ysqlsh cloud shell](../../yugabyte-cloud/cloud-connect/connect-cloud-shell/), or [run the YSQL connection string](../../yugabyte-cloud/cloud-connect/connect-client-shell/#ysqlsh) for your cluster from the `yugabyte-client` bin directory.
+If you are connecting to YugabyteDB Aeon, open the [ysqlsh cloud shell](/preview/yugabyte-cloud/cloud-connect/connect-cloud-shell/), or [run the YSQL connection string](/preview/yugabyte-cloud/cloud-connect/connect-client-shell/) for your cluster.
 
 ### Create the Chinook database
 
