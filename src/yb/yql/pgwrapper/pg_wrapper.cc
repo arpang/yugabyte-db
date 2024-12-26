@@ -895,6 +895,7 @@ Status PgWrapper::InitDb(InitdbParams initdb_params) {
     LOG(WARNING) << "initdb stderr: " << stderr;
   }
   if (!status.ok()) {
+    LOG(INFO) << "initdb completed unsuccessfully, returning not ok";
     return status.CloneAndAppend(stderr);
   }
 

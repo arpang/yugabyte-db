@@ -358,7 +358,7 @@ yb_pclose_check(FILE *stream)
 	char	   *reason;
 
 	exitstatus = pclose(stream);
-
+	printf(_("Arpan2 yb_pclose_check exitstatus %d, _W_INT(exitstatus) %d, WEXITSTATUS(exitstatus) %d\n"), exitstatus, _W_INT(exitstatus), WEXITSTATUS(exitstatus));
 	if (exitstatus == 0)
 		return 0;				/* all is well */
 
@@ -586,6 +586,7 @@ popen_check(const char *command, const char *mode)
 	fflush(stderr);
 	errno = 0;
 	cmdfd = popen(command, mode);
+	printf(_("Arpan2 popen_check cmdfd %p, errno %d\n"), cmdfd, errno);
 	if (cmdfd == NULL)
 		pg_log_error("could not execute command \"%s\": %m", command);
 	return cmdfd;
@@ -646,6 +647,7 @@ cleanup_directories_atexit(void)
 static void
 exit_nicely_with_code(int final_exit_code)
 {
+	printf(_("Arpan2 final_exit_code %d"), final_exit_code);
 	if (!noclean)
 	{
 		if (made_new_pgdata)
@@ -1492,16 +1494,24 @@ bootstrap_template1(void)
 	/* Also ensure backend isn't confused by this environment var: */
 	unsetenv("PGCLIENTENCODING");
 
+	// FLAGS_log_dir
+	const char* log_dir = getenv("FLAGS_log_dir");
+	if (log_dir)
+		printf(_("Arpan FLAGS_log_dir %s"), log_dir);
+	else
+		printf(_("Arpan FLAGS_log_dir is null"));
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" --boot -X %d %s %s %s %s >> /Users/aagrawal/var/logs/tserver/arpan.log 2>&1",
+			 // "\"%s\" --boot -X %d %s %s %s %s >> /Users/aagrawal/var/logs/tserver/arpan.log 2>&1",
+			 "\"%s\" --boot -X %d %s %s %s %s -r /Users/aagrawal/var/logs/tserver/arpan.log",
 			 backend_exec,
 			 wal_segment_size_mb * (1024 * 1024),
 			 data_checksums ? "-k" : "",
 			 boot_options, extra_options,
 			 debug ? "-d 5" : "");
 
-
+	printf(_("Arpan2 after exuting binary"));
 	PG_CMD_OPEN;
+	printf(_("Arpan2 after cmd open"));
 
 	for (line = bki_lines; *line != NULL; line++)
 	{
@@ -1509,9 +1519,9 @@ bootstrap_template1(void)
 			PG_CMD_PUTS(*line);
 		free(*line);
 	}
-
+	printf(_("Arpan2 after executing lines"));
 	PG_CMD_CLOSE;
-
+	printf(_("Arpan2 after cmd close"));
 	free(bki_lines);
 
 	/*

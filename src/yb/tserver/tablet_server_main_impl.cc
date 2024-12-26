@@ -268,6 +268,8 @@ int TabletServerMain(int argc, char** argv) {
         FLAGS_pgsql_proxy_bind_address,
         tablet_server_options->fs_opts.data_paths.front() + "/pg_data",
         server->GetSharedMemoryFd());
+    if (!pg_process_conf_result.ok())
+      LOG(INFO) << "Initdb was not okay, exiting";
     LOG_AND_RETURN_FROM_MAIN_NOT_OK(pg_process_conf_result);
     LOG_AND_RETURN_FROM_MAIN_NOT_OK(docdb::DocPgInit());
     auto& pg_process_conf = *pg_process_conf_result;
