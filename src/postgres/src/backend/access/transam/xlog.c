@@ -3963,11 +3963,10 @@ WriteControlFile(void)
 
 	fd = BasicOpenFile(XLOG_CONTROL_FILE,
 					   O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
-	fd = -1;
 	if (fd < 0)
 		ereport(PANIC,
 				(errcode_for_file_access(),
-				 errmsg("Arpan could not create file \"%s\": %m",
+				 errmsg("could not create file \"%s\": %m",
 						XLOG_CONTROL_FILE)));
 
 	errno = 0;
