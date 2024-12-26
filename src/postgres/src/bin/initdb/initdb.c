@@ -205,6 +205,8 @@ static bool authwarning = false;
  * but here it is more convenient to pass it as an environment variable
  * (no quoting to worry about).
  */
+ // static const char *boot_options = "-F -c log_checkpoints=false -c logging_collector=on -c log_directory=/Users/aagrawal/var/logs/tserver/initdb/ -c exit_on_error=true";
+
 static const char *boot_options = "-F -c log_checkpoints=false";
 static const char *backend_options = "--single -F -O -j -c search_path=pg_catalog -c exit_on_error=true -c log_checkpoints=false";
 
@@ -1491,7 +1493,7 @@ bootstrap_template1(void)
 	unsetenv("PGCLIENTENCODING");
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" --boot -X %d %s %s %s %s",
+			 "\"%s\" --boot -X %d %s %s %s %s >> /Users/aagrawal/var/logs/tserver/arpan.log 2>&1",
 			 backend_exec,
 			 wal_segment_size_mb * (1024 * 1024),
 			 data_checksums ? "-k" : "",

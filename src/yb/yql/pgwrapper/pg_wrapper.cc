@@ -874,6 +874,7 @@ Status PgWrapper::InitDb(InitdbParams initdb_params) {
   Subprocess initdb_subprocess(initdb_program_path, initdb_args);
   initdb_subprocess.InheritNonstandardFd(conf_.tserver_shm_fd);
   bool global_initdb = std::holds_alternative<GlobalInitdbParams>(initdb_params);
+  LOG(INFO) << "ARPAN PgWrapper::InitDb global_initdb: " << global_initdb;
   SetCommonEnv(&initdb_subprocess, global_initdb);
   if (global_initdb) {
     const auto& global_initdb_params = std::get<GlobalInitdbParams>(initdb_params);
