@@ -1487,14 +1487,8 @@ bootstrap_template1(void)
 	/* Also ensure backend isn't confused by this environment var: */
 	unsetenv("PGCLIENTENCODING");
 
-	// FLAGS_log_dir
-	const char* log_dir = getenv("FLAGS_log_dir");
-	if (log_dir)
-		printf(_("Arpan FLAGS_log_dir %s"), log_dir);
-	else
-		printf(_("Arpan FLAGS_log_dir is null"));
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" --boot -X %d %s %s %s %s -r /Users/aagrawal/var/logs/tserver/arpan.log",
+			 "\"%s\" --boot -X %d %s %s %s %s",
 			 backend_exec,
 			 wal_segment_size_mb * (1024 * 1024),
 			 data_checksums ? "-k" : "",
@@ -3346,6 +3340,9 @@ main(int argc, char *argv[])
 		}
 	}
 
+	const char* yb_log_dir = getenv("FLAGS_log_dir");
+	const char* yb_log_option = psprintf("-r %s/initdb.log", yb_log_dir);
+	extra_options = psprintf("%s %s", extra_options, yb_log_option);
 
 	/*
 	 * Non-option argument specifies data directory as long as it wasn't
