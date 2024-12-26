@@ -1501,6 +1501,7 @@ bootstrap_template1(void)
 			 boot_options, extra_options,
 			 debug ? "-d 5" : "");
 
+
 	PG_CMD_OPEN;
 
 	for (line = bki_lines; *line != NULL; line++)
@@ -1509,7 +1510,9 @@ bootstrap_template1(void)
 			PG_CMD_PUTS(*line);
 		free(*line);
 	}
+
 	PG_CMD_CLOSE;
+
 	free(bki_lines);
 
 	/*
