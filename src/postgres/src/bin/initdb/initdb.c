@@ -205,8 +205,6 @@ static bool authwarning = false;
  * but here it is more convenient to pass it as an environment variable
  * (no quoting to worry about).
  */
- // static const char *boot_options = "-F -c log_checkpoints=false -c logging_collector=on -c log_directory=/Users/aagrawal/var/logs/tserver/initdb/ -c exit_on_error=true";
-
 static const char *boot_options = "-F -c log_checkpoints=false";
 static const char *backend_options = "--single -F -O -j -c search_path=pg_catalog -c exit_on_error=true -c log_checkpoints=false";
 
@@ -342,19 +340,6 @@ static bool IsYugaByteLocalNodeInitdb()
 {
 	return IsEnvSet("YB_PG_LOCAL_NODE_INITDB");
 }
-
-// static void ArpanHelper(int ret_code)
-// {
-//  if (WIFEXITED(ret_code)) {
-//    printf(_("Arpan3 exited with status %d"), WEXITSTATUS(ret_code));
-//   }
-//   if (WIFSIGNALED(ret_code)) {
-// 	printf(_("Arpan3 terminated with signal %d (expected 6)"), WTERMSIG(ret_code));
-//   }
-//   if (WIFSTOPPED(ret_code)) {
-// 	printf(_("Arpan3 stopped with signal %d"), WSTOPSIG(ret_code));
-//   }
-// }
 
 /*
  * pclose() plus useful error reporting
@@ -596,7 +581,6 @@ popen_check(const char *command, const char *mode)
 	fflush(stderr);
 	errno = 0;
 	cmdfd = popen(command, mode);
-	printf(_("Arpan2 popen_check cmdfd %p, errno %d\n"), cmdfd, errno);
 	if (cmdfd == NULL)
 		pg_log_error("could not execute command \"%s\": %m", command);
 	return cmdfd;
@@ -657,7 +641,6 @@ cleanup_directories_atexit(void)
 static void
 exit_nicely_with_code(int final_exit_code)
 {
-	printf(_("Arpan2 final_exit_code %d"), final_exit_code);
 	if (!noclean)
 	{
 		if (made_new_pgdata)
@@ -1511,7 +1494,6 @@ bootstrap_template1(void)
 	else
 		printf(_("Arpan FLAGS_log_dir is null"));
 	snprintf(cmd, sizeof(cmd),
-			 // "\"%s\" --boot -X %d %s %s %s %s >> /Users/aagrawal/var/logs/tserver/arpan.log 2>&1",
 			 "\"%s\" --boot -X %d %s %s %s %s -r /Users/aagrawal/var/logs/tserver/arpan.log",
 			 backend_exec,
 			 wal_segment_size_mb * (1024 * 1024),
@@ -1519,9 +1501,7 @@ bootstrap_template1(void)
 			 boot_options, extra_options,
 			 debug ? "-d 5" : "");
 
-	printf(_("Arpan2 after exuting binary"));
 	PG_CMD_OPEN;
-	printf(_("Arpan2 after cmd open"));
 
 	for (line = bki_lines; *line != NULL; line++)
 	{
@@ -1529,9 +1509,7 @@ bootstrap_template1(void)
 			PG_CMD_PUTS(*line);
 		free(*line);
 	}
-	printf(_("Arpan2 after executing lines"));
 	PG_CMD_CLOSE;
-	printf(_("Arpan2 after cmd close"));
 	free(bki_lines);
 
 	/*

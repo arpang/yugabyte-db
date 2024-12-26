@@ -845,7 +845,7 @@ PGSharedMemoryCreate(Size size,
 }
 
 void
-YbRemoveSharedMem()
+YbRemoveSharedMemory()
 {
 	if (UsedShmemSegID)
 	{

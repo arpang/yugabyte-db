@@ -434,7 +434,7 @@ bootstrap_signals(void)
 	pqsignal(SIGTERM, SIG_DFL);
 	pqsignal(SIGQUIT, SIG_DFL);
 	if (IsYugaByteEnabled())
-		pqsignal(SIGABRT, YbRemoveSharedMem);
+		pqsignal(SIGABRT, YbRemoveSharedMemory);
 }
 
 /* ----------------------------------------------------------------
