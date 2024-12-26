@@ -433,7 +433,7 @@ bootstrap_signals(void)
 	pqsignal(SIGINT, SIG_DFL);
 	pqsignal(SIGTERM, SIG_DFL);
 	pqsignal(SIGQUIT, SIG_DFL);
-	if (IsYugaByteEnabled())
+	if (YBIsEnabledInPostgresEnvVar() || YBIsLocalInitdbEnvVar())
 		pqsignal(SIGABRT, YbRemoveSharedMemory);
 }
 
