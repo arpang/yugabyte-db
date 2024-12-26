@@ -310,10 +310,9 @@ do { \
 
 #define PG_CMD_CLOSE \
 do { \
-  int exit_code = yb_pclose_check(cmdfd); \
 	/* message already printed by yb_pclose_check */ \
-	if (exit_code) \
-		exit_nicely_with_code(exit_code == YB_INITDB_ALREADY_DONE_EXIT_CODE ? 0 : 1); \
+	if (yb_pclose_check(cmdfd)) \
+		exit_nicely_with_code(1); \
 } while (0)
 
 #define PG_CMD_PUTS(line) \
@@ -344,6 +343,19 @@ static bool IsYugaByteLocalNodeInitdb()
 	return IsEnvSet("YB_PG_LOCAL_NODE_INITDB");
 }
 
+// static void ArpanHelper(int ret_code)
+// {
+//  if (WIFEXITED(ret_code)) {
+//    printf(_("Arpan3 exited with status %d"), WEXITSTATUS(ret_code));
+//   }
+//   if (WIFSIGNALED(ret_code)) {
+// 	printf(_("Arpan3 terminated with signal %d (expected 6)"), WTERMSIG(ret_code));
+//   }
+//   if (WIFSTOPPED(ret_code)) {
+// 	printf(_("Arpan3 stopped with signal %d"), WSTOPSIG(ret_code));
+//   }
+// }
+
 /*
  * pclose() plus useful error reporting
  *
@@ -354,31 +366,29 @@ static bool IsYugaByteLocalNodeInitdb()
 static int
 yb_pclose_check(FILE *stream)
 {
-	int			exitstatus;
+	int			status;
 	char	   *reason;
 
-	exitstatus = pclose(stream);
-	printf(_("Arpan2 yb_pclose_check exitstatus %d, _W_INT(exitstatus) %d, WEXITSTATUS(exitstatus) %d\n"), exitstatus, _W_INT(exitstatus), WEXITSTATUS(exitstatus));
-	if (exitstatus == 0)
-		return 0;				/* all is well */
-
-	if (exitstatus == -1)
+	if ((status = pclose(stream)))
 	{
-		/* pclose() itself failed, and hopefully set errno */
-		fprintf(stderr, _("pclose failed: %s\n"), strerror(errno));
-		return 1;
-	}
-	else
-	{
-		if (WEXITSTATUS(exitstatus) == YB_INITDB_ALREADY_DONE_EXIT_CODE) {
+		if (status == -1)
+		{
+			/* pclose() itself failed, and hopefully set errno */
+			fprintf(stderr, _("pclose failed: %s\n"), strerror(errno));
+		}
+		else if (WEXITSTATUS(status) == YB_INITDB_ALREADY_DONE_EXIT_CODE)
+		{
 			fprintf(stderr, "initdb has already been run previously, nothing to do\n");
-		} else {
-			reason = wait_result_to_str(exitstatus);
+			status = 0;
+		}
+		else
+		{
+			reason = wait_result_to_str(status);
 			fprintf(stderr, "%s\n", reason);
 			pfree(reason);
 		}
 	}
-	return WEXITSTATUS(exitstatus);
+	return status;
 }
 
 
