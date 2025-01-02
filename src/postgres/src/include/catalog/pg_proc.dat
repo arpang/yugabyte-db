@@ -12100,4 +12100,9 @@
   prorettype => 'void', proargtypes => 'int8',
   proargnames => '{query_id}',
   prosrc => 'yb_cancel_query_diagnostics'},
+
+{ oid => '8079', descr => 'YB index consistency check',
+  proname => 'yb_index_consistency_check', provolatile => 's',
+  prorettype => 'bool', proargtypes => 'oid',
+  prosrc => 'yb_index_consistency_check' }
 ]

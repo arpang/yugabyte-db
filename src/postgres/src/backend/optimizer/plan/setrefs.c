@@ -1369,9 +1369,11 @@ set_indexonlyscan_references(PlannerInfo *root,
 	foreach(lc, plan->indextlist)
 	{
 		TargetEntry *indextle = (TargetEntry *) lfirst(lc);
-
-		if (!indextle->resjunk)
+		// elog(INFO, "indextle attnum %d name %s", indextle->resno, indextle->resname);
+		if (!indextle->resjunk || (IsA(indextle->expr, Var) &&  ((Var*) (indextle->expr))->varattno == YBIdxBaseTupleIdAttributeNumber))
 			stripped_indextlist = lappend(stripped_indextlist, indextle);
+		else
+		 	elog(INFO, "indextle attnum %d name %s GOT SKIPPED", indextle->resno, indextle->resname);
 	}
 
 	index_itlist = build_tlist_index(stripped_indextlist);

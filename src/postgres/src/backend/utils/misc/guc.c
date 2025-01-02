@@ -1075,7 +1075,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_EXPLAIN
 		},
 		&enable_seqscan,
-		true,
+		false,
 		NULL, NULL, NULL
 	},
 	{
@@ -1155,7 +1155,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_EXPLAIN
 		},
 		&enable_material,
-		true,
+		false,
 		NULL, NULL, NULL
 	},
 	{
@@ -1185,7 +1185,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_EXPLAIN
 		},
 		&enable_mergejoin,
-		true,
+		false,
 		NULL, NULL, NULL
 	},
 	{
@@ -1195,7 +1195,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_EXPLAIN
 		},
 		&enable_hashjoin,
-		true,
+		false,
 		NULL, NULL, NULL
 	},
 	{
@@ -3134,7 +3134,7 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_bnl_batch_size,
-		1024, 1, INT_MAX,
+		3, 1, INT_MAX,
 		NULL, NULL, NULL
 	},
 	{

@@ -5832,6 +5832,7 @@ static NestLoop *
 create_nestloop_plan(PlannerInfo *root,
 					 NestPath *best_path)
 {
+	elog(INFO, "create_nestloop_plan");
 	NestLoop   *join_plan;
 	Plan	   *outer_plan;
 	Plan	   *inner_plan;

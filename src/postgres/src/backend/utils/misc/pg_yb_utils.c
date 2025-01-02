@@ -325,13 +325,13 @@ bool IsYBSystemColumn(int attrNum)
 
 AttrNumber YBGetFirstLowInvalidAttrNumber(bool is_yb_relation)
 {
-	return is_yb_relation ? YBFirstLowInvalidAttributeNumber : FirstLowInvalidHeapAttributeNumber;
+	return is_yb_relation ? YBSystemFirstLowInvalidAttributeNumber : FirstLowInvalidHeapAttributeNumber;
 }
 
 AttrNumber YBGetFirstLowInvalidAttributeNumber(Relation relation)
 {
 	return IsYBRelation(relation)
-		   ? YBFirstLowInvalidAttributeNumber
+		   ? YBSystemFirstLowInvalidAttributeNumber
 		   : FirstLowInvalidHeapAttributeNumber;
 }
 
@@ -3037,6 +3037,18 @@ yb_hash_code(PG_FUNCTION_ARGS)
 	uint16_t hashed_val = YBCCompoundHash(arg_buf, total_bytes);
 	PG_RETURN_UINT16(hashed_val);
 }
+
+Datum
+yb_index_consistency_check(PG_FUNCTION_ARGS)
+{
+	yb_index_checker = true;
+	elog(INFO, "Hello");
+	Oid			relid = PG_GETARG_OID(0);
+
+	yb_index_checker = false;
+	return relid > 10000;
+}
+
 
 /*
  * For backward compatibility, this function dynamically adapts to the number

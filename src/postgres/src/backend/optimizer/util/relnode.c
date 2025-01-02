@@ -1382,7 +1382,7 @@ get_baserel_parampathinfo(PlannerInfo *root, RelOptInfo *baserel,
 	ppi->ppi_rows = rows;
 	ppi->ppi_clauses = pclauses;
 	ppi->yb_ppi_req_outer_batched = batchedrelids;
-
+	elog(INFO, "ppi->yb_ppi_req_outer_batched %p", ppi->yb_ppi_req_outer_batched);
 	baserel->ppilist = lappend(baserel->ppilist, ppi);
 
 	return ppi;

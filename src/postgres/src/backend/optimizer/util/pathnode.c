@@ -1128,6 +1128,7 @@ Path *
 create_seqscan_path(PlannerInfo *root, RelOptInfo *rel,
 					Relids required_outer, int parallel_workers)
 {
+	// elog(INFO, "create_seqscan_path");
 	Path	   *pathnode = makeNode(Path);
 
 	pathnode->pathtype = T_SeqScan;
@@ -1232,9 +1233,10 @@ create_index_path(PlannerInfo *root,
 				  double loop_count,
 				  bool partial_path)
 {
+	
 	IndexPath  *pathnode = makeNode(IndexPath);
 	RelOptInfo *rel = index->rel;
-
+	elog(INFO, "create_index_path oid %d, indexonly %d, rel->reltarget %d", index->indexoid, indexonly, list_length(rel->reltarget->exprs));
 	pathnode->path.pathtype = indexonly ? T_IndexOnlyScan : T_IndexScan;
 	pathnode->path.parent = rel;
 	pathnode->path.pathtarget = rel->reltarget;
@@ -2751,6 +2753,7 @@ create_nestloop_path(PlannerInfo *root,
 					 List *pathkeys,
 					 Relids required_outer)
 {
+	
 	NestPath   *pathnode = makeNode(NestPath);
 	Relids		inner_req_outer = PATH_REQ_OUTER(inner_path);
 
@@ -2768,6 +2771,7 @@ create_nestloop_path(PlannerInfo *root,
 	 bool is_batched = (bms_overlap(inner_req_batched,
 									outer_path->parent->relids) &&
 						!bms_overlap(outer_req_unbatched, inner_req_batched));
+	// elog(INFO, "create_nestloop_path is_batched %d", is_batched); 
 	if (!is_batched && bms_overlap(inner_req_outer, outer_path->parent->relids))
 	{
 		Relids		inner_and_outer = bms_union(inner_path->parent->relids,

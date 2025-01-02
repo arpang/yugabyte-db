@@ -1185,6 +1185,7 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 				  bool *skip_nonnative_saop,
 				  bool *skip_lower_saop)
 {
+	elog(INFO, "build_index_paths for index %d", index->indexoid);
 	List	   *result = NIL;
 	IndexPath  *ipath;
 	List	   *index_clauses;
@@ -2430,12 +2431,13 @@ check_index_only(RelOptInfo *rel, IndexOptInfo *index)
 		if (index->canreturn[i])
 			index_canreturn_attrs =
 				bms_add_member(index_canreturn_attrs,
-							   attno - FirstLowInvalidHeapAttributeNumber);
+							   attno - YBSystemFirstLowInvalidAttributeNumber);
 	}
+	index_canreturn_attrs = bms_add_member(index_canreturn_attrs, YBIdxBaseTupleIdAttributeNumber - YBSystemFirstLowInvalidAttributeNumber);
 
 	/* Do we have all the necessary attributes? */
 	result = bms_is_subset(attrs_used, index_canreturn_attrs);
-
+	elog(INFO, "Index (%d) only scan possible result %d", index->indexoid, result);
 	bms_free(attrs_used);
 	bms_free(index_canreturn_attrs);
 

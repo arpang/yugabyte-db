@@ -563,6 +563,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 	 * database name; we check it here and then discard it.
 	 *----------
 	 */
+	// elog(INFO, "list_length(cref->fields) %d", list_length(cref->fields));
 	switch (list_length(cref->fields))
 	{
 		case 1:
@@ -577,6 +578,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 
 				if (node == NULL)
 				{
+					elog(INFO, "Case 1 node == NULL");
 					/*
 					 * Not known as a column of any range-table entry.
 					 *
@@ -631,6 +633,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 										   cref->location);
 				if (node == NULL)
 				{
+					elog(INFO, "Case 2 node == NULL");
 					/* Try it as a function call on the whole row */
 					node = transformWholeRowRef(pstate, nsitem, levels_up,
 												cref->location);

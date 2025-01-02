@@ -1842,6 +1842,7 @@ build_index_tlist(PlannerInfo *root, IndexOptInfo *index,
 	for (i = 0; i < index->ncolumns; i++)
 	{
 		int			indexkey = index->indexkeys[i];
+		// elog(INFO, "INDEX i %d, indexkey %d", i, indexkey);
 		Expr	   *indexvar;
 
 		if (indexkey != 0)
@@ -1876,6 +1877,20 @@ build_index_tlist(PlannerInfo *root, IndexOptInfo *index,
 										NULL,
 										false));
 	}
+
+	Expr*		indexvar = (Expr *) makeVar(index->rel->relid,
+										YBIdxBaseTupleIdAttributeNumber,
+										BYTEAOID,
+										-1,
+										0,
+										0);
+
+		tlist = lappend(tlist,
+						makeTargetEntry(indexvar,
+										YBIdxBaseTupleIdAttributeNumber, // arpan here.
+										NULL,
+										false));
+
 	if (indexpr_item != NULL)
 		elog(ERROR, "wrong number of index expressions");
 

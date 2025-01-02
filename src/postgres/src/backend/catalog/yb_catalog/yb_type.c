@@ -100,6 +100,7 @@ static void YbDatumToDocdb(Datum datum, uint8 **data, int64 *bytes);
 const YBCPgTypeEntity *
 YbDataTypeFromOidMod(int attnum, Oid type_id)
 {
+	// elog(INFO, "YbDataTypeFromOidMod attnum %d, type_id %d", attnum, type_id);
 	/* Find type for system column */
 	if (attnum < InvalidAttrNumber) {
 		switch (attnum) {

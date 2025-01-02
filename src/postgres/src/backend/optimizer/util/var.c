@@ -301,7 +301,7 @@ pull_varattnos(Node *node, Index varno, Bitmapset **varattnos)
 	context.varno = varno;
 
 	/* For Postgres processing, min attribute is always FirstLowInvalidHeapAttributeNumber. */
-	context.yb_attr_offset = FirstLowInvalidHeapAttributeNumber;
+	context.yb_attr_offset = YBSystemFirstLowInvalidAttributeNumber;
 
 	(void) pull_varattnos_walker(node, &context);
 

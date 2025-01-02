@@ -223,6 +223,7 @@ int64_t PgDocResult::NextRowOrder() {
 
 Status PgDocResult::WritePgTuple(const std::vector<PgFetchedTarget*>& targets, PgTuple *pg_tuple,
                                  int64_t *row_order) {
+  LOG(INFO) << "WritePgTuple";
   for (auto* target : targets) {
     if (PgDocData::ReadHeaderIsNull(&row_iterator_)) {
       target->SetNull(pg_tuple);
@@ -236,6 +237,7 @@ Status PgDocResult::WritePgTuple(const std::vector<PgFetchedTarget*>& targets, P
 }
 
 Status PgDocResult::ProcessSystemColumns() {
+  LOG(INFO) << "ProcessSystemColumns";
   if (syscol_processed_) {
     return Status::OK();
   }
