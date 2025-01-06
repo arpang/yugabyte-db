@@ -2352,6 +2352,22 @@ YBCStatus YBCPgListReplicationSlots(
         replica_identity_idx++;
       }
 
+      const char* slot_lsn_type;
+      switch (info.yb_lsn_type()) {
+        case tserver::PGReplicationSlotLsnType::ReplicationSlotLsnTypePg_SEQUENCE:
+          slot_lsn_type = YBCPAllocStdString("SEQUENCE");
+          break;
+        case tserver::PGReplicationSlotLsnType::ReplicationSlotLsnTypePg_HYBRID_TIME:
+          slot_lsn_type = YBCPAllocStdString("HYBRID_TIME");
+          break;
+        default:
+          LOG(ERROR) << "Received unexpected LSN type " << info.yb_lsn_type() << " for stream "
+                     << info.stream_id();
+          return ToYBCStatus(STATUS_FORMAT(
+              InternalError, "Received unexpected LSN type $0 for stream $1", info.yb_lsn_type(),
+              info.stream_id()));
+      }
+
       new (dest) YBCReplicationSlotDescriptor{
           .slot_name = YBCPAllocStdString(info.slot_name()),
           .output_plugin = YBCPAllocStdString(info.output_plugin_name()),
@@ -2364,7 +2380,8 @@ YBCStatus YBCPgListReplicationSlots(
           .record_id_commit_time_ht = info.record_id_commit_time_ht(),
           .replica_identities = replica_identities,
           .replica_identities_count = replica_identities_count,
-          .last_pub_refresh_time = info.last_pub_refresh_time()
+          .last_pub_refresh_time = info.last_pub_refresh_time(),
+          .yb_lsn_type = slot_lsn_type
       };
       ++dest;
     }
@@ -2400,6 +2417,22 @@ YBCStatus YBCPgGetReplicationSlot(
     replica_identity_idx++;
   }
 
+  const char* slot_lsn_type;
+  switch (slot_info.yb_lsn_type()) {
+    case tserver::PGReplicationSlotLsnType::ReplicationSlotLsnTypePg_SEQUENCE:
+      slot_lsn_type = YBCPAllocStdString("SEQUENCE");
+      break;
+    case tserver::PGReplicationSlotLsnType::ReplicationSlotLsnTypePg_HYBRID_TIME:
+      slot_lsn_type = YBCPAllocStdString("HYBRID_TIME");
+      break;
+    default:
+      LOG(ERROR) << "Received unexpected LSN type " << slot_info.yb_lsn_type() << " for stream "
+                 << slot_info.stream_id();
+      return ToYBCStatus(STATUS_FORMAT(
+          InternalError, "Received unexpected LSN type $0 for stream $1", slot_info.yb_lsn_type(),
+          slot_info.stream_id()));
+  }
+
   new (*replication_slot) YBCReplicationSlotDescriptor{
       .slot_name = YBCPAllocStdString(slot_info.slot_name()),
       .output_plugin = YBCPAllocStdString(slot_info.output_plugin_name()),
@@ -2412,7 +2445,8 @@ YBCStatus YBCPgGetReplicationSlot(
       .record_id_commit_time_ht = slot_info.record_id_commit_time_ht(),
       .replica_identities = replica_identities,
       .replica_identities_count = replica_identities_count,
-      .last_pub_refresh_time = slot_info.last_pub_refresh_time()
+      .last_pub_refresh_time = slot_info.last_pub_refresh_time(),
+      .yb_lsn_type = slot_lsn_type
   };
 
   return YBCStatusOK();
