@@ -157,8 +157,9 @@ YBCComputeYBTupleIdFromSlot(Relation rel, TupleTableSlot *slot)
 	HandleYBStatus(YBCPgGetTableDesc(dboid, YbGetRelfileNodeId(rel), &ybc_table_desc));
 	Bitmapset *pkey    = YBGetTableFullPrimaryKeyBms(rel);
 	AttrNumber minattr = YBSystemFirstLowInvalidAttributeNumber + 1;
-	YBCPgYBTupleIdDescriptor *descr = YBCCreateYBTupleIdDescriptor(
-		dboid, YbGetRelfileNodeId(rel), bms_num_members(pkey));
+	YBCPgYBTupleIdDescriptor *descr = YBCCreateYBTupleIdDescriptor(dboid,
+																   YbGetRelfileNodeId(rel),
+																   bms_num_members(pkey));
 	YBCPgAttrValueDescriptor *next_attr = descr->attrs;
 	int col = -1;
 	while ((col = bms_next_member(pkey, col)) >= 0)
@@ -533,20 +534,19 @@ YBCHeapInsert(ResultRelInfo *resultRelInfo,
 	 * transaction that targets a single row (i.e. single-row-modify txn), and
 	 * there are no indices or triggers on the target table.
 	 */
-	YBCExecuteInsertForDb(
-			dboid, resultRelationDesc, slot, ONCONFLICT_NONE, NULL /* ybctid */,
-			transaction_setting);
+	YBCExecuteInsertForDb(dboid, resultRelationDesc, slot, ONCONFLICT_NONE,
+						  NULL /* ybctid */, transaction_setting);
 }
 
 bool
-YbIsInsertOnConflictReadBatchingEnabled(ResultRelInfo *resultRelInfo)
+YbIsInsertOnConflictReadBatchingPossible(ResultRelInfo *resultRelInfo)
 {
 	/*
 	 * TODO(jason): figure out how to enable triggers.
 	 */
-	return (IsYBRelation(resultRelInfo->ri_RelationDesc) &&
+	return (yb_insert_on_conflict_read_batch_size > 0 &&
+			IsYBRelation(resultRelInfo->ri_RelationDesc) &&
 			!IsCatalogRelation(resultRelInfo->ri_RelationDesc) &&
-			resultRelInfo->ri_BatchSize > 1 &&
 			!(resultRelInfo->ri_TrigDesc &&
 			  (resultRelInfo->ri_TrigDesc->trig_delete_after_row ||
 			   resultRelInfo->ri_TrigDesc->trig_delete_before_row ||
@@ -717,9 +717,11 @@ YBCExecuteInsertIndexForDb(Oid dboid,
 	const bool is_backfill = (backfill_write_time != NULL);
 	const bool is_non_distributed_txn_write =
 		is_backfill || (!IsSystemRelation(index) && yb_disable_transactional_writes);
-	HandleYBStatus(YBCPgNewInsert(
-		dboid, YbGetRelfileNodeId(index), YBCIsRegionLocal(index), &insert_stmt,
-		is_non_distributed_txn_write ? YB_NON_TRANSACTIONAL : YB_TRANSACTIONAL));
+	HandleYBStatus(YBCPgNewInsert(dboid, YbGetRelfileNodeId(index),
+								  YBCIsRegionLocal(index), &insert_stmt,
+								  (is_non_distributed_txn_write ?
+								   YB_NON_TRANSACTIONAL :
+								   YB_TRANSACTIONAL)));
 
 	callback(insert_stmt, indexstate, index, values, isnull,
 			 RelationGetNumberOfAttributes(index),
@@ -790,7 +792,7 @@ YBCExecuteDelete(Relation rel,
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_COLUMN),
-				 errmsg("Missing column ybctid in DELETE request")));
+				 errmsg("missing column ybctid in DELETE request")));
 	}
 
 	MemoryContext oldContext = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
@@ -1015,7 +1017,7 @@ YBCExecuteUpdate(ResultRelInfo *resultRelInfo,
 	if (ybctid == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_COLUMN),
-				 errmsg("Missing column ybctid in UPDATE request")));
+				 errmsg("missing column ybctid in UPDATE request")));
 
 	YBCBindTupleId(update_stmt, ybctid);
 
@@ -1297,7 +1299,7 @@ YBCExecuteUpdateLoginAttempts(Oid roleid,
 	if (ybctid == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_COLUMN),
-				 errmsg("Missing column ybctid in UPDATE request")));
+				 errmsg("missing column ybctid in UPDATE request")));
 
 	YBCBindTupleId(update_stmt, ybctid);
 
@@ -1369,7 +1371,7 @@ YBCDeleteSysCatalogTuple(Relation rel, HeapTuple tuple)
 	if (HEAPTUPLE_YBCTID(tuple) == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_COLUMN),
-				 errmsg("Missing column ybctid in DELETE request to YugaByte database")));
+				 errmsg("missing column ybctid in DELETE request to Yugabyte database")));
 
 	/* Prepare DELETE statement. */
 	HandleYBStatus(YBCPgNewDelete(dboid,
@@ -1453,9 +1455,11 @@ YBCUpdateSysCatalogTupleForDb(Oid dboid, Relation rel, HeapTuple oldtuple,
 		 * Since we are assign values to non-primary-key columns, pass InvalidOid as
 		 * collation_id to skip computing collation sortkeys.
 		 */
-		YBCPgExpr ybc_expr = YBCNewConstant(
-			update_stmt, TupleDescAttr(tupleDesc, idx)->atttypid, InvalidOid /* collation_id */,
-			d, is_null);
+		YBCPgExpr ybc_expr = YBCNewConstant(update_stmt,
+											TupleDescAttr(tupleDesc, idx)->atttypid,
+											InvalidOid /* collation_id */,
+											d,
+											is_null);
 		HandleYBStatus(YBCPgDmlAssignColumn(update_stmt, attnum, ybc_expr));
 	}
 

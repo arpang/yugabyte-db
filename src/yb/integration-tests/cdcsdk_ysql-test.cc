@@ -28,9 +28,9 @@
 #include "yb/tserver/tablet_server.h"
 #include "yb/tserver/ts_tablet_manager.h"
 
+#include "yb/util/metrics.h"
 #include "yb/util/test_macros.h"
 #include "yb/util/tostring.h"
-#include "yb/util/metric_entity.h"
 
 namespace yb {
 
@@ -2283,9 +2283,7 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestPopulationOfDDLRecordUponCach
             RowMessage::Op::RowMessage_Op_DDL);
 }
 
-// TODO(GH #23088): Enable composite type tests once the mechanism to consume via replication slot
-// becomes available in C++ tests.
-TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestCompositeType)) {
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCompositeType)) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_update_local_peer_min_index) = false;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_checkpoint_update_interval_ms) = 1;
@@ -2322,14 +2320,18 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestCompositeType)) {
     if (change_resp.cdc_sdk_proto_records(i).row_message().op() == RowMessage::INSERT) {
       const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
       ASSERT_EQ(expected_key, record.row_message().new_tuple(0).datum_int32());
-      ASSERT_EQ("(John,Doe)", record.row_message().new_tuple(1).datum_string());
+      if (FLAGS_cdc_disable_sending_composite_values) {
+        ASSERT_EQ(record.row_message().new_tuple(1).has_datum_string(), false);
+      } else {
+        ASSERT_EQ("(John,Doe)", record.row_message().new_tuple(1).datum_string());
+      }
       expected_key++;
     }
   }
   ASSERT_EQ(insert_count, expected_key);
 }
 
-TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestCompositeTypeWithRestart)) {
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCompositeTypeWithRestart)) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_update_local_peer_min_index) = false;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_checkpoint_update_interval_ms) = 1;
@@ -2375,14 +2377,18 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestCompositeTypeWithRestart)) {
     if (change_resp.records[i].row_message().op() == RowMessage::INSERT) {
       const CDCSDKProtoRecordPB record = change_resp.records[i];
       ASSERT_EQ(expected_key, record.row_message().new_tuple(0).datum_int32());
-      ASSERT_EQ("(John,Doe)", record.row_message().new_tuple(1).datum_string());
+      if (FLAGS_cdc_disable_sending_composite_values) {
+        ASSERT_EQ(record.row_message().new_tuple(1).has_datum_string(), false);
+      } else {
+        ASSERT_EQ("(John,Doe)", record.row_message().new_tuple(1).datum_string());
+      }
       expected_key++;
     }
   }
   ASSERT_EQ(insert_count, expected_key);
 }
 
-TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestNestedCompositeType)) {
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestNestedCompositeType)) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_update_local_peer_min_index) = false;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_checkpoint_update_interval_ms) = 1;
@@ -2419,14 +2425,18 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestNestedCompositeType)) {
     if (change_resp.cdc_sdk_proto_records(i).row_message().op() == RowMessage::INSERT) {
       const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
       ASSERT_EQ(expected_key, record.row_message().new_tuple(0).datum_int32());
-      ASSERT_EQ("(\"(John,Middle)\",Doe)", record.row_message().new_tuple(1).datum_string());
+      if (FLAGS_cdc_disable_sending_composite_values) {
+        ASSERT_EQ(record.row_message().new_tuple(1).has_datum_string(), false);
+      } else {
+        ASSERT_EQ("(\"(John,Middle)\",Doe)", record.row_message().new_tuple(1).datum_string());
+      }
       expected_key++;
     }
   }
   ASSERT_EQ(insert_count, expected_key);
 }
 
-TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestArrayCompositeType)) {
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestArrayCompositeType)) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_update_local_peer_min_index) = false;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_checkpoint_update_interval_ms) = 1;
@@ -2463,16 +2473,20 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestArrayCompositeType)) {
     if (change_resp.cdc_sdk_proto_records(i).row_message().op() == RowMessage::INSERT) {
       const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
       ASSERT_EQ(expected_key, record.row_message().new_tuple(0).datum_int32());
-      ASSERT_EQ(
-          "(\"{John,Middle,Doe}\",\"{123,456}\")",
-          record.row_message().new_tuple(1).datum_string());
+      if (FLAGS_cdc_disable_sending_composite_values) {
+        ASSERT_EQ(record.row_message().new_tuple(1).has_datum_string(), false);
+      } else {
+        ASSERT_EQ(
+            "(\"{John,Middle,Doe}\",\"{123,456}\")",
+            record.row_message().new_tuple(1).datum_string());
+      }
       expected_key++;
     }
   }
   ASSERT_EQ(insert_count, expected_key);
 }
 
-TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestRangeCompositeType)) {
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestRangeCompositeType)) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_update_local_peer_min_index) = false;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_checkpoint_update_interval_ms) = 1;
@@ -2510,18 +2524,22 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestRangeCompositeType)) {
     if (change_resp.cdc_sdk_proto_records(i).row_message().op() == RowMessage::INSERT) {
       const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
       ASSERT_EQ(expected_key, record.row_message().new_tuple(0).datum_int32());
-      ASSERT_EQ(
-          Format(
-              "(\"[$0,$1]\",\"[$2,$3)\")", expected_key, expected_key + 10, expected_key + 11,
-              expected_key + 21),
-          record.row_message().new_tuple(1).datum_string());
+      if (FLAGS_cdc_disable_sending_composite_values) {
+        ASSERT_EQ(record.row_message().new_tuple(1).has_datum_string(), false);
+      } else {
+        ASSERT_EQ(
+            Format(
+                "(\"[$0,$1]\",\"[$2,$3)\")", expected_key, expected_key + 10, expected_key + 11,
+                expected_key + 21),
+            record.row_message().new_tuple(1).datum_string());
+      }
       expected_key++;
     }
   }
   ASSERT_EQ(insert_count, expected_key);
 }
 
-TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestRangeArrayCompositeType)) {
+TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestRangeArrayCompositeType)) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_update_local_peer_min_index) = false;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_checkpoint_update_interval_ms) = 1;
@@ -2558,12 +2576,16 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST(TestRangeArrayCompositeType)) {
     if (change_resp.cdc_sdk_proto_records(i).row_message().op() == RowMessage::INSERT) {
       const CDCSDKProtoRecordPB record = change_resp.cdc_sdk_proto_records(i);
       ASSERT_EQ(expected_key, record.row_message().new_tuple(0).datum_int32());
-      ASSERT_EQ(
-          Format(
-              "(\"{\"\"[$0,$1]\"\",\"\"[$2,$3]\"\"}\",\"{\"\"[$4,$5)\"\"}\")", expected_key,
-              expected_key + 10, expected_key + 11, expected_key + 20, expected_key + 21,
-              expected_key + 31),
-          record.row_message().new_tuple(1).datum_string());
+      if (FLAGS_cdc_disable_sending_composite_values) {
+        ASSERT_EQ(record.row_message().new_tuple(1).has_datum_string(), false);
+      } else {
+        ASSERT_EQ(
+            Format(
+                "(\"{\"\"[$0,$1]\"\",\"\"[$2,$3]\"\"}\",\"{\"\"[$4,$5)\"\"}\")", expected_key,
+                expected_key + 10, expected_key + 11, expected_key + 20, expected_key + 21,
+                expected_key + 31),
+            record.row_message().new_tuple(1).datum_string());
+      }
       expected_key++;
     }
   }
@@ -4223,13 +4245,6 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCDCSDKMetricsTwoTablesSingleS
   int64_t total_traffic_sent = 0;
   uint64_t total_change_event_count = 0;
 
-  std::stringstream output;
-  MetricPrometheusOptions opts;
-  PrometheusWriter writer(&output, opts);
-
-  std::unordered_map<std::string, std::string> attr;
-  auto aggregation_level = kStreamLevel;
-
   for (uint32_t idx = 0; idx < num_tables; idx++) {
     ASSERT_OK(
         WriteRowsHelper(1, 50, &test_cluster_, true, 2, (kTableName + table_suffix[idx]).c_str()));
@@ -4254,20 +4269,13 @@ TEST_F(CDCSDKYsqlTest, YB_DISABLE_TEST_IN_TSAN(TestCDCSDKMetricsTwoTablesSingleS
           return current_expiry_time > metrics[idx]->cdcsdk_expiry_time_ms->value();
         },
         MonoDelta::FromSeconds(10) * kTimeMultiplier, "Wait for stream expiry time update."));
-
-    attr["namespace_name"] = kNamespaceName;
-    attr["stream_id"] = stream_id.ToString();
-    attr["metric_type"] = "cdcsdk";
-
-    ASSERT_OK(metrics[idx]->cdcsdk_change_event_count->WriteForPrometheus(
-        &writer, attr, opts, aggregation_level));
-    ASSERT_OK(metrics[idx]->cdcsdk_traffic_sent->WriteForPrometheus(
-        &writer, attr, opts, aggregation_level));
   }
-  auto aggregated_change_event_count =
-      writer.TEST_GetAggregatedValue("cdcsdk_change_event_count", stream_id.ToString());
-  auto aggregated_traffic_sent =
-      writer.TEST_GetAggregatedValue("cdcsdk_traffic_sent", stream_id.ToString());
+
+  auto metrics_aggregator = tserver->metric_registry()->TEST_metrics_aggregator();
+  auto aggregated_change_event_count = metrics_aggregator->TEST_GetMetricPreAggregatedValue(
+      "cdcsdk_change_event_count", stream_id.ToString());
+  auto aggregated_traffic_sent = metrics_aggregator->TEST_GetMetricPreAggregatedValue(
+      "cdcsdk_traffic_sent", stream_id.ToString());
 
   ASSERT_GT(aggregated_traffic_sent, 100);
   ASSERT_GT(total_record_size, 100);

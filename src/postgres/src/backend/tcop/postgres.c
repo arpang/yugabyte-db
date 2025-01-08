@@ -84,6 +84,7 @@
 #include "utils/snapmgr.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
+#include "utils/varlena.h"
 
 #include "catalog/yb_catalog_version.h"
 #include "commands/portalcmds.h"
@@ -122,6 +123,9 @@ int			PostAuthDelay = 0;
 
 /* Time between checks that the client is still connected. */
 int			client_connection_check_interval = 0;
+
+/* flags for non-system relation kinds to restrict use */
+int			restrict_nonsystem_relation_kind;
 
 /* ----------------
  *		private typedefs etc
@@ -3790,6 +3794,66 @@ assign_max_stack_depth(int newval, void *extra)
 	max_stack_depth_bytes = newval_bytes;
 }
 
+/*
+ * GUC check_hook for restrict_nonsystem_relation_kind
+ */
+bool
+check_restrict_nonsystem_relation_kind(char **newval, void **extra, GucSource source)
+{
+	char	   *rawstring;
+	List	   *elemlist;
+	ListCell   *l;
+	int			flags = 0;
+
+	/* Need a modifiable copy of string */
+	rawstring = pstrdup(*newval);
+
+	if (!SplitIdentifierString(rawstring, ',', &elemlist))
+	{
+		/* syntax error in list */
+		GUC_check_errdetail("List syntax is invalid.");
+		pfree(rawstring);
+		list_free(elemlist);
+		return false;
+	}
+
+	foreach(l, elemlist)
+	{
+		char	   *tok = (char *) lfirst(l);
+
+		if (pg_strcasecmp(tok, "view") == 0)
+			flags |= RESTRICT_RELKIND_VIEW;
+		else if (pg_strcasecmp(tok, "foreign-table") == 0)
+			flags |= RESTRICT_RELKIND_FOREIGN_TABLE;
+		else
+		{
+			GUC_check_errdetail("Unrecognized key word: \"%s\".", tok);
+			pfree(rawstring);
+			list_free(elemlist);
+			return false;
+		}
+	}
+
+	pfree(rawstring);
+	list_free(elemlist);
+
+	/* Save the flags in *extra, for use by the assign function */
+	*extra = malloc(sizeof(int));
+	*((int *) *extra) = flags;
+
+	return true;
+}
+
+/*
+ * GUC assign_hook for restrict_nonsystem_relation_kind
+ */
+void
+assign_restrict_nonsystem_relation_kind(const char *newval, void *extra)
+{
+	int		   *flags = (int *) extra;
+
+	restrict_nonsystem_relation_kind = *flags;
+}
 
 /*
  * set_debug_options --- apply "-d N" command line option
@@ -4175,12 +4239,12 @@ static void YBRefreshCache()
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("Cannot refresh cache within a transaction")));
+				 errmsg("cannot refresh cache within a transaction")));
 	}
 
 	if (yb_debug_log_catcache_events)
 	{
-		ereport(LOG,(errmsg("Refreshing catalog cache.")));
+		ereport(LOG,(errmsg("refreshing catalog cache.")));
 	}
 
 	/*
@@ -4563,8 +4627,8 @@ YBIsDmlCommandTag(CommandTag command_tag)
 
 /* Whether we are allowed to restart current query/txn. */
 static bool
-yb_is_retry_possible(
-	ErrorData *edata, int attempt, const YBQueryRetryData *retry_data)
+yb_is_retry_possible(ErrorData *edata, int attempt,
+					 const YBQueryRetryData *retry_data)
 {
 	CommandTag command_tag;
 
@@ -4595,9 +4659,10 @@ yb_is_retry_possible(
 	if (!is_read_restart_error && !is_conflict_error && !is_deadlock_error && !is_aborted_error)
 	{
 		if (yb_debug_log_internal_restarts)
-			elog(
-					LOG, "query layer retry isn't possible, txn error %s isn't one of "
-					"kConflict/kReadRestart/kDeadlock/kAborted", YBCTxnErrCodeToString(edata->yb_txn_errcode));
+			elog(LOG,
+				 "query layer retry isn't possible, txn error %s isn't one of "
+				 "kConflict/kReadRestart/kDeadlock/kAborted",
+				 YBCTxnErrCodeToString(edata->yb_txn_errcode));
 		return false;
 	}
 
@@ -4685,8 +4750,8 @@ yb_is_retry_possible(
 
 	if (attempt >= yb_max_query_layer_retries)
 	{
-		const char* retry_err = psprintf(
-				"yb_max_query_layer_retries set to %d are exhausted", yb_max_query_layer_retries);
+		const char* retry_err = psprintf("yb_max_query_layer_retries set to %d are exhausted",
+										 yb_max_query_layer_retries);
 		edata->message = psprintf("%s (%s)", edata->message, retry_err);
 		if (yb_debug_log_internal_restarts)
 			elog(LOG, "%s", retry_err);
@@ -5000,8 +5065,8 @@ yb_restart_current_stmt(int attempt, bool is_read_restart)
 	 */
 
 	// TODO(read committed): remove this once the feature is GA
-	Assert(!strcmp(
-		GetCurrentTransactionName(), YB_READ_COMMITTED_INTERNAL_SUB_TXN_NAME));
+	Assert(!strcmp(GetCurrentTransactionName(),
+				   YB_READ_COMMITTED_INTERNAL_SUB_TXN_NAME));
 	RollbackAndReleaseCurrentSubTransaction();
 	YbBeginInternalSubTransactionForReadCommittedStatement();
 
@@ -5055,8 +5120,8 @@ yb_restart_transaction(int attempt, bool is_read_restart)
 			 */
 
 			// TODO(read committed): remove the below check once the feature is GA
-			Assert(!strcmp(
-				GetCurrentTransactionName(), YB_READ_COMMITTED_INTERNAL_SUB_TXN_NAME));
+			Assert(!strcmp(GetCurrentTransactionName(),
+						   YB_READ_COMMITTED_INTERNAL_SUB_TXN_NAME));
 			RollbackAndReleaseCurrentSubTransaction();
 
 			/*
@@ -5103,11 +5168,11 @@ yb_prepare_transaction_for_retry(int attempt, bool is_read_restart, bool stateme
 }
 
 static void
-yb_perform_retry_on_error(
-	int attempt, uint16_t txn_errcode, const char *portal_name)
+yb_perform_retry_on_error(int attempt, uint16_t txn_errcode,
+						  const char *portal_name)
 {
 	if (yb_debug_log_internal_restarts)
-		ereport(LOG, (errmsg("Performing query layer retry with attempt number: %d", attempt)));
+		ereport(LOG, (errmsg("performing query layer retry, attempt number %d", attempt)));
 
 	const bool is_read_restart = YBCIsRestartReadError(txn_errcode);
 	const bool is_conflict_error = YBCIsTxnConflictError(txn_errcode);
@@ -5179,8 +5244,8 @@ yb_perform_retry_on_error(
  * otherwise - rethrows the error.
  */
 static void
-yb_attempt_to_retry_on_error(
-	int attempt, const YBQueryRetryData *retry_data, MemoryContext exec_context)
+yb_attempt_to_retry_on_error(int attempt, const YBQueryRetryData *retry_data,
+							 MemoryContext exec_context)
 {
 	/*
 	 * Switch the context back to the original one when server started
@@ -5192,8 +5257,8 @@ yb_attempt_to_retry_on_error(
 	if (yb_is_retry_possible(edata, attempt, retry_data))
 	{
 		FlushErrorState();
-		yb_perform_retry_on_error(
-			attempt, edata->yb_txn_errcode, retry_data->portal_name);
+		yb_perform_retry_on_error(attempt, edata->yb_txn_errcode,
+								  retry_data->portal_name);
 	} else {
 		/* if we shouldn't restart - propagate the error */
 		ReThrowError(edata);
@@ -5203,17 +5268,15 @@ yb_attempt_to_retry_on_error(
 typedef void(*YBFunctor)(const void*);
 
 static void
-yb_exec_query_wrapper_one_attempt(
-	MemoryContext exec_context,
-	const YBQueryRetryData *retry_data,
-	YBFunctor functor,
-	const void *functor_context,
-	int attempt,
-	bool *retry)
+yb_exec_query_wrapper_one_attempt(MemoryContext exec_context,
+								  const YBQueryRetryData *retry_data,
+								  YBFunctor functor,
+								  const void *functor_context,
+								  int attempt,
+								  bool *retry)
 {
 	elog(DEBUG2, "yb_exec_query_wrapper attempt %d for %s", attempt, retry_data->query_string);
-	YBSaveOutputBufferPosition(
-		!yb_is_begin_transaction(retry_data->command_tag));
+	YBSaveOutputBufferPosition(!yb_is_begin_transaction(retry_data->command_tag));
 	PG_TRY();
 	{
 		(*functor)(functor_context);
@@ -5240,8 +5303,8 @@ yb_exec_query_wrapper(MemoryContext exec_context,
 	bool retry = true;
 	for (int attempt = 0; retry; ++attempt)
 	{
-		yb_exec_query_wrapper_one_attempt(
-			exec_context, retry_data, functor, functor_context, attempt, &retry);
+		yb_exec_query_wrapper_one_attempt(exec_context, retry_data, functor,
+										  functor_context, attempt, &retry);
 	}
 }
 
@@ -5263,8 +5326,8 @@ yb_exec_simple_query(const char *query_string, MemoryContext exec_context)
 		.query_string = query_string,
 		.command_tag  = YbParseCommandTag(query_string)
 	};
-	yb_exec_query_wrapper(
-		exec_context, &retry_data, &yb_exec_simple_query_impl, query_string);
+	yb_exec_query_wrapper(exec_context, &retry_data,
+						  &yb_exec_simple_query_impl, query_string);
 
 	/*
 	 * Fetch the updated session execution stats at the end of each query, so
@@ -5301,8 +5364,8 @@ yb_exec_execute_message(long max_rows,
 		.portal_name = restart_data->portal_name,
 		.max_rows = max_rows
 	};
-	yb_exec_query_wrapper(
-		exec_context, restart_data, &yb_exec_execute_message_impl, &ctx);
+	yb_exec_query_wrapper(exec_context, restart_data,
+						  &yb_exec_execute_message_impl, &ctx);
 
 	/*
 	 * Fetch the updated session execution stats at the end of each query, so
@@ -5316,10 +5379,10 @@ yb_exec_execute_message(long max_rows,
 static void yb_report_cache_version_restart(const char* query, ErrorData *edata)
 {
 	ereport(LOG,
-			(errmsg("Restarting statement due to catalog version mismatch:"
-					"\nQuery: %s\nError: %s",
-					query,
-					edata->message)));
+			(errmsg("restarting statement due to catalog version mismatch"),
+			 errdetail("Query: %s\nError: %s",
+					   query,
+					   edata->message)));
 }
 
 /*
@@ -6006,7 +6069,7 @@ PostgresMain(const char *dbname, const char *username)
 
 				ereport(FATAL,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
-						 errmsg("Reloading config on control connection is not supported")));
+						 errmsg("reloading config on control connection is not supported")));
 			}
 			else
 			{
@@ -6059,11 +6122,10 @@ PostgresMain(const char *dbname, const char *username)
 					edata = CopyErrorData();
 
 					bool need_retry = false;
-					YBPrepareCacheRefreshIfNeeded(
-							edata,
-							yb_check_retry_allowed(query_string),
-							yb_is_dml_command(query_string),
-							&need_retry);
+					YBPrepareCacheRefreshIfNeeded(edata,
+												  yb_check_retry_allowed(query_string),
+												  yb_is_dml_command(query_string),
+												  &need_retry);
 
 					if (need_retry)
 					{
@@ -6138,11 +6200,10 @@ PostgresMain(const char *dbname, const char *username)
 						 * aborting the followup bind/execute.
 						 */
 						bool need_retry = false;
-						YBPrepareCacheRefreshIfNeeded(
-								edata,
-								false /* consider_retry */,
-								yb_is_dml_command(query_string),
-								&need_retry);
+						YBPrepareCacheRefreshIfNeeded(edata,
+													  false /* consider_retry */,
+													  yb_is_dml_command(query_string),
+													  &need_retry);
 						MemoryContextSwitchTo(errorcontext);
 						PG_RE_THROW();
 
@@ -6182,8 +6243,8 @@ PostgresMain(const char *dbname, const char *username)
 
 					PG_TRY();
 					{
-						yb_exec_execute_message(
-							max_rows, retry_data, oldcontext);
+						yb_exec_execute_message(max_rows, retry_data,
+												oldcontext);
 					}
 					PG_CATCH();
 					{
@@ -6243,11 +6304,9 @@ PostgresMain(const char *dbname, const char *username)
 						 * Execute may have been partially applied so need to
 						 * cleanup (and restart) the transaction.
 						 */
-						YBPrepareCacheRefreshIfNeeded(
-								edata,
-								can_retry,
-								yb_is_dml_command(query_string),
-								&need_retry);
+						YBPrepareCacheRefreshIfNeeded(edata, can_retry,
+													  yb_is_dml_command(query_string),
+													  &need_retry);
 
 						if (need_retry && can_retry)
 						{
@@ -6271,9 +6330,10 @@ PostgresMain(const char *dbname, const char *username)
 								portal = CreatePortal(portal_name, true, true);
 
 								/* Set portal data */
-								MemoryContext oldContext = MemoryContextSwitchTo(
-										portal->portalContext);
-								char          *stmt_name;
+								MemoryContext oldContext;
+								oldContext =
+									MemoryContextSwitchTo(portal->portalContext);
+								char *stmt_name;
 								if (portal_name[0])
 									stmt_name = pstrdup(portal_name);
 								else

@@ -162,8 +162,8 @@ Oid
 SPI_GetOid(HeapTuple spi_tuple, int column_id)
 {
 	bool is_null;
-	Oid oid = DatumGetObjectId(
-		SPI_getbinval(spi_tuple, SPI_tuptable->tupdesc, column_id, &is_null));
+	Oid oid = DatumGetObjectId(SPI_getbinval(spi_tuple, SPI_tuptable->tupdesc,
+											 column_id, &is_null));
 	if (is_null)
 		elog(ERROR, "Found NULL value when parsing oid (column %d)", column_id);
 	return oid;
@@ -179,8 +179,8 @@ bool
 SPI_GetBool(HeapTuple spi_tuple, int column_id)
 {
 	bool is_null;
-	bool val = DatumGetBool(
-		SPI_getbinval(spi_tuple, SPI_tuptable->tupdesc, column_id, &is_null));
+	bool val = DatumGetBool(SPI_getbinval(spi_tuple, SPI_tuptable->tupdesc,
+							column_id, &is_null));
 	if (is_null)
 		elog(ERROR, "Found NULL value when parsing bool (column %d)", column_id);
 	return val;
@@ -190,8 +190,9 @@ CollectedCommand *
 GetCollectedCommand(HeapTuple spi_tuple, int column_id)
 {
 	bool isnull;
-	Pointer command_datum = DatumGetPointer(
-		SPI_getbinval(spi_tuple, SPI_tuptable->tupdesc, column_id, &isnull));
+	Pointer command_datum = DatumGetPointer(SPI_getbinval(spi_tuple,
+											SPI_tuptable->tupdesc, column_id,
+											&isnull));
 	if (isnull)
 		elog(ERROR, "Found NULL value when parsing command (column %d)", column_id);
 	return (CollectedCommand *) command_datum;
@@ -205,8 +206,8 @@ CheckAlterColumnTypeDDL(CollectedCommand *cmd)
 		ListCell *cell;
 		foreach(cell, cmd->d.alterTable.subcmds)
 		{
-			AlterTableCmd *subcmd = castNode(
-				AlterTableCmd, ((CollectedATSubcmd *) lfirst(cell))->parsetree);
+			AlterTableCmd *subcmd = castNode(AlterTableCmd,
+											 ((CollectedATSubcmd *) lfirst(cell))->parsetree);
 			if (subcmd->subtype == AT_AlterColumnType)
 			{
 				elog(ERROR, "Table Rewrite ALTER COLUMN TYPE is not supported\n");
@@ -274,9 +275,9 @@ ShouldReplicateNewRelation(Oid rel_oid, List **new_rel_list)
 	RelationClose(rel);
 	if (is_colocated)
 		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("Colocated objects are not yet supported by "
-							   "yb_xcluster_ddl_replication\n%s",
-							   kManualReplicationErrorMsg)));
+						errmsg("colocated objects are not yet supported by "
+							   "yb_xcluster_ddl_replication"),
+						errdetail("%s", kManualReplicationErrorMsg)));
 
 	// Add the new relation to the list of relations to replicate.
 	NewRelMapEntry *new_rel_entry = palloc(sizeof(struct NewRelMapEntry));
@@ -356,9 +357,9 @@ ShouldReplicateAlterReplication(Oid rel_oid)
 	RelationClose(rel);
 	if (is_colocated && !TEST_AllowColocatedObjects)
 		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("Colocated objects are not yet supported by "
-							   "yb_xcluster_ddl_replication\n%s",
-							   kManualReplicationErrorMsg)));
+						errmsg("colocated objects are not yet supported by "
+							   "yb_xcluster_ddl_replication"),
+						errdetail("%s", kManualReplicationErrorMsg)));
 	return true;
 }
 
@@ -518,10 +519,11 @@ ProcessSourceEventTriggerDroppedObjects()
 				 * relations in a colocated database, including non-colocated tables.
 				 */
 				if (MyDatabaseColocated)
-					ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									errmsg("Colocated objects are not yet "
-										   "supported by yb_xcluster_ddl_replication\n%s",
-										   kManualReplicationErrorMsg)));
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("colocated objects are not yet supported by "
+									"yb_xcluster_ddl_replication"),
+							 errdetail("%s", kManualReplicationErrorMsg)));
 				switch_fallthrough();
 			case AccessMethodRelationId:
 			case AccessMethodOperatorRelationId:
@@ -572,9 +574,9 @@ ProcessSourceEventTriggerDroppedObjects()
 
 	if (found_temp && should_replicate_ddl)
 		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("Unsupported DROP command, found mix of "
-							   "temporary and persisted objects in DDL command.\n%s",
-							   kManualReplicationErrorMsg)));
+						errmsg("unsupported DROP command, found mix of "
+							   "temporary and persisted objects in DDL command"),
+						errdetail("%s", kManualReplicationErrorMsg)));
 
 	return should_replicate_ddl;
 }

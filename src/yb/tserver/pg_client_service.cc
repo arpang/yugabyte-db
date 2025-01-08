@@ -293,7 +293,8 @@ class DeferredConstructible {
 
 using TransactionBuilder = std::function<
     client::YBTransactionPtr(
-        TxnAssignment* dest, IsDDL, client::ForceGlobalTransaction, CoarseTimePoint)>;
+        TxnAssignment* dest, IsDDL, client::ForceGlobalTransaction, CoarseTimePoint,
+        client::ForceCreateTransaction)>;
 
 class SessionInfo {
  public:
@@ -1394,8 +1395,8 @@ class PgClientServiceImpl::Impl {
   Status ValidatePlacement(
       const PgValidatePlacementRequestPB& req, PgValidatePlacementResponsePB* resp,
       rpc::RpcContext* context) {
-    master::ReplicationInfoPB replication_info;
-    master::PlacementInfoPB* live_replicas = replication_info.mutable_live_replicas();
+    ReplicationInfoPB replication_info;
+    PlacementInfoPB* live_replicas = replication_info.mutable_live_replicas();
 
     for (const auto& block : req.placement_infos()) {
       auto pb = live_replicas->add_placement_blocks();
@@ -2045,9 +2046,9 @@ class PgClientServiceImpl::Impl {
 
   [[nodiscard]] client::YBTransactionPtr BuildTransaction(
       TxnAssignment* dest, IsDDL is_ddl, client::ForceGlobalTransaction force_global,
-      CoarseTimePoint deadline) {
+      CoarseTimePoint deadline, client::ForceCreateTransaction force_create_txn) {
     auto watcher = std::make_shared<client::YBTransactionPtr>(
-        transaction_pool_provider_().Take(force_global, deadline));
+        transaction_pool_provider_().Take(force_global, deadline, force_create_txn));
     dest->Assign(watcher, is_ddl);
     auto* txn = &**watcher;
     return {std::move(watcher), txn};

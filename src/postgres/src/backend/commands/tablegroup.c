@@ -103,7 +103,7 @@ CreateTableGroup(CreateTableGroupStmt *stmt)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Tablegroup system catalog does not exist.")));
+				 errmsg("tablegroup system catalog does not exist")));
 	}
 
 	/*
@@ -270,7 +270,7 @@ get_tablegroup_oid(const char *tablegroupname, bool missing_ok)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Tablegroup system catalog does not exist.")));
+				 errmsg("tablegroup system catalog does not exist")));
 	}
 
 	/*
@@ -320,7 +320,7 @@ get_tablegroup_name(Oid grp_oid)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Tablegroup system catalog does not exist.")));
+				 errmsg("tablegroup system catalog does not exist")));
 	}
 
 	/*
@@ -358,7 +358,7 @@ RemoveTablegroupById(Oid grp_oid, bool remove_implicit)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Tablegroup system catalog does not exist.")));
+				 errmsg("tablegroup system catalog does not exist")));
 	}
 
 	/*
@@ -418,12 +418,13 @@ RemoveTablegroupById(Oid grp_oid, bool remove_implicit)
 char*
 get_implicit_tablegroup_name(Oid oidSuffix)
 {
-	char *tablegroup_name_from_tablespace = (char*) palloc(
-		(
-			10 /*strlen("colocation")*/ + 10 /*Max digits in OID*/ + 1 /*Under Scores*/
-			+ 1 /*Null Terminator*/
-		) * sizeof(char)
-	);
+	char	   *tablegroup_name_from_tablespace;
+
+	tablegroup_name_from_tablespace =
+		(char*) palloc((10 /*strlen("colocation")*/ +
+						10 /*Max digits in OID*/ +
+						1 /*Under Scores*/ +
+						1 /*Null Terminator*/) * sizeof(char));
 
 	sprintf(tablegroup_name_from_tablespace, "colocation_%u", oidSuffix);
 	return tablegroup_name_from_tablespace;
@@ -432,12 +433,12 @@ get_implicit_tablegroup_name(Oid oidSuffix)
 char*
 get_restore_tablegroup_name(Oid oidSuffix)
 {
-	char *restore_tablegroup_name = (char*) palloc(
-		(
-			19 /* strlen("colocation_restore_") */ + 10 /* Max digits in OID */ +
-			1 /* Null Terminator */
-		) * sizeof(char)
-	);
+	char	   *restore_tablegroup_name;
+
+	restore_tablegroup_name =
+		(char*) palloc((19 /* strlen("colocation_restore_") */ +
+						10 /* Max digits in OID */ +
+						1 /* Null Terminator */) * sizeof(char));
 
 	sprintf(restore_tablegroup_name, "colocation_restore_%u", oidSuffix);
 	return restore_tablegroup_name;
@@ -460,7 +461,7 @@ RenameTablegroup(const char *oldname, const char *newname)
 	if (!YbTablegroupCatalogExists) {
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Tablegroup system catalog does not exist.")));
+				 errmsg("tablegroup system catalog does not exist")));
 	}
 
 	/*
@@ -537,7 +538,7 @@ AlterTablegroupOwner(const char *grpname, Oid newOwnerId)
 	if (!YbTablegroupCatalogExists) {
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Tablegroup system catalog does not exist.")));
+				 errmsg("tablegroup system catalog does not exist")));
 	}
 
 	rel = table_open(YbTablegroupRelationId, RowExclusiveLock);
@@ -641,7 +642,7 @@ ybAlterTablespaceForTablegroup(const char *grpname, Oid newTablespace, const cha
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Tablegroup system catalog does not exist.")));
+				 errmsg("tablegroup system catalog does not exist")));
 	}
 
 	rel = table_open(YbTablegroupRelationId, RowExclusiveLock);

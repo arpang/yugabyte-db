@@ -736,7 +736,7 @@ YBReadSequenceTuple(Relation seqrel)
 	else
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Should never reach here")));
+				 errmsg("should never reach here")));
 
 	/* Set up the tuple */
 	Datum value[SEQ_COL_LASTCOL];
@@ -948,9 +948,8 @@ nextval_internal(Oid relid, bool check_permissions)
 							(maxv < 0 && last + incby > maxv)) {
 							if (!cycle)
 							{
-								yb_sequence_limit_reached(
-									RelationGetRelationName(seqrel),
-									true, maxv);
+								yb_sequence_limit_reached(RelationGetRelationName(seqrel),
+														  true, maxv);
 								pg_unreachable();
 							}
 							first_val = minv;
@@ -976,9 +975,8 @@ nextval_internal(Oid relid, bool check_permissions)
 							(minv > 0 && last + incby < minv)) {
 							if (!cycle)
 							{
-								yb_sequence_limit_reached(
-									RelationGetRelationName(seqrel),
-									false, minv);
+								yb_sequence_limit_reached(RelationGetRelationName(seqrel),
+														  false, minv);
 								pg_unreachable();
 							}
 							first_val = maxv;
@@ -999,16 +997,15 @@ nextval_internal(Oid relid, bool check_permissions)
 				 * Try to update the sequence. If the sequence has been
 				 * modified concurrently we would have to try again.
 				 */
-				HandleYBStatus(YBCUpdateSequenceTupleConditionally(
-					MyDatabaseId,
-					relid,
-					YbGetCatalogCacheVersion(),
-					YBIsDBCatalogVersionMode(),
-					last_val,
-					true /* is_called */,
-					last,
-					is_called,
-					&skipped));
+				HandleYBStatus(YBCUpdateSequenceTupleConditionally(MyDatabaseId,
+																   relid,
+																   YbGetCatalogCacheVersion(),
+																   YBIsDBCatalogVersionMode(),
+																   last_val,
+																   true /* is_called */,
+																   last,
+																   is_called,
+																   &skipped));
 			}
 		}
 		/* save info in local cache */
@@ -1970,7 +1967,7 @@ init_params(ParseState *pstate, List *options, bool for_identity,
 	if (cache_value != NULL && cacheOptionOrLastCache < cacheFlag)
 		ereport(NOTICE,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("Overriding cache option with cache flag or previous cache value."),
+				 errmsg("overriding cache option with cache flag or previous cache value"),
 				 errhint("Cache option cannot be set lower than "
 						 "cache flag or previous cache value.")));
 

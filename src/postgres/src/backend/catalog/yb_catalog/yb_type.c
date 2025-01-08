@@ -126,7 +126,7 @@ YbDataTypeFromOidMod(int attnum, Oid type_id)
 			default:
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("System column not yet supported in YugaByte: %d", attnum)));
+						 errmsg("system column not yet supported in Yugabyte: %d", attnum)));
 				break;
 		}
 	}
@@ -158,8 +158,9 @@ YbDataTypeFromOidMod(int attnum, Oid type_id)
 						break;
 					default:;
 						/* fixed-length, pass-by-reference base type */
-						YBCPgTypeEntity *fixed_ref_type_entity = (YBCPgTypeEntity *)palloc(
-								sizeof(YBCPgTypeEntity));
+						YBCPgTypeEntity *fixed_ref_type_entity;
+						fixed_ref_type_entity =
+							(YBCPgTypeEntity *) palloc(sizeof(YBCPgTypeEntity));
 						fixed_ref_type_entity->type_oid = InvalidOid;
 						fixed_ref_type_entity->yb_type = YB_YQL_DATA_TYPE_BINARY;
 						fixed_ref_type_entity->allow_for_primary_key = false;
@@ -259,7 +260,7 @@ Datum YbBinaryToDatum(const void *data, int64 bytes, const YBCPgTypeAttrs *type_
 	/* PostgreSQL can represent text strings up to 1 GB minus a four-byte header. */
 	if (bytes > kYBCMaxPostgresTextSizeBytes || bytes < 0) {
 		ereport(ERROR, (errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION),
-						errmsg("Invalid data size")));
+						errmsg("invalid data size")));
 	}
 	return PointerGetDatum(cstring_to_text_with_len(data, bytes));
 }
@@ -313,7 +314,7 @@ Datum YbBPCharToDatum(const char *data, int64 bytes, const YBCPgTypeAttrs *type_
 	/* PostgreSQL can represent text strings up to 1 GB minus a four-byte header. */
 	if (bytes > kYBCMaxPostgresTextSizeBytes || bytes < 0) {
 		ereport(ERROR, (errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION),
-						errmsg("Invalid data size")));
+						errmsg("invalid data size")));
 	}
 
 	LOCAL_FCINFO(fcinfo, 3);
@@ -333,7 +334,7 @@ Datum YbVarcharToDatum(const char *data, int64 bytes, const YBCPgTypeAttrs *type
 	/* PostgreSQL can represent text strings up to 1 GB minus a four-byte header. */
 	if (bytes > kYBCMaxPostgresTextSizeBytes || bytes < 0) {
 		ereport(ERROR, (errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION),
-						errmsg("Invalid data size")));
+						errmsg("invalid data size")));
 	}
 
 	LOCAL_FCINFO(fcinfo, 3);
@@ -356,7 +357,7 @@ Datum YbNameToDatum(const char *data, int64 bytes, const YBCPgTypeAttrs *type_at
 	/* PostgreSQL can represent text strings up to 1 GB minus a four-byte header. */
 	if (bytes > kYBCMaxPostgresTextSizeBytes || bytes < 0) {
 		ereport(ERROR, (errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION),
-						errmsg("Invalid data size")));
+						errmsg("invalid data size")));
 	}
 
 	/* Truncate oversize input */
@@ -382,7 +383,7 @@ Datum YbCStrToDatum(const char *data, int64 bytes, const YBCPgTypeAttrs *type_at
 	/* PostgreSQL can represent text strings up to 1 GB minus a four-byte header. */
 	if (bytes > kYBCMaxPostgresTextSizeBytes || bytes < 0) {
 		ereport(ERROR, (errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION),
-						errmsg("Invalid data size")));
+						errmsg("invalid data size")));
 	}
 
 	/*
@@ -576,7 +577,7 @@ Datum YbUuidToDatum(const unsigned char *data, int64 bytes, const YBCPgTypeAttrs
 	pg_uuid_t *uuid;
 	if (bytes != UUID_LEN) {
 		ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
-						errmsg("Unexpected size for UUID (%ld)", bytes)));
+						errmsg("unexpected size for UUID (%ld)", bytes)));
 	}
 
 	uuid = (pg_uuid_t *)palloc(sizeof(pg_uuid_t));
@@ -623,7 +624,7 @@ Datum YbIntervalToDatum(const void *data, int64 bytes, const YBCPgTypeAttrs *typ
 	const size_t sz = sizeof(Interval);
 	if (bytes != sz) {
 		ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
-						errmsg("Unexpected size for Interval (%ld)", bytes)));
+						errmsg("unexpected size for Interval (%ld)", bytes)));
 	}
 	Interval* result = palloc(sz);
 	memcpy(result, data, sz);
