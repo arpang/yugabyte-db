@@ -1383,14 +1383,24 @@ ExecIndexBuildScanKeys(PlanState *planstate, Relation index,
 				opfamily = INTEGER_LSM_FAM_OID;
 			} else {
 				varattno = ((Var *) leftop)->varattno;
-				if (varattno < 1 || varattno > indnkeyatts)
-					elog(ERROR, "bogus index qualification");
+				elog(INFO, "varattno %d", varattno);
+				if (varattno == YBTupleIdAttributeNumber + 1)
+				{
+					elog(INFO, "opno %d (1955 expected)", opno);
+					opfamily = BYTEA_LSM_FAM_OID;
+				}
+				else
+				{
+					if (varattno < 1 || varattno > indnkeyatts)
+						elog(ERROR, "1 bogus index qualification");
 
-				/*
-				 * We have to look up the operator's strategy number.  This
-				 * provides a cross-check that the operator does match the index.
-				 */
-				opfamily = index->rd_opfamily[varattno - 1];
+					/*
+					 * We have to look up the operator's strategy number.  This
+					 * provides a cross-check that the operator does match the
+					 * index.
+					 */
+					opfamily = index->rd_opfamily[varattno - 1];
+				}
 			}
 
 			get_op_opfamily_properties(opno, opfamily, isorderby,
@@ -1518,7 +1528,7 @@ ExecIndexBuildScanKeys(PlanState *planstate, Relation index,
 				{
 					varattno = ((Var *) leftop)->varattno;
 					if (varattno < 1 || varattno > indnkeyatts)
-						elog(ERROR, "bogus index qualification");
+						elog(ERROR, "2 bogus index qualification");
 
 					if ((index->rd_rel->relam != BTREE_AM_OID && index->rd_rel->relam != LSM_AM_OID) ||
 					varattno < 1 || varattno > indnkeyatts)
@@ -1648,7 +1658,7 @@ ExecIndexBuildScanKeys(PlanState *planstate, Relation index,
 
 			varattno = ((Var *) leftop)->varattno;
 			if (varattno < 1 || varattno > indnkeyatts)
-				elog(ERROR, "bogus index qualification");
+				elog(ERROR, "3 bogus index qualification");
 
 			/*
 			 * We have to look up the operator's strategy number.  This
@@ -1779,7 +1789,7 @@ ExecIndexBuildScanKeys(PlanState *planstate, Relation index,
 				Oid inputcollid = list_nth_oid(rcexpr->inputcollids, n_sub_key);
 
 				if (varattno < 1 || varattno > indnkeyatts)
-					elog(ERROR, "bogus index qualification");
+					elog(ERROR, "4 bogus index qualification");
 
 				opfamily = index->rd_opfamily[varattno - 1];
 

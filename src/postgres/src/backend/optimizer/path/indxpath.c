@@ -1185,7 +1185,7 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 				  bool *skip_nonnative_saop,
 				  bool *skip_lower_saop)
 {
-	elog(INFO, "build_index_paths for index %d", index->indexoid);
+	// elog(INFO, "build_index_paths for index %d", index->indexoid);
 	List	   *result = NIL;
 	IndexPath  *ipath;
 	List	   *index_clauses;
@@ -1249,15 +1249,12 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 	index_clauses = NIL;
 	found_lower_saop_clause = false;
 	outer_relids = bms_copy(rel->lateral_relids);
-	elog(INFO, "nkeycolumns %d (expected 1)", index->nkeycolumns);
 	for (indexcol = 0; indexcol < index->nkeycolumns + 1; indexcol++)
 	{
 		ListCell   *lc;
 		bool		found_clause;
 
 		found_clause = false;
-		elog(INFO, "indexcol %d clauses->indexclauses[indexcol] %d", indexcol,
-			 list_length(clauses->indexclauses[indexcol]));
 		foreach(lc, clauses->indexclauses[indexcol])
 		{
 			IndexClause *iclause = (IndexClause *) lfirst(lc);
@@ -1305,7 +1302,6 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 				}
 			}
 
-			elog(INFO, "Appending iclause to index_clauses");
 			/* OK to include this clause */
 			index_clauses = lappend(index_clauses, iclause);
 			outer_relids = bms_add_members(outer_relids,
@@ -1598,8 +1594,6 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 			}
 		}
 	}
-	elog(INFO, "build_index_paths for index %d, returning paths %d",
-		 index->indexoid, list_length(result));
 	return result;
 }
 
@@ -2442,8 +2436,6 @@ check_index_only(RelOptInfo *rel, IndexOptInfo *index)
 
 	/* Do we have all the necessary attributes? */
 	result = bms_is_subset(attrs_used, index_canreturn_attrs);
-	// elog(INFO, "Index (%d) only scan possible result %d", index->indexoid,
-	// result);
 	bms_free(attrs_used);
 	bms_free(index_canreturn_attrs);
 
@@ -2786,7 +2778,6 @@ match_clause_to_index(PlannerInfo *root,
 										   rinfo,
 										   indexcol,
 										   index);
-		elog(INFO, "matched clause (1) %p", iclause);
 		if (iclause)
 		{
 			/* Success, so record it */
@@ -2797,12 +2788,10 @@ match_clause_to_index(PlannerInfo *root,
 		}
 	}
 
-	elog(INFO, "IsA(rinfo->clause, OpExpr) %d", IsA(rinfo->clause, OpExpr));
 	if (IsA(rinfo->clause, OpExpr))
 	{
 		IndexClause *iclause = match_opclause_to_indexcol(
 			root, rinfo, YBTupleIdAttributeNumber, index);
-		elog(INFO, "matched clause (2) %p", iclause);
 		if (iclause)
 		{
 			/* Success, so record it */
@@ -3191,9 +3180,6 @@ match_opclause_to_indexcol(PlannerInfo *root,
 	 * have one of these forms.  Again, in principle it might be possible to
 	 * do something, but it seems unlikely to be worth the cycles to check.
 	 */
-	// elog(INFO, "match_index_to_operand(leftop, indexcol, index) %d", match_index_to_operand(leftop, indexcol, index));
-	// elog(INFO, "!bms_is_member(index_relid, rinfo->right_relids) %d", !bms_is_member(index_relid, rinfo->right_relids));
-	// elog(INFO, "!contain_volatile_functions(rightop) %d", !contain_volatile_functions(rightop));
 	if (match_index_to_operand(leftop, indexcol, index) &&
 		!bms_is_member(index_relid, rinfo->right_relids) &&
 		!contain_volatile_functions(rightop))
@@ -4513,13 +4499,6 @@ match_index_to_operand(Node *operand,
 		if (operand && IsA(operand, Var))
 			operand_var = (Var *) operand;
 
-		if (operand_var)
-		{
-			elog(INFO, "operand_var->varno (relid) %d, index->rel->relid %d",
-				 operand_var->varno, index->rel->relid);
-			elog(INFO, "operand_var->varattno %d, indexcol %d",
-				 operand_var->varattno, indexcol);
-		}
 		if (operand_var && index->rel->relid == operand_var->varno &&
 			indexcol == operand_var->varattno)
 			return true;
@@ -4629,13 +4608,6 @@ match_index_to_operand(Node *operand,
 		if (operand && IsA(operand, Var))
 			operand_var = (Var *) operand;
 
-		if (operand_var)
-		{
-			elog(INFO, "operand_var->varno (relid) %d, index->rel->relid %d",
-				 operand_var->varno, index->rel->relid);
-			elog(INFO, "operand_var->varattno %d, indkey %d",
-				 operand_var->varattno, indkey);
-		}
 		if (operand_var &&
 			index->rel->relid == operand_var->varno &&
 			indkey == operand_var->varattno)

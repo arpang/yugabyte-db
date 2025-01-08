@@ -1236,7 +1236,6 @@ create_index_path(PlannerInfo *root,
 	
 	IndexPath  *pathnode = makeNode(IndexPath);
 	RelOptInfo *rel = index->rel;
-	elog(INFO, "create_index_path oid %d, indexonly %d, rel->reltarget %d", index->indexoid, indexonly, list_length(rel->reltarget->exprs));
 	pathnode->path.pathtype = indexonly ? T_IndexOnlyScan : T_IndexScan;
 	pathnode->path.parent = rel;
 	pathnode->path.pathtarget = rel->reltarget;
