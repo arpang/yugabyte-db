@@ -251,6 +251,7 @@ static bool yb_can_pushdown_as_filter(IndexOptInfo *index, RestrictInfo *rinfo);
 void
 create_index_paths(PlannerInfo *root, RelOptInfo *rel)
 {
+	elog(INFO, "create_index_paths");
 	List	   *indexpaths;
 	List	   *bitindexpaths;
 	List	   *bitjoinpaths;
@@ -320,6 +321,8 @@ create_index_paths(PlannerInfo *root, RelOptInfo *rel)
 		 * If we found any plain or eclass join clauses, build parameterized
 		 * index paths using them.
 		 */
+		elog(INFO, "jclauseset.nonempty %d", jclauseset.nonempty);
+		elog(INFO, "eclauseset.nonempty %d", eclauseset.nonempty);
 		if (jclauseset.nonempty || eclauseset.nonempty)
 			consider_index_join_clauses(root, rel, index,
 										&rclauseset,
@@ -487,6 +490,7 @@ consider_index_join_clauses(PlannerInfo *root, RelOptInfo *rel,
 							IndexClauseSet *eclauseset,
 							List **bitindexpaths)
 {
+	elog(INFO, "consider_index_join_clauses");
 	int			considered_clauses = 0;
 	List	   *considered_relids = NIL;
 	int			indexcol;
@@ -512,7 +516,9 @@ consider_index_join_clauses(PlannerInfo *root, RelOptInfo *rel,
 	 * relation itself is also included in the relids set.  considered_relids
 	 * lists all relids sets we've already tried.
 	 */
-	for (indexcol = 0; indexcol < index->nkeycolumns; indexcol++)
+	for (indexcol = 0;
+		 indexcol < index->nkeycolumns + (index->yb_is_primary? 1: 0);
+		 indexcol++)
 	{
 		/* Consider each applicable simple join clause */
 		considered_clauses += list_length(jclauseset->indexclauses[indexcol]);
@@ -556,6 +562,7 @@ consider_index_join_outer_rels(PlannerInfo *root, RelOptInfo *rel,
 							   int considered_clauses,
 							   List **considered_relids)
 {
+	elog(INFO, "consider_index_join_outer_rels");
 	ListCell   *lc;
 
 	/* Examine relids of each joinclause in the given list */
@@ -640,6 +647,7 @@ yb_get_batched_index_paths(PlannerInfo *root, RelOptInfo *rel,
 						   IndexOptInfo *index, IndexClauseSet *clauses,
 						   List **bitindexpaths)
 {
+	elog(INFO, "yb_get_batched_index_paths");
 	List	   *indexpaths;
 	bool		skip_nonnative_saop = false;
 	bool		skip_lower_saop = false;
@@ -892,6 +900,7 @@ get_join_index_paths(PlannerInfo *root, RelOptInfo *rel,
 					 Relids relids,
 					 List **considered_relids)
 {
+	elog(INFO, "get_join_index_paths");
 	IndexClauseSet clauseset;
 	int			indexcol;
 
@@ -902,7 +911,7 @@ get_join_index_paths(PlannerInfo *root, RelOptInfo *rel,
 	/* Identify indexclauses usable with this relids set */
 	MemSet(&clauseset, 0, sizeof(clauseset));
 
-	for (indexcol = 0; indexcol < index->nkeycolumns; indexcol++)
+	for (indexcol = 0; indexcol < index->nkeycolumns + (index->yb_is_primary? 1 : 0); indexcol++)
 	{
 		ListCell   *lc;
 
@@ -1185,7 +1194,7 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 				  bool *skip_nonnative_saop,
 				  bool *skip_lower_saop)
 {
-	// elog(INFO, "build_index_paths for index %d", index->indexoid);
+	elog(INFO, "build_index_paths for index %d", index->indexoid);
 	List	   *result = NIL;
 	IndexPath  *ipath;
 	List	   *index_clauses;
@@ -1594,6 +1603,7 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 			}
 		}
 	}
+	elog(INFO, "build_index_paths for index %d, returning %d", index->indexoid, list_length(result));
 	return result;
 }
 
@@ -2665,6 +2675,7 @@ match_eclass_clauses_to_index(PlannerInfo *root, IndexOptInfo *index,
 {
 	int			indexcol;
 
+	elog(INFO, "indexoid %d, index->rel->has_eclass_joins %d", index->indexoid, index->rel->has_eclass_joins);
 	/* No work if rel is not in any such ECs */
 	if (!index->rel->has_eclass_joins)
 		return;
@@ -2691,6 +2702,25 @@ match_eclass_clauses_to_index(PlannerInfo *root, IndexOptInfo *index,
 		match_clauses_to_index(root, clauses, index, clauseset,
 							   NULL /* yb_bitmap_idx_pushdowns */);
 	}
+	ec_member_matches_arg arg;
+	List	   *clauses;
+
+	/* Generate clauses, skipping any that join to lateral_referencers */
+	arg.index = index;
+	arg.indexcol = YBTupleIdAttributeNumber;
+	clauses = generate_implied_equalities_for_column(root,
+														index->rel,
+														ec_member_matches_indexcol,
+														(void *) &arg,
+														index->rel->lateral_referencers);
+
+	/*
+		* We have to check whether the results actually do match the index,
+		* since for non-btree indexes the EC's equality operators might not
+		* be in the index opclass (cf ec_member_matches_indexcol).
+		*/
+	match_clauses_to_index(root, clauses, index, clauseset,
+							NULL /* yb_bitmap_idx_pushdowns */);
 }
 
 /*
@@ -2788,7 +2818,7 @@ match_clause_to_index(PlannerInfo *root,
 		}
 	}
 
-	if (IsA(rinfo->clause, OpExpr))
+	if (index->yb_is_primary && IsA(rinfo->clause, OpExpr))
 	{
 		IndexClause *iclause = match_opclause_to_indexcol(
 			root, rinfo, YBTupleIdAttributeNumber, index);
@@ -2800,6 +2830,11 @@ match_clause_to_index(PlannerInfo *root,
 			clauseset->nonempty = true;
 			return;
 		}
+	}
+
+	if (IsA(rinfo->clause, ScalarArrayOpExpr))
+	{
+		elog(INFO, "ARPAN ScalarArrayOpExpr");
 	}
 
 	if (IsYugaByteEnabled() && yb_bitmap_idx_pushdowns &&
@@ -4218,6 +4253,8 @@ ec_member_matches_indexcol(PlannerInfo *root, RelOptInfo *rel,
 
 	Assert(indexcol < index->nkeycolumns);
 
+	if (indexcol < 0)
+		return match_index_to_operand((Node *) em->em_expr, indexcol, index);
 	curFamily = index->opfamily[indexcol];
 	curCollation = index->indexcollations[indexcol];
 
@@ -4495,6 +4532,7 @@ match_index_to_operand(Node *operand,
 
 	if (indexcol < 0)
 	{
+		elog(INFO, "match_index_to_operand indexcol %d", indexcol);
 		Var *operand_var = NULL;
 		if (operand && IsA(operand, Var))
 			operand_var = (Var *) operand;
