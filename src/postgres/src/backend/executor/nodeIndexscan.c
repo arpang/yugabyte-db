@@ -1657,14 +1657,22 @@ ExecIndexBuildScanKeys(PlanState *planstate, Relation index,
 				elog(ERROR, "indexqual doesn't have key on left side");
 
 			varattno = ((Var *) leftop)->varattno;
-			if (varattno < 1 || varattno > indnkeyatts)
-				elog(ERROR, "3 bogus index qualification");
+			if (varattno == YBTupleIdAttributeNumber + 1)
+			{
+					elog(INFO, "opno %d (1955 expected)", opno);
+					opfamily = BYTEA_LSM_FAM_OID;
+			}
+			else
+			{
+				if (varattno < 1 || varattno > indnkeyatts)
+					elog(ERROR, "3 bogus index qualification");
 
-			/*
-			 * We have to look up the operator's strategy number.  This
-			 * provides a cross-check that the operator does match the index.
-			 */
-			opfamily = index->rd_opfamily[varattno - 1];
+				/*
+				* We have to look up the operator's strategy number.  This
+				* provides a cross-check that the operator does match the index.
+				*/
+				opfamily = index->rd_opfamily[varattno - 1];
+			}
 
 			get_op_opfamily_properties(opno, opfamily, isorderby,
 									   &op_strategy,
