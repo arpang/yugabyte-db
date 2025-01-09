@@ -299,7 +299,6 @@ make_rels_by_clause_joins(PlannerInfo *root,
 						  List *other_rels_list,
 						  ListCell *other_rels)
 {
-	elog(INFO, "make_rels_by_clause_joins");
 	ListCell   *l;
 
 	for_each_cell(l, other_rels_list, other_rels)

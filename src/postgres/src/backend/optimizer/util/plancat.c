@@ -1855,7 +1855,6 @@ build_index_tlist(PlannerInfo *root, IndexOptInfo *index,
 	for (i = 0; i < index->ncolumns; i++)
 	{
 		int			indexkey = index->indexkeys[i];
-		// elog(INFO, "INDEX i %d, indexkey %d", i, indexkey);
 		Expr	   *indexvar;
 
 		if (indexkey != 0)

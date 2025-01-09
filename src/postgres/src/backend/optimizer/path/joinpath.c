@@ -671,12 +671,6 @@ try_nestloop_path(PlannerInfo *root,
 	else
 		outerrelids = outerrel->relids;
 	
-	elog(INFO, "try_nestloop_path jointype %d, outerrelids->words %ld, innerrelids->words %ld", jointype, *outerrelids->words, *innerrelids->words);
-	// Oid inner_oid = rt_fetch(innerrel->relid, root->parse->rtable)->relid;
-	// Oid outer_oid = rt_fetch(outerrel->relid, root->parse->rtable)->relid;
-	// elog(INFO, "innerrel->relid %d corresponds to %s", innerrel->relid, RelationGetRelationName(RelationIdGetRelation(inner_oid)));
-	// elog(INFO, "outerrel->relid %d corresponds to %s", outerrel->relid, RelationGetRelationName(RelationIdGetRelation(outer_oid)));
-
 	/*
 	 * Check to see if proposed path is still parameterized, and reject if the
 	 * parameterization wouldn't be sensible --- unless allow_star_schema_join
@@ -733,7 +727,6 @@ try_nestloop_path(PlannerInfo *root,
 			}
 		}
 
-		// elog(INFO, "YB_PATH_NEEDS_BATCHED_RELS(inner_path) %d", YB_PATH_NEEDS_BATCHED_RELS(inner_path));
 		if (IsYugaByteEnabled() && YB_PATH_NEEDS_BATCHED_RELS(inner_path))
 		{
 			/*
@@ -747,7 +740,6 @@ try_nestloop_path(PlannerInfo *root,
 												 inner_path->param_info
 												 ->ppi_clauses)))
 			{
-				// elog(INFO, "Has yb_has_non_evaluable_bnl_clauses, returning");
 				bms_free(required_outer);
 				return;
 			}
@@ -766,11 +758,9 @@ try_nestloop_path(PlannerInfo *root,
 									   YB_PATH_REQ_OUTER_BATCHED(inner_path));
 			bool yb_is_nl_batched =
 				bms_overlap(YB_PATH_REQ_OUTER_BATCHED(inner_path), outerrelids);
-			elog(INFO, "yb_is_nl_batched %d", yb_is_nl_batched);
 			if (bms_overlap(unbatched, batched) ||
 				(yb_is_nl_batched && bms_overlap(unbatched, outerrelids)))
 			{
-				// elog(INFO, "bms_overlap, returning");
 				bms_free(required_outer);
 				bms_free(unbatched);
 				bms_free(batched);

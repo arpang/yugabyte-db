@@ -459,7 +459,6 @@ YbDmlAppendTargetRegularAttr(const FormData_pg_attribute *attr,
 {
 	// Assert(attr->attnum > 0);
 	Assert(!attr->attisdropped);
-	// elog(INFO, "YbDmlAppendTargetRegularAttr attr->attnum %d, attr->atttypid %d, attr->attname %s", attr->attnum, attr->atttypid, attr->attname.data);
 	YbDmlAppendTargetImpl(handle, attr->attnum, attr->atttypid,
 						  attr->attcollation, attr->atttypmod);
 
@@ -474,7 +473,6 @@ YbDmlAppendTargetRegular(TupleDesc tupdesc, AttrNumber attnum,
 						 YBCPgStatement handle)
 {
 	Assert(attnum > 0);
-	// elog(INFO, "YbDmlAppendTargetRegular attnum %d", attnum);
 	YbDmlAppendTargetRegularAttr(TupleDescAttr(tupdesc, attnum - 1), handle);
 }
 
@@ -745,10 +743,6 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, ScanDirection dir)
 				{
 					INDEXTUPLE_YBCTID(tuple) = PointerGetDatum(syscols.ybbasectid);
 					ybcUpdateFKCache(ybScan, INDEXTUPLE_YBCTID(tuple));
-				}
-				else
-				{
-					elog(INFO, "syscols.ybbasectid is NULL");
 				}
 			}
 			break;
@@ -2596,7 +2590,6 @@ static YbAttnumBmsState
 ybcBuildRequiredAttrs(YbScanDesc yb_scan, YbScanPlan scan_plan,
 					  Scan *pg_scan_plan)
 {
-	// elog(INFO, "ybcBuildRequiredAttrs");
 	const YBCPgPrepareParameters *params = &yb_scan->prepare_params;
 	const bool is_index_only_scan = params->index_only_scan;
 	bool all_attrs_required = !params->fetch_ybctids_only;
@@ -2695,10 +2688,7 @@ ybcBuildRequiredAttrs(YbScanDesc yb_scan, YbScanPlan scan_plan,
 	}
 
 	if (index && !index->rd_index->indisprimary && (yb_index_checker || !is_index_only_scan))
-	{
-		// elog(INFO, "Adding YBIdxBaseTupleIdAttributeNumber for index %s", RelationGetRelationName(index));
 		ybcAttnumBmsAdd(&result, YBIdxBaseTupleIdAttributeNumber);
-	}
 
 	if (yb_index_checker && !ybcAttnumBmsExists(&result, YBTupleIdAttributeNumber))
 		ybcAttnumBmsAdd(&result, YBTupleIdAttributeNumber);
@@ -2975,7 +2965,6 @@ ybcBeginScan(Relation relation,
 			 bool is_internal_scan,
 			 bool fetch_ybctids_only)
 {
-	// elog(INFO, "ybcBeginScan");
 	/* Set up Yugabyte scan description */
 	YbScanDesc ybScan = (YbScanDesc) palloc0(sizeof(YbScanDescData));
 	TableScanDesc tsdesc = (TableScanDesc)ybScan;
@@ -3025,7 +3014,6 @@ ybcBeginScan(Relation relation,
 	 * This ought to be reworked once aggregate pushdown supports a mix of
 	 * non-aggregate and aggregate targets.
 	 */
-	// elog(INFO, "aggrefs %p", aggrefs);
 	if (aggrefs != NIL)
 		YbDmlAppendTargetsAggregate(aggrefs, ybScan->target_desc, index,
 									xs_want_itup, ybScan->handle);
