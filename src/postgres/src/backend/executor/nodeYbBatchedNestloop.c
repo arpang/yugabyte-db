@@ -955,7 +955,7 @@ GetMaxBatchSize(YbBatchedNestLoop *plan)
 YbBatchedNestLoopState *
 ExecInitYbBatchedNestLoop(YbBatchedNestLoop *plan, EState *estate, int eflags)
 {
-	elog(INFO, "ExecInitYbBatchedNestLoop");
+	// elog(INFO, "ExecInitYbBatchedNestLoop");
 	YbBatchedNestLoopState *bnlstate;
 
 	/* check for unsupported flags */
