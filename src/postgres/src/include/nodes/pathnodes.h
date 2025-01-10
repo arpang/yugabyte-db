@@ -921,8 +921,7 @@ struct IndexOptInfo
 
 	/* Used for YB base scans cost model */
 	int32_t 	yb_cached_ybctid_size;
-	bool yb_is_primary;
-	bool yb_is_ybctid_index;
+	bool		yb_is_primary;
 };
 
 /*

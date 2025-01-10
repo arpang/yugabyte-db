@@ -3617,8 +3617,7 @@ ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 {
 	Relation	index = RelationIdGetRelation(path->indexinfo->indexoid);
 	bool		isprimary = index->rd_index->indisprimary;
-	bool		ybctid = ybctid_index(index->rd_index);
-	Relation	relation = (isprimary || ybctid?
+	Relation	relation = (isprimary ?
 							RelationIdGetRelation(index->rd_index->indrelid) :
 							NULL);
 	RelOptInfo *baserel = path->path.parent;
@@ -3638,7 +3637,7 @@ ybcIndexCostEstimate(struct PlannerInfo *root, IndexPath *path,
 
 	YbScanPlanData scan_plan;
 	memset(&scan_plan, 0, sizeof(scan_plan));
-	scan_plan.target_relation = (isprimary || ybctid) ? relation : index;
+	scan_plan.target_relation = isprimary ? relation : index;
 	ybcLoadTableInfo(scan_plan.target_relation, &scan_plan);
 
 	/* Find out the search conditions on the primary key columns */
