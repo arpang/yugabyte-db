@@ -1265,6 +1265,7 @@ extern AttrNumber YbGetIndexAttnum(Relation index, AttrNumber table_attno);
 
 extern bool yb_ysql_conn_mgr_superuser_existed;
 
+// TODO: can be cleaned up
 extern bool ybctid_index(Form_pg_index index);
 
 #endif /* PG_YB_UTILS_H */

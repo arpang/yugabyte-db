@@ -6943,19 +6943,6 @@ fix_indexqual_operand(Node *node, IndexOptInfo *index, int indexcol)
 	if (IsA(node, RelabelType))
 		node = (Node *) ((RelabelType *) node)->arg;
 
-	if (indexcol == YBTupleIdAttributeNumber)
-	{
-		if (IsA(node, Var) &&
-			((Var *) node)->varno == index->rel->relid &&
-			((Var *) node)->varattno == YBTupleIdAttributeNumber)
-		{
-			result = (Var *) copyObject(node);
-			result->varno = INDEX_VAR;
-			result->varattno = indexcol + 1; // is this right thing to do?
-			return (Node *) result;
-		}
-	}
-
 	Assert(indexcol >= 0 && indexcol < index->ncolumns);
 
 	if (index->indexkeys[indexcol] != 0)

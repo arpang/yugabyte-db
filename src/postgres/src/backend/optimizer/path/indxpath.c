@@ -515,9 +515,7 @@ consider_index_join_clauses(PlannerInfo *root, RelOptInfo *rel,
 	 * relation itself is also included in the relids set.  considered_relids
 	 * lists all relids sets we've already tried.
 	 */
-	for (indexcol = 0;
-		 indexcol < index->nkeycolumns + (index->yb_is_primary? 1: 0);
-		 indexcol++)
+	for (indexcol = 0; indexcol < index->nkeycolumns; indexcol++)
 	{
 		/* Consider each applicable simple join clause */
 		considered_clauses += list_length(jclauseset->indexclauses[indexcol]);
@@ -910,7 +908,7 @@ get_join_index_paths(PlannerInfo *root, RelOptInfo *rel,
 	/* Identify indexclauses usable with this relids set */
 	MemSet(&clauseset, 0, sizeof(clauseset));
 
-	for (indexcol = 0; indexcol < index->nkeycolumns + (index->yb_is_primary? 1 : 0); indexcol++)
+	for (indexcol = 0; indexcol < index->nkeycolumns; indexcol++)
 	{
 		ListCell   *lc;
 
@@ -1257,7 +1255,7 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 	index_clauses = NIL;
 	found_lower_saop_clause = false;
 	outer_relids = bms_copy(rel->lateral_relids);
-	for (indexcol = 0; indexcol < index->nkeycolumns + 1; indexcol++)
+	for (indexcol = 0; indexcol < index->nkeycolumns; indexcol++)
 	{
 		ListCell   *lc;
 		bool		found_clause;
@@ -2699,25 +2697,6 @@ match_eclass_clauses_to_index(PlannerInfo *root, IndexOptInfo *index,
 		match_clauses_to_index(root, clauses, index, clauseset,
 							   NULL /* yb_bitmap_idx_pushdowns */);
 	}
-	ec_member_matches_arg arg;
-	List	   *clauses;
-
-	/* Generate clauses, skipping any that join to lateral_referencers */
-	arg.index = index;
-	arg.indexcol = YBTupleIdAttributeNumber;
-	clauses = generate_implied_equalities_for_column(root,
-														index->rel,
-														ec_member_matches_indexcol,
-														(void *) &arg,
-														index->rel->lateral_referencers);
-
-	/*
-		* We have to check whether the results actually do match the index,
-		* since for non-btree indexes the EC's equality operators might not
-		* be in the index opclass (cf ec_member_matches_indexcol).
-		*/
-	match_clauses_to_index(root, clauses, index, clauseset,
-							NULL /* yb_bitmap_idx_pushdowns */);
 }
 
 /*
@@ -2815,19 +2794,6 @@ match_clause_to_index(PlannerInfo *root,
 		}
 	}
 
-	if (index->yb_is_primary && IsA(rinfo->clause, OpExpr))
-	{
-		IndexClause *iclause = match_opclause_to_indexcol(
-			root, rinfo, YBTupleIdAttributeNumber, index);
-		if (iclause)
-		{
-			/* Success, so record it */
-			clauseset->indexclauses[indexcol] =
-				lappend(clauseset->indexclauses[indexcol], iclause);
-			clauseset->nonempty = true;
-			return;
-		}
-	}
 
 	if (IsYugaByteEnabled() && yb_bitmap_idx_pushdowns &&
 		yb_can_pushdown_as_filter(index, rinfo))
@@ -3192,11 +3158,8 @@ match_opclause_to_indexcol(PlannerInfo *root,
 	expr_coll = clause->inputcollid;
 
 	index_relid = index->rel->relid;
-	if (indexcol >= 0)
-	{
-		opfamily = index->opfamily[indexcol];
-		idxcollation = index->indexcollations[indexcol];
-	}
+	opfamily = index->opfamily[indexcol];
+	idxcollation = index->indexcollations[indexcol];
 
 	/*
 	 * Check for clauses of the form: (indexkey operator constant) or
@@ -3239,15 +3202,15 @@ match_opclause_to_indexcol(PlannerInfo *root,
 		 * cannot be used. This is because a hash index is sorted by the hash
 		 * value and not by the value of the column. #13241
 		 */
-		if (indexcol >= 0 && is_hash_column_in_lsm_index(index, indexcol))
+		if (is_hash_column_in_lsm_index(index, indexcol))
 		{
 			int op_strategy = get_op_opfamily_strategy(((OpExpr *) clause)->opno, opfamily);
 			if (op_strategy != BTEqualStrategyNumber)
 				return NULL;
 		}
 
-		if (indexcol < 0 || (IndexCollMatchesExprColl(idxcollation, expr_coll) &&
-			op_in_opfamily(expr_op, opfamily)))
+		if (IndexCollMatchesExprColl(idxcollation, expr_coll) &&
+			op_in_opfamily(expr_op, opfamily))
 		{
 			iclause = makeNode(IndexClause);
 			iclause->rinfo = rinfo;
@@ -4245,8 +4208,6 @@ ec_member_matches_indexcol(PlannerInfo *root, RelOptInfo *rel,
 
 	Assert(indexcol < index->nkeycolumns);
 
-	if (indexcol < 0)
-		return match_index_to_operand((Node *) em->em_expr, indexcol, index);
 	curFamily = index->opfamily[indexcol];
 	curCollation = index->indexcollations[indexcol];
 
@@ -4360,6 +4321,7 @@ relation_has_unique_index_for(PlannerInfo *root, RelOptInfo *rel,
 		if (!ind->unique || !ind->immediate ||
 			(ind->indpred != NIL && !ind->predOK))
 			continue;
+
 		/*
 		 * Try to find each index column in the lists of conditions.  This is
 		 * O(N^2) or worse, but we expect all the lists to be short.
@@ -4443,19 +4405,6 @@ relation_has_unique_index_for(PlannerInfo *root, RelOptInfo *rel,
 		if (c == ind->nkeycolumns)
 			return true;
 
-		/* Check for condition on ybctid */
-		if (c == 0 && ind->yb_is_primary && list_length(restrictlist) == 1)
-		{
-			RestrictInfo *rinfo = (RestrictInfo *) linitial(restrictlist);
-			Node	   *rexpr;
-			if (rinfo->outer_is_left)
-				rexpr = get_rightop(rinfo->clause);
-			else
-				rexpr = get_leftop(rinfo->clause);
-
-			if (match_index_to_operand(rexpr, YBTupleIdAttributeNumber, ind))
-				return true;
-		}
 	}
 
 	return false;
@@ -4534,18 +4483,6 @@ match_index_to_operand(Node *operand,
 					   IndexOptInfo *index)
 {
 	int			indkey;
-
-	if (indexcol < 0)
-	{
-		// elog(INFO, "match_index_to_operand indexcol %d", indexcol);
-		Var *operand_var = NULL;
-		if (operand && IsA(operand, Var))
-			operand_var = (Var *) operand;
-
-		if (operand_var && index->rel->relid == operand_var->varno &&
-			indexcol == operand_var->varattno)
-			return true;
-	}
 
 	/*
 	 * Ignore any RelabelType node above the operand.   This is needed to be
