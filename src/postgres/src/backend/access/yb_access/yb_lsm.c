@@ -247,6 +247,7 @@ ybcinbuildCallback(Relation index, Datum ybctid, Datum *values,
 static IndexBuildResult *
 ybcinbuild(Relation heap, Relation index, struct IndexInfo *indexInfo)
 {
+	elog(INFO, "ybcinbuild");
 	YBCBuildState	buildstate;
 	double			heap_tuples = 0;
 
@@ -283,6 +284,7 @@ ybcinbackfill(Relation heap,
 			  YbBackfillInfo *bfinfo,
 			  YbPgExecOutParam *bfresult)
 {
+	elog(INFO, "ybcinbackfill");
 	YBCBuildState	buildstate;
 	double			heap_tuples = 0;
 
@@ -318,7 +320,8 @@ static bool
 ybcininsert(Relation index, Datum *values, bool *isnull, Datum ybctid, Relation heap,
 			IndexUniqueCheck checkUnique, struct IndexInfo *indexInfo, bool sharedInsert)
 {
-	if (!index->rd_index->indisprimary)
+	elog(INFO, "ybcininsert");
+	if (!index->rd_index->indisprimary && !ybctid_index(index->rd_index))
 	{
 		if (sharedInsert)
 		{
@@ -360,6 +363,7 @@ static void
 ybcindelete(Relation index, Datum *values, bool *isnull, Datum ybctid, Relation heap,
 			struct IndexInfo *indexInfo)
 {
+	elog(INFO, "ybcindelete");
 	if (!index->rd_index->indisprimary)
 		YBCExecuteDeleteIndex(index, values, isnull, ybctid,
 							  doBindsForIdxWrite, NULL /* indexstate */);
@@ -369,6 +373,7 @@ static void
 ybcinupdate(Relation index, Datum *values, bool *isnull, Datum oldYbctid,
 			Datum newYbctid, Relation heap, struct IndexInfo *indexInfo)
 {
+	elog(INFO, "ybcinupdate");
 	Assert(!index->rd_index->indisprimary);
 	YBCExecuteUpdateIndex(index, values, isnull, oldYbctid, newYbctid,
 						  doAssignForIdxUpdate);
@@ -414,7 +419,7 @@ ybcincanreturn(Relation index, int attno)
 	 * For indexes which are primary keys, we will return the table row as a HeapTuple instead.
 	 * For this reason, we set "canreturn" to false for primary keys.
 	 */
-	return !index->rd_index->indisprimary;
+	return !index->rd_index->indisprimary && !ybctid_index(index->rd_index);
 }
 
 static bool

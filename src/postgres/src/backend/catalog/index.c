@@ -358,12 +358,16 @@ ConstructTupleDescriptor(Relation heapRelation,
 			/* Simple index column */
 			const FormData_pg_attribute *from;
 
-			Assert(atnum > 0);	/* should've been caught above */
+			Assert(atnum > 0 || atnum == YBTupleIdAttributeNumber);	/* should've been caught above */
 
 			if (atnum > natts)	/* safety check */
 				elog(ERROR, "invalid column number %d", atnum);
-			from = TupleDescAttr(heapTupDesc,
-								 AttrNumberGetAttrOffset(atnum));
+
+			if (atnum == YBTupleIdAttributeNumber)
+				from = SystemAttributeDefinition(atnum);
+			else
+				from = TupleDescAttr(heapTupDesc,
+									AttrNumberGetAttrOffset(atnum));
 
 			to->atttypid = from->atttypid;
 			to->attlen = from->attlen;
@@ -673,7 +677,6 @@ UpdateIndexRelation(Oid indexoid,
 	heap_freetuple(tuple);
 }
 
-
 /*
  * index_create
  *
@@ -758,6 +761,7 @@ index_create(Relation heapRelation,
 	int			i;
 	char		relpersistence;
 	bool		isprimary = (flags & INDEX_CREATE_IS_PRIMARY) != 0;
+	bool		ybisybctid = (flags & YB_INDEX_CREATE_IS_YBCTID) != 0;
 	bool		invalid = (flags & INDEX_CREATE_INVALID) != 0;
 	bool		concurrent = (flags & INDEX_CREATE_CONCURRENT) != 0;
 	bool		partitioned = (flags & INDEX_CREATE_PARTITIONED) != 0;
@@ -1023,7 +1027,7 @@ index_create(Relation heapRelation,
 	 * Create index in YugaByte only if it is a secondary index. Primary key is
 	 * an implicit part of the base table in YugaByte and doesn't need to be created.
 	 */
-	if (IsYBRelation(indexRelation) && !isprimary)
+	if (IsYBRelation(indexRelation) && !isprimary && !ybisybctid)
 	{
 		YBCCreateIndex(indexRelationName,
 					   indexInfo,

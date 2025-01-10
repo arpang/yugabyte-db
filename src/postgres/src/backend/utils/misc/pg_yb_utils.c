@@ -5869,3 +5869,9 @@ YbGetIndexAttnum(Relation index, AttrNumber table_attno)
 	}
 	elog(ERROR, "column is not in index");
 }
+
+bool
+ybctid_index(Form_pg_index index)
+{
+	return index->indkey.values[0] == YBTupleIdAttributeNumber;
+}

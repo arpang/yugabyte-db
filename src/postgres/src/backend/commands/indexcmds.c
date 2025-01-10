@@ -1470,6 +1470,7 @@ DefineIndex(Oid relationId,
 	}
 
 
+	flags = constr_flags = 0;
 	/*
 	 * We disallow indexes on system columns.  They would not necessarily get
 	 * updated correctly, and they don't seem useful anyway.
@@ -1477,8 +1478,9 @@ DefineIndex(Oid relationId,
 	for (i = 0; i < indexInfo->ii_NumIndexAttrs; i++)
 	{
 		AttrNumber	attno = indexInfo->ii_IndexAttrNumbers[i];
-
-		if (attno < 0)
+		if (attno == YBTupleIdAttributeNumber)
+			flags |= (YB_INDEX_CREATE_IS_YBCTID | INDEX_CREATE_SKIP_BUILD);
+		else if (attno < 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("index creation on system columns is not supported")));
@@ -1551,7 +1553,6 @@ DefineIndex(Oid relationId,
 	 * We don't create constraints for system relation indexes during YSQL upgrade,
 	 * to simulate initdb behaviour.
 	 */
-	flags = constr_flags = 0;
 	if (stmt->isconstraint && !(IsYBRelation(rel) && IsYsqlUpgrade && IsCatalogRelation(rel)))
 		flags |= INDEX_CREATE_ADD_CONSTRAINT;
 	if (skip_build || concurrent || partitioned)

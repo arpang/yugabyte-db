@@ -30,6 +30,7 @@
 
 #include "access/reloptions.h"
 #include "catalog/pg_database.h"
+#include "catalog/pg_index.h"
 #include "common/pg_yb_common.h"
 #include "executor/instrument.h"
 #include "nodes/parsenodes.h"
@@ -1263,5 +1264,7 @@ bool YbUseUnsafeTruncate(Relation rel);
 extern AttrNumber YbGetIndexAttnum(Relation index, AttrNumber table_attno);
 
 extern bool yb_ysql_conn_mgr_superuser_existed;
+
+extern bool ybctid_index(Form_pg_index index);
 
 #endif /* PG_YB_UTILS_H */

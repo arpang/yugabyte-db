@@ -251,7 +251,6 @@ static bool yb_can_pushdown_as_filter(IndexOptInfo *index, RestrictInfo *rinfo);
 void
 create_index_paths(PlannerInfo *root, RelOptInfo *rel)
 {
-	elog(INFO, "create_index_paths");
 	List	   *indexpaths;
 	List	   *bitindexpaths;
 	List	   *bitjoinpaths;
@@ -2448,7 +2447,6 @@ check_index_only(RelOptInfo *rel, IndexOptInfo *index)
 	result = bms_is_subset(attrs_used, index_canreturn_attrs);
 	bms_free(attrs_used);
 	bms_free(index_canreturn_attrs);
-
 	return result;
 }
 
@@ -2675,7 +2673,6 @@ match_eclass_clauses_to_index(PlannerInfo *root, IndexOptInfo *index,
 {
 	int			indexcol;
 
-	elog(INFO, "indexoid %d, index->rel->has_eclass_joins %d", index->indexoid, index->rel->has_eclass_joins);
 	/* No work if rel is not in any such ECs */
 	if (!index->rel->has_eclass_joins)
 		return;
@@ -2830,11 +2827,6 @@ match_clause_to_index(PlannerInfo *root,
 			clauseset->nonempty = true;
 			return;
 		}
-	}
-
-	if (IsA(rinfo->clause, ScalarArrayOpExpr))
-	{
-		elog(INFO, "ARPAN ScalarArrayOpExpr");
 	}
 
 	if (IsYugaByteEnabled() && yb_bitmap_idx_pushdowns &&
