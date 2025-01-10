@@ -1027,7 +1027,7 @@ index_create(Relation heapRelation,
 	 * Create index in YugaByte only if it is a secondary index. Primary key is
 	 * an implicit part of the base table in YugaByte and doesn't need to be created.
 	 */
-	if (IsYBRelation(indexRelation) && !isprimary && !ybisybctid)
+	if (IsYBRelation(indexRelation) && !isprimary)
 	{
 		YBCCreateIndex(indexRelationName,
 					   indexInfo,
@@ -1122,7 +1122,7 @@ index_create(Relation heapRelation,
 						collationObjectId, classObjectId, coloptions,
 						isprimary, is_exclusion,
 						(constr_flags & INDEX_CONSTR_CREATE_DEFERRABLE) == 0,
-						!concurrent && !invalid,
+						!concurrent && !invalid && !ybisybctid,
 						!concurrent,
 						shared_relation);
 

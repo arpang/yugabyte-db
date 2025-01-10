@@ -1478,8 +1478,11 @@ DefineIndex(Oid relationId,
 	for (i = 0; i < indexInfo->ii_NumIndexAttrs; i++)
 	{
 		AttrNumber	attno = indexInfo->ii_IndexAttrNumbers[i];
-		if (attno == YBTupleIdAttributeNumber)
-			flags |= (YB_INDEX_CREATE_IS_YBCTID | INDEX_CREATE_SKIP_BUILD);
+		if (yb_index_checker && attno == YBTupleIdAttributeNumber)
+		{
+			Assert(indexInfo->ii_NumIndexAttrs == 1);
+			flags |= (YB_INDEX_CREATE_IS_YBCTID | INDEX_CREATE_SKIP_BUILD | INDEX_CREATE_IS_PRIMARY);
+		}
 		else if (attno < 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
