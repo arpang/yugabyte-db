@@ -2691,9 +2691,6 @@ ybcBuildRequiredAttrs(YbScanDesc yb_scan, YbScanPlan scan_plan,
 	if (index && !index->rd_index->indisprimary && (yb_index_checker || !is_index_only_scan))
 		ybcAttnumBmsAdd(&result, YBIdxBaseTupleIdAttributeNumber);
 
-	if (yb_index_checker && !ybcAttnumBmsExists(&result, YBTupleIdAttributeNumber))
-		ybcAttnumBmsAdd(&result, YBTupleIdAttributeNumber);
-
 	return result;
 }
 
