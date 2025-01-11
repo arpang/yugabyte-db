@@ -367,7 +367,7 @@ ConstructTupleDescriptor(Relation heapRelation,
 				from = SystemAttributeDefinition(atnum);
 			else
 				from = TupleDescAttr(heapTupDesc,
-									AttrNumberGetAttrOffset(atnum));
+									 AttrNumberGetAttrOffset(atnum));
 
 			to->atttypid = from->atttypid;
 			to->attlen = from->attlen;
@@ -676,6 +676,7 @@ UpdateIndexRelation(Oid indexoid,
 	table_close(pg_index, RowExclusiveLock);
 	heap_freetuple(tuple);
 }
+
 
 /*
  * index_create

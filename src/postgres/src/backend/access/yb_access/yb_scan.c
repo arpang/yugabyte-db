@@ -457,8 +457,9 @@ void
 YbDmlAppendTargetRegularAttr(const FormData_pg_attribute *attr,
 							 YBCPgStatement handle)
 {
-	// Assert(attr->attnum > 0);
+	Assert(attr->attnum > 0);
 	Assert(!attr->attisdropped);
+
 	YbDmlAppendTargetImpl(handle, attr->attnum, attr->atttypid,
 						  attr->attcollation, attr->atttypmod);
 

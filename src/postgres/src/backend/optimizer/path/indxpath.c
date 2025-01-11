@@ -320,8 +320,6 @@ create_index_paths(PlannerInfo *root, RelOptInfo *rel)
 		 * If we found any plain or eclass join clauses, build parameterized
 		 * index paths using them.
 		 */
-		// elog(INFO, "jclauseset.nonempty %d", jclauseset.nonempty);
-		// elog(INFO, "eclauseset.nonempty %d", eclauseset.nonempty);
 		if (jclauseset.nonempty || eclauseset.nonempty)
 			consider_index_join_clauses(root, rel, index,
 										&rclauseset,
@@ -489,7 +487,6 @@ consider_index_join_clauses(PlannerInfo *root, RelOptInfo *rel,
 							IndexClauseSet *eclauseset,
 							List **bitindexpaths)
 {
-	// elog(INFO, "consider_index_join_clauses");
 	int			considered_clauses = 0;
 	List	   *considered_relids = NIL;
 	int			indexcol;
@@ -559,7 +556,6 @@ consider_index_join_outer_rels(PlannerInfo *root, RelOptInfo *rel,
 							   int considered_clauses,
 							   List **considered_relids)
 {
-	// elog(INFO, "consider_index_join_outer_rels");
 	ListCell   *lc;
 
 	/* Examine relids of each joinclause in the given list */
@@ -644,7 +640,6 @@ yb_get_batched_index_paths(PlannerInfo *root, RelOptInfo *rel,
 						   IndexOptInfo *index, IndexClauseSet *clauses,
 						   List **bitindexpaths)
 {
-	// elog(INFO, "yb_get_batched_index_paths");
 	List	   *indexpaths;
 	bool		skip_nonnative_saop = false;
 	bool		skip_lower_saop = false;
@@ -897,7 +892,6 @@ get_join_index_paths(PlannerInfo *root, RelOptInfo *rel,
 					 Relids relids,
 					 List **considered_relids)
 {
-	// elog(INFO, "get_join_index_paths");
 	IndexClauseSet clauseset;
 	int			indexcol;
 
@@ -1191,7 +1185,6 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 				  bool *skip_nonnative_saop,
 				  bool *skip_lower_saop)
 {
-	// elog(INFO, "build_index_paths for index %d", index->indexoid);
 	List	   *result = NIL;
 	IndexPath  *ipath;
 	List	   *index_clauses;
@@ -1600,7 +1593,6 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 			}
 		}
 	}
-	// elog(INFO, "build_index_paths for index %d, returning %d", index->indexoid, list_length(result));
 	return result;
 }
 
@@ -2443,8 +2435,10 @@ check_index_only(RelOptInfo *rel, IndexOptInfo *index)
 
 	/* Do we have all the necessary attributes? */
 	result = bms_is_subset(attrs_used, index_canreturn_attrs);
+
 	bms_free(attrs_used);
 	bms_free(index_canreturn_attrs);
+
 	return result;
 }
 
@@ -2793,7 +2787,6 @@ match_clause_to_index(PlannerInfo *root,
 			return;
 		}
 	}
-
 
 	if (IsYugaByteEnabled() && yb_bitmap_idx_pushdowns &&
 		yb_can_pushdown_as_filter(index, rinfo))
@@ -4404,7 +4397,6 @@ relation_has_unique_index_for(PlannerInfo *root, RelOptInfo *rel,
 		/* Matched all key columns of this index? */
 		if (c == ind->nkeycolumns)
 			return true;
-
 	}
 
 	return false;

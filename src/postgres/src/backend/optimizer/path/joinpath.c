@@ -758,6 +758,7 @@ try_nestloop_path(PlannerInfo *root,
 									   YB_PATH_REQ_OUTER_BATCHED(inner_path));
 			bool yb_is_nl_batched =
 				bms_overlap(YB_PATH_REQ_OUTER_BATCHED(inner_path), outerrelids);
+
 			if (bms_overlap(unbatched, batched) ||
 				(yb_is_nl_batched && bms_overlap(unbatched, outerrelids)))
 			{

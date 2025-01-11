@@ -267,6 +267,7 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 			info->ncolumns = ncolumns = index->indnatts;
 			info->nkeycolumns = nkeycolumns = index->indnkeyatts;
 			info->nhashcolumns = 0;
+
 			info->indexkeys = (int *) palloc(sizeof(int) * ncolumns);
 			info->indexcollations = (Oid *) palloc(sizeof(Oid) * nkeycolumns);
 			info->opfamily = (Oid *) palloc(sizeof(Oid) * nkeycolumns);
