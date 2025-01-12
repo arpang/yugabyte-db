@@ -7654,7 +7654,19 @@ resolve_special_varno(Node *node, deparse_context *context,
 
 		tle = get_tle_by_resno(dpns->index_tlist, var->varattno);
 		if (!tle)
+		{
+			/* ybidxbasectid is not part of index target list. */
+			if (yb_index_checker &&
+				var->varattno == YBIdxBaseTupleIdAttributeNumber)
+			{
+				Var newvar = *var;
+				/* Assume the secondary index scan is done on first rte rel. */
+				newvar.varno = 1;
+				(*callback)((Node *) &newvar, context, callback_arg);
+				return;
+			}
 			elog(ERROR, "bogus varattno for INDEX_VAR var: %d", var->varattno);
+		}
 
 		resolve_special_varno((Node *) tle->expr, context,
 							  callback, callback_arg);

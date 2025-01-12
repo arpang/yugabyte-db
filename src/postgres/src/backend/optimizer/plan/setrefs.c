@@ -2896,6 +2896,15 @@ search_indexed_tlist_for_var(Var *var, indexed_tlist *itlist,
 		}
 		vinfo++;
 	}
+
+	if (yb_index_checker && varattno == YBIdxBaseTupleIdAttributeNumber)
+	{
+		Var		   *newvar = copyVar(var);
+		newvar->varno = newvarno;
+		if (newvar->varnosyn > 0)
+			newvar->varnosyn += rtoffset;
+		return newvar;
+	}
 	return NULL;				/* no match */
 }
 

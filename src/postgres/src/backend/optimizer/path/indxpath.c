@@ -2431,7 +2431,11 @@ check_index_only(RelOptInfo *rel, IndexOptInfo *index)
 				bms_add_member(index_canreturn_attrs,
 							   attno - YBSystemFirstLowInvalidAttributeNumber);
 	}
-	index_canreturn_attrs = bms_add_member(index_canreturn_attrs, YBIdxBaseTupleIdAttributeNumber - YBSystemFirstLowInvalidAttributeNumber);
+
+	if (yb_index_checker && !index->yb_is_primary)
+		index_canreturn_attrs = bms_add_member(
+			index_canreturn_attrs, YBIdxBaseTupleIdAttributeNumber -
+									   YBSystemFirstLowInvalidAttributeNumber);
 
 	/* Do we have all the necessary attributes? */
 	result = bms_is_subset(attrs_used, index_canreturn_attrs);

@@ -3231,8 +3231,8 @@ get_rte_attribute_name(RangeTblEntry *rte, AttrNumber attnum)
 	if (attnum == YBTupleIdAttributeNumber)
 		return "ybctid";
 
-	// if (attnum == YBIdxBaseTupleIdAttributeNumber)
-	// 	return "ybidxbasectid";
+	if (attnum == YBIdxBaseTupleIdAttributeNumber)
+		return "ybidxbasectid";
 
 	/*
 	 * If there is a user-written column alias, use it.

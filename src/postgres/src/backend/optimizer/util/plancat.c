@@ -423,6 +423,7 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 			info->unique = index->indisunique;
 			info->immediate = index->indimmediate;
 			info->hypothetical = false;
+			info->yb_is_primary = index->indisprimary;
 
 			/*
 			 * Estimate the index size.  If it's not a partial index, we lock
@@ -1888,19 +1889,6 @@ build_index_tlist(PlannerInfo *root, IndexOptInfo *index,
 										NULL,
 										false));
 	}
-
-	Expr*		indexvar = (Expr *) makeVar(index->rel->relid,
-										YBIdxBaseTupleIdAttributeNumber,
-										BYTEAOID,
-										-1,
-										0,
-										0);
-
-		tlist = lappend(tlist,
-						makeTargetEntry(indexvar,
-										YBIdxBaseTupleIdAttributeNumber, // arpan here.
-										NULL,
-										false));
 
 	if (indexpr_item != NULL)
 		elog(ERROR, "wrong number of index expressions");

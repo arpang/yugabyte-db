@@ -146,11 +146,6 @@ static Datum
 tts_virtual_getsysattr(TupleTableSlot *slot, int attnum, bool *isnull)
 {
 	Assert(!TTS_EMPTY(slot));
-	if (attnum == YBIdxBaseTupleIdAttributeNumber)
-	{
-		*isnull = slot->tts_isnull[slot->tts_tupleDescriptor->natts-1];
-		return slot->tts_values[slot->tts_tupleDescriptor->natts-1];
-	}
 	ereport(ERROR,
 			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 			 errmsg("cannot retrieve a system column in this context %d", attnum)));

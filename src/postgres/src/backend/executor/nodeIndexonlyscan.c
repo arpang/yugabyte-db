@@ -344,16 +344,14 @@ StoreIndexTuple(TupleTableSlot *slot, IndexTuple itup, TupleDesc itupdesc)
 	 * the same number of columns though, as well as being datatype-compatible
 	 * which is something we can't so easily check.
 	 */
-	// TODO: itupdesc should contains baseybctid too. Why does it not contain it?
-	Assert(slot->tts_tupleDescriptor->natts == itupdesc->natts || yb_index_checker);
+	Assert(slot->tts_tupleDescriptor->natts == itupdesc->natts);
 
 	ExecClearTuple(slot);
 	index_deform_tuple(itup, itupdesc, slot->tts_values, slot->tts_isnull);
-	if (slot->tts_tupleDescriptor->natts == itupdesc->natts + 1)
-	{
-		slot->tts_isnull[slot->tts_tupleDescriptor->natts-1] = false;
-		slot->tts_values[slot->tts_tupleDescriptor->natts-1] = itup->t_ybctid;
-	}
+
+	if (yb_index_checker)
+		TABLETUPLE_YBCTID(slot) = INDEXTUPLE_YBCTID(itup);
+
 	ExecStoreVirtualTuple(slot);
 }
 
