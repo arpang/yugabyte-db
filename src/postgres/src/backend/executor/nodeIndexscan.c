@@ -1388,8 +1388,7 @@ ExecIndexBuildScanKeys(PlanState *planstate, Relation index,
 
 				/*
 				 * We have to look up the operator's strategy number.  This
-				 * provides a cross-check that the operator does match the
-				 * index.
+				 * provides a cross-check that the operator does match the index.
 				 */
 				opfamily = index->rd_opfamily[varattno - 1];
 			}

@@ -25,7 +25,6 @@
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
 #include "optimizer/restrictinfo.h"
-#include "parser/parsetree.h"
 #include "pg_yb_utils.h"
 #include "utils/typcache.h"
 
@@ -670,7 +669,7 @@ try_nestloop_path(PlannerInfo *root,
 		outerrelids = outerrel->top_parent_relids;
 	else
 		outerrelids = outerrel->relids;
-	
+
 	/*
 	 * Check to see if proposed path is still parameterized, and reject if the
 	 * parameterization wouldn't be sensible --- unless allow_star_schema_join

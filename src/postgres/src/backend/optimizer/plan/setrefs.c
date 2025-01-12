@@ -1369,7 +1369,8 @@ set_indexonlyscan_references(PlannerInfo *root,
 	foreach(lc, plan->indextlist)
 	{
 		TargetEntry *indextle = (TargetEntry *) lfirst(lc);
-		if (!indextle->resjunk || (IsA(indextle->expr, Var) &&  ((Var*) (indextle->expr))->varattno == YBIdxBaseTupleIdAttributeNumber))
+
+		if (!indextle->resjunk)
 			stripped_indextlist = lappend(stripped_indextlist, indextle);
 	}
 

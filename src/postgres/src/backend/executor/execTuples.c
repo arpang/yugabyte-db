@@ -146,9 +146,10 @@ static Datum
 tts_virtual_getsysattr(TupleTableSlot *slot, int attnum, bool *isnull)
 {
 	Assert(!TTS_EMPTY(slot));
+
 	ereport(ERROR,
 			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("cannot retrieve a system column in this context %d", attnum)));
+			 errmsg("cannot retrieve a system column in this context")));
 
 	return 0;					/* silence compiler warnings */
 }

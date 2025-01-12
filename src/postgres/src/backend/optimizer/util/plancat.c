@@ -1889,7 +1889,6 @@ build_index_tlist(PlannerInfo *root, IndexOptInfo *index,
 										NULL,
 										false));
 	}
-
 	if (indexpr_item != NULL)
 		elog(ERROR, "wrong number of index expressions");
 

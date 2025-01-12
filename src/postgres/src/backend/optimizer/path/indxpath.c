@@ -1593,6 +1593,7 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 			}
 		}
 	}
+
 	return result;
 }
 
