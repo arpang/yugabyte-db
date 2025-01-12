@@ -425,6 +425,12 @@ slot_getsysattr(TupleTableSlot *slot, int attnum, bool *isnull)
 		*isnull = false;
 		return TABLETUPLE_YBCTID(slot);
 	}
+	else if (attnum == YBIdxBaseTupleIdAttributeNumber)
+	{
+		/* Used for secondary index scan. */
+		*isnull = false;
+		return TABLETUPLE_YBCTID(slot);
+	}
 
 	/* Fetch the system attribute from the underlying tuple. */
 	return slot->tts_ops->getsysattr(slot, attnum, isnull);

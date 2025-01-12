@@ -348,6 +348,10 @@ StoreIndexTuple(TupleTableSlot *slot, IndexTuple itup, TupleDesc itupdesc)
 
 	ExecClearTuple(slot);
 	index_deform_tuple(itup, itupdesc, slot->tts_values, slot->tts_isnull);
+
+	if (yb_index_checker)
+		TABLETUPLE_YBCTID(slot) = INDEXTUPLE_YBCTID(itup);
+
 	ExecStoreVirtualTuple(slot);
 }
 

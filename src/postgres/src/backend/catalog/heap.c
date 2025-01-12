@@ -234,7 +234,35 @@ static const FormData_pg_attribute a6 = {
 	.attislocal = true,
 };
 
-static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6};
+static const FormData_pg_attribute a7 = {
+	.attname = {"ybctid"},
+	.atttypid = BYTEAOID,
+	.attlen = sizeof(Oid),
+	.attnum = YBTupleIdAttributeNumber,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = true,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static const FormData_pg_attribute a8 = {
+	.attname = {"ybidxbasectid"},
+	.atttypid = BYTEAOID,
+	.attlen = sizeof(Oid),
+	.attnum = YBIdxBaseTupleIdAttributeNumber,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = true,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8};
 
 /*
  * This function returns a Form_pg_attribute pointer for a system attribute.
@@ -244,8 +272,10 @@ static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6};
 const FormData_pg_attribute *
 SystemAttributeDefinition(AttrNumber attno)
 {
-	if (attno >= 0 || attno < -(int) lengthof(SysAtt))
+	if (attno >= 0 || (attno < -(int) lengthof(SysAtt) && attno != YBIdxBaseTupleIdAttributeNumber))
 		elog(ERROR, "invalid system attribute number %d", attno);
+	if (attno == YBIdxBaseTupleIdAttributeNumber)
+		return SysAtt[lengthof(SysAtt) - 1];
 	return SysAtt[-attno - 1];
 }
 

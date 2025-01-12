@@ -69,6 +69,7 @@ extern void index_check_primary_key(Relation heapRel,
 #define	INDEX_CREATE_IF_NOT_EXISTS			(1 << 4)
 #define	INDEX_CREATE_PARTITIONED			(1 << 5)
 #define INDEX_CREATE_INVALID				(1 << 6)
+#define YB_INDEX_CREATE_IS_YBCTID			(1 << 7)
 
 extern Oid	index_create(Relation heapRelation,
 						 const char *indexRelationName,

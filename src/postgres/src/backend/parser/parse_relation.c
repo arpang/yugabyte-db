@@ -848,7 +848,7 @@ scanRTEForColumn(ParseState *pstate, RangeTblEntry *rte,
 		if (attnum != InvalidAttrNumber)
 		{
 			/* now check to see if column actually is defined */
-			if (SearchSysCacheExists2(ATTNUM,
+			if (yb_index_checker || SearchSysCacheExists2(ATTNUM,
 									  ObjectIdGetDatum(rte->relid),
 									  Int16GetDatum(attnum)))
 			{
@@ -3230,6 +3230,9 @@ get_rte_attribute_name(RangeTblEntry *rte, AttrNumber attnum)
 	/* The ybctid has no entry in pg_attribute */
 	if (attnum == YBTupleIdAttributeNumber)
 		return "ybctid";
+
+	if (attnum == YBIdxBaseTupleIdAttributeNumber)
+		return "ybidxbasectid";
 
 	/*
 	 * If there is a user-written column alias, use it.

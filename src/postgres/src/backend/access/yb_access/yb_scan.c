@@ -2688,7 +2688,7 @@ ybcBuildRequiredAttrs(YbScanDesc yb_scan, YbScanPlan scan_plan,
 				ybcAddNonDroppedAttr(target_desc, attnum, &result);
 	}
 
-	if (index && !index->rd_index->indisprimary && !is_index_only_scan)
+	if (index && !index->rd_index->indisprimary && (yb_index_checker || !is_index_only_scan))
 		ybcAttnumBmsAdd(&result, YBIdxBaseTupleIdAttributeNumber);
 
 	return result;
