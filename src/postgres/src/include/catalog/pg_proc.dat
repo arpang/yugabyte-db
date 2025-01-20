@@ -12106,4 +12106,9 @@
   prorettype => 'int8', proargtypes => '', proallargtypes => '{int8}',
   proargmodes => '{o}', proargnames => '{current_hybrid_time_lsn}',
   prosrc => 'yb_get_current_hybrid_time_lsn'},
+
+{ oid => '8079', descr => 'YB index consistency check',
+  proname => 'yb_index_consistency_check', provolatile => 's',
+  prorettype => 'bool', proargtypes => 'oid',
+  prosrc => 'yb_index_consistency_check' }
 ]

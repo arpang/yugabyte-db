@@ -34,11 +34,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "access/heaptoast.h"
-#include "c.h"
 #include "postgres.h"
-#include "libpq/pqformat.h"
-#include "miscadmin.h"
+#include "access/heaptoast.h"
 #include "access/htup.h"
 #include "access/htup_details.h"
 #include "access/relation.h"
@@ -46,7 +43,7 @@
 #include "access/table.h"
 #include "access/tupdesc.h"
 #include "access/xact.h"
-#include "executor/ybcExpr.h"
+#include "c.h"
 #include "catalog/catalog.h"
 #include "catalog/index.h"
 #include "catalog/indexing.h"
@@ -89,10 +86,17 @@
 #include "commands/ybccmds.h"
 #include "common/ip.h"
 #include "common/pg_yb_common.h"
+#include "executor/nodeIndexonlyscan.h"
+#include "executor/ybcExpr.h"
+#include "fmgr.h"
+#include "funcapi.h"
 #include "lib/stringinfo.h"
 #include "libpq/hba.h"
-#include "libpq/libpq.h"
 #include "libpq/libpq-be.h"
+#include "libpq/libpq.h"
+#include "libpq/pqformat.h"
+#include "mb/pg_wchar.h"
+#include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/cost.h"
 #include "parser/parse_utilcmd.h"
@@ -100,6 +104,7 @@
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/fmgroids.h"
+#include "utils/jsonb.h"
 #include "utils/lsyscache.h"
 #include "utils/pg_locale.h"
 #include "utils/rel.h"
@@ -107,10 +112,6 @@
 #include "utils/spccache.h"
 #include "utils/syscache.h"
 #include "utils/uuid.h"
-#include "utils/jsonb.h"
-#include "fmgr.h"
-#include "funcapi.h"
-#include "mb/pg_wchar.h"
 
 #include "yb/yql/pggate/util/ybc_util.h"
 #include "yb/yql/pggate/ybc_pggate.h"
@@ -1767,13 +1768,16 @@ YbTupleTableSlotToString(TupleTableSlot *slot)
 const char *
 YbTupleTableSlotToStringWithIsOmitted(TupleTableSlot *slot, bool *is_omitted)
 {
-	bool		shouldFree;
+	bool shouldFree = false;
 	HeapTuple	tuple;
 
 	tuple = ExecFetchSlotHeapTuple(slot, false, &shouldFree);
-	Assert(!shouldFree);
-	return YbHeapTupleToStringWithIsOmitted(tuple, slot->tts_tupleDescriptor,
-											is_omitted);
+	const char *result = YbHeapTupleToStringWithIsOmitted(
+		tuple, slot->tts_tupleDescriptor, is_omitted);
+
+	if (shouldFree)
+		heap_freetuple(tuple);
+	return result;
 }
 
 const char *
@@ -3171,6 +3175,140 @@ yb_hash_code(PG_FUNCTION_ARGS)
 	PG_RETURN_UINT16(hashed_val);
 }
 
+// Datum
+// yb_index_consistency_check(PG_FUNCTION_ARGS)
+// {
+// 	yb_index_checker = true;
+// 	// Oid			relid = PG_GETARG_OID(0);
+
+// 	if (SPI_connect() != SPI_OK_CONNECT)
+// 		elog(ERROR, "SPI_connect failed");
+
+// 	char *query = "SELECT (t1.b = t2.b) AND (t1.c = t2.c) AND (t1.d = t2.d) AS "
+// 				  "consistent, COUNT(*) AS count FROM abcd t1 LEFT JOIN abcd "
+// 				  "t2 ON t1.ybidxbasectid = t2.ybctid GROUP BY consistent";
+
+// 	if (SPI_execute(query, true, 0) != SPI_OK_SELECT)
+// 		elog(ERROR, "SPI_exec failed: %s, connect", query);
+
+// 	TupleDesc desc = SPI_tuptable->tupdesc;
+// 	Assert(desc->natts == 2);
+// 	Assert(SPI_processed <= 2);
+// 	Datum values[2];
+// 	bool isnull[2];
+// 	int consistent_count = 0;
+
+// 	for (int i = 0; i < SPI_processed; i++)
+// 	{
+// 		HeapTuple tuple = SPI_tuptable->vals[i];
+// 		heap_deform_tuple(tuple, desc, values, isnull);
+// 		if (DatumGetBool(values[0]))
+// 			consistent_count = DatumGetInt32(values[1]);
+// 		else if (DatumGetInt32(values[1]) > 0)
+// 			return BoolGetDatum(false);
+// 	}
+
+// 	query = "/*+SeqScan(abcd)*/ select count(*) from abcd";
+// 	if (SPI_execute(query, true, 0) != SPI_OK_SELECT)
+// 		elog(ERROR, "SPI_exec failed: %s, connect", query);
+
+// 	desc = SPI_tuptable->tupdesc;
+// 	Assert(desc->natts == 1);
+// 	Assert(SPI_processed == 1);
+// 	heap_deform_tuple(SPI_tuptable->vals[0], desc, values, isnull);
+// 	if (DatumGetInt32(values[0]) != consistent_count)
+// 		return BoolGetDatum(false);
+
+// 	if (SPI_finish() != SPI_OK_FINISH)
+// 		elog(ERROR, "SPI_finish failed");
+// 	yb_index_checker = false;
+// 	return true;
+// }
+
+Datum
+yb_index_consistency_check(PG_FUNCTION_ARGS)
+{
+	EState *estate = CreateExecutorState();
+	Oid indexoid = PG_GETARG_OID(0);
+	Relation indexrel = relation_open(indexoid, AccessShareLock);
+	Assert(indexrel->rd_index);
+	Oid basereloid = indexrel->rd_index->indrelid;
+
+	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
+	rte1->rtekind = RTE_RELATION;
+	rte1->relid = basereloid;
+	rte1->relkind = RELKIND_RELATION;
+
+	RangeTblEntry *rte2 = makeNode(RangeTblEntry);
+	rte2->rtekind = RTE_RELATION;
+	rte2->relid = indexoid;
+	rte2->relkind = RELKIND_INDEX;
+
+	List *rtable = list_make2(rte1, rte2);
+	ExecInitRangeTable(estate, rtable);
+
+	TupleDesc idx_desc = RelationGetDescr(indexrel);
+	Expr *indexvar;
+	List *index_tlist = NIL;
+
+	// reference: build_index_tlist
+	for (int i = 0; i < idx_desc->natts; i++)
+	{
+		// indexrel->rd_index->indkey.values[i];
+		FormData_pg_attribute *att = TupleDescAttr(idx_desc, i);
+		indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
+									i + 1, att->atttypid, att->atttypmod,
+									att->attcollation, 0);
+		TargetEntry *te = makeTargetEntry(indexvar, i, "", false);
+		index_tlist = lappend(index_tlist, te);
+	}
+
+	IndexOnlyScan *index_scan = makeNode(IndexOnlyScan);
+	Plan *plan = &index_scan->scan.plan;
+	plan->targetlist = index_tlist;
+	plan->lefttree = NULL;
+	plan->righttree = NULL;
+	index_scan->scan.scanrelid = 1; // baserelid's rt index
+	index_scan->indexid = indexoid;
+	index_scan->indextlist = index_tlist;
+
+	PlanState *state = ExecInitNode((Plan *) index_scan, estate, 0);
+	TupleTableSlot *slot = ExecProcNode(state);
+	elog(INFO, "Index only scan slot: %s", YbTupleTableSlotToString(slot));
+	ExecEndNode(state);
+
+
+	// Relation baserel = relation_open(basereloid, AccessShareLock);
+	// List *base_tlist = NIL;
+
+	// // reference: build_index_tlist
+	// for (int i = 0; i < idx_desc->natts; i++)
+	// {
+	// 	// indexrel->rd_index->indkey.values[i];
+	// 	FormData_pg_attribute *att = TupleDescAttr(idx_desc, i);
+	// 	indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
+	// 								i + 1, att->atttypid, att->atttypmod,
+	// 								att->attcollation, 0);
+	// 	TargetEntry *te = makeTargetEntry(indexvar, i, "", false);
+	// 	index_tlist = lappend(index_tlist, te);
+	// }
+
+
+	// IndexOnlyScan *base_scan = makeNode(IndexOnlyScan);
+	// plan = &base_scan->scan.plan;
+	// plan->targetlist = index_tlist;
+	// plan->lefttree = NULL;
+	// plan->righttree = NULL;
+	// index_scan->scan.scanrelid = 1; // baserelid's rt index
+	// index_scan->indexid = basereloid;
+	// index_scan->indextlist = index_tlist;
+
+
+	FreeExecutorState(estate);
+	relation_close(indexrel, AccessShareLock);
+	// RelationClose(baserel);
+	return 0;
+}
 /*
  * For backward compatibility, this function dynamically adapts to the number
  * of output columns defined in pg_proc.
