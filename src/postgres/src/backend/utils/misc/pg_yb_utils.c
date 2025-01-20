@@ -3230,7 +3230,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 {
 	EState *estate = CreateExecutorState();
 	Oid indexoid = PG_GETARG_OID(0);
-	Relation indexrel = relation_open(indexoid, AccessShareLock);
+	Relation indexrel = RelationIdGetRelation(indexoid);
 	Assert(indexrel->rd_index);
 	Oid basereloid = indexrel->rd_index->indrelid;
 
@@ -3250,16 +3250,19 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	TupleDesc idx_desc = RelationGetDescr(indexrel);
 	Expr *indexvar;
 	List *index_tlist = NIL;
+	TargetEntry *te;
+	FormData_pg_attribute *att;
+	// List* base_attnum; // A
 
 	// reference: build_index_tlist
 	for (int i = 0; i < idx_desc->natts; i++)
 	{
 		// indexrel->rd_index->indkey.values[i];
-		FormData_pg_attribute *att = TupleDescAttr(idx_desc, i);
+		att = TupleDescAttr(idx_desc, i);
 		indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
 									i + 1, att->atttypid, att->atttypmod,
 									att->attcollation, 0);
-		TargetEntry *te = makeTargetEntry(indexvar, i, "", false);
+		te = makeTargetEntry(indexvar, i+1, "", false);
 		index_tlist = lappend(index_tlist, te);
 	}
 
@@ -3274,39 +3277,54 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 
 	PlanState *state = ExecInitNode((Plan *) index_scan, estate, 0);
 	TupleTableSlot *slot = ExecProcNode(state);
-	elog(INFO, "Index only scan slot: %s", YbTupleTableSlotToString(slot));
+	elog(INFO, "Index rel slot: %s", YbTupleTableSlotToString(slot));
 	ExecEndNode(state);
 
 
-	// Relation baserel = relation_open(basereloid, AccessShareLock);
-	// List *base_tlist = NIL;
+	Relation baserel = RelationIdGetRelation(basereloid);
+	TupleDesc base_desc = RelationGetDescr(baserel);
+	List *base_cols = NIL; // all columns of base rel
+	List *base_tlist = NIL; // output of this index scan
+	AttrNumber attnum;
 
-	// // reference: build_index_tlist
-	// for (int i = 0; i < idx_desc->natts; i++)
-	// {
-	// 	// indexrel->rd_index->indkey.values[i];
-	// 	FormData_pg_attribute *att = TupleDescAttr(idx_desc, i);
-	// 	indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
-	// 								i + 1, att->atttypid, att->atttypmod,
-	// 								att->attcollation, 0);
-	// 	TargetEntry *te = makeTargetEntry(indexvar, i, "", false);
-	// 	index_tlist = lappend(index_tlist, te);
-	// }
+	for (int i = 0; i < base_desc->natts; i++)
+	{
+		att = TupleDescAttr(base_desc, i);
+		indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
+									i + 1, att->atttypid, att->atttypmod,
+									att->attcollation, 0);
+		te = makeTargetEntry(indexvar, i+1, "", false);
+		base_cols = lappend(base_cols, te);
+	}
 
+	for (int i = 0; i < idx_desc->natts; i++)
+	{
+		attnum = indexrel->rd_index->indkey.values[i];
+		att = TupleDescAttr(base_desc, attnum - 1);
+		indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
+									attnum, att->atttypid, att->atttypmod,
+									att->attcollation, 0);
+		te = makeTargetEntry(indexvar, i+1, "", false);
+		base_tlist = lappend(base_tlist, te);
+	}
 
-	// IndexOnlyScan *base_scan = makeNode(IndexOnlyScan);
-	// plan = &base_scan->scan.plan;
-	// plan->targetlist = index_tlist;
-	// plan->lefttree = NULL;
-	// plan->righttree = NULL;
-	// index_scan->scan.scanrelid = 1; // baserelid's rt index
-	// index_scan->indexid = basereloid;
-	// index_scan->indextlist = index_tlist;
+	IndexOnlyScan *base_scan = makeNode(IndexOnlyScan);
+	plan = &base_scan->scan.plan;
+	plan->targetlist = base_tlist; // output from the node
+	plan->lefttree = NULL;
+	plan->righttree = NULL;
+	base_scan->scan.scanrelid = 1; // baserelid's rt index
+	base_scan->indexid = basereloid;
+	base_scan->indextlist = base_cols; // index cols
 
+	state = ExecInitNode((Plan *) base_scan, estate, 0);
+	slot = ExecProcNode(state);
+	elog(INFO, "Base rel slot: %s", YbTupleTableSlotToString(slot));
+	ExecEndNode(state);
 
 	FreeExecutorState(estate);
-	relation_close(indexrel, AccessShareLock);
-	// RelationClose(baserel);
+	RelationClose(indexrel);
+	RelationClose(baserel);
 	return 0;
 }
 /*
