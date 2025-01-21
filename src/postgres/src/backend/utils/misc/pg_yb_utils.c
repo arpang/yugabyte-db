@@ -3325,7 +3325,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 		if (attnum > 0)
 		{
 			att = TupleDescAttr(base_desc, attnum - 1);
-			indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
+			indexvar = (Expr *) makeVar(1, // index's rt index
 										attnum, att->atttypid, att->atttypmod,
 										att->attcollation, 0);
 		}
@@ -3340,13 +3340,13 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	}
 
 	att = SystemAttributeDefinition(YBTupleIdAttributeNumber);
-	indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
+	indexvar = (Expr *) makeVar(1, // index's rt index
 								YBTupleIdAttributeNumber, att->atttypid, att->atttypmod,
 								att->attcollation, 0);
 	te = makeTargetEntry(indexvar, i+1, "", false);
 	base_scan_tlist = lappend(base_scan_tlist, te);
 
-	IndexOnlyScan *base_scan = makeNode(IndexOnlyScan);
+	IndexScan *base_scan = makeNode(IndexScan);
 	plan = &base_scan->scan.plan;
 	plan->targetlist = base_scan_tlist; // output from the node
 	plan->lefttree = NULL;
@@ -3365,6 +3365,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	RelationClose(baserel);
 	return 0;
 }
+
 /*
  * For backward compatibility, this function dynamically adapts to the number
  * of output columns defined in pg_proc.
