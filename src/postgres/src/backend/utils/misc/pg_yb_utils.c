@@ -100,6 +100,7 @@
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/cost.h"
+#include "optimizer/planmain.h"
 #include "parser/parse_utilcmd.h"
 #include "tcop/utility.h"
 #include "utils/builtins.h"
@@ -3240,13 +3241,13 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	rte1->relid = basereloid;
 	rte1->relkind = RELKIND_RELATION;
 
-	RangeTblEntry *rte2 = makeNode(RangeTblEntry);
-	rte2->rtekind = RTE_RELATION;
-	rte2->relid = indexoid;
-	rte2->relkind = RELKIND_INDEX;
+	// RangeTblEntry *rte2 = makeNode(RangeTblEntry);
+	// rte2->rtekind = RTE_RELATION;
+	// rte2->relid = indexoid;
+	// rte2->relkind = RELKIND_INDEX;
 
-	List *rtable = list_make2(rte1, rte2);
-	ExecInitRangeTable(estate, rtable);
+	// List *rtable = list_make2(rte1, rte2);
+	ExecInitRangeTable(estate, list_make1(rte1));
 
 	TupleDesc idx_desc = RelationGetDescr(indexrel);
 	Expr *indexvar;
@@ -3299,20 +3300,41 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	for (i = 0; i < base_desc->natts; i++)
 	{
 		att = TupleDescAttr(base_desc, i);
-		indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
+		indexvar = (Expr *) makeVar(1, // index's rt index
 									i + 1, att->atttypid, att->atttypmod,
 									att->attcollation, 0);
 		te = makeTargetEntry(indexvar, i+1, "", false);
 		base_cols = lappend(base_cols, te);
 	}
 
+	bool isnull;
+	List* indexprs;
+	ListCell* next_expr;
+	Datum exprsDatum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+									   Anum_pg_index_indexprs, &isnull);
+	if (!isnull)
+	{
+		char* exprsString = TextDatumGetCString(exprsDatum);
+		indexprs = (List *) stringToNode(exprsString);
+		next_expr = list_head(indexprs);
+	}
+
 	for (i = 0; i < idx_desc->natts; i++)
 	{
 		attnum = indexrel->rd_index->indkey.values[i];
-		att = TupleDescAttr(base_desc, attnum - 1);
-		indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
-									attnum, att->atttypid, att->atttypmod,
-									att->attcollation, 0);
+		if (attnum > 0)
+		{
+			att = TupleDescAttr(base_desc, attnum - 1);
+			indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
+										attnum, att->atttypid, att->atttypmod,
+										att->attcollation, 0);
+		}
+		else
+		{
+			Assert(next_expr);
+			indexvar = (Expr*) lfirst(next_expr);
+			next_expr = lnext(indexprs, next_expr);
+		}
 		te = makeTargetEntry(indexvar, i+1, "", false);
 		base_scan_tlist = lappend(base_scan_tlist, te);
 	}
