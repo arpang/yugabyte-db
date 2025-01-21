@@ -48,6 +48,7 @@
 #include "catalog/heap.h"
 #include "catalog/index.h"
 #include "catalog/indexing.h"
+#include "catalog/namespace.h"
 #include "catalog/pg_am.h"
 #include "catalog/pg_amop.h"
 #include "catalog/pg_amproc.h"
@@ -3177,6 +3178,59 @@ yb_hash_code(PG_FUNCTION_ARGS)
 	PG_RETURN_UINT16(hashed_val);
 }
 
+static bool
+TupleConsistencyCheck(TupleTableSlot *lhs_slot, TupleTableSlot *rhs_slot)
+{
+	Assert(lhs_slot->tts_nvalid == rhs_slot->tts_nvalid);
+	for (int i = 0; i < lhs_slot->tts_nvalid; i++)
+	{
+
+		Form_pg_attribute l_att = TupleDescAttr(lhs_slot->tts_tupleDescriptor, i);
+		Form_pg_attribute r_att = TupleDescAttr(rhs_slot->tts_tupleDescriptor, i);
+		Assert(l_att->atttypid == r_att->atttypid);
+
+		bool l_null;
+		bool r_null;
+		bool l_datum = slot_getattr(lhs_slot, i, &l_null);
+		bool r_datum = slot_getattr(rhs_slot, i, &r_null);
+
+		if (l_null || r_null)
+		{
+			if (l_null && r_null)
+			{
+				elog(INFO, "i %d: both values are null, hence consistent", i);
+				continue;
+			}
+			elog(INFO, "i %d: one is null and other is not, hence inconsistent", i);
+			return false;
+		}
+
+		if (datumIsEqual(l_datum, r_datum, l_att->attbyval, l_att->attlen))
+		{
+			elog(INFO, "i %d: binary values matched, hence consistent", i);
+			continue;
+		}
+
+		// I shouldn't be doing it for every tuple set.
+		Oid opid = OpernameGetOprid(list_make1("="), l_att->atttypid, r_att->atttypid);
+
+		if (opid == InvalidOid)
+		{
+			elog(INFO, "i %d: binary values mismatched and '=' op is not defined, hence inconsistent", i);
+			return false;
+		}
+
+		if (!DatumGetBool(OidFunctionCall2(opid, l_datum, r_datum)))
+		{
+			elog(INFO, "i %d: both binary and semantic values mismatched, hence inconsistent", i);
+			return false;
+		}
+		elog(INFO, "i %d: binary values mismatched but semantic values matched, hence consistent", i);
+	}
+
+	return true;
+}
+
 Datum
 yb_index_consistency_check(PG_FUNCTION_ARGS)
 {
@@ -3236,8 +3290,8 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	index_scan->indextlist = index_cols;
 
 	PlanState *state = ExecInitNode((Plan *) index_scan, estate, 0);
-	TupleTableSlot *slot = ExecProcNode(state);
-	elog(INFO, "Index rel slot: %s", YbTupleTableSlotToString(slot));
+	TupleTableSlot *index_slot = ExecProcNode(state);
+	elog(INFO, "Index rel slot: %s", YbTupleTableSlotToString(index_slot));
 	ExecEndNode(state);
 
 	Relation baserel = RelationIdGetRelation(basereloid);
@@ -3305,14 +3359,15 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	base_scan->indextlist = base_cols; // index cols
 
 	state = ExecInitNode((Plan *) base_scan, estate, 0);
-	slot = ExecProcNode(state);
-	elog(INFO, "Base rel slot: %s", YbTupleTableSlotToString(slot));
+	TupleTableSlot *base_slot = ExecProcNode(state);
+	elog(INFO, "Base rel slot: %s", YbTupleTableSlotToString(base_slot));
 	ExecEndNode(state);
 
-	FreeExecutorState(estate);
+	bool result = TupleConsistencyCheck(index_slot, base_slot);
 	RelationClose(indexrel);
 	RelationClose(baserel);
-	return 0;
+	FreeExecutorState(estate);
+	return result;
 }
 
 /*
