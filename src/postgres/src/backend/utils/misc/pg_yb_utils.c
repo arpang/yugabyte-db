@@ -3177,56 +3177,6 @@ yb_hash_code(PG_FUNCTION_ARGS)
 	PG_RETURN_UINT16(hashed_val);
 }
 
-// Datum
-// yb_index_consistency_check(PG_FUNCTION_ARGS)
-// {
-// 	yb_index_checker = true;
-// 	// Oid			relid = PG_GETARG_OID(0);
-
-// 	if (SPI_connect() != SPI_OK_CONNECT)
-// 		elog(ERROR, "SPI_connect failed");
-
-// 	char *query = "SELECT (t1.b = t2.b) AND (t1.c = t2.c) AND (t1.d = t2.d) AS "
-// 				  "consistent, COUNT(*) AS count FROM abcd t1 LEFT JOIN abcd "
-// 				  "t2 ON t1.ybidxbasectid = t2.ybctid GROUP BY consistent";
-
-// 	if (SPI_execute(query, true, 0) != SPI_OK_SELECT)
-// 		elog(ERROR, "SPI_exec failed: %s, connect", query);
-
-// 	TupleDesc desc = SPI_tuptable->tupdesc;
-// 	Assert(desc->natts == 2);
-// 	Assert(SPI_processed <= 2);
-// 	Datum values[2];
-// 	bool isnull[2];
-// 	int consistent_count = 0;
-
-// 	for (int i = 0; i < SPI_processed; i++)
-// 	{
-// 		HeapTuple tuple = SPI_tuptable->vals[i];
-// 		heap_deform_tuple(tuple, desc, values, isnull);
-// 		if (DatumGetBool(values[0]))
-// 			consistent_count = DatumGetInt32(values[1]);
-// 		else if (DatumGetInt32(values[1]) > 0)
-// 			return BoolGetDatum(false);
-// 	}
-
-// 	query = "/*+SeqScan(abcd)*/ select count(*) from abcd";
-// 	if (SPI_execute(query, true, 0) != SPI_OK_SELECT)
-// 		elog(ERROR, "SPI_exec failed: %s, connect", query);
-
-// 	desc = SPI_tuptable->tupdesc;
-// 	Assert(desc->natts == 1);
-// 	Assert(SPI_processed == 1);
-// 	heap_deform_tuple(SPI_tuptable->vals[0], desc, values, isnull);
-// 	if (DatumGetInt32(values[0]) != consistent_count)
-// 		return BoolGetDatum(false);
-
-// 	if (SPI_finish() != SPI_OK_FINISH)
-// 		elog(ERROR, "SPI_finish failed");
-// 	yb_index_checker = false;
-// 	return true;
-// }
-
 Datum
 yb_index_consistency_check(PG_FUNCTION_ARGS)
 {
@@ -3260,7 +3210,6 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	int i ;
 	for (i = 0; i < idx_desc->natts; i++)
 	{
-		// indexrel->rd_index->indkey.values[i];
 		att = TupleDescAttr(idx_desc, i);
 		indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
 									i + 1, att->atttypid, att->atttypmod,

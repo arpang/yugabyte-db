@@ -162,13 +162,12 @@ index_open(Oid relationId, LOCKMODE lockmode)
 					errmsg("\"%s\" is not an index",
 							RelationGetRelationName(r))));
 
-		// Should we reserver this codepath exclusively for when pk is not present?
 		r->rd_indam = GetIndexAmRoutineByAmId(LSM_AM_OID, false);
 		Form_pg_index pg_index = palloc0(sizeof(FormData_pg_index));
 		pg_index->indexrelid = relationId;
 		pg_index->indrelid = relationId;
-		pg_index->indnatts = r->rd_rel->relnatts; // TODO: +1 for ybctid
-		pg_index->indnkeyatts = 0; // TODO: What should this be?
+		pg_index->indnatts = r->rd_rel->relnatts;
+		pg_index->indnkeyatts = 0;
 		pg_index->indisunique = true;
 		pg_index->indisprimary = true;
 		pg_index->indimmediate = true;
@@ -176,14 +175,9 @@ index_open(Oid relationId, LOCKMODE lockmode)
 		pg_index->indisready = true;
 		pg_index->indislive = true;
 
-		elog(INFO, "pg_index->indnatts %d", pg_index->indnatts);
 		pg_index->indkey = *buildint2vector(NULL, pg_index->indnatts);
 		for (int i = 0; i < pg_index->indnatts; i++)
 			pg_index->indkey.values[i] = i+1;
-
-		// int2vector* indcollation = buildint2vector(NULL, 1);
-		// int2vector* indclass = buildint2vector(NULL, 1);
-		// indkey->values[0] = YBTupleIdAttributeNumber;
 		r->rd_index = pg_index;
 	}
 
