@@ -45,6 +45,7 @@
 #include "access/xact.h"
 #include "c.h"
 #include "catalog/catalog.h"
+#include "catalog/heap.h"
 #include "catalog/index.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_am.h"
@@ -3249,13 +3250,14 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 
 	TupleDesc idx_desc = RelationGetDescr(indexrel);
 	Expr *indexvar;
-	List *index_tlist = NIL;
+	List *index_cols = NIL;
+	List *index_scan_tlist = NIL;
 	TargetEntry *te;
-	FormData_pg_attribute *att;
-	// List* base_attnum; // A
+	const FormData_pg_attribute *att;
 
 	// reference: build_index_tlist
-	for (int i = 0; i < idx_desc->natts; i++)
+	int i ;
+	for (i = 0; i < idx_desc->natts; i++)
 	{
 		// indexrel->rd_index->indkey.values[i];
 		att = TupleDescAttr(idx_desc, i);
@@ -3263,31 +3265,38 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 									i + 1, att->atttypid, att->atttypmod,
 									att->attcollation, 0);
 		te = makeTargetEntry(indexvar, i+1, "", false);
-		index_tlist = lappend(index_tlist, te);
+		index_cols = lappend(index_cols, te);
+		index_scan_tlist = lappend(index_scan_tlist, te);
 	}
+
+	att = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
+	indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
+								YBIdxBaseTupleIdAttributeNumber, att->atttypid, att->atttypmod,
+								att->attcollation, 0);
+	te = makeTargetEntry(indexvar, i+1, "", false);
+	index_scan_tlist = lappend(index_scan_tlist, te);
 
 	IndexOnlyScan *index_scan = makeNode(IndexOnlyScan);
 	Plan *plan = &index_scan->scan.plan;
-	plan->targetlist = index_tlist;
+	plan->targetlist = index_scan_tlist;
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
 	index_scan->scan.scanrelid = 1; // baserelid's rt index
 	index_scan->indexid = indexoid;
-	index_scan->indextlist = index_tlist;
+	index_scan->indextlist = index_cols;
 
 	PlanState *state = ExecInitNode((Plan *) index_scan, estate, 0);
 	TupleTableSlot *slot = ExecProcNode(state);
 	elog(INFO, "Index rel slot: %s", YbTupleTableSlotToString(slot));
 	ExecEndNode(state);
 
-
 	Relation baserel = RelationIdGetRelation(basereloid);
 	TupleDesc base_desc = RelationGetDescr(baserel);
 	List *base_cols = NIL; // all columns of base rel
-	List *base_tlist = NIL; // output of this index scan
+	List *base_scan_tlist = NIL; // output of this scan
 	AttrNumber attnum;
 
-	for (int i = 0; i < base_desc->natts; i++)
+	for (i = 0; i < base_desc->natts; i++)
 	{
 		att = TupleDescAttr(base_desc, i);
 		indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
@@ -3297,7 +3306,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 		base_cols = lappend(base_cols, te);
 	}
 
-	for (int i = 0; i < idx_desc->natts; i++)
+	for (i = 0; i < idx_desc->natts; i++)
 	{
 		attnum = indexrel->rd_index->indkey.values[i];
 		att = TupleDescAttr(base_desc, attnum - 1);
@@ -3305,12 +3314,19 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 									attnum, att->atttypid, att->atttypmod,
 									att->attcollation, 0);
 		te = makeTargetEntry(indexvar, i+1, "", false);
-		base_tlist = lappend(base_tlist, te);
+		base_scan_tlist = lappend(base_scan_tlist, te);
 	}
+
+	att = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
+								YBTupleIdAttributeNumber, att->atttypid, att->atttypmod,
+								att->attcollation, 0);
+	te = makeTargetEntry(indexvar, i+1, "", false);
+	base_scan_tlist = lappend(base_scan_tlist, te);
 
 	IndexOnlyScan *base_scan = makeNode(IndexOnlyScan);
 	plan = &base_scan->scan.plan;
-	plan->targetlist = base_tlist; // output from the node
+	plan->targetlist = base_scan_tlist; // output from the node
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
 	base_scan->scan.scanrelid = 1; // baserelid's rt index
