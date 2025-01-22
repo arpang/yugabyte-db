@@ -56,6 +56,7 @@
 #include "catalog/index.h"
 #include "catalog/pg_am_d.h"
 #include "catalog/pg_amproc.h"
+#include "catalog/pg_opfamily_d.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
 #include "nodes/makefuncs.h"
@@ -166,8 +167,8 @@ index_open(Oid relationId, LOCKMODE lockmode)
 		Form_pg_index pg_index = palloc0(sizeof(FormData_pg_index));
 		pg_index->indexrelid = relationId;
 		pg_index->indrelid = relationId;
-		pg_index->indnatts = r->rd_rel->relnatts;
-		pg_index->indnkeyatts = 0;
+		pg_index->indnatts = r->rd_rel->relnatts + 1;
+		pg_index->indnkeyatts = 1;
 		pg_index->indisunique = true;
 		pg_index->indisprimary = true;
 		pg_index->indimmediate = true;
@@ -176,9 +177,15 @@ index_open(Oid relationId, LOCKMODE lockmode)
 		pg_index->indislive = true;
 
 		pg_index->indkey = *buildint2vector(NULL, pg_index->indnatts);
-		for (int i = 0; i < pg_index->indnatts; i++)
+
+		pg_index->indkey.values[0] = YBTupleIdAttributeNumber;
+
+		for (int i = 1; i < pg_index->indnatts; i++)
 			pg_index->indkey.values[i] = i+1;
 		r->rd_index = pg_index;
+
+		r->rd_opfamily = palloc0(sizeof(Oid) * pg_index->indnkeyatts);
+		r->rd_opfamily[0] = BYTEA_LSM_FAM_OID;
 	}
 
 	return r;

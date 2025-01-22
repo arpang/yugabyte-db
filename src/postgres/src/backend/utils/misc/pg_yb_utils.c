@@ -3282,8 +3282,8 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 
 	att = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
 	indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
-								YBIdxBaseTupleIdAttributeNumber, att->atttypid, att->atttypmod,
-								att->attcollation, 0);
+								YBIdxBaseTupleIdAttributeNumber, att->atttypid,
+								att->atttypmod, att->attcollation, 0);
 	te = makeTargetEntry(indexvar, i+1, "", false);
 	index_scan_tlist = lappend(index_scan_tlist, te);
 
@@ -3350,10 +3350,29 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 
 	att = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	indexvar = (Expr *) makeVar(1, // index's rt index
-								YBTupleIdAttributeNumber, att->atttypid, att->atttypmod,
-								att->attcollation, 0);
+								YBTupleIdAttributeNumber, att->atttypid,
+								att->atttypmod, att->attcollation, 0);
 	te = makeTargetEntry(indexvar, i+1, "", false);
 	base_scan_tlist = lappend(base_scan_tlist, te);
+
+	Datum ybbasectid =
+		slot_getattr(index_slot, index_slot->tts_nvalid, &isnull);
+	Assert(!isnull);
+	Const *ybbasectid_expr = makeConst(att->atttypid, att->atttypmod,
+									   att->attcollation, att->attlen,
+									   ybbasectid, false, att->attbyval);
+
+	Expr *ybctid_expr = (Expr *) makeVar(INDEX_VAR, // index's rt index
+										 1, att->atttypid, att->atttypmod,
+										 att->attcollation, 0);
+
+	OpExpr *clause = (OpExpr *) make_opclause(ByteaEqualOperator, BOOLOID,
+											  false, ybctid_expr,
+											  (Expr *) ybbasectid_expr,
+											  InvalidOid, InvalidOid);
+	clause->opfuncid = get_opcode(ByteaEqualOperator);
+	Assert(clause->opfuncid != InvalidOid);
+	List *quals = list_make1(clause);
 
 	IndexScan *base_scan = makeNode(IndexScan);
 	plan = &base_scan->scan.plan;
@@ -3363,6 +3382,8 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	base_scan->scan.scanrelid = 1; // baserelid's rt index
 	base_scan->indexid = basereloid;
 	base_scan->indextlist = base_cols; // index cols
+	base_scan->indexqual = quals;
+	base_scan->indexqualorig = quals;
 
 	PlanState * base_scan_state = ExecInitNode((Plan *) base_scan, estate, 0);
 	TupleTableSlot *base_slot = ExecProcNode(base_scan_state);
