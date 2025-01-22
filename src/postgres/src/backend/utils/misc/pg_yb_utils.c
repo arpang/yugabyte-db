@@ -3240,52 +3240,48 @@ TupleConsistencyCheck(TupleTableSlot *lhs_slot, TupleTableSlot *rhs_slot)
 Datum
 yb_index_consistency_check(PG_FUNCTION_ARGS)
 {
-	EState *estate = CreateExecutorState();
-	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 	Oid indexoid = PG_GETARG_OID(0);
 	Relation indexrel = RelationIdGetRelation(indexoid);
 	Assert(indexrel->rd_index);
 	Oid basereloid = indexrel->rd_index->indrelid;
+
+	EState *estate = CreateExecutorState();
+	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 
 	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
 	rte1->rtekind = RTE_RELATION;
 	rte1->relid = basereloid;
 	rte1->relkind = RELKIND_RELATION;
 
-	// RangeTblEntry *rte2 = makeNode(RangeTblEntry);
-	// rte2->rtekind = RTE_RELATION;
-	// rte2->relid = indexoid;
-	// rte2->relkind = RELKIND_INDEX;
-
-	// List *rtable = list_make2(rte1, rte2);
 	ExecInitRangeTable(estate, list_make1(rte1));
 
 	TupleDesc idx_desc = RelationGetDescr(indexrel);
-	Expr *indexvar;
+	Expr *expr;
 	List *index_cols = NIL;
 	List *index_scan_tlist = NIL;
-	TargetEntry *te;
-	const FormData_pg_attribute *att;
+	TargetEntry *target_entry;
+	const FormData_pg_attribute *attr;
+	int i;
 
 	// reference: build_index_tlist
-	int i ;
+
+	// IndexOnlyScan (on index)
 	for (i = 0; i < idx_desc->natts; i++)
 	{
-		att = TupleDescAttr(idx_desc, i);
-		indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
-									i + 1, att->atttypid, att->atttypmod,
-									att->attcollation, 0);
-		te = makeTargetEntry(indexvar, i+1, "", false);
-		index_cols = lappend(index_cols, te);
-		index_scan_tlist = lappend(index_scan_tlist, te);
+		attr = TupleDescAttr(idx_desc, i);
+		expr = (Expr *) makeVar(INDEX_VAR, i + 1, attr->atttypid,
+								attr->atttypmod, attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, i + 1, "", false);
+		index_cols = lappend(index_cols, target_entry);
+		index_scan_tlist = lappend(index_scan_tlist, target_entry);
 	}
 
-	att = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
-	indexvar = (Expr *) makeVar(INDEX_VAR, // index's rt index
-								YBIdxBaseTupleIdAttributeNumber, att->atttypid,
-								att->atttypmod, att->attcollation, 0);
-	te = makeTargetEntry(indexvar, i+1, "", false);
-	index_scan_tlist = lappend(index_scan_tlist, te);
+	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
+	Var *ybbasectid_expr = makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
+								   attr->atttypid, attr->atttypmod,
+								   attr->attcollation, 0);
+	target_entry = makeTargetEntry((Expr *) ybbasectid_expr, i + 1, "", false);
+	index_scan_tlist = lappend(index_scan_tlist, target_entry);
 
 	IndexOnlyScan *index_scan = makeNode(IndexOnlyScan);
 	Plan *plan = &index_scan->scan.plan;
@@ -3296,10 +3292,11 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	index_scan->indexid = indexoid;
 	index_scan->indextlist = index_cols;
 
-	PlanState *index_scan_state = ExecInitNode((Plan *) index_scan, estate, 0);
-	TupleTableSlot *index_slot = ExecProcNode(index_scan_state);
-	elog(INFO, "Index rel slot: %s", YbTupleTableSlotToString(index_slot));
+	// PlanState *index_scan_state = ExecInitNode((Plan *) index_scan, estate,
+	// 0); TupleTableSlot *index_slot = ExecProcNode(index_scan_state);
+	// elog(INFO, "Index rel slot: %s", YbTupleTableSlotToString(index_slot));
 
+	// IndexScan (on base rel)
 	Relation baserel = RelationIdGetRelation(basereloid);
 	TupleDesc base_desc = RelationGetDescr(baserel);
 	List *base_cols = NIL; // all columns of base rel
@@ -3308,12 +3305,11 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 
 	for (i = 0; i < base_desc->natts; i++)
 	{
-		att = TupleDescAttr(base_desc, i);
-		indexvar = (Expr *) makeVar(1, // index's rt index
-									i + 1, att->atttypid, att->atttypmod,
-									att->attcollation, 0);
-		te = makeTargetEntry(indexvar, i+1, "", false);
-		base_cols = lappend(base_cols, te);
+		attr = TupleDescAttr(base_desc, i);
+		expr = (Expr *) makeVar(1, i + 1, attr->atttypid, attr->atttypmod,
+								attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, i + 1, "", false);
+		base_cols = lappend(base_cols, target_entry);
 	}
 
 	bool isnull;
@@ -3333,46 +3329,67 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 		attnum = indexrel->rd_index->indkey.values[i];
 		if (attnum > 0)
 		{
-			att = TupleDescAttr(base_desc, attnum - 1);
-			indexvar = (Expr *) makeVar(1, // index's rt index
-										attnum, att->atttypid, att->atttypmod,
-										att->attcollation, 0);
+			attr = TupleDescAttr(base_desc, attnum - 1);
+			elog(INFO, "IndexScan i %d, attnum %d, type: %d", i, attnum,
+				 attr->atttypid);
+			expr = (Expr *) makeVar(1, attnum, attr->atttypid, attr->atttypmod,
+									attr->attcollation, 0);
 		}
 		else
 		{
 			Assert(next_expr);
-			indexvar = (Expr*) lfirst(next_expr);
+			expr = (Expr *) lfirst(next_expr);
 			next_expr = lnext(indexprs, next_expr);
 		}
-		te = makeTargetEntry(indexvar, i+1, "", false);
-		base_scan_tlist = lappend(base_scan_tlist, te);
+		target_entry = makeTargetEntry(expr, i + 1, "", false);
+		base_scan_tlist = lappend(base_scan_tlist, target_entry);
 	}
 
-	att = SystemAttributeDefinition(YBTupleIdAttributeNumber);
-	indexvar = (Expr *) makeVar(1, // index's rt index
-								YBTupleIdAttributeNumber, att->atttypid,
-								att->atttypmod, att->attcollation, 0);
-	te = makeTargetEntry(indexvar, i+1, "", false);
-	base_scan_tlist = lappend(base_scan_tlist, te);
+	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
+							   attr->atttypmod, attr->attcollation, 0);
+	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
+	base_scan_tlist = lappend(base_scan_tlist, target_entry);
 
-	Datum ybbasectid =
-		slot_getattr(index_slot, index_slot->tts_nvalid, &isnull);
-	Assert(!isnull);
-	Const *ybbasectid_expr = makeConst(att->atttypid, att->atttypmod,
-									   att->attcollation, att->attlen,
-									   ybbasectid, false, att->attbyval);
+	// IndexScan qual
 
-	Expr *ybctid_expr = (Expr *) makeVar(INDEX_VAR, // index's rt index
-										 1, att->atttypid, att->atttypmod,
-										 att->attcollation, 0);
+	// LHS
+	Var *ybctid_from_index = (Var *) copyObject(ybctid_expr);
+	ybctid_from_index->varno = INDEX_VAR;
+	ybctid_from_index->varattno = 1;
 
-	OpExpr *clause = (OpExpr *) make_opclause(ByteaEqualOperator, BOOLOID,
-											  false, ybctid_expr,
-											  (Expr *) ybbasectid_expr,
-											  InvalidOid, InvalidOid);
-	clause->opfuncid = get_opcode(ByteaEqualOperator);
-	Assert(clause->opfuncid != InvalidOid);
-	List *quals = list_make1(clause);
+	// RHS
+	List *params = NIL;
+	for (int i = 0; i < yb_bnl_batch_size; i++)
+	{
+		Param *param = makeNode(Param);
+		param->paramkind = PARAM_EXEC;
+		param->paramid = i;
+		param->paramtype = ybbasectid_expr->vartype;
+		param->paramtypmod = ybbasectid_expr->vartypmod;
+		param->paramcollid = ybbasectid_expr->varcollid;
+		param->location = ybbasectid_expr->location;
+		params = lappend(params, param);
+	}
+	ArrayExpr *arrexpr = makeNode(ArrayExpr);
+	arrexpr->array_typeid = BYTEAARRAYOID;
+	arrexpr->element_typeid = BYTEAOID;
+	arrexpr->multidims = false;
+	arrexpr->array_collid = InvalidOid;
+	arrexpr->location = -1;
+	arrexpr->elements = params;
+
+	// Qual expression
+	ScalarArrayOpExpr *saop = makeNode(ScalarArrayOpExpr);
+	saop->opno = ByteaEqualOperator;
+	saop->opfuncid = get_opcode(ByteaEqualOperator);
+	saop->useOr = true;
+	saop->inputcollid = InvalidOid;
+	saop->args = list_make2(ybctid_from_index, arrexpr);
+	// List *quals = list_make1(saop);
+
+	ScalarArrayOpExpr *orig_saop = copyObjectImpl(saop);
+	orig_saop->args = list_make2(ybctid_expr, arrexpr);
 
 	IndexScan *base_scan = makeNode(IndexScan);
 	plan = &base_scan->scan.plan;
@@ -3382,17 +3399,80 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	base_scan->scan.scanrelid = 1; // baserelid's rt index
 	base_scan->indexid = basereloid;
 	base_scan->indextlist = base_cols; // index cols
-	base_scan->indexqual = quals;
-	base_scan->indexqualorig = quals;
+	base_scan->indexqual = list_make1(saop);
+	base_scan->indexqualorig = list_make1(orig_saop);
 
-	PlanState * base_scan_state = ExecInitNode((Plan *) base_scan, estate, 0);
-	TupleTableSlot *base_slot = ExecProcNode(base_scan_state);
-	elog(INFO, "Base rel slot: %s", YbTupleTableSlotToString(base_slot));
+	// PlanState * base_scan_state = ExecInitNode((Plan *) base_scan, estate,
+	// 0); TupleTableSlot *base_slot = ExecProcNode(base_scan_state); elog(INFO,
+	// "Base rel slot: %s", YbTupleTableSlotToString(base_slot));
 
-	bool result = TupleConsistencyCheck(index_slot, base_slot);
+	// bool result = TupleConsistencyCheck(index_slot, base_slot);
 
-	ExecEndNode(index_scan_state);
-	ExecEndNode(base_scan_state);
+	// BNL
+
+	List *join_tlist = NIL;
+	for (i = 0; i < idx_desc->natts; i++)
+	{
+		attr = TupleDescAttr(idx_desc, i);
+		expr = (Expr *) makeVar(OUTER_VAR, // index's rt index
+								i + 1, attr->atttypid, attr->atttypmod,
+								attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, 2 * i + 1, "", false);
+		join_tlist = lappend(join_tlist, target_entry);
+
+		expr = (Expr *) makeVar(INNER_VAR, // index's rt index
+								i + 1, attr->atttypid, attr->atttypmod,
+								attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, 2 * i + 2, "", false);
+		join_tlist = lappend(join_tlist, target_entry);
+	}
+
+	// Join clause
+	Var *join_lhs = copyObject(ybbasectid_expr);
+	join_lhs->varno = OUTER_VAR;
+	join_lhs->varattno = idx_desc->natts + 1;
+
+	Var *join_rhs = copyObject(ybctid_expr);
+	join_rhs->varno = INNER_VAR;
+	join_rhs->varattno = idx_desc->natts + 1;
+
+	OpExpr *join_clause = (OpExpr *) make_opclause(ByteaEqualOperator, BOOLOID,
+												   false, (Expr *) join_lhs,
+												   (Expr *) join_rhs,
+												   InvalidOid, InvalidOid);
+	join_clause->opfuncid = get_opcode(ByteaEqualOperator);
+
+	// NLP
+	NestLoopParam *nlp = palloc0(sizeof(NestLoopParam));
+	nlp->paramno = 0;
+	nlp->paramval = join_lhs;
+	nlp->yb_batch_size = yb_bnl_batch_size;
+
+	YbBatchedNestLoop *join_plan = makeNode(YbBatchedNestLoop);
+	plan = &join_plan->nl.join.plan;
+	plan->targetlist = join_tlist;
+	plan->lefttree = (Plan *) index_scan;
+	plan->righttree = (Plan *) base_scan;
+	join_plan->nl.join.jointype = JOIN_LEFT;
+	join_plan->nl.join.inner_unique = true;
+	join_plan->nl.join.joinqual = list_make1(join_clause);
+	join_plan->nl.nestParams = list_make1(nlp);
+	join_plan->first_batch_factor = 1.0;
+	join_plan->num_hashClauseInfos = 1;
+	join_plan->hashClauseInfos = palloc0(sizeof(YbBNLHashClauseInfo));
+	join_plan->hashClauseInfos->hashOp = ByteaEqualOperator;
+	join_plan->hashClauseInfos->innerHashAttNo = join_rhs->varattno; // TODO
+	join_plan->hashClauseInfos->outerParamExpr = (Expr *) join_lhs;	 // TODO
+	join_plan->hashClauseInfos->orig_expr = (Expr *) join_clause;
+
+	estate->es_param_exec_vals =
+		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
+
+	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
+	TupleTableSlot *output;
+	while ((output = ExecProcNode(join_state)))
+		elog(INFO, "Join output: %s", YbTupleTableSlotToString(output));
+	ExecEndNode(join_state);
 
 	RelationClose(indexrel);
 	RelationClose(baserel);
@@ -3401,7 +3481,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	ExecCloseRangeTableRelations(estate);
 	MemoryContextSwitchTo(oldctxt);
 	FreeExecutorState(estate);
-	return result;
+	return true;
 }
 
 /*
