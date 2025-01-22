@@ -3182,50 +3182,56 @@ static bool
 TupleConsistencyCheck(TupleTableSlot *lhs_slot, TupleTableSlot *rhs_slot)
 {
 	Assert(lhs_slot->tts_nvalid == rhs_slot->tts_nvalid);
-	for (int i = 0; i < lhs_slot->tts_nvalid; i++)
+	for (int attnum = 1; attnum <= lhs_slot->tts_nvalid; attnum++)
 	{
 
-		Form_pg_attribute l_att = TupleDescAttr(lhs_slot->tts_tupleDescriptor, i);
-		Form_pg_attribute r_att = TupleDescAttr(rhs_slot->tts_tupleDescriptor, i);
+		Form_pg_attribute l_att = TupleDescAttr(lhs_slot->tts_tupleDescriptor, attnum - 1);
+		Form_pg_attribute r_att = TupleDescAttr(rhs_slot->tts_tupleDescriptor, attnum - 1);
 		Assert(l_att->atttypid == r_att->atttypid);
 
 		bool l_null;
 		bool r_null;
-		bool l_datum = slot_getattr(lhs_slot, i, &l_null);
-		bool r_datum = slot_getattr(rhs_slot, i, &r_null);
+		Datum l_datum = slot_getattr(lhs_slot, attnum, &l_null);
+		Datum r_datum = slot_getattr(rhs_slot, attnum, &r_null);
 
 		if (l_null || r_null)
 		{
 			if (l_null && r_null)
 			{
-				elog(INFO, "i %d: both values are null, hence consistent", i);
+				elog(INFO, "i %d: both values are null, hence consistent", attnum);
 				continue;
 			}
-			elog(INFO, "i %d: one is null and other is not, hence inconsistent", i);
+			elog(INFO, "i %d: one is null and other is not, hence inconsistent", attnum);
 			return false;
 		}
 
 		if (datumIsEqual(l_datum, r_datum, l_att->attbyval, l_att->attlen))
 		{
-			elog(INFO, "i %d: binary values matched, hence consistent", i);
+			elog(INFO, "i %d: binary values matched, hence consistent", attnum);
 			continue;
 		}
 
 		// I shouldn't be doing it for every tuple set.
-		Oid opid = OpernameGetOprid(list_make1("="), l_att->atttypid, r_att->atttypid);
-
-		if (opid == InvalidOid)
+		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")), l_att->atttypid, r_att->atttypid);
+		if (operator_oid == InvalidOid)
 		{
-			elog(INFO, "i %d: binary values mismatched and '=' op is not defined, hence inconsistent", i);
+			elog(INFO, "i %d: binary values mismatched and '=' op is not defined (operator_oid invalid), hence inconsistent", attnum);
 			return false;
 		}
 
-		if (!DatumGetBool(OidFunctionCall2(opid, l_datum, r_datum)))
+		RegProcedure proc_oid = get_opcode(operator_oid);
+		if (proc_oid == InvalidOid)
 		{
-			elog(INFO, "i %d: both binary and semantic values mismatched, hence inconsistent", i);
+			elog(INFO, "i %d: binary values mismatched and '=' op is not defined (proc_oid invalid), hence inconsistent", attnum);
 			return false;
 		}
-		elog(INFO, "i %d: binary values mismatched but semantic values matched, hence consistent", i);
+
+		if (!DatumGetBool(OidFunctionCall2Coll(proc_oid, DEFAULT_COLLATION_OID, l_datum, r_datum)))
+		{
+			elog(INFO, "i %d: both binary and semantic values mismatched, hence inconsistent", attnum);
+			return false;
+		}
+		elog(INFO, "i %d: binary values mismatched but semantic values matched, hence consistent", attnum);
 	}
 
 	return true;
@@ -3289,10 +3295,9 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	index_scan->indexid = indexoid;
 	index_scan->indextlist = index_cols;
 
-	PlanState *state = ExecInitNode((Plan *) index_scan, estate, 0);
-	TupleTableSlot *index_slot = ExecProcNode(state);
+	PlanState *index_scan_state = ExecInitNode((Plan *) index_scan, estate, 0);
+	TupleTableSlot *index_slot = ExecProcNode(index_scan_state);
 	elog(INFO, "Index rel slot: %s", YbTupleTableSlotToString(index_slot));
-	ExecEndNode(state);
 
 	Relation baserel = RelationIdGetRelation(basereloid);
 	TupleDesc base_desc = RelationGetDescr(baserel);
@@ -3358,12 +3363,15 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	base_scan->indexid = basereloid;
 	base_scan->indextlist = base_cols; // index cols
 
-	state = ExecInitNode((Plan *) base_scan, estate, 0);
-	TupleTableSlot *base_slot = ExecProcNode(state);
+	PlanState * base_scan_state = ExecInitNode((Plan *) base_scan, estate, 0);
+	TupleTableSlot *base_slot = ExecProcNode(base_scan_state);
 	elog(INFO, "Base rel slot: %s", YbTupleTableSlotToString(base_slot));
-	ExecEndNode(state);
 
 	bool result = TupleConsistencyCheck(index_slot, base_slot);
+
+	ExecEndNode(index_scan_state);
+	ExecEndNode(base_scan_state);
+
 	RelationClose(indexrel);
 	RelationClose(baserel);
 	FreeExecutorState(estate);
