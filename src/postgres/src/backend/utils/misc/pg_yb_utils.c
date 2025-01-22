@@ -3241,6 +3241,7 @@ Datum
 yb_index_consistency_check(PG_FUNCTION_ARGS)
 {
 	EState *estate = CreateExecutorState();
+	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 	Oid indexoid = PG_GETARG_OID(0);
 	Relation indexrel = RelationIdGetRelation(indexoid);
 	Assert(indexrel->rd_index);
@@ -3374,6 +3375,10 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 
 	RelationClose(indexrel);
 	RelationClose(baserel);
+	ExecResetTupleTable(estate->es_tupleTable, false);
+	ExecCloseResultRelations(estate);
+	ExecCloseRangeTableRelations(estate);
+	MemoryContextSwitchTo(oldctxt);
 	FreeExecutorState(estate);
 	return result;
 }
