@@ -3179,24 +3179,27 @@ yb_hash_code(PG_FUNCTION_ARGS)
 }
 
 static bool
-TupleConsistencyCheck(TupleTableSlot *lhs_slot, TupleTableSlot *rhs_slot)
+JoinTupleConsistencyCheck(TupleTableSlot *slot, List *equalProcOids)
 {
-	Assert(lhs_slot->tts_nvalid == rhs_slot->tts_nvalid);
-	for (int attnum = 1; attnum <= lhs_slot->tts_nvalid; attnum++)
+	Assert(slot->tts_nvalid % 2 == 0);
+	for (int attnum = 1; attnum <= slot->tts_nvalid; attnum += 2)
 	{
+		int ind_attnum = attnum;
+		int base_attnum = attnum + 1;
+		Form_pg_attribute ind_att =
+			TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
+		Form_pg_attribute base_att =
+			TupleDescAttr(slot->tts_tupleDescriptor, base_attnum - 1);
+		Assert(ind_att->atttypid == base_att->atttypid);
 
-		Form_pg_attribute l_att = TupleDescAttr(lhs_slot->tts_tupleDescriptor, attnum - 1);
-		Form_pg_attribute r_att = TupleDescAttr(rhs_slot->tts_tupleDescriptor, attnum - 1);
-		Assert(l_att->atttypid == r_att->atttypid);
+		bool ind_null;
+		bool base_null;
+		Datum ind_datum = slot_getattr(slot, ind_attnum, &ind_null);
+		Datum base_datum = slot_getattr(slot, base_attnum, &base_null);
 
-		bool l_null;
-		bool r_null;
-		Datum l_datum = slot_getattr(lhs_slot, attnum, &l_null);
-		Datum r_datum = slot_getattr(rhs_slot, attnum, &r_null);
-
-		if (l_null || r_null)
+		if (ind_null || base_null)
 		{
-			if (l_null && r_null)
+			if (ind_null && base_null)
 			{
 				elog(INFO, "i %d: both values are null, hence consistent", attnum);
 				continue;
@@ -3205,28 +3208,22 @@ TupleConsistencyCheck(TupleTableSlot *lhs_slot, TupleTableSlot *rhs_slot)
 			return false;
 		}
 
-		if (datumIsEqual(l_datum, r_datum, l_att->attbyval, l_att->attlen))
+		if (datumIsEqual(ind_datum, base_datum, ind_att->attbyval,
+						 ind_att->attlen))
 		{
 			elog(INFO, "i %d: binary values matched, hence consistent", attnum);
 			continue;
 		}
 
-		// I shouldn't be doing it for every tuple set.
-		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")), l_att->atttypid, r_att->atttypid);
-		if (operator_oid == InvalidOid)
-		{
-			elog(INFO, "i %d: binary values mismatched and '=' op is not defined (operator_oid invalid), hence inconsistent", attnum);
-			return false;
-		}
-
-		RegProcedure proc_oid = get_opcode(operator_oid);
+		RegProcedure proc_oid = lfirst_int(list_nth_cell(equalProcOids, ind_attnum/2));
 		if (proc_oid == InvalidOid)
 		{
 			elog(INFO, "i %d: binary values mismatched and '=' op is not defined (proc_oid invalid), hence inconsistent", attnum);
 			return false;
 		}
 
-		if (!DatumGetBool(OidFunctionCall2Coll(proc_oid, DEFAULT_COLLATION_OID, l_datum, r_datum)))
+		if (!DatumGetBool(OidFunctionCall2Coll(proc_oid, DEFAULT_COLLATION_OID,
+											   ind_datum, base_datum)))
 		{
 			elog(INFO, "i %d: both binary and semantic values mismatched, hence inconsistent", attnum);
 			return false;
@@ -3330,8 +3327,6 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 		if (attnum > 0)
 		{
 			attr = TupleDescAttr(base_desc, attnum - 1);
-			elog(INFO, "IndexScan i %d, attnum %d, type: %d", i, attnum,
-				 attr->atttypid);
 			expr = (Expr *) makeVar(1, attnum, attr->atttypid, attr->atttypmod,
 									attr->attcollation, 0);
 		}
@@ -3468,10 +3463,33 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	estate->es_param_exec_vals =
 		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
 
+	List *equalProcOids = NIL;
+	for (i = 0; i < idx_desc->natts; i++)
+	{
+		attr = TupleDescAttr(idx_desc, i);
+		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
+											attr->atttypid, attr->atttypid);
+		if (operator_oid == InvalidOid)
+		{
+			equalProcOids = lappend_int(equalProcOids, InvalidOid);
+			continue;
+		}
+		RegProcedure proc_oid = get_opcode(operator_oid);
+		equalProcOids = lappend_int(equalProcOids, proc_oid);
+	}
+
 	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
 	TupleTableSlot *output;
+
+	// int consistent_index_row_count = 0;
 	while ((output = ExecProcNode(join_state)))
+	{
+		// consistent_index_row_count++;
 		elog(INFO, "Join output: %s", YbTupleTableSlotToString(output));
+		if (!JoinTupleConsistencyCheck(output, equalProcOids))
+			return false;
+	}
+
 	ExecEndNode(join_state);
 
 	RelationClose(indexrel);
