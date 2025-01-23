@@ -3299,18 +3299,18 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	// IndexScan (on base rel)
 	Relation baserel = RelationIdGetRelation(basereloid);
 	TupleDesc base_desc = RelationGetDescr(baserel);
-	List *base_cols = NIL; // all columns of base rel
+	// List *base_cols = NIL; // all columns of base rel
 	List *base_scan_tlist = NIL; // output of this scan
 	AttrNumber attnum;
 
-	for (i = 0; i < base_desc->natts; i++)
-	{
-		attr = TupleDescAttr(base_desc, i);
-		expr = (Expr *) makeVar(1, i + 1, attr->atttypid, attr->atttypmod,
-								attr->attcollation, 0);
-		target_entry = makeTargetEntry(expr, i + 1, "", false);
-		base_cols = lappend(base_cols, target_entry);
-	}
+	// for (i = 0; i < base_desc->natts; i++)
+	// {
+	// 	attr = TupleDescAttr(base_desc, i);
+	// 	expr = (Expr *) makeVar(1, i + 1, attr->atttypid, attr->atttypmod,
+	// 							attr->attcollation, 0);
+	// 	target_entry = makeTargetEntry(expr, i + 1, "", false);
+	// 	base_cols = lappend(base_cols, target_entry);
+	// }
 
 	bool isnull;
 	List* indexprs;
@@ -3349,6 +3349,10 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
 	base_scan_tlist = lappend(base_scan_tlist, target_entry);
 
+
+	target_entry = makeTargetEntry((Expr*)ybctid_expr, 1, "", false);
+	List *base_indextlist = list_make1(target_entry);
+
 	// IndexScan qual
 
 	// LHS
@@ -3357,9 +3361,11 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	ybctid_from_index->varattno = 1;
 
 	// RHS
+	Bitmapset* bms = NULL;
 	List *params = NIL;
 	for (int i = 0; i < yb_bnl_batch_size; i++)
 	{
+		bms = bms_add_member(bms, i);
 		Param *param = makeNode(Param);
 		param->paramkind = PARAM_EXEC;
 		param->paramid = i;
@@ -3394,9 +3400,11 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	plan->targetlist = base_scan_tlist; // output from the node
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
+	plan->extParam = bms;
+	plan->allParam = bms;
 	base_scan->scan.scanrelid = 1; // baserelid's rt index
 	base_scan->indexid = basereloid;
-	base_scan->indextlist = base_cols; // index cols
+	base_scan->indextlist = base_indextlist; // index cols
 	base_scan->indexqual = list_make1(saop);
 	base_scan->indexqualorig = list_make1(orig_saop);
 
@@ -3441,7 +3449,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	join_clause->opfuncid = get_opcode(ByteaEqualOperator);
 
 	// NLP
-	NestLoopParam *nlp = palloc0(sizeof(NestLoopParam));
+	NestLoopParam *nlp = makeNode(NestLoopParam);
 	nlp->paramno = 0;
 	nlp->paramval = join_lhs;
 	nlp->yb_batch_size = yb_bnl_batch_size;
