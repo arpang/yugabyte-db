@@ -3181,9 +3181,12 @@ yb_hash_code(PG_FUNCTION_ARGS)
 static bool
 JoinTupleConsistencyCheck(TupleTableSlot *slot, List *equalProcOids)
 {
-	Assert(slot->tts_nvalid % 2 == 0);
-	for (int attnum = 1; attnum <= slot->tts_nvalid; attnum += 2)
+	Assert(slot->tts_tupleDescriptor->natts % 2 == 0);
+	// elog(INFO, "slot->tts_nvalid %d", slot->tts_nvalid);
+	// elog(INFO, "slot->tts_tupleDescriptor->natts %d", slot->tts_tupleDescriptor->natts);
+	for (int attnum = 1; attnum <= slot->tts_tupleDescriptor->natts; attnum += 2)
 	{
+		// elog(INFO, "Processing attnum %d", attnum);
 		int ind_attnum = attnum;
 		int base_attnum = attnum + 1;
 		Form_pg_attribute ind_att =
@@ -3481,16 +3484,84 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
 	TupleTableSlot *output;
 
-	// int consistent_index_row_count = 0;
+	int consistent_index_row_count = 0;
 	while ((output = ExecProcNode(join_state)))
 	{
-		// consistent_index_row_count++;
+		consistent_index_row_count++;
 		elog(INFO, "Join output: %s", YbTupleTableSlotToString(output));
 		if (!JoinTupleConsistencyCheck(output, equalProcOids))
 			return false;
 	}
-
 	ExecEndNode(join_state);
+
+	List *indpreds = NIL;
+	List *colrefs = NIL;
+	bool pushdown = false;
+	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+										  Anum_pg_index_indpred, &isnull);
+	if (!isnull)
+	{
+		Expr *indpred = stringToNode(TextDatumGetCString(indpred_datum));
+		pushdown = YbCanPushdownExpr(indpred, &colrefs);
+		indpreds = lappend(indpreds, indpred);
+	}
+	elog(INFO, "pushdown %d", pushdown);
+	YbSeqScan *yb_seq_scan = makeNode(YbSeqScan);
+	plan = &yb_seq_scan->scan.plan;
+	plan->targetlist = NIL;
+	plan->qual = !pushdown ? indpreds : NIL;
+	plan->lefttree = NULL;
+	plan->righttree = NULL;
+	yb_seq_scan->scan.scanrelid = 1;
+	// node->yb_plan_info = yb_plan_info;
+	yb_seq_scan->yb_pushdown.quals = pushdown ? indpreds : NIL;
+	yb_seq_scan->yb_pushdown.colrefs = pushdown ? colrefs : NIL;
+
+	Aggref *count_aggref = makeNode(Aggref);
+	count_aggref->aggfnoid = 2803;
+	count_aggref->aggtype = INT8OID;
+	count_aggref->aggtranstype = INT8OID;
+	count_aggref->aggstar = true;
+	count_aggref->aggkind = 'n';
+
+	target_entry = makeTargetEntry((Expr *) count_aggref, 1, "", false);
+
+	Agg *base_row_count = makeNode(Agg);
+	plan = &base_row_count->plan;
+	base_row_count->aggstrategy = AGG_PLAIN;
+	base_row_count->aggsplit = AGGSPLIT_SIMPLE;
+	base_row_count->numCols = 0;
+	// node->grpColIdx = grpColIdx;
+	// node->grpOperators = grpOperators;
+	// node->grpCollations = grpCollations;
+	base_row_count->numGroups = 1;
+	// node->transitionSpace = 0;
+	// node->aggParams = NULL;
+	// node->groupingSets = groupingSets;
+	// node->chain = chain;
+
+	plan->qual = NIL;
+	plan->targetlist = list_make1(target_entry);
+	plan->lefttree = (Plan *) yb_seq_scan;
+	plan->righttree = NULL;
+
+	PlanState *base_row_count_state =
+		ExecInitNode((Plan *) base_row_count, estate, 0);
+	output = ExecProcNode(base_row_count_state);
+	elog(INFO, "Base row count output: %s", YbTupleTableSlotToString(output));
+	Assert(output->tts_tupleDescriptor->natts == 1);
+
+	int base_row_count_res = DatumGetInt64(slot_getattr(output, 1, &isnull));
+
+	if (consistent_index_row_count != base_row_count_res)
+	{
+		elog(INFO,
+			 "Index has %d rows, base rel has %d rows, hence inconsistent",
+			 consistent_index_row_count, base_row_count_res);
+		return false;
+	}
+	Assert(ExecProcNode(base_row_count_state) == NULL);
+	ExecEndNode(base_row_count_state);
 
 	RelationClose(indexrel);
 	RelationClose(baserel);
