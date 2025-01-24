@@ -167,7 +167,7 @@ index_open(Oid relationId, LOCKMODE lockmode)
 		Form_pg_index pg_index = palloc0(sizeof(FormData_pg_index));
 		pg_index->indexrelid = relationId;
 		pg_index->indrelid = relationId;
-		pg_index->indnatts = r->rd_rel->relnatts + 1;
+		pg_index->indnatts = 1;
 		pg_index->indnkeyatts = 1;
 		pg_index->indisunique = true;
 		pg_index->indisprimary = true;
@@ -180,8 +180,8 @@ index_open(Oid relationId, LOCKMODE lockmode)
 
 		pg_index->indkey.values[0] = YBTupleIdAttributeNumber;
 
-		for (int i = 1; i < pg_index->indnatts; i++)
-			pg_index->indkey.values[i] = i+1;
+		// for (int i = 1; i < pg_index->indnatts; i++)
+		// 	pg_index->indkey.values[i] = i+1;
 		r->rd_index = pg_index;
 
 		r->rd_opfamily = palloc0(sizeof(Oid) * pg_index->indnkeyatts);
