@@ -34,6 +34,7 @@
 #include "access/sysattr.h"
 #include "access/xact.h"
 #include "access/yb_pg_inherits_scan.h"
+#include "catalog/heap.h"
 #include "commands/dbcommands.h"
 #include "commands/tablegroup.h"
 #include "catalog/index.h"
@@ -202,7 +203,7 @@ ybcCheckPrimaryKeyAttribute(YbScanPlan scan_plan,
 
 	if (column_info.is_hash)
 		scan_plan->hash_key = bms_add_member(scan_plan->hash_key, idx);
-	if (column_info.is_primary)
+	if (column_info.is_primary || attnum == YBTupleIdAttributeNumber)
 		scan_plan->primary_key = bms_add_member(scan_plan->primary_key, idx);
 }
 
@@ -221,6 +222,9 @@ ybcLoadTableInfo(Relation relation, YbScanPlan scan_plan)
 
 	for (AttrNumber attnum = 1; attnum <= relation->rd_att->natts; attnum++)
 		ybcCheckPrimaryKeyAttribute(scan_plan, ybc_table_desc, attnum);
+
+	if (yb_index_checker)
+		ybcCheckPrimaryKeyAttribute(scan_plan, ybc_table_desc, YBTupleIdAttributeNumber);
 }
 
 static Oid
@@ -235,8 +239,7 @@ ybc_get_atttypid(TupleDesc bind_desc, AttrNumber attnum)
 	}
 	else
 	{
-		/* This must be an OID column. */
-		atttypid = OIDOID;
+		atttypid = SystemAttributeDefinition(attnum)->atttypid;
 	}
 
   return atttypid;
@@ -1254,7 +1257,7 @@ ybcSetupScanKeys(YbScanDesc ybScan, YbScanPlan scan_plan)
 	 * the scan keys if the hash code was explicitly specified as a
 	 * scan key then we also shouldn't be clearing the scan keys
 	 */
-	if (ybScan->hash_code_keys == NIL &&
+	if (!yb_index_checker && ybScan->hash_code_keys == NIL &&
 		!bms_is_subset(scan_plan->hash_key, scan_plan->sk_cols))
 	{
 		bms_free(scan_plan->sk_cols);
@@ -1868,7 +1871,12 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 	 * And set up the BTArrayKeyInfo data.
 	 */
 
-	if (is_row)
+	if (scan_plan->bind_key_attnums[i] == YBTupleIdAttributeNumber)
+	{
+		Assert(num_elems == num_valid);
+		YBCPgBindYbctids(ybScan->handle, num_elems, elem_values);
+	}
+	else if (is_row)
 	{
 		AttrNumber attnums[length_of_key];
 		/* Subkeys for this rowkey start at i+1. */

@@ -1527,6 +1527,14 @@ Status PgApiImpl::FetchRequestedYbctids(
   return select.Exec(exec_params);
 }
 
+// TODO: Can consider using YbcConstSliceVector
+Status PgApiImpl::BindYbctids(PgStatement* handle, const std::vector<Slice>& ybctids)
+{
+  auto& select = VERIFY_RESULT_REF(GetStatementAs<PgSelect>(handle));
+  select.SetRequestedYbctids(ybctids);
+  return Status::OK();
+}
+
 Status PgApiImpl::DmlANNBindVector(PgStatement* handle, PgExpr* vector) {
   return VERIFY_RESULT_REF(GetStatementAs<PgDml>(handle)).ANNBindVector(vector);
 }

@@ -3204,34 +3204,34 @@ JoinTupleConsistencyCheck(TupleTableSlot *slot, List *equalProcOids)
 		{
 			if (ind_null && base_null)
 			{
-				elog(INFO, "i %d: both values are null, hence consistent", attnum);
+				// elog(INFO, "i %d: both values are null, hence consistent", attnum);
 				continue;
 			}
-			elog(INFO, "i %d: one is null and other is not, hence inconsistent", attnum);
+			// elog(INFO, "i %d: one is null and other is not, hence inconsistent", attnum);
 			return false;
 		}
 
 		if (datumIsEqual(ind_datum, base_datum, ind_att->attbyval,
 						 ind_att->attlen))
 		{
-			elog(INFO, "i %d: binary values matched, hence consistent", attnum);
+			// elog(INFO, "i %d: binary values matched, hence consistent", attnum);
 			continue;
 		}
 
 		RegProcedure proc_oid = lfirst_int(list_nth_cell(equalProcOids, ind_attnum/2));
 		if (proc_oid == InvalidOid)
 		{
-			elog(INFO, "i %d: binary values mismatched and '=' op is not defined (proc_oid invalid), hence inconsistent", attnum);
+			// elog(INFO, "i %d: binary values mismatched and '=' op is not defined (proc_oid invalid), hence inconsistent", attnum);
 			return false;
 		}
 
 		if (!DatumGetBool(OidFunctionCall2Coll(proc_oid, DEFAULT_COLLATION_OID,
 											   ind_datum, base_datum)))
 		{
-			elog(INFO, "i %d: both binary and semantic values mismatched, hence inconsistent", attnum);
+			// elog(INFO, "i %d: both binary and semantic values mismatched, hence inconsistent", attnum);
 			return false;
 		}
-		elog(INFO, "i %d: binary values mismatched but semantic values matched, hence consistent", attnum);
+		// elog(INFO, "i %d: binary values mismatched but semantic values matched, hence consistent", attnum);
 	}
 
 	return true;
@@ -3292,25 +3292,12 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	index_scan->indexid = indexoid;
 	index_scan->indextlist = index_cols;
 
-	// PlanState *index_scan_state = ExecInitNode((Plan *) index_scan, estate,
-	// 0); TupleTableSlot *index_slot = ExecProcNode(index_scan_state);
-	// elog(INFO, "Index rel slot: %s", YbTupleTableSlotToString(index_slot));
 
 	// IndexScan (on base rel)
 	Relation baserel = RelationIdGetRelation(basereloid);
 	TupleDesc base_desc = RelationGetDescr(baserel);
-	// List *base_cols = NIL; // all columns of base rel
 	List *base_scan_tlist = NIL; // output of this scan
 	AttrNumber attnum;
-
-	// for (i = 0; i < base_desc->natts; i++)
-	// {
-	// 	attr = TupleDescAttr(base_desc, i);
-	// 	expr = (Expr *) makeVar(1, i + 1, attr->atttypid, attr->atttypmod,
-	// 							attr->attcollation, 0);
-	// 	target_entry = makeTargetEntry(expr, i + 1, "", false);
-	// 	base_cols = lappend(base_cols, target_entry);
-	// }
 
 	bool isnull;
 	List* indexprs;
@@ -3349,12 +3336,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
 	base_scan_tlist = lappend(base_scan_tlist, target_entry);
 
-
-	target_entry = makeTargetEntry((Expr*)ybctid_expr, 1, "", false);
-	List *base_indextlist = list_make1(target_entry);
-
 	// IndexScan qual
-
 	// LHS
 	Var *ybctid_from_index = (Var *) copyObject(ybctid_expr);
 	ybctid_from_index->varno = INDEX_VAR;
@@ -3390,10 +3372,12 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	saop->useOr = true;
 	saop->inputcollid = InvalidOid;
 	saop->args = list_make2(ybctid_from_index, arrexpr);
-	// List *quals = list_make1(saop);
 
 	ScalarArrayOpExpr *orig_saop = copyObjectImpl(saop);
 	orig_saop->args = list_make2(ybctid_expr, arrexpr);
+
+	target_entry = makeTargetEntry((Expr*)ybctid_from_index, 1, "", false);
+	List *base_indextlist = list_make1(target_entry);
 
 	IndexScan *base_scan = makeNode(IndexScan);
 	plan = &base_scan->scan.plan;
@@ -3408,14 +3392,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	base_scan->indexqual = list_make1(saop);
 	base_scan->indexqualorig = list_make1(orig_saop);
 
-	// PlanState * base_scan_state = ExecInitNode((Plan *) base_scan, estate,
-	// 0); TupleTableSlot *base_slot = ExecProcNode(base_scan_state); elog(INFO,
-	// "Base rel slot: %s", YbTupleTableSlotToString(base_slot));
-
-	// bool result = TupleConsistencyCheck(index_slot, base_slot);
-
 	// BNL
-
 	List *join_tlist = NIL;
 	for (i = 0; i < idx_desc->natts; i++)
 	{
@@ -3489,6 +3466,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 		equalProcOids = lappend_int(equalProcOids, proc_oid);
 	}
 
+	// Execution
 	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
 	TupleTableSlot *output;
 
@@ -3502,6 +3480,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	}
 	ExecEndNode(join_state);
 
+	// Index rows are consistent. Now check the base relation row count.
 	List *indpreds = NIL;
 	List *colrefs = NIL;
 	bool pushdown = false;
@@ -3513,7 +3492,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 		pushdown = YbCanPushdownExpr(indpred, &colrefs);
 		indpreds = lappend(indpreds, indpred);
 	}
-	elog(INFO, "pushdown %d", pushdown);
+	// elog(INFO, "pushdown %d", pushdown);
 	YbSeqScan *yb_seq_scan = makeNode(YbSeqScan);
 	plan = &yb_seq_scan->scan.plan;
 	plan->targetlist = NIL;
@@ -3521,7 +3500,6 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
 	yb_seq_scan->scan.scanrelid = 1;
-	// node->yb_plan_info = yb_plan_info;
 	yb_seq_scan->yb_pushdown.quals = pushdown ? indpreds : NIL;
 	yb_seq_scan->yb_pushdown.colrefs = pushdown ? colrefs : NIL;
 
@@ -3539,14 +3517,7 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	base_row_count->aggstrategy = AGG_PLAIN;
 	base_row_count->aggsplit = AGGSPLIT_SIMPLE;
 	base_row_count->numCols = 0;
-	// node->grpColIdx = grpColIdx;
-	// node->grpOperators = grpOperators;
-	// node->grpCollations = grpCollations;
 	base_row_count->numGroups = 1;
-	// node->transitionSpace = 0;
-	// node->aggParams = NULL;
-	// node->groupingSets = groupingSets;
-	// node->chain = chain;
 
 	plan->qual = NIL;
 	plan->targetlist = list_make1(target_entry);
@@ -3556,16 +3527,17 @@ yb_index_consistency_check(PG_FUNCTION_ARGS)
 	PlanState *base_row_count_state =
 		ExecInitNode((Plan *) base_row_count, estate, 0);
 	output = ExecProcNode(base_row_count_state);
-	elog(INFO, "Base row count output: %s", YbTupleTableSlotToString(output));
 	Assert(output->tts_tupleDescriptor->natts == 1);
 
 	int base_row_count_res = DatumGetInt64(slot_getattr(output, 1, &isnull));
 
+	elog(INFO, "Index row count: %d, base rel row count: %d", consistent_index_row_count, base_row_count_res);
+
 	if (consistent_index_row_count != base_row_count_res)
 	{
-		elog(INFO,
-			 "Index has %d rows, base rel has %d rows, hence inconsistent",
-			 consistent_index_row_count, base_row_count_res);
+		// elog(INFO,
+		// 	 "Index has %d rows, base rel has %d rows, hence inconsistent",
+		// 	 consistent_index_row_count, base_row_count_res);
 		return false;
 	}
 	Assert(ExecProcNode(base_row_count_state) == NULL);

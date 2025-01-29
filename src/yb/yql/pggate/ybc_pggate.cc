@@ -1605,6 +1605,17 @@ YbcStatus YBCPgFetchRequestedYbctids(YbcPgStatement handle, const YbcPgExecParam
   return ToYBCStatus(pgapi->FetchRequestedYbctids(handle, exec_params, ybctids));
 }
 
+YbcStatus YBCPgBindYbctids(YbcPgStatement handle, int n, uintptr_t* datums) {
+  // who frees this memory?
+  std::vector<Slice> *ybctids = new std::vector<Slice>;
+  ybctids->reserve(n);
+  for(int i = 0; i < n; i++)
+    ybctids->emplace_back(YbctidAsSlice(datums[i]));
+
+  return ToYBCStatus(pgapi->BindYbctids(handle, *ybctids));
+}
+
+
 //------------------------------------------------------------------------------------------------
 // Functions
 //------------------------------------------------------------------------------------------------
