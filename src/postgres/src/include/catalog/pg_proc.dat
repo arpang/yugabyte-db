@@ -12112,8 +12112,8 @@
   proargmodes => '{o}', proargnames => '{current_hybrid_time_lsn}',
   prosrc => 'yb_get_current_hybrid_time_lsn'},
 
-{ oid => '8080', descr => 'YB index consistency check',
-  proname => 'yb_index_consistency_check', provolatile => 's',
+{ oid => '8080', descr => 'returns whether the index and the base relation are logically consistent',
+  proname => 'yb_lsm_index_check', provolatile => 's',
   prorettype => 'bool', proargtypes => 'oid',
-  prosrc => 'yb_index_consistency_check' }
+  prosrc => 'yb_lsm_index_check' }
 ]

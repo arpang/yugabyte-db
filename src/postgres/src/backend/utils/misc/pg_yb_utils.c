@@ -3612,7 +3612,7 @@ JoinTupleConsistencyCheck(TupleTableSlot *slot, List *equalProcOids)
 }
 
 Datum
-yb_index_consistency_check(PG_FUNCTION_ARGS)
+yb_lsm_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
 	Relation indexrel = RelationIdGetRelation(indexoid);
