@@ -254,9 +254,9 @@ index_insert(Relation indexRelation,
 	}
 
 	return indexRelation->rd_indam->aminsert(indexRelation, values, isnull,
-												heap_t_ctid, heapRelation,
-												checkUnique, indexUnchanged,
-												indexInfo);
+											 heap_t_ctid, heapRelation,
+											 checkUnique, indexUnchanged,
+											 indexInfo);
 }
 
 /* ----------------
@@ -706,7 +706,7 @@ index_fetch_heap(IndexScanDesc scan, TupleTableSlot *slot)
 		 * amgettuple.
 		 */
 		if (!scan->yb_aggrefs)
-			ExecStoreHeapTuple(scan->xs_hitup, slot, false /* shouldFree */);
+			ExecStoreHeapTuple(scan->xs_hitup, slot, false /* shouldFree */ );
 
 		return true;
 	}

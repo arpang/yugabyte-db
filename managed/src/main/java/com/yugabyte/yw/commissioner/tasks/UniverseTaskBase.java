@@ -57,6 +57,7 @@ import com.yugabyte.yw.commissioner.tasks.subtasks.DestroyEncryptionAtRest;
 import com.yugabyte.yw.commissioner.tasks.subtasks.DisableEncryptionAtRest;
 import com.yugabyte.yw.commissioner.tasks.subtasks.DropTable;
 import com.yugabyte.yw.commissioner.tasks.subtasks.EnableEncryptionAtRest;
+import com.yugabyte.yw.commissioner.tasks.subtasks.FinalizeYsqlMajorCatalogUpgrade;
 import com.yugabyte.yw.commissioner.tasks.subtasks.FreezeUniverse;
 import com.yugabyte.yw.commissioner.tasks.subtasks.HardRebootServer;
 import com.yugabyte.yw.commissioner.tasks.subtasks.InstallNodeAgent;
@@ -65,6 +66,7 @@ import com.yugabyte.yw.commissioner.tasks.subtasks.InstallYbcSoftwareOnK8s;
 import com.yugabyte.yw.commissioner.tasks.subtasks.KubernetesCommandExecutor;
 import com.yugabyte.yw.commissioner.tasks.subtasks.LoadBalancerStateChange;
 import com.yugabyte.yw.commissioner.tasks.subtasks.ManageAlertDefinitions;
+import com.yugabyte.yw.commissioner.tasks.subtasks.ManageCatalogUpgradeSuperUser;
 import com.yugabyte.yw.commissioner.tasks.subtasks.ManageLoadBalancerGroup;
 import com.yugabyte.yw.commissioner.tasks.subtasks.ManipulateDnsRecordTask;
 import com.yugabyte.yw.commissioner.tasks.subtasks.MarkSourceMetric;
@@ -151,6 +153,7 @@ import com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.XClusterConfigModify
 import com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.XClusterConfigSetStatus;
 import com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.XClusterConfigUpdateMasterAddresses;
 import com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.XClusterInfoPersist;
+import com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.XClusterNetworkConnectivityCheck;
 import com.yugabyte.yw.common.DnsManager;
 import com.yugabyte.yw.common.DrConfigStates;
 import com.yugabyte.yw.common.DrConfigStates.SourceUniverseState;
@@ -178,6 +181,7 @@ import com.yugabyte.yw.common.config.GlobalConfKeys;
 import com.yugabyte.yw.common.config.UniverseConfKeys;
 import com.yugabyte.yw.common.gflags.AutoFlagUtil;
 import com.yugabyte.yw.common.gflags.GFlagsUtil;
+import com.yugabyte.yw.common.gflags.GFlagsValidation;
 import com.yugabyte.yw.common.gflags.SpecificGFlags;
 import com.yugabyte.yw.common.nodeui.DumpEntitiesResponse;
 import com.yugabyte.yw.forms.BackupRequestParams;
@@ -240,6 +244,7 @@ import com.yugabyte.yw.models.helpers.NodeStatus;
 import com.yugabyte.yw.models.helpers.PlacementInfo;
 import com.yugabyte.yw.models.helpers.TableDetails;
 import com.yugabyte.yw.models.helpers.TaskType;
+import com.yugabyte.yw.models.helpers.UpgradeDetails.YsqlMajorVersionUpgradeState;
 import io.ebean.Model;
 import java.io.File;
 import java.io.IOException;
@@ -1339,8 +1344,6 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
     params.azUuid = node.azUuid;
     // Add in the node placement uuid.
     params.placementUuid = node.placementUuid;
-    // Sets the isMaster field
-    params.isMaster = node.isMaster;
     params.enableYSQL = userIntent.enableYSQL;
     params.enableConnectionPooling = userIntent.enableConnectionPooling;
     params.enableYCQL = userIntent.enableYCQL;
@@ -1355,14 +1358,24 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
     // The software package to install for this cluster.
     params.ybSoftwareVersion = userIntent.ybSoftwareVersion;
 
+    if (isYsqlMajorUpgradeStateInPreFinalizeState(universe, gFlagsValidation)) {
+      params.ysqlMajorVersionUpgradeState = YsqlMajorVersionUpgradeState.PRE_FINALIZE;
+    }
+
     params.instanceType = node.cloudInfo.instance_type;
     params.enableNodeToNodeEncrypt = userIntent.enableNodeToNodeEncrypt;
     params.enableClientToNodeEncrypt = userIntent.enableClientToNodeEncrypt;
     params.enableYEDIS = userIntent.enableYEDIS;
 
-    params.type = type;
-    params.setProperty("processType", processType.toString());
-    params.setProperty("taskSubType", taskSubType.toString());
+    if (type != null) {
+      params.type = type;
+    }
+    if (processType != null) {
+      params.setProperty("processType", processType.toString());
+    }
+    if (taskSubType != null) {
+      params.setProperty("taskSubType", taskSubType.toString());
+    }
     params.ybcGflags = userIntent.ybcFlags;
 
     if (userIntent.providerType.equals(CloudType.onprem)) {
@@ -1370,6 +1383,18 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
     }
 
     return params;
+  }
+
+  public static boolean isYsqlMajorUpgradeStateInPreFinalizeState(
+      Universe universe, GFlagsValidation gFlagsValidation) {
+    if (universe.getUniverseDetails().softwareUpgradeState.equals(SoftwareUpgradeState.PreFinalize)
+        || universe.getUniverseDetails().prevYBSoftwareConfig != null) {
+      String currentVersion =
+          universe.getUniverseDetails().getPrimaryCluster().userIntent.ybSoftwareVersion;
+      String oldVersion = universe.getUniverseDetails().prevYBSoftwareConfig.getSoftwareVersion();
+      return gFlagsValidation.ysqlMajorVersionUpgrade(oldVersion, currentVersion);
+    }
+    return false;
   }
 
   /** Create a task to mark the change on a universe as success. */
@@ -1683,7 +1708,8 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
   }
 
   public SubTaskGroup createPGUpgradeTServerCheckTask(String ybSoftwareVersion) {
-    SubTaskGroup subTaskGroup = createSubTaskGroup("PGUpgradeTServerCheck");
+    SubTaskGroup subTaskGroup =
+        createSubTaskGroup("PGUpgradeTServerCheck", SubTaskGroupType.PreflightChecks);
     PGUpgradeTServerCheck task = createTask(PGUpgradeTServerCheck.class);
     PGUpgradeTServerCheck.Params params = new PGUpgradeTServerCheck.Params();
     params.setUniverseUUID(taskParams().getUniverseUUID());
@@ -1694,8 +1720,23 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
     return subTaskGroup;
   }
 
+  public SubTaskGroup createManageCatalogUpgradeSuperUserTask(
+      ManageCatalogUpgradeSuperUser.Action action) {
+    SubTaskGroup subTaskGroup =
+        createSubTaskGroup("ManageCatalogUpgradeSuperUser", SubTaskGroupType.ConfigureUniverse);
+    ManageCatalogUpgradeSuperUser task = createTask(ManageCatalogUpgradeSuperUser.class);
+    ManageCatalogUpgradeSuperUser.Params params = new ManageCatalogUpgradeSuperUser.Params();
+    params.setUniverseUUID(taskParams().getUniverseUUID());
+    params.action = action;
+    task.initialize(params);
+    subTaskGroup.addSubTask(task);
+    getRunnableTask().addSubTaskGroup(subTaskGroup);
+    return subTaskGroup;
+  }
+
   public SubTaskGroup createRunYsqlMajorVersionCatalogUpgradeTask() {
-    SubTaskGroup subTaskGroup = createSubTaskGroup("RunYsqlMajorVersionCatalogUpgrade");
+    SubTaskGroup subTaskGroup =
+        createSubTaskGroup("RunYsqlMajorVersionCatalogUpgrade", SubTaskGroupType.UpgradingSoftware);
     RunYsqlMajorVersionCatalogUpgrade task = createTask(RunYsqlMajorVersionCatalogUpgrade.class);
     RunYsqlMajorVersionCatalogUpgrade.Params params =
         new RunYsqlMajorVersionCatalogUpgrade.Params();
@@ -1707,7 +1748,9 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
   }
 
   public SubTaskGroup createRollbackYsqlMajorVersionCatalogUpgradeTask() {
-    SubTaskGroup subTaskGroup = createSubTaskGroup("RollbackYsqlMajorVersionCatalogUpgrade");
+    SubTaskGroup subTaskGroup =
+        createSubTaskGroup(
+            "RollbackYsqlMajorVersionCatalogUpgrade", SubTaskGroupType.RollingBackSoftware);
     RollbackYsqlMajorVersionCatalogUpgrade task =
         createTask(RollbackYsqlMajorVersionCatalogUpgrade.class);
     RollbackYsqlMajorVersionCatalogUpgrade.Params params =
@@ -1715,6 +1758,20 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
     params.setUniverseUUID(taskParams().getUniverseUUID());
     task.initialize(params);
     subTaskGroup.addSubTask(task);
+    getRunnableTask().addSubTaskGroup(subTaskGroup);
+    return subTaskGroup;
+  }
+
+  public SubTaskGroup createFinalizeYsqlMajorCatalogUpgradeTask() {
+    SubTaskGroup subTaskGroup =
+        createSubTaskGroup(
+            "FinalizeYsqlMajorVersionCatalogUpgrade", SubTaskGroupType.FinalizingUpgrade);
+    FinalizeYsqlMajorCatalogUpgrade task = createTask(FinalizeYsqlMajorCatalogUpgrade.class);
+    FinalizeYsqlMajorCatalogUpgrade.Params params = new FinalizeYsqlMajorCatalogUpgrade.Params();
+    params.setUniverseUUID(taskParams().getUniverseUUID());
+    task.initialize(params);
+    subTaskGroup.addSubTask(task);
+    subTaskGroup.setSubTaskGroupType(SubTaskGroupType.UpgradingSoftware);
     getRunnableTask().addSubTaskGroup(subTaskGroup);
     return subTaskGroup;
   }
@@ -2726,10 +2783,19 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
       ServerType processType,
       String command,
       Consumer<AnsibleClusterServerCtl.Params> paramsCustomizer) {
+    return createServerControlTasks(getUserIntent(), nodes, processType, command, paramsCustomizer);
+  }
+
+  public SubTaskGroup createServerControlTasks(
+      UserIntent userIntent,
+      Collection<NodeDetails> nodes,
+      ServerType processType,
+      String command,
+      Consumer<AnsibleClusterServerCtl.Params> paramsCustomizer) {
     SubTaskGroup subTaskGroup = createSubTaskGroup("AnsibleClusterServerCtl");
     for (NodeDetails node : nodes) {
       subTaskGroup.addSubTask(
-          getServerControlTask(node, processType, command, 0, paramsCustomizer));
+          getServerControlTask(userIntent, node, processType, command, 0, paramsCustomizer));
     }
     getRunnableTask().addSubTaskGroup(subTaskGroup);
     return subTaskGroup;
@@ -2746,8 +2812,18 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
       String command,
       int sleepAfterCmdMillis,
       @Nullable Consumer<AnsibleClusterServerCtl.Params> paramsCustomizer) {
+    return getServerControlTask(
+        getUserIntent(), node, processType, command, sleepAfterCmdMillis, paramsCustomizer);
+  }
+
+  private AnsibleClusterServerCtl getServerControlTask(
+      UserIntent userIntent,
+      NodeDetails node,
+      ServerType processType,
+      String command,
+      int sleepAfterCmdMillis,
+      @Nullable Consumer<AnsibleClusterServerCtl.Params> paramsCustomizer) {
     AnsibleClusterServerCtl.Params params = new AnsibleClusterServerCtl.Params();
-    UserIntent userIntent = getUserIntent();
     // Add the node name.
     params.nodeName = node.nodeName;
     // Add the universe uuid.
@@ -5646,6 +5722,27 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
     return subTaskGroup;
   }
 
+  protected SubTaskGroup createXClusterNetworkConnectivityCheckTask(XClusterConfig xClusterConfig) {
+    SubTaskGroup subTaskGroup =
+        createSubTaskGroup(
+            "XClusterNetworkConnectivityCheck", UserTaskDetails.SubTaskGroupType.PreflightChecks);
+    Universe targetUniverse = Universe.getOrBadRequest(xClusterConfig.getTargetUniverseUUID());
+    for (NodeDetails node : targetUniverse.getUniverseDetails().nodeDetailsSet) {
+      XClusterNetworkConnectivityCheck.Params params =
+          new XClusterNetworkConnectivityCheck.Params();
+      params.setUniverseUUID(xClusterConfig.getTargetUniverseUUID());
+      params.nodeName = node.nodeName;
+      params.xClusterConfig = xClusterConfig;
+
+      XClusterNetworkConnectivityCheck task = createTask(XClusterNetworkConnectivityCheck.class);
+      task.initialize(params);
+      subTaskGroup.addSubTask(task);
+    }
+
+    getRunnableTask().addSubTaskGroup(subTaskGroup);
+    return subTaskGroup;
+  }
+
   protected SubTaskGroup createDeleteBootstrapIdsTask(
       XClusterConfig xClusterConfig, Set<String> tableIds, boolean forceDelete) {
     SubTaskGroup subTaskGroup = createSubTaskGroup("DeleteBootstrapIds");
@@ -5932,7 +6029,8 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
                               && pitrConfig
                                   .getUniverse()
                                   .getUniverseUUID()
-                                  .equals(xClusterConfig.getSourceUniverseUUID()))
+                                  .equals(xClusterConfig.getSourceUniverseUUID())
+                              && pitrConfig.getXClusterConfigs().size() <= 1)
                           || (deleteTargetPitrConfigs
                               && pitrConfig
                                   .getUniverse()
@@ -6129,7 +6227,7 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
    * Copies the certificate from YBA to the associated nodes in the universe based on xclusterConfig
    * replicationGroupName.
    *
-   * @param nodes specific nodes we will copy the certicate to in the universe
+   * @param nodes specific nodes we will copy the certificate to in the universe
    * @param replicationGroupName name of the replication group for xcluster (certificate will be
    *     copied under this directory)
    * @param certificate the certificate file to copy
@@ -6275,10 +6373,15 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
         true /* retainPrevYBSoftwareConfig */);
 
     if (!confGetter.getConfForScope(universe, UniverseConfKeys.skipUpgradeFinalize)) {
-      if (ysqlUpgradeFinalizeTask != null) {
-        // Run YSQL upgrade finalize task on the universe.
-        // This is a temp step as we need to remove flags set during upgrade.
-        ysqlUpgradeFinalizeTask.run();
+      if (universe.getUniverseDetails().prevYBSoftwareConfig != null) {
+        UniverseDefinitionTaskParams.Cluster primaryCluster =
+            universe.getUniverseDetails().getPrimaryCluster();
+        String oldVersion = universe.getUniverseDetails().prevYBSoftwareConfig.getSoftwareVersion();
+        String currentVersion = primaryCluster.userIntent.ybSoftwareVersion;
+        if (this.gFlagsValidation.ysqlMajorVersionUpgrade(oldVersion, currentVersion)
+            && primaryCluster.userIntent.enableYSQL) {
+          createFinalizeYsqlMajorCatalogUpgradeTask();
+        }
       }
 
       // Promote all auto flags upto class External.
@@ -6290,6 +6393,12 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
       if (upgradeSystemCatalog) {
         // Run YSQL upgrade on the universe.
         createRunYsqlUpgradeTask(version);
+      }
+
+      if (ysqlUpgradeFinalizeTask != null) {
+        // Run YSQL upgrade finalize task on the universe.
+        // This is a temp step as we need to remove flags set during upgrade.
+        ysqlUpgradeFinalizeTask.run();
       }
 
       createUpdateUniverseSoftwareUpgradeStateTask(

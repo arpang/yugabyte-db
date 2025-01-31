@@ -416,6 +416,7 @@ typedef struct {
   const char*     ysql_conn_mgr_sequence_support_mode;
   const int32_t*  ysql_conn_mgr_max_query_size;
   const int32_t*  ysql_conn_mgr_wait_timeout_ms;
+  const bool*     ysql_enable_pg_export_snapshot;
 } YbcPgGFlagsAccessor;
 
 typedef struct {
@@ -873,6 +874,13 @@ typedef struct {
 
 typedef void (*YbcPgThreadLocalRegexpCacheCleanup)(YbcPgThreadLocalRegexpCache*);
 
+// A thread-safe way to control the behavior of regex matching.
+typedef struct {
+  int pg_regex_strategy; // PG_Locale_Strategy
+  void* pg_regex_locale; // struct pg_locale_t
+  YbcPgOid pg_regex_collation;
+} YbcPgThreadLocalRegexpMetadata;
+
 typedef struct {
   void *slot;
 } YbcPgInsertOnConflictKeyInfo;
@@ -894,6 +902,12 @@ typedef enum {
   YB_ADVISORY_LOCK_SHARED,
   YB_ADVISORY_LOCK_EXCLUSIVE
 } YbcAdvisoryLockMode;
+
+typedef struct {
+  YbcPgOid db_id;
+  int iso_level;
+  bool read_only;
+} YbcPgTxnSnapshot;
 
 #ifdef __cplusplus
 }  // extern "C"

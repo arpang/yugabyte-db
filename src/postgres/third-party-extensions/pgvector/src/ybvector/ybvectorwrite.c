@@ -34,8 +34,8 @@
 #include "catalog/pg_am.h"
 #include "catalog/pg_type.h"
 #include "catalog/yb_type.h"
-#include "commands/ybccmds.h"
-#include "executor/ybcModifyTable.h"
+#include "commands/yb_cmds.h"
+#include "executor/ybModifyTable.h"
 #include "nodes/execnodes.h"
 #include "nodes/parsenodes.h"
 #include "pg_yb_utils.h"
@@ -455,6 +455,9 @@ ybvectorcopartitionedbackfill(Relation heap, Relation index, struct IndexInfo *i
 IndexBuildResult *
 ybvectorcopartitionedbuild(Relation heap, Relation index, struct IndexInfo *indexInfo)
 {
+	HandleYBStatus(YBCPgWaitVectorIndexReady(
+		YBCGetDatabaseOid(index), index->rd_id));
+
 	IndexBuildResult *result = palloc0(sizeof(IndexBuildResult));
 
 	return result;

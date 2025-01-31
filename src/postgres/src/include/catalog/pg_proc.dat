@@ -12074,6 +12074,11 @@
   proparallel => 'r', prorettype => 'void', proargtypes => 'bool',
   prosrc => 'binary_upgrade_set_next_tablegroup_default' },
 
+{ oid => '8079', descr => 'private function used by xCluster to control OID assignment',
+  proname => 'yb_xcluster_set_next_oid_assignments', provolatile => 'v',
+  proparallel => 'r', prorettype => 'void', proargtypes => 'text',
+  prosrc => 'yb_xcluster_set_next_oid_assignments' },
+
 { oid => '8072',
   descr => 'Get metrics of all nodes',
   proname => 'yb_servers_metrics', prorows => '10',
@@ -12107,7 +12112,7 @@
   proargmodes => '{o}', proargnames => '{current_hybrid_time_lsn}',
   prosrc => 'yb_get_current_hybrid_time_lsn'},
 
-{ oid => '8079', descr => 'YB index consistency check',
+{ oid => '8080', descr => 'YB index consistency check',
   proname => 'yb_index_consistency_check', provolatile => 's',
   prorettype => 'bool', proargtypes => 'oid',
   prosrc => 'yb_index_consistency_check' }
