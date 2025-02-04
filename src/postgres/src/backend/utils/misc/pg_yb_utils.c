@@ -44,7 +44,6 @@
 #include "access/tupdesc.h"
 #include "access/xact.h"
 #include "c.h"
-#include "executor/ybExpr.h"
 #include "catalog/catalog.h"
 #include "catalog/heap.h"
 #include "catalog/index.h"
@@ -90,7 +89,8 @@
 #include "common/ip.h"
 #include "common/pg_yb_common.h"
 #include "executor/nodeIndexonlyscan.h"
-#include "executor/ybcExpr.h"
+#include "executor/ybExpr.h"
+// #include "executor/ybcExpr.h"
 #include "fmgr.h"
 #include "funcapi.h"
 #include "lib/stringinfo.h"
@@ -101,6 +101,7 @@
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
+#include "nodes/nodeFuncs.h"
 #include "optimizer/cost.h"
 #include "optimizer/planmain.h"
 #include "parser/parse_utilcmd.h"
@@ -3553,26 +3554,57 @@ yb_hash_code(PG_FUNCTION_ARGS)
 }
 
 static bool
-JoinTupleConsistencyCheck(TupleTableSlot *slot, List *equalProcOids)
+JoinTupleConsistencyCheck(TupleTableSlot *slot, List *equalProcOids,
+						  Relation indexrel)
 {
-	Assert(slot->tts_tupleDescriptor->natts % 2 == 0);
+	bool indisunique = indexrel->rd_index->indisunique;
+	bool indnullsnotdistinct = indexrel->rd_index->indnullsnotdistinct;
+	bool indkeyhasnull = false;
+	int indnatts = indexrel->rd_index->indnatts;
+	int indnkeyatts = indexrel->rd_index->indnkeyatts;
+
+	Assert(slot->tts_tupleDescriptor->natts ==
+		   2 * (indnatts + 1) + (indisunique ? 1 : 0));
 	// elog(INFO, "slot->tts_nvalid %d", slot->tts_nvalid);
 	// elog(INFO, "slot->tts_tupleDescriptor->natts %d", slot->tts_tupleDescriptor->natts);
-	for (int attnum = 1; attnum <= slot->tts_tupleDescriptor->natts; attnum += 2)
+
+	/* First, validate ybctid and ybbasectid. */
+	int ind_attnum = 2 * indnatts + 1;
+	int base_attnum = ind_attnum + 1;
+
+	bool ind_null;
+	bool base_null;
+	Datum ybbasectid_datum = slot_getattr(slot, ind_attnum, &ind_null);
+	Datum base_datum = slot_getattr(slot, base_attnum, &base_null);
+	Form_pg_attribute ind_att =
+		TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
+	if (ind_null || base_null ||
+		!datumIsEqual(ybbasectid_datum, base_datum, ind_att->attbyval,
+					 ind_att->attlen))
+	{
+		elog(INFO, "ybbasectid mismatch. ind_null %d, base_null %d", ind_null, base_null);
+		return false;
+	}
+
+	/* Validate the index attributes. */
+	for (int i = 0; i < indnatts; i++)
 	{
 		// elog(INFO, "Processing attnum %d", attnum);
-		int ind_attnum = attnum;
-		int base_attnum = attnum + 1;
+		int ind_attnum = 2 * i + 1;
+		int base_attnum = ind_attnum + 1;
 		Form_pg_attribute ind_att =
 			TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
-		Form_pg_attribute base_att =
-			TupleDescAttr(slot->tts_tupleDescriptor, base_attnum - 1);
-		Assert(ind_att->atttypid == base_att->atttypid);
+		// Form_pg_attribute base_att =
+		// 	TupleDescAttr(slot->tts_tupleDescriptor, base_attnum - 1);
+		// Assert(ind_att->atttypid == base_att->atttypid);
 
 		bool ind_null;
 		bool base_null;
 		Datum ind_datum = slot_getattr(slot, ind_attnum, &ind_null);
 		Datum base_datum = slot_getattr(slot, base_attnum, &base_null);
+
+		if (ind_null && i < indnkeyatts)
+			indkeyhasnull = true;
 
 		if (ind_null || base_null)
 		{
@@ -3581,7 +3613,7 @@ JoinTupleConsistencyCheck(TupleTableSlot *slot, List *equalProcOids)
 				// elog(INFO, "i %d: both values are null, hence consistent", attnum);
 				continue;
 			}
-			// elog(INFO, "i %d: one is null and other is not, hence inconsistent", attnum);
+			elog(INFO, "attribute %d: one is null and other is not, hence inconsistent", i);
 			return false;
 		}
 
@@ -3592,23 +3624,45 @@ JoinTupleConsistencyCheck(TupleTableSlot *slot, List *equalProcOids)
 			continue;
 		}
 
+		/* Index key should be binary equal to base relation counterpart. */
+		if (i < indnkeyatts)
+		{
+			elog(INFO, "key attribute %d has binary mismatch, hence inconsistent", i);
+			return false;
+		}
+
 		RegProcedure proc_oid = lfirst_int(list_nth_cell(equalProcOids, ind_attnum/2));
 		if (proc_oid == InvalidOid)
 		{
-			// elog(INFO, "i %d: binary values mismatched and '=' op is not defined (proc_oid invalid), hence inconsistent", attnum);
+			elog(INFO, "attribute %d: binary values mismatched and '=' op is not defined (proc_oid invalid), hence inconsistent", i);
 			return false;
 		}
 
 		if (!DatumGetBool(OidFunctionCall2Coll(proc_oid, DEFAULT_COLLATION_OID,
 											   ind_datum, base_datum)))
 		{
-			// elog(INFO, "i %d: both binary and semantic values mismatched, hence inconsistent", attnum);
+			elog(INFO, "attribute %d: both binary and semantic values mismatched, hence inconsistent", i);
 			return false;
 		}
 		// elog(INFO, "i %d: binary values mismatched but semantic values matched, hence consistent", attnum);
 	}
 
-	return true;
+	if (!indisunique)
+		return true;
+
+	/* Validate the ybuniqueidxkeysuffix */
+	ind_attnum = 2 * (indnatts + 1) + 1;
+	Datum ybuniqueidxkeysuffix_datum =
+		slot_getattr(slot, ind_attnum, &ind_null);
+
+	if (indnullsnotdistinct || !indkeyhasnull)
+		return ind_null;
+	else
+	{
+		ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
+		return datumIsEqual(ybbasectid_datum, ybuniqueidxkeysuffix_datum,
+							ind_att->attbyval, ind_att->attlen);
+	}
 }
 
 Datum
@@ -3617,7 +3671,28 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	Oid indexoid = PG_GETARG_OID(0);
 	Relation indexrel = RelationIdGetRelation(indexoid);
 	Assert(indexrel->rd_index);
+
 	Oid basereloid = indexrel->rd_index->indrelid;
+	Relation baserel = RelationIdGetRelation(basereloid);
+
+	if (!IsYBRelation(baserel))
+		elog(INFO, "This operation is supported on '%s' index",
+			 RelationGetRelationName(indexrel));
+
+	/* There is not separate PK index, hence it is always consistent. */
+	if (indexrel->rd_index->indisprimary)
+		return true;
+
+	elog(INFO, "Starting index check, this can take some time");
+
+	if (!indexrel->rd_index->indisvalid)
+		elog(WARNING, "Index is marked invalid");
+	if (!indexrel->rd_index->indisready)
+		elog(WARNING, "Index is not ready");
+	if (!indexrel->rd_index->indislive)
+		elog(WARNING, "Index is not live");
+
+	bool indisunique = indexrel->rd_index->indisunique;
 
 	EState *estate = CreateExecutorState();
 	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
@@ -3639,7 +3714,7 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 
 	// reference: build_index_tlist
 
-	// IndexOnlyScan (on index)
+	/* Index relation scan */
 	for (i = 0; i < idx_desc->natts; i++)
 	{
 		attr = TupleDescAttr(idx_desc, i);
@@ -3651,12 +3726,25 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	}
 
 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
+	elog(INFO, "ybbasectid atttypid %d", attr->atttypid);
 	Var *ybbasectid_expr = makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
 								   attr->atttypid, attr->atttypmod,
 								   attr->attcollation, 0);
 	target_entry = makeTargetEntry((Expr *) ybbasectid_expr, i + 1, "", false);
 	index_scan_tlist = lappend(index_scan_tlist, target_entry);
 
+	if (indisunique)
+	{
+		attr = SystemAttributeDefinition(YBUniqueIdxKeySuffixAttributeNumber);
+		elog(INFO, "ybuniqueidxkeysuffix atttypid %d", attr->atttypid);
+		expr = (Expr *) makeVar(INDEX_VAR, YBUniqueIdxKeySuffixAttributeNumber,
+								attr->atttypid, attr->atttypmod,
+								attr->attcollation, 0);
+		target_entry = makeTargetEntry((Expr *) expr, i + 2, "", false);
+		index_scan_tlist = lappend(index_scan_tlist, target_entry);
+	}
+
+	TupleDesc index_scan_desc = ExecTypeFromTL(index_scan_tlist);
 	IndexOnlyScan *index_scan = makeNode(IndexOnlyScan);
 	Plan *plan = &index_scan->scan.plan;
 	plan->targetlist = index_scan_tlist;
@@ -3666,11 +3754,9 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	index_scan->indexid = indexoid;
 	index_scan->indextlist = index_cols;
 
-
-	// IndexScan (on base rel)
-	Relation baserel = RelationIdGetRelation(basereloid);
+	/* Base relation scan */
 	TupleDesc base_desc = RelationGetDescr(baserel);
-	List *base_scan_tlist = NIL; // output of this scan
+	List *base_scan_tlist = NIL;
 	AttrNumber attnum;
 
 	bool isnull;
@@ -3700,6 +3786,9 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 			expr = (Expr *) lfirst(next_expr);
 			next_expr = lnext(indexprs, next_expr);
 		}
+
+		/* Assert that type of index attribute match base relation attribute. */
+		Assert(exprType((Node *) expr) == TupleDescAttr(idx_desc, i)->atttypid);
 		target_entry = makeTargetEntry(expr, i + 1, "", false);
 		base_scan_tlist = lappend(base_scan_tlist, target_entry);
 	}
@@ -3753,11 +3842,25 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	target_entry = makeTargetEntry((Expr*)ybctid_from_index, 1, "", false);
 	List *base_indextlist = list_make1(target_entry);
 
+	/* Partial index predicate. */
+	List *partial_idx_pred = NIL;
+	List *partial_idx_colrefs = NIL;
+	bool partial_idx_pushdown = false;
+	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+										  Anum_pg_index_indpred, &isnull);
+	if (!isnull)
+	{
+		Expr *indpred = stringToNode(TextDatumGetCString(indpred_datum));
+		partial_idx_pushdown = YbCanPushdownExpr(indpred, &partial_idx_colrefs);
+		partial_idx_pred = lappend(partial_idx_pred, indpred);
+	}
+
 	IndexScan *base_scan = makeNode(IndexScan);
 	plan = &base_scan->scan.plan;
 	plan->targetlist = base_scan_tlist; // output from the node
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
+	plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
 	plan->extParam = bms;
 	plan->allParam = bms;
 	base_scan->scan.scanrelid = 1; // baserelid's rt index
@@ -3765,17 +3868,28 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	base_scan->indextlist = base_indextlist; // index cols
 	base_scan->indexqual = list_make1(saop);
 	base_scan->indexqualorig = list_make1(orig_saop);
+	base_scan->yb_idx_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
+															  NIL;
+	base_scan->yb_idx_pushdown.colrefs =
+		partial_idx_pushdown ? partial_idx_colrefs : NIL;
 
 	// BNL
 	List *join_tlist = NIL;
-	for (i = 0; i < idx_desc->natts; i++)
+	for (i = 0; i < index_scan_desc->natts; i++)
 	{
-		attr = TupleDescAttr(idx_desc, i);
+		attr = TupleDescAttr(index_scan_desc, i);
 		expr = (Expr *) makeVar(OUTER_VAR, // index's rt index
 								i + 1, attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, 2 * i + 1, "", false);
 		join_tlist = lappend(join_tlist, target_entry);
+
+		/*
+		 * For unique index is ybuniqueidxkeysuffix, it doesn't have base rel
+		 * counterpart.
+		 */
+		if (indisunique && i + 1 == index_scan_desc->natts)
+			continue;
 
 		expr = (Expr *) makeVar(INNER_VAR, // index's rt index
 								i + 1, attr->atttypid, attr->atttypmod,
@@ -3849,33 +3963,24 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	{
 		consistent_index_row_count++;
 		elog(INFO, "Join output: %s", YbTupleTableSlotToString(output));
-		if (!JoinTupleConsistencyCheck(output, equalProcOids))
+		if (!JoinTupleConsistencyCheck(output, equalProcOids, indexrel))
 			return false;
 	}
 	ExecEndNode(join_state);
 
 	// Index rows are consistent. Now check the base relation row count.
-	List *indpreds = NIL;
-	List *colrefs = NIL;
-	bool pushdown = false;
-	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
-										  Anum_pg_index_indpred, &isnull);
-	if (!isnull)
-	{
-		Expr *indpred = stringToNode(TextDatumGetCString(indpred_datum));
-		pushdown = YbCanPushdownExpr(indpred, &colrefs);
-		indpreds = lappend(indpreds, indpred);
-	}
 	// elog(INFO, "pushdown %d", pushdown);
 	YbSeqScan *yb_seq_scan = makeNode(YbSeqScan);
 	plan = &yb_seq_scan->scan.plan;
 	plan->targetlist = NIL;
-	plan->qual = !pushdown ? indpreds : NIL;
+	plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
 	yb_seq_scan->scan.scanrelid = 1;
-	yb_seq_scan->yb_pushdown.quals = pushdown ? indpreds : NIL;
-	yb_seq_scan->yb_pushdown.colrefs = pushdown ? colrefs : NIL;
+	yb_seq_scan->yb_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
+															NIL;
+	yb_seq_scan->yb_pushdown.colrefs =
+		partial_idx_pushdown ? partial_idx_colrefs : NIL;
 
 	Aggref *count_aggref = makeNode(Aggref);
 	count_aggref->aggfnoid = 2803;

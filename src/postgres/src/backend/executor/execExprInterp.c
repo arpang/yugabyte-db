@@ -4377,7 +4377,7 @@ ExecEvalSysVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext,
 						op->resnull);
 	*op->resvalue = d;
 	/* this ought to be unreachable, but it's cheap enough to check */
-	if (unlikely(*op->resnull))
+	if (unlikely(*op->resnull) && !yb_index_checker)
 		elog(ERROR, "failed to fetch attribute from slot");
 }
 

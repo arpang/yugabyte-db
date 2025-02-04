@@ -230,6 +230,7 @@ typedef struct {
   // Yugabyte system columns.
   uint8_t *ybctid;
   uint8_t *ybbasectid;
+  uint8_t *ybuniqueidxkeysuffix;
 } YbcPgSysColumns;
 
 // Structure to hold parameters for preparing query plan.

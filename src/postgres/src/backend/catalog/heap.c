@@ -243,12 +243,15 @@ static const FormData_pg_attribute a7 = {
 	.atttypmod = -1,
 	.attbyval = false,
 	.attalign = TYPALIGN_INT,
-	.attstorage = TYPSTORAGE_PLAIN,
+	.attstorage = TYPSTORAGE_EXTENDED,
 	.attnotnull = true,
 	.attislocal = true,
 };
 
-static const FormData_pg_attribute a8 = {
+static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4,
+												&a5, &a6, &a7};
+
+static const FormData_pg_attribute index_a1 = {
 	.attname = {"ybidxbasectid"},
 	.atttypid = BYTEAOID,
 	.attlen = -1,
@@ -257,12 +260,35 @@ static const FormData_pg_attribute a8 = {
 	.atttypmod = -1,
 	.attbyval = false,
 	.attalign = TYPALIGN_INT,
-	.attstorage = TYPSTORAGE_PLAIN,
+	.attstorage = TYPSTORAGE_EXTENDED,
 	.attnotnull = true,
 	.attislocal = true,
 };
 
-static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8};
+static const FormData_pg_attribute index_a2 = {
+	.attname = {"ybuniqueidxkeysuffix"},
+	.atttypid = BYTEAOID,
+	.attlen = -1,
+	.attnum = YBUniqueIdxKeySuffixAttributeNumber,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_EXTENDED,
+	.attnotnull = false,
+	.attislocal = true,
+};
+
+static const FormData_pg_attribute *IndexSysAtt[] = {&index_a1, &index_a2};
+
+const FormData_pg_attribute *
+IndexSystemAttributeDefinition(AttrNumber attno)
+{
+	Assert(attno == YBIdxBaseTupleIdAttributeNumber ||
+		   attno == YBUniqueIdxKeySuffixAttributeNumber);
+	elog(INFO, "Using index %d", -attno + YBIdxBaseTupleIdAttributeNumber);
+	return IndexSysAtt[-attno + YBIdxBaseTupleIdAttributeNumber];
+}
 
 /*
  * This function returns a Form_pg_attribute pointer for a system attribute.
@@ -272,10 +298,11 @@ static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a
 const FormData_pg_attribute *
 SystemAttributeDefinition(AttrNumber attno)
 {
-	if (attno >= 0 || (attno < -(int) lengthof(SysAtt) && attno != YBIdxBaseTupleIdAttributeNumber))
+	if (attno == YBIdxBaseTupleIdAttributeNumber ||
+		attno == YBUniqueIdxKeySuffixAttributeNumber)
+		return IndexSystemAttributeDefinition(attno);
+	if (attno >= 0 || (attno < -(int) lengthof(SysAtt)))
 		elog(ERROR, "invalid system attribute number %d", attno);
-	if (attno == YBIdxBaseTupleIdAttributeNumber)
-		return SysAtt[lengthof(SysAtt) - 1];
 	return SysAtt[-attno - 1];
 }
 
