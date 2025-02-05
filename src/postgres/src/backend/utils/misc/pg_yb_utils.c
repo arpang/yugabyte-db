@@ -3867,7 +3867,7 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	base_scan->indexid = basereloid;
 	base_scan->indextlist = base_indextlist; // index cols
 	base_scan->indexqual = list_make1(saop);
-	base_scan->indexqualorig = list_make1(orig_saop);
+	// base_scan->indexqualorig = list_make1(orig_saop);
 	base_scan->yb_rel_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
 															  NIL;
 	base_scan->yb_rel_pushdown.colrefs =
