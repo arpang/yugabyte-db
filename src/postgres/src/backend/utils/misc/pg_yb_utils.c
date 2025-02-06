@@ -3713,11 +3713,13 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
 	Relation indexrel = RelationIdGetRelation(indexoid);
+	if (indexrel->rd_rel->relkind != RELKIND_INDEX &&
+		indexrel->rd_rel->relkind != RELKIND_PARTITIONED_INDEX)
+		elog(ERROR, "Object is not an index");
 	Assert(indexrel->rd_index);
 
 	if (!IsYBRelation(indexrel))
-		elog(ERROR, "This operation is not supported for '%s' index",
-			 RelationGetRelationName(indexrel));
+		elog(ERROR, "This operation is only supported for LSM indexes");
 
 	if (!indexrel->rd_index->indisvalid)
 		elog(ERROR, "Index '%s' is marked invalid",
@@ -3743,15 +3745,6 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 
 	Oid basereloid = indexrel->rd_index->indrelid;
 	Relation baserel = RelationIdGetRelation(basereloid);
-
-	EState *estate = CreateExecutorState();
-	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
-
-	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
-	rte1->rtekind = RTE_RELATION;
-	rte1->relid = basereloid;
-	rte1->relkind = RELKIND_RELATION;
-	ExecInitRangeTable(estate, list_make1(rte1));
 
 	Expr *expr;
 	List *index_cols = NIL;
@@ -3984,9 +3977,6 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	join_plan->hashClauseInfos->outerParamExpr = (Expr *) join_lhs;	 // TODO
 	join_plan->hashClauseInfos->orig_expr = (Expr *) join_clause;
 
-	estate->es_param_exec_vals =
-		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
-
 	List *equalProcOids = NIL;
 	for (i = 0; i < indexdesc->natts; i++)
 	{
@@ -4003,6 +3993,18 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	}
 
 	// Execution
+	EState *estate = CreateExecutorState();
+	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
+
+	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
+	rte1->rtekind = RTE_RELATION;
+	rte1->relid = basereloid;
+	rte1->relkind = RELKIND_RELATION;
+	ExecInitRangeTable(estate, list_make1(rte1));
+
+	estate->es_param_exec_vals =
+		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
+
 	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
 	TupleTableSlot *output;
 
