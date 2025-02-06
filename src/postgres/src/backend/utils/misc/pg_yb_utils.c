@@ -3555,8 +3555,8 @@ yb_hash_code(PG_FUNCTION_ARGS)
 }
 
 static bool
-JoinTupleConsistencyCheck(TupleTableSlot *slot, List *equalProcOids,
-						  Relation indexrel)
+yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
+					   Relation indexrel)
 {
 	bool indisunique = indexrel->rd_index->indisunique;
 	bool indnullsnotdistinct = indexrel->rd_index->indnullsnotdistinct;
@@ -3666,6 +3666,48 @@ JoinTupleConsistencyCheck(TupleTableSlot *slot, List *equalProcOids,
 	}
 }
 
+int
+yb_lsm_index_expected_row_count(Relation indexrel, Relation baserel)
+{
+	StringInfoData querybuf;
+	initStringInfo(&querybuf);
+	appendStringInfo(&querybuf, "/*+SeqScan(%s)*/ SELECT count(*) from %s",
+					 RelationGetRelationName(baserel),
+					 RelationGetRelationName(baserel));
+
+	bool indpred_isnull;
+	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+										  Anum_pg_index_indpred,
+										  &indpred_isnull);
+	if (!indpred_isnull)
+	{
+		Oid basereloid = RelationGetRelid(baserel);
+		char *indpred_clause = TextDatumGetCString(
+			DirectFunctionCall2(pg_get_expr, indpred_datum, basereloid));
+		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
+	}
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	if (SPI_execute(querybuf.data, true, 0) != SPI_OK_SELECT)
+		elog(ERROR, "SPI_exec failed:");
+
+	Assert(SPI_processed == 1);
+	Assert(SPI_tuptable->tupdesc->natts == 1);
+
+	bool isnull;
+	Datum val =
+		heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
+	Assert(!isnull);
+	int expected_rowcount = DatumGetInt64(val);
+
+	if (SPI_finish() != SPI_OK_FINISH)
+		elog(ERROR, "SPI_finish failed");
+
+	return expected_rowcount;
+}
+
 Datum
 yb_lsm_index_check(PG_FUNCTION_ARGS)
 {
@@ -3673,26 +3715,34 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	Relation indexrel = RelationIdGetRelation(indexoid);
 	Assert(indexrel->rd_index);
 
-	Oid basereloid = indexrel->rd_index->indrelid;
-	Relation baserel = RelationIdGetRelation(basereloid);
+	if (!IsYBRelation(indexrel))
+		elog(ERROR, "This operation is not supported for '%s' index",
+			 RelationGetRelationName(indexrel));
 
-	if (!IsYBRelation(baserel))
-		elog(INFO, "This operation is supported on '%s' index",
+	if (!indexrel->rd_index->indisvalid)
+		elog(ERROR, "Index '%s' is marked invalid",
+			 RelationGetRelationName(indexrel));
+	if (!indexrel->rd_index->indisready)
+		elog(ERROR, "Index '%s' is not ready",
+			 RelationGetRelationName(indexrel));
+	if (!indexrel->rd_index->indislive)
+		elog(ERROR, "Index '%s' is not live",
 			 RelationGetRelationName(indexrel));
 
 	/* There is not separate PK index, hence it is always consistent. */
 	if (indexrel->rd_index->indisprimary)
+	{
+		RelationClose(indexrel);
 		return true;
+	}
 
 	// elog(INFO, "Starting index check, this can take some time");
-	if (!indexrel->rd_index->indisvalid)
-		elog(WARNING, "Index is marked invalid");
-	if (!indexrel->rd_index->indisready)
-		elog(WARNING, "Index is not ready");
-	if (!indexrel->rd_index->indislive)
-		elog(WARNING, "Index is not live");
-
+	bool result = true;
+	TupleDesc indexdesc = RelationGetDescr(indexrel);
 	bool indisunique = indexrel->rd_index->indisunique;
+
+	Oid basereloid = indexrel->rd_index->indrelid;
+	Relation baserel = RelationIdGetRelation(basereloid);
 
 	EState *estate = CreateExecutorState();
 	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
@@ -3701,10 +3751,8 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	rte1->rtekind = RTE_RELATION;
 	rte1->relid = basereloid;
 	rte1->relkind = RELKIND_RELATION;
-
 	ExecInitRangeTable(estate, list_make1(rte1));
 
-	TupleDesc idx_desc = RelationGetDescr(indexrel);
 	Expr *expr;
 	List *index_cols = NIL;
 	List *index_scan_tlist = NIL;
@@ -3713,11 +3761,11 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	int i;
 
 	// reference: build_index_tlist
-
+	yb_index_checker = true;
 	/* Index relation scan */
-	for (i = 0; i < idx_desc->natts; i++)
+	for (i = 0; i < indexdesc->natts; i++)
 	{
-		attr = TupleDescAttr(idx_desc, i);
+		attr = TupleDescAttr(indexdesc, i);
 		expr = (Expr *) makeVar(INDEX_VAR, i + 1, attr->atttypid,
 								attr->atttypmod, attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, i + 1, "", false);
@@ -3735,7 +3783,6 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	if (indisunique)
 	{
 		attr = SystemAttributeDefinition(YBUniqueIdxKeySuffixAttributeNumber);
-		elog(INFO, "ybuniqueidxkeysuffix atttypid %d", attr->atttypid);
 		expr = (Expr *) makeVar(INDEX_VAR, YBUniqueIdxKeySuffixAttributeNumber,
 								attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
@@ -3770,7 +3817,7 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 		next_expr = list_head(indexprs);
 	}
 
-	for (i = 0; i < idx_desc->natts; i++)
+	for (i = 0; i < indexdesc->natts; i++)
 	{
 		attnum = indexrel->rd_index->indkey.values[i];
 		if (attnum > 0)
@@ -3787,7 +3834,8 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 		}
 
 		/* Assert that type of index attribute match base relation attribute. */
-		Assert(exprType((Node *) expr) == TupleDescAttr(idx_desc, i)->atttypid);
+		Assert(exprType((Node *) expr) ==
+			   TupleDescAttr(indexdesc, i)->atttypid);
 		target_entry = makeTargetEntry(expr, i + 1, "", false);
 		base_scan_tlist = lappend(base_scan_tlist, target_entry);
 	}
@@ -3901,11 +3949,11 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	// Join clause
 	Var *join_lhs = copyObject(ybbasectid_expr);
 	join_lhs->varno = OUTER_VAR;
-	join_lhs->varattno = idx_desc->natts + 1;
+	join_lhs->varattno = indexdesc->natts + 1;
 
 	Var *join_rhs = copyObject(ybctid_expr);
 	join_rhs->varno = INNER_VAR;
-	join_rhs->varattno = idx_desc->natts + 1;
+	join_rhs->varattno = indexdesc->natts + 1;
 
 	OpExpr *join_clause = (OpExpr *) make_opclause(ByteaEqualOperator, BOOLOID,
 												   false, (Expr *) join_lhs,
@@ -3940,9 +3988,9 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
 
 	List *equalProcOids = NIL;
-	for (i = 0; i < idx_desc->natts; i++)
+	for (i = 0; i < indexdesc->natts; i++)
 	{
-		attr = TupleDescAttr(idx_desc, i);
+		attr = TupleDescAttr(indexdesc, i);
 		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
 											attr->atttypid, attr->atttypid);
 		if (operator_oid == InvalidOid)
@@ -3958,100 +4006,31 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
 	TupleTableSlot *output;
 
-	int consistent_index_row_count = 0;
+	int index_rowcount = 0;
 	while ((output = ExecProcNode(join_state)))
 	{
-		consistent_index_row_count++;
+		index_rowcount++;
 		// TODO: Why is this required?
 		output->tts_ops->materialize(output);
 		// elog(INFO, "Join output: %s", YbTupleTableSlotToString(output));
-		if (!JoinTupleConsistencyCheck(output, equalProcOids, indexrel))
-			return false;
+		result = yb_lsm_index_row_check(output, equalProcOids, indexrel);
+		if (!result)
+			break;
 	}
 	ExecEndNode(join_state);
 
-	// Index rows are consistent. Now check the base relation row count.
-	// elog(INFO, "pushdown %d", pushdown);
-	// YbSeqScan *yb_seq_scan = makeNode(YbSeqScan);
-	// plan = &yb_seq_scan->scan.plan;
-	// plan->targetlist = NIL;
-	// plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
-	// plan->lefttree = NULL;
-	// plan->righttree = NULL;
-	// yb_seq_scan->scan.scanrelid = 1;
-	// yb_seq_scan->yb_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
-	// 														NIL;
-	// yb_seq_scan->yb_pushdown.colrefs =
-	// 	partial_idx_pushdown ? partial_idx_colrefs : NIL;
-
-	// Aggref *count_aggref = makeNode(Aggref);
-	// count_aggref->aggfnoid = 2803;
-	// count_aggref->aggtype = INT8OID;
-	// count_aggref->aggtranstype = INT8OID;
-	// count_aggref->aggstar = true;
-	// count_aggref->aggkind = 'n';
-
-	// target_entry = makeTargetEntry((Expr *) count_aggref, 1, "", false);
-
-	// Agg *base_row_count = makeNode(Agg);
-	// plan = &base_row_count->plan;
-	// base_row_count->aggstrategy = AGG_PLAIN;
-	// base_row_count->aggsplit = AGGSPLIT_SIMPLE;
-	// base_row_count->numCols = 0;
-	// base_row_count->numGroups = 1;
-
-	// plan->qual = NIL;
-	// plan->targetlist = list_make1(target_entry);
-	// plan->lefttree = (Plan *) yb_seq_scan;
-	// plan->righttree = NULL;
-
-	// PlanState *base_row_count_state =
-	// 	ExecInitNode((Plan *) base_row_count, estate, 0);
-	// output = ExecProcNode(base_row_count_state);
-	// Assert(output->tts_tupleDescriptor->natts == 1);
-
-	// int base_row_count_res = DatumGetInt64(slot_getattr(output, 1, &isnull));
-
-	// elog(INFO, "Index row count: %d, base rel row count: %d", consistent_index_row_count, base_row_count_res);
-
-	// if (consistent_index_row_count != base_row_count_res)
-	// {
-	// 	// elog(INFO,
-	// 	// 	 "Index has %d rows, base rel has %d rows, hence inconsistent",
-	// 	// 	 consistent_index_row_count, base_row_count_res);
-	// 	return false;
-	// }
-	// Assert(ExecProcNode(base_row_count_state) == NULL);
-	// ExecEndNode(base_row_count_state);
-	StringInfoData querybuf;
-	initStringInfo(&querybuf);
-	appendStringInfo(&querybuf, "/*+SeqScan(%s)*/ SELECT count(*) from %s", RelationGetRelationName(baserel), RelationGetRelationName(baserel));
-
-	if (!indpred_isnull)
+	if (result)
 	{
-		char* indpred_clause = TextDatumGetCString(DirectFunctionCall2(pg_get_expr, indpred_datum, basereloid));
-		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
-	}
-	if (SPI_connect() != SPI_OK_CONNECT)
-		elog(ERROR, "SPI_connect failed");
-	if (SPI_execute(querybuf.data, true, 0) != SPI_OK_SELECT)
-		elog(ERROR, "SPI_exec failed:");
-	Assert(SPI_processed == 1);
-	Assert(SPI_tuptable->tupdesc->natts == 1);
-	Datum val = heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
-	Assert(!isnull);
-	int base_row_count_res = DatumGetInt64(val);
-
-	if (consistent_index_row_count != base_row_count_res)
-	{
-		elog(INFO,
-			 "Index has %d rows, base rel has %d rows, hence inconsistent",
-			 consistent_index_row_count, base_row_count_res);
-		return false;
+		int expected_rowcount =
+			yb_lsm_index_expected_row_count(indexrel, baserel);
+		result = index_rowcount == expected_rowcount;
+		if (!result)
+			elog(INFO, "Index has %d rows, expected row count %d",
+				 index_rowcount, expected_rowcount);
 	}
 
-	if (SPI_finish() != SPI_OK_FINISH)
-		elog(ERROR, "SPI_finish failed");
+	/* Reset state */
+	yb_index_checker = false;
 	RelationClose(indexrel);
 	RelationClose(baserel);
 	ExecResetTupleTable(estate->es_tupleTable, false);
@@ -4059,7 +4038,7 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	ExecCloseRangeTableRelations(estate);
 	MemoryContextSwitchTo(oldctxt);
 	FreeExecutorState(estate);
-	return true;
+	return result;
 }
 
 /*

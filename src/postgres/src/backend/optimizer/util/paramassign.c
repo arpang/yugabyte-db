@@ -57,7 +57,7 @@
 #include "rewrite/rewriteManip.h"
 
 int			yb_bnl_batch_size = 1;
-bool		yb_index_checker = true; // TODO
+bool		yb_index_checker = false;
 
 /*
  * Select a PARAM_EXEC number to identify the given Var as a parameter for
