@@ -3684,7 +3684,7 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	if (indexrel->rd_index->indisprimary)
 		return true;
 
-	elog(INFO, "Starting index check, this can take some time");
+	// elog(INFO, "Starting index check, this can take some time");
 	if (!indexrel->rd_index->indisvalid)
 		elog(WARNING, "Index is marked invalid");
 	if (!indexrel->rd_index->indisready)
@@ -3726,7 +3726,6 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	}
 
 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
-	elog(INFO, "ybbasectid atttypid %d", attr->atttypid);
 	Var *ybbasectid_expr = makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
 								   attr->atttypid, attr->atttypmod,
 								   attr->attcollation, 0);
@@ -3963,7 +3962,9 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	while ((output = ExecProcNode(join_state)))
 	{
 		consistent_index_row_count++;
-		elog(INFO, "Join output: %s", YbTupleTableSlotToString(output));
+		// TODO: Why is this required?
+		output->tts_ops->materialize(output);
+		// elog(INFO, "Join output: %s", YbTupleTableSlotToString(output));
 		if (!JoinTupleConsistencyCheck(output, equalProcOids, indexrel))
 			return false;
 	}
@@ -4024,14 +4025,13 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	// ExecEndNode(base_row_count_state);
 	StringInfoData querybuf;
 	initStringInfo(&querybuf);
-	appendStringInfo(&querybuf, "SELECT count(*) from %s", RelationGetRelationName(baserel));
+	appendStringInfo(&querybuf, "/*+SeqScan(%s)*/ SELECT count(*) from %s", RelationGetRelationName(baserel), RelationGetRelationName(baserel));
 
 	if (!indpred_isnull)
 	{
 		char* indpred_clause = TextDatumGetCString(DirectFunctionCall2(pg_get_expr, indpred_datum, basereloid));
 		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
 	}
-	elog(INFO, "Base count query: %s", querybuf.data);
 	if (SPI_connect() != SPI_OK_CONNECT)
 		elog(ERROR, "SPI_connect failed");
 	if (SPI_execute(querybuf.data, true, 0) != SPI_OK_SELECT)
@@ -4041,13 +4041,12 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	Datum val = heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
 	Assert(!isnull);
 	int base_row_count_res = DatumGetInt64(val);
-	elog(INFO, "Index row count: %d, base rel row count: %d", consistent_index_row_count, base_row_count_res);
 
 	if (consistent_index_row_count != base_row_count_res)
 	{
-		// elog(INFO,
-		// 	 "Index has %d rows, base rel has %d rows, hence inconsistent",
-		// 	 consistent_index_row_count, base_row_count_res);
+		elog(INFO,
+			 "Index has %d rows, base rel has %d rows, hence inconsistent",
+			 consistent_index_row_count, base_row_count_res);
 		return false;
 	}
 

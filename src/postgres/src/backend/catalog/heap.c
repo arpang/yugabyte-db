@@ -286,7 +286,6 @@ IndexSystemAttributeDefinition(AttrNumber attno)
 {
 	Assert(attno == YBIdxBaseTupleIdAttributeNumber ||
 		   attno == YBUniqueIdxKeySuffixAttributeNumber);
-	elog(INFO, "Using index %d", -attno + YBIdxBaseTupleIdAttributeNumber);
 	return IndexSysAtt[-attno + YBIdxBaseTupleIdAttributeNumber];
 }
 
