@@ -89,6 +89,7 @@
 #include "common/ip.h"
 #include "common/pg_yb_common.h"
 #include "executor/nodeIndexonlyscan.h"
+#include "executor/spi.h"
 #include "executor/ybExpr.h"
 // #include "executor/ybcExpr.h"
 #include "fmgr.h"
@@ -3684,7 +3685,6 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 		return true;
 
 	elog(INFO, "Starting index check, this can take some time");
-
 	if (!indexrel->rd_index->indisvalid)
 		elog(WARNING, "Index is marked invalid");
 	if (!indexrel->rd_index->indisready)
@@ -3846,9 +3846,10 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	List *partial_idx_pred = NIL;
 	List *partial_idx_colrefs = NIL;
 	bool partial_idx_pushdown = false;
+	bool indpred_isnull = false;
 	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
-										  Anum_pg_index_indpred, &isnull);
-	if (!isnull)
+										  Anum_pg_index_indpred, &indpred_isnull);
+	if (!indpred_isnull)
 	{
 		Expr *indpred = stringToNode(TextDatumGetCString(indpred_datum));
 		partial_idx_pushdown = YbCanPushdownExpr(indpred, &partial_idx_colrefs);
@@ -3970,46 +3971,76 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 
 	// Index rows are consistent. Now check the base relation row count.
 	// elog(INFO, "pushdown %d", pushdown);
-	YbSeqScan *yb_seq_scan = makeNode(YbSeqScan);
-	plan = &yb_seq_scan->scan.plan;
-	plan->targetlist = NIL;
-	plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
-	plan->lefttree = NULL;
-	plan->righttree = NULL;
-	yb_seq_scan->scan.scanrelid = 1;
-	yb_seq_scan->yb_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
-															NIL;
-	yb_seq_scan->yb_pushdown.colrefs =
-		partial_idx_pushdown ? partial_idx_colrefs : NIL;
+	// YbSeqScan *yb_seq_scan = makeNode(YbSeqScan);
+	// plan = &yb_seq_scan->scan.plan;
+	// plan->targetlist = NIL;
+	// plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
+	// plan->lefttree = NULL;
+	// plan->righttree = NULL;
+	// yb_seq_scan->scan.scanrelid = 1;
+	// yb_seq_scan->yb_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
+	// 														NIL;
+	// yb_seq_scan->yb_pushdown.colrefs =
+	// 	partial_idx_pushdown ? partial_idx_colrefs : NIL;
 
-	Aggref *count_aggref = makeNode(Aggref);
-	count_aggref->aggfnoid = 2803;
-	count_aggref->aggtype = INT8OID;
-	count_aggref->aggtranstype = INT8OID;
-	count_aggref->aggstar = true;
-	count_aggref->aggkind = 'n';
+	// Aggref *count_aggref = makeNode(Aggref);
+	// count_aggref->aggfnoid = 2803;
+	// count_aggref->aggtype = INT8OID;
+	// count_aggref->aggtranstype = INT8OID;
+	// count_aggref->aggstar = true;
+	// count_aggref->aggkind = 'n';
 
-	target_entry = makeTargetEntry((Expr *) count_aggref, 1, "", false);
+	// target_entry = makeTargetEntry((Expr *) count_aggref, 1, "", false);
 
-	Agg *base_row_count = makeNode(Agg);
-	plan = &base_row_count->plan;
-	base_row_count->aggstrategy = AGG_PLAIN;
-	base_row_count->aggsplit = AGGSPLIT_SIMPLE;
-	base_row_count->numCols = 0;
-	base_row_count->numGroups = 1;
+	// Agg *base_row_count = makeNode(Agg);
+	// plan = &base_row_count->plan;
+	// base_row_count->aggstrategy = AGG_PLAIN;
+	// base_row_count->aggsplit = AGGSPLIT_SIMPLE;
+	// base_row_count->numCols = 0;
+	// base_row_count->numGroups = 1;
 
-	plan->qual = NIL;
-	plan->targetlist = list_make1(target_entry);
-	plan->lefttree = (Plan *) yb_seq_scan;
-	plan->righttree = NULL;
+	// plan->qual = NIL;
+	// plan->targetlist = list_make1(target_entry);
+	// plan->lefttree = (Plan *) yb_seq_scan;
+	// plan->righttree = NULL;
 
-	PlanState *base_row_count_state =
-		ExecInitNode((Plan *) base_row_count, estate, 0);
-	output = ExecProcNode(base_row_count_state);
-	Assert(output->tts_tupleDescriptor->natts == 1);
+	// PlanState *base_row_count_state =
+	// 	ExecInitNode((Plan *) base_row_count, estate, 0);
+	// output = ExecProcNode(base_row_count_state);
+	// Assert(output->tts_tupleDescriptor->natts == 1);
 
-	int base_row_count_res = DatumGetInt64(slot_getattr(output, 1, &isnull));
+	// int base_row_count_res = DatumGetInt64(slot_getattr(output, 1, &isnull));
 
+	// elog(INFO, "Index row count: %d, base rel row count: %d", consistent_index_row_count, base_row_count_res);
+
+	// if (consistent_index_row_count != base_row_count_res)
+	// {
+	// 	// elog(INFO,
+	// 	// 	 "Index has %d rows, base rel has %d rows, hence inconsistent",
+	// 	// 	 consistent_index_row_count, base_row_count_res);
+	// 	return false;
+	// }
+	// Assert(ExecProcNode(base_row_count_state) == NULL);
+	// ExecEndNode(base_row_count_state);
+	StringInfoData querybuf;
+	initStringInfo(&querybuf);
+	appendStringInfo(&querybuf, "SELECT count(*) from %s", RelationGetRelationName(baserel));
+
+	if (!indpred_isnull)
+	{
+		char* indpred_clause = TextDatumGetCString(DirectFunctionCall2(pg_get_expr, indpred_datum, basereloid));
+		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
+	}
+	elog(INFO, "Base count query: %s", querybuf.data);
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+	if (SPI_execute(querybuf.data, true, 0) != SPI_OK_SELECT)
+		elog(ERROR, "SPI_exec failed:");
+	Assert(SPI_processed == 1);
+	Assert(SPI_tuptable->tupdesc->natts == 1);
+	Datum val = heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
+	Assert(!isnull);
+	int base_row_count_res = DatumGetInt64(val);
 	elog(INFO, "Index row count: %d, base rel row count: %d", consistent_index_row_count, base_row_count_res);
 
 	if (consistent_index_row_count != base_row_count_res)
@@ -4019,9 +4050,9 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 		// 	 consistent_index_row_count, base_row_count_res);
 		return false;
 	}
-	Assert(ExecProcNode(base_row_count_state) == NULL);
-	ExecEndNode(base_row_count_state);
 
+	if (SPI_finish() != SPI_OK_FINISH)
+		elog(ERROR, "SPI_finish failed");
 	RelationClose(indexrel);
 	RelationClose(baserel);
 	ExecResetTupleTable(estate->es_tupleTable, false);
