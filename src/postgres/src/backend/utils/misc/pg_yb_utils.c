@@ -3554,7 +3554,7 @@ yb_hash_code(PG_FUNCTION_ARGS)
 	PG_RETURN_UINT16(hashed_val);
 }
 
-static bool
+static void
 yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
 					   Relation indexrel)
 {
@@ -3579,13 +3579,20 @@ yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
 	Datum base_datum = slot_getattr(slot, base_attnum, &base_null);
 	Form_pg_attribute ind_att =
 		TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
-	if (ind_null || base_null ||
-		!datumIsEqual(ybbasectid_datum, base_datum, ind_att->attbyval,
-					 ind_att->attlen))
-	{
-		elog(INFO, "ybbasectid mismatch. ind_null %d, base_null %d", ind_null, base_null);
-		return false;
-	}
+
+	if (ind_null)
+		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
+						errmsg("index has row with ybbasectid = null")));
+
+	if (base_null)
+		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
+						errmsg("index contains spurious row")));
+
+	/* This should never happen */
+	if (unlikely(!datumIsEqual(ybbasectid_datum, base_datum, ind_att->attbyval,
+							   ind_att->attlen)))
+		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
+						errmsg("index's ybbasectid mismatch with base relation's ybctid")));
 
 	/* Validate the index attributes. */
 	for (int i = 0; i < indnatts; i++)
@@ -3595,9 +3602,6 @@ yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
 		int base_attnum = ind_attnum + 1;
 		Form_pg_attribute ind_att =
 			TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
-		// Form_pg_attribute base_att =
-		// 	TupleDescAttr(slot->tts_tupleDescriptor, base_attnum - 1);
-		// Assert(ind_att->atttypid == base_att->atttypid);
 
 		bool ind_null;
 		bool base_null;
@@ -3610,63 +3614,71 @@ yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
 		if (ind_null || base_null)
 		{
 			if (ind_null && base_null)
-			{
-				// elog(INFO, "i %d: both values are null, hence consistent", attnum);
 				continue;
-			}
-			elog(INFO, "attribute %d: one is null and other is not, hence inconsistent", i);
-			return false;
+
+			ereport(ERROR,
+					(errcode(ERRCODE_INDEX_CORRUPTED),
+					errmsg("index row inconsistent with base table"),
+					errdetail("NULL value mismatch for index attribute %d", i+1)));
 		}
 
 		if (datumIsEqual(ind_datum, base_datum, ind_att->attbyval,
 						 ind_att->attlen))
-		{
-			// elog(INFO, "i %d: binary values matched, hence consistent", attnum);
 			continue;
-		}
 
 		/* Index key should be binary equal to base relation counterpart. */
 		if (i < indnkeyatts)
-		{
-			elog(INFO, "key attribute %d has binary mismatch, hence inconsistent", i);
-			return false;
-		}
+			ereport(ERROR,
+					(errcode(ERRCODE_INDEX_CORRUPTED),
+					errmsg("index row inconsistent with base table"),
+					errdetail("Index row's key column is not binary equal to base row")));
 
 		RegProcedure proc_oid = lfirst_int(list_nth_cell(equalProcOids, ind_attnum/2));
 		if (proc_oid == InvalidOid)
-		{
-			elog(INFO, "attribute %d: binary values mismatched and '=' op is not defined (proc_oid invalid), hence inconsistent", i);
-			return false;
-		}
+			ereport(ERROR,
+					(errcode(ERRCODE_INDEX_CORRUPTED),
+					errmsg("index row inconsistent with base table"),
+					errdetail("Index row's non-key column is not binary equal to base row and doesn't have equalitu operator defined")));
 
 		if (!DatumGetBool(OidFunctionCall2Coll(proc_oid, DEFAULT_COLLATION_OID,
 											   ind_datum, base_datum)))
-		{
-			elog(INFO, "attribute %d: both binary and semantic values mismatched, hence inconsistent", i);
-			return false;
-		}
-		// elog(INFO, "i %d: binary values mismatched but semantic values matched, hence consistent", attnum);
+			ereport(ERROR,
+					(errcode(ERRCODE_INDEX_CORRUPTED),
+					errmsg("index row inconsistent with base table"),
+					errdetail("Index row's non-key column is neither binary not semantically equal to base row")));
 	}
 
-	if (!indisunique)
-		return true;
-
-	/* Validate the ybuniqueidxkeysuffix */
-	ind_attnum = 2 * (indnatts + 1) + 1;
-	Datum ybuniqueidxkeysuffix_datum =
-		slot_getattr(slot, ind_attnum, &ind_null);
-
-	if (indnullsnotdistinct || !indkeyhasnull)
-		return ind_null;
-	else
+	if (indisunique)
 	{
-		ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
-		return datumIsEqual(ybbasectid_datum, ybuniqueidxkeysuffix_datum,
-							ind_att->attbyval, ind_att->attlen);
+		/* Validate the ybuniqueidxkeysuffix */
+		ind_attnum = 2 * (indnatts + 1) + 1;
+		Datum ybuniqueidxkeysuffix_datum =
+			slot_getattr(slot, ind_attnum, &ind_null);
+
+		if (indnullsnotdistinct || !indkeyhasnull)
+		{
+			if (!ind_null)
+				ereport(ERROR,
+					(errcode(ERRCODE_INDEX_CORRUPTED),
+					errmsg("Unique index's ybuniqueidxkeysuffix is (unexpectedly) not null"),
+					errdetail("It should be null if the index uses null-not-distinct mode or key columns do not contain null(s)")));
+
+		}
+		else
+		{
+			ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
+			bool equal = datumIsEqual(ybbasectid_datum, ybuniqueidxkeysuffix_datum,
+								ind_att->attbyval, ind_att->attlen);
+			if(!equal)
+				ereport(ERROR,
+					(errcode(ERRCODE_INDEX_CORRUPTED),
+					errmsg("Unique index's ybuniqueidxkeysuffix doesn't match ybbasectid"),
+					errdetail("The two should match for index in null-are-distinct mode when key columns contain null(s)")));
+		}
 	}
 }
 
-int
+static int
 yb_lsm_index_expected_row_count(Relation indexrel, Relation baserel)
 {
 	StringInfoData querybuf;
@@ -3739,7 +3751,6 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	}
 
 	// elog(INFO, "Starting index check, this can take some time");
-	bool result = true;
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
 	bool indisunique = indexrel->rd_index->indisunique;
 
@@ -4015,21 +4026,18 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 		// TODO: Why is this required?
 		output->tts_ops->materialize(output);
 		// elog(INFO, "Join output: %s", YbTupleTableSlotToString(output));
-		result = yb_lsm_index_row_check(output, equalProcOids, indexrel);
-		if (!result)
-			break;
+		yb_lsm_index_row_check(output, equalProcOids, indexrel);
 	}
 	ExecEndNode(join_state);
 
-	if (result)
-	{
-		int expected_rowcount =
-			yb_lsm_index_expected_row_count(indexrel, baserel);
-		result = index_rowcount == expected_rowcount;
-		if (!result)
-			elog(INFO, "Index has %d rows, expected row count %d",
-				 index_rowcount, expected_rowcount);
-	}
+	int expected_rowcount = yb_lsm_index_expected_row_count(indexrel, baserel);
+
+	elog(INFO, "expected_rowcount %d, index_rowcount %d", expected_rowcount, index_rowcount);
+	if (index_rowcount != expected_rowcount)
+		elog(ERROR,
+			 "Index is missing some rows. Index has %d rows, expected rows "
+			 "%d",
+			 index_rowcount, expected_rowcount);
 
 	/* Reset state */
 	yb_index_checker = false;
@@ -4040,7 +4048,7 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	ExecCloseRangeTableRelations(estate);
 	MemoryContextSwitchTo(oldctxt);
 	FreeExecutorState(estate);
-	return result;
+	PG_RETURN_VOID();
 }
 
 /*

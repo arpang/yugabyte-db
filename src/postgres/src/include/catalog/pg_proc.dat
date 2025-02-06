@@ -12114,6 +12114,6 @@
 
 { oid => '8080', descr => 'returns whether the index and the base relation are logically consistent',
   proname => 'yb_lsm_index_check', provolatile => 's',
-  prorettype => 'bool', proargtypes => 'oid',
+  prorettype => 'void', proargtypes => 'oid',
   prosrc => 'yb_lsm_index_check' }
 ]
