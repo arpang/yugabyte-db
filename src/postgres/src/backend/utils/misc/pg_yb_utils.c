@@ -3645,7 +3645,7 @@ yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
 					errmsg("index row inconsistent with base table"),
-					errdetail("Index row's non-key column is neither binary not semantically equal to base row")));
+					errdetail("Index row's non-key column is neither binary nor semantically equal to base row")));
 	}
 
 	if (indisunique)
@@ -4027,12 +4027,13 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 		output->tts_ops->materialize(output);
 		// elog(INFO, "Join output: %s", YbTupleTableSlotToString(output));
 		yb_lsm_index_row_check(output, equalProcOids, indexrel);
+		// pg_usleep(100000);
 	}
 	ExecEndNode(join_state);
 
 	int expected_rowcount = yb_lsm_index_expected_row_count(indexrel, baserel);
 
-	elog(INFO, "expected_rowcount %d, index_rowcount %d", expected_rowcount, index_rowcount);
+	// elog(INFO, "expected_rowcount %d, index_rowcount %d", expected_rowcount, index_rowcount);
 	if (index_rowcount != expected_rowcount)
 		elog(ERROR,
 			 "Index is missing some rows. Index has %d rows, expected rows "

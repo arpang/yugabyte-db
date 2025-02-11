@@ -1,14 +1,17 @@
 SET yb_explain_hide_non_deterministic_fields = true;
 
--- Basic test
-SET yb_bnl_batch_size = 3;
+-- Setup
 CREATE TABLE abcd(a int primary key, b int, c int, d int);
 CREATE INDEX abcd_b_c_d_idx ON abcd (b ASC) INCLUDE (c, d);
 INSERT INTO abcd SELECT i, i, i, i FROM generate_series(1, 10) i;
+
+-- Basic test
+SET yb_bnl_batch_size = 3;
 EXPLAIN (ANALYZE, DIST, COSTS OFF, SUMMARY OFF) SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
 SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
 RESET yb_bnl_batch_size;
 
+-- Insert more data
 INSERT INTO abcd SELECT i, i, i, i FROM generate_series(11, 2000) i;
 INSERT INTO abcd values (2001, NULL, NULL, NULL);
 
@@ -58,3 +61,95 @@ CREATE TABLE json_table (a TEXT, b JSON, c INT);
 CREATE INDEX json_table_a_b_idx ON json_table(a) INCLUDE (b);
 INSERT INTO json_table VALUES ('test', '{"test1":"test2", "test3": 4}', 1);
 SELECT yb_lsm_index_check('json_table_a_b_idx'::regclass::oid);
+
+-- Inconsistent Indexes
+SELECT oid AS db_oid FROM pg_database WHERE datname = (
+    SELECT CASE
+        WHEN COUNT(*) = 1 THEN 'template1'
+        ELSE current_database() END FROM pg_yb_catalog_version) \gset
+SELECT
+$force_cache_refresh$
+SET yb_non_ddl_txn_for_sys_tables_allowed TO on;
+UPDATE pg_yb_catalog_version
+   SET current_version       = current_version + 1,
+       last_breaking_version = current_version + 1
+ WHERE db_oid = :db_oid;
+RESET yb_non_ddl_txn_for_sys_tables_allowed;
+DO
+$$
+BEGIN
+    PERFORM pg_sleep(5);
+END;
+$$;
+$force_cache_refresh$ AS force_cache_refresh \gset
+
+
+SET yb_non_ddl_txn_for_sys_tables_allowed = TRUE;
+
+-- Missing Index Row
+UPDATE pg_index SET indisready = FALSE, indisvalid = FALSE, indislive = FALSE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
+:force_cache_refresh
+INSERT INTO abcd VALUES (2002, 2002, 2002, 2002);
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
+:force_cache_refresh
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+
+DELETE FROM abcd WHERE a = 2002; -- Reset
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+
+-- Spurious Index Row
+UPDATE pg_index SET indisready = FALSE, indisvalid = FALSE, indislive = FALSE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
+:force_cache_refresh
+DELETE FROM abcd WHERE a = 1;
+UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
+:force_cache_refresh
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+
+INSERT INTO abcd VALUES (1, 1, 1, 1);
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+
+-- Spurious Index Row with NULL Index Attributes
+UPDATE pg_index SET indisready = FALSE, indisvalid = FALSE, indislive = FALSE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
+:force_cache_refresh
+DELETE FROM abcd WHERE a = 2001;
+UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
+:force_cache_refresh
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+
+INSERT INTO abcd VALUES (2001, NULL, NULL, NULL);
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+
+-- Inconsistent Non-Key Column
+UPDATE pg_index SET indisready = FALSE, indisvalid = FALSE, indislive = FALSE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
+:force_cache_refresh
+UPDATE abcd SET d = d + 1 WHERE a = 1;
+UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
+:force_cache_refresh
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+
+UPDATE abcd SET d = 1 WHERE a = 1;
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+
+-- Inconsistent Key Column
+UPDATE pg_index SET indisready = FALSE, indisvalid = FALSE, indislive = FALSE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
+:force_cache_refresh
+UPDATE abcd SET b = 9999 WHERE a = 1;
+UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
+:force_cache_refresh
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+
+UPDATE abcd SET b = 1 WHERE a = 1;
+SELECT yb_lsm_index_check('abcd_b_c_d_idx'::regclass::oid);
+
+-- Spurious Row Due to Partial Index
+UPDATE pg_index SET indisready = FALSE, indisvalid = FALSE, indislive = FALSE WHERE indexrelid = 'abcd_b_c_idx'::regclass;
+:force_cache_refresh
+UPDATE abcd SET d = 50 WHERE a = 51;
+UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE indexrelid = 'abcd_b_c_idx'::regclass;
+:force_cache_refresh
+SELECT yb_lsm_index_check('abcd_b_c_idx'::regclass::oid);
+
+UPDATE abcd SET d = 51 WHERE a = 51;
+SELECT yb_lsm_index_check('abcd_b_c_idx'::regclass::oid);
+SET yb_non_ddl_txn_for_sys_tables_allowed = FALSE;
