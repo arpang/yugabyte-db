@@ -168,3 +168,17 @@ SELECT yb_lsm_index_check('part_1_2k_b_c_d_idx'::regclass::oid);
 SELECT yb_lsm_index_check('part_2_b_c_d_idx'::regclass::oid);
 SELECT yb_lsm_index_check('part_2k_4k_b_c_d_idx'::regclass::oid);
 SELECT yb_lsm_index_check('part_4k_6k_b_c_d_idx'::regclass::oid);
+
+-- Index of a colocated relation
+CREATE DATABASE colocateddb COLOCATION = TRUE;
+\c colocateddb
+CREATE TABLE abcd1(a int primary key, b int, c int, d int);
+CREATE INDEX abcd1_b_c_d_idx ON abcd1(b ASC) INCLUDE (c, d);
+INSERT INTO abcd1 SELECT i, i, i, i FROM generate_series(1, 1000) i;
+
+CREATE TABLE abcd2(a int primary key, b int, c int, d int);
+CREATE INDEX abcd2_b_c_d_idx ON abcd2(b ASC) INCLUDE (c, d);
+INSERT INTO abcd2 SELECT i, i, i, i FROM generate_series(1, 2000) i;
+
+SELECT yb_lsm_index_check('abcd1_b_c_d_idx'::regclass::oid);
+SELECT yb_lsm_index_check('abcd2_b_c_d_idx'::regclass::oid);
