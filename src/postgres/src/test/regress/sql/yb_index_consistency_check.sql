@@ -153,3 +153,18 @@ SELECT yb_lsm_index_check('abcd_b_c_idx'::regclass::oid);
 UPDATE abcd SET d = 51 WHERE a = 51;
 SELECT yb_lsm_index_check('abcd_b_c_idx'::regclass::oid);
 SET yb_non_ddl_txn_for_sys_tables_allowed = FALSE;
+
+-- Index of a partitioned table
+CREATE TABLE part(a int, b int, c int, d int) PARTITION BY RANGE(a);
+CREATE INDEX ON part(b) include (c, d);
+CREATE TABLE part_1_2k PARTITION OF part FOR VALUES FROM(1) TO(2000);
+CREATE TABLE part_2 PARTITION OF part FOR VALUES FROM(2000) TO(6000) PARTITION BY RANGE(a);
+CREATE TABLE part_2k_4k PARTITION OF part_2 FOR VALUES FROM(2000) TO(4000);
+CREATE TABLE part_4k_6k PARTITION OF part_2 FOR VALUES FROM(4000) TO(6000);
+INSERT INTO part SELECT i, i, i, i FROM generate_series(1, 5999) i;
+
+SELECT yb_lsm_index_check('part_b_c_d_idx'::regclass::oid);
+SELECT yb_lsm_index_check('part_1_2k_b_c_d_idx'::regclass::oid);
+SELECT yb_lsm_index_check('part_2_b_c_d_idx'::regclass::oid);
+SELECT yb_lsm_index_check('part_2k_4k_b_c_d_idx'::regclass::oid);
+SELECT yb_lsm_index_check('part_4k_6k_b_c_d_idx'::regclass::oid);

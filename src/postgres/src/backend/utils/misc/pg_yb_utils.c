@@ -3721,13 +3721,29 @@ yb_lsm_index_expected_row_count(Relation indexrel, Relation baserel)
 }
 
 Datum
+yb_lsm_partitioned_index_check(Oid parentindexId)
+{
+	ListCell* lc;
+	foreach(lc, find_inheritance_children(parentindexId, AccessShareLock))
+	{
+		Oid childindexId = ObjectIdGetDatum(lfirst_oid(lc));
+		DirectFunctionCall1(yb_lsm_index_check, childindexId);
+	}
+	PG_RETURN_VOID();
+}
+
+Datum
 yb_lsm_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
 	Relation indexrel = RelationIdGetRelation(indexoid);
+
+	// elog(INFO, "indexoid %d, indexrel->rd_rel->relkind %c", indexoid, indexrel->rd_rel->relkind);
+
 	if (indexrel->rd_rel->relkind != RELKIND_INDEX &&
 		indexrel->rd_rel->relkind != RELKIND_PARTITIONED_INDEX)
 		elog(ERROR, "Object is not an index");
+
 	Assert(indexrel->rd_index);
 
 	if (!IsYBRelation(indexrel))
@@ -3748,6 +3764,12 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	{
 		RelationClose(indexrel);
 		return true;
+	}
+
+	if (indexrel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
+	{
+		RelationClose(indexrel);
+		return yb_lsm_partitioned_index_check(indexoid);
 	}
 
 	// elog(INFO, "Starting index check, this can take some time");
