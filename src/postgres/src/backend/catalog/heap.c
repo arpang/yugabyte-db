@@ -250,6 +250,44 @@ static const FormData_pg_attribute a7 = {
 
 static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7};
 
+static const FormData_pg_attribute index_a1 = {
+	.attname = {"ybidxbasectid"},
+	.atttypid = BYTEAOID,
+	.attlen = -1,
+	.attnum = YBIdxBaseTupleIdAttributeNumber,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_EXTENDED,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static const FormData_pg_attribute index_a2 = {
+	.attname = {"ybuniqueidxkeysuffix"},
+	.atttypid = BYTEAOID,
+	.attlen = -1,
+	.attnum = YBUniqueIdxKeySuffixAttributeNumber,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_EXTENDED,
+	.attnotnull = false,
+	.attislocal = true,
+};
+
+static const FormData_pg_attribute *IndexSysAtt[] = {&index_a1, &index_a2};
+
+const FormData_pg_attribute *
+IndexSystemAttributeDefinition(AttrNumber attno)
+{
+	Assert(attno == YBIdxBaseTupleIdAttributeNumber ||
+		   attno == YBUniqueIdxKeySuffixAttributeNumber);
+	return IndexSysAtt[-attno + YBIdxBaseTupleIdAttributeNumber];
+}
+
 /*
  * This function returns a Form_pg_attribute pointer for a system attribute.
  * Note that we elog if the presented attno is invalid, which would only
@@ -258,7 +296,10 @@ static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a
 const FormData_pg_attribute *
 SystemAttributeDefinition(AttrNumber attno)
 {
-	if (attno >= 0 || attno < -(int) lengthof(SysAtt))
+	if (attno == YBIdxBaseTupleIdAttributeNumber ||
+		attno == YBUniqueIdxKeySuffixAttributeNumber)
+		return IndexSystemAttributeDefinition(attno);
+	if (attno >= 0 || (attno < -(int) lengthof(SysAtt)))
 		elog(ERROR, "invalid system attribute number %d", attno);
 	return SysAtt[-attno - 1];
 }

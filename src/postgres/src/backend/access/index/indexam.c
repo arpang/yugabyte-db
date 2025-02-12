@@ -67,8 +67,11 @@
 #include "utils/syscache.h"
 
 /* Yugabyte includes */
-#include "pg_yb_utils.h"
 #include "access/yb_scan.h"
+#include "catalog/pg_am_d.h"
+#include "catalog/pg_opfamily_d.h"
+#include "pg_yb_utils.h"
+#include "utils/builtins.h"
 
 /* ----------------------------------------------------------------
  *					macros used in index_ routines
@@ -153,10 +156,39 @@ index_open(Oid relationId, LOCKMODE lockmode)
 
 	if (r->rd_rel->relkind != RELKIND_INDEX &&
 		r->rd_rel->relkind != RELKIND_PARTITIONED_INDEX)
-		ereport(ERROR,
-				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				 errmsg("\"%s\" is not an index",
-						RelationGetRelationName(r))));
+	{
+		if (!yb_index_checker)
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					errmsg("\"%s\" is not an index",
+							RelationGetRelationName(r))));
+
+		r->rd_indam = GetIndexAmRoutineByAmId(LSM_AM_OID, false);
+		int natts = 1;
+		Form_pg_index pg_index = palloc0(sizeof(FormData_pg_index) + natts * sizeof(int16));
+		pg_index->indexrelid = relationId;
+		pg_index->indrelid = relationId;
+		pg_index->indnatts = natts;
+		pg_index->indnkeyatts = natts;
+		pg_index->indisunique = true;
+		pg_index->indisprimary = true;
+		pg_index->indimmediate = true;
+		pg_index->indisvalid = true;
+		pg_index->indisready = true;
+		pg_index->indislive = true;
+
+		pg_index->indkey.ndim = 1;
+		pg_index->indkey.dataoffset = 0;		/* never any nulls */
+		pg_index->indkey.elemtype = INT2OID;
+		pg_index->indkey.dim1 = natts;
+		pg_index->indkey.lbound1 = 0;
+		pg_index->indkey.values[0] = YBTupleIdAttributeNumber;
+
+		r->rd_index = pg_index;
+
+		r->rd_opfamily = palloc0(sizeof(Oid) * pg_index->indnkeyatts);
+		r->rd_opfamily[0] = BYTEA_LSM_FAM_OID;
+	}
 
 	return r;
 }
