@@ -164,11 +164,12 @@ index_open(Oid relationId, LOCKMODE lockmode)
 							RelationGetRelationName(r))));
 
 		r->rd_indam = GetIndexAmRoutineByAmId(LSM_AM_OID, false);
-		Form_pg_index pg_index = palloc0(sizeof(FormData_pg_index));
+		int natts = 1;
+		Form_pg_index pg_index = palloc0(sizeof(FormData_pg_index) + natts * sizeof(int16));
 		pg_index->indexrelid = relationId;
 		pg_index->indrelid = relationId;
-		pg_index->indnatts = 1;
-		pg_index->indnkeyatts = 1;
+		pg_index->indnatts = natts;
+		pg_index->indnkeyatts = natts;
 		pg_index->indisunique = true;
 		pg_index->indisprimary = true;
 		pg_index->indimmediate = true;
@@ -176,8 +177,11 @@ index_open(Oid relationId, LOCKMODE lockmode)
 		pg_index->indisready = true;
 		pg_index->indislive = true;
 
-		pg_index->indkey = *buildint2vector(NULL, pg_index->indnatts);
-
+		pg_index->indkey.ndim = 1;
+		pg_index->indkey.dataoffset = 0;		/* never any nulls */
+		pg_index->indkey.elemtype = INT2OID;
+		pg_index->indkey.dim1 = natts;
+		pg_index->indkey.lbound1 = 0;
 		pg_index->indkey.values[0] = YBTupleIdAttributeNumber;
 
 		// for (int i = 1; i < pg_index->indnatts; i++)

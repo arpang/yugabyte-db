@@ -4066,7 +4066,7 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	yb_index_checker = false;
 	RelationClose(indexrel);
 	RelationClose(baserel);
-	ExecResetTupleTable(estate->es_tupleTable, false);
+	ExecResetTupleTable(estate->es_tupleTable, true);
 	ExecCloseResultRelations(estate);
 	ExecCloseRangeTableRelations(estate);
 	MemoryContextSwitchTo(oldctxt);
