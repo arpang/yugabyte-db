@@ -17,4 +17,3 @@ BEGIN;
      NULL, NULL, NULL, NULL, NULL,
     'yb_lsm_index_check', NULL, NULL, NULL)
   ON CONFLICT DO NOTHING;
-  
