@@ -3775,6 +3775,11 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 		return true;
 	}
 
+	if (indexrel->rd_rel->relam == YBGIN_AM_OID)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				errmsg("this operation is not yet supported for ybgin indexes")));
+
 	if (indexrel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
 	{
 		RelationClose(indexrel);

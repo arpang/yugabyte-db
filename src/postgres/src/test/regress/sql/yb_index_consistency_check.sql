@@ -182,3 +182,8 @@ INSERT INTO abcd2 SELECT i, i, i, i FROM generate_series(1, 2000) i;
 
 SELECT yb_lsm_index_check('abcd1_b_c_d_idx'::regclass::oid);
 SELECT yb_lsm_index_check('abcd2_b_c_d_idx'::regclass::oid);
+
+-- GIN indexes (not support yet)
+CREATE TABLE vectors (i serial PRIMARY KEY, v tsvector);
+CREATE INDEX ON vectors USING ybgin (v) where i > 5;
+SELECT yb_lsm_index_check('vectors_v_idx'::regclass::oid);
