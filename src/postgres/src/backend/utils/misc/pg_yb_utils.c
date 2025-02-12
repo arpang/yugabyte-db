@@ -3589,18 +3589,21 @@ yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
 		TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
 
 	if (ind_null)
-		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
-						errmsg("index has row with ybbasectid = null")));
+		ereport(ERROR,
+				(errcode(ERRCODE_INDEX_CORRUPTED),
+				errmsg("index has row with ybbasectid = null")));
 
 	if (base_null)
-		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
-						errmsg("index contains spurious row")));
+		ereport(ERROR,
+				(errcode(ERRCODE_INDEX_CORRUPTED),
+				errmsg("index contains spurious row")));
 
 	/* This should never happen */
 	if (unlikely(!datumIsEqual(ybbasectid_datum, base_datum, ind_att->attbyval,
 							   ind_att->attlen)))
-		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
-						errmsg("index's ybbasectid mismatch with base relation's ybctid")));
+		ereport(ERROR,
+				(errcode(ERRCODE_INDEX_CORRUPTED),
+				errmsg("index's ybbasectid mismatch with base relation's ybctid")));
 
 	/* Validate the index attributes. */
 	for (int i = 0; i < indnatts; i++)

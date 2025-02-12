@@ -9,7 +9,7 @@ BEGIN;
     proallargtypes, proargmodes, proargnames, proargdefaults, protrftypes,
     prosrc, probin, proconfig, proacl
   ) VALUES
-    -- implementation of yb_xcluster_set_next_oid_assignments
+    -- implementation of yb_lsm_index_check
     (8080, 'yb_lsm_index_check', 11, 10, 12,
     1, 0, 0, '-', 'f',
     false, false, true, false, 's',
