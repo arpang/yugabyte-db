@@ -54,9 +54,7 @@
 #include "access/transam.h"
 #include "access/xlog.h"
 #include "catalog/index.h"
-#include "catalog/pg_am_d.h"
 #include "catalog/pg_amproc.h"
-#include "catalog/pg_opfamily_d.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
 #include "nodes/makefuncs.h"
@@ -64,14 +62,16 @@
 #include "storage/bufmgr.h"
 #include "storage/lmgr.h"
 #include "storage/predicate.h"
-#include "utils/builtins.h"
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
 /* Yugabyte includes */
-#include "pg_yb_utils.h"
 #include "access/yb_scan.h"
+#include "catalog/pg_am_d.h"
+#include "catalog/pg_opfamily_d.h"
+#include "pg_yb_utils.h"
+#include "utils/builtins.h"
 
 /* ----------------------------------------------------------------
  *					macros used in index_ routines
@@ -184,8 +184,6 @@ index_open(Oid relationId, LOCKMODE lockmode)
 		pg_index->indkey.lbound1 = 0;
 		pg_index->indkey.values[0] = YBTupleIdAttributeNumber;
 
-		// for (int i = 1; i < pg_index->indnatts; i++)
-		// 	pg_index->indkey.values[i] = i+1;
 		r->rd_index = pg_index;
 
 		r->rd_opfamily = palloc0(sizeof(Oid) * pg_index->indnkeyatts);

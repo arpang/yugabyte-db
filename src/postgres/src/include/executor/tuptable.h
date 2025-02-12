@@ -437,10 +437,9 @@ slot_getsysattr(TupleTableSlot *slot, int attnum, bool *isnull)
 		// TODO: add yb_index_checker condiition
 		/* Used for secondary index scan. */
 		*isnull = DatumGetPointer(slot->ts_ybuniqueidxkeysuffix) == NULL;
-		// *isnull = false;
 		return slot->ts_ybuniqueidxkeysuffix;
 	}
-	elog(INFO, "slot_getsysattr attnum %d", attnum);
+
 	/* Fetch the system attribute from the underlying tuple. */
 	return slot->tts_ops->getsysattr(slot, attnum, isnull);
 }

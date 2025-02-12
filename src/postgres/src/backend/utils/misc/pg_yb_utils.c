@@ -91,7 +91,6 @@
 #include "executor/nodeIndexonlyscan.h"
 #include "executor/spi.h"
 #include "executor/ybExpr.h"
-// #include "executor/ybcExpr.h"
 #include "fmgr.h"
 #include "funcapi.h"
 #include "lib/stringinfo.h"
@@ -2049,12 +2048,13 @@ YbTupleTableSlotToString(TupleTableSlot *slot)
 const char *
 YbTupleTableSlotToStringWithIsOmitted(TupleTableSlot *slot, bool *is_omitted)
 {
-	bool shouldFree = false;
+	bool		shouldFree = false;
 	HeapTuple	tuple;
 
 	tuple = ExecFetchSlotHeapTuple(slot, false, &shouldFree);
-	const char *result = YbHeapTupleToStringWithIsOmitted(
-		tuple, slot->tts_tupleDescriptor, is_omitted);
+	const char *result = YbHeapTupleToStringWithIsOmitted(tuple,
+														  slot->tts_tupleDescriptor,
+														  is_omitted);
 
 	if (shouldFree)
 		heap_freetuple(tuple);
@@ -3566,8 +3566,6 @@ yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
 
 	Assert(slot->tts_tupleDescriptor->natts ==
 		   2 * (indnatts + 1) + (indisunique ? 1 : 0));
-	// elog(INFO, "slot->tts_nvalid %d", slot->tts_nvalid);
-	// elog(INFO, "slot->tts_tupleDescriptor->natts %d", slot->tts_tupleDescriptor->natts);
 
 	/* First, validate ybctid and ybbasectid. */
 	int ind_attnum = 2 * indnatts + 1;
@@ -3597,7 +3595,6 @@ yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
 	/* Validate the index attributes. */
 	for (int i = 0; i < indnatts; i++)
 	{
-		// elog(INFO, "Processing attnum %d", attnum);
 		int ind_attnum = 2 * i + 1;
 		int base_attnum = ind_attnum + 1;
 		Form_pg_attribute ind_att =
@@ -3638,14 +3635,16 @@ yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
 					errmsg("index row inconsistent with base table"),
-					errdetail("Index row's non-key column is not binary equal to base row and doesn't have equalitu operator defined")));
+					errdetail("Index row's non-key column is not binary equal "
+							  "base row and doesn't have equalitu operator defined")));
 
 		if (!DatumGetBool(OidFunctionCall2Coll(proc_oid, DEFAULT_COLLATION_OID,
 											   ind_datum, base_datum)))
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
 					errmsg("index row inconsistent with base table"),
-					errdetail("Index row's non-key column is neither binary nor semantically equal to base row")));
+					errdetail("Index row's non-key column is neither binary "
+							  "nor semantically equal to base row")));
 	}
 
 	if (indisunique)
@@ -3659,21 +3658,22 @@ yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
 		{
 			if (!ind_null)
 				ereport(ERROR,
-					(errcode(ERRCODE_INDEX_CORRUPTED),
-					errmsg("Unique index's ybuniqueidxkeysuffix is (unexpectedly) not null"),
-					errdetail("It should be null if the index uses null-not-distinct mode or key columns do not contain null(s)")));
-
+						(errcode(ERRCODE_INDEX_CORRUPTED),
+						errmsg("unique index's ybuniqueidxkeysuffix is (unexpectedly) not null"),
+						errdetail("It should be null if the index uses null-not-distinct "
+								  "mode or key columns do not contain null(s)")));
 		}
 		else
 		{
 			ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
 			bool equal = datumIsEqual(ybbasectid_datum, ybuniqueidxkeysuffix_datum,
 								ind_att->attbyval, ind_att->attlen);
-			if(!equal)
+			if (!equal)
 				ereport(ERROR,
-					(errcode(ERRCODE_INDEX_CORRUPTED),
-					errmsg("Unique index's ybuniqueidxkeysuffix doesn't match ybbasectid"),
-					errdetail("The two should match for index in null-are-distinct mode when key columns contain null(s)")));
+						(errcode(ERRCODE_INDEX_CORRUPTED),
+						errmsg("unique index's ybuniqueidxkeysuffix doesn't match ybbasectid"),
+						errdetail("The two should match for index in null-are-distinct "
+								  "mode when key columns contain null(s)")));
 		}
 	}
 }
@@ -3694,8 +3694,9 @@ yb_lsm_index_expected_row_count(Relation indexrel, Relation baserel)
 	if (!indpred_isnull)
 	{
 		Oid basereloid = RelationGetRelid(baserel);
-		char *indpred_clause = TextDatumGetCString(
-			DirectFunctionCall2(pg_get_expr, indpred_datum, basereloid));
+		char *indpred_clause = TextDatumGetCString(DirectFunctionCall2(pg_get_expr,
+																	   indpred_datum,
+																	   basereloid));
 		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
 	}
 
@@ -3723,7 +3724,7 @@ yb_lsm_index_expected_row_count(Relation indexrel, Relation baserel)
 Datum
 yb_lsm_partitioned_index_check(Oid parentindexId)
 {
-	ListCell* lc;
+	ListCell *lc;
 	foreach(lc, find_inheritance_children(parentindexId, AccessShareLock))
 	{
 		Oid childindexId = ObjectIdGetDatum(lfirst_oid(lc));
@@ -3737,8 +3738,6 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
 	Relation indexrel = RelationIdGetRelation(indexoid);
-
-	// elog(INFO, "indexoid %d, indexrel->rd_rel->relkind %c", indexoid, indexrel->rd_rel->relkind);
 
 	if (indexrel->rd_rel->relkind != RELKIND_INDEX &&
 		indexrel->rd_rel->relkind != RELKIND_PARTITIONED_INDEX)
@@ -3772,7 +3771,6 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 		return yb_lsm_partitioned_index_check(indexoid);
 	}
 
-	// elog(INFO, "Starting index check, this can take some time");
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
 	bool indisunique = indexrel->rd_index->indisunique;
 
@@ -3822,7 +3820,7 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	plan->targetlist = index_scan_tlist;
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
-	index_scan->scan.scanrelid = 1; // baserelid's rt index
+	index_scan->scan.scanrelid = 1; /* baserelid's rt index */
 	index_scan->indexid = indexoid;
 	index_scan->indextlist = index_cols;
 
@@ -3832,13 +3830,13 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	AttrNumber attnum;
 
 	bool isnull;
-	List* indexprs;
-	ListCell* next_expr;
+	List *indexprs;
+	ListCell *next_expr;
 	Datum exprsDatum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
 									   Anum_pg_index_indexprs, &isnull);
 	if (!isnull)
 	{
-		char* exprsString = TextDatumGetCString(exprsDatum);
+		char *exprsString = TextDatumGetCString(exprsDatum);
 		indexprs = (List *) stringToNode(exprsString);
 		next_expr = list_head(indexprs);
 	}
@@ -3872,14 +3870,14 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
 	base_scan_tlist = lappend(base_scan_tlist, target_entry);
 
-	// IndexScan qual
-	// LHS
+	/* IndexScan qual */
+	/* LHS */
 	Var *ybctid_from_index = (Var *) copyObject(ybctid_expr);
 	ybctid_from_index->varno = INDEX_VAR;
 	ybctid_from_index->varattno = 1;
 
-	// RHS
-	Bitmapset* bms = NULL;
+	/* RHS */
+	Bitmapset *bms = NULL;
 	List *params = NIL;
 	for (int i = 0; i < yb_bnl_batch_size; i++)
 	{
@@ -3912,7 +3910,7 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	ScalarArrayOpExpr *orig_saop = copyObjectImpl(saop);
 	orig_saop->args = list_make2(ybctid_expr, arrexpr);
 
-	target_entry = makeTargetEntry((Expr*)ybctid_from_index, 1, "", false);
+	target_entry = makeTargetEntry((Expr *) ybctid_from_index, 1, "", false);
 	List *base_indextlist = list_make1(target_entry);
 
 	/* Partial index predicate. */
@@ -3941,7 +3939,6 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	base_scan->indexid = basereloid;
 	base_scan->indextlist = base_indextlist; // index cols
 	base_scan->indexqual = list_make1(saop);
-	// base_scan->indexqualorig = list_make1(orig_saop);
 	base_scan->yb_rel_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
 															  NIL;
 	base_scan->yb_rel_pushdown.colrefs =
@@ -4047,15 +4044,12 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 		index_rowcount++;
 		// TODO: Why is this required?
 		output->tts_ops->materialize(output);
-		// elog(INFO, "Join output: %s", YbTupleTableSlotToString(output));
 		yb_lsm_index_row_check(output, equalProcOids, indexrel);
-		// pg_usleep(100000);
 	}
 	ExecEndNode(join_state);
 
 	int expected_rowcount = yb_lsm_index_expected_row_count(indexrel, baserel);
 
-	// elog(INFO, "expected_rowcount %d, index_rowcount %d", expected_rowcount, index_rowcount);
 	if (index_rowcount != expected_rowcount)
 		elog(ERROR,
 			 "Index is missing some rows. Index has %d rows, expected rows "
