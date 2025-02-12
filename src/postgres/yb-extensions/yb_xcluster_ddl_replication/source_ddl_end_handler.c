@@ -30,8 +30,8 @@
 #include "catalog/pg_foreign_server_d.h"
 #include "catalog/pg_foreign_table_d.h"
 #include "catalog/pg_namespace_d.h"
-#include "catalog/pg_operator_d.h"
 #include "catalog/pg_opclass_d.h"
+#include "catalog/pg_operator_d.h"
 #include "catalog/pg_opfamily_d.h"
 #include "catalog/pg_policy_d.h"
 #include "catalog/pg_proc_d.h"
@@ -45,14 +45,13 @@
 #include "catalog/pg_ts_template_d.h"
 #include "catalog/pg_type_d.h"
 #include "catalog/pg_user_mapping_d.h"
+
 #include "executor/spi.h"
+#include "extension_util.h"
 #include "json_util.h"
 #include "lib/stringinfo.h"
-
-#include "extension_util.h"
 #include "pg_yb_utils.h"
 #include "tcop/cmdtag.h"
-#include "tcop/deparse_utility.h"
 #include "utils/jsonb.h"
 #include "utils/lsyscache.h"
 #include "utils/palloc.h"
@@ -63,11 +62,12 @@
 #define DDL_END_SCHEMA_NAME_COLUMN_ID 3
 #define DDL_END_COMMAND_COLUMN_ID     4
 
-#define SQL_DROP_CLASS_ID_COLUMN_ID	   1
-#define SQL_DROP_IS_TEMP_COLUMN_ID	   2
-#define SQL_DROP_OBJECT_TYPE_COLUMN_ID 3
-#define SQL_DROP_SCHEMA_NAME_COLUMN_ID 4
-#define SQL_DROP_OBJECT_NAME_COLUMN_ID 5
+#define SQL_DROP_CLASS_ID_COLUMN_ID	     1
+#define SQL_DROP_IS_TEMP_COLUMN_ID	     2
+#define SQL_DROP_OBJECT_TYPE_COLUMN_ID   3
+#define SQL_DROP_SCHEMA_NAME_COLUMN_ID   4
+#define SQL_DROP_OBJECT_NAME_COLUMN_ID   5
+#define SQL_DROP_ADDRESS_NAMES_COLUMN_ID 6
 
 #define TABLE_REWRITE_OBJID_COLUMN_ID 1
 
@@ -139,6 +139,7 @@ static List *rewritten_table_oid_list = NIL;
 	X(CMDTAG_DROP_ROUTINE) \
 	X(CMDTAG_DROP_RULE) \
 	X(CMDTAG_DROP_SCHEMA) \
+	X(CMDTAG_DROP_SEQUENCE) \
 	X(CMDTAG_DROP_SERVER) \
 	X(CMDTAG_DROP_STATISTICS) \
 	X(CMDTAG_DROP_TEXT_SEARCH_CONFIGURATION) \
@@ -167,48 +168,12 @@ typedef struct YbEnumLabelMapEntry
 	char *label_name;
 } YbEnumLabelMapEntry;
 
-Oid
-SPI_GetOid(HeapTuple spi_tuple, int column_id)
+typedef struct YbSequenceInfoMapEntry
 {
-	bool		is_null;
-	Oid			oid = DatumGetObjectId(SPI_getbinval(spi_tuple, SPI_tuptable->tupdesc,
-													 column_id, &is_null));
-
-	if (is_null)
-		elog(ERROR, "Found NULL value when parsing oid (column %d)", column_id);
-	return oid;
-}
-
-char *
-SPI_GetText(HeapTuple spi_tuple, int column_id)
-{
-	return SPI_getvalue(spi_tuple, SPI_tuptable->tupdesc, column_id);
-}
-
-bool
-SPI_GetBool(HeapTuple spi_tuple, int column_id)
-{
-	bool		is_null;
-	bool		val = DatumGetBool(SPI_getbinval(spi_tuple, SPI_tuptable->tupdesc,
-												 column_id, &is_null));
-
-	if (is_null)
-		elog(ERROR, "Found NULL value when parsing bool (column %d)", column_id);
-	return val;
-}
-
-CollectedCommand *
-GetCollectedCommand(HeapTuple spi_tuple, int column_id)
-{
-	bool		isnull;
-	Pointer		command_datum = DatumGetPointer(SPI_getbinval(spi_tuple,
-															  SPI_tuptable->tupdesc, column_id,
-															  &isnull));
-
-	if (isnull)
-		elog(ERROR, "Found NULL value when parsing command (column %d)", column_id);
-	return (CollectedCommand *) command_datum;
-}
+	char       *schema;
+	char       *name;
+	Oid         pg_class_oid;
+} YbSequenceInfoMapEntry;
 
 void
 CheckAlterColumnTypeDDL(CollectedCommand *cmd)
@@ -264,17 +229,29 @@ IsPassThroughDdlSupported(const char *command_tag_name)
 	return IsPassThroughDdlCommandSupported(command_tag);
 }
 
+static bool
+IsSequence(Oid rel_oid)
+{
+	Relation	rel = RelationIdGetRelation(rel_oid);
+	if (!rel)
+		elog(ERROR, "Could not find relation with OID %d", rel_oid);
+
+	return rel->rd_rel->relkind == RELKIND_SEQUENCE;
+}
+
 /*
  * This function handles both new relation from create table/index,
  * and also new relations as a result of table rewrites.
+ *
+ * This function does not handle sequences.
  */
 bool
 ShouldReplicateNewRelation(Oid rel_oid, List **new_rel_list)
 {
 	Relation	rel = RelationIdGetRelation(rel_oid);
-
 	if (!rel)
-		elog(ERROR, "Could not find relation with oid %d", rel_oid);
+		elog(ERROR, "Could not find relation with OID %d", rel_oid);
+
 	/* Ignore temporary tables. */
 	if (!IsYBBackedRelation(rel))
 	{
@@ -424,37 +401,97 @@ GetEnumLabels(Oid enum_oid, List **enum_label_list)
 	}
 }
 
-bool
-ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
+static void
+AddSequenceInfo(Oid pg_class_oid, char *schema, List **sequence_info_list)
+{
+	char       *name = get_rel_name(pg_class_oid);
+	if (!name)
+		elog(ERROR, "Unable to find name of sequence with pg_class OID %u",
+			 pg_class_oid);
+	if (!schema)
+		elog(ERROR, "Schema of sequence with pg_class OID %u unknown",
+			 pg_class_oid);
+
+	YbSequenceInfoMapEntry *sequence_info_entry =
+		palloc(sizeof(YbSequenceInfoMapEntry));
+	sequence_info_entry->name = name;
+	sequence_info_entry->schema = pstrdup(schema);
+	sequence_info_entry->pg_class_oid = pg_class_oid;
+	*sequence_info_list = lappend(*sequence_info_list, sequence_info_entry);
+}
+
+typedef struct YbCommandInfo
+{
+	Oid         oid;
+	char       *command_tag_name;
+	char       *schema;             /* may be NULL */
+	CollectedCommand *command;
+} YbCommandInfo;
+
+static int
+GetSourceEventTriggerDDLCommands(YbCommandInfo **info_array_out)
 {
 	StringInfoData query_buf;
-
 	initStringInfo(&query_buf);
 	appendStringInfo(&query_buf,
 					 "SELECT objid, command_tag, schema_name, command FROM "
 					 "pg_catalog.pg_event_trigger_ddl_commands()");
-	int			exec_res = SPI_execute(query_buf.data, /* readonly */ true, /* tcount */ 0);
-
+	int			exec_res = SPI_execute(query_buf.data, /* readonly */ true,
+									   /* tcount */ 0);
 	if (exec_res != SPI_OK_SELECT)
 		elog(ERROR, "SPI_exec failed (error %d): %s", exec_res, query_buf.data);
 
+	YbCommandInfo *info_array = palloc(SPI_processed * sizeof(YbCommandInfo));
+	int num_of_rows = SPI_processed;
+	for (int row = 0; row < num_of_rows; row++)
+	{
+		HeapTuple   spi_tuple = SPI_tuptable->vals[row];
+		YbCommandInfo *info = &info_array[row];
+		info->oid = SPI_GetOid(spi_tuple, DDL_END_OBJID_COLUMN_ID);
+		info->command_tag_name =
+			SPI_GetText(spi_tuple, DDL_END_COMMAND_TAG_COLUMN_ID);
+		info->schema = SPI_GetText(spi_tuple, DDL_END_SCHEMA_NAME_COLUMN_ID);
+		info->command = GetCollectedCommand(spi_tuple, DDL_END_COMMAND_COLUMN_ID);
+	}
+
+	*info_array_out = info_array;
+	return num_of_rows;
+}
+
+bool
+ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
+{
+	/*
+	 * First copy the command information that we get by using SPI_execute so
+	 * we can use SPI_execute while processing each command.  (Each
+	 * SPI_execute call invalidates the results of the previous one; trying to
+	 * avoid this by using SPI_connect would force us into a different memory
+	 * context, which would be inconvenient .)
+	 */
+	YbCommandInfo *info_array;
+	int num_of_rows = GetSourceEventTriggerDDLCommands(&info_array);
+
 	List	   *new_rel_list = NIL;
 	List       *enum_label_list = NIL;
+	List       *sequence_info_list = NIL;
 	/*
 	 * As long as there is at least one command that needs to be replicated, we
 	 * will set this to true and replicate the entire query string.
 	 */
 	bool		should_replicate_ddl = false;
-	int         num_of_rows = SPI_processed;
-	/* Save SPI_tuptable so the routines we call can call SPI_execute. */
-	SPITupleTable *saved_SPI_tuptable = SPI_tuptable;
 	for (int row = 0; row < num_of_rows; row++)
 	{
-		HeapTuple	spi_tuple = saved_SPI_tuptable->vals[row];
-		Oid			obj_id = SPI_GetOid(spi_tuple, DDL_END_OBJID_COLUMN_ID);
-		const char *command_tag_name = SPI_GetText(spi_tuple,
-												   DDL_END_COMMAND_TAG_COLUMN_ID);
-		CommandTag	command_tag = GetCommandTagEnum(command_tag_name);
+		YbCommandInfo *info = &info_array[row];
+		Oid         obj_id = info->oid;
+		const char *command_tag_name = info->command_tag_name;
+		CommandTag  command_tag = GetCommandTagEnum(info->command_tag_name);
+		char       *schema = info->schema;
+
+		/*
+		 * The below works for objects with names but not nameless parts.
+		 * TODO(#25885): add code to handle nameless parts.
+		 */
+		bool is_temporary_object = IsTempSchema(schema);
 
 		if (command_tag == CMDTAG_CREATE_TABLE ||
 			command_tag == CMDTAG_CREATE_INDEX)
@@ -469,6 +506,26 @@ ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 				GetEnumLabels(obj_id, &enum_label_list);
 			should_replicate_ddl |= true;
 		}
+		else if (command_tag == CMDTAG_CREATE_SEQUENCE)
+		{
+			AddSequenceInfo(obj_id, schema, &sequence_info_list);
+			should_replicate_ddl |= !is_temporary_object;
+		}
+		else if (command_tag == CMDTAG_ALTER_SEQUENCE)
+		{
+			should_replicate_ddl |= !is_temporary_object;
+		}
+		else if (command_tag == CMDTAG_ALTER_TABLE &&
+				 IsSequence(obj_id))
+		{
+			/*
+			 * This is one of:
+			 * - ALTER TABLE <sequence> OWNER TO ...
+			 * - ALTER TABLE <sequence> RENAME TO ...
+			 * - ALTER TABLE <sequence> SET SCHEMA ...
+			 */
+			should_replicate_ddl |= !is_temporary_object;
+		}
 		else if (command_tag == CMDTAG_ALTER_TABLE &&
 				 list_member_oid(rewritten_table_oid_list, obj_id))
 		{
@@ -478,8 +535,7 @@ ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 			 * TODO(yyan): Unblock ALTER COLUMN TYPE table rewrite after
 			 * resolving issue #24007.
 			 */
-			CollectedCommand *cmd = GetCollectedCommand(spi_tuple, DDL_END_COMMAND_COLUMN_ID);
-
+			CollectedCommand *cmd = info->command;
 			CheckAlterColumnTypeDDL(cmd);
 
 			rewritten_table_oid_list = list_delete_oid(rewritten_table_oid_list, obj_id);
@@ -497,8 +553,7 @@ ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 			 * Add all indexes that are associated with this table, as table
 			 * rewrite will also rewrite all dependent index tables.
 			 */
-			const char *schema_name = SPI_GetText(spi_tuple, DDL_END_SCHEMA_NAME_COLUMN_ID);
-
+			const char *schema_name = info->schema;
 			ProcessRewrittenIndexes(obj_id, schema_name, &new_rel_list);
 		}
 		else if (command_tag == CMDTAG_ALTER_TABLE ||
@@ -512,7 +567,7 @@ ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 		}
 		else if (IsPassThroughDdlSupported(command_tag_name))
 		{
-			should_replicate_ddl = true;
+			should_replicate_ddl = !is_temporary_object;;
 		}
 		else
 		{
@@ -574,6 +629,37 @@ ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 
 		(void) pushJsonbValue(&state, WJB_END_ARRAY, NULL);
 	}
+	if (sequence_info_list)
+	{
+		/*----------
+		 * Add the sequence_info_list to the JSON output.  We use a flat array
+		 * of entries because JSON doesn't allow maps on composite values.
+		 *
+		 * If two entries have the same schema and name, then the remaining
+		 * fields are guaranteed to be the same.
+		 *----------
+		 */
+		AddJsonKey(state, "sequence_info");
+		(void) pushJsonbValue(&state, WJB_BEGIN_ARRAY, NULL);
+
+		ListCell *l;
+		foreach (l, sequence_info_list)
+		{
+			YbSequenceInfoMapEntry *entry = (YbSequenceInfoMapEntry *) lfirst(l);
+
+			(void) pushJsonbValue(&state, WJB_BEGIN_OBJECT, NULL);
+			AddStringJsonEntry(state, "schema", entry->schema);
+			AddStringJsonEntry(state, "name", entry->name);
+			AddNumericJsonEntry(state, "oid", entry->pg_class_oid);
+			(void) pushJsonbValue(&state, WJB_END_OBJECT, NULL);
+
+			pfree(entry->schema);
+			pfree(entry->name);
+			pfree(entry);
+		}
+
+		(void) pushJsonbValue(&state, WJB_END_ARRAY, NULL);
+	}
 
 	return should_replicate_ddl;
 }
@@ -609,12 +695,11 @@ ProcessSourceEventTriggerDroppedObjects()
 	StringInfoData query_buf;
 
 	initStringInfo(&query_buf);
-	appendStringInfo(&query_buf,
-					 "SELECT classid, is_temporary, "
-					 "object_type, schema_name, object_name FROM "
-					 "pg_catalog.pg_event_trigger_dropped_objects()");
-	int			exec_res = SPI_execute(query_buf.data, /* readonly */ true, /* tcount */ 0);
-
+	appendStringInfo(&query_buf, "SELECT classid, is_temporary, object_type, "
+								 "schema_name, object_name, address_names FROM "
+								 "pg_catalog.pg_event_trigger_dropped_objects()");
+	int exec_res =
+		SPI_execute(query_buf.data, /* readonly */ true, /* tcount */ 0);
 	if (exec_res != SPI_OK_SELECT)
 		elog(ERROR, "SPI_exec failed (error %d): %s", exec_res, query_buf.data);
 
@@ -624,12 +709,18 @@ ProcessSourceEventTriggerDroppedObjects()
 	 */
 	bool		should_replicate_ddl = false;
 	bool		found_temp = false;
-
 	for (int row = 0; row < SPI_processed; row++)
 	{
 		HeapTuple	spi_tuple = SPI_tuptable->vals[row];
 		Oid			class_id = SPI_GetOid(spi_tuple, SQL_DROP_CLASS_ID_COLUMN_ID);
+		char       *first_address_name = SPI_TextArrayGetElement(spi_tuple,
+			SQL_DROP_ADDRESS_NAMES_COLUMN_ID, 0);
+
+		/* The following works for named objects */
 		bool		is_temp = SPI_GetBool(spi_tuple, SQL_DROP_IS_TEMP_COLUMN_ID);
+		/* And following works for unnamed objects */
+		if (first_address_name && IsTempSchema(first_address_name))
+			is_temp = true;
 
 		if (is_temp)
 		{

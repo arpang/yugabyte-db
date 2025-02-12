@@ -248,8 +248,7 @@ static const FormData_pg_attribute a7 = {
 	.attislocal = true,
 };
 
-static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4,
-												&a5, &a6, &a7};
+static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7};
 
 static const FormData_pg_attribute index_a1 = {
 	.attname = {"ybidxbasectid"},

@@ -2545,6 +2545,18 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_enable_consistent_replication_from_hash_range", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("Enable replication slot consumption of consistent changes "
+			"from a hash range of table."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_enable_consistent_replication_from_hash_range,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"ysql_upgrade_mode", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Enter a special mode designed specifically for YSQL cluster upgrades. "
 						 "Allows creating new system tables with given relation and type OID. "
@@ -4790,7 +4802,7 @@ static struct config_int ConfigureNamesInt[] =
 			0
 		},
 		&yb_insert_on_conflict_read_batch_size,
-		0, 0, INT_MAX,
+		1024, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 

@@ -84,7 +84,8 @@ extern void YBCCreateIndex(const char *indexName,
 						   Oid colocationId,
 						   Oid tablespaceId,
 						   Oid indexRelfileNodeId,
-						   Oid oldRelfileNodeId);
+						   Oid oldRelfileNodeId,
+						   Oid *opclassOids);
 
 extern void YBCBindCreateIndexColumns(YbcPgStatement handle,
 									  IndexInfo *indexInfo,
@@ -135,9 +136,10 @@ extern void YBCGetReplicationSlot(const char *slot_name,
 
 extern void YBCDropReplicationSlot(const char *slot_name);
 
-extern void YBCInitVirtualWalForCDC(const char *stream_id,
-									Oid *relations,
-									size_t numrelations);
+extern void
+YBCInitVirtualWalForCDC(const char *stream_id, Oid *relations,
+						size_t numrelations,
+						const YbcReplicationSlotHashRange *slot_hash_range);
 
 extern void YBCUpdatePublicationTableList(const char *stream_id,
 										  Oid *relations,

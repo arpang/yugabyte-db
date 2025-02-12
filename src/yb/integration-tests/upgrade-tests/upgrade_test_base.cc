@@ -49,7 +49,10 @@ std::string GetRelevantUrl(const BuildInfo& info) {
   return kIsDebug ? info.darwin_debug_arm64_url : info.darwin_release_arm64_url;
 #elif defined(__linux__) && defined(__x86_64__)
   return kIsDebug ? info.linux_debug_x86_url : info.linux_release_x86_url;
+#elif defined(__linux__) && defined(__aarch64__)
+  return kIsDebug ? "" : info.linux_release_aarch64_url;
 #endif
+
   return "";
 }
 
@@ -84,6 +87,7 @@ Result<BuildInfo> GetBuildInfoForVersion(const std::string& version) {
         build_info.build_number = GetXmlPathAsString(node, "build_number");
         build_info.linux_debug_x86_url = GetXmlPathAsString(node, "linux_debug_x86");
         build_info.linux_release_x86_url = GetXmlPathAsString(node, "linux_release_x86");
+        build_info.linux_release_aarch64_url = GetXmlPathAsString(node, "linux_release_aarch64");
         build_info.darwin_debug_arm64_url = GetXmlPathAsString(node, "darwin_debug_arm64");
         build_info.darwin_release_arm64_url = GetXmlPathAsString(node, "darwin_release_arm64");
         return build_info;
@@ -319,12 +323,8 @@ Status UpgradeTestBase::StartClusterInOldVersion(const ExternalMiniClusterOption
                                    current_version_info_.ysql_major_version();
 
   if (IsYsqlMajorVersionUpgrade()) {
-    // TODO: Remove when support for expression pushdown in mixed mode is implemented.
-    RETURN_NOT_OK(cluster_->AddAndSetExtraFlag("ysql_yb_enable_expression_pushdown", "false"));
-
-    // TODO: Enable after flag is backported to older version.
-    // RETURN_NOT_OK(cluster_->AddAndSetExtraFlag("ysql_yb_major_version_upgrade_compatibility",
-    // "11"));
+    RETURN_NOT_OK(
+        cluster_->AddAndSetExtraFlag("ysql_yb_major_version_upgrade_compatibility", "11"));
   }
 
   return Status::OK();
@@ -457,7 +457,8 @@ Status UpgradeTestBase::WaitForYsqlMajorCatalogUpgradeToFinish() {
   };
 
   return LoggedWaitFor(
-      is_upgrade_done, 10min, "Waiting for ysql major catalog upgrade to complete");
+      is_upgrade_done, 10min, "Waiting for ysql major catalog upgrade to complete",
+      /*initial_delay*/ 1s);
 }
 
 Status UpgradeTestBase::PromoteAutoFlags(AutoFlagClass flag_class) {
@@ -513,9 +514,6 @@ Status UpgradeTestBase::FinalizeYsqlMajorCatalogUpgrade() {
   }
 
   if (IsYsqlMajorVersionUpgrade()) {
-    // TODO: Remove when support for expression pushdown in mixed mode is implemented.
-    RETURN_NOT_OK(cluster_->AddAndSetExtraFlag("ysql_yb_enable_expression_pushdown", "true"));
-
     RETURN_NOT_OK(cluster_->AddAndSetExtraFlag("ysql_yb_major_version_upgrade_compatibility", "0"));
   }
 

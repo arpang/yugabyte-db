@@ -1,14 +1,20 @@
 package com.yugabyte.yw.common.kms.services;
 
+import static play.mvc.Http.Status.BAD_REQUEST;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.yugabyte.yw.common.PlatformServiceException;
 import com.yugabyte.yw.common.config.RuntimeConfGetter;
 import com.yugabyte.yw.common.kms.algorithms.CipherTrustAlgorithm;
 import com.yugabyte.yw.common.kms.util.CiphertrustEARServiceUtil;
 import com.yugabyte.yw.common.kms.util.CiphertrustEARServiceUtil.CipherTrustKmsAuthConfigField;
-import com.yugabyte.yw.common.kms.util.CiphertrustManagerClient;
+import com.yugabyte.yw.common.kms.util.EncryptionAtRestUtil;
+import com.yugabyte.yw.common.kms.util.EncryptionAtRestUtil.EncryptionKey;
 import com.yugabyte.yw.common.kms.util.KeyProvider;
 import com.yugabyte.yw.forms.EncryptionAtRestConfig;
 import com.yugabyte.yw.models.KmsConfig;
+import java.util.List;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 
@@ -34,8 +40,6 @@ public class CiphertrustEARService extends EncryptionAtRestService<CipherTrustAl
     CiphertrustEARServiceUtil ciphertrustEARServiceUtil = getCiphertrustEARServiceUtil();
     try {
       UUID customerUUID = KmsConfig.getOrBadRequest(configUUID).getCustomerUUID();
-      CiphertrustManagerClient ciphertrustManagerClient =
-          ciphertrustEARServiceUtil.getCiphertrustManagerClient(config);
 
       // Check if a key with the given name exists on CipherTrust manager
       boolean keyExists = ciphertrustEARServiceUtil.checkifKeyExists(config);
@@ -59,6 +63,17 @@ public class CiphertrustEARService extends EncryptionAtRestService<CipherTrustAl
       log.info(
           "Updated authConfig from key details for CipherTrust KMS configUUID '{}'.", configUUID);
 
+      // Validate the key settings.
+      boolean areKeySettingsValid = ciphertrustEARServiceUtil.validateKeySettings(config);
+      if (!areKeySettingsValid) {
+        log.error(
+            "Key settings for key '{}' are invalid for CipherTrust KMS configUUID '{}'.",
+            ciphertrustEARServiceUtil.getConfigFieldValue(
+                config, CipherTrustKmsAuthConfigField.KEY_NAME.fieldName),
+            configUUID);
+        return null;
+      }
+
       // Test the encryption and decryption of a random key for the KMS config key.
       ciphertrustEARServiceUtil.testEncryptAndDecrypt(config);
       log.info(
@@ -79,40 +94,104 @@ public class CiphertrustEARService extends EncryptionAtRestService<CipherTrustAl
   }
 
   @Override
-  protected byte[] createKeyWithService(
+  protected EncryptionKey createKeyWithService(
       UUID universeUUID, UUID configUUID, EncryptionAtRestConfig config) {
-    return null;
+    // Ensure the key exists on the CipherTrust manager.
+    CiphertrustEARServiceUtil ciphertrustEARServiceUtil = getCiphertrustEARServiceUtil();
+    ObjectNode authConfig = EncryptionAtRestUtil.getAuthConfig(configUUID);
+    boolean keyExists = ciphertrustEARServiceUtil.checkifKeyExists(authConfig);
+    if (!keyExists) {
+      String errMsg =
+          String.format(
+              "Key does not exist on CipherTrust manager. Cannot create a new key for universe"
+                  + " '%s'.",
+              universeUUID);
+      log.error(errMsg);
+      throw new RuntimeException(errMsg);
+    }
+
+    byte[] keyBytes = ciphertrustEARServiceUtil.generateRandomBytes(numBytes);
+    return ciphertrustEARServiceUtil.encryptKeyWithEncryptionContext(authConfig, keyBytes);
   }
 
   @Override
-  protected byte[] rotateKeyWithService(
+  protected EncryptionKey rotateKeyWithService(
       UUID universeUUID, UUID configUUID, EncryptionAtRestConfig config) {
-    return null;
+    return createKeyWithService(universeUUID, configUUID, config);
   }
 
   @Override
-  public byte[] retrieveKeyWithService(UUID configUUID, byte[] keyRef) {
-    return null;
+  public byte[] retrieveKeyWithService(
+      UUID configUUID, byte[] keyRef, ObjectNode encryptionContext) {
+    CiphertrustEARServiceUtil ciphertrustEARServiceUtil = getCiphertrustEARServiceUtil();
+    ObjectNode authConfig = EncryptionAtRestUtil.getAuthConfig(configUUID);
+    return ciphertrustEARServiceUtil.decryptKeyWithEncryptionContext(authConfig, encryptionContext);
   }
 
   @Override
-  public byte[] encryptKeyWithService(UUID configUUID, byte[] universeKey) {
-    return null;
+  public EncryptionKey encryptKeyWithService(UUID configUUID, byte[] universeKey) {
+    CiphertrustEARServiceUtil ciphertrustEARServiceUtil = getCiphertrustEARServiceUtil();
+    ObjectNode authConfig = EncryptionAtRestUtil.getAuthConfig(configUUID);
+    return ciphertrustEARServiceUtil.encryptKeyWithEncryptionContext(authConfig, universeKey);
   }
 
   @Override
   protected byte[] validateRetrieveKeyWithService(
-      UUID configUUID, byte[] keyRef, ObjectNode authConfig) {
-    return null;
+      UUID configUUID, byte[] keyRef, ObjectNode encryptionContext, ObjectNode authConfig) {
+    CiphertrustEARServiceUtil ciphertrustEARServiceUtil = getCiphertrustEARServiceUtil();
+    log.info("Validating retreive key with KMS config '{}'.", configUUID);
+    return ciphertrustEARServiceUtil.decryptKeyWithEncryptionContext(authConfig, encryptionContext);
   }
 
   @Override
-  public void refreshKmsWithService(UUID configUUID, ObjectNode authConfig) {
-    // TODO: Implement this method.
+  public void refreshKmsWithService(UUID configUUID, ObjectNode authConfig) throws Exception {
+    CiphertrustEARServiceUtil ciphertrustEARServiceUtil = getCiphertrustEARServiceUtil();
+
+    // Validate the KMS provider config form data for required fields.
+    log.info(
+        "Validating KMS provider config form data for CipherTrust KMS configUUID '{}'.",
+        configUUID);
+    ciphertrustEARServiceUtil.validateKMSProviderConfigFormData(authConfig);
+
+    // Validate the key settings.
+    boolean areKeySettingsValid = ciphertrustEARServiceUtil.validateKeySettings(authConfig);
+    if (!areKeySettingsValid) {
+      throw new PlatformServiceException(
+          BAD_REQUEST,
+          String.format(
+              "Key settings for key '%s' are invalid for CipherTrust KMS configUUID '%s'.",
+              ciphertrustEARServiceUtil.getConfigFieldValue(
+                  authConfig, CipherTrustKmsAuthConfigField.KEY_NAME.fieldName),
+              configUUID));
+    }
+    log.info(
+        "Key settings for key '{}' are valid for CipherTrust KMS configUUID '{}'.",
+        ciphertrustEARServiceUtil.getConfigFieldValue(
+            authConfig, CipherTrustKmsAuthConfigField.KEY_NAME.fieldName),
+        configUUID);
+
+    // Test the encryption and decryption of a random key for the KMS config key.
+    ciphertrustEARServiceUtil.testEncryptAndDecrypt(authConfig);
+    log.info(
+        "Successfully tested encryption and decryption of a random key for CipherTrust KMS"
+            + " configUUID '{}'.",
+        configUUID.toString());
   }
 
   @Override
   public ObjectNode getKeyMetadata(UUID configUUID) {
-    return null;
+    // Get all the auth config fields marked as metadata.
+    List<String> cipherTrustKmsMetadataFields = CipherTrustKmsAuthConfigField.getMetadataFields();
+    ObjectNode authConfig = EncryptionAtRestUtil.getAuthConfig(configUUID);
+    ObjectNode keyMetadata = new ObjectMapper().createObjectNode();
+
+    for (String fieldName : cipherTrustKmsMetadataFields) {
+      if (authConfig.has(fieldName)) {
+        keyMetadata.set(fieldName, authConfig.get(fieldName));
+      }
+    }
+    // Add key_provider field.
+    keyMetadata.put("key_provider", KeyProvider.CIPHERTRUST.name());
+    return keyMetadata;
   }
 }

@@ -13,6 +13,24 @@ type: docs
 
 What follows are the release notes for the YugabyteDB Voyager v1 release series. Content will be added as new notable features and changes are available in the patch releases of the YugabyteDB v1 series.
 
+## v1.8.11 - February 11, 2025
+
+### ​​Enhancements
+
+- Updated the Assessment and Schema Analysis reports to detect the following unsupported PostgreSQL features:
+    - Listen / Notify events
+    - Two-Phase Commit
+    - Setting compression method with COMPRESSION clause in CREATE / ALTER TABLE
+    - Create Database options for locale, collation, strategy, and OID-related settings
+- Enhanced the JSON assessment report to include only the new assessment issue format, removing the old format that used separate fields for each issue category.
+- The import data status command now reports tables where the import has not yet started, improving visibility for bulk imports (import data file).
+- The assess-migration command now checks the source database IOPS and issues a warning if it is zero.
+
+### Bug fixes
+
+- Fixed the status reporting via import data status when resuming the import for tables from a CSV data file that includes a header row.
+- Fixed the guardrail checks for live migration in Oracle and MySQL by removing the ora2pg dependency check.
+
 ## v1.8.10 - January 28, 2025
 
 ### Enhancements
@@ -346,7 +364,7 @@ To bypass this issue, set the environment variable `REPORT_UNSUPPORTED_QUERY_CON
 
 ### Enhancements
 
-- The live migration workflow has been optimized for [Importing indexes and triggers](../migrate/live-migrate/#import-indexes-and-triggers) on the target YugabyteDB. Instead of creating indexes on target after cutover, they can now be created concurrently with the CDC phase of `import-data-to-target`. This ensures that the time consuming task of creating indexes on the target YugabyteDB is completed before the cutover process.
+- The live migration workflow has been optimized for [Importing indexes and triggers](../migrate/live-migrate/#import-data-to-target) on the target YugabyteDB. Instead of creating indexes on target after cutover, they can now be created concurrently with the CDC phase of `import-data-to-target`. This ensures that the time consuming task of creating indexes on the target YugabyteDB is completed before the cutover process.
 
 - The `--post-import-data` flag of import schema has been renamed to `--post-snapshot-import` to incorporate live migration workflows.
 

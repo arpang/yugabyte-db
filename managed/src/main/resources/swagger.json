@@ -2624,6 +2624,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -2648,7 +2649,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -4559,8 +4559,9 @@
               "ConsensusMeta",
               "TabletMeta",
               "YbcLogs",
-              "K8sInfo",
               "NodeAgent",
+              "SystemLogs",
+              "K8sInfo",
               "YbaMetadata",
               "PrometheusMetrics",
               "ApplicationLogs"
@@ -5246,6 +5247,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -5270,7 +5272,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -5588,6 +5589,11 @@
         },
         "nodeExporterUser" : {
           "description" : "Node exporter user",
+          "type" : "string"
+        },
+        "pitrConfigUUID" : {
+          "description" : "PITR Config UUID",
+          "format" : "uuid",
           "type" : "string"
         },
         "platformUrl" : {
@@ -7210,6 +7216,8 @@
             "GP3",
             "Scratch",
             "Persistent",
+            "Hyperdisk_Balanced",
+            "Hyperdisk_Extreme",
             "StandardSSD_LRS",
             "Premium_LRS",
             "PremiumV2_LRS",
@@ -8161,6 +8169,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -8185,7 +8194,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -8927,6 +8935,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -8951,7 +8960,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -10296,6 +10304,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -10320,7 +10329,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -10564,9 +10572,20 @@
     "KubernetesRegionInfo" : {
       "properties" : {
         "certManagerClusterIssuer" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2024.2.3.0.</b>. Use certManagerIssuerKind and certManagerIssuerName instead",
           "type" : "string"
         },
         "certManagerIssuer" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2024.2.3.0.</b>. Use certManagerIssuerKind and certManagerIssuerName instead",
+          "type" : "string"
+        },
+        "certManagerIssuerGroup" : {
+          "type" : "string"
+        },
+        "certManagerIssuerKind" : {
+          "type" : "string"
+        },
+        "certManagerIssuerName" : {
           "type" : "string"
         },
         "isKubernetesOperatorControlled" : {
@@ -13807,25 +13826,6 @@
       ],
       "type" : "object"
     },
-    "PreUpgradeValidationResponse" : {
-      "description" : "Upgrade Validation Response",
-      "properties" : {
-        "errors" : {
-          "description" : "WARNING: This is a preview API that could change. List of errors that occurred during validation",
-          "items" : {
-            "type" : "string"
-          },
-          "readOnly" : true,
-          "type" : "array"
-        },
-        "success" : {
-          "description" : "WARNING: This is a preview API that could change. Indicates whether all the checks passed",
-          "readOnly" : true,
-          "type" : "boolean"
-        }
-      },
-      "type" : "object"
-    },
     "PresetThrottleValues" : {
       "properties" : {
         "defaultValue" : {
@@ -14430,6 +14430,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -14454,7 +14455,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -15412,6 +15412,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -15436,7 +15437,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -16205,6 +16205,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -16229,7 +16230,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -17696,6 +17696,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -17720,7 +17721,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -18222,6 +18222,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -18246,7 +18247,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -18589,6 +18589,7 @@
               "DecommissionNodeInstance",
               "MasterFailover",
               "SyncMasterAddresses",
+              "CreateContinuousBackup",
               "CreateYbaBackup",
               "RestoreYbaBackup",
               "RestoreContinuousBackup",
@@ -18613,7 +18614,6 @@
               "ResumeServer",
               "AnsibleSetupServer",
               "AnsibleCreateServer",
-              "PrecheckNode",
               "PrecheckNodeDetached",
               "AnsibleUpdateNodeInfo",
               "BulkImport",
@@ -19371,6 +19371,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -19395,7 +19396,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -19964,8 +19964,9 @@
               "ConsensusMeta",
               "TabletMeta",
               "YbcLogs",
-              "K8sInfo",
               "NodeAgent",
+              "SystemLogs",
+              "K8sInfo",
               "YbaMetadata",
               "PrometheusMetrics",
               "ApplicationLogs"
@@ -20001,6 +20002,13 @@
           "example" : "2022-12-12T13:07:18Z",
           "format" : "date-time",
           "type" : "string"
+        },
+        "promQueries" : {
+          "additionalProperties" : {
+            "type" : "string"
+          },
+          "description" : "Map of query names to custom PromQL queries to collect in promdump",
+          "type" : "object"
         },
         "prometheusMetricsTypes" : {
           "description" : "List of exports to be included in the prometheus dump",
@@ -20416,6 +20424,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -20440,7 +20449,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -21672,6 +21680,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -21696,7 +21705,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -22308,6 +22316,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -22332,7 +22341,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -23199,6 +23207,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -23223,7 +23232,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -23799,6 +23807,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -23823,7 +23832,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -24399,6 +24407,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -24423,7 +24432,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -25401,6 +25409,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -25425,7 +25434,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -26556,6 +26564,7 @@
             "DecommissionNodeInstance",
             "MasterFailover",
             "SyncMasterAddresses",
+            "CreateContinuousBackup",
             "CreateYbaBackup",
             "RestoreYbaBackup",
             "RestoreContinuousBackup",
@@ -26580,7 +26589,6 @@
             "ResumeServer",
             "AnsibleSetupServer",
             "AnsibleCreateServer",
-            "PrecheckNode",
             "PrecheckNodeDetached",
             "AnsibleUpdateNodeInfo",
             "BulkImport",
@@ -38398,8 +38406,9 @@
                   "ConsensusMeta",
                   "TabletMeta",
                   "YbcLogs",
-                  "K8sInfo",
                   "NodeAgent",
+                  "SystemLogs",
+                  "K8sInfo",
                   "YbaMetadata",
                   "PrometheusMetrics",
                   "ApplicationLogs"
@@ -38425,8 +38434,9 @@
                   "ConsensusMeta",
                   "TabletMeta",
                   "YbcLogs",
-                  "K8sInfo",
                   "NodeAgent",
+                  "SystemLogs",
+                  "K8sInfo",
                   "YbaMetadata",
                   "PrometheusMetrics",
                   "ApplicationLogs"
@@ -39859,79 +39869,6 @@
         "summary" : "Return results for the last health check",
         "tags" : [
           "Universe information"
-        ]
-      }
-    },
-    "/api/v1/customers/{cUUID}/universes/{uniUUID}/keyspaces/{tableType}/{keyspaceName}/clone" : {
-      "post" : {
-        "description" : "",
-        "operationId" : "cloneNamespace",
-        "parameters" : [
-          {
-            "format" : "uuid",
-            "in" : "path",
-            "name" : "cUUID",
-            "required" : true,
-            "type" : "string"
-          },
-          {
-            "format" : "uuid",
-            "in" : "path",
-            "name" : "uniUUID",
-            "required" : true,
-            "type" : "string"
-          },
-          {
-            "in" : "path",
-            "name" : "tableType",
-            "required" : true,
-            "type" : "string"
-          },
-          {
-            "in" : "path",
-            "name" : "keyspaceName",
-            "required" : true,
-            "type" : "string"
-          },
-          {
-            "in" : "query",
-            "name" : "request",
-            "required" : false
-          },
-          {
-            "description" : "post namespace clone",
-            "in" : "body",
-            "name" : "namespaceClone",
-            "required" : true,
-            "schema" : {
-              "$ref" : "#/definitions/CloneNamespaceParams"
-            }
-          }
-        ],
-        "responses" : {
-          "200" : {
-            "description" : "successful operation",
-            "schema" : {
-              "$ref" : "#/definitions/YBPTask"
-            }
-          }
-        },
-        "responsesObject" : {
-          "200" : {
-            "description" : "successful operation",
-            "schema" : {
-              "$ref" : "#/definitions/YBPTask"
-            }
-          }
-        },
-        "security" : [
-          {
-            "apiKeyAuth" : [ ]
-          }
-        ],
-        "summary" : "Create clone of a namespace in a universe",
-        "tags" : [
-          "PITR management"
         ]
       }
     },
@@ -42762,73 +42699,6 @@
           }
         ],
         "summary" : "Upgrade KubernetesOverrides",
-        "tags" : [
-          "Universe Upgrades Management"
-        ]
-      }
-    },
-    "/api/v1/customers/{cUUID}/universes/{uniUUID}/upgrade/pre_upgrade_validation" : {
-      "post" : {
-        "description" : "WARNING: This is a preview API that could change. Runs all the prechecks and validations for specific upgrade",
-        "operationId" : "preUpgradeValidation",
-        "parameters" : [
-          {
-            "format" : "uuid",
-            "in" : "path",
-            "name" : "cUUID",
-            "required" : true,
-            "type" : "string"
-          },
-          {
-            "format" : "uuid",
-            "in" : "path",
-            "name" : "uniUUID",
-            "required" : true,
-            "type" : "string"
-          },
-          {
-            "in" : "query",
-            "name" : "upgradeType",
-            "required" : false,
-            "type" : "string"
-          },
-          {
-            "in" : "query",
-            "name" : "request",
-            "required" : false
-          },
-          {
-            "description" : "Upgrade Params",
-            "in" : "body",
-            "name" : "upgrade params",
-            "required" : true,
-            "schema" : {
-              "$ref" : "#/definitions/UpgradeTaskParams"
-            }
-          }
-        ],
-        "responses" : {
-          "200" : {
-            "description" : "successful operation",
-            "schema" : {
-              "$ref" : "#/definitions/PreUpgradeValidationResponse"
-            }
-          }
-        },
-        "responsesObject" : {
-          "200" : {
-            "description" : "successful operation",
-            "schema" : {
-              "$ref" : "#/definitions/PreUpgradeValidationResponse"
-            }
-          }
-        },
-        "security" : [
-          {
-            "apiKeyAuth" : [ ]
-          }
-        ],
-        "summary" : "Run validation for upgrade",
         "tags" : [
           "Universe Upgrades Management"
         ]
@@ -45898,6 +45768,8 @@
                   "GP3",
                   "Scratch",
                   "Persistent",
+                  "Hyperdisk_Balanced",
+                  "Hyperdisk_Extreme",
                   "StandardSSD_LRS",
                   "Premium_LRS",
                   "PremiumV2_LRS",
@@ -45921,6 +45793,8 @@
                   "GP3",
                   "Scratch",
                   "Persistent",
+                  "Hyperdisk_Balanced",
+                  "Hyperdisk_Extreme",
                   "StandardSSD_LRS",
                   "Premium_LRS",
                   "PremiumV2_LRS",
@@ -45960,6 +45834,8 @@
                   "GP3",
                   "Scratch",
                   "Persistent",
+                  "Hyperdisk_Balanced",
+                  "Hyperdisk_Extreme",
                   "StandardSSD_LRS",
                   "Premium_LRS",
                   "PremiumV2_LRS",
@@ -45983,6 +45859,8 @@
                   "GP3",
                   "Scratch",
                   "Persistent",
+                  "Hyperdisk_Balanced",
+                  "Hyperdisk_Extreme",
                   "StandardSSD_LRS",
                   "Premium_LRS",
                   "PremiumV2_LRS",
@@ -46022,6 +45900,8 @@
                   "GP3",
                   "Scratch",
                   "Persistent",
+                  "Hyperdisk_Balanced",
+                  "Hyperdisk_Extreme",
                   "StandardSSD_LRS",
                   "Premium_LRS",
                   "PremiumV2_LRS",
@@ -46045,6 +45925,8 @@
                   "GP3",
                   "Scratch",
                   "Persistent",
+                  "Hyperdisk_Balanced",
+                  "Hyperdisk_Extreme",
                   "StandardSSD_LRS",
                   "Premium_LRS",
                   "PremiumV2_LRS",

@@ -3472,19 +3472,19 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 			int			resno = tle->resno = list_nth_int(update_colnos,
 														  update_col_index++);
 
-			/*
-			 * If the column is set to itself (SET col = col), it will not
-			 * get updated. So it has no impact on single row computation.
-			 */
-			if (varattno == tle->resno)
-				continue;
-
 			/* Updates involving primary key columns are not single-row. */
 			if (bms_is_member(resno - attr_offset, primary_key_attrs))
 			{
 				RelationClose(relation);
 				return false;
 			}
+
+			/*
+			 * If the column is set to itself (SET col = col), it will not
+			 * get updated. So it has no impact on single row computation.
+			 */
+			if (varattno == tle->resno)
+				continue;
 
 			subpath_tlist = lappend(subpath_tlist, tle);
 			update_attrs = bms_add_member(update_attrs, resno - attr_offset);
@@ -5989,6 +5989,10 @@ create_nestloop_plan(PlannerInfo *root,
 				RestrictInfo *batched_rinfo = yb_get_batched_restrictinfo(rinfo,
 																		  batched_outerrelids,
 																		  inner_relids);
+
+				/* Can't use this clause for hashing during the BNL. */
+				if (!yb_can_hash_batched_rinfo(batched_rinfo, batched_outerrelids, inner_relids))
+					continue;
 
 				hashOpno = ((OpExpr *) rinfo->clause)->opno;
 				if (!bms_equal(batched_rinfo->left_relids, rinfo->left_relids))
