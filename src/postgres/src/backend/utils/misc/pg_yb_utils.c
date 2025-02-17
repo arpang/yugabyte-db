@@ -34,8 +34,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "postgres.h"
 #include "access/heaptoast.h"
+#include "c.h"
+#include "postgres.h"
+#include "libpq/pqformat.h"
+#include "miscadmin.h"
 #include "access/htup.h"
 #include "access/htup_details.h"
 #include "access/relation.h"
@@ -43,12 +46,10 @@
 #include "access/table.h"
 #include "access/tupdesc.h"
 #include "access/xact.h"
-#include "c.h"
+#include "executor/ybExpr.h"
 #include "catalog/catalog.h"
-#include "catalog/heap.h"
 #include "catalog/index.h"
 #include "catalog/indexing.h"
-#include "catalog/namespace.h"
 #include "catalog/pg_am.h"
 #include "catalog/pg_amop.h"
 #include "catalog/pg_amproc.h"
@@ -88,28 +89,17 @@
 #include "commands/yb_cmds.h"
 #include "common/ip.h"
 #include "common/pg_yb_common.h"
-#include "executor/nodeIndexonlyscan.h"
-#include "executor/spi.h"
-#include "executor/ybExpr.h"
-#include "fmgr.h"
-#include "funcapi.h"
 #include "lib/stringinfo.h"
 #include "libpq/hba.h"
-#include "libpq/libpq-be.h"
 #include "libpq/libpq.h"
-#include "libpq/pqformat.h"
-#include "mb/pg_wchar.h"
-#include "miscadmin.h"
+#include "libpq/libpq-be.h"
 #include "nodes/makefuncs.h"
-#include "nodes/nodeFuncs.h"
 #include "optimizer/cost.h"
-#include "optimizer/planmain.h"
 #include "parser/parse_utilcmd.h"
 #include "tcop/utility.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/fmgroids.h"
-#include "utils/jsonb.h"
 #include "utils/lsyscache.h"
 #include "utils/pg_locale.h"
 #include "utils/rel.h"
@@ -117,6 +107,10 @@
 #include "utils/spccache.h"
 #include "utils/syscache.h"
 #include "utils/uuid.h"
+#include "utils/jsonb.h"
+#include "fmgr.h"
+#include "funcapi.h"
+#include "mb/pg_wchar.h"
 
 #include "yb/yql/pggate/util/ybc_util.h"
 #include "yb/yql/pggate/ybc_pggate.h"
@@ -2049,17 +2043,13 @@ YbTupleTableSlotToString(TupleTableSlot *slot)
 const char *
 YbTupleTableSlotToStringWithIsOmitted(TupleTableSlot *slot, bool *is_omitted)
 {
-	bool		shouldFree = false;
+	bool		shouldFree;
 	HeapTuple	tuple;
 
 	tuple = ExecFetchSlotHeapTuple(slot, false, &shouldFree);
-	const char *result = YbHeapTupleToStringWithIsOmitted(tuple,
-														  slot->tts_tupleDescriptor,
-														  is_omitted);
-
-	if (shouldFree)
-		heap_freetuple(tuple);
-	return result;
+	Assert(!shouldFree);
+	return YbHeapTupleToStringWithIsOmitted(tuple, slot->tts_tupleDescriptor,
+											is_omitted);
 }
 
 const char *
