@@ -23,101 +23,30 @@
  *-------------------------------------------------------------------------
  */
 
-#include <assert.h>
-#include <inttypes.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <unistd.h>
-
 #include "postgres.h"
-#include "access/heaptoast.h"
-#include "access/htup.h"
-#include "access/htup_details.h"
-#include "access/relation.h"
-#include "access/sysattr.h"
-#include "access/table.h"
-#include "access/tupdesc.h"
-#include "access/xact.h"
-#include "c.h"
-#include "catalog/catalog.h"
 #include "catalog/heap.h"
-#include "catalog/index.h"
-#include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_am.h"
-#include "catalog/pg_amop.h"
-#include "catalog/pg_amproc.h"
-#include "catalog/pg_attrdef.h"
-#include "catalog/pg_auth_members.h"
-#include "catalog/pg_authid.h"
-#include "catalog/pg_cast.h"
 #include "catalog/pg_collation.h"
-#include "catalog/pg_constraint.h"
-#include "catalog/pg_database.h"
-#include "catalog/pg_db_role_setting.h"
 #include "catalog/pg_inherits.h"
-#include "catalog/pg_namespace.h"
-#include "catalog/pg_opclass.h"
 #include "catalog/pg_operator.h"
-#include "catalog/pg_partitioned_table.h"
-#include "catalog/pg_policy.h"
-#include "catalog/pg_proc.h"
-#include "catalog/pg_range_d.h"
-#include "catalog/pg_rewrite.h"
-#include "catalog/pg_statistic_d.h"
-#include "catalog/pg_statistic_ext_d.h"
-#include "catalog/pg_statistic_ext_data_d.h"
-#include "catalog/pg_tablespace.h"
-#include "catalog/pg_trigger.h"
-#include "catalog/pg_type.h"
-#include "catalog/pg_yb_catalog_version.h"
-#include "catalog/pg_yb_logical_client_version.h"
-#include "catalog/pg_yb_profile.h"
-#include "catalog/pg_yb_role_profile.h"
-#include "catalog/yb_catalog_version.h"
-#include "catalog/yb_logical_client_version.h"
-#include "catalog/yb_type.h"
-#include "commands/dbcommands.h"
-#include "commands/defrem.h"
-#include "commands/variable.h"
-#include "commands/yb_cmds.h"
-#include "common/ip.h"
-#include "common/pg_yb_common.h"
-#include "executor/nodeIndexonlyscan.h"
+#include "executor/executor.h"
 #include "executor/spi.h"
-#include "executor/ybExpr.h"
+#include "executor/tuptable.h"
 #include "fmgr.h"
-#include "funcapi.h"
-#include "lib/stringinfo.h"
-#include "libpq/hba.h"
-#include "libpq/libpq-be.h"
-#include "libpq/libpq.h"
-#include "libpq/pqformat.h"
-#include "mb/pg_wchar.h"
-#include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "optimizer/cost.h"
-#include "optimizer/planmain.h"
-#include "parser/parse_utilcmd.h"
-#include "tcop/utility.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
-#include "utils/fmgroids.h"
-#include "utils/jsonb.h"
 #include "utils/lsyscache.h"
-#include "utils/pg_locale.h"
 #include "utils/rel.h"
-#include "utils/snapshot.h"
-#include "utils/spccache.h"
+#include "utils/relcache.h"
 #include "utils/syscache.h"
-#include "utils/uuid.h"
 
 static void yb_lsm_index_check_internal(Oid indexoid);
 
 static void
-index_row_consistency_check(TupleTableSlot *slot, List *equalProcOids,
+check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 							Relation indexrel)
 {
 	bool indisunique = indexrel->rd_index->indisunique;
@@ -150,14 +79,14 @@ index_row_consistency_check(TupleTableSlot *slot, List *equalProcOids,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
 				errmsg("index contains spurious row")));
 
-	/* This should never happen */
+	/* This should never happen because this was the join condition */
 	if (unlikely(!datumIsEqual(ybbasectid_datum, base_datum, ind_att->attbyval,
 							   ind_att->attlen)))
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
 				errmsg("index's ybbasectid mismatch with base relation's ybctid")));
 
-	/* Validate the index attributes. */
+	/* Validate the index attributes */
 	for (int i = 0; i < indnatts; i++)
 	{
 		int ind_attnum = 2 * i + 1;
@@ -243,72 +172,23 @@ index_row_consistency_check(TupleTableSlot *slot, List *equalProcOids,
 	}
 }
 
-static int
-get_expected_index_rowcount(Relation baserel, Relation indexrel)
+/*
+ * Generate plan corresponding to:
+ *		SELECT (index attributes, ybbasectid, ybuniqueidxkeysuffix if index is
+ *		unique) from indexrel
+ */
+static Plan *
+indexrel_scan_plan(Relation indexrel)
 {
-	StringInfoData querybuf;
-	initStringInfo(&querybuf);
-	appendStringInfo(&querybuf, "/*+SeqScan(%s)*/ SELECT count(*) from %s",
-					 RelationGetRelationName(baserel),
-					 RelationGetRelationName(baserel));
+	TupleDesc indexdesc = RelationGetDescr(indexrel);
 
-	bool indpred_isnull;
-	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
-										  Anum_pg_index_indpred,
-										  &indpred_isnull);
-	if (!indpred_isnull)
-	{
-		Oid basereloid = RelationGetRelid(baserel);
-		char *indpred_clause = TextDatumGetCString(DirectFunctionCall2(pg_get_expr,
-																	   indpred_datum,
-																	   basereloid));
-		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
-	}
-
-	if (SPI_connect() != SPI_OK_CONNECT)
-		elog(ERROR, "SPI_connect failed");
-
-	if (SPI_execute(querybuf.data, true, 0) != SPI_OK_SELECT)
-		elog(ERROR, "SPI_exec failed:");
-
-	Assert(SPI_processed == 1);
-	Assert(SPI_tuptable->tupdesc->natts == 1);
-
-	bool isnull;
-	Datum val =
-		heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
-	Assert(!isnull);
-	int expected_rowcount = DatumGetInt64(val);
-
-	if (SPI_finish() != SPI_OK_FINISH)
-		elog(ERROR, "SPI_finish failed");
-
-	return expected_rowcount;
-}
-
-static void
-yb_lsm_partitioned_index_check(Oid parentindexId)
-{
-	ListCell *lc;
-	foreach(lc, find_inheritance_children(parentindexId, AccessShareLock))
-	{
-		Oid childindexId = ObjectIdGetDatum(lfirst_oid(lc));
-		yb_lsm_index_check_internal(childindexId);
-	}
-}
-
-static Plan* get_outer_plan(Relation indexrel)
-{
 	Expr *expr;
 	List *index_cols = NIL;
-	List *index_scan_tlist = NIL;
+	List *scan_targetlist = NIL;
 	TargetEntry *target_entry;
 	const FormData_pg_attribute *attr;
-
-	TupleDesc indexdesc = RelationGetDescr(indexrel);
-	bool indisunique = indexrel->rd_index->indisunique;
-
 	int i;
+
 	for (i = 0; i < indexdesc->natts; i++)
 	{
 		attr = TupleDescAttr(indexdesc, i);
@@ -316,71 +196,78 @@ static Plan* get_outer_plan(Relation indexrel)
 								attr->atttypmod, attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, i + 1, "", false);
 		index_cols = lappend(index_cols, target_entry);
-		index_scan_tlist = lappend(index_scan_tlist, target_entry);
+		scan_targetlist = lappend(scan_targetlist, target_entry);
 	}
 
 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
-	Var *ybbasectid_expr = makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
-								   attr->atttypid, attr->atttypmod,
-								   attr->attcollation, 0);
-	target_entry = makeTargetEntry((Expr *) ybbasectid_expr, i + 1, "", false);
-	index_scan_tlist = lappend(index_scan_tlist, target_entry);
+	expr = (Expr *) makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
+							attr->atttypid, attr->atttypmod, attr->attcollation,
+							0);
+	target_entry = makeTargetEntry((Expr *) expr, i + 1, "", false);
+	scan_targetlist = lappend(scan_targetlist, target_entry);
 
-	if (indisunique)
+	if (indexrel->rd_index->indisunique)
 	{
 		attr = SystemAttributeDefinition(YBUniqueIdxKeySuffixAttributeNumber);
 		expr = (Expr *) makeVar(INDEX_VAR, YBUniqueIdxKeySuffixAttributeNumber,
 								attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
 		target_entry = makeTargetEntry((Expr *) expr, i + 2, "", false);
-		index_scan_tlist = lappend(index_scan_tlist, target_entry);
+		scan_targetlist = lappend(scan_targetlist, target_entry);
 	}
 
 	IndexOnlyScan *index_scan = makeNode(IndexOnlyScan);
 	Plan *plan = &index_scan->scan.plan;
-	plan->targetlist = index_scan_tlist;
+	plan->targetlist = scan_targetlist;
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
-	index_scan->scan.scanrelid = 1; /* baserelid's rt index */
+	index_scan->scan.scanrelid = 1; /* only one relation is involved */
 	index_scan->indexid = RelationGetRelid(indexrel);
 	index_scan->indextlist = index_cols;
-	return (Plan*) index_scan;
+	return (Plan *) index_scan;
 }
 
-static Plan* get_inner_plan(Relation baserel, Relation indexrel)
+/*
+ * Generate plan corresponding to:
+ *		SELECT (index attributes, ybctid) from baserel where ybctid IN (....)
+ *		 AND <partial index predicate, if any>
+ */
+static Plan *
+baserel_scan_plan(Relation baserel, Relation indexrel)
 {
-	Expr *expr;
-	TargetEntry *target_entry;
-	const FormData_pg_attribute *attr;
-
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
 	TupleDesc base_desc = RelationGetDescr(baserel);
-	List *base_scan_tlist = NIL;
 
+	/* Fetch expressions in the index */
 	bool isnull;
 	List *indexprs;
 	ListCell *next_expr;
-	Datum exprsDatum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
-									   Anum_pg_index_indexprs, &isnull);
+	Datum exprs_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+										Anum_pg_index_indexprs, &isnull);
 	if (!isnull)
 	{
-		char *exprsString = TextDatumGetCString(exprsDatum);
-		indexprs = (List *) stringToNode(exprsString);
+		indexprs = (List *) stringToNode(TextDatumGetCString(exprs_datum));
 		next_expr = list_head(indexprs);
 	}
 
+	Expr *expr;
+	TargetEntry *target_entry;
+	const FormData_pg_attribute *attr;
+	List *scan_targetlist = NIL;
 	int i;
 	for (i = 0; i < indexdesc->natts; i++)
 	{
 		AttrNumber attnum = indexrel->rd_index->indkey.values[i];
 		if (attnum > 0)
 		{
+			/* regular index attribute */
 			attr = TupleDescAttr(base_desc, attnum - 1);
 			expr = (Expr *) makeVar(1, attnum, attr->atttypid, attr->atttypmod,
 									attr->attcollation, 0);
 		}
 		else
 		{
+			/* expression index attribute */
 			Assert(next_expr);
 			expr = (Expr *) lfirst(next_expr);
 			next_expr = lnext(indexprs, next_expr);
@@ -390,14 +277,14 @@ static Plan* get_inner_plan(Relation baserel, Relation indexrel)
 		Assert(exprType((Node *) expr) ==
 			   TupleDescAttr(indexdesc, i)->atttypid);
 		target_entry = makeTargetEntry(expr, i + 1, "", false);
-		base_scan_tlist = lappend(base_scan_tlist, target_entry);
+		scan_targetlist = lappend(scan_targetlist, target_entry);
 	}
 
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
 							   attr->atttypmod, attr->attcollation, 0);
 	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
-	base_scan_tlist = lappend(base_scan_tlist, target_entry);
+	scan_targetlist = lappend(scan_targetlist, target_entry);
 
 	/* IndexScan qual */
 	/* LHS */
@@ -459,13 +346,13 @@ static Plan* get_inner_plan(Relation baserel, Relation indexrel)
 
 	IndexScan *base_scan = makeNode(IndexScan);
 	Plan *plan = &base_scan->scan.plan;
-	plan->targetlist = base_scan_tlist; // output from the node
+	plan->targetlist = scan_targetlist;
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
 	plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
 	plan->extParam = bms;
 	plan->allParam = bms;
-	base_scan->scan.scanrelid = 1; // baserelid's rt index
+	base_scan->scan.scanrelid = 1; /* only one relation is involved */
 	base_scan->indexid = RelationGetRelid(baserel);
 	base_scan->indextlist = base_indextlist; // index cols
 	base_scan->indexqual = list_make1(saop);
@@ -476,27 +363,35 @@ static Plan* get_inner_plan(Relation baserel, Relation indexrel)
 	return (Plan *) base_scan;
 }
 
-static Plan* get_join_plan(Relation baserel, Relation indexrel)
+static Plan *
+spurious_check_plan(Relation baserel, Relation indexrel)
 {
 	Expr *expr;
 	TargetEntry *target_entry;
 	const FormData_pg_attribute *attr;
 
-	/* Index relation scan */
-	Plan* index_scan = get_outer_plan(indexrel);
-	TupleDesc index_scan_desc = ExecTypeFromTL(index_scan->targetlist);
+	/*
+	 * To check for spurious rows in index relation, we join the index relation
+	 * with the base relation on indexrow.ybbasectid == baserow.ybctid. We use
+	 * BNL for this purpose. To satisfy the BNL's join condition requirement,
+	 * index relation is used as the outer (left) subplan.
+	 */
 
-	/* Base relation scan */
-	Plan* base_scan = get_inner_plan(baserel, indexrel);
+	/* Outer subplan: index relation scan */
+	Plan *indexrel_scan = indexrel_scan_plan(indexrel);
+	TupleDesc indexrel_scan_desc = ExecTypeFromTL(indexrel_scan->targetlist);
+
+	/* Inner subplan: base relation scan */
+	Plan *baserel_scan = baserel_scan_plan(baserel, indexrel);
 
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
 
 	// BNL
 	List *join_tlist = NIL;
 	int i;
-	for (i = 0; i < index_scan_desc->natts; i++)
+	for (i = 0; i < indexrel_scan_desc->natts; i++)
 	{
-		attr = TupleDescAttr(index_scan_desc, i);
+		attr = TupleDescAttr(indexrel_scan_desc, i);
 		expr = (Expr *) makeVar(OUTER_VAR, // index's rt index
 								i + 1, attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
@@ -507,7 +402,8 @@ static Plan* get_join_plan(Relation baserel, Relation indexrel)
 		 * For unique index is ybuniqueidxkeysuffix, it doesn't have base rel
 		 * counterpart.
 		 */
-		if (indexrel->rd_index->indisunique && i + 1 == index_scan_desc->natts)
+		if (indexrel->rd_index->indisunique &&
+			i + 1 == indexrel_scan_desc->natts)
 			continue;
 
 		expr = (Expr *) makeVar(INNER_VAR, // index's rt index
@@ -541,8 +437,8 @@ static Plan* get_join_plan(Relation baserel, Relation indexrel)
 	YbBatchedNestLoop *join_plan = makeNode(YbBatchedNestLoop);
 	Plan* plan = &join_plan->nl.join.plan;
 	plan->targetlist = join_tlist;
-	plan->lefttree = (Plan *) index_scan;
-	plan->righttree = (Plan *) base_scan;
+	plan->lefttree = (Plan *) indexrel_scan;
+	plan->righttree = (Plan *) baserel_scan;
 	join_plan->nl.join.jointype = JOIN_LEFT;
 	join_plan->nl.join.inner_unique = true;
 	join_plan->nl.join.joinqual = list_make1(join_clause);
@@ -561,7 +457,7 @@ static int check_spurious_index_rows(Relation baserel, Relation indexrel)
 {
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
 
-	Plan *join_plan = get_join_plan(baserel, indexrel);
+	Plan *join_plan = spurious_check_plan(baserel, indexrel);
 
 	List *equalProcOids = NIL;
 	for (int i = 0; i < indexdesc->natts; i++)
@@ -600,7 +496,7 @@ static int check_spurious_index_rows(Relation baserel, Relation indexrel)
 		index_rowcount++;
 		// TODO: Why is this required?
 		ExecMaterializeSlot(output);
-		index_row_consistency_check(output, equalProcOids, indexrel);
+		check_index_row_consistency(output, equalProcOids, indexrel);
 	}
 	ExecEndNode(join_state);
 
@@ -611,6 +507,59 @@ static int check_spurious_index_rows(Relation baserel, Relation indexrel)
 	FreeExecutorState(estate);
 
 	return index_rowcount;
+}
+
+static void
+partitioned_index_check(Oid parentindexId)
+{
+	ListCell *lc;
+	foreach (lc, find_inheritance_children(parentindexId, AccessShareLock))
+	{
+		Oid childindexId = ObjectIdGetDatum(lfirst_oid(lc));
+		yb_lsm_index_check_internal(childindexId);
+	}
+}
+
+static int
+get_expected_index_rowcount(Relation baserel, Relation indexrel)
+{
+	StringInfoData querybuf;
+	initStringInfo(&querybuf);
+	appendStringInfo(&querybuf, "/*+SeqScan(%s)*/ SELECT count(*) from %s",
+					 RelationGetRelationName(baserel),
+					 RelationGetRelationName(baserel));
+
+	bool indpred_isnull;
+	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+										  Anum_pg_index_indpred,
+										  &indpred_isnull);
+	if (!indpred_isnull)
+	{
+		Oid basereloid = RelationGetRelid(baserel);
+		char *indpred_clause = TextDatumGetCString(
+			DirectFunctionCall2(pg_get_expr, indpred_datum, basereloid));
+		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
+	}
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	if (SPI_execute(querybuf.data, true, 0) != SPI_OK_SELECT)
+		elog(ERROR, "SPI_exec failed:");
+
+	Assert(SPI_processed == 1);
+	Assert(SPI_tuptable->tupdesc->natts == 1);
+
+	bool isnull;
+	Datum val =
+		heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
+	Assert(!isnull);
+	int expected_rowcount = DatumGetInt64(val);
+
+	if (SPI_finish() != SPI_OK_FINISH)
+		elog(ERROR, "SPI_finish failed");
+
+	return expected_rowcount;
 }
 
 static void
@@ -652,7 +601,7 @@ yb_lsm_index_check_internal(Oid indexoid)
 	if (indexrel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
 	{
 		RelationClose(indexrel);
-		return yb_lsm_partitioned_index_check(indexoid);
+		return partitioned_index_check(indexoid);
 	}
 
 	Relation baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
