@@ -184,7 +184,7 @@ indexrel_scan_plan(Relation indexrel)
 
 	Expr *expr;
 	List *index_cols = NIL;
-	List *scan_targetlist = NIL;
+	List *plan_targetlist = NIL;
 	TargetEntry *target_entry;
 	const FormData_pg_attribute *attr;
 	int i;
@@ -196,7 +196,7 @@ indexrel_scan_plan(Relation indexrel)
 								attr->atttypmod, attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, i + 1, "", false);
 		index_cols = lappend(index_cols, target_entry);
-		scan_targetlist = lappend(scan_targetlist, target_entry);
+		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
 
 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
@@ -204,7 +204,7 @@ indexrel_scan_plan(Relation indexrel)
 							attr->atttypid, attr->atttypmod, attr->attcollation,
 							0);
 	target_entry = makeTargetEntry((Expr *) expr, i + 1, "", false);
-	scan_targetlist = lappend(scan_targetlist, target_entry);
+	plan_targetlist = lappend(plan_targetlist, target_entry);
 
 	if (indexrel->rd_index->indisunique)
 	{
@@ -213,12 +213,12 @@ indexrel_scan_plan(Relation indexrel)
 								attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
 		target_entry = makeTargetEntry((Expr *) expr, i + 2, "", false);
-		scan_targetlist = lappend(scan_targetlist, target_entry);
+		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
 
 	IndexOnlyScan *index_scan = makeNode(IndexOnlyScan);
 	Plan *plan = &index_scan->scan.plan;
-	plan->targetlist = scan_targetlist;
+	plan->targetlist = plan_targetlist;
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
 	index_scan->scan.scanrelid = 1; /* only one relation is involved */
@@ -231,6 +231,11 @@ indexrel_scan_plan(Relation indexrel)
  * Generate plan corresponding to:
  *		SELECT (index attributes, ybctid) from baserel where ybctid IN (....)
  *		 AND <partial index predicate, if any>
+ * This plan makes the inner subplan of BNL. So this must be an IndexScan, but
+ * at the same time this should scan the base relation. To achive this, index
+ * scan is done an a dummy index that is on the ybctid column. Under the hood,
+ * it works as an index only scan on the base relation. This is similair to how
+ * PK index scan works in YB.
  */
 static Plan *
 baserel_scan_plan(Relation baserel, Relation indexrel)
@@ -253,7 +258,7 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	Expr *expr;
 	TargetEntry *target_entry;
 	const FormData_pg_attribute *attr;
-	List *scan_targetlist = NIL;
+	List *plan_targetlist = NIL;
 	int i;
 	for (i = 0; i < indexdesc->natts; i++)
 	{
@@ -277,28 +282,29 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 		Assert(exprType((Node *) expr) ==
 			   TupleDescAttr(indexdesc, i)->atttypid);
 		target_entry = makeTargetEntry(expr, i + 1, "", false);
-		scan_targetlist = lappend(scan_targetlist, target_entry);
+		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
 
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
 							   attr->atttypmod, attr->attcollation, 0);
 	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
-	scan_targetlist = lappend(scan_targetlist, target_entry);
+	plan_targetlist = lappend(plan_targetlist, target_entry);
 
-	/* IndexScan qual */
+	/* Index qual */
+
 	/* LHS */
 	Var *ybctid_from_index = (Var *) copyObject(ybctid_expr);
 	ybctid_from_index->varno = INDEX_VAR;
 	ybctid_from_index->varattno = 1;
 
 	/* RHS */
-	Bitmapset *bms = NULL;
+	Bitmapset *params_bms = NULL;
 	List *params = NIL;
 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
 	for (int i = 0; i < yb_bnl_batch_size; i++)
 	{
-		bms = bms_add_member(bms, i);
+		params_bms = bms_add_member(params_bms, i);
 		Param *param = makeNode(Param);
 		param->paramkind = PARAM_EXEC;
 		param->paramid = i;
@@ -316,7 +322,6 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	arrexpr->location = -1;
 	arrexpr->elements = params;
 
-	// Qual expression
 	ScalarArrayOpExpr *saop = makeNode(ScalarArrayOpExpr);
 	saop->opno = ByteaEqualOperator;
 	saop->opfuncid = get_opcode(ByteaEqualOperator);
@@ -328,9 +333,9 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	orig_saop->args = list_make2(ybctid_expr, arrexpr);
 
 	target_entry = makeTargetEntry((Expr *) ybctid_from_index, 1, "", false);
-	List *base_indextlist = list_make1(target_entry);
+	List *indextlist = list_make1(target_entry);
 
-	/* Partial index predicate. */
+	/* Partial index predicate */
 	List *partial_idx_pred = NIL;
 	List *partial_idx_colrefs = NIL;
 	bool partial_idx_pushdown = false;
@@ -346,15 +351,15 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 
 	IndexScan *base_scan = makeNode(IndexScan);
 	Plan *plan = &base_scan->scan.plan;
-	plan->targetlist = scan_targetlist;
+	plan->targetlist = plan_targetlist;
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
 	plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
-	plan->extParam = bms;
-	plan->allParam = bms;
+	plan->extParam = params_bms;
+	plan->allParam = params_bms;
 	base_scan->scan.scanrelid = 1; /* only one relation is involved */
 	base_scan->indexid = RelationGetRelid(baserel);
-	base_scan->indextlist = base_indextlist; // index cols
+	base_scan->indextlist = indextlist;
 	base_scan->indexqual = list_make1(saop);
 	base_scan->yb_rel_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
 															  NIL;
@@ -366,10 +371,6 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 static Plan *
 spurious_check_plan(Relation baserel, Relation indexrel)
 {
-	Expr *expr;
-	TargetEntry *target_entry;
-	const FormData_pg_attribute *attr;
-
 	/*
 	 * To check for spurious rows in index relation, we join the index relation
 	 * with the base relation on indexrow.ybbasectid == baserow.ybctid. We use
@@ -384,59 +385,71 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	/* Inner subplan: base relation scan */
 	Plan *baserel_scan = baserel_scan_plan(baserel, indexrel);
 
-	TupleDesc indexdesc = RelationGetDescr(indexrel);
-
-	// BNL
-	List *join_tlist = NIL;
+	/*
+	 * Join plan targetlist
+	 *
+	 * Outer subplan tlist: index_attributes, ybbasectid, ybuniqueidxkeysuffix
+	 * (if unique) Inner subplan tlist: index_attributes (scanned/computed from
+	 * baserel), ybctid
+	 *
+	 * Join plan tlist: union of the above such that semantically same entries
+	 * are next to each other:
+	 * (outer_attr1, inner_attr1, outer_attr2, inner_att2 ..*,
+	 * ybuniqueidxkeysuffix if unqiue index)
+	 *
+	 */
+	Expr *expr;
+	TargetEntry *target_entry;
+	const FormData_pg_attribute *attr;
+	List *plan_tlist = NIL;
 	int i;
 	for (i = 0; i < indexrel_scan_desc->natts; i++)
 	{
 		attr = TupleDescAttr(indexrel_scan_desc, i);
-		expr = (Expr *) makeVar(OUTER_VAR, // index's rt index
-								i + 1, attr->atttypid, attr->atttypmod,
-								attr->attcollation, 0);
+		expr = (Expr *) makeVar(OUTER_VAR, i + 1, attr->atttypid,
+								attr->atttypmod, attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, 2 * i + 1, "", false);
-		join_tlist = lappend(join_tlist, target_entry);
+		plan_tlist = lappend(plan_tlist, target_entry);
 
 		/*
-		 * For unique index is ybuniqueidxkeysuffix, it doesn't have base rel
-		 * counterpart.
+		 * For unique index, the last tlist entry is ybuniqueidxkeysuffix, which
+		 * doesn't have base rel counterpart.
 		 */
 		if (indexrel->rd_index->indisunique &&
-			i + 1 == indexrel_scan_desc->natts)
+			i == indexrel_scan_desc->natts - 1)
 			continue;
 
-		expr = (Expr *) makeVar(INNER_VAR, // index's rt index
-								i + 1, attr->atttypid, attr->atttypmod,
-								attr->attcollation, 0);
+		expr = (Expr *) makeVar(INNER_VAR, i + 1, attr->atttypid,
+								attr->atttypmod, attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, 2 * i + 2, "", false);
-		join_tlist = lappend(join_tlist, target_entry);
+		plan_tlist = lappend(plan_tlist, target_entry);
 	}
 
-	// Join clause
+	/* Join claue */
+	TupleDesc indexdesc = RelationGetDescr(indexrel);
 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
-	Var *join_lhs = makeVar(OUTER_VAR, indexdesc->natts + 1, attr->atttypid,
-							attr->atttypmod, attr->attcollation, 0);
-
+	Var *join_clause_lhs = makeVar(OUTER_VAR, indexdesc->natts + 1,
+								   attr->atttypid, attr->atttypmod,
+								   attr->attcollation, 0);
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
-	Var *join_rhs = makeVar(INNER_VAR, indexdesc->natts + 1, attr->atttypid,
-							attr->atttypmod, attr->attcollation, 0);
-
-	OpExpr *join_clause = (OpExpr *) make_opclause(ByteaEqualOperator, BOOLOID,
-												   false, (Expr *) join_lhs,
-												   (Expr *) join_rhs,
-												   InvalidOid, InvalidOid);
+	Var *join_clause_rhs = makeVar(INNER_VAR, indexdesc->natts + 1,
+								   attr->atttypid, attr->atttypmod,
+								   attr->attcollation, 0);
+	OpExpr *join_clause = (OpExpr *) make_opclause(
+		ByteaEqualOperator, BOOLOID, false, (Expr *) join_clause_lhs,
+		(Expr *) join_clause_rhs, InvalidOid, InvalidOid);
 	join_clause->opfuncid = get_opcode(ByteaEqualOperator);
 
-	// NLP
+	/* NestLoopParam */
 	NestLoopParam *nlp = makeNode(NestLoopParam);
 	nlp->paramno = 0;
-	nlp->paramval = join_lhs;
+	nlp->paramval = join_clause_lhs;
 	nlp->yb_batch_size = yb_bnl_batch_size;
 
+	/* BNL join plan */
 	YbBatchedNestLoop *join_plan = makeNode(YbBatchedNestLoop);
 	Plan* plan = &join_plan->nl.join.plan;
-	plan->targetlist = join_tlist;
+	plan->targetlist = plan_tlist;
 	plan->lefttree = (Plan *) indexrel_scan;
 	plan->righttree = (Plan *) baserel_scan;
 	join_plan->nl.join.jointype = JOIN_LEFT;
@@ -447,32 +460,16 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	join_plan->num_hashClauseInfos = 1;
 	join_plan->hashClauseInfos = palloc0(sizeof(YbBNLHashClauseInfo));
 	join_plan->hashClauseInfos->hashOp = ByteaEqualOperator;
-	join_plan->hashClauseInfos->innerHashAttNo = join_rhs->varattno; // TODO
-	join_plan->hashClauseInfos->outerParamExpr = (Expr *) join_lhs;	 // TODO
+	join_plan->hashClauseInfos->innerHashAttNo = join_clause_rhs->varattno;
+	join_plan->hashClauseInfos->outerParamExpr = (Expr *) join_clause_lhs;
 	join_plan->hashClauseInfos->orig_expr = (Expr *) join_clause;
 	return (Plan *) join_plan;
 }
 
 static int check_spurious_index_rows(Relation baserel, Relation indexrel)
 {
-	TupleDesc indexdesc = RelationGetDescr(indexrel);
-
 	Plan *join_plan = spurious_check_plan(baserel, indexrel);
-
-	List *equalProcOids = NIL;
-	for (int i = 0; i < indexdesc->natts; i++)
-	{
-		const FormData_pg_attribute *attr = TupleDescAttr(indexdesc, i);
-		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
-											attr->atttypid, attr->atttypid);
-		if (operator_oid == InvalidOid)
-		{
-			equalProcOids = lappend_int(equalProcOids, InvalidOid);
-			continue;
-		}
-		RegProcedure proc_oid = get_opcode(operator_oid);
-		equalProcOids = lappend_int(equalProcOids, proc_oid);
-	}
+	TupleDesc indexdesc = RelationGetDescr(indexrel);
 
 	/* Plan execution */
 	EState *estate = CreateExecutorState();
@@ -489,14 +486,29 @@ static int check_spurious_index_rows(Relation baserel, Relation indexrel)
 
 	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
 
+	List *equality_opcodes = NIL;
+	for (int i = 0; i < indexdesc->natts; i++)
+	{
+		const FormData_pg_attribute *attr = TupleDescAttr(indexdesc, i);
+		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
+											attr->atttypid, attr->atttypid);
+		if (operator_oid == InvalidOid)
+		{
+			equality_opcodes = lappend_int(equality_opcodes, InvalidOid);
+			continue;
+		}
+		RegProcedure proc_oid = get_opcode(operator_oid);
+		equality_opcodes = lappend_int(equality_opcodes, proc_oid);
+	}
+
 	int index_rowcount = 0;
 	TupleTableSlot *output;
 	while ((output = ExecProcNode(join_state)))
 	{
 		index_rowcount++;
-		// TODO: Why is this required?
+		/* TODO: Why is this required? */
 		ExecMaterializeSlot(output);
-		check_index_row_consistency(output, equalProcOids, indexrel);
+		check_index_row_consistency(output, equality_opcodes, indexrel);
 	}
 	ExecEndNode(join_state);
 
