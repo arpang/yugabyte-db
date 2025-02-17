@@ -117,8 +117,8 @@
 static void yb_lsm_index_check_internal(Oid indexoid);
 
 static void
-yb_lsm_index_row_check(TupleTableSlot *slot, List *equalProcOids,
-					   Relation indexrel)
+index_row_consistency_check(TupleTableSlot *slot, List *equalProcOids,
+							Relation indexrel)
 {
 	bool indisunique = indexrel->rd_index->indisunique;
 	bool indnullsnotdistinct = indexrel->rd_index->indnullsnotdistinct;
@@ -557,6 +557,63 @@ static Plan* get_join_plan(Relation baserel, Relation indexrel)
 	return (Plan *) join_plan;
 }
 
+static int check_spurious_index_rows(Relation baserel, Relation indexrel)
+{
+	TupleDesc indexdesc = RelationGetDescr(indexrel);
+	// join plan
+	// here
+	Plan *join_plan = get_join_plan(baserel, indexrel);
+
+	List *equalProcOids = NIL;
+	for (int i = 0; i < indexdesc->natts; i++)
+	{
+		const FormData_pg_attribute *attr = TupleDescAttr(indexdesc, i);
+		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
+											attr->atttypid, attr->atttypid);
+		if (operator_oid == InvalidOid)
+		{
+			equalProcOids = lappend_int(equalProcOids, InvalidOid);
+			continue;
+		}
+		RegProcedure proc_oid = get_opcode(operator_oid);
+		equalProcOids = lappend_int(equalProcOids, proc_oid);
+	}
+
+	// Execution
+	EState *estate = CreateExecutorState();
+	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
+
+	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
+	rte1->rtekind = RTE_RELATION;
+	rte1->relid = RelationGetRelid(baserel);
+	rte1->relkind = RELKIND_RELATION;
+	ExecInitRangeTable(estate, list_make1(rte1));
+
+	estate->es_param_exec_vals =
+		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
+
+	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
+	TupleTableSlot *output;
+
+	int index_rowcount = 0;
+	while ((output = ExecProcNode(join_state)))
+	{
+		index_rowcount++;
+		// TODO: Why is this required?
+		output->tts_ops->materialize(output);
+		index_row_consistency_check(output, equalProcOids, indexrel);
+	}
+	ExecEndNode(join_state);
+
+	ExecResetTupleTable(estate->es_tupleTable, true);
+	ExecCloseResultRelations(estate);
+	ExecCloseRangeTableRelations(estate);
+	MemoryContextSwitchTo(oldctxt);
+	FreeExecutorState(estate);
+
+	return index_rowcount;
+}
+
 static void
 yb_lsm_index_check_internal(Oid indexoid)
 {
@@ -599,57 +656,12 @@ yb_lsm_index_check_internal(Oid indexoid)
 		return yb_lsm_partitioned_index_check(indexoid);
 	}
 
-	TupleDesc indexdesc = RelationGetDescr(indexrel);
-
 	Oid basereloid = indexrel->rd_index->indrelid;
 	Relation baserel = RelationIdGetRelation(basereloid);
 
 	yb_index_checker = true;
 	
-	// join plan
-	// here
-	Plan *join_plan = get_join_plan(baserel, indexrel);
-
-	List *equalProcOids = NIL;
-	for (int i = 0; i < indexdesc->natts; i++)
-	{
-		const FormData_pg_attribute *attr = TupleDescAttr(indexdesc, i);
-		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
-											attr->atttypid, attr->atttypid);
-		if (operator_oid == InvalidOid)
-		{
-			equalProcOids = lappend_int(equalProcOids, InvalidOid);
-			continue;
-		}
-		RegProcedure proc_oid = get_opcode(operator_oid);
-		equalProcOids = lappend_int(equalProcOids, proc_oid);
-	}
-
-	// Execution
-	EState *estate = CreateExecutorState();
-	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
-
-	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
-	rte1->rtekind = RTE_RELATION;
-	rte1->relid = basereloid;
-	rte1->relkind = RELKIND_RELATION;
-	ExecInitRangeTable(estate, list_make1(rte1));
-
-	estate->es_param_exec_vals =
-		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
-
-	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
-	TupleTableSlot *output;
-
-	int index_rowcount = 0;
-	while ((output = ExecProcNode(join_state)))
-	{
-		index_rowcount++;
-		// TODO: Why is this required?
-		output->tts_ops->materialize(output);
-		yb_lsm_index_row_check(output, equalProcOids, indexrel);
-	}
-	ExecEndNode(join_state);
+	int index_rowcount = check_spurious_index_rows(baserel, indexrel);
 
 	int expected_rowcount = yb_lsm_index_expected_row_count(indexrel, baserel);
 
@@ -663,11 +675,6 @@ yb_lsm_index_check_internal(Oid indexoid)
 	yb_index_checker = false;
 	RelationClose(indexrel);
 	RelationClose(baserel);
-	ExecResetTupleTable(estate->es_tupleTable, true);
-	ExecCloseResultRelations(estate);
-	ExecCloseRangeTableRelations(estate);
-	MemoryContextSwitchTo(oldctxt);
-	FreeExecutorState(estate);
 }
 
 Datum
