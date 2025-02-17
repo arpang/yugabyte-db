@@ -244,7 +244,7 @@ index_row_consistency_check(TupleTableSlot *slot, List *equalProcOids,
 }
 
 static int
-yb_lsm_index_expected_row_count(Relation indexrel, Relation baserel)
+get_expected_index_rowcount(Relation baserel, Relation indexrel)
 {
 	StringInfoData querybuf;
 	initStringInfo(&querybuf);
@@ -560,8 +560,7 @@ static Plan* get_join_plan(Relation baserel, Relation indexrel)
 static int check_spurious_index_rows(Relation baserel, Relation indexrel)
 {
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
-	// join plan
-	// here
+
 	Plan *join_plan = get_join_plan(baserel, indexrel);
 
 	List *equalProcOids = NIL;
@@ -579,7 +578,7 @@ static int check_spurious_index_rows(Relation baserel, Relation indexrel)
 		equalProcOids = lappend_int(equalProcOids, proc_oid);
 	}
 
-	// Execution
+	/* Plan execution */
 	EState *estate = CreateExecutorState();
 	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 
@@ -593,14 +592,14 @@ static int check_spurious_index_rows(Relation baserel, Relation indexrel)
 		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
 
 	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
-	TupleTableSlot *output;
 
 	int index_rowcount = 0;
+	TupleTableSlot *output;
 	while ((output = ExecProcNode(join_state)))
 	{
 		index_rowcount++;
 		// TODO: Why is this required?
-		output->tts_ops->materialize(output);
+		ExecMaterializeSlot(output);
 		index_row_consistency_check(output, equalProcOids, indexrel);
 	}
 	ExecEndNode(join_state);
@@ -638,7 +637,7 @@ yb_lsm_index_check_internal(Oid indexoid)
 		elog(ERROR, "Index '%s' is not live",
 			 RelationGetRelationName(indexrel));
 
-	/* There is not separate PK index, hence it is always consistent. */
+	/* YB doesn't have separate PK index, hence it is always consistent */
 	if (indexrel->rd_index->indisprimary)
 	{
 		RelationClose(indexrel);
@@ -656,20 +655,23 @@ yb_lsm_index_check_internal(Oid indexoid)
 		return yb_lsm_partitioned_index_check(indexoid);
 	}
 
-	Oid basereloid = indexrel->rd_index->indrelid;
-	Relation baserel = RelationIdGetRelation(basereloid);
+	Relation baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
 
 	yb_index_checker = true;
-	
-	int index_rowcount = check_spurious_index_rows(baserel, indexrel);
 
-	int expected_rowcount = yb_lsm_index_expected_row_count(indexrel, baserel);
+	/* Check for spurious index rows */
+	int actual_index_rowcount = check_spurious_index_rows(baserel, indexrel);
 
-	if (index_rowcount != expected_rowcount)
+	/* Check for missing index rows */
+	int expected_index_rowcount = get_expected_index_rowcount(baserel, indexrel);
+
+	/* We already verified that index doesn't contain spurious rows. */
+	Assert(expected_index_rowcount >= actual_index_rowcount);
+	if (actual_index_rowcount != expected_index_rowcount)
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
 				errmsg("index is missing some rows: expected %d, actual %d",
-						expected_rowcount, index_rowcount)));
+						expected_index_rowcount, actual_index_rowcount)));
 
 	/* Reset state */
 	yb_index_checker = false;
