@@ -435,9 +435,11 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	Var *join_clause_rhs = makeVar(INNER_VAR, indexdesc->natts + 1,
 								   attr->atttypid, attr->atttypmod,
 								   attr->attcollation, 0);
-	OpExpr *join_clause = (OpExpr *) make_opclause(
-		ByteaEqualOperator, BOOLOID, false, (Expr *) join_clause_lhs,
-		(Expr *) join_clause_rhs, InvalidOid, InvalidOid);
+	OpExpr *join_clause = (OpExpr *) make_opclause(ByteaEqualOperator, BOOLOID,
+												   false, /* opretset */
+												   (Expr *) join_clause_lhs,
+												   (Expr *) join_clause_rhs,
+												   InvalidOid, InvalidOid);
 	join_clause->opfuncid = get_opcode(ByteaEqualOperator);
 
 	/* NestLoopParam */
@@ -448,7 +450,7 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 
 	/* BNL join plan */
 	YbBatchedNestLoop *join_plan = makeNode(YbBatchedNestLoop);
-	Plan* plan = &join_plan->nl.join.plan;
+	Plan *plan = &join_plan->nl.join.plan;
 	plan->targetlist = plan_tlist;
 	plan->lefttree = (Plan *) indexrel_scan;
 	plan->righttree = (Plan *) baserel_scan;
@@ -466,7 +468,8 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	return (Plan *) join_plan;
 }
 
-static int check_spurious_index_rows(Relation baserel, Relation indexrel)
+static int
+check_spurious_index_rows(Relation baserel, Relation indexrel)
 {
 	Plan *join_plan = spurious_check_plan(baserel, indexrel);
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
@@ -548,8 +551,9 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 	if (!indpred_isnull)
 	{
 		Oid basereloid = RelationGetRelid(baserel);
-		char *indpred_clause = TextDatumGetCString(
-			DirectFunctionCall2(pg_get_expr, indpred_datum, basereloid));
+		char *indpred_clause = TextDatumGetCString(DirectFunctionCall2(pg_get_expr,
+																	   indpred_datum,
+																	   basereloid));
 		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
 	}
 
