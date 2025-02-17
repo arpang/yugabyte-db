@@ -3746,6 +3746,272 @@ yb_lsm_partitioned_index_check(Oid parentindexId)
 	PG_RETURN_VOID();
 }
 
+Plan* get_outer_plan(Relation indexrel)
+{
+	Expr *expr;
+	List *index_cols = NIL;
+	List *index_scan_tlist = NIL;
+	TargetEntry *target_entry;
+	const FormData_pg_attribute *attr;
+
+	TupleDesc indexdesc = RelationGetDescr(indexrel);
+	bool indisunique = indexrel->rd_index->indisunique;
+
+	int i;
+	for (i = 0; i < indexdesc->natts; i++)
+	{
+		attr = TupleDescAttr(indexdesc, i);
+		expr = (Expr *) makeVar(INDEX_VAR, i + 1, attr->atttypid,
+								attr->atttypmod, attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, i + 1, "", false);
+		index_cols = lappend(index_cols, target_entry);
+		index_scan_tlist = lappend(index_scan_tlist, target_entry);
+	}
+
+	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
+	Var *ybbasectid_expr = makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
+								   attr->atttypid, attr->atttypmod,
+								   attr->attcollation, 0);
+	target_entry = makeTargetEntry((Expr *) ybbasectid_expr, i + 1, "", false);
+	index_scan_tlist = lappend(index_scan_tlist, target_entry);
+
+	if (indisunique)
+	{
+		attr = SystemAttributeDefinition(YBUniqueIdxKeySuffixAttributeNumber);
+		expr = (Expr *) makeVar(INDEX_VAR, YBUniqueIdxKeySuffixAttributeNumber,
+								attr->atttypid, attr->atttypmod,
+								attr->attcollation, 0);
+		target_entry = makeTargetEntry((Expr *) expr, i + 2, "", false);
+		index_scan_tlist = lappend(index_scan_tlist, target_entry);
+	}
+
+	IndexOnlyScan *index_scan = makeNode(IndexOnlyScan);
+	Plan *plan = &index_scan->scan.plan;
+	plan->targetlist = index_scan_tlist;
+	plan->lefttree = NULL;
+	plan->righttree = NULL;
+	index_scan->scan.scanrelid = 1; /* baserelid's rt index */
+	index_scan->indexid = RelationGetRelid(indexrel);
+	index_scan->indextlist = index_cols;
+	return (Plan*) index_scan;
+}
+
+Plan* get_inner_plan(Relation baserel, Relation indexrel)
+{
+	Expr *expr;
+	TargetEntry *target_entry;
+	const FormData_pg_attribute *attr;
+
+	TupleDesc indexdesc = RelationGetDescr(indexrel);
+	TupleDesc base_desc = RelationGetDescr(baserel);
+	List *base_scan_tlist = NIL;
+
+	bool isnull;
+	List *indexprs;
+	ListCell *next_expr;
+	Datum exprsDatum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+									   Anum_pg_index_indexprs, &isnull);
+	if (!isnull)
+	{
+		char *exprsString = TextDatumGetCString(exprsDatum);
+		indexprs = (List *) stringToNode(exprsString);
+		next_expr = list_head(indexprs);
+	}
+
+	int i;
+	for (i = 0; i < indexdesc->natts; i++)
+	{
+		AttrNumber attnum = indexrel->rd_index->indkey.values[i];
+		if (attnum > 0)
+		{
+			attr = TupleDescAttr(base_desc, attnum - 1);
+			expr = (Expr *) makeVar(1, attnum, attr->atttypid, attr->atttypmod,
+									attr->attcollation, 0);
+		}
+		else
+		{
+			Assert(next_expr);
+			expr = (Expr *) lfirst(next_expr);
+			next_expr = lnext(indexprs, next_expr);
+		}
+
+		/* Assert that type of index attribute match base relation attribute. */
+		Assert(exprType((Node *) expr) ==
+			   TupleDescAttr(indexdesc, i)->atttypid);
+		target_entry = makeTargetEntry(expr, i + 1, "", false);
+		base_scan_tlist = lappend(base_scan_tlist, target_entry);
+	}
+
+	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
+							   attr->atttypmod, attr->attcollation, 0);
+	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
+	base_scan_tlist = lappend(base_scan_tlist, target_entry);
+
+	/* IndexScan qual */
+	/* LHS */
+	Var *ybctid_from_index = (Var *) copyObject(ybctid_expr);
+	ybctid_from_index->varno = INDEX_VAR;
+	ybctid_from_index->varattno = 1;
+
+	/* RHS */
+	Bitmapset *bms = NULL;
+	List *params = NIL;
+	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
+	for (int i = 0; i < yb_bnl_batch_size; i++)
+	{
+		bms = bms_add_member(bms, i);
+		Param *param = makeNode(Param);
+		param->paramkind = PARAM_EXEC;
+		param->paramid = i;
+		param->paramtype = attr->atttypid;
+		param->paramtypmod = attr->atttypmod;
+		param->paramcollid = attr->attcollation;
+		param->location = -1;
+		params = lappend(params, param);
+	}
+	ArrayExpr *arrexpr = makeNode(ArrayExpr);
+	arrexpr->array_typeid = BYTEAARRAYOID;
+	arrexpr->element_typeid = BYTEAOID;
+	arrexpr->multidims = false;
+	arrexpr->array_collid = InvalidOid;
+	arrexpr->location = -1;
+	arrexpr->elements = params;
+
+	// Qual expression
+	ScalarArrayOpExpr *saop = makeNode(ScalarArrayOpExpr);
+	saop->opno = ByteaEqualOperator;
+	saop->opfuncid = get_opcode(ByteaEqualOperator);
+	saop->useOr = true;
+	saop->inputcollid = InvalidOid;
+	saop->args = list_make2(ybctid_from_index, arrexpr);
+
+	ScalarArrayOpExpr *orig_saop = copyObjectImpl(saop);
+	orig_saop->args = list_make2(ybctid_expr, arrexpr);
+
+	target_entry = makeTargetEntry((Expr *) ybctid_from_index, 1, "", false);
+	List *base_indextlist = list_make1(target_entry);
+
+	/* Partial index predicate. */
+	List *partial_idx_pred = NIL;
+	List *partial_idx_colrefs = NIL;
+	bool partial_idx_pushdown = false;
+	bool indpred_isnull = false;
+	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+										  Anum_pg_index_indpred, &indpred_isnull);
+	if (!indpred_isnull)
+	{
+		Expr *indpred = stringToNode(TextDatumGetCString(indpred_datum));
+		partial_idx_pushdown = YbCanPushdownExpr(indpred, &partial_idx_colrefs);
+		partial_idx_pred = lappend(partial_idx_pred, indpred);
+	}
+
+	IndexScan *base_scan = makeNode(IndexScan);
+	Plan *plan = &base_scan->scan.plan;
+	plan->targetlist = base_scan_tlist; // output from the node
+	plan->lefttree = NULL;
+	plan->righttree = NULL;
+	plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
+	plan->extParam = bms;
+	plan->allParam = bms;
+	base_scan->scan.scanrelid = 1; // baserelid's rt index
+	base_scan->indexid = RelationGetRelid(baserel);
+	base_scan->indextlist = base_indextlist; // index cols
+	base_scan->indexqual = list_make1(saop);
+	base_scan->yb_rel_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
+															  NIL;
+	base_scan->yb_rel_pushdown.colrefs =
+		partial_idx_pushdown ? partial_idx_colrefs : NIL;
+	return (Plan *) base_scan;
+}
+
+Plan* get_join_plan(Relation baserel, Relation indexrel)
+{
+	Expr *expr;
+	TargetEntry *target_entry;
+	const FormData_pg_attribute *attr;
+
+	/* Index relation scan */
+	Plan* index_scan = get_outer_plan(indexrel);
+	TupleDesc index_scan_desc = ExecTypeFromTL(index_scan->targetlist);
+
+	/* Base relation scan */
+	Plan* base_scan = get_inner_plan(baserel, indexrel);
+
+	TupleDesc indexdesc = RelationGetDescr(indexrel);
+
+	// BNL
+	List *join_tlist = NIL;
+	int i;
+	for (i = 0; i < index_scan_desc->natts; i++)
+	{
+		attr = TupleDescAttr(index_scan_desc, i);
+		expr = (Expr *) makeVar(OUTER_VAR, // index's rt index
+								i + 1, attr->atttypid, attr->atttypmod,
+								attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, 2 * i + 1, "", false);
+		join_tlist = lappend(join_tlist, target_entry);
+
+		/*
+		 * For unique index is ybuniqueidxkeysuffix, it doesn't have base rel
+		 * counterpart.
+		 */
+		if (indexrel->rd_index->indisunique && i + 1 == index_scan_desc->natts)
+			continue;
+
+		expr = (Expr *) makeVar(INNER_VAR, // index's rt index
+								i + 1, attr->atttypid, attr->atttypmod,
+								attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, 2 * i + 2, "", false);
+		join_tlist = lappend(join_tlist, target_entry);
+	}
+
+	// Join clause
+	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
+	Var *join_lhs = makeVar(OUTER_VAR, indexdesc->natts + 1, attr->atttypid,
+							attr->atttypmod, attr->attcollation, 0);
+	// Var *join_lhs = copyObject(ybbasectid_expr);
+	// join_lhs->varno = OUTER_VAR;
+	// join_lhs->varattno = indexdesc->natts + 1;
+
+	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	Var *join_rhs = makeVar(INNER_VAR, indexdesc->natts + 1, attr->atttypid,
+							attr->atttypmod, attr->attcollation, 0);
+	// Var *join_rhs = copyObject(ybctid_expr);
+	// join_rhs->varno = INNER_VAR;
+	// join_rhs->varattno = indexdesc->natts + 1;
+
+	OpExpr *join_clause = (OpExpr *) make_opclause(ByteaEqualOperator, BOOLOID,
+												   false, (Expr *) join_lhs,
+												   (Expr *) join_rhs,
+												   InvalidOid, InvalidOid);
+	join_clause->opfuncid = get_opcode(ByteaEqualOperator);
+
+	// NLP
+	NestLoopParam *nlp = makeNode(NestLoopParam);
+	nlp->paramno = 0;
+	nlp->paramval = join_lhs;
+	nlp->yb_batch_size = yb_bnl_batch_size;
+
+	YbBatchedNestLoop *join_plan = makeNode(YbBatchedNestLoop);
+	Plan* plan = &join_plan->nl.join.plan;
+	plan->targetlist = join_tlist;
+	plan->lefttree = (Plan *) index_scan;
+	plan->righttree = (Plan *) base_scan;
+	join_plan->nl.join.jointype = JOIN_LEFT;
+	join_plan->nl.join.inner_unique = true;
+	join_plan->nl.join.joinqual = list_make1(join_clause);
+	join_plan->nl.nestParams = list_make1(nlp);
+	join_plan->first_batch_factor = 1.0;
+	join_plan->num_hashClauseInfos = 1;
+	join_plan->hashClauseInfos = palloc0(sizeof(YbBNLHashClauseInfo));
+	join_plan->hashClauseInfos->hashOp = ByteaEqualOperator;
+	join_plan->hashClauseInfos->innerHashAttNo = join_rhs->varattno; // TODO
+	join_plan->hashClauseInfos->outerParamExpr = (Expr *) join_lhs;	 // TODO
+	join_plan->hashClauseInfos->orig_expr = (Expr *) join_clause;
+	return (Plan *) join_plan;
+}
+
 Datum
 yb_lsm_index_check(PG_FUNCTION_ARGS)
 {
@@ -3790,245 +4056,20 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	}
 
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
-	bool indisunique = indexrel->rd_index->indisunique;
 
 	Oid basereloid = indexrel->rd_index->indrelid;
 	Relation baserel = RelationIdGetRelation(basereloid);
 
-	Expr *expr;
-	List *index_cols = NIL;
-	List *index_scan_tlist = NIL;
-	TargetEntry *target_entry;
-	const FormData_pg_attribute *attr;
-	int i;
-
-	// reference: build_index_tlist
 	yb_index_checker = true;
-	/* Index relation scan */
-	for (i = 0; i < indexdesc->natts; i++)
-	{
-		attr = TupleDescAttr(indexdesc, i);
-		expr = (Expr *) makeVar(INDEX_VAR, i + 1, attr->atttypid,
-								attr->atttypmod, attr->attcollation, 0);
-		target_entry = makeTargetEntry(expr, i + 1, "", false);
-		index_cols = lappend(index_cols, target_entry);
-		index_scan_tlist = lappend(index_scan_tlist, target_entry);
-	}
-
-	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
-	Var *ybbasectid_expr = makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
-								   attr->atttypid, attr->atttypmod,
-								   attr->attcollation, 0);
-	target_entry = makeTargetEntry((Expr *) ybbasectid_expr, i + 1, "", false);
-	index_scan_tlist = lappend(index_scan_tlist, target_entry);
-
-	if (indisunique)
-	{
-		attr = SystemAttributeDefinition(YBUniqueIdxKeySuffixAttributeNumber);
-		expr = (Expr *) makeVar(INDEX_VAR, YBUniqueIdxKeySuffixAttributeNumber,
-								attr->atttypid, attr->atttypmod,
-								attr->attcollation, 0);
-		target_entry = makeTargetEntry((Expr *) expr, i + 2, "", false);
-		index_scan_tlist = lappend(index_scan_tlist, target_entry);
-	}
-
-	TupleDesc index_scan_desc = ExecTypeFromTL(index_scan_tlist);
-	IndexOnlyScan *index_scan = makeNode(IndexOnlyScan);
-	Plan *plan = &index_scan->scan.plan;
-	plan->targetlist = index_scan_tlist;
-	plan->lefttree = NULL;
-	plan->righttree = NULL;
-	index_scan->scan.scanrelid = 1; /* baserelid's rt index */
-	index_scan->indexid = indexoid;
-	index_scan->indextlist = index_cols;
-
-	/* Base relation scan */
-	TupleDesc base_desc = RelationGetDescr(baserel);
-	List *base_scan_tlist = NIL;
-	AttrNumber attnum;
-
-	bool isnull;
-	List *indexprs;
-	ListCell *next_expr;
-	Datum exprsDatum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
-									   Anum_pg_index_indexprs, &isnull);
-	if (!isnull)
-	{
-		char *exprsString = TextDatumGetCString(exprsDatum);
-		indexprs = (List *) stringToNode(exprsString);
-		next_expr = list_head(indexprs);
-	}
-
-	for (i = 0; i < indexdesc->natts; i++)
-	{
-		attnum = indexrel->rd_index->indkey.values[i];
-		if (attnum > 0)
-		{
-			attr = TupleDescAttr(base_desc, attnum - 1);
-			expr = (Expr *) makeVar(1, attnum, attr->atttypid, attr->atttypmod,
-									attr->attcollation, 0);
-		}
-		else
-		{
-			Assert(next_expr);
-			expr = (Expr *) lfirst(next_expr);
-			next_expr = lnext(indexprs, next_expr);
-		}
-
-		/* Assert that type of index attribute match base relation attribute. */
-		Assert(exprType((Node *) expr) ==
-			   TupleDescAttr(indexdesc, i)->atttypid);
-		target_entry = makeTargetEntry(expr, i + 1, "", false);
-		base_scan_tlist = lappend(base_scan_tlist, target_entry);
-	}
-
-	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
-	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
-							   attr->atttypmod, attr->attcollation, 0);
-	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
-	base_scan_tlist = lappend(base_scan_tlist, target_entry);
-
-	/* IndexScan qual */
-	/* LHS */
-	Var *ybctid_from_index = (Var *) copyObject(ybctid_expr);
-	ybctid_from_index->varno = INDEX_VAR;
-	ybctid_from_index->varattno = 1;
-
-	/* RHS */
-	Bitmapset *bms = NULL;
-	List *params = NIL;
-	for (int i = 0; i < yb_bnl_batch_size; i++)
-	{
-		bms = bms_add_member(bms, i);
-		Param *param = makeNode(Param);
-		param->paramkind = PARAM_EXEC;
-		param->paramid = i;
-		param->paramtype = ybbasectid_expr->vartype;
-		param->paramtypmod = ybbasectid_expr->vartypmod;
-		param->paramcollid = ybbasectid_expr->varcollid;
-		param->location = ybbasectid_expr->location;
-		params = lappend(params, param);
-	}
-	ArrayExpr *arrexpr = makeNode(ArrayExpr);
-	arrexpr->array_typeid = BYTEAARRAYOID;
-	arrexpr->element_typeid = BYTEAOID;
-	arrexpr->multidims = false;
-	arrexpr->array_collid = InvalidOid;
-	arrexpr->location = -1;
-	arrexpr->elements = params;
-
-	// Qual expression
-	ScalarArrayOpExpr *saop = makeNode(ScalarArrayOpExpr);
-	saop->opno = ByteaEqualOperator;
-	saop->opfuncid = get_opcode(ByteaEqualOperator);
-	saop->useOr = true;
-	saop->inputcollid = InvalidOid;
-	saop->args = list_make2(ybctid_from_index, arrexpr);
-
-	ScalarArrayOpExpr *orig_saop = copyObjectImpl(saop);
-	orig_saop->args = list_make2(ybctid_expr, arrexpr);
-
-	target_entry = makeTargetEntry((Expr *) ybctid_from_index, 1, "", false);
-	List *base_indextlist = list_make1(target_entry);
-
-	/* Partial index predicate. */
-	List *partial_idx_pred = NIL;
-	List *partial_idx_colrefs = NIL;
-	bool partial_idx_pushdown = false;
-	bool indpred_isnull = false;
-	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
-										  Anum_pg_index_indpred, &indpred_isnull);
-	if (!indpred_isnull)
-	{
-		Expr *indpred = stringToNode(TextDatumGetCString(indpred_datum));
-		partial_idx_pushdown = YbCanPushdownExpr(indpred, &partial_idx_colrefs);
-		partial_idx_pred = lappend(partial_idx_pred, indpred);
-	}
-
-	IndexScan *base_scan = makeNode(IndexScan);
-	plan = &base_scan->scan.plan;
-	plan->targetlist = base_scan_tlist; // output from the node
-	plan->lefttree = NULL;
-	plan->righttree = NULL;
-	plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
-	plan->extParam = bms;
-	plan->allParam = bms;
-	base_scan->scan.scanrelid = 1; // baserelid's rt index
-	base_scan->indexid = basereloid;
-	base_scan->indextlist = base_indextlist; // index cols
-	base_scan->indexqual = list_make1(saop);
-	base_scan->yb_rel_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
-															  NIL;
-	base_scan->yb_rel_pushdown.colrefs =
-		partial_idx_pushdown ? partial_idx_colrefs : NIL;
-
-	// BNL
-	List *join_tlist = NIL;
-	for (i = 0; i < index_scan_desc->natts; i++)
-	{
-		attr = TupleDescAttr(index_scan_desc, i);
-		expr = (Expr *) makeVar(OUTER_VAR, // index's rt index
-								i + 1, attr->atttypid, attr->atttypmod,
-								attr->attcollation, 0);
-		target_entry = makeTargetEntry(expr, 2 * i + 1, "", false);
-		join_tlist = lappend(join_tlist, target_entry);
-
-		/*
-		 * For unique index is ybuniqueidxkeysuffix, it doesn't have base rel
-		 * counterpart.
-		 */
-		if (indisunique && i + 1 == index_scan_desc->natts)
-			continue;
-
-		expr = (Expr *) makeVar(INNER_VAR, // index's rt index
-								i + 1, attr->atttypid, attr->atttypmod,
-								attr->attcollation, 0);
-		target_entry = makeTargetEntry(expr, 2 * i + 2, "", false);
-		join_tlist = lappend(join_tlist, target_entry);
-	}
-
-	// Join clause
-	Var *join_lhs = copyObject(ybbasectid_expr);
-	join_lhs->varno = OUTER_VAR;
-	join_lhs->varattno = indexdesc->natts + 1;
-
-	Var *join_rhs = copyObject(ybctid_expr);
-	join_rhs->varno = INNER_VAR;
-	join_rhs->varattno = indexdesc->natts + 1;
-
-	OpExpr *join_clause = (OpExpr *) make_opclause(ByteaEqualOperator, BOOLOID,
-												   false, (Expr *) join_lhs,
-												   (Expr *) join_rhs,
-												   InvalidOid, InvalidOid);
-	join_clause->opfuncid = get_opcode(ByteaEqualOperator);
-
-	// NLP
-	NestLoopParam *nlp = makeNode(NestLoopParam);
-	nlp->paramno = 0;
-	nlp->paramval = join_lhs;
-	nlp->yb_batch_size = yb_bnl_batch_size;
-
-	YbBatchedNestLoop *join_plan = makeNode(YbBatchedNestLoop);
-	plan = &join_plan->nl.join.plan;
-	plan->targetlist = join_tlist;
-	plan->lefttree = (Plan *) index_scan;
-	plan->righttree = (Plan *) base_scan;
-	join_plan->nl.join.jointype = JOIN_LEFT;
-	join_plan->nl.join.inner_unique = true;
-	join_plan->nl.join.joinqual = list_make1(join_clause);
-	join_plan->nl.nestParams = list_make1(nlp);
-	join_plan->first_batch_factor = 1.0;
-	join_plan->num_hashClauseInfos = 1;
-	join_plan->hashClauseInfos = palloc0(sizeof(YbBNLHashClauseInfo));
-	join_plan->hashClauseInfos->hashOp = ByteaEqualOperator;
-	join_plan->hashClauseInfos->innerHashAttNo = join_rhs->varattno; // TODO
-	join_plan->hashClauseInfos->outerParamExpr = (Expr *) join_lhs;	 // TODO
-	join_plan->hashClauseInfos->orig_expr = (Expr *) join_clause;
+	
+	// join plan
+	// here
+	Plan *join_plan = get_join_plan(baserel, indexrel);
 
 	List *equalProcOids = NIL;
-	for (i = 0; i < indexdesc->natts; i++)
+	for (int i = 0; i < indexdesc->natts; i++)
 	{
-		attr = TupleDescAttr(indexdesc, i);
+		const FormData_pg_attribute *attr = TupleDescAttr(indexdesc, i);
 		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
 											attr->atttypid, attr->atttypid);
 		if (operator_oid == InvalidOid)
