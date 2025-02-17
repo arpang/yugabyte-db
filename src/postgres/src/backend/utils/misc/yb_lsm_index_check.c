@@ -654,10 +654,10 @@ yb_lsm_index_check_internal(Oid indexoid)
 	int expected_rowcount = yb_lsm_index_expected_row_count(indexrel, baserel);
 
 	if (index_rowcount != expected_rowcount)
-		elog(ERROR,
-			 "Index is missing some rows. Index has %d rows, expected rows "
-			 "%d",
-			 index_rowcount, expected_rowcount);
+		ereport(ERROR,
+				(errcode(ERRCODE_INDEX_CORRUPTED),
+				errmsg("index is missing some rows: expected %d, actual %d",
+						expected_rowcount, index_rowcount)));
 
 	/* Reset state */
 	yb_index_checker = false;
