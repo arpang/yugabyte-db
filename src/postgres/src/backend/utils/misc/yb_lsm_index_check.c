@@ -66,8 +66,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 	bool base_null;
 	Datum ybbasectid_datum = slot_getattr(slot, ind_attnum, &ind_null);
 	Datum ybctid_datum = slot_getattr(slot, base_attnum, &base_null);
-	Form_pg_attribute ind_att =
-		TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
+	Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
 
 	if (ind_null)
 		ereport(ERROR,
@@ -97,8 +96,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 	{
 		int ind_attnum = 2 * i + 1;
 		int base_attnum = ind_attnum + 1;
-		Form_pg_attribute ind_att =
-			TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
+		Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
 
 		bool ind_null;
 		bool base_null;
@@ -151,8 +149,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 	{
 		/* Validate the ybuniqueidxkeysuffix */
 		ind_attnum = 2 * (indnatts + 1) + 1;
-		Datum ybuniqueidxkeysuffix_datum =
-			slot_getattr(slot, ind_attnum, &ind_null);
+		Datum ybuniqueidxkeysuffix_datum = slot_getattr(slot, ind_attnum, &ind_null);
 
 		if (indnullsnotdistinct || !indkeyhasnull)
 		{
@@ -572,8 +569,7 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 	Assert(SPI_tuptable->tupdesc->natts == 1);
 
 	bool isnull;
-	Datum val =
-		heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
+	Datum val = heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
 	Assert(!isnull);
 	int expected_rowcount = DatumGetInt64(val);
 
