@@ -79,10 +79,9 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 				errmsg("index contains spurious row")));
 
 	/*
-	 * TODO: Using datumIsEqual throws mismatch error due to header size
-	 * mismatch for types with variable length.
-	 * For instance, here ybbasectid is VARATT_IS_1B, whereas ybctid
-	 * VARATT_IS_4B. Look into it.
+	 * TODO: datumIsEqual() returns false due to header size mismatch for types
+	 * with variable length. For instance, in the following case, ybbasectid is
+	 * VARATT_IS_1B, whereas ybctid VARATT_IS_4B. Look into it.
 	 */
 	/* This should never happen because this was the join condition */
 	if (unlikely(!datum_image_eq(ybbasectid_datum, ybctid_datum,
@@ -533,6 +532,7 @@ partitioned_index_check(Oid parentindexId)
 	foreach (lc, find_inheritance_children(parentindexId, AccessShareLock))
 	{
 		Oid childindexId = ObjectIdGetDatum(lfirst_oid(lc));
+		/* TODO: A new read time can be used for each partition. */
 		yb_lsm_index_check_internal(childindexId);
 	}
 }
@@ -624,9 +624,20 @@ yb_lsm_index_check_internal(Oid indexoid)
 	Relation baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
 
 	/* Check for spurious index rows */
-	int actual_index_rowcount = check_spurious_index_rows(baserel, indexrel);
+	int actual_index_rowcount = 0;
+	PG_TRY();
+	{
+		actual_index_rowcount = check_spurious_index_rows(baserel, indexrel);
+	}
+	PG_CATCH();
+	{
+		if (baserel->rd_index)
+			yb_free_dummy_baserel_index(baserel);
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
 
-	/* Check for missing index rows */
+	/* Now, check for missing index rows */
 	int expected_index_rowcount = get_expected_index_rowcount(baserel, indexrel);
 	/* We already verified that index doesn't contain spurious rows. */
 	Assert(expected_index_rowcount >= actual_index_rowcount);
