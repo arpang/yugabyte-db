@@ -623,8 +623,6 @@ yb_lsm_index_check_internal(Oid indexoid)
 
 	Relation baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
 
-	yb_index_checker = true;
-
 	/* Check for spurious index rows */
 	int actual_index_rowcount = check_spurious_index_rows(baserel, indexrel);
 
@@ -638,8 +636,6 @@ yb_lsm_index_check_internal(Oid indexoid)
 				errmsg("index is missing some rows: expected %d, actual %d",
 						expected_index_rowcount, actual_index_rowcount)));
 
-	/* Reset state */
-	yb_index_checker = false;
 	RelationClose(indexrel);
 	RelationClose(baserel);
 }
@@ -648,6 +644,15 @@ Datum
 yb_lsm_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
-	yb_lsm_index_check_internal(indexoid);
+	yb_index_checker = true;
+	PG_TRY();
+	{
+		yb_lsm_index_check_internal(indexoid);
+	}
+	PG_FINALLY();
+	{
+		yb_index_checker = false;
+	}
+	PG_END_TRY();
 	PG_RETURN_VOID();
 }
