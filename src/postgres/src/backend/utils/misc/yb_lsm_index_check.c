@@ -65,7 +65,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 	bool ind_null;
 	bool base_null;
 	Datum ybbasectid_datum = slot_getattr(slot, ind_attnum, &ind_null);
-	Datum base_datum = slot_getattr(slot, base_attnum, &base_null);
+	Datum ybctid_datum = slot_getattr(slot, base_attnum, &base_null);
 	Form_pg_attribute ind_att =
 		TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
 
@@ -79,9 +79,15 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
 				errmsg("index contains spurious row")));
 
+	/*
+	 * TODO: Using datumIsEqual throws mismatch error due to header size
+	 * mismatch for types with variable length.
+	 * For instance, here ybbasectid is VARATT_IS_1B, whereas ybctid
+	 * VARATT_IS_4B. Look into it.
+	 */
 	/* This should never happen because this was the join condition */
-	if (unlikely(!datumIsEqual(ybbasectid_datum, base_datum, ind_att->attbyval,
-							   ind_att->attlen)))
+	if (unlikely(!datum_image_eq(ybbasectid_datum, ybctid_datum,
+								 ind_att->attbyval, ind_att->attlen)))
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
 				errmsg("index's ybbasectid mismatch with base relation's ybctid")));
@@ -113,8 +119,8 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 					errdetail("NULL value mismatch for index attribute %d", i+1)));
 		}
 
-		if (datumIsEqual(ind_datum, base_datum, ind_att->attbyval,
-						 ind_att->attlen))
+		if (datum_image_eq(ind_datum, base_datum, ind_att->attbyval,
+						   ind_att->attlen))
 			continue;
 
 		/* Index key should be binary equal to base relation counterpart. */
@@ -160,8 +166,9 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 		else
 		{
 			ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
-			bool equal = datumIsEqual(ybbasectid_datum, ybuniqueidxkeysuffix_datum,
-								ind_att->attbyval, ind_att->attlen);
+			bool equal = datum_image_eq(ybbasectid_datum,
+										ybuniqueidxkeysuffix_datum,
+										ind_att->attbyval, ind_att->attlen);
 			if (!equal)
 				ereport(ERROR,
 						(errcode(ERRCODE_INDEX_CORRUPTED),
@@ -509,8 +516,6 @@ check_spurious_index_rows(Relation baserel, Relation indexrel)
 	while ((output = ExecProcNode(join_state)))
 	{
 		index_rowcount++;
-		/* TODO: Why is this required? */
-		ExecMaterializeSlot(output);
 		check_index_row_consistency(output, equality_opcodes, indexrel);
 	}
 	ExecEndNode(join_state);
@@ -629,7 +634,6 @@ yb_lsm_index_check_internal(Oid indexoid)
 
 	/* Check for missing index rows */
 	int expected_index_rowcount = get_expected_index_rowcount(baserel, indexrel);
-
 	/* We already verified that index doesn't contain spurious rows. */
 	Assert(expected_index_rowcount >= actual_index_rowcount);
 	if (actual_index_rowcount != expected_index_rowcount)

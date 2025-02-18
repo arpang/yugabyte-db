@@ -758,9 +758,9 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, ScanDirection dir)
 					INDEXTUPLE_YBCTID(tuple) = PointerGetDatum(syscols.ybbasectid);
 					ybcUpdateFKCache(ybScan, INDEXTUPLE_YBCTID(tuple));
 				}
-			if (syscols.ybuniqueidxkeysuffix != NULL)
-					tuple->t_ybuniqueidxkeysuffix =
-						PointerGetDatum(syscols.ybuniqueidxkeysuffix);
+				if (syscols.ybuniqueidxkeysuffix != NULL)
+						tuple->t_ybuniqueidxkeysuffix =
+							PointerGetDatum(syscols.ybuniqueidxkeysuffix);
 			}
 			break;
 		}
