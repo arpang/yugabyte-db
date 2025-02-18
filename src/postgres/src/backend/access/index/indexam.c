@@ -67,11 +67,10 @@
 #include "utils/syscache.h"
 
 /* Yugabyte includes */
-#include "access/yb_scan.h"
-#include "catalog/pg_am_d.h"
-#include "catalog/pg_opfamily_d.h"
 #include "pg_yb_utils.h"
-#include "utils/builtins.h"
+#include "access/yb_scan.h"
+#include "catalog/pg_am.h"
+#include "catalog/pg_opfamily.h"
 
 /* ----------------------------------------------------------------
  *					macros used in index_ routines
