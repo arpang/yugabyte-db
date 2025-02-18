@@ -127,7 +127,7 @@ static IndexScanDesc index_beginscan_internal(Relation indexRelation,
 											  ParallelIndexScanDesc pscan, bool temp_snap);
 
 /*
- * Create a dummy index object such that:
+ * Create a dummy primary key index object such that:
  *   - indexrelid and indrelid both point to the base relation
  *   - index key: ybctid column
  * This is required by the index consistency checker.
