@@ -592,7 +592,7 @@ class PgApiImpl {
   Status FetchRequestedYbctids(PgStatement *handle, const YbcPgExecParameters *exec_params,
                                YbcConstSliceVector ybctids);
 
-  Status BindYbctids(PgStatement* handle, const std::vector<Slice>& ybctids);
+  Status BindYbctids(PgStatement* handle, int n, uintptr_t* ybctids);
 
   Status DmlANNBindVector(PgStatement *handle, PgExpr *vector);
 

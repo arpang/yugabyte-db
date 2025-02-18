@@ -45,6 +45,7 @@
 #include "yb/yql/pggate/pg_select_index.h"
 #include "yb/yql/pggate/pg_table.h"
 #include "yb/yql/pggate/pg_tabledesc.h"
+#include "yb/yql/pggate/pg_tools.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 
 namespace yb::pggate {
@@ -403,6 +404,14 @@ Status PgDmlRead::InitDocOp(const YbcPgExecParameters* params) {
 
 void PgDmlRead::SetRequestedYbctids(std::reference_wrapper<const std::vector<Slice>> ybctids) {
   SetYbctidProvider(std::make_unique<SimpleYbctidProvider>(ybctids));
+}
+
+void PgDmlRead::SetRequestedYbctids(const PgTypeInfo& pg_types, int n, uintptr_t* ybctids) {
+  HoldingYbctidProvider ybctid_holder(&arena());
+  ybctid_holder.reserve(n);
+  for (int i = 0; i < n; i++)
+    ybctid_holder.append(YbctidAsSlice(pg_types, ybctids[i]));
+  SetYbctidProvider(std::make_unique<HoldingYbctidProvider>(ybctid_holder));
 }
 
 Status PgDmlRead::ANNBindVector(PgExpr* vector) {

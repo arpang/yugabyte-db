@@ -1537,10 +1537,9 @@ Status PgApiImpl::FetchRequestedYbctids(
   return select.Exec(exec_params);
 }
 
-// TODO: Can consider using YbcConstSliceVector
-Status PgApiImpl::BindYbctids(PgStatement* handle, const std::vector<Slice>& ybctids) {
+Status PgApiImpl::BindYbctids(PgStatement* handle, int n, uintptr_t* ybctids) {
   auto& select = VERIFY_RESULT_REF(GetStatementAs<PgSelect>(handle));
-  select.SetRequestedYbctids(ybctids);
+  select.SetRequestedYbctids(pg_types(), n, ybctids);
   return Status::OK();
 }
 
