@@ -1620,7 +1620,6 @@ YbcStatus YBCPgBindYbctids(YbcPgStatement handle, int n, uintptr_t* ybctids) {
   return ToYBCStatus(pgapi->BindYbctids(handle, n, ybctids));
 }
 
-
 //------------------------------------------------------------------------------------------------
 // Functions
 //------------------------------------------------------------------------------------------------
