@@ -299,7 +299,7 @@ SystemAttributeDefinition(AttrNumber attno)
 	if (attno == YBIdxBaseTupleIdAttributeNumber ||
 		attno == YBUniqueIdxKeySuffixAttributeNumber)
 		return IndexSystemAttributeDefinition(attno);
-	if (attno >= 0 || (attno < -(int) lengthof(SysAtt)))
+	if (attno >= 0 || attno < -(int) lengthof(SysAtt))
 		elog(ERROR, "invalid system attribute number %d", attno);
 	return SysAtt[-attno - 1];
 }
