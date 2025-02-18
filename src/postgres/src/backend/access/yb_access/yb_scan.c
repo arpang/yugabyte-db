@@ -1918,12 +1918,7 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 	 * And set up the BTArrayKeyInfo data.
 	 */
 
-	if (scan_plan->bind_key_attnums[i] == YBTupleIdAttributeNumber)
-	{
-		Assert(num_elems == num_valid);
-		YBCPgBindYbctids(ybScan->handle, num_elems, elem_values);
-	}
-	else if (is_row)
+	if (is_row)
 	{
 		AttrNumber	attnums[length_of_key];
 
@@ -1934,6 +1929,12 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 		ybcBindTupleExprCondIn(ybScan, scan_plan->bind_desc,
 							   length_of_key - 1, attnums,
 							   num_elems, elem_values);
+	}
+	else if (yb_index_checker &&
+			 scan_plan->bind_key_attnums[i] == YBTupleIdAttributeNumber)
+	{
+		Assert(num_elems == num_valid);
+		YBCPgBindYbctids(ybScan->handle, num_elems, elem_values);
 	}
 	else
 		ybcBindColumnCondIn(ybScan, scan_plan->bind_desc,
