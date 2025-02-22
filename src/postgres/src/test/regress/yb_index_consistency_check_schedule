@@ -3,4 +3,5 @@
 ################################################################################
 # YB index consistency checker tests.
 ################################################################################
-test: yb_index_consistency_check
+
+test: yb.orig.index_consistency_check
