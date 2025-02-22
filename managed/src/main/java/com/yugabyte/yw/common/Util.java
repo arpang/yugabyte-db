@@ -96,6 +96,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.slf4j.Logger;
@@ -174,6 +175,10 @@ public class Util {
 
   public static final List<String> SPECIAL_CHARACTERS_STRING_LIST =
       ImmutableList.of("!", "@", "#", "$", "%", "^", "&", "*");
+
+  public static final String PATTERN_FOR_UUID =
+      "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+  public static final String PATTERN_FOR_HOST = ".+:[0-9]{4,5}";
 
   private static final Map<String, Long> GO_DURATION_UNITS_TO_NANOS =
       ImmutableMap.<String, Long>builder()
@@ -909,6 +914,9 @@ public class Util {
     Universe universe = Universe.getOrBadRequest(universeUUID);
     String providerUUID = universe.getCluster(node.placementUuid).userIntent.provider;
     Provider provider = Provider.getOrBadRequest(UUID.fromString(providerUUID));
+    if (provider.getCloudCode().equals(CloudType.kubernetes)) {
+      return "/root";
+    }
     return provider.getYbHome();
   }
 
@@ -1443,5 +1451,11 @@ public class Util {
 
   public static <T> T doWithCorrelationId(Function<String, T> function) {
     return doWithCorrelationId(null, function);
+  }
+
+  public static String getPostgresCompatiblePassword() {
+    String allowedCharsInPassword =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@$^*0123456789";
+    return RandomStringUtils.secureStrong().next(20, allowedCharsInPassword);
   }
 }

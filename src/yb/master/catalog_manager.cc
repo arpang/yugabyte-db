@@ -3509,6 +3509,7 @@ Status CatalogManager::ReservePgsqlOids(const ReservePgsqlOidsRequestPB* req,
                                         ReservePgsqlOidsResponsePB* resp,
                                         rpc::RpcContext* rpc) {
   VLOG(1) << "ReservePgsqlOids request: " << req->ShortDebugString();
+  bool use_secondary_space = req->use_secondary_space();
 
   // Lookup namespace
   scoped_refptr<NamespaceInfo> ns;
@@ -3524,25 +3525,43 @@ Status CatalogManager::ReservePgsqlOids(const ReservePgsqlOidsRequestPB* req,
   // Reserve oids.
   auto l = ns->LockForWrite();
 
-  uint32_t begin_oid = l->pb.next_pg_oid();
+  uint32_t begin_oid, oid_upper_limit;
+  if (use_secondary_space) {
+    // If the field next_secondary_pg_oid is not present, then we use
+    // kPgFirstSecondarySpaceObjectId.
+    begin_oid = std::max(l->pb.next_secondary_pg_oid(), kPgFirstSecondarySpaceObjectId);
+    oid_upper_limit = kPgUpperBoundSecondarySpaceObjectId;
+  } else {
+    begin_oid = l->pb.next_normal_pg_oid();
+    oid_upper_limit = kPgUpperBoundNormalObjectId;
+  }
+  // Remaining available OIDs in this space are [begin_oid, oid_upper_limit).
+
   if (begin_oid < req->next_oid()) {
     begin_oid = req->next_oid();
   }
-  if (begin_oid == std::numeric_limits<uint32_t>::max()) {
-    LOG(WARNING) << Format("No more object identifier is available for Postgres database $0 ($1)",
-                           l->pb.name(), req->namespace_id());
-    return SetupError(resp->mutable_error(), MasterErrorPB::UNKNOWN_ERROR,
-                      STATUS(InvalidArgument, "No more object identifier is available"));
+  if (begin_oid >= oid_upper_limit) {
+    LOG(WARNING) << Format(
+        "No more $0 object identifiers are available for Postgres database $1 ($2)",
+        use_secondary_space ? "secondary" : "normal", l->pb.name(), req->namespace_id());
+    return SetupError(
+        resp->mutable_error(), MasterErrorPB::UNKNOWN_ERROR,
+        STATUS(InvalidArgument, "No more object identifiers are available"));
   }
 
   uint32_t end_oid = begin_oid + req->count();
   if (end_oid < begin_oid) {
     end_oid = std::numeric_limits<uint32_t>::max(); // Handle wraparound.
   }
+  end_oid = std::min(end_oid, oid_upper_limit);
 
   resp->set_begin_oid(begin_oid);
   resp->set_end_oid(end_oid);
-  l.mutable_data()->pb.set_next_pg_oid(end_oid);
+  if (use_secondary_space) {
+    l.mutable_data()->pb.set_next_secondary_pg_oid(end_oid);
+  } else {
+    l.mutable_data()->pb.set_next_normal_pg_oid(end_oid);
+  }
 
   // Update the on-disk state.
   const Status s = sys_catalog_->Upsert(leader_ready_term(), ns);
@@ -4273,10 +4292,8 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
     }
   }
 
-  if (!req.xcluster_source_table_id().empty()) {
-    table->mutable_metadata()->mutable_dirty()->pb.set_xcluster_source_table_id(
-        req.xcluster_source_table_id());
-  }
+  RETURN_NOT_OK(xcluster_manager_->ProcessCreateTableReq(
+      req, table->mutable_metadata()->mutable_dirty()->pb, table->id(), namespace_id));
 
   if (PREDICT_FALSE(FLAGS_TEST_simulate_slow_table_create_secs > 0) &&
       req.table_type() != TableType::TRANSACTION_STATUS_TABLE_TYPE) {
@@ -5625,6 +5642,11 @@ Result<scoped_refptr<TableInfo>> CatalogManager::FindTableByIdUnlocked(
 Result<TableId> CatalogManager::GetColocatedTableId(
     const TablegroupId& tablegroup_id, ColocationId colocation_id) const {
   SharedLock lock(mutex_);
+  return GetColocatedTableIdUnlocked(tablegroup_id, colocation_id);
+}
+
+Result<TableId> CatalogManager::GetColocatedTableIdUnlocked(
+    const TablegroupId& tablegroup_id, ColocationId colocation_id) const {
   const auto* tablegroup = tablegroup_manager_->Find(tablegroup_id);
   SCHECK(tablegroup, NotFound, Substitute("Tablegroup with ID $0 not found", tablegroup_id));
   return tablegroup->GetChildTableId(colocation_id);
@@ -6715,12 +6737,20 @@ Status CatalogManager::DeleteTableInMemoryAcquireLocks(
     } else {
       // For regular table, we need to lock all of its indexes.
       TableIdentifierPB index_identifier;
-      for (const auto& index : table->LockForRead()->pb.indexes()) {
-        index_identifier.set_table_id(index.table_id());
+      std::vector<TableId> index_table_ids;
+      {
+        auto lock = table->LockForRead();
+        index_table_ids.reserve(lock->pb.indexes().size());
+        for (const auto& index : lock->pb.indexes()) {
+          index_table_ids.push_back(index.table_id());
+        }
+      }
+      for (const auto& table_id : index_table_ids) {
+        index_identifier.set_table_id(table_id);
         auto index_result = FindTable(index_identifier);
         if (VERIFY_RESULT(DoesTableExist(index_result))) {
           auto index_table = std::move(*index_result);
-          data_map->emplace(index.table_id(), DeletingTableData(index_table));
+          data_map->emplace(table_id, DeletingTableData(index_table));
         }
       }
     }
@@ -8551,7 +8581,7 @@ Status CatalogManager::CreateNamespace(const CreateNamespaceRequestPB* req,
     // for the database that need to be copied.
     if (db_type == YQL_DATABASE_PGSQL) {
       if (req->source_namespace_id().empty()) {
-        metadata->set_next_pg_oid(req->next_pg_oid());
+        metadata->set_next_normal_pg_oid(req->next_pg_oid());
       } else {
         const auto source_oid = GetPgsqlDatabaseOid(req->source_namespace_id());
         if (!source_oid.ok()) {
@@ -8595,10 +8625,10 @@ Status CatalogManager::CreateNamespace(const CreateNamespaceRequestPB* req,
                                    req->source_namespace_id()));
         }
         if (FLAGS_ysql_enable_pg_per_database_oid_allocator) {
-          metadata->set_next_pg_oid(kPgFirstNormalObjectId);
+          metadata->set_next_normal_pg_oid(kPgFirstNormalObjectId);
         } else {
           auto source_ns_lock = source_ns->LockForRead();
-          metadata->set_next_pg_oid(source_ns_lock->pb.next_pg_oid());
+          metadata->set_next_normal_pg_oid(source_ns_lock->pb.next_normal_pg_oid());
         }
       }
     }
@@ -9164,16 +9194,13 @@ void CatalogManager::DeleteYsqlDatabaseAsync(
     if (metadata.state() == SysNamespaceEntryPB::DELETED) {
       Status s = sys_catalog_->Delete(leader_ready_term(), database);
       WARN_NOT_OK(s, "SysCatalog DeleteItem for Namespace");
-      if (!s.ok()) {
-        return;
-      }
+      return;
     }
 
     if (is_ysql_major_upgrade) {
       if (metadata.state() != SysNamespaceEntryPB::RUNNING) {
-        // YB_TODO: Switch this to DFATAL once #25594 is fixed.
-        LOG(WARNING) << "Namespace (" << database->name() << ") has invalid state "
-                     << SysNamespaceEntryPB::State_Name(metadata.state());
+        LOG(DFATAL) << "Namespace (" << database->name() << ") has invalid state "
+                    << SysNamespaceEntryPB::State_Name(metadata.state());
         return;
       }
       if (metadata.ysql_next_major_version_state() != SysNamespaceEntryPB::NEXT_VER_DELETING) {

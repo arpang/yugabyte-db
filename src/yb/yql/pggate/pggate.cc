@@ -641,8 +641,8 @@ Status PgApiImpl::InitSession(YbcPgExecStatsState& session_stats, bool is_binary
 
 uint64_t PgApiImpl::GetSessionID() const { return pg_client_.SessionID(); }
 
-Status PgApiImpl::InvalidateCache() {
-  pg_session_->InvalidateAllTablesCache();
+Status PgApiImpl::InvalidateCache(uint64_t min_ysql_catalog_version) {
+  pg_session_->InvalidateAllTablesCache(min_ysql_catalog_version);
   return Status::OK();
 }
 
@@ -1350,6 +1350,10 @@ void PgApiImpl::ResetOperationsBuffering() {
 
 Status PgApiImpl::FlushBufferedOperations() {
   return pg_session_->FlushBufferedOperations();
+}
+
+Status PgApiImpl::AdjustOperationsBuffering(int multiple) {
+  return pg_session_->AdjustOperationsBuffering(multiple);
 }
 
 Status PgApiImpl::DmlExecWriteOp(PgStatement *handle, int32_t *rows_affected_count) {

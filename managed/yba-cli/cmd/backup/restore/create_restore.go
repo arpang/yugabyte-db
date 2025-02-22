@@ -312,9 +312,27 @@ func buildBackupInfoList(backupInfos []string) (res []ybaclient.BackupStorageInf
 			}
 		}
 
-		isSelectiveTableRestore, _ := strconv.ParseBool(backupDetails["selective-restore"])
+		useTablespaces, err := strconv.ParseBool(backupDetails["use-tablespaces"])
+		if err != nil {
+			errMessage := err.Error() +
+				" Invalid or missing value provided for 'use-tablespaces'. Setting it to 'false'.\n"
+			logrus.Errorln(
+				formatter.Colorize(errMessage, formatter.YellowColor),
+			)
+			useTablespaces = false
+		}
+
+		isSelectiveTableRestore, err := strconv.ParseBool(backupDetails["selective-restore"])
+		if err != nil {
+			errMessage := err.Error() +
+				" Invalid or missing value provided for 'selective-restore'. Setting it to 'false'.\n"
+			logrus.Errorln(
+				formatter.Colorize(errMessage, formatter.YellowColor),
+			)
+			isSelectiveTableRestore = false
+		}
 		tableNameList := []string{}
-		if backupDetails["table-names"] != "" {
+		if backupDetails["table-name-list"] != "" {
 			tableNameList = strings.Split(backupDetails["table-name-list"], ",")
 		}
 
@@ -324,6 +342,7 @@ func buildBackupInfoList(backupInfos []string) (res []ybaclient.BackupStorageInf
 			StorageLocation:       util.GetStringPointer(backupDetails["storage-location"]),
 			Sse:                   util.GetBoolPointer(true),
 			SelectiveTableRestore: util.GetBoolPointer(isSelectiveTableRestore),
+			UseTablespaces:        util.GetBoolPointer(useTablespaces),
 			TableNameList:         &tableNameList,
 		}
 		res = append(res, r)

@@ -69,6 +69,17 @@ DEFINE_test_flag(bool, generate_ybrowid_sequentially, false,
 DEFINE_test_flag(bool, ysql_log_perdb_allocated_new_objectid, false,
                  "Log new object id returned by per database oid allocator");
 
+DEFINE_test_flag(int32, yb_invalidation_message_expiration_secs, 10,
+                 "The function yb_increment_db_catalog_version_with_inval_messages or "
+                 "yb_increment_all_db_catalog_versions_with_inval_messages will delete "
+                 "invalidation messages older than this time");
+
+DEFINE_test_flag(int32, yb_max_num_invalidation_messages, 4096,
+                 "If a DDL statement generates more than this number of invalidation messages "
+                 "we do not associate the messages with the new catalog version caused by this "
+                 "DDL statement. This effetively turns off incremental catalog cache refresh "
+                 "for this new catalog version.");
+
 namespace yb::pggate {
 namespace {
 
@@ -154,12 +165,22 @@ bool Empty(const PgOperationBuffer& buffer) {
   return !buffer.Size();
 }
 
-void Update(BufferingSettings* buffering_settings) {
+// Update the buffer setting. 'max_batch_size' will be adjusted to multiple of 'multiple'
+void Update(BufferingSettings* buffering_settings, int multiple = 1) {
   /* Use the gflag value if the session variable is unset for batch size. */
-  buffering_settings->max_batch_size = ysql_session_max_batch_size <= 0
+  uint64_t max_batch_size = ysql_session_max_batch_size <= 0
     ? FLAGS_ysql_session_max_batch_size
     : static_cast<uint64_t>(ysql_session_max_batch_size);
+  buffering_settings->max_batch_size = ((max_batch_size + multiple - 1) / multiple) * multiple;
   buffering_settings->max_in_flight_operations = static_cast<uint64_t>(ysql_max_in_flight_ops);
+  buffering_settings->multiple = multiple;
+  auto msg = Format("Adjust max_batch_size from $0 to $1", max_batch_size,
+      buffering_settings->max_batch_size);
+  if (multiple > 1) {
+    LOG(INFO) << msg;
+  } else {
+    VLOG(3) << msg;
+  }
 }
 
 RowMarkType GetRowMarkType(const PgsqlOp& op) {
@@ -525,12 +546,17 @@ Result<std::pair<int64_t, bool>> PgSession::ReadSequenceTuple(int64_t db_oid,
                                                               int64_t seq_oid,
                                                               uint64_t ysql_catalog_version,
                                                               bool is_db_catalog_version_mode) {
+  std::optional<uint64_t> optional_ysql_catalog_version = std::nullopt;
+  std::optional<uint64_t> optional_yb_read_time = std::nullopt;
+  if (!yb_disable_catalog_version_check) {
+    optional_ysql_catalog_version = ysql_catalog_version;
+  }
   if (yb_read_time != 0) {
-    return pg_client_.ReadSequenceTuple(
-        db_oid, seq_oid, ysql_catalog_version, is_db_catalog_version_mode, yb_read_time);
+    optional_yb_read_time = yb_read_time;
   }
   return pg_client_.ReadSequenceTuple(
-      db_oid, seq_oid, ysql_catalog_version, is_db_catalog_version_mode);
+      db_oid, seq_oid, optional_ysql_catalog_version, is_db_catalog_version_mode,
+      optional_yb_read_time);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -587,10 +613,11 @@ Result<PgTableDescPtr> PgSession::DoLoadTable(
     return DoLoadTable(table_id, /* fail_on_cache_hit */ true, include_hidden);
   }
 
-  VLOG(4) << "Table cache MISS: " << table_id;
+  VLOG(4) << "Table cache MISS: " << table_id << " reopen = " << exists;
   auto table = VERIFY_RESULT(
-      pg_client_.OpenTable(table_id, exists, invalidate_table_cache_time_, include_hidden));
-  invalidate_table_cache_time_ = CoarseTimePoint();
+      pg_client_.OpenTable(
+        table_id, exists, table_cache_min_ysql_catalog_version_, include_hidden));
+
   if (exists) {
     cached_table_it->second = table;
   } else {
@@ -626,8 +653,12 @@ void PgSession::InvalidateTableCache(
   }
 }
 
-void PgSession::InvalidateAllTablesCache() {
-  invalidate_table_cache_time_ = CoarseMonoClock::now();
+void PgSession::InvalidateAllTablesCache(uint64_t min_ysql_catalog_version) {
+  if (table_cache_min_ysql_catalog_version_ >= min_ysql_catalog_version) {
+    return;
+  }
+
+  table_cache_min_ysql_catalog_version_ = min_ysql_catalog_version;
   table_cache_.clear();
 }
 
@@ -642,7 +673,7 @@ Status PgSession::StartOperationsBuffering() {
                 << buffer_.Size()
                 << " buffered operations found";
   }
-  Update(&buffering_settings_);
+  Update(&buffering_settings_, 1 /* multiple */);
   buffering_enabled_ = true;
   return Status::OK();
 }
@@ -664,6 +695,17 @@ Status PgSession::FlushBufferedOperations() {
 
 void PgSession::DropBufferedOperations() {
   buffer_.Clear();
+}
+
+Status PgSession::AdjustOperationsBuffering(int multiple) {
+  SCHECK(buffering_enabled_, IllegalState, "Buffering has not started yet");
+  if (PREDICT_FALSE(!Empty(buffer_))) {
+    LOG(DFATAL) << "Buffer should be empty, but "
+                << buffer_.Size()
+                << " buffered operations found";
+  }
+  Update(&buffering_settings_, multiple);
+  return Status::OK();
 }
 
 PgIsolationLevel PgSession::GetIsolationLevel() {

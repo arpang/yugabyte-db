@@ -72,7 +72,7 @@ YbcStatus YBCPgResetMemctx(YbcPgMemctx memctx);
 void YBCPgDeleteStatement(YbcPgStatement handle);
 
 // Invalidate the sessions table cache.
-YbcStatus YBCPgInvalidateCache();
+YbcStatus YBCPgInvalidateCache(uint64_t min_ysql_catalog_version);
 
 // Check if initdb has been already run.
 YbcStatus YBCPgIsInitDbDone(bool* initdb_done);
@@ -577,6 +577,7 @@ YbcStatus YBCPgStartOperationsBuffering();
 YbcStatus YBCPgStopOperationsBuffering();
 void YBCPgResetOperationsBuffering();
 YbcStatus YBCPgFlushBufferedOperations();
+YbcStatus YBCPgAdjustOperationsBuffering(int multiple);
 
 YbcStatus YBCPgNewSample(const YbcPgOid database_oid,
                          const YbcPgOid table_relfilenode_oid,

@@ -52,10 +52,6 @@ DEFINE_RUNTIME_uint32(xcluster_ysql_statement_timeout_sec, 120,
 DEFINE_test_flag(bool, xcluster_enable_ddl_replication, false,
     "Enables xCluster automatic DDL replication.");
 
-DEFINE_test_flag(bool, xcluster_enable_sequence_replication, false,
-    "Enable xCluster automatic replication of sequences (requires automatic DB-scoped "
-    "replication).");
-
 DEFINE_test_flag(bool, force_automatic_ddl_replication_mode, false,
     "Make XClusterCreateOutboundReplicationGroup always use automatic instead of semi-automatic "
     "xCluster replication mode.");
@@ -704,9 +700,9 @@ XClusterManager::GetInboundTransactionalReplicationGroups() const {
   return XClusterTargetManager::GetTransactionalReplicationGroups();
 }
 
-Status XClusterManager::ClearXClusterSourceTableId(
-    TableInfoPtr table_info, const LeaderEpoch& epoch) {
-  return XClusterTargetManager::ClearXClusterSourceTableId(table_info, epoch);
+Status XClusterManager::ClearXClusterFieldsAfterYsqlDDL(
+    TableInfoPtr table_info, SysTablesEntryPB& table_pb, const LeaderEpoch& epoch) {
+  return XClusterTargetManager::ClearXClusterFieldsAfterYsqlDDL(table_info, table_pb, epoch);
 }
 
 void XClusterManager::NotifyAutoFlagsConfigChanged() {
@@ -945,6 +941,17 @@ Status XClusterManager::InsertPackedSchemaForXClusterTarget(
       table_id, req->packed_schema(), req->current_schema_version(), epoch);
 }
 
+Status XClusterManager::InsertHistoricalColocatedSchemaPacking(
+    const InsertHistoricalColocatedSchemaPackingRequestPB* req,
+    InsertHistoricalColocatedSchemaPackingResponsePB* resp, rpc::RpcContext* rpc,
+    const LeaderEpoch& epoch) {
+  LOG_FUNC_AND_RPC;
+  SCHECK_PB_FIELDS_NOT_EMPTY(
+      *req, replication_group_id, target_parent_table_id, colocation_id, source_schema_version,
+      schema);
+  return XClusterTargetManager::InsertHistoricalColocatedSchemaPacking(req, resp, epoch);
+}
+
 Status XClusterManager::RegisterMonitoredTask(server::MonitoredTaskPtr task) {
   std::lock_guard l(monitored_tasks_mutex_);
   SCHECK_FORMAT(
@@ -956,6 +963,12 @@ Status XClusterManager::RegisterMonitoredTask(server::MonitoredTaskPtr task) {
 void XClusterManager::UnRegisterMonitoredTask(server::MonitoredTaskPtr task) {
   std::lock_guard l(monitored_tasks_mutex_);
   monitored_tasks_.erase(task);
+}
+
+Status XClusterManager::ProcessCreateTableReq(
+    const CreateTableRequestPB& req, SysTablesEntryPB& table_pb, const TableId& table_id,
+    const NamespaceId& namespace_id) const {
+  return XClusterTargetManager::ProcessCreateTableReq(req, table_pb, table_id, namespace_id);
 }
 
 }  // namespace yb::master

@@ -52,7 +52,6 @@ DECLARE_bool(cdc_enable_implicit_checkpointing);
 DECLARE_bool(TEST_create_table_with_empty_pgschema_name);
 DECLARE_bool(TEST_use_custom_varz);
 DECLARE_bool(TEST_xcluster_enable_ddl_replication);
-DECLARE_bool(TEST_xcluster_enable_sequence_replication);
 DECLARE_uint64(TEST_pg_auth_key);
 
 namespace yb {
@@ -66,8 +65,6 @@ void XClusterYsqlTestBase::SetUp() {
 
   LOG(INFO) << "DB-scoped replication will use automatic mode: " << UseAutomaticMode();
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_xcluster_enable_ddl_replication) =
-      UseAutomaticMode();
-  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_xcluster_enable_sequence_replication) =
       UseAutomaticMode();
 }
 
@@ -239,8 +236,21 @@ Status XClusterYsqlTestBase::InitPostgres(
       std::make_unique<pgwrapper::PgSupervisor>(pg_process_conf, nullptr /* tserver */);
   RETURN_NOT_OK(cluster->pg_supervisor_->Start());
 
+  pg_ts->SetPgServerHandlers(
+      [this, cluster] { return StartPostgres(cluster); },
+      [this, cluster] { StopPostgres(cluster); });
+
   cluster->pg_host_port_ = HostPort(pg_process_conf.listen_addresses, pg_process_conf.pg_port);
   return OK();
+}
+
+void XClusterYsqlTestBase::StopPostgres(Cluster* cluster) {
+  cluster->pg_supervisor_->Stop();
+  cluster->pg_supervisor_.reset();
+}
+
+Status XClusterYsqlTestBase::StartPostgres(Cluster* cluster) {
+  return InitPostgres(cluster, cluster->pg_ts_idx_, cluster->mini_cluster_->AllocateFreePort());
 }
 
 std::string XClusterYsqlTestBase::GetCompleteTableName(const YBTableName& table) {

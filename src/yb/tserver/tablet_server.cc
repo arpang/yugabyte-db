@@ -762,15 +762,21 @@ void TabletServer::Shutdown() {
   LOG(INFO) << "TabletServer shut down complete. Bye!";
 }
 
-Status TabletServer::BootstrapDdlObjectLocks(
-    const master::ClientOperationLeaseUpdatePB& lease_update) {
+Status TabletServer::ProcessLeaseUpdate(
+    const master::ClientOperationLeaseUpdatePB& lease_update, MonoTime time) {
   VLOG(2) << __func__;
-  // todo(zdrudi):
-  // Need to track the lease. Process the other fields of ClientOperationLeaseUpdatePB.
-  if (!lease_update.has_ddl_lock_entries() || !ts_local_lock_manager_) {
-    return Status::OK();
+  if (lease_update.has_ddl_lock_entries() && ts_local_lock_manager_) {
+    // todo(amit):
+    // BootstrapDdlObjectLocks must release all locks held and acquire all locks passed in,
+    // regardless of whether it has been called in the past or not. Currently this method does
+    // nothing when called after the first time on the same object.
+    RETURN_NOT_OK(ts_local_lock_manager_->BootstrapDdlObjectLocks(lease_update.ddl_lock_entries()));
   }
-  return ts_local_lock_manager_->BootstrapDdlObjectLocks(lease_update.ddl_lock_entries());
+  auto pg_client_service = pg_client_service_.lock();
+  if (pg_client_service) {
+    pg_client_service->impl.ProcessLeaseUpdate(lease_update, time);
+  }
+  return Status::OK();
 }
 
 Status TabletServer::PopulateLiveTServers(const master::TSHeartbeatResponsePB& heartbeat_resp) {
@@ -979,7 +985,7 @@ void TabletServer::SetYsqlDBCatalogVersions(
 
   bool catalog_changed = false;
   std::unordered_set<uint32_t> db_oid_set;
-  std::unordered_set<uint32_t> db_oids_updated;
+  std::unordered_map<uint32_t, uint64_t> db_oids_updated;
   std::unordered_set<uint32_t> db_oids_deleted;
   for (int i = 0; i < db_catalog_version_data.db_catalog_versions_size(); i++) {
     const auto& db_catalog_version = db_catalog_version_data.db_catalog_versions(i);
@@ -1034,7 +1040,7 @@ void TabletServer::SetYsqlDBCatalogVersions(
         existing_entry.last_breaking_version = new_breaking_version;
         existing_entry.new_version_ignored_count = 0;
         row_updated = true;
-        db_oids_updated.insert(db_oid);
+        db_oids_updated.insert({db_oid, new_version});
         shm_index = existing_entry.shm_index;
         CHECK(
             shm_index >= 0 &&
@@ -1296,7 +1302,7 @@ void TabletServer::InvalidatePgTableCache() {
 }
 
 void TabletServer::InvalidatePgTableCache(
-    const std::unordered_set<uint32_t>& db_oids_updated,
+    const std::unordered_map<uint32_t, uint64_t>& db_oids_updated,
     const std::unordered_set<uint32_t>& db_oids_deleted) {
   auto pg_client_service = pg_client_service_.lock();
   if (pg_client_service) {

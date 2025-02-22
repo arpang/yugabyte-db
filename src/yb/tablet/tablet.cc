@@ -112,6 +112,7 @@
 
 #include "yb/tserver/tserver.pb.h"
 #include "yb/tserver/tserver_error.h"
+#include "yb/tserver/ysql_advisory_lock_table.h"
 
 #include "yb/util/debug-util.h"
 #include "yb/util/debug/trace_event.h"
@@ -589,6 +590,7 @@ class Tablet::RegularRocksDbListener : public Tablet::RocksDbListener {
       return;
     }
 
+    // TODO(jhe) - Also handle historical packing schemas (#25926).
     auto colocated_tables = tablet_.metadata()->GetAllColocatedTablesWithColocationId();
     for(auto& [table_id, schema_version] : min_schema_versions) {
       ColocationId colocation_id = colocated_tables[table_id.ToHexString()];
@@ -1802,8 +1804,10 @@ void Tablet::WriteToRocksDB(
 
   auto rocksdb_write_status = dest_db->Write(write_options, write_batch);
   if (!rocksdb_write_status.ok()) {
-    LOG_WITH_PREFIX(FATAL) << "Failed to write a batch with " << write_batch->Count()
-                           << " indirect operations into RocksDB: " << rocksdb_write_status;
+    LOG_WITH_PREFIX(FATAL)
+        << "Failed to write a batch with " << write_batch->Count()
+        << " indirect operations into RocksDB, frontiers: " << AsString(frontiers)
+        << ": " << rocksdb_write_status;
   }
 
   if (FLAGS_TEST_docdb_log_write_batches) {
@@ -2673,7 +2677,8 @@ Status Tablet::AddTableInMemory(const TableInfoPB& table_info, const OpId& op_id
       table_info.table_id(), table_info.namespace_name(), table_info.table_name(),
       table_info.table_type(), schema, qlexpr::IndexMap(), partition_schema, index_info,
       table_info.schema_version(), op_id, ht, table_info.pg_table_id(),
-      SkipTableTombstoneCheck(table_info.skip_table_tombstone_check())));
+      SkipTableTombstoneCheck(table_info.skip_table_tombstone_check()),
+      table_info.old_schema_packings()));
 
   if (table_info_ptr->NeedVectorIndex()) {
     auto indexed_table_info = VERIFY_RESULT(metadata_->GetTableInfo(
@@ -4871,9 +4876,12 @@ Status Tablet::GetLockStatus(const std::map<TransactionId, SubtxnSet>& transacti
                              TabletLockInfoPB* tablet_lock_info,
                              uint64_t max_single_shard_waiter_start_time_us,
                              uint32_t max_txn_locks_per_tablet) const {
-  if (metadata_->table_type() != PGSQL_TABLE_TYPE) {
+  if (metadata_->table_type() != PGSQL_TABLE_TYPE &&
+      metadata_->table_name() != std::string(tserver::kPgAdvisoryLocksTableName)) {
     return STATUS_FORMAT(
-        InvalidArgument, "Cannot get lock status for non YSQL table $0", metadata_->table_id());
+        InvalidArgument,
+        "Cannot get lock status for non-YSQL table and non-advisory lock table $0",
+        metadata_->table_id());
   }
   if (!metadata_->colocated()) {
     // For colocated table, we don't populate table_id field of TabletLockInfoPB message. Instead,
@@ -5072,8 +5080,8 @@ std::string IncrementedCopy(Slice key) {
 
 } // namespace
 
-Status Tablet::AbortSQLTransactions(CoarseTimePoint deadline) const {
-  if (table_type() != TableType::PGSQL_TABLE_TYPE || transaction_participant() == nullptr) {
+Status Tablet::AbortActiveTransactions(CoarseTimePoint deadline) const {
+  if (transaction_participant() == nullptr) {
     return Status::OK();
   }
   HybridTime max_cutoff = HybridTime::kMax;

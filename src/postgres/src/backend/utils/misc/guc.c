@@ -2708,6 +2708,18 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_test_inval_message_portability", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("When set, fill padding bytes with zeros when creating a "
+						 "shared invalidation message."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_test_inval_message_portability,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_force_catalog_update_on_next_ddl", PGC_USERSET,
 			DEVELOPER_OPTIONS,
 			gettext_noop("Make the next DDL update the catalog in force mode "
@@ -5927,8 +5939,7 @@ static struct config_string ConfigureNamesString[] =
 			gettext_noop("User should set this variable with caution. Currently, it can"
 						 " only read old data without schema changes. In other words, it should not be"
 						 " set to a timestamp before a DDL operation has been performed."
-						 " Potential corruption can happen in case (1) the variable is set to a timestamp"
-						 " before most recent DDL. (2) DDL is performed while it is set to nonzero.")
+						 " Write-DML or DDL queries are not allowed while this variable is set.")
 		},
 		&yb_read_time_string,
 		"0",

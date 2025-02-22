@@ -399,22 +399,18 @@ const (
 
 // KMSOpType
 const (
-	// EnableKMSOpType type
-	EnableKMSOpType = "ENABLE"
-	// DisableKMSOpType type
-	DisableKMSOpType = "DISABLE"
 	// RotateKMSConfigKMSOpType type
 	RotateKMSConfigKMSOpType = "ROTATE-KMS-CONFIG"
 	// RotateUniverseKeyKMSOpType type
 	RotateUniverseKeyKMSOpType = "ROTATE-UNIVERSE-KEY"
 )
 
-// TLSOpType
+// OpType
 const (
-	// EnableTLSOpType type
-	EnableTLSOpType = "ENABLE"
-	// DisableTLSOpType type
-	DisableTLSOpType = "DISABLE"
+	// EnableOpType type
+	EnableOpType = "ENABLE"
+	// DisableOpType type
+	DisableOpType = "DISABLE"
 )
 
 // ResourceType
@@ -453,6 +449,16 @@ const (
 	UnexposedServiceState = "UNEXPOSED"
 	// NoneServiceState type
 	NoneServiceState = "NONE"
+)
+
+// XClusterConfigType
+const (
+	// BasicXClusterConfigType type
+	BasicXClusterConfigType = "Basic"
+	// TxnXClusterConfigType type
+	TxnXClusterConfigType = "Txn"
+	// DBXClusterConfigType type
+	DBXClusterConfigType = "Db"
 )
 
 // CompletedTaskStates returns set of states that mark the task as completed

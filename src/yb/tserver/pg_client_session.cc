@@ -1076,13 +1076,9 @@ class PgClientSession::Impl {
     PgCreateTable helper(req);
     RETURN_NOT_OK(helper.Prepare());
 
-    if (xcluster_context()) {
-      const auto& source_table_id = xcluster_context()->GetXClusterSourceTableId(
-          {req.database_name(), req.schema_name(), req.table_name()});
-      if (source_table_id.IsValid()) {
-        helper.SetXClusterSourceTableId(source_table_id);
-      }
-    }
+  if (xcluster_context()) {
+    xcluster_context()->PrepareCreateTableHelper(req, helper);
+  }
 
     const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
         req.use_transaction(), context->GetClientDeadline()));
@@ -1570,7 +1566,14 @@ class PgClientSession::Impl {
 
     auto& session = EnsureSession(PgClientSessionKind::kSequence, context->GetClientDeadline());
     // TODO(async_flush): https://github.com/yugabyte/yugabyte-db/issues/12173
-    return session->TEST_ApplyAndFlush(std::move(psql_write));
+    auto s = session->TEST_ApplyAndFlush(psql_write);
+    if (!s.ok() || psql_write->response().status() ==
+        PgsqlResponsePB_RequestStatus::PgsqlResponsePB_RequestStatus_PGSQL_STATUS_OK) {
+      return s;
+    }
+    return STATUS_FORMAT(
+        InternalError, "Unknown error while trying to insert into sequences_data DocDB table: $0",
+        PgsqlResponsePB::RequestStatus_Name(psql_write->response().status()));
   }
 
   Status UpdateSequenceTuple(
