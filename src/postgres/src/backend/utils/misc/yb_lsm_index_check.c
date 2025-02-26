@@ -334,9 +334,6 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	saop->inputcollid = InvalidOid;
 	saop->args = list_make2(ybctid_from_index, arrexpr);
 
-	ScalarArrayOpExpr *orig_saop = copyObjectImpl(saop);
-	orig_saop->args = list_make2(ybctid_expr, arrexpr);
-
 	target_entry = makeTargetEntry((Expr *) ybctid_from_index, 1, "", false);
 	List *indextlist = list_make1(target_entry);
 
