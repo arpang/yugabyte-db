@@ -43,8 +43,7 @@
 #include "utils/relcache.h"
 #include "utils/syscache.h"
 
-/* TODO: rename the file to yb_index_check */
-bool		yb_index_checker = false;
+/* TODO: rename the file to yb_index_check.c */
 
 static void yb_index_check_internal(Oid indexoid);
 
@@ -481,6 +480,8 @@ check_spurious_index_rows(Relation baserel, Relation indexrel)
 	EState *estate = CreateExecutorState();
 	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 
+	estate->yb_exec_params.yb_index_check = true;
+
 	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
 	rte1->rtekind = RTE_RELATION;
 	rte1->relid = RelationGetRelid(baserel);
@@ -652,15 +653,6 @@ Datum
 yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
-	yb_index_checker = true;
-	PG_TRY();
-	{
-		yb_index_check_internal(indexoid);
-	}
-	PG_FINALLY();
-	{
-		yb_index_checker = false;
-	}
-	PG_END_TRY();
+	yb_index_check_internal(indexoid);
 	PG_RETURN_VOID();
 }

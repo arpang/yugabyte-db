@@ -127,50 +127,58 @@ static IndexScanDesc index_beginscan_internal(Relation indexRelation,
 											  ParallelIndexScanDesc pscan, bool temp_snap);
 
 /*
- * Create a dummy primary key index object such that:
+ * Wrapper on the top of index_open(), used during yb_index_check(). Given a
+ * base relation id, it creates a dummy primary key index object such
+ * that:
  *   - indexrelid and indrelid both point to the base relation
  *   - index key: ybctid column
- * This is required by the index consistency checker.
  */
-static void
-yb_build_dummy_baserel_index(Relation relation)
+Relation
+yb_dummy_baserel_index_open(Oid relationId, LOCKMODE lockmode)
 {
-	Assert(yb_index_checker);
-	Assert(!relation->rd_index);
-	Assert(!relation->rd_indam);
-	Assert(!relation->rd_opfamily);
-	int natts = 1;
-	Form_pg_index pg_index = palloc0(sizeof(FormData_pg_index) + natts * sizeof(int16));
-	pg_index->indexrelid = RelationGetRelid(relation);
-	pg_index->indrelid = RelationGetRelid(relation);
-	pg_index->indnatts = natts;
-	pg_index->indnkeyatts = natts;
-	pg_index->indisunique = true;
-	pg_index->indisprimary = true;
-	pg_index->indimmediate = true;
-	pg_index->indisvalid = true;
-	pg_index->indisready = true;
-	pg_index->indislive = true;
-	pg_index->indkey.ndim = 1;
-	pg_index->indkey.dataoffset = 0;		/* never any nulls */
-	pg_index->indkey.elemtype = INT2OID;
-	pg_index->indkey.dim1 = natts;
-	pg_index->indkey.lbound1 = 0;
-	pg_index->indkey.values[0] = YBTupleIdAttributeNumber;
+	Relation relation;
 
-	relation->rd_index = pg_index;
-	relation->rd_indam = GetIndexAmRoutineByAmId(LSM_AM_OID, false);
-	relation->rd_opfamily = palloc0(sizeof(Oid) * pg_index->indnkeyatts);
-	relation->rd_opfamily[0] = BYTEA_LSM_FAM_OID;
+	relation = relation_open(relationId, lockmode);
+
+	if (relation->rd_rel->relkind == RELKIND_RELATION)
+	{
+		Assert(!relation->rd_index);
+		Assert(!relation->rd_indam);
+		Assert(!relation->rd_opfamily);
+		int natts = 1;
+		Form_pg_index pg_index =
+			palloc0(sizeof(FormData_pg_index) + natts * sizeof(int16));
+		pg_index->indexrelid = RelationGetRelid(relation);
+		pg_index->indrelid = RelationGetRelid(relation);
+		pg_index->indnatts = natts;
+		pg_index->indnkeyatts = natts;
+		pg_index->indisunique = true;
+		pg_index->indisprimary = true;
+		pg_index->indimmediate = true;
+		pg_index->indisvalid = true;
+		pg_index->indisready = true;
+		pg_index->indislive = true;
+		pg_index->indkey.ndim = 1;
+		pg_index->indkey.dataoffset = 0; /* never any nulls */
+		pg_index->indkey.elemtype = INT2OID;
+		pg_index->indkey.dim1 = natts;
+		pg_index->indkey.lbound1 = 0;
+		pg_index->indkey.values[0] = YBTupleIdAttributeNumber;
+
+		relation->rd_index = pg_index;
+		relation->rd_indam = GetIndexAmRoutineByAmId(LSM_AM_OID, false);
+		relation->rd_opfamily = palloc0(sizeof(Oid) * pg_index->indnkeyatts);
+		relation->rd_opfamily[0] = BYTEA_LSM_FAM_OID;
+	}
+	return relation;
 }
 
 /*
- * Free the dummy index object created for index consistency checker.
+ * Free the dummy index object created for yb_index_check().
  */
 void
 yb_free_dummy_baserel_index(Relation relation)
 {
-	Assert(yb_index_checker);
 	Assert(relation->rd_index);
 	Assert(relation->rd_indam);
 	Assert(relation->rd_opfamily);
@@ -210,16 +218,9 @@ index_open(Oid relationId, LOCKMODE lockmode)
 
 	if (r->rd_rel->relkind != RELKIND_INDEX &&
 		r->rd_rel->relkind != RELKIND_PARTITIONED_INDEX)
-	{
-		if (yb_index_checker && r->rd_rel->relkind == RELKIND_RELATION)
-			yb_build_dummy_baserel_index(r);
-		else
-			ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("\"%s\" is not an index",
-							RelationGetRelationName(r))));
-
-	}
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("\"%s\" is not an index", RelationGetRelationName(r))));
 	return r;
 }
 
@@ -238,9 +239,6 @@ index_close(Relation relation, LOCKMODE lockmode)
 	LockRelId	relid = relation->rd_lockInfo.lockRelId;
 
 	Assert(lockmode >= NoLock && lockmode < MAX_LOCKMODES);
-
-	if (yb_index_checker && relation->rd_rel->relkind == RELKIND_RELATION)
-		yb_free_dummy_baserel_index(relation);
 
 	/* The relcache does the real work... */
 	RelationClose(relation);

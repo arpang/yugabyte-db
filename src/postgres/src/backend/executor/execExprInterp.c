@@ -4382,8 +4382,7 @@ ExecEvalSysVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext,
 	 * consistency checker).
 	 */
 	if (unlikely(*op->resnull) &&
-		!(yb_index_checker &&
-		  op->d.var.attnum == YBUniqueIdxKeySuffixAttributeNumber))
+		op->d.var.attnum != YBUniqueIdxKeySuffixAttributeNumber)
 		elog(ERROR, "failed to fetch attribute from slot");
 }
 
