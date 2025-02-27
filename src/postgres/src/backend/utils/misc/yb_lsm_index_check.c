@@ -232,7 +232,7 @@ indexrel_scan_plan(Relation indexrel)
 	return (Plan *) index_scan;
 }
 
-List*
+List *
 fetch_index_expressions(Relation indexrel)
 {
 	bool isnull;
