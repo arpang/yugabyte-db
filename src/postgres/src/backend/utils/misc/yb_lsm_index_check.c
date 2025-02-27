@@ -232,6 +232,18 @@ indexrel_scan_plan(Relation indexrel)
 	return (Plan *) index_scan;
 }
 
+List*
+fetch_index_expressions(Relation indexrel)
+{
+	bool isnull;
+	List *indexprs = NIL;
+	Datum exprs_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+										Anum_pg_index_indexprs, &isnull);
+	if (!isnull)
+		indexprs = (List *) stringToNode(TextDatumGetCString(exprs_datum));
+	return indexprs;
+}
+
 /*
  * Generate plan corresponding to:
  *		SELECT (index attributes, ybctid) from baserel where ybctid IN (....)
@@ -248,23 +260,13 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
 	TupleDesc base_desc = RelationGetDescr(baserel);
 
-	/* Fetch expressions in the index */
-	bool isnull;
-	List *indexprs;
-	ListCell *next_expr = NULL;
-	Datum exprs_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
-										Anum_pg_index_indexprs, &isnull);
-	if (!isnull)
-	{
-		indexprs = (List *) stringToNode(TextDatumGetCString(exprs_datum));
-		next_expr = list_head(indexprs);
-	}
-
 	Expr *expr;
 	TargetEntry *target_entry;
 	const FormData_pg_attribute *attr;
 	List *plan_targetlist = NIL;
 	int i;
+	List *indexprs = NIL;
+	ListCell *next_expr = NULL;
 	for (i = 0; i < indexdesc->natts; i++)
 	{
 		AttrNumber attnum = indexrel->rd_index->indkey.values[i];
@@ -278,7 +280,13 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 		else
 		{
 			/* expression index attribute */
-			Assert(next_expr);
+			if (next_expr == NULL)
+			{
+				/* Fetch expressions in the index */
+				Assert(indexprs == NIL);
+				indexprs = fetch_index_expressions(indexrel);
+				next_expr = list_head(indexprs);
+			}
 			expr = (Expr *) lfirst(next_expr);
 			next_expr = lnext(indexprs, next_expr);
 		}
