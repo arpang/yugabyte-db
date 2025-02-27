@@ -1541,6 +1541,12 @@ Status PgApiImpl::FetchRequestedYbctids(
   return select.Exec(exec_params);
 }
 
+Status PgApiImpl::BindYbctids(PgStatement* handle, int n, uintptr_t* ybctids) {
+  auto& select = VERIFY_RESULT_REF(GetStatementAs<PgSelect>(handle));
+  select.SetRequestedYbctids(pg_types(), n, ybctids);
+  return Status::OK();
+}
+
 Status PgApiImpl::DmlANNBindVector(PgStatement* handle, PgExpr* vector) {
   return VERIFY_RESULT_REF(GetStatementAs<PgDml>(handle)).ANNBindVector(vector);
 }
