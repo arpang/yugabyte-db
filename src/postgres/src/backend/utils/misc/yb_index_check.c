@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
- * yb_lsm_index_check.c
- * Utiity to check if an LSM index is consistent with its base relation
+ * yb_index_check.c
+ * Utiity to check if a YB index is consistent with its base relation.
  *
  * Copyright (c) YugabyteDB, Inc.
  *
@@ -18,7 +18,7 @@
  * under the License.
  *
  * IDENTIFICATION
- *	  src/backend/utils/misc/yb_lsm_index_check.c.c
+ *	  src/backend/utils/misc/yb_index_check.c.c
  *
  *-------------------------------------------------------------------------
  */
@@ -45,7 +45,7 @@
 
 bool		yb_index_checker = false;
 
-static void yb_lsm_index_check_internal(Oid indexoid);
+static void yb_index_check_internal(Oid indexoid);
 
 static void
 check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
@@ -251,7 +251,7 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	/* Fetch expressions in the index */
 	bool isnull;
 	List *indexprs;
-	ListCell *next_expr;
+	ListCell *next_expr = NULL;
 	Datum exprs_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
 										Anum_pg_index_indexprs, &isnull);
 	if (!isnull)
@@ -532,7 +532,7 @@ partitioned_index_check(Oid parentindexId)
 	{
 		Oid childindexId = ObjectIdGetDatum(lfirst_oid(lc));
 		/* TODO: A new read time can be used for each partition. */
-		yb_lsm_index_check_internal(childindexId);
+		yb_index_check_internal(childindexId);
 	}
 }
 
@@ -579,7 +579,7 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 }
 
 static void
-yb_lsm_index_check_internal(Oid indexoid)
+yb_index_check_internal(Oid indexoid)
 {
 	Relation indexrel = RelationIdGetRelation(indexoid);
 
@@ -589,17 +589,18 @@ yb_lsm_index_check_internal(Oid indexoid)
 
 	Assert(indexrel->rd_index);
 
-	if (!IsYBRelation(indexrel))
-		elog(ERROR, "This operation is only supported for LSM indexes");
+	if (indexrel->rd_rel->relam == YBGIN_AM_OID)
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("this operation is not yet supported for ybgin "
+							   "indexes")));
+
+	if (indexrel->rd_rel->relam != LSM_AM_OID)
+		elog(ERROR,
+			 "This operation is not supported for index with access method %d",
+			 indexrel->rd_rel->relam);
 
 	if (!indexrel->rd_index->indisvalid)
 		elog(ERROR, "Index '%s' is marked invalid",
-			 RelationGetRelationName(indexrel));
-	if (!indexrel->rd_index->indisready)
-		elog(ERROR, "Index '%s' is not ready",
-			 RelationGetRelationName(indexrel));
-	if (!indexrel->rd_index->indislive)
-		elog(ERROR, "Index '%s' is not live",
 			 RelationGetRelationName(indexrel));
 
 	/* YB doesn't have separate PK index, hence it is always consistent */
@@ -608,11 +609,6 @@ yb_lsm_index_check_internal(Oid indexoid)
 		RelationClose(indexrel);
 		return;
 	}
-
-	if (indexrel->rd_rel->relam == YBGIN_AM_OID)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				errmsg("this operation is not yet supported for ybgin indexes")));
 
 	if (indexrel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
 	{
@@ -651,13 +647,13 @@ yb_lsm_index_check_internal(Oid indexoid)
 }
 
 Datum
-yb_lsm_index_check(PG_FUNCTION_ARGS)
+yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
 	yb_index_checker = true;
 	PG_TRY();
 	{
-		yb_lsm_index_check_internal(indexoid);
+		yb_index_check_internal(indexoid);
 	}
 	PG_FINALLY();
 	{

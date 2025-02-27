@@ -19,7 +19,7 @@ import org.yb.YBTestRunner;
  * Runs the pg_regress test suite on YB code.
  */
 @RunWith(value=YBTestRunner.class)
-public class TestPgRegressIndexConsistencyCheck extends BasePgRegressTest {
+public class TestPgRegressYbIndexCheck extends BasePgRegressTest {
 
   @Override
   public int getTestMethodTimeoutSec() {
@@ -28,6 +28,6 @@ public class TestPgRegressIndexConsistencyCheck extends BasePgRegressTest {
 
   @Test
   public void testPgRegressFeature() throws Exception {
-    runPgRegressTest("yb_index_consistency_check_schedule");
+    runPgRegressTest("yb_index_check_schedule");
   }
 }

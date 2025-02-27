@@ -12127,7 +12127,7 @@
   prosrc => 'yb_get_current_hybrid_time_lsn'},
 
 { oid => '8085', descr => 'returns whether the index is logically consistent with its base relation',
-  proname => 'yb_lsm_index_check', provolatile => 's',
+  proname => 'yb_index_check', provolatile => 's',
   prorettype => 'void', proargtypes => 'oid',
-  prosrc => 'yb_lsm_index_check' }
+  prosrc => 'yb_index_check' }
 ]

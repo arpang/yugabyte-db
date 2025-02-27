@@ -1,7 +1,7 @@
-# src/test/regress/yb_index_consistency_check_schedule
+# src/test/regress/yb_index_check_schedule
 #
 ################################################################################
 # YB index consistency checker tests.
 ################################################################################
 
-test: yb.orig.index_consistency_check
+test: yb.orig.yb_index_check
