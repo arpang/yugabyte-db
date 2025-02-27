@@ -590,9 +590,10 @@ yb_index_check_internal(Oid indexoid)
 	Assert(indexrel->rd_index);
 
 	if (indexrel->rd_rel->relam == YBGIN_AM_OID)
-		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("this operation is not yet supported for ybgin "
-							   "indexes")));
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				errmsg("this operation is not yet supported for ybgin "
+				"indexes")));
 
 	if (indexrel->rd_rel->relam != LSM_AM_OID)
 		elog(ERROR,
