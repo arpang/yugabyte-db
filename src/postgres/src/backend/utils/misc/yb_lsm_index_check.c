@@ -43,6 +43,7 @@
 #include "utils/relcache.h"
 #include "utils/syscache.h"
 
+/* TODO: rename the file to yb_index_check */
 bool		yb_index_checker = false;
 
 static void yb_index_check_internal(Oid indexoid);
