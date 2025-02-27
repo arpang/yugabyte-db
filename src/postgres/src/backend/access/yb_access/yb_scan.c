@@ -2419,7 +2419,7 @@ YbPredetermineNeedsRecheck(Relation relation,
 	YbScanPlanData scan_plan;
 
 	ybcSetupScanPlan(xs_want_itup, &ybscan, &scan_plan,
-					 false /* yb_index_check */);
+					 false /* yb_index_check */ );
 	ybcSetupScanKeys(&ybscan, &scan_plan);
 
 	YbBindScanKeys(&ybscan, &scan_plan, true /* is_for_precheck */ );
