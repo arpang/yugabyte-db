@@ -220,7 +220,8 @@ index_open(Oid relationId, LOCKMODE lockmode)
 		r->rd_rel->relkind != RELKIND_PARTITIONED_INDEX)
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				 errmsg("\"%s\" is not an index", RelationGetRelationName(r))));
+				 errmsg("\"%s\" is not an index",
+				 RelationGetRelationName(r))));
 	return r;
 }
 
