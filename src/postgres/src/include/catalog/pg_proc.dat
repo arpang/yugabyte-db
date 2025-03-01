@@ -12129,5 +12129,9 @@
 { oid => '8085', descr => 'returns whether the index is logically consistent with its base relation',
   proname => 'yb_lsm_index_check', provolatile => 's',
   prorettype => 'void', proargtypes => 'oid',
-  prosrc => 'yb_lsm_index_check' }
+  prosrc => 'yb_lsm_index_check' },
+
+{ oid => '8086', descr => 'given index key attributes, returns index row ybctid',
+  proname => 'yb_compute_ybctid', proargtypes => 'oid anyarray bytea',
+  prorettype => 'bytea', prosrc => 'yb_compute_ybctid'}
 ]

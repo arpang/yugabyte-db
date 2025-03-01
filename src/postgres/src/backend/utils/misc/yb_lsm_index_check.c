@@ -33,9 +33,11 @@
 #include "executor/executor.h"
 #include "executor/spi.h"
 #include "executor/tuptable.h"
+#include "executor/ybModifyTable.h"
 #include "fmgr.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
+#include "utils/arrayaccess.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/lsyscache.h"
@@ -851,4 +853,57 @@ yb_lsm_index_check(PG_FUNCTION_ARGS)
 	}
 	PG_END_TRY();
 	PG_RETURN_VOID();
+}
+
+Datum
+yb_compute_ybctid(PG_FUNCTION_ARGS)
+{
+	Oid relid = PG_GETARG_OID(0);
+	Relation rel = RelationIdGetRelation(relid);
+	TupleDesc desc = RelationGetDescr(rel);
+	TupleTableSlot *slot = MakeTupleTableSlot(desc, &TTSOpsVirtual);
+
+	AnyArrayType *array = PG_GETARG_ANY_ARRAY_P(1);
+	int ndims = AARR_NDIM(array);
+	int *dims = AARR_DIMS(array);
+	Assert(ndims == 1);
+	int nitems = ArrayGetNItems(ndims, dims);
+	Assert(nitems <= desc->natts);
+	Assert(nitems > 0);
+	array_iter iter;
+	array_iter_setup(&iter, array);
+
+	bool null = false;
+	for (int i = 0; i < nitems; i++)
+	{
+		FormData_pg_attribute *att = TupleDescAttr(desc, i);
+		slot->tts_values[i] = array_iter_next(&iter, &slot->tts_isnull[i], i,
+											  att->attlen, att->attbyval,
+											  att->attalign);
+		null = null || slot->tts_isnull[i];
+	}
+
+	slot->tts_nvalid = nitems;
+	slot->tts_flags &= ~TTS_FLAG_EMPTY; /* Not empty */
+	slot->tts_tableOid = relid;
+
+	Form_pg_index index = rel->rd_index;
+	if (index)
+	{
+		int nkeyatts = index->indnkeyatts;
+		int indisunique = index->indisunique;
+		if (nitems != nkeyatts)
+			elog(ERROR, "Number of argument mimatched. Expected %d, actual %d",
+				 nkeyatts, nitems);
+		Datum ybbasetid = PG_GETARG_DATUM(2);
+		if (indisunique && !index->indnullsnotdistinct && null)
+			slot->ts_ybuniqueidxkeysuffix = ybbasetid;
+		else
+			slot->ts_ybbasectid = ybbasetid;
+	}
+
+	Datum result = YBCComputeYBTupleIdFromSlot(rel, slot);
+	ExecDropSingleTupleTableSlot(slot);
+	RelationClose(rel);
+	return result;
 }

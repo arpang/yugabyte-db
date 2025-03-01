@@ -283,7 +283,6 @@ static const FormData_pg_attribute *IndexSysAtt[] = {&index_a1, &index_a2};
 const FormData_pg_attribute *
 IndexSystemAttributeDefinition(AttrNumber attno)
 {
-	Assert(yb_index_checker);
 	Assert(attno == YBIdxBaseTupleIdAttributeNumber ||
 		   attno == YBUniqueIdxKeySuffixAttributeNumber);
 	return IndexSysAtt[-attno + YBIdxBaseTupleIdAttributeNumber];

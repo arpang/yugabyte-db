@@ -429,13 +429,13 @@ slot_getsysattr(TupleTableSlot *slot, int attnum, bool *isnull)
 		*isnull = false;
 		return TABLETUPLE_YBCTID(slot);
 	}
-	else if (yb_index_checker && attnum == YBIdxBaseTupleIdAttributeNumber)
+	else if (attnum == YBIdxBaseTupleIdAttributeNumber)
 	{
 		/* Used for secondary index scan. */
 		*isnull = false;
 		return slot->ts_ybbasectid;
 	}
-	else if (yb_index_checker && attnum == YBUniqueIdxKeySuffixAttributeNumber)
+	else if (attnum == YBUniqueIdxKeySuffixAttributeNumber)
 	{
 		/* Used for secondary index scan. */
 		*isnull = DatumGetPointer(slot->ts_ybuniqueidxkeysuffix) == NULL;
