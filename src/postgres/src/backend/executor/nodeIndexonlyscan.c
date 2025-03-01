@@ -359,8 +359,9 @@ StoreIndexTuple(TupleTableSlot *slot, IndexTuple itup, TupleDesc itupdesc)
 
 	if (yb_index_checker)
 	{
-		TABLETUPLE_YBCTID(slot) = INDEXTUPLE_YBCTID(itup); /* ybidxbasectid */
+		slot->ts_ybbasectid = INDEXTUPLE_YBCTID(itup); /* ybidxbasectid */
 		slot->ts_ybuniqueidxkeysuffix = itup->t_ybuniqueidxkeysuffix; /* ybuniqueidxkeysuffix */
+		slot->tts_ybctid = itup->t_ybindexrowybctid;
 	}
 }
 

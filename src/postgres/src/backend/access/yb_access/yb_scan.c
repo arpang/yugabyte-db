@@ -761,6 +761,11 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, ScanDirection dir)
 				if (syscols.ybuniqueidxkeysuffix != NULL)
 						tuple->t_ybuniqueidxkeysuffix =
 							PointerGetDatum(syscols.ybuniqueidxkeysuffix);
+				if (syscols.ybctid != NULL)
+				{
+					tuple->t_ybindexrowybctid = PointerGetDatum(syscols.ybctid);
+					elog(INFO, "yb_scan %p", DatumGetPointer(tuple->t_ybindexrowybctid));
+				}
 			}
 			break;
 		}
