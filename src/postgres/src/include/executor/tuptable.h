@@ -339,8 +339,6 @@ extern void slot_getmissingattrs(TupleTableSlot *slot, int startAttNum,
 								 int lastAttNum);
 extern void slot_getsomeattrs_int(TupleTableSlot *slot, int attnum);
 
-extern bool	yb_index_checker;
-
 #ifndef FRONTEND
 
 /*
@@ -431,13 +429,13 @@ slot_getsysattr(TupleTableSlot *slot, int attnum, bool *isnull)
 	}
 	else if (attnum == YBIdxBaseTupleIdAttributeNumber)
 	{
-		/* Used for secondary index scan. */
+		/* Used for secondary index scan during index consistency check. */
 		*isnull = false;
 		return slot->ts_ybbasectid;
 	}
 	else if (attnum == YBUniqueIdxKeySuffixAttributeNumber)
 	{
-		/* Used for secondary index scan. */
+		/* Used for secondary index scan during index consistency check. */
 		*isnull = DatumGetPointer(slot->ts_ybuniqueidxkeysuffix) == NULL;
 		return slot->ts_ybuniqueidxkeysuffix;
 	}

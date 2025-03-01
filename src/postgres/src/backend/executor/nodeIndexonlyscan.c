@@ -50,7 +50,7 @@
 
 static TupleTableSlot *IndexOnlyNext(IndexOnlyScanState *node);
 static void StoreIndexTuple(TupleTableSlot *slot, IndexTuple itup,
-							TupleDesc itupdesc);
+							TupleDesc itupdesc, bool yb_index_check);
 static void yb_init_indexonly_scandesc(IndexOnlyScanState *node);
 static void yb_agg_pushdown_init_scan_slot(IndexOnlyScanState *node);
 
@@ -260,7 +260,8 @@ IndexOnlyNext(IndexOnlyScanState *node)
 			ExecForceStoreHeapTuple(scandesc->xs_hitup, slot, false);
 		}
 		else if (scandesc->xs_itup)
-			StoreIndexTuple(slot, scandesc->xs_itup, scandesc->xs_itupdesc);
+			StoreIndexTuple(slot, scandesc->xs_itup, scandesc->xs_itupdesc,
+							estate->yb_exec_params.yb_index_check);
 		else if (IsYugaByteEnabled() && scandesc->yb_aggrefs)
 		{
 			/*
@@ -342,7 +343,8 @@ IndexOnlyNext(IndexOnlyScanState *node)
  * right now we don't need it elsewhere.
  */
 static void
-StoreIndexTuple(TupleTableSlot *slot, IndexTuple itup, TupleDesc itupdesc)
+StoreIndexTuple(TupleTableSlot *slot, IndexTuple itup, TupleDesc itupdesc,
+				bool yb_index_check)
 {
 	/*
 	 * Note: we must use the tupdesc supplied by the AM in index_deform_tuple,
@@ -357,7 +359,7 @@ StoreIndexTuple(TupleTableSlot *slot, IndexTuple itup, TupleDesc itupdesc)
 	index_deform_tuple(itup, itupdesc, slot->tts_values, slot->tts_isnull);
 	ExecStoreVirtualTuple(slot);
 
-	if (yb_index_checker)
+	if (yb_index_check)
 	{
 		slot->ts_ybbasectid = INDEXTUPLE_YBCTID(itup); /* ybidxbasectid */
 		slot->ts_ybuniqueidxkeysuffix = itup->t_ybuniqueidxkeysuffix; /* ybuniqueidxkeysuffix */

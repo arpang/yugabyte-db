@@ -12,7 +12,7 @@
 [
 
 # For better version control conflict detection, list latest migration filename
-# here: V70__25820__yb_lsm_index_check.sql
+# here: V70__25820__yb_index_check.sql
 { major => '70', minor => '0', name => '<baseline>', time_applied => '_null_' }
 
 ]
