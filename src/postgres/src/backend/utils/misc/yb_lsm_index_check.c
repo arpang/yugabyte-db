@@ -542,7 +542,7 @@ check_spurious_index_rows(Relation baserel, Relation indexrel, EState* estate)
  *		unique) from indexrel
  */
 static Plan *
-gitindexrel_scan_plan2(Relation indexrel)
+indexrel_scan_plan2(Relation indexrel)
 {
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
 
