@@ -480,6 +480,7 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	join_plan->hashClauseInfos->orig_expr = (Expr *) join_clause;
 	return (Plan *) join_plan;
 }
+
 static EState *
 init_estate(Relation baserel)
 {
@@ -558,20 +559,20 @@ indexrel_scan_plan2(Relation indexrel)
 {
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
 
-	Expr *expr;
 	List *plan_targetlist = NIL;
 	TargetEntry *target_entry;
 	const FormData_pg_attribute *attr;
 	int i = 0;
 
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
-	expr = (Expr *) makeVar(INDEX_VAR, YBTupleIdAttributeNumber,
-							attr->atttypid, attr->atttypmod,
-							attr->attcollation, 0);
-	target_entry = makeTargetEntry((Expr *) expr, i + 1, "", false);
+	Expr *ybctid_expr = (Expr *) makeVar(INDEX_VAR, YBTupleIdAttributeNumber,
+										 attr->atttypid, attr->atttypmod,
+										 attr->attcollation, 0);
+	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 	i++;
 	// todo: does the following increase i?
+	Expr *expr;
 	for (int attno = indexrel->rd_index->indnkeyatts; attno < indexdesc->natts; attno++, i++)
 	{
 		attr = TupleDescAttr(indexdesc, attno);
@@ -601,11 +602,46 @@ indexrel_scan_plan2(Relation indexrel)
 		index_cols = lappend(index_cols, target_entry);
 	}
 
+	/* Index qual */
+	/* RHS */
+	Bitmapset *params_bms = NULL;
+	List *params = NIL;
+	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	for (int i = 0; i < yb_bnl_batch_size; i++)
+	{
+		params_bms = bms_add_member(params_bms, i);
+		Param *param = makeNode(Param);
+		param->paramkind = PARAM_EXEC;
+		param->paramid = i;
+		param->paramtype = attr->atttypid;
+		param->paramtypmod = attr->atttypmod;
+		param->paramcollid = attr->attcollation;
+		param->location = -1;
+		params = lappend(params, param);
+	}
+	ArrayExpr *arrexpr = makeNode(ArrayExpr);
+	arrexpr->array_typeid = BYTEAARRAYOID;
+	arrexpr->element_typeid = BYTEAOID;
+	arrexpr->multidims = false;
+	arrexpr->array_collid = InvalidOid;
+	arrexpr->location = -1;
+	arrexpr->elements = params;
+
+	ScalarArrayOpExpr *saop = makeNode(ScalarArrayOpExpr);
+	saop->opno = ByteaEqualOperator;
+	saop->opfuncid = get_opcode(ByteaEqualOperator);
+	saop->useOr = true;
+	saop->inputcollid = InvalidOid;
+	saop->args = list_make2(ybctid_expr, arrexpr);
+
 	IndexOnlyScan *index_scan = makeNode(IndexOnlyScan);
 	Plan *plan = &index_scan->scan.plan;
 	plan->targetlist = plan_targetlist;
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
+	plan->extParam = params_bms;
+	plan->allParam = params_bms;
+	index_scan->indexqual = list_make1(saop);
 	index_scan->scan.scanrelid = 1; /* only one relation is involved */
 	index_scan->indexid = RelationGetRelid(indexrel);
 	index_scan->indextlist = index_cols;
@@ -740,10 +776,100 @@ baserel_scan_plan2(Relation baserel, Relation indexrel)
 	return (Plan *) base_scan;
 }
 
+static Plan *
+missing_check_plan(Relation baserel, Relation indexrel)
+{
+	/*
+	 * To check for spurious rows in index relation, we join the index relation
+	 * with the base relation on indexrow.ybbasectid == baserow.ybctid. We use
+	 * BNL for this purpose. To satisfy the BNL's join condition requirement,
+	 * index relation is used as the outer (left) subplan.
+	 */
+
+	/* Outer subplan: index relation scan */
+	Plan *indexrel_scan = indexrel_scan_plan2(indexrel);
+	TupleDesc indexrel_scan_desc = ExecTypeFromTL(indexrel_scan->targetlist);
+
+	/* Inner subplan: base relation scan */
+	Plan *baserel_scan = baserel_scan_plan2(baserel, indexrel);
+
+	/*
+	 * Join plan targetlist
+	 *
+	 * Outer subplan tlist: index_attributes, ybbasectid, ybuniqueidxkeysuffix
+	 * (if unique) Inner subplan tlist: index_attributes (scanned/computed from
+	 * baserel), ybctid
+	 *
+	 * Join plan tlist: union of the above such that semantically same entries
+	 * are next to each other:
+	 * (outer_attr1, inner_attr1, outer_attr2, inner_att2 ..*,
+	 * ybuniqueidxkeysuffix if unqiue index)
+	 *
+	 */
+	Expr *expr;
+	TargetEntry *target_entry;
+	const FormData_pg_attribute *attr;
+	List *plan_tlist = NIL;
+	int i;
+	for (i = 0; i < indexrel_scan_desc->natts; i++)
+	{
+		attr = TupleDescAttr(indexrel_scan_desc, i);
+		expr = (Expr *) makeVar(OUTER_VAR, i + 1, attr->atttypid,
+								attr->atttypmod, attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, 2 * i + 1, "", false);
+		plan_tlist = lappend(plan_tlist, target_entry);
+
+		expr = (Expr *) makeVar(INNER_VAR, i + 1, attr->atttypid,
+								attr->atttypmod, attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, 2 * i + 2, "", false);
+		plan_tlist = lappend(plan_tlist, target_entry);
+	}
+
+	/* Join claue */
+	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	Var *join_clause_lhs = makeVar(OUTER_VAR, 1,
+								   attr->atttypid, attr->atttypmod,
+								   attr->attcollation, 0);
+	Var *join_clause_rhs = makeVar(INNER_VAR, 1,
+								   attr->atttypid, attr->atttypmod,
+								   attr->attcollation, 0);
+	OpExpr *join_clause = (OpExpr *) make_opclause(ByteaEqualOperator, BOOLOID,
+												   false, /* opretset */
+												   (Expr *) join_clause_lhs,
+												   (Expr *) join_clause_rhs,
+												   InvalidOid, InvalidOid);
+	join_clause->opfuncid = get_opcode(ByteaEqualOperator);
+
+	/* NestLoopParam */
+	NestLoopParam *nlp = makeNode(NestLoopParam);
+	nlp->paramno = 0;
+	nlp->paramval = join_clause_lhs;
+	nlp->yb_batch_size = yb_bnl_batch_size;
+
+	/* BNL join plan */
+	YbBatchedNestLoop *join_plan = makeNode(YbBatchedNestLoop);
+	Plan *plan = &join_plan->nl.join.plan;
+	plan->targetlist = plan_tlist;
+	plan->lefttree = (Plan *) baserel_scan;
+	plan->righttree = (Plan *) indexrel_scan;
+	join_plan->nl.join.jointype = JOIN_LEFT;
+	join_plan->nl.join.inner_unique = true;
+	join_plan->nl.join.joinqual = list_make1(join_clause);
+	join_plan->nl.nestParams = list_make1(nlp);
+	join_plan->first_batch_factor = 1.0;
+	join_plan->num_hashClauseInfos = 1;
+	join_plan->hashClauseInfos = palloc0(sizeof(YbBNLHashClauseInfo));
+	join_plan->hashClauseInfos->hashOp = ByteaEqualOperator;
+	join_plan->hashClauseInfos->innerHashAttNo = join_clause_rhs->varattno;
+	join_plan->hashClauseInfos->outerParamExpr = (Expr *) join_clause_lhs;
+	join_plan->hashClauseInfos->orig_expr = (Expr *) join_clause;
+	return (Plan *) join_plan;
+}
+
 static void
 check_missing_index_rows(Relation baserel, Relation indexrel, EState* estate)
 {
-	Plan *indexrel2 = indexrel_scan_plan2(indexrel);
+	Plan *indexrel2 = missing_check_plan(baserel, indexrel);
 	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 	PlanState *indexrel2_state = ExecInitNode((Plan *) indexrel2, estate, 0);
 	TupleTableSlot* output;
@@ -753,22 +879,9 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState* estate)
 		if (TTS_EMPTY(output))
 			break;
 		const char* string = YbTupleTableSlotToString(output);
-		elog(INFO, "2nd scan index rel %s", string);
+		elog(INFO, "2nd missing check plan %s", string);
 	}
 	ExecEndNode(indexrel2_state);
-
-	Plan *baserelscan = baserel_scan_plan2(baserel, indexrel);
-	PlanState *state = ExecInitNode((Plan *) baserelscan, estate, 0);
-	while ((output = ExecProcNode(state)))
-	{
-		// todo: why is this required
-		if (TTS_EMPTY(output))
-			break;
-		const char* string = YbTupleTableSlotToString(output);
-		elog(INFO, "2nd scan base rel %s", string);
-	}
-	ExecEndNode(state);
-
 	MemoryContextSwitchTo(oldctxt);
 	return;
 }
