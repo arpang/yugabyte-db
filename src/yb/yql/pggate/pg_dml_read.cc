@@ -45,7 +45,6 @@
 #include "yb/yql/pggate/pg_select_index.h"
 #include "yb/yql/pggate/pg_table.h"
 #include "yb/yql/pggate/pg_tabledesc.h"
-#include "yb/yql/pggate/pg_tools.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 
 namespace yb::pggate {
