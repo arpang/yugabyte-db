@@ -288,7 +288,7 @@ SELECT yb_index_check('abcd2_b_c_d_idx'::regclass::oid);
 CREATE TABLE vectors (i serial PRIMARY KEY, v tsvector);
 CREATE INDEX ON vectors USING ybgin (v) where i > 5;
 SELECT yb_index_check('vectors_v_idx'::regclass::oid);
-ERROR:  this operation is not yet supported for ybgin indexes
+ERROR:  This operation is not supported for index with access method 8021
 -- Variable length data type
 CREATE TABLE test_bytea(a int primary key, b int, c bytea);
 CREATE INDEX test_bytea_b_c_idx ON test_bytea (b ASC) INCLUDE (c);

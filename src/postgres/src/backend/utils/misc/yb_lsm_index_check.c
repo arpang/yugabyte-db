@@ -593,16 +593,16 @@ yb_index_check_internal(Oid indexoid)
 {
 	Relation indexrel = RelationIdGetRelation(indexoid);
 
-	if (indexrel->rd_rel->relkind != RELKIND_INDEX &&
-		indexrel->rd_rel->relkind != RELKIND_PARTITIONED_INDEX)
+	if (indexrel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
+	{
+		RelationClose(indexrel);
+		return partitioned_index_check(indexoid);
+	}
+
+	if (indexrel->rd_rel->relkind != RELKIND_INDEX)
 		elog(ERROR, "Object is not an index");
 
 	Assert(indexrel->rd_index);
-
-	if (indexrel->rd_rel->relam == YBGIN_AM_OID)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				errmsg("this operation is not yet supported for ybgin indexes")));
 
 	if (indexrel->rd_rel->relam != LSM_AM_OID)
 		elog(ERROR,
@@ -617,12 +617,6 @@ yb_index_check_internal(Oid indexoid)
 	{
 		RelationClose(indexrel);
 		return;
-	}
-
-	if (indexrel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
-	{
-		RelationClose(indexrel);
-		return partitioned_index_check(indexoid);
 	}
 
 	Relation baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
