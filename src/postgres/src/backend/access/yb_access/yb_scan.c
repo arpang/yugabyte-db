@@ -155,8 +155,6 @@ typedef struct YbScanPlanData
 	/* Description and attnums of the columns to bind */
 	TupleDesc	bind_desc;
 	AttrNumber	bind_key_attnums[YB_MAX_SCAN_KEYS];
-
-	bool yb_index_check;
 } YbScanPlanData;
 
 typedef YbScanPlanData *YbScanPlan;
@@ -205,8 +203,7 @@ ybcCheckPrimaryKeyAttribute(YbScanPlan scan_plan,
 
 	if (column_info.is_hash)
 		scan_plan->hash_key = bms_add_member(scan_plan->hash_key, idx);
-	if (column_info.is_primary ||
-		(scan_plan->yb_index_check && attnum == YBTupleIdAttributeNumber))
+	if (column_info.is_primary)
 		scan_plan->primary_key = bms_add_member(scan_plan->primary_key, idx);
 }
 
@@ -225,10 +222,6 @@ ybcLoadTableInfo(Relation relation, YbScanPlan scan_plan)
 
 	for (AttrNumber attnum = 1; attnum <= relation->rd_att->natts; attnum++)
 		ybcCheckPrimaryKeyAttribute(scan_plan, ybc_table_desc, attnum);
-
-	if (scan_plan->yb_index_check)
-		ybcCheckPrimaryKeyAttribute(scan_plan, ybc_table_desc,
-									YBTupleIdAttributeNumber);
 }
 
 static Oid
@@ -870,8 +863,7 @@ YbIsScanningEmbeddedIdx(Relation table, Relation index)
  *    - Table is null because we are only interested in getting ybctids from the index.
  */
 static void
-ybcSetupScanPlan(bool xs_want_itup, YbScanDesc ybScan, YbScanPlan scan_plan,
-				 bool yb_index_check)
+ybcSetupScanPlan(bool xs_want_itup, YbScanDesc ybScan, YbScanPlan scan_plan)
 {
 	TableScanDesc tsdesc = (TableScanDesc) ybScan;
 	Relation	relation = tsdesc->rs_rd;
@@ -880,7 +872,6 @@ ybcSetupScanPlan(bool xs_want_itup, YbScanDesc ybScan, YbScanPlan scan_plan,
 
 	memset(scan_plan, 0, sizeof(*scan_plan));
 
-	scan_plan->yb_index_check = yb_index_check;
 	ybScan->prepare_params.embedded_idx = YbIsScanningEmbeddedIdx(relation,
 																  index);
 
@@ -1262,6 +1253,7 @@ ybcSetupScanKeys(YbScanDesc ybScan, YbScanPlan scan_plan)
 	/*
 	 * Find the scan keys that are the primary key.
 	 */
+	bool sk_cols_has_ybctid = false;
 	for (int i = 0; i < ybScan->nkeys; i++)
 	{
 		const AttrNumber attnum = scan_plan->bind_key_attnums[i];
@@ -1271,6 +1263,11 @@ ybcSetupScanKeys(YbScanDesc ybScan, YbScanPlan scan_plan)
 
 		int			idx = YBAttnumToBmsIndex(scan_plan->target_relation, attnum);
 
+		if (attnum == YBTupleIdAttributeNumber)
+		{
+			sk_cols_has_ybctid = true;
+			scan_plan->sk_cols = bms_add_member(scan_plan->sk_cols, idx);
+		}
 		/*
 		 * TODO: Can we have bound keys on non-pkey columns here?
 		 *       If not we do not need the is_primary_key below.
@@ -1285,16 +1282,14 @@ ybcSetupScanKeys(YbScanDesc ybScan, YbScanPlan scan_plan)
 	}
 
 	/*
-	 * If hash key is not fully set, we must do a full-table scan so clear all
-	 * the scan keys if the hash code was explicitly specified as a
-	 * scan key then we also shouldn't be clearing the scan keys
-	 *
-	 * This is not applicable for index checker because:
-	 * - during baserel scan, the ybctid is specified/set.
-	 * - during indexrel scan, scan_plan->sk_cols is anyway null.
+	 * If hash key is not fully set and ybctid is not set either, we must do a
+	 * full-table scan so clear all the scan keys if the hash code was
+	 * explicitly specified as a scan key then we also shouldn't be clearing the
+	 * scan keys.
 	 */
-	if (!scan_plan->yb_index_check && ybScan->hash_code_keys == NIL &&
-		!bms_is_subset(scan_plan->hash_key, scan_plan->sk_cols))
+	if (ybScan->hash_code_keys == NIL &&
+		!bms_is_subset(scan_plan->hash_key, scan_plan->sk_cols) &&
+		!sk_cols_has_ybctid)
 	{
 		bms_free(scan_plan->sk_cols);
 		scan_plan->sk_cols = NULL;
@@ -1934,8 +1929,7 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 							   length_of_key - 1, attnums,
 							   num_elems, elem_values);
 	}
-	else if (scan_plan->yb_index_check &&
-			 scan_plan->bind_key_attnums[i] == YBTupleIdAttributeNumber)
+	else if (scan_plan->bind_key_attnums[i] == YBTupleIdAttributeNumber)
 	{
 		Assert(num_elems == num_valid);
 		YBCPgBindYbctids(ybScan->handle, num_elems, elem_values);
@@ -2418,8 +2412,7 @@ YbPredetermineNeedsRecheck(Relation relation,
 	/* Set up the scan plan */
 	YbScanPlanData scan_plan;
 
-	ybcSetupScanPlan(xs_want_itup, &ybscan, &scan_plan,
-					 false /* yb_index_check */ );
+	ybcSetupScanPlan(xs_want_itup, &ybscan, &scan_plan);
 	ybcSetupScanKeys(&ybscan, &scan_plan);
 
 	YbBindScanKeys(&ybscan, &scan_plan, true /* is_for_precheck */ );
@@ -3123,8 +3116,7 @@ ybcBeginScan(Relation relation,
 	/* Set up the scan plan */
 	YbScanPlanData scan_plan;
 
-	ybcSetupScanPlan(xs_want_itup, ybScan, &scan_plan,
-					 exec_params ? exec_params->yb_index_check: false);
+	ybcSetupScanPlan(xs_want_itup, ybScan, &scan_plan);
 	ybcSetupScanKeys(ybScan, &scan_plan);
 
 	/* Create handle */
