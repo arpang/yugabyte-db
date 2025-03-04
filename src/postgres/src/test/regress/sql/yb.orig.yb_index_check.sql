@@ -81,7 +81,7 @@ RESET yb_non_ddl_txn_for_sys_tables_allowed;
 DO
 $$
 BEGIN
-    PERFORM pg_sleep(5);
+    PERFORM pg_sleep(1);
 END;
 $$;
 $force_cache_refresh$ AS force_cache_refresh \gset
