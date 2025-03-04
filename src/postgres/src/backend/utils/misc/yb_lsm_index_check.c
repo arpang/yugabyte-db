@@ -1045,7 +1045,7 @@ yb_compute_ybctid(PG_FUNCTION_ARGS)
 		Datum ybbasetid = PG_GETARG_DATUM(2);
 		if (indisunique && !index->indnullsnotdistinct && null)
 			slot->ts_ybuniqueidxkeysuffix = ybbasetid;
-		else
+		else if (!indisunique)
 			slot->ts_ybbasectid = ybbasetid;
 	}
 
