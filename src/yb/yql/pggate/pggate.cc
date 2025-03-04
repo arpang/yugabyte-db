@@ -1542,8 +1542,13 @@ Status PgApiImpl::FetchRequestedYbctids(
 }
 
 Status PgApiImpl::BindYbctids(PgStatement* handle, int n, uintptr_t* ybctids) {
+  std::vector<Slice> ybctid_slice;
+  ybctid_slice.reserve(n);
+  for (int i = 0; i < n; i++)
+    ybctid_slice.push_back(YbctidAsSlice(pg_types(), ybctids[i]));
+
   auto& select = VERIFY_RESULT_REF(GetStatementAs<PgSelect>(handle));
-  select.SetRequestedYbctids(pg_types(), n, ybctids);
+  select.SetHoldingRequestedYbctids(ybctid_slice);
   return Status::OK();
 }
 

@@ -406,11 +406,12 @@ void PgDmlRead::SetRequestedYbctids(std::reference_wrapper<const std::vector<Sli
   SetYbctidProvider(std::make_unique<SimpleYbctidProvider>(ybctids));
 }
 
-void PgDmlRead::SetRequestedYbctids(const PgTypeInfo& pg_types, int n, uintptr_t* ybctids) {
+void PgDmlRead::SetHoldingRequestedYbctids(const std::vector<Slice>& ybctids) {
   HoldingYbctidProvider ybctid_holder(&arena());
-  ybctid_holder.reserve(n);
-  for (int i = 0; i < n; i++)
-    ybctid_holder.append(YbctidAsSlice(pg_types, ybctids[i]));
+  size_t size = ybctids.size();
+  ybctid_holder.reserve(size);
+  for (size_t i = 0; i < size; i++)
+    ybctid_holder.append(ybctids[i]);
   SetYbctidProvider(std::make_unique<HoldingYbctidProvider>(ybctid_holder));
 }
 
