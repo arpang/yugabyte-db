@@ -539,9 +539,10 @@ check_spurious_index_rows(Relation baserel, Relation indexrel, EState* estate)
 	TupleTableSlot *output;
 	while ((output = ExecProcNode(join_state)))
 	{
-		const char* string = YbTupleTableSlotToString(output);
-		elog(INFO, "1 scan index rel %s", string);
+		// const char* string = YbTupleTableSlotToString(output);
+		// elog(INFO, "1 scan index rel %s", string);
 		check_index_row_consistency(output, equality_opcodes, indexrel);
+		YBCPgResetTransactionReadPoint();
 	}
 	ExecEndNode(join_state);
 
@@ -875,11 +876,12 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState* estate)
 	TupleTableSlot* output;
 	while ((output = ExecProcNode(indexrel2_state)))
 	{
-		// todo: why is this required
-		if (TTS_EMPTY(output))
-			break;
-		const char* string = YbTupleTableSlotToString(output);
-		elog(INFO, "2nd missing check plan %s", string);
+		// // todo: why is this required
+		// if (TTS_EMPTY(output))
+		// 	break;
+		// const char* string = YbTupleTableSlotToString(output);
+		// elog(INFO, "2nd missing check plan %s", string);
+		YBCPgResetTransactionReadPoint();
 	}
 	ExecEndNode(indexrel2_state);
 	MemoryContextSwitchTo(oldctxt);
