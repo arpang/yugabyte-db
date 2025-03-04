@@ -227,17 +227,8 @@ ybcLoadTableInfo(Relation relation, YbScanPlan scan_plan)
 static Oid
 ybc_get_atttypid(TupleDesc bind_desc, AttrNumber attnum)
 {
-	Oid			atttypid;
-
-	if (attnum > 0)
-	{
-		/* Get the type from the description */
-		atttypid = TupleDescAttr(bind_desc, attnum - 1)->atttypid;
-	}
-	else
-		atttypid = SystemAttributeDefinition(attnum)->atttypid;
-
-	return atttypid;
+	return attnum > 0 ? TupleDescAttr(bind_desc, attnum - 1)->atttypid :
+						SystemAttributeDefinition(attnum)->atttypid;
 }
 
 /*
