@@ -48,7 +48,7 @@
 static void yb_index_check_internal(Oid indexoid);
 
 static void
-check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
+check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 							Relation indexrel)
 {
 	bool indisunique = indexrel->rd_index->indisunique;
@@ -61,7 +61,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 		   2 * (indnatts + 1) + (indisunique ? 1 : 0));
 
 	/* First, validate ybctid and ybbasectid. */
-	int ind_attnum = 2 * indnatts + 1;
+	int ind_attnum = 1;
 	int base_attnum = ind_attnum + 1;
 
 	bool ind_null;
@@ -92,7 +92,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 	/* Validate the index attributes */
 	for (int i = 0; i < indnatts; i++)
 	{
-		int ind_attnum = 2 * i + 1;
+		int ind_attnum = 2 * (i + 1) + 1;
 		int base_attnum = ind_attnum + 1;
 		Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
 
@@ -126,7 +126,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 					errmsg("index row inconsistent with base table"),
 					errdetail("Index row's key column is not binary equal to base row")));
 
-		RegProcedure proc_oid = lfirst_int(list_nth_cell(equalProcOids, ind_attnum/2));
+		RegProcedure proc_oid = lfirst_int(list_nth_cell(equality_opcodes, i));
 		if (proc_oid == InvalidOid)
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
@@ -176,7 +176,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 
 /*
  * Generate plan corresponding to:
- *		SELECT (index attributes, ybbasectid, ybuniqueidxkeysuffix if index is
+ *		SELECT (ybbasectid, index attributes, ybuniqueidxkeysuffix if index is
  *		unique) from indexrel
  */
 static Plan *
@@ -189,24 +189,25 @@ indexrel_scan_plan(Relation indexrel)
 	List *plan_targetlist = NIL;
 	TargetEntry *target_entry;
 	const FormData_pg_attribute *attr;
-	int i;
-
-	for (i = 0; i < indexdesc->natts; i++)
-	{
-		attr = TupleDescAttr(indexdesc, i);
-		expr = (Expr *) makeVar(INDEX_VAR, i + 1, attr->atttypid,
-								attr->atttypmod, attr->attcollation, 0);
-		target_entry = makeTargetEntry(expr, i + 1, "", false);
-		index_cols = lappend(index_cols, target_entry);
-		plan_targetlist = lappend(plan_targetlist, target_entry);
-	}
+	int resno = 1;
 
 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
 	expr = (Expr *) makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
 							attr->atttypid, attr->atttypmod, attr->attcollation,
 							0);
-	target_entry = makeTargetEntry((Expr *) expr, i + 1, "", false);
+	target_entry = makeTargetEntry((Expr *) expr, resno, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
+	resno++;
+
+	for (int i = 0; i < indexdesc->natts; i++, resno++)
+	{
+		attr = TupleDescAttr(indexdesc, i);
+		expr = (Expr *) makeVar(INDEX_VAR, i + 1, attr->atttypid,
+								attr->atttypmod, attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, resno, "", false);
+		index_cols = lappend(index_cols, target_entry);
+		plan_targetlist = lappend(plan_targetlist, target_entry);
+	}
 
 	if (indexrel->rd_index->indisunique)
 	{
@@ -214,7 +215,7 @@ indexrel_scan_plan(Relation indexrel)
 		expr = (Expr *) makeVar(INDEX_VAR, YBUniqueIdxKeySuffixAttributeNumber,
 								attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
-		target_entry = makeTargetEntry((Expr *) expr, i + 2, "", false);
+		target_entry = makeTargetEntry((Expr *) expr, resno, "", false);
 		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
 
@@ -243,7 +244,7 @@ fetch_index_expressions(Relation indexrel)
 
 /*
  * Generate plan corresponding to:
- *		SELECT (index attributes, ybctid) from baserel where ybctid IN (....)
+ *		SELECT (ybctid, index attributes) from baserel where ybctid IN (....)
  *		 AND <partial index predicate, if any>
  * This plan makes the inner subplan of BNL. So this must be an IndexScan, but
  * at the same time this should scan the base relation. To achive this, index
@@ -257,14 +258,22 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
 	TupleDesc base_desc = RelationGetDescr(baserel);
 
-	Expr *expr;
-	TargetEntry *target_entry;
-	const FormData_pg_attribute *attr;
 	List *plan_targetlist = NIL;
-	int i;
+
+	int resno = 1;
+	const FormData_pg_attribute *attr =
+		SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
+							   attr->atttypmod, attr->attcollation, 0);
+	TargetEntry *target_entry =
+		makeTargetEntry((Expr *) ybctid_expr, resno, "", false);
+	plan_targetlist = lappend(plan_targetlist, target_entry);
+	resno++;
+
+	Expr *expr;
 	List *indexprs = NIL;
 	ListCell *next_expr = NULL;
-	for (i = 0; i < indexdesc->natts; i++)
+	for (int i = 0; i < indexdesc->natts; i++, resno++)
 	{
 		AttrNumber attnum = indexrel->rd_index->indkey.values[i];
 		if (attnum > 0)
@@ -291,18 +300,11 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 		/* Assert that type of index attribute match base relation attribute. */
 		Assert(exprType((Node *) expr) ==
 			   TupleDescAttr(indexdesc, i)->atttypid);
-		target_entry = makeTargetEntry(expr, i + 1, "", false);
+		target_entry = makeTargetEntry(expr, resno, "", false);
 		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
 
-	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
-	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
-							   attr->atttypmod, attr->attcollation, 0);
-	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
-	plan_targetlist = lappend(plan_targetlist, target_entry);
-
 	/* Index qual */
-
 	/* LHS */
 	Var *ybctid_from_index = (Var *) copyObject(ybctid_expr);
 	ybctid_from_index->varno = INDEX_VAR;
@@ -395,9 +397,10 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	/*
 	 * Join plan targetlist
 	 *
-	 * Outer subplan tlist: index_attributes, ybbasectid, ybuniqueidxkeysuffix
-	 * (if unique) Inner subplan tlist: index_attributes (scanned/computed from
-	 * baserel), ybctid
+	 * Outer subplan tlist: ybbasectid, index_attributes , ybuniqueidxkeysuffix
+	 * (if unique).
+	 * Inner subplan tlist: ybctid, index_attributes (scanned/computed from
+	 * baserel).
 	 *
 	 * Join plan tlist: union of the above such that semantically same entries
 	 * are next to each other:
@@ -433,15 +436,11 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	}
 
 	/* Join claue */
-	TupleDesc indexdesc = RelationGetDescr(indexrel);
-	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
-	Var *join_clause_lhs = makeVar(OUTER_VAR, indexdesc->natts + 1,
-								   attr->atttypid, attr->atttypmod,
-								   attr->attcollation, 0);
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
-	Var *join_clause_rhs = makeVar(INNER_VAR, indexdesc->natts + 1,
-								   attr->atttypid, attr->atttypmod,
-								   attr->attcollation, 0);
+	Var *join_clause_lhs = makeVar(OUTER_VAR, 1, attr->atttypid,
+								   attr->atttypmod, attr->attcollation, 0);
+	Var *join_clause_rhs = makeVar(INNER_VAR, 1, attr->atttypid,
+								   attr->atttypmod, attr->attcollation, 0);
 	OpExpr *join_clause = (OpExpr *) make_opclause(ByteaEqualOperator, BOOLOID,
 												   false, /* opretset */
 												   (Expr *) join_clause_lhs,
@@ -475,11 +474,33 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	return (Plan *) join_plan;
 }
 
+List *
+get_equality_opcodes(Relation indexrel)
+{
+	List *equality_opcodes = NIL;
+
+	TupleDesc indexdesc = RelationGetDescr(indexrel);
+
+	for (int i = 0; i < indexdesc->natts; i++)
+	{
+		const FormData_pg_attribute *attr = TupleDescAttr(indexdesc, i);
+		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
+											attr->atttypid, attr->atttypid);
+		if (operator_oid == InvalidOid)
+		{
+			equality_opcodes = lappend_int(equality_opcodes, InvalidOid);
+			continue;
+		}
+		RegProcedure proc_oid = get_opcode(operator_oid);
+		equality_opcodes = lappend_int(equality_opcodes, proc_oid);
+	}
+	return equality_opcodes;
+}
+
 static int
 check_spurious_index_rows(Relation baserel, Relation indexrel)
 {
 	Plan *join_plan = spurious_check_plan(baserel, indexrel);
-	TupleDesc indexdesc = RelationGetDescr(indexrel);
 
 	/* Plan execution */
 	EState *estate = CreateExecutorState();
@@ -498,20 +519,7 @@ check_spurious_index_rows(Relation baserel, Relation indexrel)
 
 	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
 
-	List *equality_opcodes = NIL;
-	for (int i = 0; i < indexdesc->natts; i++)
-	{
-		const FormData_pg_attribute *attr = TupleDescAttr(indexdesc, i);
-		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
-											attr->atttypid, attr->atttypid);
-		if (operator_oid == InvalidOid)
-		{
-			equality_opcodes = lappend_int(equality_opcodes, InvalidOid);
-			continue;
-		}
-		RegProcedure proc_oid = get_opcode(operator_oid);
-		equality_opcodes = lappend_int(equality_opcodes, proc_oid);
-	}
+	List *equality_opcodes = get_equality_opcodes(indexrel);
 
 	int index_rowcount = 0;
 	TupleTableSlot *output;
