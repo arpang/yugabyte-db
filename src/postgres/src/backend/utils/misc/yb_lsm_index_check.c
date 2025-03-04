@@ -574,8 +574,6 @@ check_spurious_index_rows(Relation baserel, Relation indexrel, EState* estate)
 	TupleTableSlot *output;
 	while ((output = ExecProcNode(join_state)))
 	{
-		// const char* string = YbTupleTableSlotToString(output);
-		// elog(INFO, "1 scan index rel %s", string);
 		check_index_row_consistency(output, equality_opcodes, indexrel);
 		YBCPgResetTransactionReadPoint();
 	}
@@ -598,7 +596,6 @@ indexrel_scan_plan2(Relation indexrel)
 	List *plan_targetlist = NIL;
 	TargetEntry *target_entry;
 	const FormData_pg_attribute *attr;
-	// int i = 0;
 
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	Expr *ybctid_expr = (Expr *) makeVar(INDEX_VAR, YBTupleIdAttributeNumber,
@@ -606,28 +603,6 @@ indexrel_scan_plan2(Relation indexrel)
 										 attr->attcollation, 0);
 	target_entry = makeTargetEntry((Expr *) ybctid_expr, 1, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
-	// i++;
-	// todo: does the following increase i?
-	// Expr *expr;
-	// for (int attno = indexrel->rd_index->indnkeyatts; attno <
-	// indexdesc->natts; attno++, i++)
-	// {
-	// 	attr = TupleDescAttr(indexdesc, attno);
-	// 	expr = (Expr *) makeVar(INDEX_VAR, attno + 1, attr->atttypid,
-	// 							attr->atttypmod, attr->attcollation, 0);
-	// 	target_entry = makeTargetEntry(expr, i + 1, "", false);
-	// 	plan_targetlist = lappend(plan_targetlist, target_entry);
-	// }
-
-	// if (indexrel->rd_index->indisunique)
-	// {
-	// 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
-	// 	expr = (Expr *) makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
-	// 							attr->atttypid, attr->atttypmod,
-	// 							attr->attcollation, 0);
-	// 	target_entry = makeTargetEntry((Expr *) expr, i + 1, "", false);
-	// 	plan_targetlist = lappend(plan_targetlist, target_entry);
-	// }
 
 	List *index_cols = NIL;
 	for (int j = 0; j < indexdesc->natts; j++)
@@ -698,7 +673,6 @@ indexrel_scan_plan2(Relation indexrel)
 static Plan *
 baserel_scan_plan2(Relation baserel, Relation indexrel)
 {
-	// TupleDesc indexdesc = RelationGetDescr(indexrel);
 	TupleDesc base_desc = RelationGetDescr(baserel);
 	int indnkeyatts = indexrel->rd_index->indnkeyatts;
 
@@ -757,27 +731,8 @@ baserel_scan_plan2(Relation baserel, Relation indexrel)
 
 	TargetEntry *target_entry;
 	List *plan_targetlist = NIL;
-	int tlist_resno = 1;
-	target_entry = makeTargetEntry((Expr *) funcexpr, tlist_resno, "", false);
-	tlist_resno++;
+	target_entry = makeTargetEntry((Expr *) funcexpr, 1, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
-
-	// for (int i = indnkeyatts; i < indexdesc->natts; i++, tlist_resno++)
-	// {
-	// 	expr = lfirst(list_nth_cell(indexatts, i));
-	// 	/* Assert that type of index attribute match base relation attribute. */
-	// 	Assert(exprType((Node *) expr) ==
-	// 		   TupleDescAttr(indexdesc, i)->atttypid);
-	// 	target_entry = makeTargetEntry(expr, tlist_resno, "", false);
-	// 	plan_targetlist = lappend(plan_targetlist, target_entry);
-	// }
-
-	// if (indexrel->rd_index->indisunique)
-	// {
-	// 	target_entry =
-	// 		makeTargetEntry((Expr *) ybctid_expr, tlist_resno, "", false);
-	// 	plan_targetlist = lappend(plan_targetlist, target_entry);
-	// }
 
 	/* Partial index predicate */
 	List *partial_idx_pred = NIL;
@@ -812,18 +767,18 @@ static Plan *
 missing_check_plan(Relation baserel, Relation indexrel)
 {
 	/*
-	 * To check for spurious rows in index relation, we join the index relation
-	 * with the base relation on indexrow.ybbasectid == baserow.ybctid. We use
-	 * BNL for this purpose. To satisfy the BNL's join condition requirement,
-	 * index relation is used as the outer (left) subplan.
+	 * To check for missing rows in index relation, we use LEFT join to join
+	 * the base relation with the index relation on
+	 * compute_index_row_ybctid(baserow) == indexrow.ybctid. We use BNL for this
+	 * purpose.
 	 */
 
-	/* Outer subplan: index relation scan */
+	/* Outer subplan: base relation scan */
+	Plan *baserel_scan = baserel_scan_plan2(baserel, indexrel);
+
+	/* Inner subplan: index relation scan */
 	Plan *indexrel_scan = indexrel_scan_plan2(indexrel);
 	TupleDesc indexrel_scan_desc = ExecTypeFromTL(indexrel_scan->targetlist);
-
-	/* Inner subplan: base relation scan */
-	Plan *baserel_scan = baserel_scan_plan2(baserel, indexrel);
 
 	/*
 	 * Join plan targetlist
@@ -901,20 +856,16 @@ missing_check_plan(Relation baserel, Relation indexrel)
 static void
 check_missing_index_rows(Relation baserel, Relation indexrel, EState* estate)
 {
-	Plan *indexrel2 = missing_check_plan(baserel, indexrel);
+	Plan *plan = missing_check_plan(baserel, indexrel);
 	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
-	PlanState *indexrel2_state = ExecInitNode((Plan *) indexrel2, estate, 0);
+	PlanState *state = ExecInitNode((Plan *) plan, estate, 0);
 	TupleTableSlot* output;
-	while ((output = ExecProcNode(indexrel2_state)))
+	while ((output = ExecProcNode(state)))
 	{
-		// // todo: why is this required
-		// if (TTS_EMPTY(output))
-		// 	break;
-		const char* string = YbTupleTableSlotToString(output);
-		elog(INFO, "2nd missing check plan %s", string);
+		// TODO: Row consistency check
 		YBCPgResetTransactionReadPoint();
 	}
-	ExecEndNode(indexrel2_state);
+	ExecEndNode(state);
 	MemoryContextSwitchTo(oldctxt);
 	return;
 }
