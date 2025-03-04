@@ -602,8 +602,7 @@ yb_index_check_internal(Oid indexoid)
 	if (indexrel->rd_rel->relam == YBGIN_AM_OID)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				errmsg("this operation is not yet supported for ybgin "
-				"indexes")));
+				errmsg("this operation is not yet supported for ybgin indexes")));
 
 	if (indexrel->rd_rel->relam != LSM_AM_OID)
 		elog(ERROR,
@@ -611,8 +610,7 @@ yb_index_check_internal(Oid indexoid)
 			 indexrel->rd_rel->relam);
 
 	if (!indexrel->rd_index->indisvalid)
-		elog(ERROR, "Index '%s' is marked invalid",
-			 RelationGetRelationName(indexrel));
+		elog(ERROR, "Index '%s' is marked invalid", RelationGetRelationName(indexrel));
 
 	/* YB doesn't have separate PK index, hence it is always consistent */
 	if (indexrel->rd_index->indisprimary)
