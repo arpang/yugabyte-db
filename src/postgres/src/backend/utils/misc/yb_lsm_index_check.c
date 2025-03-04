@@ -85,12 +85,9 @@ check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 	 * with variable length. For instance, in the following case, ybbasectid is
 	 * VARATT_IS_1B, whereas ybctid VARATT_IS_4B. Look into it.
 	 */
-	/* This should never happen because this was the join condition */
-	if (unlikely(!datum_image_eq(ybbasectid_datum, ybctid_datum,
-								 ind_att->attbyval, ind_att->attlen)))
-		ereport(ERROR,
-				(errcode(ERRCODE_INDEX_CORRUPTED),
-				errmsg("index's ybbasectid mismatch with base relation's ybctid")));
+	/* Assert indexrow.ybbasectid == baserow.ybctid (it's join condition). */
+	Assert(datum_image_eq(ybbasectid_datum, ybctid_datum, ind_att->attbyval,
+						  ind_att->attlen));
 
 	/* Validate the index attributes */
 	for (int i = 0; i < indnatts; i++)
