@@ -48,43 +48,6 @@
 
 /* TODO: rename the file to yb_index_check.c */
 
-static void yb_index_check_internal(Oid indexoid);
-
-// static void
-// check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
-// 							Relation indexrel)
-// {
-// 	bool ind_null;
-// 	bool base_null;
-// 	Datum ybbasectid_datum = slot_getattr(slot, 1, &ind_null);
-// 	Datum ybctid_datum = slot_getattr(slot, 2, &base_null);
-// 	const FormData_pg_attribute *ind_att = SystemAttributeDefinition(YBTupleIdAttributeNumber);
-
-// 	if (ind_null)
-// 		ereport(ERROR,
-// 				(errcode(ERRCODE_INDEX_CORRUPTED),
-// 				errmsg("index is missing rows")));
-
-// 	if (base_null)
-// 		ereport(ERROR,
-// 				(errcode(ERRCODE_INDEX_CORRUPTED),
-// 				errmsg("index is missing rows")));
-
-// 	/*
-// 	 * TODO: datumIsEqual() returns false due to header size mismatch for types
-// 	 * with variable length. For instance, in the following case, ybbasectid is
-// 	 * VARATT_IS_1B, whereas ybctid VARATT_IS_4B. Look into it.
-// 	 */
-// 	/* This should never happen because this was the join condition */
-// 	if (unlikely(!datum_image_eq(ybbasectid_datum, ybctid_datum,
-// 								 ind_att->attbyval, ind_att->attlen)))
-// 		ereport(ERROR,
-// 				(errcode(ERRCODE_INDEX_CORRUPTED),
-// 				errmsg("index's ybctid mismatch with base relation's ybctid")));
-
-// }
-
-
 static void
 check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 							Relation indexrel)
@@ -853,6 +816,34 @@ missing_check_plan(Relation baserel, Relation indexrel)
 	return (Plan *) join_plan;
 }
 
+static void yb_index_check_internal(Oid indexoid);
+
+static void
+check_index_row_consistency2(TupleTableSlot *slot)
+{
+	bool ind_null;
+	bool base_null;
+	Datum indexrow_ybctid = slot_getattr(slot, 2, &ind_null);
+	Datum computed_indexrow_ybctid = slot_getattr(slot, 1, &base_null);
+	const FormData_pg_attribute *ind_att =
+		SystemAttributeDefinition(YBTupleIdAttributeNumber);
+
+	Assert(!base_null);
+	if (ind_null)
+		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED), errmsg("index is "
+																 "missing "
+																 "rows")));
+
+	/*
+	 * TODO: datumIsEqual() returns false due to header size mismatch for types
+	 * with variable length. For instance, in the following case, ybbasectid is
+	 * VARATT_IS_1B, whereas ybctid VARATT_IS_4B. Look into it.
+	 */
+	/* This should never happen because this was the join condition */
+	Assert(datum_image_eq(indexrow_ybctid, computed_indexrow_ybctid,
+						  ind_att->attbyval, ind_att->attlen));
+}
+
 static void
 check_missing_index_rows(Relation baserel, Relation indexrel, EState* estate)
 {
@@ -862,7 +853,7 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState* estate)
 	TupleTableSlot* output;
 	while ((output = ExecProcNode(state)))
 	{
-		// TODO: Row consistency check
+		check_index_row_consistency2(output);
 		YBCPgResetTransactionReadPoint();
 	}
 	ExecEndNode(state);
