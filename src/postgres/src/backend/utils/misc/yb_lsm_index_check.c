@@ -50,6 +50,41 @@
 
 static void yb_index_check_internal(Oid indexoid);
 
+// static void
+// check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
+// 							Relation indexrel)
+// {
+// 	bool ind_null;
+// 	bool base_null;
+// 	Datum ybbasectid_datum = slot_getattr(slot, 1, &ind_null);
+// 	Datum ybctid_datum = slot_getattr(slot, 2, &base_null);
+// 	const FormData_pg_attribute *ind_att = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+
+// 	if (ind_null)
+// 		ereport(ERROR,
+// 				(errcode(ERRCODE_INDEX_CORRUPTED),
+// 				errmsg("index is missing rows")));
+
+// 	if (base_null)
+// 		ereport(ERROR,
+// 				(errcode(ERRCODE_INDEX_CORRUPTED),
+// 				errmsg("index is missing rows")));
+
+// 	/*
+// 	 * TODO: datumIsEqual() returns false due to header size mismatch for types
+// 	 * with variable length. For instance, in the following case, ybbasectid is
+// 	 * VARATT_IS_1B, whereas ybctid VARATT_IS_4B. Look into it.
+// 	 */
+// 	/* This should never happen because this was the join condition */
+// 	if (unlikely(!datum_image_eq(ybbasectid_datum, ybctid_datum,
+// 								 ind_att->attbyval, ind_att->attlen)))
+// 		ereport(ERROR,
+// 				(errcode(ERRCODE_INDEX_CORRUPTED),
+// 				errmsg("index's ybctid mismatch with base relation's ybctid")));
+
+// }
+
+
 static void
 check_index_row_consistency(TupleTableSlot *slot, List *equalProcOids,
 							Relation indexrel)
@@ -563,42 +598,43 @@ indexrel_scan_plan2(Relation indexrel)
 	List *plan_targetlist = NIL;
 	TargetEntry *target_entry;
 	const FormData_pg_attribute *attr;
-	int i = 0;
+	// int i = 0;
 
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	Expr *ybctid_expr = (Expr *) makeVar(INDEX_VAR, YBTupleIdAttributeNumber,
 										 attr->atttypid, attr->atttypmod,
 										 attr->attcollation, 0);
-	target_entry = makeTargetEntry((Expr *) ybctid_expr, i + 1, "", false);
+	target_entry = makeTargetEntry((Expr *) ybctid_expr, 1, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
-	i++;
+	// i++;
 	// todo: does the following increase i?
-	Expr *expr;
-	for (int attno = indexrel->rd_index->indnkeyatts; attno < indexdesc->natts; attno++, i++)
-	{
-		attr = TupleDescAttr(indexdesc, attno);
-		expr = (Expr *) makeVar(INDEX_VAR, attno + 1, attr->atttypid,
-								attr->atttypmod, attr->attcollation, 0);
-		target_entry = makeTargetEntry(expr, i + 1, "", false);
-		plan_targetlist = lappend(plan_targetlist, target_entry);
-	}
+	// Expr *expr;
+	// for (int attno = indexrel->rd_index->indnkeyatts; attno <
+	// indexdesc->natts; attno++, i++)
+	// {
+	// 	attr = TupleDescAttr(indexdesc, attno);
+	// 	expr = (Expr *) makeVar(INDEX_VAR, attno + 1, attr->atttypid,
+	// 							attr->atttypmod, attr->attcollation, 0);
+	// 	target_entry = makeTargetEntry(expr, i + 1, "", false);
+	// 	plan_targetlist = lappend(plan_targetlist, target_entry);
+	// }
 
-	if (indexrel->rd_index->indisunique)
-	{
-		attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
-		expr = (Expr *) makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
-								attr->atttypid, attr->atttypmod,
-								attr->attcollation, 0);
-		target_entry = makeTargetEntry((Expr *) expr, i + 1, "", false);
-		plan_targetlist = lappend(plan_targetlist, target_entry);
-	}
+	// if (indexrel->rd_index->indisunique)
+	// {
+	// 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
+	// 	expr = (Expr *) makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
+	// 							attr->atttypid, attr->atttypmod,
+	// 							attr->attcollation, 0);
+	// 	target_entry = makeTargetEntry((Expr *) expr, i + 1, "", false);
+	// 	plan_targetlist = lappend(plan_targetlist, target_entry);
+	// }
 
 	List *index_cols = NIL;
 	for (int j = 0; j < indexdesc->natts; j++)
 	{
 		attr = TupleDescAttr(indexdesc, j);
-		expr = (Expr *) makeVar(INDEX_VAR, j + 1, attr->atttypid,
-								attr->atttypmod, attr->attcollation, 0);
+		Expr *expr = (Expr *) makeVar(INDEX_VAR, j + 1, attr->atttypid,
+									  attr->atttypmod, attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, j + 1, "", false);
 		index_cols = lappend(index_cols, target_entry);
 	}
@@ -662,16 +698,17 @@ indexrel_scan_plan2(Relation indexrel)
 static Plan *
 baserel_scan_plan2(Relation baserel, Relation indexrel)
 {
-	TupleDesc indexdesc = RelationGetDescr(indexrel);
+	// TupleDesc indexdesc = RelationGetDescr(indexrel);
 	TupleDesc base_desc = RelationGetDescr(baserel);
+	int indnkeyatts = indexrel->rd_index->indnkeyatts;
 
 	Expr *expr;
 	const FormData_pg_attribute *attr;
 	List *indexprs = NIL;
 	ListCell *next_expr = NULL;
 
-	List *indexatts = NIL;
-	for (int i = 0; i < indexdesc->natts; i++)
+	List *keyatts = NIL;
+	for (int i = 0; i < indnkeyatts; i++)
 	{
 		AttrNumber attnum = indexrel->rd_index->indkey.values[i];
 		if (attnum > 0)
@@ -694,14 +731,8 @@ baserel_scan_plan2(Relation baserel, Relation indexrel)
 			expr = (Expr *) lfirst(next_expr);
 			next_expr = lnext(indexprs, next_expr);
 		}
-		indexatts = lappend(indexatts, expr);
+		keyatts = lappend(keyatts, expr);
 	}
-
-
-	int indnkeyatts = indexrel->rd_index->indnkeyatts;
-	List *keyatts = NIL;
-	for (int i = 0; i < indnkeyatts; i++)
-		keyatts = lappend(keyatts, lfirst(list_nth_cell(indexatts, i)));
 
 	ArrayExpr *keyattsexpr = makeNode(ArrayExpr);
 	keyattsexpr->array_typeid = ANYARRAYOID;
@@ -731,22 +762,22 @@ baserel_scan_plan2(Relation baserel, Relation indexrel)
 	tlist_resno++;
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
-	for (int i = indnkeyatts; i < indexdesc->natts; i++, tlist_resno++)
-	{
-		expr = lfirst(list_nth_cell(indexatts, i));
-		/* Assert that type of index attribute match base relation attribute. */
-		Assert(exprType((Node *) expr) ==
-			   TupleDescAttr(indexdesc, i)->atttypid);
-		target_entry = makeTargetEntry(expr, tlist_resno, "", false);
-		plan_targetlist = lappend(plan_targetlist, target_entry);
-	}
+	// for (int i = indnkeyatts; i < indexdesc->natts; i++, tlist_resno++)
+	// {
+	// 	expr = lfirst(list_nth_cell(indexatts, i));
+	// 	/* Assert that type of index attribute match base relation attribute. */
+	// 	Assert(exprType((Node *) expr) ==
+	// 		   TupleDescAttr(indexdesc, i)->atttypid);
+	// 	target_entry = makeTargetEntry(expr, tlist_resno, "", false);
+	// 	plan_targetlist = lappend(plan_targetlist, target_entry);
+	// }
 
-	if (indexrel->rd_index->indisunique)
-	{
-		target_entry =
-			makeTargetEntry((Expr *) ybctid_expr, tlist_resno, "", false);
-		plan_targetlist = lappend(plan_targetlist, target_entry);
-	}
+	// if (indexrel->rd_index->indisunique)
+	// {
+	// 	target_entry =
+	// 		makeTargetEntry((Expr *) ybctid_expr, tlist_resno, "", false);
+	// 	plan_targetlist = lappend(plan_targetlist, target_entry);
+	// }
 
 	/* Partial index predicate */
 	List *partial_idx_pred = NIL;
@@ -879,8 +910,8 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState* estate)
 		// // todo: why is this required
 		// if (TTS_EMPTY(output))
 		// 	break;
-		// const char* string = YbTupleTableSlotToString(output);
-		// elog(INFO, "2nd missing check plan %s", string);
+		const char* string = YbTupleTableSlotToString(output);
+		elog(INFO, "2nd missing check plan %s", string);
 		YBCPgResetTransactionReadPoint();
 	}
 	ExecEndNode(indexrel2_state);
