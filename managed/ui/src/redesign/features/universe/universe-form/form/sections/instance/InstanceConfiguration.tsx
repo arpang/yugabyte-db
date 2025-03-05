@@ -67,6 +67,11 @@ export const InstanceConfiguration = ({ runtimeConfigs }: UniverseFormConfigurat
     (c: any) => c.key === RuntimeConfigKey.AWS_COOLDOWN_HOURS
   )?.value;
 
+  const useK8CustomResourcesObject = runtimeConfigs?.configEntries?.find(
+    (c: RunTimeConfigEntry) => c.key === 'yb.use_k8s_custom_resources'
+  );
+  const useK8CustomResources = !!(useK8CustomResourcesObject?.value === 'true');
+
   const maxVolumeCount = runtimeConfigs?.configEntries?.find(
     (c: RunTimeConfigEntry) => c.key === 'yb.max_volume_count'
   )?.value;
@@ -105,19 +110,15 @@ export const InstanceConfiguration = ({ runtimeConfigs }: UniverseFormConfigurat
     }
   }, [provider?.uuid]);
 
-  const getKubernetesInstanceElement = (instanceLabel: string, isMasterField: boolean) => {
+  const getKubernetesInstanceElement = (instanceLabel: string, isMaster: boolean) => {
     return (
       <Box className={helperClasses.settingsContainer}>
         <Box m={2}>
           <Typography className={classes.subsectionHeaderFont}>{t(instanceLabel)}</Typography>
           <Box width={'100%'}>
-            <K8NodeSpecField
-              isMasterField={isMasterField}
-              isEditMode={!isCreateMode}
-              disabled={isViewMode}
-            />
+            <K8NodeSpecField isMaster={isMaster} isEditMode={!isCreateMode} disabled={isViewMode} />
             <K8VolumeInfoField
-              isMasterField={isMasterField}
+              isMaster={isMaster}
               isEditMode={!isCreateMode}
               disableVolumeSize={isViewMode}
               maxVolumeCount={maxVolumeCount}
@@ -129,19 +130,15 @@ export const InstanceConfiguration = ({ runtimeConfigs }: UniverseFormConfigurat
   };
 
   // Wrapper elements to get instance metadata and dedicated container element
-  const getInstanceMetadataElement = (isMasterField: boolean) => {
+  const getInstanceMetadataElement = (isMaster: boolean) => {
     return (
       <Box width={masterPlacement === MasterPlacementMode.DEDICATED ? '100%' : CONTAINER_WIDTH}>
-        <InstanceTypeField
-          isEditMode={!isCreateMode}
-          isMasterField={isMasterField}
-          disabled={isViewMode}
-        />
+        <InstanceTypeField isEditMode={!isCreateMode} isMaster={isMaster} disabled={isViewMode} />
         <VolumeInfoField
           isEditMode={!isCreateMode}
           isPrimary={isPrimary}
           isViewMode={isViewMode}
-          isMasterField={isMasterField}
+          isMaster={isMaster}
           maxVolumeCount={maxVolumeCount}
           updateOptions={updateOptions}
           diffInHours={diffInHours}
@@ -150,12 +147,12 @@ export const InstanceConfiguration = ({ runtimeConfigs }: UniverseFormConfigurat
       </Box>
     );
   };
-  const getDedicatedContainerElement = (instanceLabel: string, isMasterField: boolean) => {
+  const getDedicatedContainerElement = (instanceLabel: string, isMaster: boolean) => {
     return (
       <Box className={helperClasses.settingsContainer}>
         <Box m={2}>
           <Typography className={classes.subsectionHeaderFont}>{t(instanceLabel)}</Typography>
-          {getInstanceMetadataElement(isMasterField)}
+          {getInstanceMetadataElement(isMaster)}
         </Box>
       </Box>
     );
@@ -192,10 +189,16 @@ export const InstanceConfiguration = ({ runtimeConfigs }: UniverseFormConfigurat
                     getDedicatedContainerElement('universeForm.master', true)}
                 </>
               )}
-              {provider?.code === CloudType.kubernetes &&
+              {useK8CustomResources &&
+                provider?.code === CloudType.kubernetes &&
                 getKubernetesInstanceElement('universeForm.tserver', false)}
-              {provider?.code === CloudType.kubernetes &&
+              {useK8CustomResources &&
+                provider?.code === CloudType.kubernetes &&
+                isPrimary &&
                 getKubernetesInstanceElement('universeForm.master', true)}
+              {provider?.code === CloudType.kubernetes &&
+                !useK8CustomResources &&
+                getInstanceMetadataElement(false)}
             </Box>
           </Grid>
         </Grid>

@@ -62,7 +62,7 @@ struct DdlMode {
     (AlterDatabase)(AlterTable) \
     (CreateDatabase)(CreateTable)(CreateTablegroup) \
     (DropDatabase)(DropReplicationSlot)(DropTablegroup)(TruncateTable) \
-    (AcquireAdvisoryLock)(ReleaseAdvisoryLock)
+    (AcquireAdvisoryLock)(ReleaseAdvisoryLock)(AcquireObjectLock)
 
 struct PerformResult {
   Status status;
@@ -129,7 +129,7 @@ class PgClient {
 
   Status Start(rpc::ProxyCache* proxy_cache,
                rpc::Scheduler* scheduler,
-               const tserver::TServerSharedObject& tserver_shared_object,
+               const tserver::TServerSharedData& tserver_shared_object,
                std::optional<uint64_t> session_id);
 
   void Shutdown();

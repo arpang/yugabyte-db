@@ -65,7 +65,12 @@ public class SoftwareKubernetesUpgradeYB extends KubernetesUpgradeTaskBase {
   @Override
   protected void createPrecheckTasks(Universe universe) {
     super.createPrecheckTasks(universe);
-    createSoftwareUpgradePrecheckTasks(taskParams().ybSoftwareVersion);
+    boolean ysqlMajorVersionUpgrade =
+        softwareUpgradeHelper.isYsqlMajorVersionUpgradeRequired(
+            universe,
+            universe.getUniverseDetails().getPrimaryCluster().userIntent.ybSoftwareVersion,
+            taskParams().ybSoftwareVersion);
+    createSoftwareUpgradePrecheckTasks(taskParams().ybSoftwareVersion, ysqlMajorVersionUpgrade);
     addBasicPrecheckTasks();
   }
 
@@ -86,6 +91,9 @@ public class SoftwareKubernetesUpgradeYB extends KubernetesUpgradeTaskBase {
           createUpdateUniverseSoftwareUpgradeStateTask(
               UniverseDefinitionTaskParams.SoftwareUpgradeState.Upgrading,
               true /* isSoftwareRollbackAllowed */);
+
+          createStoreAutoFlagConfigVersionTask(taskParams().getUniverseUUID(), newVersion);
+
           String password = null;
           boolean catalogUpgradeCompleted = false;
 
@@ -117,11 +125,8 @@ public class SoftwareKubernetesUpgradeYB extends KubernetesUpgradeTaskBase {
             // want to revert masters to the previous version and proceed with the ysql major
             // upgrade.
             if (!catalogUpgradeCompleted) {
-              createGFlagsUpgradeAndRollbackMastersTaskForYSQLMajorUpgrade(
+              createGFlagsUpgradeAndUpdateMastersTaskForYSQLMajorUpgrade(
                   universe, currentVersion, YsqlMajorVersionUpgradeState.IN_PROGRESS);
-
-              // Run pg upgrade pre-check
-              createPGUpgradeTServerCheckTask(newVersion);
 
               if (requireAdditionalSuperUserForCatalogUpgrade) {
                 password = Util.getPostgresCompatiblePassword();
@@ -170,7 +175,12 @@ public class SoftwareKubernetesUpgradeYB extends KubernetesUpgradeTaskBase {
                   newVersion,
                   ysqlMajorVersionUpgrade ? YsqlMajorVersionUpgradeState.IN_PROGRESS : null));
 
-          createStoreAutoFlagConfigVersionTask(taskParams().getUniverseUUID());
+          if (ysqlMajorVersionUpgrade) {
+            createGFlagsUpgradeAndUpdateMastersTaskForYSQLMajorUpgrade(
+                universe,
+                taskParams().ybSoftwareVersion,
+                YsqlMajorVersionUpgradeState.UPGRADE_COMPLETE);
+          }
 
           createPromoteAutoFlagTask(
               taskParams().getUniverseUUID(),

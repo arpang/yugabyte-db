@@ -4381,8 +4381,7 @@ ExecEvalSysVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext,
 	 * YB note: resnull can be true for ybuniqueidxkeysuffix (used in index
 	 * consistency checker).
 	 */
-	if (unlikely(*op->resnull) &&
-		op->d.var.attnum != YBUniqueIdxKeySuffixAttributeNumber)
+	if (*op->resnull && op->d.var.attnum != YBUniqueIdxKeySuffixAttributeNumber)
 		elog(ERROR, "failed to fetch attribute from slot");
 }
 

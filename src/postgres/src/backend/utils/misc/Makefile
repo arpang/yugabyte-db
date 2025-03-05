@@ -18,6 +18,7 @@ OBJS = \
 	pg_yb_utils.o \
 	yb_ash.o \
 	yb_exceptions_for_func_pushdown.o \
+	yb_tcmalloc_utils.o \
 	yb_query_diagnostics.o \
 	yb_ysql_conn_mgr_helper.o \
 	guc.o \
@@ -33,7 +34,7 @@ OBJS = \
 	superuser.o \
 	timeout.o \
 	tzparser.o \
-	yb_lsm_index_check.o \
+	yb_lsm_index_check.o
 
 # This location might depend on the installation directories. Therefore
 # we can't substitute it into pg_config.h.

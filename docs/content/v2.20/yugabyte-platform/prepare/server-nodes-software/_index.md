@@ -29,11 +29,19 @@ YugabyteDB Anywhere supports deploying YugabyteDB on a variety of [operating sys
 
 AlmaLinux OS 8 disk images are used by default, but you can specify a custom disk image and OS.
 
+On Red Hat Enterprise Linux 8-based systems (Red Hat Enterprise Linux 8, Oracle Enterprise Linux 8.x, Amazon Linux 2), additionally, add the following line to `/etc/systemd/system.conf` and `/etc/systemd/user.conf`:
+
+```sh
+DefaultLimitNOFILE=1048576
+```
+
+You must reboot the system for these two settings to take effect.
+
 ### Additional software
 
 YugabyteDB Anywhere requires the following additional software to be pre-installed on nodes:
 
-- OpenSSH Server. Allowing SSH is recommended but optional. Using SSH can be skipped in some on-premises deployment approaches; all other workflows require it. [Tectia SSH](../../create-deployments/connect-to-universe/#enable-tectia-ssh) is also supported.
+- OpenSSH Server. Allowing SSH is optional. Using SSH is required in some [legacy on-premises deployment](../server-nodes-software/software-on-prem-legacy/) approaches. [Tectia SSH](../../create-deployments/connect-to-universe/#enable-tectia-ssh) is also supported.
 - tar
 - unzip
 - policycoreutils-python-utils
@@ -61,6 +69,26 @@ python3 -c "import selinux; import sys; print(sys.version)"
 ```
 
 Alternately, if you are using the default version of python3, you might be able to install the python3-libselinux package.
+
+#### CA certificates
+
+By default, YugabyteDB Anywhere can automatically generate and copy self-signed TLS certificates used for node-to-node encryption in transit to universe nodes when the universe is created.
+
+However, if you want to use your own CA certificates, you must manually copy them to universe nodes. (CA certificates can only be used with on-premises universes.)
+
+In your certificate authority UI (for example, Venafi), generate the following:
+
+- Server certificates to use for node-to-node encryption; that is, for the VMs to be used for universes.
+
+    These certificates must be copied to each of the VMs you will use in your universes.
+
+- A certificate to use for client-to-node encryption; that is, for encrypting traffic between the database cluster and applications and clients.
+
+    This certificate must also be copied to your application client.
+
+In addition, you add the certificates to YugabyteDB Anywhere.
+
+For more information, refer to [CA certificates](../../security/enable-encryption-in-transit/#use-custom-ca-signed-certificates-to-enable-tls).
 
 ### Additional software for airgapped deployment
 
