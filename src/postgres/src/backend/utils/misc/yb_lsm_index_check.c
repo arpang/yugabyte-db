@@ -982,6 +982,8 @@ yb_compute_ybctid(PG_FUNCTION_ARGS)
 			elog(ERROR, "Number of argument mimatched. Expected %d, actual %d",
 				 nkeyatts, nitems);
 		Datum ybbasetid = PG_GETARG_DATUM(2);
+		if (!DatumGetPointer(ybbasetid))
+			elog(ERROR, "ybbasetid cannot be NULL for index relations");
 		if (indisunique && !index->indnullsnotdistinct && null)
 			slot->ts_ybuniqueidxkeysuffix = ybbasetid;
 		else if (!indisunique)

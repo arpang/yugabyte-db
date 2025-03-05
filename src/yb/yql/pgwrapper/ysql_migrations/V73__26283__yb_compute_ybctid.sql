@@ -12,10 +12,11 @@ BEGIN;
     -- implementation of yb_index_check
     (8091, 'yb_compute_ybctid', 11, 10, 12,
      1, 0, 0, '-', 'f',
-     false, false, true, false, 'i',
-     's', 3, 0, '17', '26 2277 17',
-     NULL, NULL, NULL, NULL, NULL,
-     'yb_compute_ybctid', NULL, NULL, NULL)
+     false, false, false, false, 'i',
+     's', 3, 1, '17', '26 2277 17',
+     NULL, NULL, '{relid,pk_values,ybbasectid}',
+     '({CONST :consttype 17 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull true :location 103 :constvalue <>})',
+     NULL, 'yb_compute_ybctid', NULL, NULL, NULL)
   ON CONFLICT DO NOTHING;
 
   INSERT INTO pg_catalog.pg_description (

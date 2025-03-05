@@ -12175,6 +12175,6 @@
 
 { oid => '8091', descr => 'given index key attributes, returns index row ybctid',
   proname => 'yb_compute_ybctid', proargtypes => 'oid anyarray bytea',
-  prorettype => 'bytea', prosrc => 'yb_compute_ybctid'},
+  prorettype => 'bytea', prosrc => 'yb_compute_ybctid', proisstrict => 'f'},
 
 ]
