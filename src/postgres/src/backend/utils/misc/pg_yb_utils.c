@@ -2072,11 +2072,11 @@ YbTupleTableSlotToStringWithIsOmitted(TupleTableSlot *slot, bool *is_omitted)
 {
 	bool		shouldFree;
 	HeapTuple	tuple;
+	const char *result;
 
 	tuple = ExecFetchSlotHeapTuple(slot, false, &shouldFree);
-	const char *result = YbHeapTupleToStringWithIsOmitted(tuple,
-														  slot->tts_tupleDescriptor,
-														  is_omitted);
+	result = YbHeapTupleToStringWithIsOmitted(tuple, slot->tts_tupleDescriptor,
+											  is_omitted);
 	if (shouldFree)
 		pfree(tuple);
 
