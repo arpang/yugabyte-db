@@ -120,6 +120,14 @@ bool YBCTryMemRelease(int64_t bytes);
 
 YbcStatus YBCGetHeapConsumption(YbcTcmallocStats *desc);
 
+int64_t YBCGetTCMallocSamplingPeriod();
+void YBCSetTCMallocSamplingPeriod(int64_t sample_period_bytes);
+YbcStatus YBCGetHeapSnapshot(YbcHeapSnapshotSample** snapshot,
+                             int64_t* num_samples,
+                             bool peak_heap);
+
+void YBCDumpTcMallocHeapProfile(bool peak_heap, size_t max_call_stacks);
+
 // Validate the JWT based on the options including the identity matching based on the identity map.
 YbcStatus YBCValidateJWT(const char *token, const YbcPgJwtAuthOptions *options);
 YbcStatus YBCFetchFromUrl(const char *url, char **buf);
@@ -155,7 +163,9 @@ YbcConstSliceVector YBCBitmapCopySetToVector(YbcConstSliceSet set, size_t *size)
 
 // Returns a vector representing a chunk of the given vector. ybctids are
 // shallow copied - their underlying allocations are shared.
-YbcConstSliceVector YBCBitmapGetVectorRange(YbcConstSliceVector vec, size_t start, size_t length);
+YbcConstSliceVector YBCBitmapGetVectorRange(YbcConstSliceVector vec,
+                                            size_t start,
+                                            size_t length);
 
 void YBCBitmapShallowDeleteVector(YbcConstSliceVector vec);
 void YBCBitmapShallowDeleteSet(YbcConstSliceSet set);
@@ -424,7 +434,8 @@ YbcStatus YBCPgCreateIndexSetNumTablets(YbcPgStatement handle, int32_t num_table
 
 YbcStatus YBCPgCreateIndexSetVectorOptions(YbcPgStatement handle, YbcPgVectorIdxOptions *options);
 
-YbcStatus YBCPgCreateIndexSetHnswOptions(YbcPgStatement handle, int ef_construction, int m);
+YbcStatus YBCPgCreateIndexSetHnswOptions(
+    YbcPgStatement handle, int m, int m0, int ef_construction);
 
 YbcStatus YBCPgExecCreateIndex(YbcPgStatement handle);
 
@@ -966,6 +977,16 @@ YbcStatus YBCPgSetTxnSnapshot(uint64_t explicit_read_time);
 
 bool YBCPgHasExportedSnapshots();
 void YBCPgClearExportedTxnSnapshots();
+
+YbcStatus YBCAcquireObjectLock(YbcObjectLockId lock_id, YbcObjectLockMode mode);
+
+// Indicates if the YB universe is in the process of a YSQL major version upgrade (e.g., pg11 to
+// pg15). This will return true before any process has been upgraded to the new version, and will
+// return false after the upgrade has been finalized.
+// This will return false for regular YB upgrades (both major and minor).
+// DevNote: Finalize is a multi-step process involving YsqlMajorCatalog Finalize, AutoFlag Finalize,
+// and YsqlUpgrade. This will return false after the AutoFlag Finalize step.
+bool YBCPgYsqlMajorVersionUpgradeInProgress();
 
 #ifdef __cplusplus
 }  // extern "C"

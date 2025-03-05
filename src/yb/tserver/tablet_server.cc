@@ -170,6 +170,9 @@ DEFINE_NON_RUNTIME_bool(enable_ysql_conn_mgr, false,
     "Enable Ysql Connection Manager for the cluster. Tablet Server will start a "
     "Ysql Connection Manager process as a child process.");
 
+DEFINE_NON_RUNTIME_int32(ysql_conn_mgr_max_pools, 10000,
+    "Max total pools supported in YSQL Connection Manager.");
+
 DEFINE_UNKNOWN_int64(inbound_rpc_memory_limit, 0, "Inbound RPC memory limit");
 
 DEFINE_UNKNOWN_bool(tserver_enable_metrics_snapshotter, false,
@@ -233,6 +236,9 @@ DEFINE_RUNTIME_uint32(ysql_min_new_version_ignored_count, 10,
     "version that is retrieved from a tserver-master heartbeat response.");
 
 DECLARE_bool(TEST_enable_object_locking_for_table_locks);
+
+DEFINE_RUNTIME_uint32(ysql_max_invalidation_message_queue_size, 1024,
+    "Maximum number of invalidation messages we keep for a given database.");
 
 DECLARE_bool(enable_pg_cron);
 
@@ -352,7 +358,7 @@ TabletServer::TabletServer(const TabletServerOptions& opts)
     ysql_db_catalog_version_index_used_->fill(false);
   }
   if (PREDICT_FALSE(FLAGS_TEST_enable_object_locking_for_table_locks)) {
-    ts_local_lock_manager_ = std::make_unique<tserver::TSLocalLockManager>();
+    ts_local_lock_manager_ = std::make_unique<tserver::TSLocalLockManager>(clock_);
   }
   LOG(INFO) << "yb::tserver::TabletServer created at " << this;
   LOG(INFO) << "yb::tserver::TSTabletManager created at " << tablet_manager_.get();
@@ -518,6 +524,10 @@ Status TabletServer::Init() {
     pg_table_mutation_count_sender_.reset(new TableMutationCountSender(this));
   }
 
+  if (!FLAGS_enable_ysql) {
+    RETURN_NOT_OK(SkipSharedMemoryNegotiation());
+  }
+
   RETURN_NOT_OK_PREPEND(tablet_manager_->Init(),
                         "Could not init Tablet Manager");
 
@@ -646,7 +656,7 @@ Status TabletServer::RegisterServices() {
   auto pg_client_service_holder = std::make_shared<PgClientServiceHolder>(
         *this, tablet_manager_->client_future(), clock(),
         std::bind(&TabletServer::TransactionPool, this), mem_tracker(), metric_entity(),
-        messenger(), permanent_uuid(), &options(), xcluster_context_.get(),
+        messenger(), permanent_uuid(), options(), xcluster_context_.get(),
         &pg_node_level_mutation_counter_);
   PgClientServiceIf* pg_client_service_if = &pg_client_service_holder->impl;
   LOG(INFO) << "yb::tserver::PgClientServiceImpl created at " << pg_client_service_if;
@@ -1128,6 +1138,9 @@ void TabletServer::SetYsqlDBCatalogVersions(
         shared_object().SetYsqlCatalogVersion(new_version);
         ysql_last_breaking_catalog_version_ = new_breaking_version;
       }
+      // Create the entry of db_oid if not exists.
+      ysql_db_invalidation_messages_map_.insert(make_pair(
+          db_oid, std::deque<std::pair<uint64_t, std::optional<std::string>>>()));
     }
   }
   if (!catalog_version_table_in_perdb_mode_.has_value() &&
@@ -1155,6 +1168,7 @@ void TabletServer::SetYsqlDBCatalogVersions(
       // Mark the corresponding shared memory array db_catalog_versions_ slot as free.
       (*ysql_db_catalog_version_index_used_)[shm_index] = false;
       it = ysql_db_catalog_version_map_.erase(it);
+      ysql_db_invalidation_messages_map_.erase(db_oid);
       // Also reset the shared memory array db_catalog_versions_ slot to 0 to assist
       // debugging the shared memory array db_catalog_versions_ (e.g., when we can dump
       // the shared memory file to examine its contents).
@@ -1186,6 +1200,105 @@ void TabletServer::SetYsqlDBCatalogVersions(
       InvalidatePgTableCache();
     } else {
       InvalidatePgTableCache(db_oids_updated, db_oids_deleted);
+    }
+  }
+}
+
+void TabletServer::ResetCatalogVersionsFingerprint() {
+  LOG(INFO) << "reset catalog_versions_fingerprint_";
+  catalog_versions_fingerprint_.store(std::nullopt, std::memory_order_release);
+}
+
+void TabletServer::SetYsqlDBCatalogInvalMessages(
+  const master::DBCatalogInvalMessagesDataPB& db_catalog_inval_messages_data) {
+  if (db_catalog_inval_messages_data.db_catalog_inval_messages_size() == 0) {
+    return;
+  }
+  std::lock_guard l(lock_);
+  uint32_t current_db_oid = 0;
+  InvalidationMessagesQueue *db_message_lists = nullptr;
+  InvalidationMessagesQueue::iterator it;
+  bool check_done = false;
+  // ysql_db_invalidation_messages_map_ is just an extended history of pg_yb_invalidation_messages
+  // except message_time column. Merge the incoming db_catalog_inval_messages_data from the
+  // heartbeat response which has an ordered array of (db_oid, current_version, messages) into
+  // ysql_db_invalidation_messages_map_.
+  for (const auto& db_inval_messages : db_catalog_inval_messages_data.db_catalog_inval_messages()) {
+    const uint32_t db_oid = db_inval_messages.db_oid();
+    const uint64_t current_version = db_inval_messages.current_version();
+    // db_catalog_inval_messages_data has the message history in a sorted order of
+    // (db_oid, current_version).
+    if (current_db_oid != db_oid) {
+      // We see a new db_oid, start processing its message history. Note that db_message_lists
+      // is for the DB that we have just completed processing. We may have appended more messages
+      // to its queue that exceeded the max size.
+      if (db_message_lists) {
+        VLOG(2) << "db_oid " << current_db_oid << " message queue size: "
+                << db_message_lists->size();
+        while (db_message_lists->size() > FLAGS_ysql_max_invalidation_message_queue_size) {
+          db_message_lists->pop_front();
+        }
+      }
+
+      check_done = false;
+      current_db_oid = db_oid;
+      // Find the entry for the db_oid in ysql_db_invalidation_messages_map_ if there is one.
+      auto it2 = ysql_db_invalidation_messages_map_.find(db_oid);
+      if (it2 != ysql_db_invalidation_messages_map_.end()) {
+        // The db_oid isn't new and it is already exists in ysql_db_invalidation_messages_map_.
+        db_message_lists = &it2->second;
+        // The messages are in ascending order of current_version. We may have a picture like
+        // Existing: x, x+1, x+2, ..., x+i, x+i+1, x+i+2
+        // Incoming:                   x+i, x+i+1, x+i+2, x+i+3, ... x+i+j
+        // Find the position of x+i.
+        it = std::find_if(
+            db_message_lists->begin(), db_message_lists->end(),
+            [current_version](const std::pair<uint64_t, std::optional<std::string>>& p) {
+              return p.first == current_version;
+            });
+      } else {
+        // The db_oid does not exist in ysql_db_invalidation_messages_map_ yet. This is possible
+        // because at master side we read pg_yb_catalog_version and pg_yb_invalidation_messages
+        // separately (not a transactional read). As a result, a newly created database may not
+        // have been entered into pg_yb_catalog_version yet at the time when master reading
+        // pg_yb_catalog_version but by the time master reads pg_yb_invalidation_messages
+        // the new database is already inserted there. This case should be rare so we
+        // skip processing this db_oid.
+        db_message_lists = nullptr;
+        LOG(WARNING) << "db_oid " << db_oid << " not found in ysql_db_invalidation_messages_map_";
+      }
+    }
+    if (!db_message_lists) {
+      continue;
+    }
+    // We should see the suffix of db_message_lists matches the prefix of incoming one.
+    const std::optional<std::string>& message_list = db_inval_messages.has_message_list() ?
+        std::optional<std::string>(db_inval_messages.message_list()) : std::nullopt;
+    if (!check_done && it != db_message_lists->end()) {
+      if (it->first == current_version) {
+        VLOG(2) << "current_version matched: " << current_version;
+      } else {
+        LOG(DFATAL) << "current_version mismatch";
+      }
+      // same version should have same message.
+      if (it->second != message_list) {
+        LOG(DFATAL) << "message_list mismatch";
+      }
+      // Keep moving until we pass the common section x+i, x+i+1, x+i+2 as shown in the
+      // above example.
+      ++it;
+    } else {
+      // Append the new message starting from x+i+3 to the end of the queue of db_oid.
+      db_message_lists->emplace_back(std::make_pair(current_version, message_list));
+      check_done = true;
+    }
+  }
+  // Note that db_message_lists is for the last DB that we have just completed processing.
+  // We may have appended more messages to its queue that exceeded the max size.
+  if (db_message_lists) {
+    VLOG(2) << "db_oid " << current_db_oid << " message queue size: " << db_message_lists->size();
+    while (db_message_lists->size() > FLAGS_ysql_max_invalidation_message_queue_size) {
+      db_message_lists->pop_front();
     }
   }
 }

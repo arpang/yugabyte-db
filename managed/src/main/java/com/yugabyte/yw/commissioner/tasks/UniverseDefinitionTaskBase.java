@@ -39,6 +39,7 @@ import com.yugabyte.yw.commissioner.tasks.subtasks.ManageCatalogUpgradeSuperUser
 import com.yugabyte.yw.commissioner.tasks.subtasks.PreflightNodeCheck;
 import com.yugabyte.yw.commissioner.tasks.subtasks.SetupYNP;
 import com.yugabyte.yw.commissioner.tasks.subtasks.UniverseSetTlsParams;
+import com.yugabyte.yw.commissioner.tasks.subtasks.UpdateAndPersistAuditLoggingConfig;
 import com.yugabyte.yw.commissioner.tasks.subtasks.UpdateClusterAPIDetails;
 import com.yugabyte.yw.commissioner.tasks.subtasks.UpdateNodeDetails;
 import com.yugabyte.yw.commissioner.tasks.subtasks.UpdateUniverseCommunicationPorts;
@@ -65,6 +66,7 @@ import com.yugabyte.yw.common.config.RuntimeConfGetter;
 import com.yugabyte.yw.common.config.UniverseConfKeys;
 import com.yugabyte.yw.common.gflags.AutoFlagUtil;
 import com.yugabyte.yw.common.gflags.GFlagsUtil;
+import com.yugabyte.yw.common.gflags.SpecificGFlags;
 import com.yugabyte.yw.common.helm.HelmUtils;
 import com.yugabyte.yw.common.kms.util.EncryptionAtRestUtil;
 import com.yugabyte.yw.forms.CertsRotateParams;
@@ -1168,9 +1170,6 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
       createPodDisruptionBudgetPolicyTask(false /* deletePDB */)
           .setSubTaskGroupType(SubTaskGroupType.CreatePodDisruptionBudgetPolicy);
     }
-
-    // Marks the update of this universe as a success only if all the tasks before it succeeded.
-    createMarkUniverseUpdateSuccessTasks().setSubTaskGroupType(SubTaskGroupType.ConfigureUniverse);
   }
 
   /**
@@ -2934,14 +2933,6 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
 
   public void createYbcSoftwareInstallTasks(
       List<NodeDetails> nodes, String softwareVersion, SubTaskGroupType subTaskGroupType) {
-    createYbcSoftwareInstallTasks(nodes, softwareVersion, subTaskGroupType, null);
-  }
-
-  public void createYbcSoftwareInstallTasks(
-      List<NodeDetails> nodes,
-      String softwareVersion,
-      SubTaskGroupType subTaskGroupType,
-      YsqlMajorVersionUpgradeState ysqlMajorVersionUpgradeState) {
 
     // If the node list is empty, we don't need to do anything.
     if (nodes.isEmpty()) {
@@ -2963,8 +2954,7 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
               ServerType.CONTROLLER,
               UpgradeTaskSubType.YbcInstall,
               softwareVersion,
-              stableYbcVersion,
-              ysqlMajorVersionUpgradeState));
+              stableYbcVersion));
     }
     subTaskGroup.setSubTaskGroupType(subTaskGroupType);
     getRunnableTask().addSubTaskGroup(subTaskGroup);
@@ -3262,7 +3252,7 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
       boolean enableYSQL,
       boolean enableYSQLAuth,
       boolean enableConnectionPooling,
-      Map<String, String> connectionPoolingGflags,
+      Map<UUID, SpecificGFlags> connectionPoolingGflags,
       boolean enableYCQL,
       boolean enableYCQLAuth) {
     SubTaskGroup subTaskGroup = createSubTaskGroup("UpdateClusterAPIDetails");
@@ -3843,32 +3833,45 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
         });
   }
 
-  protected void createCommonFinalizeUpgradeTasks(
+  protected void createFinalizeUpgradeTasks(
       boolean upgradeSystemCatalog,
       boolean finalizeCatalogUpgrade,
       boolean requireAdditionalSuperUserForCatalogUpgrade) {
     Universe universe = getUniverse();
-    String version = universe.getUniverseDetails().getPrimaryCluster().userIntent.ybSoftwareVersion;
 
-    if (finalizeCatalogUpgrade) {
-      createFinalizeYsqlMajorCatalogUpgradeTask();
+    createUpdateUniverseSoftwareUpgradeStateTask(
+        UniverseDefinitionTaskParams.SoftwareUpgradeState.Finalizing,
+        false /* isSoftwareRollbackAllowed */,
+        true /* retainPrevYBSoftwareConfig */);
+
+    if (!confGetter.getConfForScope(universe, UniverseConfKeys.skipUpgradeFinalize)) {
+      if (finalizeCatalogUpgrade) {
+        createFinalizeYsqlMajorCatalogUpgradeTask();
+      }
+      // Promote all auto flags upto class External.
+      createPromoteAutoFlagTask(
+          universe.getUniverseUUID(),
+          true /* ignoreErrors */,
+          AutoFlagUtil.EXTERNAL_AUTO_FLAG_CLASS_NAME /* maxClass */);
+
+      if (upgradeSystemCatalog) {
+        // Run YSQL upgrade on the universe.
+        String version =
+            universe.getUniverseDetails().getPrimaryCluster().userIntent.ybSoftwareVersion;
+        createRunYsqlUpgradeTask(version);
+      }
+
+      if (requireAdditionalSuperUserForCatalogUpgrade) {
+        // Delete the superuser created for catalog upgrade.
+        createManageCatalogUpgradeSuperUserTask(Action.DELETE_USER);
+      }
+    } else {
+      log.info("Skipping upgrade finalization for universe : " + universe.getUniverseUUID());
     }
 
-    // Promote all auto flags upto class External.
-    createPromoteAutoFlagTask(
-        universe.getUniverseUUID(),
-        true /* ignoreErrors */,
-        AutoFlagUtil.EXTERNAL_AUTO_FLAG_CLASS_NAME /* maxClass */);
-
-    if (upgradeSystemCatalog) {
-      // Run YSQL upgrade on the universe.
-      createRunYsqlUpgradeTask(version);
-    }
-
-    if (requireAdditionalSuperUserForCatalogUpgrade) {
-      // Delete the superuser created for catalog upgrade.
-      createManageCatalogUpgradeSuperUserTask(Action.DELETE_USER);
-    }
+    createUpdateUniverseSoftwareUpgradeStateTask(
+        UniverseDefinitionTaskParams.SoftwareUpgradeState.Ready,
+        false /* isSoftwareRollbackAllowed */);
   }
 
   protected void createSetYBMajorVersionUpgradeCompatibility(
@@ -3886,5 +3889,14 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
                   ImmutableMap.of(GFlagsUtil.YB_MAJOR_VERSION_UPGRADE_COMPATIBILITY, flagValue);
             })
         .setSubTaskGroupType(SubTaskGroupType.UpdatingGFlags);
+  }
+
+  public void updateAndPersistAuditLoggingConfigTask() {
+    TaskExecutor.SubTaskGroup subTaskGroup =
+        createSubTaskGroup("UpdateAndPersistAuditLoggingConfig");
+    UpdateAndPersistAuditLoggingConfig task = createTask(UpdateAndPersistAuditLoggingConfig.class);
+    task.initialize(taskParams());
+    subTaskGroup.addSubTask(task);
+    getRunnableTask().addSubTaskGroup(subTaskGroup);
   }
 }

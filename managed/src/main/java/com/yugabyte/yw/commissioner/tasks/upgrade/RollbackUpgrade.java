@@ -18,6 +18,7 @@ import com.yugabyte.yw.models.helpers.NodeDetails.NodeState;
 import com.yugabyte.yw.models.helpers.UpgradeDetails.YsqlMajorVersionUpgradeState;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.yb.master.MasterAdminOuterClass.YsqlMajorCatalogUpgradeState;
 
 @Slf4j
@@ -30,7 +31,7 @@ public class RollbackUpgrade extends SoftwareUpgradeTaskBase {
   @Inject
   protected RollbackUpgrade(
       BaseTaskDependencies baseTaskDependencies, SoftwareUpgradeHelper softwareUpgradeHelper) {
-    super(baseTaskDependencies);
+    super(baseTaskDependencies, softwareUpgradeHelper);
     this.softwareUpgradeHelper = softwareUpgradeHelper;
   }
 
@@ -85,16 +86,30 @@ public class RollbackUpgrade extends SoftwareUpgradeTaskBase {
 
           UniverseDefinitionTaskParams.PrevYBSoftwareConfig prevYBSoftwareConfig =
               universe.getUniverseDetails().prevYBSoftwareConfig;
-          String oldVersion =
-              universe.getUniverseDetails().getPrimaryCluster().userIntent.ybSoftwareVersion;
 
           createUpdateUniverseSoftwareUpgradeStateTask(
               UniverseDefinitionTaskParams.SoftwareUpgradeState.RollingBack);
 
-          // Skip auto flags restore in case upgrade did not take place or succeed.
-          if (prevYBSoftwareConfig != null
-              && !oldVersion.equals(prevYBSoftwareConfig.getSoftwareVersion())) {
+          boolean ysqlMajorVersionUpgrade = false;
+          boolean requireAdditionalSuperUserForCatalogUpgrade = false;
+          String oldVersion =
+              universe.getUniverseDetails().getPrimaryCluster().userIntent.ybSoftwareVersion;
+
+          if (prevYBSoftwareConfig != null) {
             oldVersion = prevYBSoftwareConfig.getSoftwareVersion();
+            String newVersion =
+                universe.getUniverseDetails().getPrimaryCluster().userIntent.ybSoftwareVersion;
+            if (!StringUtils.isEmpty(prevYBSoftwareConfig.getTargetUpgradeSoftwareVersion())) {
+              newVersion = prevYBSoftwareConfig.getTargetUpgradeSoftwareVersion();
+            }
+
+            ysqlMajorVersionUpgrade =
+                softwareUpgradeHelper.isYsqlMajorVersionUpgradeRequired(
+                    universe, oldVersion, newVersion);
+            requireAdditionalSuperUserForCatalogUpgrade =
+                softwareUpgradeHelper.isSuperUserRequiredForCatalogUpgrade(
+                    universe, oldVersion, newVersion);
+
             int autoFlagConfigVersion = prevYBSoftwareConfig.getAutoFlagConfigVersion();
             // Restore old auto flag Config
             createRollbackAutoFlagTask(taskParams().getUniverseUUID(), autoFlagConfigVersion);
@@ -104,17 +119,11 @@ public class RollbackUpgrade extends SoftwareUpgradeTaskBase {
           // version.
           createDownloadTasks(toOrderedSet(nodes.asPair()), oldVersion);
 
-          boolean ysqlMajorVersionUpgrade = false;
-          boolean requireAdditionalSuperUserForCatalogUpgrade = false;
-          if (prevYBSoftwareConfig != null) {
-            String newVersion =
-                universe.getUniverseDetails().getPrimaryCluster().userIntent.ybSoftwareVersion;
-            ysqlMajorVersionUpgrade =
-                softwareUpgradeHelper.isYsqlMajorVersionUpgradeRequired(
-                    universe, oldVersion, newVersion);
-            requireAdditionalSuperUserForCatalogUpgrade =
-                softwareUpgradeHelper.isSuperUserRequiredForCatalogUpgrade(
-                    universe, oldVersion, newVersion);
+          if (ysqlMajorVersionUpgrade) {
+            // Set ysql_yb_major_version_upgrade_compatibility to `11` for tservers during ysql
+            // upgrade rollback.
+            createGFlagsUpgradeTaskForYSQLMajorUpgrade(
+                universe, YsqlMajorVersionUpgradeState.ROLLBACK_IN_PROGRESS);
           }
 
           if (nodes.tserversList.size() > 0) {
@@ -164,6 +173,8 @@ public class RollbackUpgrade extends SoftwareUpgradeTaskBase {
             // rolled back.
             createGFlagsUpgradeTaskForYSQLMajorUpgrade(
                 universe, YsqlMajorVersionUpgradeState.ROLLBACK_COMPLETE);
+
+            createCleanUpPGUpgradeDataDirTask();
 
             if (requireAdditionalSuperUserForCatalogUpgrade) {
               createManageCatalogUpgradeSuperUserTask(Action.DELETE_USER);

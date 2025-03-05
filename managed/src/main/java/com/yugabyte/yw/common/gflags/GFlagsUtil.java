@@ -43,7 +43,6 @@ import com.yugabyte.yw.models.Universe;
 import com.yugabyte.yw.models.helpers.CommonUtils;
 import com.yugabyte.yw.models.helpers.NodeDetails;
 import com.yugabyte.yw.models.helpers.UpgradeDetails;
-import com.yugabyte.yw.models.helpers.UpgradeDetails.YsqlMajorVersionUpgradeState;
 import com.yugabyte.yw.models.helpers.audit.AuditLogConfig;
 import com.yugabyte.yw.models.helpers.audit.YCQLAuditConfig;
 import com.yugabyte.yw.models.helpers.audit.YSQLAuditConfig;
@@ -747,7 +746,16 @@ public class GFlagsUtil {
       gflags.put(ENABLE_YSQL, "true");
       if (taskParam.enableConnectionPooling) {
         gflags.put(ENABLE_YSQL_CONN_MGR, "true");
-        gflags.put(ALLOWED_PREVIEW_FLAGS_CSV, ENABLE_YSQL_CONN_MGR);
+        String ybdbVersion =
+            universe.getUniverseDetails().getPrimaryCluster().userIntent.ybSoftwareVersion;
+        if (Util.compareYBVersions(
+                ybdbVersion,
+                Util.CONNECTION_POOLING_DB_PREVIEW_FLAG_STABLE_VERSION,
+                Util.CONNECTION_POOLING_DB_PREVIEW_FLAG_PREVIEW_VERSION,
+                true)
+            < 0) {
+          gflags.put(ALLOWED_PREVIEW_FLAGS_CSV, ENABLE_YSQL_CONN_MGR);
+        }
         gflags.put(
             PSQL_PROXY_BIND_ADDRESS,
             String.format(
@@ -762,9 +770,6 @@ public class GFlagsUtil {
                 taskParam.overrideNodePorts
                     ? taskParam.communicationPorts.ysqlServerRpcPort
                     : node.ysqlServerRpcPort));
-        if (!taskParam.connectionPoolingGflags.isEmpty()) {
-          gflags.putAll(taskParam.connectionPoolingGflags);
-        }
       } else {
         gflags.put(
             PSQL_PROXY_BIND_ADDRESS,
@@ -798,12 +803,10 @@ public class GFlagsUtil {
   }
 
   public static String getYsqlPgConfCsv(AnsibleConfigureServers.Params taskParams) {
-    AuditLogConfig auditLogConfig = taskParams.auditLogConfig;
-    return getYsqlPgConfCsv(auditLogConfig, taskParams.ysqlMajorVersionUpgradeState);
+    return getYsqlPgConfCsv(taskParams.auditLogConfig);
   }
 
-  public static String getYsqlPgConfCsv(
-      AuditLogConfig auditLogConfig, YsqlMajorVersionUpgradeState ysqlMajorVersionUpgradeState) {
+  public static String getYsqlPgConfCsv(AuditLogConfig auditLogConfig) {
     List<String> ysqlPgConfCsvEntries = new ArrayList<>();
     if (auditLogConfig != null) {
       if (auditLogConfig.getYsqlAuditConfig() != null

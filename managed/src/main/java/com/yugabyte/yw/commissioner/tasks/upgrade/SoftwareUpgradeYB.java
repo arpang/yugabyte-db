@@ -35,7 +35,7 @@ public class SoftwareUpgradeYB extends SoftwareUpgradeTaskBase {
   @Inject
   protected SoftwareUpgradeYB(
       BaseTaskDependencies baseTaskDependencies, SoftwareUpgradeHelper softwareUpgradeHelper) {
-    super(baseTaskDependencies);
+    super(baseTaskDependencies, softwareUpgradeHelper);
     this.softwareUpgradeHelper = softwareUpgradeHelper;
   }
 
@@ -99,13 +99,14 @@ public class SoftwareUpgradeYB extends SoftwareUpgradeTaskBase {
             createXClusterSourceRootCertDirPathGFlagTasks();
           }
 
-          boolean rollbackMaster = false;
+          createStoreAutoFlagConfigVersionTask(taskParams().getUniverseUUID(), newVersion);
 
+          boolean rollbackMaster = false;
+          YsqlMajorCatalogUpgradeState catalogUpgradeState = null;
           if (requireAdditionalSuperUserForCatalogUpgrade) {
             if (softwareUpgradeHelper.isAllMasterUpgradedToYsqlMajorVersion(universe, "15")) {
-              YsqlMajorCatalogUpgradeState state =
-                  softwareUpgradeHelper.getYsqlMajorCatalogUpgradeState(universe);
-              if (state.equals(
+              catalogUpgradeState = softwareUpgradeHelper.getYsqlMajorCatalogUpgradeState(universe);
+              if (catalogUpgradeState.equals(
                   YsqlMajorCatalogUpgradeState.YSQL_MAJOR_CATALOG_UPGRADE_PENDING_ROLLBACK)) {
                 log.info(
                     "YSQL catalog upgrade is in a failed state. Rolling back catalog upgrade.");
@@ -144,9 +145,6 @@ public class SoftwareUpgradeYB extends SoftwareUpgradeTaskBase {
               // upgrade.
               createGFlagsUpgradeTaskForYSQLMajorUpgrade(
                   universe, YsqlMajorVersionUpgradeState.IN_PROGRESS);
-
-              // Run this pre-check after downloading software as it require pg_upgrade binary.
-              createPGUpgradeTServerCheckTask(newVersion);
             }
 
             if (requireAdditionalSuperUserForCatalogUpgrade
@@ -178,10 +176,10 @@ public class SoftwareUpgradeYB extends SoftwareUpgradeTaskBase {
           if (nodesToApply.tserversList.size() == universe.getTServers().size()) {
             // If any tservers is upgraded, then we can assume pg upgrade is completed.
             if (requireYsqlMajorVersionUpgrade) {
-              if (softwareUpgradeHelper
-                  .getYsqlMajorCatalogUpgradeState(universe)
-                  .equals(YsqlMajorCatalogUpgradeState.YSQL_MAJOR_CATALOG_UPGRADE_PENDING)) {
-                createPGUpgradeTServerCheckTask(newVersion);
+              if (catalogUpgradeState != null
+                  && catalogUpgradeState.equals(
+                      YsqlMajorCatalogUpgradeState.YSQL_MAJOR_CATALOG_UPGRADE_PENDING)) {
+                createPGUpgradeTServerCheckTask(newVersion, false /* downloadPackage */);
               }
 
               createRunYsqlMajorVersionCatalogUpgradeTask();
@@ -205,17 +203,17 @@ public class SoftwareUpgradeYB extends SoftwareUpgradeTaskBase {
                 requireYsqlMajorVersionUpgrade ? YsqlMajorVersionUpgradeState.IN_PROGRESS : null);
           }
 
+          if (requireYsqlMajorVersionUpgrade) {
+            // Un-set ysql_yb_major_version_upgrade_compatibility to 0 for tserver after upgrade.
+            createGFlagsUpgradeTaskForYSQLMajorUpgrade(
+                universe, YsqlMajorVersionUpgradeState.UPGRADE_COMPLETE);
+          }
+
           if (taskParams().installYbc) {
-            createYbcInstallTask(
-                universe,
-                new ArrayList<>(allNodes),
-                newVersion,
-                requireYsqlMajorVersionUpgrade ? YsqlMajorVersionUpgradeState.IN_PROGRESS : null);
+            createYbcInstallTask(universe, new ArrayList<>(allNodes), newVersion);
           }
 
           createCheckSoftwareVersionTask(allNodes, newVersion);
-
-          createStoreAutoFlagConfigVersionTask(taskParams().getUniverseUUID());
 
           createPromoteAutoFlagTask(
               universe.getUniverseUUID(),

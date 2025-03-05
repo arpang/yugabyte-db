@@ -121,6 +121,7 @@
 #include "nodes/readfuncs.h"
 #include "yb_ash.h"
 #include "yb_query_diagnostics.h"
+#include "storage/procarray.h"
 
 #ifdef HAVE_SYS_PRCTL_H
 #include <sys/prctl.h>
@@ -259,7 +260,7 @@ YbResetCatalogCacheVersion()
 	yb_pgstat_set_catalog_version(yb_catalog_cache_version);
 }
 
-/** These values are lazily initialized based on corresponding environment variables. */
+/* These values are lazily initialized based on corresponding environment variables. */
 int			ybc_pg_double_write = -1;
 int			ybc_disable_pg_locking = -1;
 
@@ -3095,12 +3096,20 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 
 				is_breaking_change = false;
 				if (stmt->concurrent)
+				{
 					/*
 					 * REFRESH MATERIALIZED VIEW CONCURRENTLY does not need
 					 * a catalog version increment as it does not alter any
 					 * metadata. The command only performs data changes.
 					 */
 					is_version_increment = false;
+					/*
+					 * REFRESH MATERIALIZED VIEW CONCURRENTLY uses temp tables
+					 * which generates a PostgreSQL XID. Mark the transaction
+					 * as such, so that it can be handled at commit time.
+					 */
+					YbSetTxnWithPgOps(YB_TXN_USES_REFRESH_MAT_VIEW_CONCURRENTLY);
+				}
 				else
 					/*
 					 * REFRESH MATERIALIZED VIEW NONCONCURRENTLY needs a catalog
@@ -6635,3 +6644,21 @@ YbInvalidationMessagesTableExists()
 }
 
 bool yb_is_calling_internal_function_for_ddl;
+
+char *
+YbGetPotentiallyHiddenOidText(Oid oid)
+{
+	if (*YBCGetGFlags()->TEST_hide_details_for_pg_regress)
+		return "<oid_hidden_for_pg_regress>";
+	else
+	{
+		char	   *oid_text = palloc(11 * sizeof(char));
+
+		sprintf(oid_text, "%u", oid);
+		/*
+		 * It is expected the caller uses this string in an error message, so
+		 * the palloc'd memory will get freed via memory context free.
+		 */
+		return oid_text;
+	}
+}

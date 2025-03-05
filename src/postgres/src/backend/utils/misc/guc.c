@@ -164,6 +164,7 @@ extern bool optimize_bounded_sort;
 static double yb_transaction_priority_lower_bound = 0.0;
 static double yb_transaction_priority_upper_bound = 1.0;
 static double yb_transaction_priority = 0.0;
+static int yb_tcmalloc_sample_period = 1024 * 1024; /* 1MB */
 
 static int	GUC_check_errcode_value;
 
@@ -271,6 +272,7 @@ extern void YBCAssignTransactionPriorityUpperBound(double newval, void *extra);
 extern double YBCGetTransactionPriority();
 extern YbcTxnPriorityRequirement YBCGetTransactionPriorityType();
 static bool yb_check_no_txn(int *newval, void **extra, GucSource source);
+static bool yb_disable_auto_analyze_check_hook(bool *newval, void **extra, GucSource source);
 
 static void assign_yb_pg_batch_detection_mechanism(int new_value, void *extra);
 static void assign_ysql_upgrade_mode(bool newval, void *extra);
@@ -280,6 +282,9 @@ static bool check_min_backoff(int *min_backoff_msecs, void **extra, GucSource so
 static bool check_backoff_multiplier(double *multiplier, void **extra, GucSource source);
 static bool yb_check_toast_catcache_threshold(int *newval, void **extra, GucSource source);
 static void check_reserved_prefixes(const char *varName);
+
+static const char *show_tcmalloc_sample_period(void);
+static void assign_tcmalloc_sample_period(int newval, void *extra);
 
 /* Private functions in guc-file.l that need to be called from guc.c */
 static ConfigVariable *ProcessConfigFileInternal(GucContext context,
@@ -2753,6 +2758,17 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+
+	{
+		{"yb_fast_path_for_colocated_copy", PGC_USERSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Enable fast-path transaction for copy on colocated tables. For testint now."),
+			NULL
+		},
+		&yb_fast_path_for_colocated_copy,
+		false,
+		NULL, NULL, NULL
+	},
+
 	{
 		{"suppress_nonpg_logs", PGC_SIGHUP, LOGGING_WHAT,
 			gettext_noop("Suppresses non-Postgres logs from appearing in the Postgres log file."),
@@ -3176,6 +3192,30 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+
+	{
+		{"yb_upgrade_to_pg15_completed", PGC_SIGHUP, CUSTOM_OPTIONS,
+			gettext_noop("Indicates the state of YSQL major upgrade to PostgreSQL version 15. Do not modify this manually."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_upgrade_to_pg15_completed,
+		true,
+		NULL, NULL, NULL
+	},
+
+  {
+    {"yb_disable_auto_analyze", PGC_USERSET, CUSTOM_OPTIONS,
+      gettext_noop("Run 'ALTER DATABASE <name> SET yb_disable_auto_analyze=on' to disable auto "
+          "analyze on that database. Set it to off to resume auto analyze. Setting this GUC via "
+          "any other method is not allowed."),
+      NULL,
+      GUC_NOT_IN_SAMPLE
+    },
+    &yb_disable_auto_analyze,
+    false,
+    yb_disable_auto_analyze_check_hook, NULL, NULL
+  },
 
 	/* End-of-list marker */
 	{
@@ -5042,6 +5082,30 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_major_version_upgrade_compatibility", PGC_SIGHUP, CUSTOM_OPTIONS,
+			gettext_noop("The compatibility level to use during a YSQL Major version upgrade. "
+						 "Allowed values are 0 and 11."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_major_version_upgrade_compatibility,
+		0, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{{"yb_tcmalloc_sample_period", PGC_SUSET, STATS_MONITORING,
+	  gettext_noop("TCMalloc sample interval in bytes, i.e. approximately "
+				   "how many bytes between sampling allocation call stacks"), NULL,
+	  GUC_UNIT_BYTE},
+	 &yb_tcmalloc_sample_period,
+	 1024 * 1024, /* 1MB */
+	 0,
+	 INT_MAX,
+	 NULL,
+	 assign_tcmalloc_sample_period,
+	 show_tcmalloc_sample_period},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, 0, 0, NULL, NULL, NULL
@@ -6796,6 +6860,7 @@ static const char *const YbDbAdminVariables[] = {
 	"session_replication_role",
 	"yb_make_next_ddl_statement_nonbreaking",
 	"yb_make_next_ddl_statement_nonincrementing",
+	"yb_tcmalloc_sample_period",
 };
 
 
@@ -15410,5 +15475,37 @@ yb_check_no_txn(int *newVal, void **extra, GucSource source)
 	return true;
 }
 
+static const char *
+show_tcmalloc_sample_period(void)
+{
+	static char nbuf[32];
+	snprintf(nbuf, sizeof(nbuf), "%" PRId64, YBCGetTCMallocSamplingPeriod());
+	return nbuf;
+}
+
+static void
+assign_tcmalloc_sample_period(int newval, void *extra)
+{
+	YBCSetTCMallocSamplingPeriod(newval);
+}
+
+static bool
+yb_disable_auto_analyze_check_hook(bool *newval, void **extra, GucSource source)
+{
+	/*
+	 * PGC_S_DEFAULT means that GUCs are being initialized during startup. PGC_S_TEST will be seen
+	 * when GUCs are being tested for their setting when applying the setting on a per-database
+	 * level. In both cases, we want to allow the setting to be changed.
+	 */
+	if (source == PGC_S_DEFAULT || source == PGC_S_TEST)
+		return true;
+
+  if (source != PGC_S_DATABASE)
+	{
+		GUC_check_errmsg("Can only be set on a database level using ALTER DATABASE SET. Current source: %s", GucSource_Names[source]);
+	  return false;
+	}
+	return true;
+}
 
 #include "guc-file.c"
