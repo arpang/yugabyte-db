@@ -2074,6 +2074,9 @@ YbTupleTableSlotToStringWithIsOmitted(TupleTableSlot *slot, bool *is_omitted)
 	HeapTuple	tuple;
 	const char *result;
 
+	if (TTS_EMPTY(slot))
+		elog(ERROR, "slot is empty");
+
 	tuple = ExecFetchSlotHeapTuple(slot, false, &shouldFree);
 	result = YbHeapTupleToStringWithIsOmitted(tuple, slot->tts_tupleDescriptor,
 											  is_omitted);
