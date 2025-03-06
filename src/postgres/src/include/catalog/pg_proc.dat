@@ -12172,4 +12172,9 @@
   proname => 'yb_index_check', provolatile => 's',
   prorettype => 'void', proargtypes => 'oid',
   prosrc => 'yb_index_check' },
+
+{ oid => '8091', descr => 'given index key attributes, returns index row ybctid',
+  proname => 'yb_compute_ybctid', proargtypes => 'oid anyarray bytea',
+  prorettype => 'bytea', prosrc => 'yb_compute_ybctid', proisstrict => 'f'},
+
 ]
