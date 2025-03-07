@@ -105,15 +105,13 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 						"issue is likely with the checker, and not with the index"),
 				 errdetail(indrow_detail(indexrel, ybbasectid_datum))));
 
+	ind_attnum += 2;
+	base_attnum += 2;
 	/* Validate the index attributes */
-	for (int i = 0; i < indnatts; i++)
+	for (int i = 0; i < indnatts; i++, ind_attnum += 2, base_attnum += 2)
 	{
-		int ind_attnum = 2 * (i + 1) + 1;
-		int base_attnum = ind_attnum + 1;
 		Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
 
-		bool ind_null;
-		bool base_null;
 		Datum ind_datum = slot_getattr(slot, ind_attnum, &ind_null);
 		Datum base_datum = slot_getattr(slot, base_attnum, &base_null);
 
@@ -160,7 +158,6 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 	if (indisunique)
 	{
 		/* Validate the ybuniqueidxkeysuffix */
-		ind_attnum = 2 * (indnatts + 1) + 1;
 		Datum ybuniqueidxkeysuffix_datum = slot_getattr(slot, ind_attnum, &ind_null);
 
 		if (indnullsnotdistinct || !indkeyhasnull)
