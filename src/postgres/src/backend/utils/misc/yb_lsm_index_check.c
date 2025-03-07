@@ -509,7 +509,7 @@ get_equality_opcodes(Relation indexrel)
 	return equality_opcodes;
 }
 
-static int
+static int64
 check_spurious_index_rows(Relation baserel, Relation indexrel)
 {
 	Plan *join_plan = spurious_check_plan(baserel, indexrel);
@@ -533,7 +533,7 @@ check_spurious_index_rows(Relation baserel, Relation indexrel)
 
 	List *equality_opcodes = get_equality_opcodes(indexrel);
 
-	int index_rowcount = 0;
+	int64 index_rowcount = 0;
 	TupleTableSlot *output;
 	while ((output = ExecProcNode(join_state)))
 	{
@@ -563,7 +563,7 @@ partitioned_index_check(Oid parentindexId)
 	}
 }
 
-static int
+static int64
 get_expected_index_rowcount(Relation baserel, Relation indexrel)
 {
 	StringInfoData querybuf;
@@ -597,7 +597,7 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 	bool isnull;
 	Datum val = heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
 	Assert(!isnull);
-	int expected_rowcount = DatumGetInt64(val);
+	int64 expected_rowcount = DatumGetInt64(val);
 
 	if (SPI_finish() != SPI_OK_FINISH)
 		elog(ERROR, "SPI_finish failed");
@@ -639,7 +639,7 @@ yb_index_check_internal(Oid indexoid)
 	Relation baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
 
 	/* Check for spurious index rows */
-	int actual_index_rowcount = 0;
+	int64 actual_index_rowcount = 0;
 	PG_TRY();
 	{
 		actual_index_rowcount = check_spurious_index_rows(baserel, indexrel);
@@ -653,13 +653,13 @@ yb_index_check_internal(Oid indexoid)
 	PG_END_TRY();
 
 	/* Now, check for missing index rows */
-	int expected_index_rowcount = get_expected_index_rowcount(baserel, indexrel);
+	int64 expected_index_rowcount = get_expected_index_rowcount(baserel, indexrel);
 	/* We already verified that index doesn't contain spurious rows. */
 	Assert(expected_index_rowcount >= actual_index_rowcount);
 	if (actual_index_rowcount != expected_index_rowcount)
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
-				 errmsg("index is missing some rows: expected %d, actual %d",
+				 errmsg("index is missing some rows: expected %ld, actual %ld",
 						expected_index_rowcount, actual_index_rowcount)));
 
 	RelationClose(indexrel);
