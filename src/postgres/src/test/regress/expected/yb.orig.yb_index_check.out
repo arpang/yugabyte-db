@@ -155,6 +155,7 @@ UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE
 :force_cache_refresh
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
 ERROR:  index contains spurious row
+DETAIL:  index: 'abcd_b_c_d_idx', ybbasectid: '\x47121048800000012121'
 INSERT INTO abcd VALUES (1, 1, 1, 1);
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
  yb_index_check 
@@ -170,6 +171,7 @@ UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE
 :force_cache_refresh
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
 ERROR:  index contains spurious row
+DETAIL:  index: 'abcd_b_c_d_idx', ybbasectid: '\x4751cf48800007d12121'
 INSERT INTO abcd VALUES (2001, NULL, NULL, NULL);
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
  yb_index_check 
@@ -184,8 +186,8 @@ UPDATE abcd SET d = d + 1 WHERE a = 1;
 UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
 :force_cache_refresh
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
-ERROR:  index row inconsistent with base table
-DETAIL:  Index row's non-key column is neither binary nor semantically equal to base row
+ERROR:  inconsistent index row due to semantic mismatch of non-key attribute
+DETAIL:  index: 'abcd_b_c_d_idx', ybbasectid: '\x47121048800000012121', index attnum: 3
 UPDATE abcd SET d = 1 WHERE a = 1;
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
  yb_index_check 
@@ -200,8 +202,8 @@ UPDATE abcd SET b = 9999 WHERE a = 1;
 UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
 :force_cache_refresh
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
-ERROR:  index row inconsistent with base table
-DETAIL:  Index row's key column is not binary equal to base row
+ERROR:  inconsistent index row due to binary mismatch of key attribute
+DETAIL:  index: 'abcd_b_c_d_idx', ybbasectid: '\x47121048800000012121', index attnum: 1
 UPDATE abcd SET b = 1 WHERE a = 1;
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
  yb_index_check 
@@ -217,6 +219,7 @@ UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE
 :force_cache_refresh
 SELECT yb_index_check('abcd_b_c_idx'::regclass::oid);
 ERROR:  index contains spurious row
+DETAIL:  index: 'abcd_b_c_idx', ybbasectid: '\x47512248800000332121'
 UPDATE abcd SET d = 51 WHERE a = 51;
 SELECT yb_index_check('abcd_b_c_idx'::regclass::oid);
  yb_index_check 
