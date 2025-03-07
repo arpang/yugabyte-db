@@ -47,6 +47,15 @@
 
 static void yb_index_check_internal(Oid indexoid);
 
+#define indrel_detail(indexrel)	\
+	"index: '%s'", RelationGetRelationName(indexrel)
+
+#define indrow_detail(indexrel, ybbasectid_datum)	\
+	"index: '%s', ybbasectid: '%s'", RelationGetRelationName(indexrel), YBDatumToString(ybbasectid_datum, BYTEAOID)
+
+#define indattr_detail(indexrel, ybbasectid_datum, attnum)	\
+	"index: '%s', ybbasectid: '%s', index attnum: %d", RelationGetRelationName(indexrel), YBDatumToString(ybbasectid_datum, BYTEAOID), attnum
+
 static void
 check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 							Relation indexrel)
@@ -71,14 +80,15 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 	Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
 
 	if (ind_null)
-		ereport(ERROR,
-				(errcode(ERRCODE_INDEX_CORRUPTED),
-				 errmsg("index has row with ybbasectid = null")));
+		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
+						errmsg("index has row with ybbasectid == null"),
+						errdetail(indrel_detail(indexrel))));
 
 	if (base_null)
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
-				 errmsg("index contains spurious row")));
+				 errmsg("index contains spurious row"),
+				 errdetail(indrow_detail(indexrel, ybbasectid_datum))));
 
 	/*
 	 * TODO: datumIsEqual() returns false due to header size mismatch for types
@@ -89,8 +99,10 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 	if (unlikely(!datum_image_eq(ybbasectid_datum, ybctid_datum,
 								 ind_att->attbyval, ind_att->attlen)))
 		ereport(ERROR,
-				(errcode(ERRCODE_INDEX_CORRUPTED),
-				 errmsg("index's ybbasectid mismatch with base relation's ybctid")));
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("indexrow ybbasectid mismatch with baserow ybctid. The "
+						"issue is likely with the checker, and not with the index"),
+				 errdetail(indrow_detail(indexrel, ybbasectid_datum))));
 
 	/* Validate the index attributes */
 	for (int i = 0; i < indnatts; i++)
@@ -114,8 +126,8 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
-					 errmsg("index row inconsistent with base table"),
-					 errdetail("NULL value mismatch for index attribute %d", i+1)));
+					 errmsg("inconsistent index row due to NULL mismatch"),
+					 errdetail(indattr_detail(indexrel, ybbasectid_datum, i + 1))));
 		}
 
 		if (datum_image_eq(ind_datum, base_datum, ind_att->attbyval,
@@ -126,24 +138,22 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 		if (i < indnkeyatts)
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
-					 errmsg("index row inconsistent with base table"),
-					 errdetail("Index row's key column is not binary equal to base row")));
+					 errmsg("inconsistent index row due to binary mismatch of key attribute"),
+					 errdetail(indattr_detail(indexrel, ybbasectid_datum, i + 1))));
 
 		RegProcedure proc_oid = lfirst_int(list_nth_cell(equality_opcodes, i));
 		if (proc_oid == InvalidOid)
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
-					 errmsg("index row inconsistent with base table"),
-					 errdetail("Index row's non-key column is not binary equal "
-							   "base row and doesn't have equalitu operator defined")));
+					 errmsg("inconsistent index row due to binary mismatch of non-key attribute"),
+					 errdetail(indattr_detail(indexrel, ybbasectid_datum, i + 1))));
 
 		if (!DatumGetBool(OidFunctionCall2Coll(proc_oid, DEFAULT_COLLATION_OID,
 											   ind_datum, base_datum)))
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
-					 errmsg("index row inconsistent with base table"),
-					 errdetail("Index row's non-key column is neither binary "
-							   "nor semantically equal to base row")));
+					 errmsg("inconsistent index row due to semantic mismatch of non-key attribute"),
+					 errdetail(indattr_detail(indexrel, ybbasectid_datum, i + 1))));
 	}
 
 	if (indisunique)
@@ -157,9 +167,8 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 			if (!ind_null)
 				ereport(ERROR,
 						(errcode(ERRCODE_INDEX_CORRUPTED),
-						 errmsg("unique index's ybuniqueidxkeysuffix is (unexpectedly) not null"),
-						 errdetail("It should be null if the index uses null-not-distinct "
-								   "mode or key columns do not contain null(s)")));
+						 errmsg("ybuniqueidxkeysuffix is (unexpectedly) not null"),
+						 errdetail(indrow_detail(indexrel, ybbasectid_datum))));
 		}
 		else
 		{
@@ -170,9 +179,8 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 			if (!equal)
 				ereport(ERROR,
 						(errcode(ERRCODE_INDEX_CORRUPTED),
-						 errmsg("unique index's ybuniqueidxkeysuffix doesn't match ybbasectid"),
-						 errdetail("The two should match for index in null-are-distinct "
-								   "mode when key columns contain null(s)")));
+						 errmsg("ybuniqueidxkeysuffix and ybbasectid mismatch"),
+						 errdetail(indrow_detail(indexrel, ybbasectid_datum))));
 		}
 	}
 }
