@@ -47,13 +47,13 @@
 
 static void yb_index_check_internal(Oid indexoid);
 
-#define indrel_detail(indexrel)	\
+#define IndRelDetail(indexrel)	\
 	"index: '%s'", RelationGetRelationName(indexrel)
 
-#define indrow_detail(indexrel, ybbasectid_datum)	\
+#define IndRowDetail(indexrel, ybbasectid_datum)	\
 	"index: '%s', ybbasectid: '%s'", RelationGetRelationName(indexrel), YBDatumToString(ybbasectid_datum, BYTEAOID)
 
-#define indattr_detail(indexrel, ybbasectid_datum, attnum)	\
+#define IndAttrDetail(indexrel, ybbasectid_datum, attnum)	\
 	"index: '%s', ybbasectid: '%s', index attnum: %d", RelationGetRelationName(indexrel), YBDatumToString(ybbasectid_datum, BYTEAOID), attnum
 
 static void
@@ -83,13 +83,13 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
 				 errmsg("index has row with ybbasectid == null"),
-				 errdetail(indrel_detail(indexrel))));
+				 errdetail(IndRelDetail(indexrel))));
 
 	if (base_null)
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
 				 errmsg("index contains spurious row"),
-				 errdetail(indrow_detail(indexrel, ybbasectid_datum))));
+				 errdetail(IndRowDetail(indexrel, ybbasectid_datum))));
 
 	/*
 	 * TODO: datumIsEqual() returns false due to header size mismatch for types
@@ -103,7 +103,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("indexrow ybbasectid mismatch with baserow ybctid. The "
 						"issue is likely with the checker, and not with the index"),
-				 errdetail(indrow_detail(indexrel, ybbasectid_datum))));
+				 errdetail(IndRowDetail(indexrel, ybbasectid_datum))));
 
 	ind_attnum += 2;
 	base_attnum += 2;
@@ -126,7 +126,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
 					 errmsg("inconsistent index row due to NULL mismatch"),
-					 errdetail(indattr_detail(indexrel, ybbasectid_datum, i + 1))));
+					 errdetail(IndAttrDetail(indexrel, ybbasectid_datum, i + 1))));
 		}
 
 		if (datum_image_eq(ind_datum, base_datum, ind_att->attbyval,
@@ -138,21 +138,21 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
 					 errmsg("inconsistent index row due to binary mismatch of key attribute"),
-					 errdetail(indattr_detail(indexrel, ybbasectid_datum, i + 1))));
+					 errdetail(IndAttrDetail(indexrel, ybbasectid_datum, i + 1))));
 
 		RegProcedure proc_oid = lfirst_int(list_nth_cell(equality_opcodes, i));
 		if (proc_oid == InvalidOid)
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
 					 errmsg("inconsistent index row due to binary mismatch of non-key attribute"),
-					 errdetail(indattr_detail(indexrel, ybbasectid_datum, i + 1))));
+					 errdetail(IndAttrDetail(indexrel, ybbasectid_datum, i + 1))));
 
 		if (!DatumGetBool(OidFunctionCall2Coll(proc_oid, DEFAULT_COLLATION_OID,
 											   ind_datum, base_datum)))
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
 					 errmsg("inconsistent index row due to semantic mismatch of non-key attribute"),
-					 errdetail(indattr_detail(indexrel, ybbasectid_datum, i + 1))));
+					 errdetail(IndAttrDetail(indexrel, ybbasectid_datum, i + 1))));
 	}
 
 	if (indisunique)
@@ -166,7 +166,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 				ereport(ERROR,
 						(errcode(ERRCODE_INDEX_CORRUPTED),
 						 errmsg("ybuniqueidxkeysuffix is (unexpectedly) not null"),
-						 errdetail(indrow_detail(indexrel, ybbasectid_datum))));
+						 errdetail(IndRowDetail(indexrel, ybbasectid_datum))));
 		}
 		else
 		{
@@ -178,7 +178,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 				ereport(ERROR,
 						(errcode(ERRCODE_INDEX_CORRUPTED),
 						 errmsg("ybuniqueidxkeysuffix and ybbasectid mismatch"),
-						 errdetail(indrow_detail(indexrel, ybbasectid_datum))));
+						 errdetail(IndRowDetail(indexrel, ybbasectid_datum))));
 		}
 	}
 }
