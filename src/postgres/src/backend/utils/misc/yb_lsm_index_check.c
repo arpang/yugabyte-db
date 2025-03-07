@@ -73,12 +73,12 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 	if (ind_null)
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
-				errmsg("index has row with ybbasectid = null")));
+				 errmsg("index has row with ybbasectid = null")));
 
 	if (base_null)
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
-				errmsg("index contains spurious row")));
+				 errmsg("index contains spurious row")));
 
 	/*
 	 * TODO: datumIsEqual() returns false due to header size mismatch for types
@@ -90,7 +90,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 								 ind_att->attbyval, ind_att->attlen)))
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
-				errmsg("index's ybbasectid mismatch with base relation's ybctid")));
+				 errmsg("index's ybbasectid mismatch with base relation's ybctid")));
 
 	/* Validate the index attributes */
 	for (int i = 0; i < indnatts; i++)
@@ -114,8 +114,8 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
-					errmsg("index row inconsistent with base table"),
-					errdetail("NULL value mismatch for index attribute %d", i+1)));
+					 errmsg("index row inconsistent with base table"),
+					 errdetail("NULL value mismatch for index attribute %d", i+1)));
 		}
 
 		if (datum_image_eq(ind_datum, base_datum, ind_att->attbyval,
@@ -126,24 +126,24 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 		if (i < indnkeyatts)
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
-					errmsg("index row inconsistent with base table"),
-					errdetail("Index row's key column is not binary equal to base row")));
+					 errmsg("index row inconsistent with base table"),
+					 errdetail("Index row's key column is not binary equal to base row")));
 
 		RegProcedure proc_oid = lfirst_int(list_nth_cell(equality_opcodes, i));
 		if (proc_oid == InvalidOid)
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
-					errmsg("index row inconsistent with base table"),
-					errdetail("Index row's non-key column is not binary equal "
-							  "base row and doesn't have equalitu operator defined")));
+					 errmsg("index row inconsistent with base table"),
+					 errdetail("Index row's non-key column is not binary equal "
+							   "base row and doesn't have equalitu operator defined")));
 
 		if (!DatumGetBool(OidFunctionCall2Coll(proc_oid, DEFAULT_COLLATION_OID,
 											   ind_datum, base_datum)))
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
-					errmsg("index row inconsistent with base table"),
-					errdetail("Index row's non-key column is neither binary "
-							  "nor semantically equal to base row")));
+					 errmsg("index row inconsistent with base table"),
+					 errdetail("Index row's non-key column is neither binary "
+							   "nor semantically equal to base row")));
 	}
 
 	if (indisunique)
@@ -157,9 +157,9 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 			if (!ind_null)
 				ereport(ERROR,
 						(errcode(ERRCODE_INDEX_CORRUPTED),
-						errmsg("unique index's ybuniqueidxkeysuffix is (unexpectedly) not null"),
-						errdetail("It should be null if the index uses null-not-distinct "
-								  "mode or key columns do not contain null(s)")));
+						 errmsg("unique index's ybuniqueidxkeysuffix is (unexpectedly) not null"),
+						 errdetail("It should be null if the index uses null-not-distinct "
+								   "mode or key columns do not contain null(s)")));
 		}
 		else
 		{
@@ -170,9 +170,9 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 			if (!equal)
 				ereport(ERROR,
 						(errcode(ERRCODE_INDEX_CORRUPTED),
-						errmsg("unique index's ybuniqueidxkeysuffix doesn't match ybbasectid"),
-						errdetail("The two should match for index in null-are-distinct "
-								  "mode when key columns contain null(s)")));
+						 errmsg("unique index's ybuniqueidxkeysuffix doesn't match ybbasectid"),
+						 errdetail("The two should match for index in null-are-distinct "
+								   "mode when key columns contain null(s)")));
 		}
 	}
 }
@@ -650,7 +650,7 @@ yb_index_check_internal(Oid indexoid)
 	if (actual_index_rowcount != expected_index_rowcount)
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
-				errmsg("index is missing some rows: expected %d, actual %d",
+				 errmsg("index is missing some rows: expected %d, actual %d",
 						expected_index_rowcount, actual_index_rowcount)));
 
 	RelationClose(indexrel);
