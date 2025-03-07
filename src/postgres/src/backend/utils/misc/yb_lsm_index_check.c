@@ -80,9 +80,10 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 	Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
 
 	if (ind_null)
-		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
-						errmsg("index has row with ybbasectid == null"),
-						errdetail(indrel_detail(indexrel))));
+		ereport(ERROR,
+				(errcode(ERRCODE_INDEX_CORRUPTED),
+				 errmsg("index has row with ybbasectid == null"),
+				 errdetail(indrel_detail(indexrel))));
 
 	if (base_null)
 		ereport(ERROR,
