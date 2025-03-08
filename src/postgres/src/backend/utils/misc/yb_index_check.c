@@ -47,6 +47,7 @@
 #include "utils/syscache.h"
 
 static void yb_index_check_internal(Oid indexoid);
+static void check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate);
 
 #define IndRelDetail(indexrel)	\
 	"index: '%s'", RelationGetRelationName(indexrel)
@@ -510,7 +511,7 @@ init_estate(Relation baserel)
 }
 
 static void
-cleanup_estate(EState* estate)
+cleanup_estate(EState *estate)
 {
 	ExecResetTupleTable(estate->es_tupleTable, true);
 	ExecCloseResultRelations(estate);
@@ -542,7 +543,7 @@ get_equality_opcodes(Relation indexrel)
 }
 
 static void
-check_spurious_index_rows(Relation baserel, Relation indexrel, EState* estate)
+check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
 {
 	Plan *join_plan = spurious_check_plan(baserel, indexrel);
 
@@ -563,6 +564,80 @@ check_spurious_index_rows(Relation baserel, Relation indexrel, EState* estate)
 
 	MemoryContextSwitchTo(oldctxt);
 	return;
+}
+
+static void
+partitioned_index_check(Oid parentindexId)
+{
+	ListCell *lc;
+	foreach (lc, find_inheritance_children(parentindexId, AccessShareLock))
+	{
+		Oid childindexId = ObjectIdGetDatum(lfirst_oid(lc));
+		/* TODO: A new read time can be used for each partition. */
+		yb_index_check_internal(childindexId);
+	}
+}
+
+static void
+yb_index_check_internal(Oid indexoid)
+{
+	Relation indexrel = RelationIdGetRelation(indexoid);
+
+	if (indexrel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
+	{
+		RelationClose(indexrel);
+		return partitioned_index_check(indexoid);
+	}
+
+	if (indexrel->rd_rel->relkind != RELKIND_INDEX)
+		elog(ERROR, "Object is not an index");
+
+	Assert(indexrel->rd_index);
+
+	if (indexrel->rd_rel->relam != LSM_AM_OID)
+		elog(ERROR,
+			 "This operation is not supported for index with access method %d",
+			 indexrel->rd_rel->relam);
+
+	if (!indexrel->rd_index->indisvalid)
+		elog(ERROR, "Index '%s' is marked invalid", RelationGetRelationName(indexrel));
+
+	/* YB doesn't have separate PK index, hence it is always consistent */
+	if (indexrel->rd_index->indisprimary)
+	{
+		RelationClose(indexrel);
+		return;
+	}
+
+	Relation baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
+
+	EState *estate = init_estate(baserel);
+
+	PG_TRY();
+	{
+		check_spurious_index_rows(baserel, indexrel, estate);
+		check_missing_index_rows(baserel, indexrel, estate);
+	}
+	PG_CATCH();
+	{
+		if (baserel->rd_index)
+			yb_free_dummy_baserel_index(baserel);
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	cleanup_estate(estate);
+
+	RelationClose(indexrel);
+	RelationClose(baserel);
+}
+
+Datum
+yb_index_check(PG_FUNCTION_ARGS)
+{
+	Oid indexoid = PG_GETARG_OID(0);
+	yb_index_check_internal(indexoid);
+	PG_RETURN_VOID();
 }
 
 /*
@@ -847,9 +922,9 @@ check_index_row_consistency2(TupleTableSlot *slot)
 
 	Assert(!base_null);
 	if (ind_null)
-		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED), errmsg("index is "
-																 "missing "
-																 "rows")));
+		ereport(ERROR,
+				(errcode(ERRCODE_INDEX_CORRUPTED),
+				 errmsg("index is missing rows")));
 
 	/*
 	 * TODO: datumIsEqual() returns false due to header size mismatch for types
@@ -862,12 +937,12 @@ check_index_row_consistency2(TupleTableSlot *slot)
 }
 
 static void
-check_missing_index_rows(Relation baserel, Relation indexrel, EState* estate)
+check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 {
 	Plan *plan = missing_check_plan(baserel, indexrel);
 	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 	PlanState *state = ExecInitNode((Plan *) plan, estate, 0);
-	TupleTableSlot* output;
+	TupleTableSlot *output;
 	while ((output = ExecProcNode(state)))
 	{
 		check_index_row_consistency2(output);
@@ -876,80 +951,6 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState* estate)
 	ExecEndNode(state);
 	MemoryContextSwitchTo(oldctxt);
 	return;
-}
-
-static void
-partitioned_index_check(Oid parentindexId)
-{
-	ListCell *lc;
-	foreach (lc, find_inheritance_children(parentindexId, AccessShareLock))
-	{
-		Oid childindexId = ObjectIdGetDatum(lfirst_oid(lc));
-		/* TODO: A new read time can be used for each partition. */
-		yb_index_check_internal(childindexId);
-	}
-}
-
-static void
-yb_index_check_internal(Oid indexoid)
-{
-	Relation indexrel = RelationIdGetRelation(indexoid);
-
-	if (indexrel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
-	{
-		RelationClose(indexrel);
-		return partitioned_index_check(indexoid);
-	}
-
-	if (indexrel->rd_rel->relkind != RELKIND_INDEX)
-		elog(ERROR, "Object is not an index");
-
-	Assert(indexrel->rd_index);
-
-	if (indexrel->rd_rel->relam != LSM_AM_OID)
-		elog(ERROR,
-			 "This operation is not supported for index with access method %d",
-			 indexrel->rd_rel->relam);
-
-	if (!indexrel->rd_index->indisvalid)
-		elog(ERROR, "Index '%s' is marked invalid", RelationGetRelationName(indexrel));
-
-	/* YB doesn't have separate PK index, hence it is always consistent */
-	if (indexrel->rd_index->indisprimary)
-	{
-		RelationClose(indexrel);
-		return;
-	}
-
-	Relation baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
-
-	EState* estate = init_estate(baserel);
-
-	PG_TRY();
-	{
-		check_spurious_index_rows(baserel, indexrel, estate);
-		check_missing_index_rows(baserel, indexrel, estate);
-	}
-	PG_CATCH();
-	{
-		if (baserel->rd_index)
-			yb_free_dummy_baserel_index(baserel);
-		PG_RE_THROW();
-	}
-	PG_END_TRY();
-
-	cleanup_estate(estate);
-
-	RelationClose(indexrel);
-	RelationClose(baserel);
-}
-
-Datum
-yb_index_check(PG_FUNCTION_ARGS)
-{
-	Oid indexoid = PG_GETARG_OID(0);
-	yb_index_check_internal(indexoid);
-	PG_RETURN_VOID();
 }
 
 Datum

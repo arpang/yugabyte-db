@@ -1675,9 +1675,9 @@ ExecIndexBuildScanKeys(PlanState *planstate, Relation index,
 					elog(ERROR, "bogus index qualification");
 
 				/*
-				* We have to look up the operator's strategy number.  This
-				* provides a cross-check that the operator does match the index.
-				*/
+				 * We have to look up the operator's strategy number.  This
+				 * provides a cross-check that the operator does match the index.
+				 */
 				opfamily = index->rd_opfamily[varattno - 1];
 			}
 			get_op_opfamily_properties(opno, opfamily, isorderby,

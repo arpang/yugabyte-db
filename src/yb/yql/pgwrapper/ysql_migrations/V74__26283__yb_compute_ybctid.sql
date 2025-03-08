@@ -9,7 +9,7 @@ BEGIN;
     proallargtypes, proargmodes, proargnames, proargdefaults, protrftypes,
     prosrc, probin, proconfig, proacl
   ) VALUES
-    -- implementation of yb_index_check
+    -- implementation of yb_compute_ybctid
     (8091, 'yb_compute_ybctid', 11, 10, 12,
      1, 0, 0, '-', 'f',
      false, false, false, false, 'i',
