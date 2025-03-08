@@ -34,7 +34,7 @@ OBJS = \
 	superuser.o \
 	timeout.o \
 	tzparser.o \
-	yb_lsm_index_check.o
+	yb_index_check.o
 
 # This location might depend on the installation directories. Therefore
 # we can't substitute it into pg_config.h.

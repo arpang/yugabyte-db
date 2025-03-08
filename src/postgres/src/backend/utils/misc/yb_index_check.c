@@ -43,8 +43,6 @@
 #include "utils/relcache.h"
 #include "utils/syscache.h"
 
-/* TODO: rename the file to yb_index_check.c */
-
 static void yb_index_check_internal(Oid indexoid);
 
 #define IndRelDetail(indexrel)	\
@@ -367,6 +365,11 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 		partial_idx_pred = lappend(partial_idx_pred, indpred);
 	}
 
+	/*
+	 * TODO: TidScan, once supported, can be used here instead. With that,
+	 * yb_dummy_baserel_index_open() and yb_free_dummy_baserel_index() should
+	 * not be be required.
+	 */
 	IndexScan *base_scan = makeNode(IndexScan);
 	Plan *plan = &base_scan->scan.plan;
 	plan->targetlist = plan_targetlist;
