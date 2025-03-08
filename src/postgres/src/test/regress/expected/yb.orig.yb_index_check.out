@@ -18,7 +18,7 @@ EXPLAIN (ANALYZE, DIST, COSTS OFF, SUMMARY OFF) SELECT yb_index_check('abcd_b_c_
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
  yb_index_check 
 ----------------
-
+ 
 (1 row)
 
 RESET yb_bnl_batch_size;
@@ -33,7 +33,7 @@ CREATE INDEX abcd_b_c_idx ON abcd(b) INCLUDE (c) WHERE d > 50;
 SELECT yb_index_check('abcd_b_c_idx'::regclass::oid);
  yb_index_check 
 ----------------
-
+ 
 (1 row)
 
 CREATE OR REPLACE FUNCTION double_value(input_value NUMERIC)
@@ -46,7 +46,7 @@ CREATE INDEX abcd_b_c_idx1 ON abcd(b) INCLUDE (c) WHERE double_value(d) > 50;
 SELECT yb_index_check('abcd_b_c_idx1'::regclass::oid);
  yb_index_check 
 ----------------
-
+ 
 (1 row)
 
 -- Expression index
@@ -54,14 +54,14 @@ CREATE INDEX abcd_expr_expr1_d_idx ON abcd ((2*c) ASC, (2*b) ASC) INCLUDE (d);
 SELECT yb_index_check('abcd_expr_expr1_d_idx'::regclass::oid);
  yb_index_check 
 ----------------
-
+ 
 (1 row)
 
 CREATE INDEX abcd_double_value_d_idx ON abcd (double_value(c) ASC) INCLUDE (d);
 SELECT yb_index_check('abcd_double_value_d_idx'::regclass::oid);
  yb_index_check 
 ----------------
-
+ 
 (1 row)
 
 -- Unique index
@@ -69,7 +69,7 @@ CREATE UNIQUE INDEX abcd_b_c_d_idx1 ON abcd (b ASC) INCLUDE (c, d);
 SELECT yb_index_check('abcd_b_c_d_idx1'::regclass::oid);
  yb_index_check 
 ----------------
-
+ 
 (1 row)
 
 -- NULLS NOT DISTINCT
@@ -77,7 +77,7 @@ CREATE UNIQUE INDEX abcd_b_c_d_idx2 ON abcd (b ASC) INCLUDE (c, d) NULLS NOT DIS
 SELECT yb_index_check('abcd_b_c_d_idx2'::regclass::oid);
  yb_index_check 
 ----------------
-
+ 
 (1 row)
 
 -- Index does not exist
@@ -89,7 +89,7 @@ LINE 1: SELECT yb_index_check('nonexisting_idx'::regclass::oid);
 SELECT yb_index_check('abcd_pkey'::regclass::oid);
  yb_index_check 
 ----------------
-
+ 
 (1 row)
 
 -- Non-LSM index
@@ -106,7 +106,7 @@ INSERT INTO json_table VALUES ('test', '{"test1":"test2", "test3": 4}', 1);
 SELECT yb_index_check('json_table_a_b_idx'::regclass::oid);
  yb_index_check 
 ----------------
-
+ 
 (1 row)
 
 -- Inconsistent Indexes
@@ -309,3 +309,4 @@ SELECT yb_index_check('test_bytea_c_b_idx'::regclass::oid);
 ----------------
  
 (1 row)
+

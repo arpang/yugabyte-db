@@ -51,6 +51,7 @@
 #include "yb/master/master_admin.proxy.h"
 #include "yb/master/master_backup.proxy.h"
 #include "yb/master/master_client.pb.h"
+#include "yb/master/master_ddl.pb.h"
 #include "yb/master/master_heartbeat.pb.h"
 #include "yb/master/sys_catalog_constants.h"
 
@@ -724,19 +725,27 @@ class PgClientServiceImpl::Impl {
       oid_chunk.next_oid =
           use_secondary_space ? kPgFirstSecondarySpaceObjectId : kPgFirstNormalObjectId;
       oid_chunk.allocated_from_secondary_space = use_secondary_space;
+      oid_chunk.oid_cache_invalidations_count = 0;
     }
-    if (oid_chunk.oid_count == 0) {
+    uint32_t highest_received_invalidations_count =
+        tablet_server_.get_oid_cache_invalidations_count();
+    while (oid_chunk.oid_count == 0 ||
+           oid_chunk.oid_cache_invalidations_count < highest_received_invalidations_count) {
+      // We don't have any valid OIDs left so fetch more.
       const uint32_t next_oid =
           oid_chunk.next_oid + static_cast<uint32_t>(FLAGS_TEST_ysql_oid_prefetch_adjustment);
-      uint32_t begin_oid, end_oid;
+      uint32_t begin_oid, end_oid, oid_cache_invalidations_count;
       RETURN_NOT_OK(client().ReservePgsqlOids(
-          namespace_id, next_oid, kYbOidPrefetch, &begin_oid, &end_oid, use_secondary_space));
+          namespace_id, next_oid, kYbOidPrefetch, &begin_oid, &end_oid, use_secondary_space,
+          &oid_cache_invalidations_count));
       oid_chunk.next_oid = begin_oid;
       oid_chunk.oid_count = end_oid - begin_oid;
+      oid_chunk.oid_cache_invalidations_count = oid_cache_invalidations_count;
       VLOG(1) << "Reserved oids in database: " << db_oid << ", next_oid: " << next_oid
-              << ", begin_oid: " << begin_oid << ", end_oid: " << end_oid;
+              << ", begin_oid: " << begin_oid << ", end_oid: " << end_oid
+              << ", invalidation count: " << oid_cache_invalidations_count;
     }
-    uint32 new_oid = oid_chunk.next_oid;
+    uint32_t new_oid = oid_chunk.next_oid;
     oid_chunk.next_oid++;
     oid_chunk.oid_count--;
     resp->set_new_oid(new_oid);
@@ -1719,7 +1728,7 @@ class PgClientServiceImpl::Impl {
     table_cache_.InvalidateDbTables(db_oids_updated, db_oids_deleted);
   }
 
-  void ProcessLeaseUpdate(const master::ClientOperationLeaseUpdatePB& lease_update, MonoTime time) {
+  void ProcessLeaseUpdate(const master::RefreshYsqlLeaseInfoPB& lease_refresh_info, MonoTime time) {
     if (!GetAtomicFlag(&FLAGS_TEST_enable_ysql_operation_lease)) {
       return;
     }
@@ -1727,8 +1736,11 @@ class PgClientServiceImpl::Impl {
     {
       std::lock_guard lock(mutex_);
       last_lease_refresh_time_ = time;
-      if (lease_update.new_lease()) {
-        lease_epoch_ = lease_update.lease_epoch();
+      if (lease_refresh_info.new_lease()) {
+        LOG(INFO) << Format(
+            "Received new lease epoch $0 from the master leader. Clearing all pg sessions.",
+            lease_refresh_info.lease_epoch());
+        lease_epoch_ = lease_refresh_info.lease_epoch();
         sessions.assign(sessions_.begin(), sessions_.end());
         sessions_.clear();
       }
@@ -2219,6 +2231,7 @@ class PgClientServiceImpl::Impl {
     uint32_t next_oid = kPgFirstNormalObjectId;
     uint32_t oid_count = 0;
     bool allocated_from_secondary_space = false;
+    uint32_t oid_cache_invalidations_count = 0;
   };
   // Domain here is db_oid of namespace we are allocating OIDs for.
   std::unordered_map<uint32_t, OidPrefetchChunk> reserved_oids_map_ GUARDED_BY(mutex_);
@@ -2314,9 +2327,9 @@ Result<PgTxnSnapshot> PgClientServiceImpl::GetLocalPgTxnSnapshot(
   return impl_->GetLocalPgTxnSnapshot(snapshot_id);
 }
 
-void PgClientServiceImpl::ProcessLeaseUpdate(
-    const master::ClientOperationLeaseUpdatePB& lease_update, MonoTime time) {
-  impl_->ProcessLeaseUpdate(lease_update, time);
+void PgClientServiceImpl::ProcessLeaseUpdate(const master::RefreshYsqlLeaseInfoPB&
+                                             lease_refresh_info, MonoTime time) {
+  impl_->ProcessLeaseUpdate(lease_refresh_info, time);
 }
 
 size_t PgClientServiceImpl::TEST_SessionsCount() { return impl_->TEST_SessionsCount(); }

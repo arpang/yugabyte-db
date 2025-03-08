@@ -392,6 +392,11 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
                        rpc::RpcContext* rpc,
                        const LeaderEpoch& epoch);
 
+  Status RefreshYsqlLease(const RefreshYsqlLeaseRequestPB* req,
+                          RefreshYsqlLeaseResponsePB* resp,
+                          rpc::RpcContext* rpc,
+                          const LeaderEpoch& epoch);
+
   // Get the information about an in-progress truncate operation.
   Status IsTruncateTableDone(const IsTruncateTableDoneRequestPB* req,
                              IsTruncateTableDoneResponsePB* resp);
@@ -766,6 +771,10 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
   Status ReVerifyChildrenEntriesOnTabletSplit(
       const TableId& producer_table_id, const std::vector<cdc::CDCStateTableEntry>& entries,
       const std::unordered_set<xrepl::StreamId>& cdcsdk_stream_ids);
+
+  // Invalidate all the TServer OID caches in this universe.  After this returns, each TServer cache
+  // will be effectively invalidated when that TServer receives a heartbeat response from master.
+  Status InvalidateTserverOidCaches() override;
 
   Result<uint64_t> IncrementYsqlCatalogVersion() override;
 
@@ -1768,9 +1777,10 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
                           const NamespaceId& id,
                           int64_t term) REQUIRES(mutex_);
 
-  void ProcessPendingNamespace(NamespaceId id,
-                               std::vector<scoped_refptr<TableInfo>> template_tables,
-                               TransactionMetadata txn, const LeaderEpoch& epoch);
+  void ProcessPendingNamespace(const NamespaceId& id,
+                               const std::vector<TableInfoPtr>& template_tables,
+                               const TransactionMetadata& txn,
+                               const LeaderEpoch& epoch);
 
   // Called when transaction associated with NS create finishes. Verifies postgres layer present.
   void ScheduleVerifyNamespacePgLayer(TransactionMetadata txn,

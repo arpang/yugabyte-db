@@ -54,6 +54,7 @@
 #include "pgstat.h"
 #include "postmaster/bgworker_internals.h"	/* for MAX_PARALLEL_WORKER_LIMIT */
 #include "utils/datum.h"
+#include "utils/fmgroids.h"
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
 #include "utils/resowner_private.h"
@@ -3722,7 +3723,7 @@ yb_is_hashed(Expr *clause, IndexOptInfo *index)
 		leftop = get_leftop(clause);
 		if (IsA(leftop, FuncExpr))
 		{
-			is_hashed = (((FuncExpr *) leftop)->funcid == YB_HASH_CODE_OID);
+			is_hashed = (((FuncExpr *) leftop)->funcid == F_YB_HASH_CODE);
 			ListCell   *ls;
 
 			if (is_hashed)
