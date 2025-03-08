@@ -440,6 +440,7 @@
     "AlertApiFilter" : {
       "properties" : {
         "configurationTypes" : {
+          "description" : "Alert Configuration Target Types",
           "items" : {
             "enum" : [
               "PLATFORM",
@@ -451,10 +452,12 @@
           "uniqueItems" : true
         },
         "configurationUuid" : {
+          "description" : "The uuid of the alert configuration.",
           "format" : "uuid",
           "type" : "string"
         },
         "severities" : {
+          "description" : "The severity of the alerts.",
           "items" : {
             "enum" : [
               "SEVERE",
@@ -466,9 +469,11 @@
           "uniqueItems" : true
         },
         "sourceName" : {
+          "description" : "The source name of the alerts.",
           "type" : "string"
         },
         "sourceUUIDs" : {
+          "description" : "The source uuids of the alerts.",
           "items" : {
             "format" : "uuid",
             "type" : "string"
@@ -477,6 +482,7 @@
           "uniqueItems" : true
         },
         "states" : {
+          "description" : "The state of the alerts.",
           "items" : {
             "enum" : [
               "ACTIVE",
@@ -490,6 +496,7 @@
           "uniqueItems" : true
         },
         "uuids" : {
+          "description" : "The uuids of the alerts.",
           "items" : {
             "format" : "uuid",
             "type" : "string"
@@ -498,15 +505,6 @@
           "uniqueItems" : true
         }
       },
-      "required" : [
-        "configurationTypes",
-        "configurationUuid",
-        "severities",
-        "sourceName",
-        "sourceUUIDs",
-        "states",
-        "uuids"
-      ],
       "type" : "object"
     },
     "AlertChannel" : {
@@ -951,9 +949,11 @@
     "AlertConfigurationApiFilter" : {
       "properties" : {
         "active" : {
+          "description" : "Whether the alert configuration is active.",
           "type" : "boolean"
         },
         "destinationType" : {
+          "description" : "The destination type of the alert configuration. ",
           "enum" : [
             "NO_DESTINATION",
             "DEFAULT_DESTINATION",
@@ -962,13 +962,16 @@
           "type" : "string"
         },
         "destinationUuid" : {
+          "description" : "The destination uuid of the alert configuration. ",
           "format" : "uuid",
           "type" : "string"
         },
         "name" : {
+          "description" : "The name of the alert configuration.",
           "type" : "string"
         },
         "severity" : {
+          "description" : "The severity of the alert configuration.",
           "enum" : [
             "SEVERE",
             "WARNING"
@@ -976,9 +979,11 @@
           "type" : "string"
         },
         "target" : {
-          "$ref" : "#/definitions/AlertConfigurationTarget"
+          "$ref" : "#/definitions/AlertConfigurationTarget",
+          "description" : "The target of the alert configuration."
         },
         "targetType" : {
+          "description" : "The target type of the alert configuration.",
           "enum" : [
             "PLATFORM",
             "UNIVERSE"
@@ -986,6 +991,7 @@
           "type" : "string"
         },
         "template" : {
+          "description" : "The template of the alert configuration.",
           "enum" : [
             "REPLICATION_LAG",
             "CLOCK_SKEW",
@@ -1072,6 +1078,7 @@
           "type" : "string"
         },
         "uuids" : {
+          "description" : "The uuids of the alert configurations.",
           "items" : {
             "format" : "uuid",
             "type" : "string"
@@ -1080,17 +1087,6 @@
           "uniqueItems" : true
         }
       },
-      "required" : [
-        "active",
-        "destinationType",
-        "destinationUuid",
-        "name",
-        "severity",
-        "target",
-        "targetType",
-        "template",
-        "uuids"
-      ],
       "type" : "object"
     },
     "AlertConfigurationPagedApiQuery" : {
@@ -1454,75 +1450,6 @@
       ],
       "type" : "object"
     },
-    "AlertDefinition" : {
-      "properties" : {
-        "configurationUUID" : {
-          "format" : "uuid",
-          "type" : "string"
-        },
-        "customerUUID" : {
-          "format" : "uuid",
-          "type" : "string"
-        },
-        "labels" : {
-          "items" : {
-            "$ref" : "#/definitions/AlertDefinitionLabel"
-          },
-          "type" : "array"
-        },
-        "universeUUID" : {
-          "format" : "uuid",
-          "type" : "string"
-        },
-        "uuid" : {
-          "format" : "uuid",
-          "type" : "string"
-        },
-        "version" : {
-          "format" : "int32",
-          "type" : "integer"
-        }
-      },
-      "required" : [
-        "configurationUUID",
-        "customerUUID",
-        "labels",
-        "universeUUID",
-        "uuid",
-        "version"
-      ],
-      "type" : "object"
-    },
-    "AlertDefinitionLabel" : {
-      "properties" : {
-        "key" : {
-          "$ref" : "#/definitions/AlertDefinitionLabelKey"
-        },
-        "name" : {
-          "type" : "string"
-        },
-        "value" : {
-          "type" : "string"
-        }
-      },
-      "required" : [
-        "key",
-        "name",
-        "value"
-      ],
-      "type" : "object"
-    },
-    "AlertDefinitionLabelKey" : {
-      "properties" : {
-        "name" : {
-          "type" : "string"
-        }
-      },
-      "required" : [
-        "name"
-      ],
-      "type" : "object"
-    },
     "AlertDestination" : {
       "description" : "Alert notification destination",
       "properties" : {
@@ -1695,9 +1622,11 @@
     "AlertTemplateApiFilter" : {
       "properties" : {
         "name" : {
+          "description" : "The name of the alert template.",
           "type" : "string"
         },
         "targetType" : {
+          "description" : "The target type of the alert template.",
           "enum" : [
             "PLATFORM",
             "UNIVERSE"
@@ -1705,10 +1634,6 @@
           "type" : "string"
         }
       },
-      "required" : [
-        "name",
-        "targetType"
-      ],
       "type" : "object"
     },
     "AlertTemplateSettings" : {
@@ -2411,6 +2336,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -2890,7 +2816,6 @@
         "installOtelCollector",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption"
@@ -3627,6 +3552,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "previousTaskUUID" : {
@@ -3720,7 +3646,6 @@
         "backupUUID",
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "storageConfigUUID",
@@ -4179,6 +4104,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "pointInTimeRestoreEnabled" : {
@@ -4337,7 +4263,6 @@
         "creatingUser",
         "fullBackup",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "storageConfigUUID",
@@ -4477,6 +4402,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "previousTaskUUID" : {
@@ -4546,7 +4472,6 @@
       "required" : [
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "s3Bucket",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis"
@@ -5034,6 +4959,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -5517,7 +5443,6 @@
         "creatingUser",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "selfSignedClientCertRotate",
         "selfSignedServerCertRotate",
         "sleepAfterMasterRestartMillis",
@@ -5614,6 +5539,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "previousTaskUUID" : {
@@ -5665,7 +5591,6 @@
       "required" : [
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis"
       ],
@@ -6324,6 +6249,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "previousTaskUUID" : {
@@ -6376,7 +6302,6 @@
       "required" : [
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis"
       ],
@@ -7983,6 +7908,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -8463,7 +8389,6 @@
         "creatingUser",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption",
@@ -8748,6 +8673,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -9232,7 +9158,6 @@
         "kubernetesUpgradeSupported",
         "masterGFlags",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "tserverGFlags",
@@ -10140,6 +10065,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -10621,7 +10547,6 @@
         "creatingUser",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "universeOverrides",
@@ -11433,6 +11358,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "pointInTimeRestoreEnabled" : {
@@ -11591,7 +11517,6 @@
         "creatingUser",
         "fullBackup",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "storageConfigUUID",
@@ -14282,6 +14207,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -14759,7 +14685,6 @@
         "creatingUser",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption"
@@ -15263,6 +15188,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -15748,7 +15674,6 @@
         "kubernetesUpgradeSupported",
         "masterGFlags",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "tserverGFlags",
@@ -16067,6 +15992,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -16544,7 +16470,6 @@
         "creatingUser",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption"
@@ -16750,6 +16675,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prefixUUID" : {
@@ -16825,7 +16751,6 @@
       "required" : [
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "universeUUID"
@@ -17152,6 +17077,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "previousTaskUUID" : {
@@ -17209,7 +17135,6 @@
       "required" : [
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis"
       ],
@@ -17554,6 +17479,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -18031,7 +17957,6 @@
         "creatingUser",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption"
@@ -19249,6 +19174,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -19732,7 +19658,6 @@
         "creatingUser",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption",
@@ -20308,6 +20233,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -20785,7 +20711,6 @@
         "creatingUser",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption"
@@ -20848,6 +20773,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "previousTaskUUID" : {
@@ -20916,7 +20842,6 @@
       "required" : [
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "tableDetails",
@@ -21569,6 +21494,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -22047,7 +21973,6 @@
         "forceAll",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption"
@@ -22210,6 +22135,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -22690,7 +22616,6 @@
         "enableNodeToNodeEncrypt",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption"
@@ -22937,6 +22862,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "previousTaskUUID" : {
@@ -22956,7 +22882,6 @@
         }
       },
       "required" : [
-        "platformVersion",
         "storageConfigUUID"
       ],
       "type" : "object"
@@ -23103,6 +23028,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -23574,7 +23500,6 @@
         "clusters",
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis"
       ],
@@ -23711,6 +23636,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -24179,7 +24105,6 @@
         "clusters",
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis"
       ],
@@ -24316,6 +24241,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -24784,7 +24710,6 @@
         "clusters",
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis"
       ],
@@ -25099,6 +25024,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "previousTaskUUID" : {
@@ -25151,7 +25077,6 @@
       "required" : [
         "creatingUser",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis"
       ],
@@ -25323,6 +25248,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -25800,7 +25726,6 @@
         "creatingUser",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption"
@@ -26475,6 +26400,7 @@
           "type" : "string"
         },
         "platformVersion" : {
+          "readOnly" : true,
           "type" : "string"
         },
         "prevYBSoftwareConfig" : {
@@ -26964,7 +26890,6 @@
         "forceVMImageUpgrade",
         "kubernetesUpgradeSupported",
         "platformUrl",
-        "platformVersion",
         "sleepAfterMasterRestartMillis",
         "sleepAfterTServerRestartMillis",
         "upgradeOption",
@@ -27608,6 +27533,14 @@
     },
     "XClusterNamespaceConfig" : {
       "properties" : {
+        "backupUuid" : {
+          "format" : "uuid",
+          "type" : "string"
+        },
+        "restoreUuid" : {
+          "format" : "uuid",
+          "type" : "string"
+        },
         "sourceNamespaceId" : {
           "type" : "string"
         },
@@ -27634,6 +27567,8 @@
         }
       },
       "required" : [
+        "backupUuid",
+        "restoreUuid",
         "sourceNamespaceId"
       ],
       "type" : "object"
@@ -29316,7 +29251,7 @@
             "description" : "successful operation",
             "schema" : {
               "items" : {
-                "$ref" : "#/definitions/AlertDefinition"
+                "$ref" : "#/definitions/AlertDestination"
               },
               "type" : "array"
             }
@@ -29327,7 +29262,7 @@
             "description" : "successful operation",
             "schema" : {
               "items" : {
-                "$ref" : "#/definitions/AlertDefinition"
+                "$ref" : "#/definitions/AlertDestination"
               },
               "type" : "array"
             }

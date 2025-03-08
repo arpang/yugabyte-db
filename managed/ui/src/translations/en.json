@@ -100,7 +100,8 @@
       }
     },
     "universeActions": {
-      "runPrechecksButton": "Run Prechecks",
+      "precheckInitiatedMsg": "Running Prechecks...",
+      "runPrecheckOnlyButton": "Run Pre-check Only",
       "lbState": {
         "loadBalancerEnabled": "Tablet Load Balancer",
         "loadIsBalanced": "Tablet load is balanced",
@@ -206,6 +207,7 @@
       "dbRollbackUpgrade": {
         "modalTitle": "Upgrade Database",
         "upgradeAction": "Upgrade",
+        "dbUpgradeInitiated": "Database upgrade initiated",
         "chooseTarget": "1. Choose target version",
         "currentVersion": "Current Version",
         "targetVersion": "Target Version",
@@ -218,6 +220,7 @@
         "rollingUpgradeMsg": "Refers to the number of nodes that can be unavailable during upgrade process across AZs. This can possibly affect the performance of the cluster till the upgrade is finished",
         "footerMsg1": "Once the upgrade is finished, you can assess Universe performance and ",
         "footerMsg2": "if any unusual behavior is detected.",
+        "footerMsg3": "We recommend you to take backup of your universe before upgrading.",
         "rollbackPrevious": "roll back to the previous version",
         "avoidDisruption": "Avoid disruption to xCluster configuration",
         "xclusterWarning": "This universe is part of one or more xCluster configurations. To minimize disruptions to these configurations during the upgrade process, you should, if possible, upgrade the target universe first.",
@@ -233,6 +236,11 @@
         "upgradeFialedNonRollback": "The Universe database version upgrade has encountered an issue. To restore the Universe to its normal state,you can choose to either retry the upgrade or get in touch our support team.",
         "viewTask": "View Task Details",
         "retryTask": "Retry Task",
+        "upgradeModal": {
+          "upgradeWarning": "<b>Warning:</b> You cannot run DDL operations while the upgrade is in progress. DDL operations are re-enabled after you finalize the upgrade.<br/><b>Warning:</b> Backups taken after the upgrade can only be restored to <b>{{version}} or later</b>.",
+          "submitAction": "Proceed to Upgrade",
+          "title": "Before you proceed..."
+        },
         "preFinalize": {
           "finalizeUpgrade": "Finalize Upgrade",
           "rollback": "Roll back to the previous version",
@@ -953,7 +961,8 @@
               "label": "Halted",
               "tooltip": "The DR replication was halted during the failover as the DR replica is not in sync with the DR primary anymore due to the data loss during failover."
             },
-            "Failed": "Failed"
+            "Failed": "Failed",
+            "Updating": "Updating"
           },
           "sourceUniverseDrStatus": {
             "Unconfigured for DR": "Unconfigured",
@@ -2176,7 +2185,6 @@
         "currentVersion": "Current Version",
         "targetVersion": "Target Version",
         "retired": "Retired",
-        "runPrechecksButton": "Run Prechecks",
         "retiredTooltip": "Current version is retired",
         "infoContent": "<b>Note!</b><br/><br/>The process of upgrading the Universe OS is <b>time-consuming</b>, as it involves upgrading one node at a time through a rolling upgrade approach. Each individual node upgrade consists of detaching the current boot disk, attaching a new boot disk, and then rebooting the node. <br/><br/>Throughout this entire process, no other Universe operations can take place, but your application will remain intact. It is advisable to <b>upgrade during off-peak hours.</b>",
         "submitLabel": "Upgrade",

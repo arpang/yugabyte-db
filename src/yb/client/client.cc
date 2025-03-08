@@ -1125,7 +1125,7 @@ Status YBClient::ListClones(master::ListClonesResponsePB* ret) {
 
 Status YBClient::ReservePgsqlOids(
     const std::string& namespace_id, uint32_t next_oid, uint32_t count, uint32_t* begin_oid,
-    uint32_t* end_oid, bool use_secondary_space) {
+    uint32_t* end_oid, bool use_secondary_space, uint32_t* oid_cache_invalidations_count) {
   ReservePgsqlOidsRequestPB req;
   ReservePgsqlOidsResponsePB resp;
   req.set_namespace_id(namespace_id);
@@ -1135,6 +1135,9 @@ Status YBClient::ReservePgsqlOids(
   CALL_SYNC_LEADER_MASTER_RPC_EX(Client, req, resp, ReservePgsqlOids);
   *begin_oid = resp.begin_oid();
   *end_oid = resp.end_oid();
+  if (oid_cache_invalidations_count) {
+    *oid_cache_invalidations_count = resp.oid_cache_invalidations_count();
+  }
   return Status::OK();
 }
 
@@ -1967,6 +1970,20 @@ Result<HybridTime> YBClient::GetXClusterSafeTimeForNamespace(
 void YBClient::DeleteNotServingTablet(const TabletId& tablet_id, StdStatusCallback callback) {
   auto deadline = CoarseMonoClock::Now() + default_admin_operation_timeout();
   data_->DeleteNotServingTablet(this, tablet_id, deadline, callback);
+}
+
+void YBClient::AcquireObjectLocksGlobalAsync(
+    const master::AcquireObjectLocksGlobalRequestPB& request, StdStatusCallback callback,
+    MonoDelta rpc_timeout) {
+  auto deadline = CoarseMonoClock::Now() + rpc_timeout;
+  data_->AcquireObjectLocksGlobalAsync(this, request, deadline, callback);
+}
+
+void YBClient::ReleaseObjectLocksGlobalAsync(
+    const master::ReleaseObjectLocksGlobalRequestPB& request, StdStatusCallback callback,
+    MonoDelta rpc_timeout) {
+  auto deadline = CoarseMonoClock::Now() + rpc_timeout;
+  data_->ReleaseObjectLocksGlobalAsync(this, request, deadline, callback);
 }
 
 void YBClient::GetTableLocations(
@@ -3038,37 +3055,6 @@ int64_t YBClient::GetRaftConfigOpidIndex(const TabletId& tablet_id) {
 
 void YBClient::RequestAbortAllRpcs() {
   data_->rpcs_.RequestAbortAll();
-}
-
-Status YBClient::AcquireObjectLocksGlobal(const tserver::AcquireObjectLockRequestPB& lock_req) {
-  LOG_WITH_FUNC(INFO) << lock_req.ShortDebugString();
-  AcquireObjectLocksGlobalRequestPB req;
-  AcquireObjectLocksGlobalResponsePB resp;
-  req.set_txn_id(lock_req.txn_id());
-  req.set_subtxn_id(lock_req.subtxn_id());
-  req.set_session_host_uuid(lock_req.session_host_uuid());
-  req.set_lease_epoch(lock_req.lease_epoch());
-  req.mutable_object_locks()->CopyFrom(lock_req.object_locks());
-  CALL_SYNC_LEADER_MASTER_RPC(req, resp, AcquireObjectLocksGlobal);
-  if (resp.has_error()) {
-    return StatusFromPB(resp.error().status());
-  }
-  return Status::OK();
-}
-
-Status YBClient::ReleaseObjectLocksGlobal(const tserver::ReleaseObjectLockRequestPB& release_req) {
-  LOG_WITH_FUNC(INFO) << release_req.ShortDebugString();
-  ReleaseObjectLocksGlobalRequestPB req;
-  ReleaseObjectLocksGlobalResponsePB resp;
-  req.set_txn_id(release_req.txn_id());
-  req.set_subtxn_id(release_req.subtxn_id());
-  req.set_session_host_uuid(release_req.session_host_uuid());
-  req.set_lease_epoch(release_req.lease_epoch());
-  CALL_SYNC_LEADER_MASTER_RPC(req, resp, ReleaseObjectLocksGlobal);
-  if (resp.has_error()) {
-    return StatusFromPB(resp.error().status());
-  }
-  return Status::OK();
 }
 
 }  // namespace client

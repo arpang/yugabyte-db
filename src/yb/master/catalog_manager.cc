@@ -3505,6 +3505,9 @@ Status CatalogManager::ReservePgsqlOids(const ReservePgsqlOidsRequestPB* req,
   VLOG(1) << "ReservePgsqlOids request: " << req->ShortDebugString();
   bool use_secondary_space = req->use_secondary_space();
 
+  auto cluster_config = VERIFY_RESULT(GetClusterConfig());
+  uint32 oid_cache_invalidations_count = cluster_config.oid_cache_invalidations_count();
+
   // Lookup namespace
   scoped_refptr<NamespaceInfo> ns;
   {
@@ -3551,6 +3554,7 @@ Status CatalogManager::ReservePgsqlOids(const ReservePgsqlOidsRequestPB* req,
 
   resp->set_begin_oid(begin_oid);
   resp->set_end_oid(end_oid);
+  resp->set_oid_cache_invalidations_count(oid_cache_invalidations_count);
   if (use_secondary_space) {
     l.mutable_data()->pb.set_next_secondary_pg_oid(end_oid);
   } else {
@@ -3588,7 +3592,7 @@ Status CatalogManager::GetYsqlCatalogConfig(const GetYsqlCatalogConfigRequestPB*
 }
 
 Status CatalogManager::CopyPgsqlSysTables(const NamespaceInfo& ns,
-                                          const std::vector<scoped_refptr<TableInfo>>& tables,
+                                          const std::vector<TableInfoPtr>& tables,
                                           const LeaderEpoch& epoch) {
   if (tables.empty()) {
     return Status::OK();
@@ -5808,6 +5812,22 @@ Status CatalogManager::TruncateTable(const TruncateTableRequestPB* req,
     RETURN_NOT_OK(TruncateTable(req->table_ids(i), resp, rpc, epoch));
   }
 
+  return Status::OK();
+}
+
+Status CatalogManager::RefreshYsqlLease(const RefreshYsqlLeaseRequestPB* req,
+                                        RefreshYsqlLeaseResponsePB* resp,
+                                        rpc::RpcContext* rpc,
+                                        const LeaderEpoch& epoch) {
+  auto lease_update =
+      VERIFY_RESULT(master_->ts_manager()->RefreshYsqlLease(epoch, req->instance()));
+  *resp->mutable_info() = lease_update.ToPB();
+  if (resp->info().new_lease()) {
+    *resp->mutable_info()->mutable_ddl_lock_entries() =
+        object_lock_info_manager()->ExportObjectLockInfo();
+    object_lock_info_manager()->UpdateTabletServerLeaseEpoch(
+        req->instance().permanent_uuid(), resp->info().lease_epoch());
+  }
   return Status::OK();
 }
 
@@ -8471,7 +8491,7 @@ Status CatalogManager::CreateNamespace(const CreateNamespaceRequestPB* req,
             << ": " << req->DebugString();
 
   scoped_refptr<NamespaceInfo> ns;
-  std::vector<scoped_refptr<TableInfo>> pgsql_tables;
+  std::vector<TableInfoPtr> pgsql_tables;
   TransactionMetadata txn;
   const auto db_type = GetDatabaseType(*req);
   NamespaceInfo::WriteLock ns_l;
@@ -8608,9 +8628,7 @@ Status CatalogManager::CreateNamespace(const CreateNamespaceRequestPB* req,
             if (IsPriorVersionYsqlCatalogTable(table_id)) {
               continue;
             }
-            // Since indexes have dependencies on the base tables, put the tables in the front.
-            const bool is_table = table->indexed_table_id().empty();
-            pgsql_tables.insert(is_table ? pgsql_tables.begin() : pgsql_tables.end(), table);
+            pgsql_tables.push_back(table);
           }
         }
 
@@ -8711,6 +8729,10 @@ Status CatalogManager::CreateNamespace(const CreateNamespaceRequestPB* req,
     }
   }
 
+  std::sort(pgsql_tables.begin(), pgsql_tables.end(), [](const auto& lhs, const auto& rhs) {
+    return lhs->id() < rhs->id();
+  });
+
   if (db_type == YQL_DATABASE_PGSQL) {
     LOG(INFO) << "Keyspace create enqueued for later processing: " << ns->ToString();
     RETURN_NOT_OK(background_tasks_thread_pool_->SubmitFunc(std::bind(
@@ -8741,9 +8763,10 @@ Status CatalogManager::CreateNamespace(const CreateNamespaceRequestPB* req,
 }
 
 void CatalogManager::ProcessPendingNamespace(
-    NamespaceId id,
-    std::vector<scoped_refptr<TableInfo>> template_tables,
-    TransactionMetadata txn, const LeaderEpoch& epoch) {
+    const NamespaceId& id,
+    const std::vector<TableInfoPtr>& template_tables,
+    const TransactionMetadata& txn,
+    const LeaderEpoch& epoch) {
   LOG(INFO) << "ProcessPendingNamespace started for " << id;
 
   // Ensure that we are the leader and our view of the term does not change while handling DDL
@@ -9993,6 +10016,20 @@ Status CatalogManager::ListUDTypes(const ListUDTypesRequestPB* req,
       udtype->mutable_namespace_()->set_name(ns->name());
     }
   }
+  return Status::OK();
+}
+
+Status CatalogManager::InvalidateTserverOidCaches() {
+  auto cluster_config = ClusterConfig();
+  SCHECK_NOTNULL(cluster_config);
+  auto l = cluster_config->LockForWrite();
+  uint32 oid_cache_invalidations_count = l.data().pb.oid_cache_invalidations_count() + 1;
+  LOG_WITH_PREFIX(INFO) << "Invalidating OID caches; oid_cache_invalidations_count is now "
+                        << oid_cache_invalidations_count;
+  l.mutable_data()->pb.set_oid_cache_invalidations_count(oid_cache_invalidations_count);
+  l.mutable_data()->pb.set_version(l.mutable_data()->pb.version() + 1);
+  RETURN_NOT_OK(sys_catalog_->Upsert(leader_ready_term(), cluster_config_.get()));
+  l.Commit();
   return Status::OK();
 }
 
