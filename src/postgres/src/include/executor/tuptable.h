@@ -135,7 +135,7 @@ typedef struct TupleTableSlot
 
 	/* YugaByte support */
 	Datum		tts_ybctid;
-	Datum		ts_ybuniqueidxkeysuffix;
+	Datum		tts_ybuniqueidxkeysuffix;
 } TupleTableSlot;
 
 /* routines for a TupleTableSlot implementation */
@@ -435,8 +435,8 @@ slot_getsysattr(TupleTableSlot *slot, int attnum, bool *isnull)
 	else if (attnum == YBUniqueIdxKeySuffixAttributeNumber)
 	{
 		/* Used for secondary index scan during index consistency check. */
-		*isnull = DatumGetPointer(slot->ts_ybuniqueidxkeysuffix) == NULL;
-		return slot->ts_ybuniqueidxkeysuffix;
+		*isnull = DatumGetPointer(slot->tts_ybuniqueidxkeysuffix) == NULL;
+		return slot->tts_ybuniqueidxkeysuffix;
 	}
 
 	/* Fetch the system attribute from the underlying tuple. */
