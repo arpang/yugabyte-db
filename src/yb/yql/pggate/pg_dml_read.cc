@@ -114,20 +114,24 @@ class SimpleYbctidProvider : public YbctidProvider {
  public:
   explicit SimpleYbctidProvider(std::reference_wrapper<const std::vector<Slice>> ybctids)
       : ybctids_(&ybctids.get()) {}
+  explicit SimpleYbctidProvider(std::unique_ptr<const std::vector<Slice>> ybctids)
+      : ybctids2_(std::move(ybctids)) {}
+
  private:
   Result<std::optional<YbctidBatch>> Fetch() override {
     if (fetched_) {
       return std::nullopt;
     }
     fetched_ = true;
-    return YbctidBatch{*ybctids_, /* keep_order= */ true};
+    return YbctidBatch{ybctids_ ? *ybctids_ : *ybctids2_, /* keep_order= */ true};
   }
 
   void Reset() override {
     fetched_ = false;
   }
 
-  const std::vector<Slice>* ybctids_;
+  const std::vector<Slice>* ybctids_ = nullptr;
+  std::unique_ptr<const std::vector<Slice>> ybctids2_ = nullptr;
   bool fetched_ = false;
 };
 
@@ -405,13 +409,8 @@ void PgDmlRead::SetRequestedYbctids(std::reference_wrapper<const std::vector<Sli
   SetYbctidProvider(std::make_unique<SimpleYbctidProvider>(ybctids));
 }
 
-void PgDmlRead::SetHoldingRequestedYbctids(const std::vector<Slice>& ybctids) {
-  HoldingYbctidProvider ybctid_holder(&arena());
-  size_t size = ybctids.size();
-  ybctid_holder.reserve(size);
-  for (size_t i = 0; i < size; i++)
-    ybctid_holder.append(ybctids[i]);
-  SetYbctidProvider(std::make_unique<HoldingYbctidProvider>(ybctid_holder));
+void PgDmlRead::SetRequestedYbctids(std::unique_ptr<const std::vector<Slice>> ybctids) {
+  SetYbctidProvider(std::make_unique<SimpleYbctidProvider>(std::move(ybctids)));
 }
 
 Status PgDmlRead::ANNBindVector(PgExpr* vector) {
