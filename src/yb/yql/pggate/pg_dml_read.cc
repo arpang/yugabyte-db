@@ -115,7 +115,7 @@ class SimpleYbctidProvider : public YbctidProvider {
   explicit SimpleYbctidProvider(std::reference_wrapper<const std::vector<Slice>> ybctids)
       : ybctids_(&ybctids.get()) {}
   explicit SimpleYbctidProvider(std::unique_ptr<const std::vector<Slice>> ybctids)
-      : ybctids2_(std::move(ybctids)) {}
+      : ybctids_(ybctids.get()), ybctids2_(std::move(ybctids)) {}
 
  private:
   Result<std::optional<YbctidBatch>> Fetch() override {
@@ -123,7 +123,7 @@ class SimpleYbctidProvider : public YbctidProvider {
       return std::nullopt;
     }
     fetched_ = true;
-    return YbctidBatch{ybctids_ ? *ybctids_ : *ybctids2_, /* keep_order= */ true};
+    return YbctidBatch{*ybctids_, /* keep_order= */ true};
   }
 
   void Reset() override {
