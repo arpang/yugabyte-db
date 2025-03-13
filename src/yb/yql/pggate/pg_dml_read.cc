@@ -114,8 +114,6 @@ class SimpleYbctidProvider : public YbctidProvider {
  public:
   explicit SimpleYbctidProvider(std::reference_wrapper<const std::vector<Slice>> ybctids)
       : ybctids_(&ybctids.get()) {}
-  explicit SimpleYbctidProvider(std::unique_ptr<const std::vector<Slice>> ybctids)
-      : ybctids_(ybctids.get()), ybctids2_(std::move(ybctids)) {}
 
  private:
   Result<std::optional<YbctidBatch>> Fetch() override {
@@ -131,7 +129,28 @@ class SimpleYbctidProvider : public YbctidProvider {
   }
 
   const std::vector<Slice>* ybctids_ = nullptr;
-  std::unique_ptr<const std::vector<Slice>> ybctids2_ = nullptr;
+  bool fetched_ = false;
+};
+
+class HoldingContainerYbctidProvider : public YbctidProvider {
+ public:
+  explicit HoldingContainerYbctidProvider(std::unique_ptr<const std::vector<Slice>> ybctids)
+      : ybctids_(std::move(ybctids)) {}
+
+ private:
+  Result<std::optional<YbctidBatch>> Fetch() override {
+    if (fetched_) {
+      return std::nullopt;
+    }
+    fetched_ = true;
+    return YbctidBatch{*ybctids_, /* keep_order= */ true};
+  }
+
+  void Reset() override {
+    fetched_ = false;
+  }
+
+  std::unique_ptr<const std::vector<Slice>> ybctids_;
   bool fetched_ = false;
 };
 
@@ -410,7 +429,7 @@ void PgDmlRead::SetRequestedYbctids(std::reference_wrapper<const std::vector<Sli
 }
 
 void PgDmlRead::SetRequestedYbctids(std::unique_ptr<const std::vector<Slice>> ybctids) {
-  SetYbctidProvider(std::make_unique<SimpleYbctidProvider>(std::move(ybctids)));
+  SetYbctidProvider(std::make_unique<HoldingContainerYbctidProvider>(std::move(ybctids)));
 }
 
 Status PgDmlRead::ANNBindVector(PgExpr* vector) {
