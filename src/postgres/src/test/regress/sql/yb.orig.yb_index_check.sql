@@ -185,6 +185,7 @@ INSERT INTO abcd2 SELECT i, i, i, i FROM generate_series(1, 2000) i;
 
 SELECT yb_index_check('abcd1_b_c_d_idx'::regclass::oid);
 SELECT yb_index_check('abcd2_b_c_d_idx'::regclass::oid);
+\c yugabyte
 
 -- GIN indexes (not support yet)
 CREATE TABLE vectors (i serial PRIMARY KEY, v tsvector);

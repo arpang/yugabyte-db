@@ -287,6 +287,7 @@ SELECT yb_index_check('abcd2_b_c_d_idx'::regclass::oid);
  
 (1 row)
 
+\c yugabyte
 -- GIN indexes (not support yet)
 CREATE TABLE vectors (i serial PRIMARY KEY, v tsvector);
 CREATE INDEX ON vectors USING ybgin (v) where i > 5;

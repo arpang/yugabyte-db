@@ -18,7 +18,7 @@
  * under the License.
  *
  * IDENTIFICATION
- *	  src/backend/utils/misc/yb_index_check.c.c
+ *	  src/backend/utils/misc/yb_index_check.c
  *
  *-------------------------------------------------------------------------
  */
