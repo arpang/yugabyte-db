@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "yb/common/pg_catversions.h"
 #include "yb/common/wire_protocol.h"
 
 #include "yb/gutil/strings/substitute.h"
@@ -43,6 +44,7 @@
 #include "yb/util/status_format.h"
 #include "yb/util/trace.h"
 
+DECLARE_bool(enable_heartbeat_pg_catalog_versions_cache);
 namespace yb {
 namespace master {
 
@@ -82,7 +84,8 @@ class ObjectLockInfoManager::Impl {
       : master_(master),
         catalog_manager_(catalog_manager),
         clock_(master->clock()),
-        local_lock_manager_(std::make_shared<tserver::TSLocalLockManager>(clock_)) {}
+        local_lock_manager_(
+            std::make_shared<tserver::TSLocalLockManager>(clock_, master_->tablet_server())) {}
 
   void LockObject(
       AcquireObjectLockRequestPB req, AcquireObjectLocksGlobalResponsePB* resp,
@@ -91,13 +94,15 @@ class ObjectLockInfoManager::Impl {
       const tserver::AcquireObjectLockRequestPB& req, rpc::RpcContext context,
       StdStatusCallback callback);
 
+  void PopulateDbCatalogVersionCache(ReleaseObjectLockRequestPB& req);
   void UnlockObject(
-      ReleaseObjectLockRequestPB req, ReleaseObjectLocksGlobalResponsePB* resp,
+      ReleaseObjectLockRequestPB&& req, ReleaseObjectLocksGlobalResponsePB* resp,
       rpc::RpcContext rpc);
   void UnlockObject(
       const tserver::ReleaseObjectLockRequestPB& req, std::optional<rpc::RpcContext> context,
       std::optional<LeaderEpoch> leader_epoch, StdStatusCallback callback,
       bool remove_lease_epoch_entry = false);
+  void UnlockObject(const TransactionId& txn_id);
 
   void ReleaseLocksHeldByExpiredLeaseEpoch(
       const std::string& tserver_uuid, uint64 max_lease_epoch_to_release, bool wait,
@@ -125,6 +130,10 @@ class ObjectLockInfoManager::Impl {
 
   std::shared_ptr<ObjectLockInfo> GetOrCreateObjectLockInfo(const std::string& key)
       EXCLUDES(mutex_);
+  void UpdateTxnHostSessionMap(
+      const TransactionId& txn_id, const std::string& host_session_uuid, uint64_t lease_epoch)
+      EXCLUDES(mutex_);
+  void RemoveTxnFromHostSessionMap(const TransactionId& txn_id) EXCLUDES(mutex_);
 
   std::shared_ptr<tserver::TSLocalLockManager> TEST_ts_local_lock_manager() EXCLUDES(mutex_) {
     // No need to acquire the leader lock for testing.
@@ -139,7 +148,7 @@ class ObjectLockInfoManager::Impl {
   when the master assumes leadership. This will be done by clearing the TSLocalManager and
   replaying the DDL lock requests
   */
-  std::shared_ptr<tserver::TSLocalLockManager> ts_local_lock_manager() EXCLUDES(mutex_) {
+  tserver::TSLocalLockManagerPtr ts_local_lock_manager() EXCLUDES(mutex_) {
     catalog_manager_->AssertLeaderLockAcquiredForReading();
     LockGuard lock(mutex_);
     return local_lock_manager_;
@@ -164,6 +173,11 @@ class ObjectLockInfoManager::Impl {
   mutable MutexType mutex_;
   std::unordered_map<std::string, std::shared_ptr<ObjectLockInfo>> object_lock_infos_map_
       GUARDED_BY(mutex_);
+  struct TxnHostInfo {
+    std::string host_session_uuid;
+    uint64_t lease_epoch;
+  };
+  std::unordered_map<TransactionId, TxnHostInfo> txn_host_info_map_ GUARDED_BY(mutex_);
   // The latest lease epoch for each tserver.
   std::unordered_map<std::string, uint64_t> current_lease_epochs_ GUARDED_BY(mutex_);
 
@@ -199,6 +213,10 @@ class UpdateAllTServers : public std::enable_shared_from_this<UpdateAllTServers<
     return context_ ? context_->GetClientDeadline() : CoarseTimePoint::max();
   }
 
+  Trace *trace() const {
+    return trace_.get();
+  }
+
  private:
   void LaunchFrom(size_t from_idx);
   void Done(size_t i, const Status& s);
@@ -225,6 +243,7 @@ class UpdateAllTServers : public std::enable_shared_from_this<UpdateAllTServers<
   std::optional<rpc::RpcContext> context_;
   std::optional<uint64_t> requestor_latest_lease_epoch_;
   bool remove_lease_epoch_entry_;
+  const TracePtr trace_;
 };
 
 template <class Req, class Resp>
@@ -335,6 +354,10 @@ void ObjectLockInfoManager::UnlockObject(
   impl_->UnlockObject(TserverRequestFor(req), resp, std::move(rpc));
 }
 
+void ObjectLockInfoManager::ReleaseLocksForTxn(const TransactionId& txn_id) {
+  impl_->UnlockObject(txn_id);
+}
+
 tserver::DdlLockEntriesPB ObjectLockInfoManager::ExportObjectLockInfo() {
   return impl_->ExportObjectLockInfo();
 }
@@ -383,18 +406,36 @@ std::shared_ptr<ObjectLockInfo> ObjectLockInfoManager::Impl::GetOrCreateObjectLo
   }
 }
 
+void ObjectLockInfoManager::Impl::UpdateTxnHostSessionMap(
+    const TransactionId& txn_id, const std::string& host_session_uuid, uint64_t lease_epoch) {
+  LockGuard lock(mutex_);
+  txn_host_info_map_[txn_id] = TxnHostInfo{host_session_uuid, lease_epoch};
+}
+
+void ObjectLockInfoManager::Impl::RemoveTxnFromHostSessionMap(const TransactionId& txn_id) {
+  LockGuard lock(mutex_);
+  txn_host_info_map_.erase(txn_id);
+}
+
 Status ObjectLockInfoManager::Impl::PersistRequest(
     LeaderEpoch epoch, const AcquireObjectLockRequestPB& req) {
-  VLOG(3) << __PRETTY_FUNCTION__;
-  auto key = req.session_host_uuid();
-  std::shared_ptr<ObjectLockInfo> object_lock_info = GetOrCreateObjectLockInfo(key);
-  auto lock = object_lock_info->LockForWrite();
-  auto& txns_map = (*lock.mutable_data()->pb.mutable_lease_epochs())[req.lease_epoch()];
+  TRACE_FUNC();
+  VLOG(3) << __PRETTY_FUNCTION__ << req.ShortDebugString();
+  const auto& session_host_uuid = req.session_host_uuid();
+  const auto lease_epoch = req.lease_epoch();
   auto txn_id = VERIFY_RESULT(FullyDecodeTransactionId(req.txn_id()));
+  UpdateTxnHostSessionMap(txn_id, session_host_uuid, lease_epoch);
+  std::shared_ptr<ObjectLockInfo> object_lock_info = GetOrCreateObjectLockInfo(session_host_uuid);
+  auto lock = object_lock_info->LockForWrite();
+  auto& txns_map = (*lock.mutable_data()->pb.mutable_lease_epochs())[lease_epoch];
   auto& subtxns_map = (*txns_map.mutable_transactions())[txn_id.ToString()];
-  auto& db_map = (*subtxns_map.mutable_subtxns())[req.subtxn_id()];
+  auto& object_map = (*subtxns_map.mutable_subtxns())[req.subtxn_id()];
   for (const auto& object_lock : req.object_locks()) {
-    auto& object_map = (*db_map.mutable_dbs())[object_lock.database_oid()];
+    RSTATUS_DCHECK(
+        !subtxns_map.has_db_id() || subtxns_map.db_id() == object_lock.database_oid(),
+        IllegalState, "Multiple db ids found for a txn: $0 vs $1",
+        subtxns_map.db_id(), object_lock.database_oid());
+    subtxns_map.set_db_id(object_lock.database_oid());
     auto& types = (*object_map.mutable_objects())[object_lock.object_oid()];
     types.add_lock_type(object_lock.lock_type());
   }
@@ -405,20 +446,26 @@ Status ObjectLockInfoManager::Impl::PersistRequest(
 
 Status ObjectLockInfoManager::Impl::PersistRequest(
     LeaderEpoch epoch, const ReleaseObjectLockRequestPB& req, bool remove_lease_epoch_entry) {
-  VLOG(3) << __PRETTY_FUNCTION__;
-  auto key = req.session_host_uuid();
-  std::shared_ptr<ObjectLockInfo> object_lock_info = GetOrCreateObjectLockInfo(key);
-  auto lock = object_lock_info->LockForWrite();
-  auto& txns_map = (*lock.mutable_data()->pb.mutable_lease_epochs())[req.lease_epoch()];
+  TRACE_FUNC();
+  VLOG(3) << __PRETTY_FUNCTION__ << req.ShortDebugString();
+  const auto& session_host_uuid = req.session_host_uuid();
+  const auto lease_epoch = req.lease_epoch();
+  const bool erase_txn = !req.subtxn_id();
   auto txn_id = VERIFY_RESULT(FullyDecodeTransactionId(req.txn_id()));
-  if (!req.subtxn_id()) {
+  if (erase_txn) {
+    RemoveTxnFromHostSessionMap(txn_id);
+  }
+  std::shared_ptr<ObjectLockInfo> object_lock_info = GetOrCreateObjectLockInfo(session_host_uuid);
+  auto lock = object_lock_info->LockForWrite();
+  auto& txns_map = (*lock.mutable_data()->pb.mutable_lease_epochs())[lease_epoch];
+  if (erase_txn) {
     txns_map.mutable_transactions()->erase(txn_id.ToString());
   } else {
     auto& subtxns_map = (*txns_map.mutable_transactions())[txn_id.ToString()];
     subtxns_map.mutable_subtxns()->erase(req.subtxn_id());
   }
   if (remove_lease_epoch_entry && txns_map.transactions().empty()) {
-    lock.mutable_data()->pb.mutable_lease_epochs()->erase(req.lease_epoch());
+    lock.mutable_data()->pb.mutable_lease_epochs()->erase(lease_epoch);
   }
 
   RETURN_NOT_OK(catalog_manager_->sys_catalog()->Upsert(epoch, object_lock_info));
@@ -429,16 +476,15 @@ Status ObjectLockInfoManager::Impl::PersistRequest(
 namespace {
 
 void ExportObjectLocksForTxn(
-    const master::SysObjectLockEntryPB_DBObjectsMapPB& dbs_map,
+    uint64_t db_id,
+    const master::SysObjectLockEntryPB_ObjectLocksMapPB& objects_map,
     tserver::AcquireObjectLockRequestPB* req) {
-  for (const auto& [db_id, objects_map] : dbs_map.dbs()) {
-    for (const auto& [object_id, lock_types] : objects_map.objects()) {
-      for (const auto& type : lock_types.lock_type()) {
-        auto* lock = req->add_object_locks();
-        lock->set_database_oid(db_id);
-        lock->set_object_oid(object_id);
-        lock->set_lock_type(TableLockType(type));
-      }
+  for (const auto& [object_id, lock_types] : objects_map.objects()) {
+    for (const auto& type : lock_types.lock_type()) {
+      auto* lock = req->add_object_locks();
+      lock->set_database_oid(db_id);
+      lock->set_object_oid(object_id);
+      lock->set_lock_type(TableLockType(type));
     }
   }
 }
@@ -479,12 +525,13 @@ tserver::DdlLockEntriesPB ObjectLockInfoManager::Impl::ExportObjectLockInfo() {
       }
       for (const auto& [txn_id_str, subtxns_map] : txns_map_it->second.transactions()) {
         auto txn_id = CHECK_RESULT(TransactionId::FromString(txn_id_str));
-        for (const auto& [subtxn_id, dbs_map] : subtxns_map.subtxns()) {
+        const auto db_id = subtxns_map.db_id();
+        for (const auto& [subtxn_id, objects_map] : subtxns_map.subtxns()) {
           auto* lock_entries_pb = entries.add_lock_entries();
           lock_entries_pb->set_session_host_uuid(host_uuid);
           lock_entries_pb->set_txn_id(txn_id.data(), txn_id.size());
           lock_entries_pb->set_subtxn_id(subtxn_id);
-          ExportObjectLocksForTxn(dbs_map, lock_entries_pb);
+          ExportObjectLocksForTxn(db_id, objects_map, lock_entries_pb);
         }
       }
     }
@@ -556,9 +603,35 @@ void ObjectLockInfoManager::Impl::LockObject(
   lock_objects->Launch();
 }
 
+void ObjectLockInfoManager::Impl::PopulateDbCatalogVersionCache(ReleaseObjectLockRequestPB& req) {
+  // TODO: Currently, we fetch and send catalog version of all dbs because the cache invalidation
+  // logic on the tserver side expects a full report. Fix it and then optimize the below to only
+  // send the catalog version of the db being operated on by the txn.
+  DbOidToCatalogVersionMap versions;
+  uint64_t fingerprint;
+  auto s = catalog_manager_->GetYsqlAllDBCatalogVersions(
+      FLAGS_enable_heartbeat_pg_catalog_versions_cache, &versions, &fingerprint);
+  if (!s.ok()) {
+    // In this case, we fallback to delayed cache invalidation on tserver-master heartbeat path.
+    LOG(WARNING) << "Couldn't populate catalog version on exclusive lock release: " << s;
+    return;
+  }
+  if (versions.empty()) {
+    return;
+  }
+  auto* db_catalog_version_data = req.mutable_db_catalog_version_data();
+  for (const auto& it : versions) {
+    auto* const catalog_version_pb = db_catalog_version_data->add_db_catalog_versions();
+    catalog_version_pb->set_db_oid(it.first);
+    catalog_version_pb->set_current_version(it.second.current_version);
+    catalog_version_pb->set_last_breaking_version(it.second.last_breaking_version);
+  }
+}
+
 void ObjectLockInfoManager::Impl::UnlockObject(
-    ReleaseObjectLockRequestPB req, ReleaseObjectLocksGlobalResponsePB* resp,
+    ReleaseObjectLockRequestPB&& req, ReleaseObjectLocksGlobalResponsePB* resp,
     rpc::RpcContext context) {
+  PopulateDbCatalogVersionCache(req);
   UnlockObject(req, std::move(context), std::nullopt, [resp, clock = clock_](const Status& s) {
     resp->set_propagated_hybrid_time(clock->Now().ToUint64());
     FillErrorIfRequired(s, resp);
@@ -575,6 +648,27 @@ void ObjectLockInfoManager::Impl::UnlockObject(
       master_, catalog_manager_, this, req, std::move(callback), std::move(context), leader_epoch,
       /* requestor_latest_lease_epoch */ std::nullopt, remove_lease_epoch_entry);
   unlock_objects->Launch();
+}
+
+void ObjectLockInfoManager::Impl::UnlockObject(const TransactionId& txn_id) {
+  ReleaseObjectLockRequestPB req;
+  req.set_txn_id(txn_id.data(), txn_id.size());
+  {
+    LockGuard lock(mutex_);
+    auto it = txn_host_info_map_.find(txn_id);
+    if (it == txn_host_info_map_.end()) {
+      return;
+    }
+    req.set_session_host_uuid(it->second.host_session_uuid);
+    req.set_lease_epoch(it->second.lease_epoch);
+  }
+
+  PopulateDbCatalogVersionCache(req);
+  return UnlockObject(
+      std::move(req), std::nullopt /* context */, std::nullopt /* leader epoch */,
+      [txn_id](Status s) {
+        LOG_IF(WARNING, !s.ok()) << "Releasing exclusive object locks failed for txn " << txn_id;
+      });
 }
 
 void ObjectLockInfoManager::Impl::ReleaseLocksHeldByExpiredLeaseEpoch(
@@ -597,6 +691,11 @@ void ObjectLockInfoManager::Impl::ReleaseLocksHeldByExpiredLeaseEpoch(
         auto txn_id = CHECK_RESULT(TransactionId::FromString(txn_id_str));
         request->set_txn_id(txn_id.data(), txn_id.size());
         request->set_lease_epoch(max_lease_epoch_to_release + 1);
+        if (requests_per_txn.empty()) {
+          // Set the db catalog cache on just one of the unlock requests, since it would be the same
+          // unless a new DDL modified it, in which case it's release would set the latest cache.
+          PopulateDbCatalogVersionCache(*request.get());
+        }
         requests_per_txn.push_back(request);
       }
     }
@@ -640,10 +739,21 @@ void ObjectLockInfoManager::Impl::BootstrapLocksPostLoad() {
 
 void ObjectLockInfoManager::Impl::UpdateObjectLocks(
     const std::string& tserver_uuid, std::shared_ptr<ObjectLockInfo> info) {
-  {
-    LockGuard lock(mutex_);
-    auto res = object_lock_infos_map_.insert_or_assign(tserver_uuid, info).second;
-    DCHECK(res) << "UpdateObjectLocks called for an existing tserver_uuid " << tserver_uuid;
+  // While holding locks concurrently, the established lock order is mutex_ -> LockFor(Read/Write).
+  LockGuard lock(mutex_);
+  auto [it, inserted] = object_lock_infos_map_.insert_or_assign(tserver_uuid, info);
+  DCHECK(inserted) << "UpdateObjectLocks called for an existing tserver_uuid " << tserver_uuid;
+  auto object_lock_info = it->second->LockForRead();
+  for (const auto& [lease_epoch, txns_map] : object_lock_info.data().pb.lease_epochs()) {
+    for (const auto& [txn_id_str, _] : txns_map.transactions()) {
+      auto txn_id_res = TransactionId::FromString(txn_id_str);
+      if (txn_id_res.ok()) {
+        txn_host_info_map_[*txn_id_res] = TxnHostInfo{tserver_uuid, lease_epoch};
+      } else {
+        LOG(DFATAL) << "Unable to decode transaction id from "
+                    << txn_id_str << ": " << txn_id_res.status();
+      }
+    }
   }
 }
 
@@ -651,7 +761,7 @@ void ObjectLockInfoManager::Impl::Clear() {
   catalog_manager_->AssertLeaderLockAcquiredForWriting();
   LockGuard lock(mutex_);
   object_lock_infos_map_.clear();
-  local_lock_manager_.reset(new tserver::TSLocalLockManager(clock_));
+  local_lock_manager_.reset(new tserver::TSLocalLockManager(clock_, master_->tablet_server()));
 }
 
 void ObjectLockInfoManager::Impl::UpdateTabletServerLeaseEpoch(
@@ -683,7 +793,8 @@ UpdateAllTServers<Req, Resp>::UpdateAllTServers(
       callback_(callback),
       context_(std::move(context)),
       requestor_latest_lease_epoch_(requestor_latest_lease_epoch),
-      remove_lease_epoch_entry_(remove_lease_epoch_entry) {
+      remove_lease_epoch_entry_(remove_lease_epoch_entry),
+      trace_(Trace::CurrentTrace()) {
   VLOG(3) << __PRETTY_FUNCTION__;
 }
 
@@ -694,6 +805,9 @@ void UpdateAllTServers<Req, Resp>::Done(size_t i, const Status& s) {
   } else {
     statuses_[i] = Status::OK();
   }
+  TRACE_TO(
+      trace(), "Done $0 ($1) : $2", i, ts_descriptors_[i]->permanent_uuid(),
+      statuses_[i].ToString());
   // TODO: There is a potential here for early return if s is not OK.
   if (--ts_pending_ == 0) {
     CheckForDone();
@@ -734,6 +848,7 @@ void UpdateAllTServers<Req, Resp>::Launch() {
 
 template <class Req, class Resp>
 void UpdateAllTServers<Req, Resp>::LaunchFrom(size_t start_idx) {
+  TRACE("Launching for $0 TServers from $1", ts_descriptors_.size(), start_idx);
   ts_pending_ = ts_descriptors_.size() - start_idx;
   LOG(INFO) << __func__ << " launching for " << ts_pending_ << " tservers.";
   for (size_t i = start_idx; i < ts_descriptors_.size(); ++i) {
@@ -752,6 +867,7 @@ void UpdateAllTServers<Req, Resp>::LaunchFrom(size_t start_idx) {
 
 template <class Req, class Resp>
 void UpdateAllTServers<Req, Resp>::DoCallbackAndRespond(const Status& s) {
+  TRACE("$0: $1", __func__, s.ToString());
   VLOG_WITH_FUNC(2) << s;
   callback_(s);
   if (context_.has_value()) {
@@ -777,6 +893,7 @@ void UpdateAllTServers<Req, Resp>::CheckForDone() {
 template <>
 Status
 UpdateAllTServers<AcquireObjectLockRequestPB, AcquireObjectLocksGlobalResponsePB>::BeforeRpcs() {
+  TRACE_FUNC();
   RETURN_NOT_OK(ValidateLockRequest(req_, requestor_latest_lease_epoch_));
   std::shared_ptr<tserver::TSLocalLockManager> local_lock_manager;
   DCHECK(!epoch_.has_value()) << "Epoch should not yet be set for AcquireObjectLockRequestPB";
@@ -811,6 +928,7 @@ UpdateAllTServers<AcquireObjectLockRequestPB, AcquireObjectLocksGlobalResponsePB
 template <>
 Status
 UpdateAllTServers<ReleaseObjectLockRequestPB, ReleaseObjectLocksGlobalResponsePB>::BeforeRpcs() {
+  TRACE_FUNC();
   if (!epoch_.has_value()) {
     SCOPED_LEADER_SHARED_LOCK(l, catalog_manager_);
     RETURN_NOT_OK(CheckLeaderLockStatus(l, std::nullopt));
@@ -822,12 +940,14 @@ UpdateAllTServers<ReleaseObjectLockRequestPB, ReleaseObjectLocksGlobalResponsePB
 template <>
 Status
 UpdateAllTServers<AcquireObjectLockRequestPB, AcquireObjectLocksGlobalResponsePB>::AfterRpcs() {
+  TRACE_FUNC();
   return Status::OK();
 }
 
 template <>
 Status
 UpdateAllTServers<ReleaseObjectLockRequestPB, ReleaseObjectLocksGlobalResponsePB>::AfterRpcs() {
+  TRACE_FUNC();
   VLOG_WITH_FUNC(2);
   SCOPED_LEADER_SHARED_LOCK(l, catalog_manager_);
   RETURN_NOT_OK(CheckLeaderLockStatus(l, epoch_));
@@ -849,6 +969,8 @@ UpdateAllTServers<ReleaseObjectLockRequestPB, ReleaseObjectLocksGlobalResponsePB
 
 template <class Req, class Resp>
 void UpdateAllTServers<Req, Resp>::DoneAll() {
+  ADOPT_TRACE(trace());
+  TRACE_FUNC();
   DoCallbackAndRespond(AfterRpcs());
 }
 
@@ -861,6 +983,7 @@ bool UpdateAllTServers<
 template <>
 bool UpdateAllTServers<
     ReleaseObjectLockRequestPB, ReleaseObjectLocksGlobalResponsePB>::RelaunchIfNecessary() {
+  TRACE_TO(trace(), "Relaunching");
   auto old_size = ts_descriptors_.size();
   auto current_ts_descriptors = master_->ts_manager()->GetAllDescriptorsWithALiveLease();
   for (const auto& ts_descriptor : current_ts_descriptors) {

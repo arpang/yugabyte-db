@@ -78,10 +78,10 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
-/* Yugabyte includes */
-#include "commands/tablegroup.h"
+/* YB includes */
 #include "catalog/pg_yb_catalog_version.h"
 #include "catalog/pg_yb_tablegroup.h"
+#include "commands/yb_tablegroup.h"
 #include "pg_yb_utils.h"
 
 /*
@@ -4916,7 +4916,8 @@ pg_namespace_aclmask(Oid nsp_oid, Oid roleid,
 	Oid			ownerId;
 
 	/* Superusers bypass all permission checking. */
-	if (superuser_arg(roleid) || (IsYbExtensionUser(roleid) && creating_extension))
+	if (superuser_arg(roleid) || IsYbDbAdminUser(roleid) ||
+		(IsYbExtensionUser(roleid) && creating_extension))
 		return mask;
 
 	/*

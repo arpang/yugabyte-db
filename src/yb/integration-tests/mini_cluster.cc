@@ -39,7 +39,6 @@
 #include "yb/client/yb_table_name.h"
 
 #include "yb/common/entity_ids_types.h"
-#include "yb/common/ysql_operation_lease.h"
 
 #include "yb/consensus/consensus.h"
 #include "yb/consensus/consensus.pb.h"
@@ -55,6 +54,7 @@
 #include "yb/master/master_admin.pb.h"
 #include "yb/master/master_client.pb.h"
 #include "yb/master/master_cluster.pb.h"
+#include "yb/master/master_ddl.pb.h"
 #include "yb/master/mini_master.h"
 #include "yb/master/scoped_leader_shared_lock.h"
 #include "yb/master/ts_manager.h"
@@ -108,6 +108,7 @@ DECLARE_string(use_private_ip);
 DECLARE_int32(load_balancer_initial_delay_secs);
 DECLARE_int32(transaction_table_num_tablets);
 DECLARE_bool(TEST_address_segment_negotiator_dfatal_map_failure);
+DECLARE_bool(TEST_enable_object_locking_for_table_locks);
 
 namespace yb {
 
@@ -770,7 +771,7 @@ Result<std::vector<std::shared_ptr<master::TSDescriptor>>> MiniCluster::WaitForT
               auto it = mini_cluster_tservers.find(desc->permanent_uuid());
               return it != mini_cluster_tservers.end() && it->second == desc->latest_seqno() &&
                      desc->has_tablet_report() && (!live_only || desc->IsLive()) &&
-                     (!FLAGS_TEST_enable_ysql_operation_lease ||
+                     (!FLAGS_TEST_enable_object_locking_for_table_locks ||
                       desc->HasLiveYsqlOperationLease());
             });
 
@@ -1099,6 +1100,28 @@ std::vector<tablet::TabletPeerPtr> ListTableTabletPeers(
   });
 }
 
+Result<std::vector<tablet::TabletPeerPtr>> ListTabletPeersForTableName(
+    MiniCluster* cluster, const std::string& table_name) {
+  return ListTableTabletPeers(cluster, VERIFY_RESULT(FindTableId(cluster, table_name)));
+}
+
+Result<std::vector<tablet::TabletPtr>> ListTabletsForTableName(
+    MiniCluster* cluster, const std::string& table_name) {
+  return PeersToTablets(VERIFY_RESULT(ListTabletPeersForTableName(cluster, table_name)));
+}
+
+std::vector<tablet::TabletPtr> PeersToTablets(const std::vector<tablet::TabletPeerPtr>& peers) {
+  std::vector<tablet::TabletPtr> result;
+  result.reserve(peers.size());
+  for (const auto& peer : peers) {
+    auto tablet = peer->shared_tablet();
+    if (tablet) {
+      result.push_back(tablet);
+    }
+  }
+  return result;
+}
+
 std::vector<tablet::TabletPeerPtr> ListTableActiveTabletPeers(
     MiniCluster* cluster, const TableId& table_id) {
   return ListTabletPeers(cluster, [&table_id](const tablet::TabletPeerPtr& peer) {
@@ -1336,12 +1359,26 @@ int NumRunningFlushes(MiniCluster* cluster) {
   return flushes;
 }
 
-Result<scoped_refptr<master::TableInfo>> FindTable(
+Result<master::TableInfoPtr> FindTable(
     MiniCluster* cluster, const client::YBTableName& table_name) {
   auto& catalog_manager = VERIFY_RESULT(cluster->GetLeaderMiniMaster())->catalog_manager();
   master::TableIdentifierPB identifier;
   table_name.SetIntoTableIdentifierPB(&identifier);
   return catalog_manager.FindTable(identifier);
+}
+
+Result<TableId> FindTableId(
+    MiniCluster* cluster, const std::string& table_name) {
+  auto& catalog_manager = VERIFY_RESULT(cluster->GetLeaderMiniMaster())->catalog_manager();
+  master::ListTablesRequestPB req;
+  master::ListTablesResponsePB resp;
+  RETURN_NOT_OK(catalog_manager.ListTables(&req, &resp));
+  for (const auto & table : resp.tables()) {
+    if (table.name() == table_name) {
+      return table.id();
+    }
+  }
+  return STATUS_FORMAT(NotFound, "Table $0 not found", table_name);
 }
 
 Status WaitForInitDb(MiniCluster* cluster) {

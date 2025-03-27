@@ -16,9 +16,8 @@
 #include "postgres.h"
 
 #include <ctype.h>
-#include <fcntl.h>
-#include <inttypes.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "access/amapi.h"
 #include "access/htup_details.h"
@@ -57,7 +56,6 @@
 #include "parser/parse_relation.h"
 #include "parser/parser.h"
 #include "parser/parsetree.h"
-#include "pg_yb_utils.h"
 #include "rewrite/rewriteHandler.h"
 #include "rewrite/rewriteManip.h"
 #include "rewrite/rewriteSupport.h"
@@ -76,9 +74,11 @@
 #include "utils/varlena.h"
 #include "utils/xml.h"
 
-/* YB includes. */
+/* YB includes */
 #include "catalog/pg_rewrite.h"
-#include "commands/tablegroup.h"
+#include "commands/yb_tablegroup.h"
+#include "pg_yb_utils.h"
+#include <inttypes.h>
 
 /* ----------
  * Pretty formatting constants
@@ -1549,7 +1549,7 @@ pg_get_indexdef_worker(Oid indexrelid, int colno,
 		appendStringInfoChar(&buf, ')');
 
 		if (includeYbMetadata && IsYBRelation(indexrel) &&
-			!idxrec->indisprimary)
+			!idxrec->indisprimary && !amroutine->yb_amiscopartitioned)
 		{
 			YbAppendIndexReloptions(&buf, indexrelid, YbGetTableProperties(indexrel));
 		}
@@ -1987,12 +1987,12 @@ pg_get_statisticsobjdef_expressions(PG_FUNCTION_ARGS)
 								  PointerGetDatum(cstring_to_text(str)),
 								  false,
 								  TEXTOID,
-								  GetCurrentMemoryContext());
+								  CurrentMemoryContext);
 	}
 
 	ReleaseSysCache(statexttup);
 
-	PG_RETURN_DATUM(makeArrayResult(astate, GetCurrentMemoryContext()));
+	PG_RETURN_DATUM(makeArrayResult(astate, CurrentMemoryContext));
 }
 
 /*
@@ -4030,7 +4030,7 @@ set_rtable_names(deparse_namespace *dpns, List *parent_namespaces,
 	 */
 	hash_ctl.keysize = NAMEDATALEN;
 	hash_ctl.entrysize = sizeof(NameHashEntry);
-	hash_ctl.hcxt = GetCurrentMemoryContext();
+	hash_ctl.hcxt = CurrentMemoryContext;
 	names_hash = hash_create("set_rtable_names names",
 							 list_length(dpns->rtable),
 							 &hash_ctl,

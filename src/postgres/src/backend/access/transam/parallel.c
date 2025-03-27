@@ -23,7 +23,6 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_enum.h"
 #include "catalog/storage.h"
-#include "catalog/yb_catalog_version.h"
 #include "commands/async.h"
 #include "commands/vacuum.h"
 #include "executor/execParallel.h"
@@ -33,7 +32,6 @@
 #include "miscadmin.h"
 #include "optimizer/optimizer.h"
 #include "pgstat.h"
-#include "pg_yb_utils.h"
 #include "storage/ipc.h"
 #include "storage/predicate.h"
 #include "storage/sinval.h"
@@ -46,6 +44,10 @@
 #include "utils/relmapper.h"
 #include "utils/snapmgr.h"
 #include "utils/typcache.h"
+
+/* YB includes */
+#include "catalog/yb_catalog_version.h"
+#include "pg_yb_utils.h"
 
 /*
  * We don't want to waste a lot of memory on an error queue which, most of
@@ -1064,7 +1066,7 @@ HandleParallelMessages(void)
 	HOLD_INTERRUPTS();
 
 	/*
-	 * Moreover, GetCurrentMemoryContext() might be pointing almost anywhere.  We
+	 * Moreover, CurrentMemoryContext might be pointing almost anywhere.  We
 	 * don't want to risk leaking data into long-lived contexts, so let's do
 	 * our work here in a private context that we can reset on each use.
 	 */
@@ -1326,9 +1328,9 @@ ParallelWorkerMain(Datum main_arg)
 	memcpy(&ParallelWorkerNumber, MyBgworkerEntry->bgw_extra, sizeof(int));
 
 	/* Set up a memory context to work in, just for cleanliness. */
-	CurrentMemoryContext = AllocSetContextCreate(TopMemoryContext,
-												 "Parallel worker",
-												 ALLOCSET_DEFAULT_SIZES);
+	YbCurrentMemoryContext = AllocSetContextCreate(TopMemoryContext,
+												   "Parallel worker",
+												   ALLOCSET_DEFAULT_SIZES);
 
 	/*
 	 * Attach to the dynamic shared memory segment for the parallel query, and

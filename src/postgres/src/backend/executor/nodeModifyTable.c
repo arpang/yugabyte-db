@@ -79,7 +79,7 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 
-/*  Yugabyte includes */
+/* YB includes */
 #include "access/sysattr.h"
 #include "access/yb_scan.h"
 #include "catalog/index.h"
@@ -88,9 +88,8 @@
 #include "executor/ybOptimizeModifyTable.h"
 #include "optimizer/ybplan.h"
 #include "parser/parsetree.h"
-#include "utils/typcache.h"
-
 #include "pg_yb_utils.h"
+#include "utils/typcache.h"
 
 typedef struct MTTargetRelLookup
 {
@@ -4917,13 +4916,24 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 					if (!AttributeNumberIsValid(resultRelInfo->ri_RowIdAttNo))
 						elog(ERROR, "could not find junk ybctid column");
 
-					resultRelInfo->ri_YbWholeRowAttNo =
-						ExecFindJunkAttributeInTlist(subplan->targetlist, "wholerow");
-
-					Assert(!YbWholeRowAttrRequired(resultRelInfo->ri_RelationDesc,
-												   operation) ||
-						   AttributeNumberIsValid(resultRelInfo->ri_YbWholeRowAttNo));
-
+					/*
+					 * When a DELETE spans multiple partitions, not all
+					 * partitions may require the "wholerow" attribute. For such
+					 * partitions, the target list still contains the attribute
+					 * but attnum passed down from the planner is invalid.
+					 * So, check if the partition requires the "wholerow" before
+					 * extracting the attnum.
+					 * TODO: Skip fetching the target tuples altogether for such
+					 * partitions.
+					 */
+					if (YbWholeRowAttrRequired(resultRelInfo->ri_RelationDesc,
+											   operation))
+					{
+						resultRelInfo->ri_YbWholeRowAttNo =
+							ExecFindJunkAttributeInTlist(subplan->targetlist, "wholerow");
+						if (!AttributeNumberIsValid(resultRelInfo->ri_YbWholeRowAttNo))
+							elog(ERROR, "could not find junk wholerow column");
+					}
 				}
 			}
 			else if (relkind == RELKIND_RELATION ||
@@ -5192,7 +5202,7 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 
 		hash_ctl.keysize = sizeof(Oid);
 		hash_ctl.entrysize = sizeof(MTTargetRelLookup);
-		hash_ctl.hcxt = GetCurrentMemoryContext();
+		hash_ctl.hcxt = CurrentMemoryContext;
 		mtstate->mt_resultOidHash =
 			hash_create("ModifyTable target hash",
 						nrels, &hash_ctl,

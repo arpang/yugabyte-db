@@ -49,19 +49,19 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
-/* YB includes. */
+/* YB includes */
 #include "access/heapam.h"
 #include "access/htup_details.h"
-#include "catalog/pg_yb_tablegroup.h"
 #include "catalog/pg_yb_catalog_version.h"
+#include "catalog/pg_yb_invalidation_messages.h"
 #include "catalog/pg_yb_logical_client_version.h"
 #include "catalog/pg_yb_profile.h"
 #include "catalog/pg_yb_role_profile.h"
-#include "catalog/pg_yb_invalidation_messages.h"
+#include "catalog/pg_yb_tablegroup.h"
 #include "commands/defrem.h"
+#include "pg_yb_utils.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
-#include "pg_yb_utils.h"
 
 /*
  * Parameters to determine when to emit a log message in
@@ -567,8 +567,12 @@ GetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn)
 	 * pg_upgrade; doing so would risk collisions with the OIDs it wants to
 	 * assign.  Hitting this assert means there's some path where we failed to
 	 * ensure that a type OID is determined by commands in the dump script.
+	 * YB: We may get here during extension upgrade (while executing
+	 * ALTER EXTENSION). Extension upgrade in YB is done as part of
+	 * pg_upgrade.
 	 */
-	Assert(!IsBinaryUpgrade || yb_binary_restore || RelationGetRelid(relation) != TypeRelationId);
+	Assert(!IsBinaryUpgrade || yb_binary_restore || RelationGetRelid(relation) != TypeRelationId
+		   || yb_extension_upgrade);
 
 	if (IsYugaByteEnabled())
 	{
@@ -645,8 +649,11 @@ GetNewRelFileNode(Oid reltablespace, Relation pg_class, char relpersistence)
 	 * If we ever get here during pg_upgrade, there's something wrong; all
 	 * relfilenode assignments during a binary-upgrade run should be
 	 * determined by commands in the dump script.
+	 * YB: We may get here during extension upgrade (while executing
+	 * ALTER EXTENSION). Extension upgrade in YB is done as part of
+	 * pg_upgrade.
 	 */
-	Assert(!IsBinaryUpgrade || yb_binary_restore);
+	Assert(!IsBinaryUpgrade || yb_binary_restore || yb_extension_upgrade);
 
 	/* This logic should match RelationInitPhysicalAddr */
 	rnode.node.spcNode = reltablespace ? reltablespace : MyDatabaseTableSpace;

@@ -99,7 +99,7 @@ public class VMImageUpgrade extends UpgradeTaskBase {
     Set<NodeDetails> nodeSet = fetchNodesForCluster();
     String newVersion = taskParams().ybSoftwareVersion;
     if (taskParams().isSoftwareUpdateViaVm) {
-      createCheckUpgradeTask(newVersion).setSubTaskGroupType(getTaskSubGroupType());
+      createCheckUpgradeTask(newVersion);
       if (confGetter.getConfForScope(getUniverse(), UniverseConfKeys.promoteAutoFlag)
           && CommonUtils.isAutoFlagSupported(newVersion)) {
         createCheckSoftwareVersionTask(nodeSet, newVersion)
@@ -262,17 +262,20 @@ public class VMImageUpgrade extends UpgradeTaskBase {
       node.ybPrebuiltAmi =
           taskParams().vmUpgradeTaskType == VmUpgradeTaskType.VmUpgradeWithCustomImages;
       List<NodeDetails> nodeList = Collections.singletonList(node);
+      // Must use ansible provisioning for non-systemd universes
       boolean useAnsibleProvisioning =
-          confGetter.getGlobalConf(GlobalConfKeys.useAnsibleProvisioning);
+          confGetter.getGlobalConf(GlobalConfKeys.useAnsibleProvisioning) || !userIntent.useSystemd;
       // TODO This can be improved to skip already provisioned nodes as there are long running
       // subtasks.
       if (userIntent.providerType != CloudType.local) {
-        createSetupYNPTask(nodeList).setSubTaskGroupType(SubTaskGroupType.Provisioning);
+        createSetupYNPTask(universe, nodeList).setSubTaskGroupType(SubTaskGroupType.Provisioning);
         if (!useAnsibleProvisioning) {
-          createYNPProvisioningTask(nodeList).setSubTaskGroupType(SubTaskGroupType.Provisioning);
+          createYNPProvisioningTask(universe, nodeList)
+              .setSubTaskGroupType(SubTaskGroupType.Provisioning);
         }
       }
-      createInstallNodeAgentTasks(nodeList).setSubTaskGroupType(SubTaskGroupType.Provisioning);
+      createInstallNodeAgentTasks(universe, nodeList)
+          .setSubTaskGroupType(SubTaskGroupType.Provisioning);
       createWaitForNodeAgentTasks(nodeList).setSubTaskGroupType(SubTaskGroupType.Provisioning);
       createHookProvisionTask(nodeList, TriggerType.PreNodeProvision);
       if (useAnsibleProvisioning || userIntent.providerType == CloudType.local) {

@@ -63,7 +63,8 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   Status RestartReadPoint();
   bool IsRestartReadPointRequested();
   void SetActiveSubTransactionId(SubTransactionId id);
-  Status CommitPlainTransaction();
+  Status SetDdlStateInPlainTransaction();
+  Status CommitPlainTransaction(const std::optional<PgDdlCommitInfo>& ddl_commit_info);
   Status AbortPlainTransaction();
   Status SetPgIsolationLevel(int isolation);
   PgIsolationLevel GetPgIsolationLevel();
@@ -82,6 +83,12 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   bool IsTxnInProgress() const { return txn_in_progress_; }
   IsolationLevel GetIsolationLevel() const { return isolation_level_; }
   bool IsDdlMode() const { return ddl_state_.has_value(); }
+  bool IsDdlModeWithRegularTransactionBlock() const {
+    return ddl_state_.has_value() && ddl_state_->use_regular_transaction_block;
+  }
+  bool IsDdlModeWithSeparateTransaction() const {
+    return ddl_state_.has_value() && !ddl_state_->use_regular_transaction_block;
+  }
   std::optional<bool> GetDdlForceCatalogModification() const {
     return ddl_state_ ? std::optional(ddl_state_->force_catalog_modification) : std::nullopt;
   }
@@ -110,18 +117,15 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   struct DdlState {
     bool has_docdb_schema_changes = false;
     bool force_catalog_modification = false;
+    bool use_regular_transaction_block = false;
 
     std::string ToString() const {
-      return YB_STRUCT_TO_STRING(has_docdb_schema_changes, force_catalog_modification);
+      return YB_STRUCT_TO_STRING(
+          has_docdb_schema_changes, force_catalog_modification, use_regular_transaction_block);
     }
   };
 
  private:
-  struct DdlCommitInfo {
-    uint32_t db_oid;
-    bool is_silent_altering;
-  };
-
   class SerialNo {
    public:
     SerialNo();
@@ -155,11 +159,15 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
 
   std::string TxnStateDebugStr() const;
 
-  Status FinishPlainTransaction(Commit commit);
+  DdlMode GetDdlModeFromDdlState(
+    const std::optional<DdlState> ddl_state, const std::optional<PgDdlCommitInfo>& ddl_commit_info);
+
+  Status FinishPlainTransaction(
+      Commit commit, const std::optional<PgDdlCommitInfo>& ddl_commit_info);
 
   void IncTxnSerialNo();
 
-  Status ExitSeparateDdlTxnMode(const std::optional<DdlCommitInfo>& commit_info);
+  Status ExitSeparateDdlTxnMode(const std::optional<PgDdlCommitInfo>& commit_info);
 
   Status CheckSnapshotTimeConflict() const;
   Status CheckTxnSnapshotOptions(const tserver::PgPerformOptionsPB& options) const;

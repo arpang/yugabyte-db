@@ -47,23 +47,18 @@
 #include "catalog/namespace.h"
 #include "catalog/partition.h"
 #include "catalog/pg_am.h"
-#include "catalog/pg_amop.h"
 #include "catalog/pg_amproc.h"
 #include "catalog/pg_attrdef.h"
 #include "catalog/pg_auth_members.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_database.h"
-#include "catalog/pg_inherits.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_opclass.h"
-#include "catalog/pg_partitioned_table.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_publication.h"
-#include "catalog/pg_range_d.h"
 #include "catalog/pg_rewrite.h"
 #include "catalog/pg_shseclabel.h"
-#include "catalog/pg_statistic_d.h"
 #include "catalog/pg_statistic_ext.h"
 #include "catalog/pg_subscription.h"
 #include "catalog/pg_tablespace.h"
@@ -85,27 +80,29 @@
 #include "storage/smgr.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
-#include "utils/catcache.h"
 #include "utils/datum.h"
 #include "utils/fmgroids.h"
 #include "utils/inval.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
-#include "utils/relcache.h"
 #include "utils/relmapper.h"
 #include "utils/resowner_private.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
-/* Yugabyte includes */
+/* YB includes */
 #include "access/yb_scan.h"
 #include "catalog/index.h"
+#include "catalog/pg_amop.h"
 #include "catalog/pg_cast.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_db_role_setting.h"
+#include "catalog/pg_inherits.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_partitioned_table.h"
 #include "catalog/pg_policy.h"
+#include "catalog/pg_range_d.h"
+#include "catalog/pg_statistic_d.h"
 #include "catalog/pg_statistic_ext_data.h"
 #include "catalog/pg_yb_profile.h"
 #include "catalog/pg_yb_role_profile.h"
@@ -113,8 +110,10 @@
 #include "commands/dbcommands.h"
 #include "commands/yb_cmds.h"
 #include "partitioning/partdesc.h"
-#include "utils/partcache.h"
 #include "pg_yb_utils.h"
+#include "utils/catcache.h"
+#include "utils/partcache.h"
+#include "utils/relcache.h"
 #include "utils/yb_inheritscache.h"
 #include "utils/yb_tuplecache.h"
 
@@ -1510,8 +1509,7 @@ YBLoadRelations(YbUpdateRelationCacheState *state)
 			RelationInitIndexAccessInfo(relation);
 		}
 		else if (RELKIND_HAS_TABLE_AM(relation->rd_rel->relkind) ||
-				 relation->rd_rel->relkind == RELKIND_SEQUENCE ||
-				 relation->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
+				 relation->rd_rel->relkind == RELKIND_SEQUENCE)
 			RelationInitTableAccessMethod(relation);
 		else
 			Assert(relation->rd_rel->relam == InvalidOid);
@@ -2741,7 +2739,7 @@ YbUpdateRelationCacheImpl(YbUpdateRelationCacheState *state,
 static YbcStatus
 YbUpdateRelationCache(YbRunWithPrefetcherContext *ctx)
 {
-	MemoryContext own_mem_ctx = AllocSetContextCreate(GetCurrentMemoryContext(),
+	MemoryContext own_mem_ctx = AllocSetContextCreate(CurrentMemoryContext,
 													  "UpdateRelationCacheContext",
 													  ALLOCSET_DEFAULT_SIZES);
 	MemoryContext old_mem_ctx = MemoryContextSwitchTo(own_mem_ctx);
@@ -3078,7 +3076,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 
 	/*
 	 * This function and its subroutines can allocate a good deal of transient
-	 * data in GetCurrentMemoryContext().  Traditionally we've just leaked that
+	 * data in CurrentMemoryContext.  Traditionally we've just leaked that
 	 * data, reasoning that the caller's context is at worst of transaction
 	 * scope, and relcache loads shouldn't happen so often that it's essential
 	 * to recover transient data before end of statement/transaction.  However
@@ -3097,7 +3095,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 
 	if (RECOVER_RELATION_BUILD_MEMORY || debug_discard_caches > 0)
 	{
-		tmpcxt = AllocSetContextCreate(GetCurrentMemoryContext(),
+		tmpcxt = AllocSetContextCreate(CurrentMemoryContext,
 									   "RelationBuildDesc workspace",
 									   ALLOCSET_DEFAULT_SIZES);
 		oldcxt = MemoryContextSwitchTo(tmpcxt);
@@ -3238,10 +3236,7 @@ retry:
 		relation->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
 		RelationInitIndexAccessInfo(relation);
 	else if (RELKIND_HAS_TABLE_AM(relation->rd_rel->relkind) ||
-			 relation->rd_rel->relkind == RELKIND_SEQUENCE ||
-			 (IsYugaByteEnabled() &&
-			  relation->rd_rel->relkind == RELKIND_PARTITIONED_TABLE
-			  && relation->rd_rel->relpersistence != RELPERSISTENCE_TEMP))
+			 relation->rd_rel->relkind == RELKIND_SEQUENCE)
 		RelationInitTableAccessMethod(relation);
 	else
 		Assert(relation->rd_rel->relam == InvalidOid);
@@ -5929,7 +5924,8 @@ RelationSetNewRelfilenode(Relation relation, char persistence,
 		 */
 		Assert(relation->rd_rel->relkind == RELKIND_INDEX ||
 			   relation->rd_rel->relkind == RELKIND_RELATION ||
-			   relation->rd_rel->relkind == RELKIND_PARTITIONED_INDEX);
+			   relation->rd_rel->relkind == RELKIND_PARTITIONED_INDEX ||
+			   relation->rd_rel->relkind == RELKIND_PARTITIONED_TABLE);
 
 		if ((relation->rd_rel->relkind == RELKIND_INDEX ||
 			 relation->rd_rel->relkind == RELKIND_PARTITIONED_INDEX) &&
@@ -5943,7 +5939,8 @@ RelationSetNewRelfilenode(Relation relation, char persistence,
 			 */
 			YbIndexSetNewRelfileNode(relation, newrelfilenode,
 									 yb_copy_split_options);
-		else if (relation->rd_rel->relkind == RELKIND_RELATION)
+		else if (relation->rd_rel->relkind == RELKIND_RELATION ||
+				 relation->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 		{
 			/*
 			 * Drop the old DocDB table associated with this relation.

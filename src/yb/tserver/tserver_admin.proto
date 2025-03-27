@@ -36,7 +36,6 @@ package yb.tserver;
 option java_package = "org.yb.tserver";
 
 import "yb/common/common.proto";
-import "yb/common/common_net.proto";
 import "yb/common/common_types.proto";
 import "yb/common/opid.proto";
 import "yb/consensus/metadata.proto";
@@ -251,6 +250,12 @@ message FlushTabletsRequestPB {
 
   // Only flush/compact regular RocksDB, not intents RocksDB.
   optional bool regular_only = 6;
+
+  // Performs operation only for the given vector indexes for the specified tablets.
+  repeated bytes vector_index_ids = 7;
+
+  // Whether we want to perform operation for all vector indexes for the specified tablets.
+  optional bool all_vector_indexes = 8;
 }
 
 message FlushTabletsResponsePB {

@@ -24,6 +24,7 @@
  */
 
 #include "postgres.h"
+
 #include "catalog/heap.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_am.h"
@@ -365,7 +366,8 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	if (!indpred_isnull)
 	{
 		Expr *indpred = stringToNode(TextDatumGetCString(indpred_datum));
-		partial_idx_pushdown = YbCanPushdownExpr(indpred, &partial_idx_colrefs);
+		partial_idx_pushdown = YbCanPushdownExpr(indpred, &partial_idx_colrefs,
+												 baserel->rd_id);
 		partial_idx_pred = lappend(partial_idx_pred, indpred);
 	}
 
@@ -802,7 +804,7 @@ baserel_scan_plan2(Relation baserel, Relation indexrel)
 	if (!indpred_isnull)
 	{
 		Expr *indpred = stringToNode(TextDatumGetCString(indpred_datum));
-		partial_idx_pushdown = YbCanPushdownExpr(indpred, &partial_idx_colrefs);
+		partial_idx_pushdown = YbCanPushdownExpr(indpred, &partial_idx_colrefs, baserel->rd_id);
 		partial_idx_pred = lappend(partial_idx_pred, indpred);
 	}
 

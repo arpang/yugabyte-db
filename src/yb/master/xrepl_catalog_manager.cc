@@ -13,6 +13,7 @@
 #include "yb/cdc/cdc_service.h"
 #include "yb/cdc/cdc_state_table.h"
 
+#include "yb/client/client.h"
 #include "yb/client/meta_cache.h"
 #include "yb/client/schema.h"
 #include "yb/client/table.h"
@@ -5095,7 +5096,7 @@ void CatalogManager::CDCSDKPopulateDeleteRetainerInfoForTabletDrop(
 Status CatalogManager::UpdateCheckpointForTabletEntriesInCDCState(
     const xrepl::StreamId& stream_id, const std::unordered_set<TableId>& tables_in_stream_metadata,
     const TableInfoPtr& table_to_be_removed) {
-  bool is_colocated_table = table_to_be_removed->IsColocatedUserTable();
+  bool is_colocated_table = table_to_be_removed->IsSecondaryTable();
   auto tablets = VERIFY_RESULT(table_to_be_removed->GetTabletsIncludeInactive());
   if (tablets.empty()) {
     return Status::OK();

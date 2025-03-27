@@ -173,9 +173,8 @@ DEFINE_RUNTIME_PREVIEW_bool(
 DECLARE_bool(TEST_ash_debug_aux);
 DECLARE_bool(TEST_generate_ybrowid_sequentially);
 DECLARE_bool(TEST_ysql_log_perdb_allocated_new_objectid);
-DECLARE_bool(TEST_yb_enable_invalidation_messages);
-DECLARE_int32(TEST_yb_invalidation_message_expiration_secs);
-DECLARE_int32(TEST_yb_max_num_invalidation_messages);
+DECLARE_bool(TEST_ysql_yb_ddl_transaction_block_enabled);
+DECLARE_bool(ysql_enable_inheritance);
 
 DECLARE_bool(use_fast_backward_scan);
 
@@ -1911,7 +1910,13 @@ bool YBCIsRestartReadPointRequested() {
 }
 
 YbcStatus YBCPgCommitPlainTransaction() {
-  return ToYBCStatus(pgapi->CommitPlainTransaction());
+  return ToYBCStatus(pgapi->CommitPlainTransaction(std::nullopt /* ddl_commit_info */));
+}
+
+YbcStatus YBCPgCommitPlainTransactionContainingDDL(
+    YbcPgOid ddl_db_oid, bool ddl_is_silent_altering) {
+  return ToYBCStatus(
+      pgapi->CommitPlainTransaction(PgDdlCommitInfo{ddl_db_oid, ddl_is_silent_altering}));
 }
 
 YbcStatus YBCPgAbortPlainTransaction() {
@@ -1944,6 +1949,10 @@ YbcStatus YBCPgSetInTxnBlock(bool in_txn_blk) {
 
 YbcStatus YBCPgSetReadOnlyStmt(bool read_only_stmt) {
   return ToYBCStatus(pgapi->SetReadOnlyStmt(read_only_stmt));
+}
+
+YbcStatus YBCPgSetDdlStateInPlainTransaction() {
+  return ToYBCStatus(pgapi->SetDdlStateInPlainTransaction());
 }
 
 YbcStatus YBCPgEnterSeparateDdlTxnMode() {
@@ -2152,6 +2161,39 @@ YbcStatus YBCCatalogVersionTableInPerdbMode(bool* perdb_mode) {
   return ExtractValueFromResult(pgapi->CatalogVersionTableInPerdbMode(), perdb_mode);
 }
 
+YbcStatus YBCGetTserverCatalogMessageLists(
+    YbcPgOid db_oid, uint64_t ysql_catalog_version, uint32_t num_catalog_versions,
+    YbcCatalogMessageLists* message_lists) {
+  const auto result = pgapi->GetTserverCatalogMessageLists(
+      db_oid, ysql_catalog_version, num_catalog_versions);
+  if (!result.ok()) {
+    return ToYBCStatus(result.status());
+  }
+  const auto &catalog_messages_lists = result.get();
+  if (catalog_messages_lists.entries_size() == 0) {
+    return YBCStatusOK();
+  }
+  message_lists->num_lists = catalog_messages_lists.entries_size();
+  message_lists->message_lists = static_cast<YbcCatalogMessageList*>(
+      YBCPAlloc(sizeof(YbcCatalogMessageList) * message_lists->num_lists));
+  for (int i = 0; i < message_lists->num_lists; ++i) {
+    YbcCatalogMessageList& current = message_lists->message_lists[i];
+    if (catalog_messages_lists.entries(i).has_message_list()) {
+      const auto& current_pb = catalog_messages_lists.entries(i).message_list();
+      current.num_bytes = current_pb.size();
+      current.message_list = static_cast<char*>(YBCPAlloc(current.num_bytes));
+      std::memcpy(static_cast<void*>(current.message_list), current_pb.data(),
+                  current_pb.size());
+    } else {
+      // This entire invalidation message list is a PG null. This will force full
+      // catalog cache refresh.
+      current.num_bytes = 0;
+      current.message_list = NULL;
+    }
+  }
+  return YBCStatusOK();
+}
+
 uint64_t YBCGetSharedAuthKey() {
   return pgapi->GetSharedAuthKey();
 }
@@ -2213,12 +2255,10 @@ const YbcPgGFlagsAccessor* YBCGetGFlags() {
       .ysql_conn_mgr_max_query_size = &FLAGS_ysql_conn_mgr_max_query_size,
       .ysql_conn_mgr_wait_timeout_ms = &FLAGS_ysql_conn_mgr_wait_timeout_ms,
       .ysql_enable_pg_export_snapshot = &FLAGS_ysql_enable_pg_export_snapshot,
-      .TEST_yb_enable_invalidation_messages =
-          &FLAGS_TEST_yb_enable_invalidation_messages,
-      .TEST_yb_invalidation_message_expiration_secs =
-          &FLAGS_TEST_yb_invalidation_message_expiration_secs,
-      .TEST_yb_max_num_invalidation_messages =
-          &FLAGS_TEST_yb_max_num_invalidation_messages,
+      .TEST_ysql_yb_ddl_transaction_block_enabled =
+          &FLAGS_TEST_ysql_yb_ddl_transaction_block_enabled,
+      .ysql_enable_inheritance =
+          &FLAGS_ysql_enable_inheritance
   };
   // clang-format on
   return &accessor;
@@ -2259,7 +2299,7 @@ YbcStatus YBCGetTabletServerHosts(YbcServerDescriptor **servers, size_t *count) 
   if (!result.ok()) {
     return ToYBCStatus(result.status());
   }
-  const auto &servers_info = result.get();
+  const auto &servers_info = result.get().tablet_servers;
   *count = servers_info.size();
   *servers = NULL;
   if (!servers_info.empty()) {
@@ -2276,6 +2316,7 @@ YbcStatus YBCGetTabletServerHosts(YbcServerDescriptor **servers, size_t *count) 
         .is_primary = info.is_primary,
         .pg_port = info.pg_port,
         .uuid = YBCPAllocStdString(info.server.uuid),
+        .universe_uuid = YBCPAllocStdString(result.get().universe_uuid),
       };
       ++dest;
     }
@@ -2508,7 +2549,9 @@ YbcStatus YBCPgListReplicationSlots(
           .replica_identities = replica_identities,
           .replica_identities_count = replica_identities_count,
           .last_pub_refresh_time = info.last_pub_refresh_time(),
-          .yb_lsn_type = YBCPAllocStdString(lsn_type_result.get())
+          .yb_lsn_type = YBCPAllocStdString(lsn_type_result.get()),
+          .active_pid = info.active_pid(),
+          .expired = info.expired(),
       };
       ++dest;
     }
@@ -2562,7 +2605,9 @@ YbcStatus YBCPgGetReplicationSlot(
       .replica_identities = replica_identities,
       .replica_identities_count = replica_identities_count,
       .last_pub_refresh_time = slot_info.last_pub_refresh_time(),
-      .yb_lsn_type = YBCPAllocStdString(lsn_type_result.get())
+      .yb_lsn_type = YBCPAllocStdString(lsn_type_result.get()),
+      .active_pid = slot_info.active_pid(),
+      .expired = slot_info.expired(),
   };
 
   return YBCStatusOK();
@@ -2626,7 +2671,7 @@ void YBCStoreTServerAshSamples(
 
 YbcStatus YBCPgInitVirtualWalForCDC(
     const char *stream_id, const YbcPgOid database_oid, YbcPgOid *relations, YbcPgOid *relfilenodes,
-    size_t num_relations, const YbcReplicationSlotHashRange *slot_hash_range) {
+    size_t num_relations, const YbcReplicationSlotHashRange *slot_hash_range, uint64_t active_pid) {
   std::vector<PgObjectId> tables;
   tables.reserve(num_relations);
 
@@ -2635,11 +2680,20 @@ YbcStatus YBCPgInitVirtualWalForCDC(
     tables.push_back(std::move(table_id));
   }
 
-  const auto result = pgapi->InitVirtualWALForCDC(std::string(stream_id), tables, slot_hash_range);
+  const auto result = pgapi->InitVirtualWALForCDC(
+    std::string(stream_id), tables, slot_hash_range, active_pid);
   if (!result.ok()) {
     return ToYBCStatus(result.status());
   }
 
+  return YBCStatusOK();
+}
+
+YbcStatus YBCPgGetLagMetrics(const char* stream_id, int64_t* lag_metric) {
+  const auto result = pgapi->GetLagMetrics(std::string(stream_id), lag_metric);
+  if (!result.ok()) {
+    return ToYBCStatus(result.status());
+  }
   return YBCStatusOK();
 }
 

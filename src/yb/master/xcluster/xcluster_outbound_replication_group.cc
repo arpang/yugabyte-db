@@ -13,11 +13,15 @@
 
 #include "yb/master/xcluster/xcluster_outbound_replication_group.h"
 
-#include "yb/client/xcluster_client.h"
 #include "yb/common/colocated_util.h"
 #include "yb/common/xcluster_util.h"
+
+#include "yb/client/xcluster_client.h"
+
 #include "yb/master/catalog_entity_info.h"
+#include "yb/master/master_replication.pb.h"
 #include "yb/master/xcluster/xcluster_outbound_replication_group_tasks.h"
+
 #include "yb/util/hash_util.h"
 #include "yb/util/is_operation_done_result.h"
 #include "yb/util/status_log.h"
@@ -191,19 +195,26 @@ Status XClusterOutboundReplicationGroup::CheckpointStreamsForInitialBootstrap(
     std::function<void(XClusterCheckpointStreamsResult)> completion_cb) {
   std::vector<std::pair<TableId, xrepl::StreamId>> table_streams;
   std::vector<TableId> table_ids;
-  bool check_if_bootstrap_required = true;
-
+  bool check_if_bootstrap_required;
   {
     std::lock_guard mutex_l(mutex_);
     auto l = VERIFY_RESULT(LockForWrite());
 
-    auto* ns_info = VERIFY_RESULT(GetNamespaceInfo(namespace_id));
+    const auto* ns_info = VERIFY_RESULT(GetNamespaceInfo(namespace_id));
     SCHECK_EQ(
         ns_info->state(), NamespaceInfoPB::CHECKPOINTING, IllegalState,
         "Namespace in unexpected state");
 
-    // We only have to check only if bootstrap is not currently required.
-    check_if_bootstrap_required = !ns_info->initial_bootstrap_required();
+    if (automatic_ddl_mode_) {
+      // Bootstrap is always required for automatic mode, so no need to perform an expensive check.
+      // (In automatic mode we need OIDs to match for things like enums so the semi-automatic check
+      // of "are there any tables with data?" is insufficient to determine if a bootstrap is needed;
+      // accordingly we decided to just always require bootstrap for automatic mode.)
+      check_if_bootstrap_required = false;
+    } else {
+      // We have to check only if bootstrap is not currently required.
+      check_if_bootstrap_required = !ns_info->initial_bootstrap_required();
+    }
 
     for (const auto& [table_id, table_info] : ns_info->table_infos()) {
       if (!TableNeedsInitialCheckpoint(table_info)) {
@@ -222,12 +233,14 @@ Status XClusterOutboundReplicationGroup::CheckpointStreamsForInitialBootstrap(
     }
   }
 
-  auto callback = [table_ids, user_cb = std::move(completion_cb)](Result<bool> result) {
+  auto callback = [table_ids, user_cb = std::move(completion_cb),
+                   automatic_ddl_mode = automatic_ddl_mode_](Result<bool> result) {
     if (!result.ok()) {
       user_cb(result.status());
       return;
     }
-    user_cb(std::make_pair(std::move(table_ids), *result));
+    // Bootstrap is always required in automatic mode.
+    user_cb(std::make_pair(std::move(table_ids), automatic_ddl_mode || *result));
   };
 
   if (!table_ids.empty()) {
@@ -238,7 +251,7 @@ Status XClusterOutboundReplicationGroup::CheckpointStreamsForInitialBootstrap(
         table_streams, StreamCheckpointLocation::kCurrentEndOfWAL, epoch,
         check_if_bootstrap_required, std::move(callback)));
   } else {
-    callback(false);  // Bootstrap not required if we dont have any tables.
+    callback(false);  // Bootstrap not required if we don't have any tables.
     // When MarkBootstrapTablesAsCheckpointed handles this empty table result it will mark the
     // namespace as READY.
     // So, after all tables have been checkpointed this function and
@@ -574,6 +587,20 @@ Status XClusterOutboundReplicationGroup::Delete(
     const std::vector<HostPort>& target_master_addresses, const LeaderEpoch& epoch) {
   CloseAndWaitForAllTasksToAbort();
 
+  std::unordered_map<NamespaceId, uint32_t> source_namespace_id_to_oid_to_bump_above;
+  if (AutomaticDDLMode()) {
+    auto namespace_ids = VERIFY_RESULT(GetNamespaces());
+    for (const auto& namespace_id : namespace_ids) {
+      if (helper_functions_.is_automatic_mode_switchover_func(namespace_id)) {
+        uint32_t oid_to_bump_above = VERIFY_RESULT(
+            helper_functions_.get_normal_oid_higher_than_any_used_normal_oid_func(namespace_id));
+        LOG(INFO) << "xCluster automatic mode switchover of namespace ID " << namespace_id
+                  << " detected; need to bump target OID above " << oid_to_bump_above;
+        source_namespace_id_to_oid_to_bump_above[namespace_id] = oid_to_bump_above;
+      }
+    }
+  }
+
   std::lock_guard mutex_lock(mutex_);
   auto l = VERIFY_RESULT(LockForWrite());
   auto& outbound_group_pb = l.mutable_data()->pb;
@@ -591,7 +618,7 @@ Status XClusterOutboundReplicationGroup::Delete(
 
     auto remote_client = VERIFY_RESULT(GetRemoteClient(target_master_addresses));
     RETURN_NOT_OK(remote_client->GetXClusterClient().DeleteUniverseReplication(
-        Id(), /*ignore_errors=*/true, target_uuid));
+        Id(), /*ignore_errors=*/true, target_uuid, source_namespace_id_to_oid_to_bump_above));
   }
 
   for (const auto& [namespace_id, _] : *outbound_group_pb.mutable_namespace_infos()) {

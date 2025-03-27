@@ -477,6 +477,15 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Allow the usage of CipherTrust KMS.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.INTERNAL));
+  public static final ConfKeyInfo<Integer> hcvTokenRenewPercent =
+      new ConfKeyInfo<>(
+          "yb.kms.hcv_token_renew_percent",
+          ScopeType.GLOBAL,
+          "Percentage of Hashicorp vault TTL to renew the token after",
+          "HashiCorp Vault tokens expire when their TTL is reached. This setting renews the token"
+              + " after it has used the specified percentage of its original TTL. Default: 70%.",
+          ConfDataType.IntegerType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   // TODO() Add metadata
   public static final ConfKeyInfo<Boolean> startMasterOnStopNode =
       new ConfKeyInfo<>(
@@ -1634,5 +1643,13 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Restore YBA postgres metadata during Yugaware container restart",
           "Restore YBA postgres metadata during Yugaware container restart",
           ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Duration> nodeAgentServerCertExpiryNotice =
+      new ConfKeyInfo<>(
+          "yb.node_agent.server_cert_expiry_notice",
+          ScopeType.GLOBAL,
+          "Node Agent Server Cert Expiry Notice",
+          "Duration to start notifying about expiry before node agent server cert actually expires",
+          ConfDataType.DurationType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
 }

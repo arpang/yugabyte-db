@@ -45,7 +45,7 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 
-/* Yugabyte includes */
+/* YB includes */
 #include "access/yb_scan.h"
 
 static void reform_and_rewrite_tuple(HeapTuple tuple,
@@ -1192,7 +1192,7 @@ heapam_index_build_range_scan(Relation heapRelation,
 	BlockNumber previous_blkno = InvalidBlockNumber;
 	BlockNumber root_blkno = InvalidBlockNumber;
 	OffsetNumber root_offsets[MaxHeapTuplesPerPage];
-	MemoryContext oldcontext = GetCurrentMemoryContext();
+	MemoryContext oldcontext = CurrentMemoryContext;
 	int			yb_tuples_done = 0;
 
 	/*

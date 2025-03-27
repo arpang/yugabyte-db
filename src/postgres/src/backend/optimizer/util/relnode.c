@@ -31,8 +31,10 @@
 #include "utils/hsearch.h"
 #include "utils/lsyscache.h"
 
+/* YB includes */
 #include "partitioning/partbounds.h"
 #include "pg_yb_utils.h"
+
 
 typedef struct JoinHashEntry
 {
@@ -408,7 +410,7 @@ build_join_rel_hash(PlannerInfo *root)
 	hash_ctl.entrysize = sizeof(JoinHashEntry);
 	hash_ctl.hash = bitmap_hash;
 	hash_ctl.match = bitmap_match;
-	hash_ctl.hcxt = GetCurrentMemoryContext();
+	hash_ctl.hcxt = CurrentMemoryContext;
 	hashtab = hash_create("JoinRelHashTable",
 						  256L,
 						  &hash_ctl,

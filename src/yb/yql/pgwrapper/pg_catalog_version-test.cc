@@ -11,11 +11,14 @@
 // under the License.
 
 #include "yb/common/wire_protocol.h"
+#include "yb/gutil/strings/util.h"
 #include "yb/tserver/tserver_service.proxy.h"
 #include "yb/tserver/tserver_shared_mem.h"
 #include "yb/util/path_util.h"
+#include "yb/util/scope_exit.h"
 #include "yb/util/string_util.h"
 #include "yb/util/test_thread_holder.h"
+#include "yb/util/ysql_binary_runner.h"
 #include "yb/yql/pgwrapper/libpq_test_base.h"
 #include "yb/yql/pgwrapper/pg_test_utils.h"
 
@@ -44,9 +47,9 @@ class PgCatalogVersionTest : public LibPqTestBase {
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     LibPqTestBase::UpdateMiniClusterOptions(options);
     options->extra_master_flags.push_back(
-        "--allowed_preview_flags_csv=ysql_enable_db_catalog_version_mode");
+        "--allowed_preview_flags_csv=ysql_yb_enable_invalidation_messages");
     options->extra_tserver_flags.push_back(
-        "--allowed_preview_flags_csv=ysql_enable_db_catalog_version_mode");
+        "--allowed_preview_flags_csv=ysql_yb_enable_invalidation_messages");
   }
 
   Result<int64_t> GetCatalogVersion(PGConn* conn) {
@@ -104,16 +107,20 @@ class PgCatalogVersionTest : public LibPqTestBase {
     RestartClusterSetDBCatalogVersionMode(true, extra_tserver_flags);
   }
 
-  void RestartClusterWithInvalMessageEnabled() {
-    LOG(INFO) << "Restart the cluster with --TEST_yb_enable_invalidation_messages=true";
+  void RestartClusterWithInvalMessageEnabled(
+      const std::vector<string>& extra_tserver_flags = {}) {
+    LOG(INFO) << "Restart the cluster with --ysql_yb_enable_invalidation_messages=true";
     cluster_->Shutdown();
     for (size_t i = 0; i != cluster_->num_masters(); ++i) {
       cluster_->master(i)->mutable_flags()->push_back(
-          "--TEST_yb_enable_invalidation_messages=true");
+          "--ysql_yb_enable_invalidation_messages=true");
     }
     for (size_t i = 0; i != cluster_->num_tablet_servers(); ++i) {
       cluster_->tablet_server(i)->mutable_flags()->push_back(
-          "--TEST_yb_enable_invalidation_messages=true");
+          "--ysql_yb_enable_invalidation_messages=true");
+      for (const auto& flag : extra_tserver_flags) {
+        cluster_->tablet_server(i)->mutable_flags()->push_back(flag);
+      }
     }
     ASSERT_OK(cluster_->Restart());
   }
@@ -159,11 +166,11 @@ class PgCatalogVersionTest : public LibPqTestBase {
       tserver::SharedMemoryManager shared_mem_manager;
       RETURN_NOT_OK(shared_mem_manager.InitializePgBackend(uuid));
 
-      auto& tserver_shared_data = shared_mem_manager.SharedData();
+      auto tserver_shared_data = shared_mem_manager.SharedData();
 
       size_t initialized_slots_count = 0;
       for (size_t i = 0; i < tserver::TServerSharedData::kMaxNumDbCatalogVersions; ++i) {
-        if (tserver_shared_data.ysql_db_catalog_version(i)) {
+        if (tserver_shared_data->ysql_db_catalog_version(i)) {
           ++initialized_slots_count;
         }
       }
@@ -187,7 +194,7 @@ class PgCatalogVersionTest : public LibPqTestBase {
         SCHECK(entry.has_db_oid() && entry.has_shm_index(), IllegalState, "missed fields");
         auto db_oid = entry.db_oid();
         auto shm_index = entry.shm_index();
-        const auto current_version = tserver_shared_data.ysql_db_catalog_version(shm_index);
+        const auto current_version = tserver_shared_data->ysql_db_catalog_version(shm_index);
         SCHECK_NE(current_version, 0UL, IllegalState, "uninitialized version is not expected");
         catalog_versions.emplace(db_oid, current_version);
         if (!output.empty()) {
@@ -485,6 +492,37 @@ class PgCatalogVersionTest : public LibPqTestBase {
     ASSERT_EQ(CountRelCacheInitFiles(pg_data_global), 0);
     ASSERT_EQ(CountRelCacheInitFiles(pg_data_root), 0);
   }
+
+  void VerifyCatCacheRefreshMetricsHelper(
+      int num_full_refreshes, int num_delta_refreshes) {
+    ExternalTabletServer* ts = cluster_->tablet_server(0);
+    auto hostport = Format("$0:$1", ts->bind_host(), ts->pgsql_http_port());
+    EasyCurl c;
+    faststring buf;
+
+    auto json_metrics_url =
+        Substitute("http://$0/metrics?reset_histograms=false&show_help=true", hostport);
+    ASSERT_OK(c.FetchURL(json_metrics_url, &buf));
+    auto json_metrics = ParseJsonMetrics(buf.ToString());
+
+    int count = 0;
+    for (const auto& metric : json_metrics) {
+      // Should see one full refresh.
+      if (metric.name.find("CatalogCacheRefreshes") != std::string::npos) {
+        ++count;
+        ASSERT_EQ(metric.value, num_full_refreshes);
+      }
+      // Should not see any incremental refresh.
+      if (metric.name.find("CatalogCacheDeltaRefreshes") != std::string::npos) {
+        ++count;
+        ASSERT_EQ(metric.value, num_delta_refreshes);
+      }
+      if (count == 2) {
+        break;
+      }
+    }
+  }
+
 };
 
 TEST_F(PgCatalogVersionTest, DBCatalogVersion) {
@@ -2011,6 +2049,193 @@ TEST_F(PgCatalogVersionTest, InvalMessageMultiDDLTest) {
              "WHERE db_oid = $0", yugabyte_db_oid)));
   LOG(INFO) << "result: " << result;
   ASSERT_EQ(result, "2, 120; 3, 144; 4, 144; 5, 144; 6, 144");
+}
+
+TEST_F(PgCatalogVersionTest, InvalMessageCatCacheRefreshTest) {
+  RestartClusterWithInvalMessageEnabled();
+  auto conn1 = ASSERT_RESULT(Connect());
+  auto conn2 = ASSERT_RESULT(Connect());
+  ASSERT_OK(conn1.Execute("SET log_min_messages = DEBUG1"));
+  ASSERT_OK(conn2.Execute("SET log_min_messages = DEBUG1"));
+
+  ASSERT_OK(conn1.Execute("CREATE TABLE foo(id INT PRIMARY KEY)"));
+  ASSERT_OK(conn1.Execute("INSERT INTO foo VALUES(1)"));
+
+  auto query = "SELECT * FROM foo"s;
+  auto result = ASSERT_RESULT(conn2.FetchAllAsString(query));
+  auto expected_result1 = "1";
+  ASSERT_EQ(result, expected_result1);
+
+  ASSERT_OK(conn1.Execute("ALTER TABLE foo ADD COLUMN value TEXT"));
+  ASSERT_OK(conn1.Execute("INSERT INTO foo VALUES(2, '2')"));
+
+  WaitForCatalogVersionToPropagate();
+  result = ASSERT_RESULT(conn2.FetchAllAsString(query));
+  auto expected_result2 = "1, NULL; 2, 2";
+  ASSERT_EQ(result, expected_result2);
+
+  // Verify that the incremental catalog cache refresh happened on conn2.
+  VerifyCatCacheRefreshMetricsHelper(0 /* num_full_refreshes */, 1 /* num_delta_refreshes */);
+}
+
+TEST_F(PgCatalogVersionTest, InvalMessageQueueOverflowTest) {
+  RestartClusterWithInvalMessageEnabled(
+      {"--ysql_max_invalidation_message_queue_size=2"});
+  auto conn1 = ASSERT_RESULT(Connect());
+  auto conn2 = ASSERT_RESULT(Connect());
+  ASSERT_OK(conn1.Execute("SET log_min_messages = DEBUG1"));
+  ASSERT_OK(conn2.Execute("SET log_min_messages = DEBUG1"));
+
+  ASSERT_OK(conn1.Execute("CREATE TABLE foo(id INT PRIMARY KEY)"));
+
+  auto query = "SELECT 1"s;
+  auto result = ASSERT_RESULT(conn2.FetchAllAsString(query));
+  ASSERT_EQ(result, "1");
+
+  // Execute 4 DDLs that cause catalog version to bump to cause the
+  // tserver message queue to overflow.
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(conn1.Execute("ALTER TABLE foo ADD COLUMN value TEXT"));
+    ASSERT_OK(conn1.Execute("ALTER TABLE foo DROP COLUMN value"));
+  }
+
+  WaitForCatalogVersionToPropagate();
+  result = ASSERT_RESULT(conn2.FetchAllAsString(query));
+  ASSERT_EQ(result, "1");
+
+  // Since the message queue overflowed, we will see a full catalog cache refresh on conn2.
+  VerifyCatCacheRefreshMetricsHelper(1 /* num_full_refreshes */, 0 /* num_delta_refreshes */);
+}
+
+TEST_F(PgCatalogVersionTest, WaitForSharedCatalogVersionToCatchup) {
+  RestartClusterWithInvalMessageEnabled(
+      { "--TEST_ysql_disable_transparent_cache_refresh_retry=true" });
+
+  std::string ddl_script;
+  for (int i = 1; i < 100; ++i) {
+    ddl_script += Format("GRANT ALL ON SCHEMA public TO PUBLIC;\n");
+    ddl_script += Format("REVOKE USAGE ON SCHEMA public FROM PUBLIC;\n");
+  }
+  std::unique_ptr<WritableFile> ddl_script_file;
+  std::string tmp_file_name;
+  ASSERT_OK(Env::Default()->NewTempWritableFile(
+      WritableFileOptions(), "ddl_XXXXXX", &tmp_file_name, &ddl_script_file));
+  ASSERT_OK(ddl_script_file->Append(ddl_script));
+  ASSERT_OK(ddl_script_file->Close());
+  LOG(INFO) << "ddl_script:\n" << ddl_script;
+
+  auto hostport = cluster_->ysql_hostport(0);
+  std::string main_script = "SET yb_test_delay_after_applying_inval_message_ms = 2000;\n"s;
+  main_script += "SET yb_max_query_layer_retries = 0;\n"s;
+  main_script += "CREATE TABLE foo(id INT);\n"s;
+  main_script += "SELECT * FROM foo;\n"s;
+  std::string ysqlsh_path = CHECK_RESULT(path_utils::GetPgToolPath("ysqlsh"));
+  main_script += Format("\\! $0 -f $1 -h $2 -p $3 yugabyte > /dev/null\n",
+                        ysqlsh_path, tmp_file_name, hostport.host(), hostport.port());
+  main_script += "SELECT * FROM foo;\n"s;
+  LOG(INFO) << "main_script:\n" << main_script;
+
+  auto scope_exit = ScopeExit([tmp_file_name] {
+    if (Env::Default()->FileExists(tmp_file_name)) {
+      WARN_NOT_OK(
+          Env::Default()->DeleteFile(tmp_file_name),
+          Format("Failed to delete temporary sql script file $0.", tmp_file_name));
+    }
+  });
+  YsqlshRunner ysqlsh_runner = CHECK_RESULT(YsqlshRunner::GetYsqlshRunner(hostport));
+  auto output = CHECK_RESULT(ysqlsh_runner.ExecuteSqlScript(
+      main_script, "WaitForSharedCatalogVersionToCatchup" /* tmp_file_prefix */));
+  LOG(INFO) << "output: " << output;
+}
+
+TEST_F(PgCatalogVersionTest, AnalyzeSingleTable) {
+  RestartClusterWithInvalMessageEnabled();
+  auto conn_yugabyte = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
+  const auto yugabyte_db_oid = ASSERT_RESULT(GetDatabaseOid(&conn_yugabyte, kYugabyteDatabase));
+  // Analyze a single table, PG simply uses the transaction that enclosing the YB DDL
+  // transaction. We only see one catalog version increment due to the DDL so we should
+  // only see one row of version 2 in pg_yb_invalidation_messages.
+  ASSERT_OK(conn_yugabyte.Execute("ANALYZE pg_class"));
+  auto result = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(
+      "SELECT db_oid, current_version, length(messages) FROM pg_yb_invalidation_messages"));
+  LOG(INFO) << "result:\n" << result;
+  const string expected = Format("$0, 2, 792", yugabyte_db_oid);
+  ASSERT_EQ(result, expected);
+}
+
+TEST_F(PgCatalogVersionTest, AnalyzeTwoTables) {
+  RestartClusterWithInvalMessageEnabled();
+  auto conn_yugabyte = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
+  const auto yugabyte_db_oid = ASSERT_RESULT(GetDatabaseOid(&conn_yugabyte, kYugabyteDatabase));
+  // Analyze two tables, PG internally creates an additional transaction that commits separately.
+  // We see two catalog version increments so we should see two rows of version 2 and 3 in
+  // pg_yb_invalidation_messages.
+  ASSERT_OK(conn_yugabyte.Execute("ANALYZE pg_class, pg_attribute"));
+  auto result = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(
+      "SELECT db_oid, current_version, length(messages) FROM pg_yb_invalidation_messages"));
+  LOG(INFO) << "result:\n" << result;
+  const string expected = Format("$0, 2, 792; $0, 3, 624", yugabyte_db_oid);
+  ASSERT_EQ(result, expected);
+}
+
+TEST_F(PgCatalogVersionTest, AnalyzeAllTables) {
+  RestartClusterWithInvalMessageEnabled();
+  auto conn_yugabyte = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
+  const auto yugabyte_db_oid = ASSERT_RESULT(GetDatabaseOid(&conn_yugabyte, kYugabyteDatabase));
+  ASSERT_OK(conn_yugabyte.Execute("ANALYZE"));
+  auto result = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(
+      "SELECT db_oid, current_version, length(messages) FROM pg_yb_invalidation_messages"));
+  string expected =
+    "13515, 2, 120; 13515, 3, 768; 13515, 4, 624; 13515, 5, 720; "
+    "13515, 6, 792; 13515, 7, 504; 13515, 8, 96; 13515, 9, 600; 13515, 10, 216; "
+    "13515, 11, 528; 13515, 12, 96; 13515, 13, 216; 13515, 14, 144; 13515, 15, 144; "
+    "13515, 16, 624; 13515, 17, 192; 13515, 18, 168; 13515, 19, 96; 13515, 20, 504; "
+    "13515, 21, 216; 13515, 22, 96; 13515, 23, 216; 13515, 24, 360; 13515, 25, 192; "
+    "13515, 26, 120; 13515, 27, 192; 13515, 28, 120; 13515, 29, 264; 13515, 30, 168; "
+    "13515, 31, 144; 13515, 32, 192; 13515, 33, 120; 13515, 34, 96; 13515, 35, 120; "
+    "13515, 36, 216; 13515, 37, 96; 13515, 38, 192; 13515, 39, 240; 13515, 40, 168; "
+    "13515, 41, 120; 13515, 42, 120; 13515, 43, 96";
+  const string yugabyte_db_oid_str = Format("$0, ", yugabyte_db_oid);
+  // Replace 13515 with the real yugabyte_db_oid.
+  GlobalReplaceSubstring("13515, ", yugabyte_db_oid_str, &expected);
+  ASSERT_EQ(result, expected);
+  LOG(INFO) << "result:\n" << result;
+}
+
+TEST_F(PgCatalogVersionTest, AnalyzeInsideDdlEventTrigger) {
+  RestartClusterWithInvalMessageEnabled();
+  auto conn_yugabyte = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
+  const auto yugabyte_db_oid = ASSERT_RESULT(GetDatabaseOid(&conn_yugabyte, kYugabyteDatabase));
+  const string query =
+        R"#(
+CREATE OR REPLACE FUNCTION log_ddl()
+  RETURNS event_trigger AS $$
+BEGIN
+  ANALYZE pg_class, pg_attribute;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE EVENT TRIGGER log_ddl_info ON ddl_command_end EXECUTE PROCEDURE log_ddl();
+
+CREATE TABLE testtable (id INT);
+ALTER TABLE testtable ADD COLUMN value INT;
+        )#";
+  // ANALYZE two tables when nested inside another DDL (CREATE TABLE and ALTER TABLE),
+  // PG does not generate a transaction for ANALYZE that commits separately. In this
+  // case ANALYZE is executed inside a trigger when the outer DDL execution is active.
+  // All of the invalidation messages generated by ANALYZE are simply included into
+  // that of the outer DDL. The 4 versions are:
+  // 2: CREATE OR REPLACE FUNCTION
+  // 3: CREATE EVENT TRIGGER
+  // 4: CREATE TABLE -- increments because of the embedded ANALYZE
+  // 5: ALTER TABLE
+  ASSERT_OK(conn_yugabyte.Execute(query));
+  auto result = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(
+      "SELECT db_oid, current_version, length(messages) FROM pg_yb_invalidation_messages"));
+  const string expected = Format("$0, 2, 72; $0, 3, 96; $0, 4, 2520; $0, 5, 1776",
+                                 yugabyte_db_oid);
+  LOG(INFO) << "result:\n" << result;
+  ASSERT_EQ(result, expected);
 }
 
 } // namespace pgwrapper

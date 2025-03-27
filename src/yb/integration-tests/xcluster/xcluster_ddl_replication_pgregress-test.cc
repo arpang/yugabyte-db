@@ -24,6 +24,7 @@
 
 DECLARE_string(ysql_catalog_preload_additional_table_list);
 DECLARE_int32(ysql_num_tablets);
+DECLARE_bool(ysql_enable_inheritance);
 
 using namespace std::chrono_literals;
 
@@ -42,6 +43,7 @@ class XClusterPgRegressDDLReplicationTest : public XClusterDDLReplicationTestBas
     XClusterDDLReplicationTestBase::SetUp();
     // Reduce number of tablets to speed up tests.
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_num_tablets) = 1;
+    ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_enable_inheritance) = true;
     // Disable verbose logging to speed up tests.
     google::SetVLOGLevel("xcluster*", 0);
     google::SetVLOGLevel("add_table*", 0);
@@ -153,7 +155,9 @@ class XClusterPgRegressDDLReplicationTest : public XClusterDDLReplicationTestBas
     RETURN_NOT_OK(conn.Execute("DROP TYPE gratuitous_enum;"));
 
     // Setup xCluster.
-    RETURN_NOT_OK(CheckpointReplicationGroup());
+    RETURN_NOT_OK(
+        CheckpointReplicationGroup(kReplicationGroupId, /*require_no_bootstrap_needed=*/false));
+    // Bootstrap here would have no effect because the database is empty so we skip it for the test.
     RETURN_NOT_OK(CreateReplicationFromCheckpoint());
 
     // Some of the scripts do take a long time to run so setting this timeout high.

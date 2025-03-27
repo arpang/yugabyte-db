@@ -43,10 +43,10 @@
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 
-/* YB includes. */
+/* YB includes */
 #include "pg_yb_utils.h"
-#include "replication/yb_virtual_wal_client.h"
 #include "replication/walsender.h"
+#include "replication/yb_virtual_wal_client.h"
 
 /* data for errcontext callback */
 typedef struct LogicalErrorCallbackState
@@ -172,7 +172,7 @@ StartupDecodingContext(List *output_plugin_options,
 	/* shorter lines... */
 	slot = MyReplicationSlot;
 
-	context = AllocSetContextCreate(GetCurrentMemoryContext(),
+	context = AllocSetContextCreate(CurrentMemoryContext,
 									"Logical decoding context",
 									ALLOCSET_DEFAULT_SIZES);
 	old_context = MemoryContextSwitchTo(context);

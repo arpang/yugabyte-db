@@ -35,9 +35,10 @@
 #include "partitioning/partprune.h"
 #include "utils/rel.h"
 
-/* Yugabyte includes */
+/* YB includes */
 #include "executor/ybExpr.h"
 #include "pg_yb_utils.h"
+
 
 static void expand_partitioned_rtentry(PlannerInfo *root, RelOptInfo *relinfo,
 									   RangeTblEntry *parentrte,
@@ -918,7 +919,8 @@ apply_child_basequals(PlannerInfo *root, RelOptInfo *parentrel,
 				 * Hence re-evaluate pushability.
 				 */
 				childri->yb_pushable = rinfo->yb_pushable ||
-					YbCanPushdownExpr(childri->clause, NULL);
+					YbCanPushdownExpr(childri->clause, NULL,
+									  planner_rt_fetch(parentrel->relid, root)->relid);
 			}
 			childquals = lappend(childquals, childri);
 			/* track minimum security level among child quals */

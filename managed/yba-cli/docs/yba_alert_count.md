@@ -13,7 +13,7 @@ yba alert count [flags]
 ### Examples
 
 ```
-yba alert count 
+yba alert count
 ```
 
 ### Options

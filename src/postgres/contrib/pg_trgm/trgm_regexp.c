@@ -197,7 +197,7 @@
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
 
-/* YB includes. */
+/* YB includes */
 #include "common/pg_yb_common.h"
 
 /*
@@ -535,7 +535,7 @@ createTrgmNFA(text *text_re, Oid collation,
 	 * query-lifespan memory context).  Make a temp context we can work in so
 	 * that cleanup is easy.
 	 */
-	tmpcontext = AllocSetContextCreate(GetCurrentMemoryContext(),
+	tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
 									   "createTrgmNFA temporary context",
 									   ALLOCSET_DEFAULT_SIZES);
 	oldcontext = MemoryContextSwitchTo(tmpcontext);
@@ -921,7 +921,7 @@ transformGraph(TrgmNFA *trgmNFA)
 	/* Create hashtable for states */
 	hashCtl.keysize = sizeof(TrgmStateKey);
 	hashCtl.entrysize = sizeof(TrgmState);
-	hashCtl.hcxt = GetCurrentMemoryContext();
+	hashCtl.hcxt = CurrentMemoryContext;
 	trgmNFA->states = hash_create("Trigram NFA",
 								  1024,
 								  &hashCtl,

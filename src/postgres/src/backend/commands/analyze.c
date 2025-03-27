@@ -27,7 +27,6 @@
 #include "access/tupconvert.h"
 #include "access/visibilitymap.h"
 #include "access/xact.h"
-#include "access/yb_scan.h"
 #include "catalog/catalog.h"
 #include "catalog/index.h"
 #include "catalog/indexing.h"
@@ -68,6 +67,9 @@
 #include "utils/spccache.h"
 #include "utils/syscache.h"
 #include "utils/timestamp.h"
+
+/* YB includes */
+#include "access/yb_scan.h"
 
 
 /* Per-index data for ANALYZE */
@@ -344,7 +346,7 @@ do_analyze_rel(Relation onerel, VacuumParams *params,
 	 * Set up a working context so that we can easily free whatever junk gets
 	 * created.
 	 */
-	anl_context = AllocSetContextCreate(GetCurrentMemoryContext(),
+	anl_context = AllocSetContextCreate(CurrentMemoryContext,
 										"Analyze",
 										ALLOCSET_DEFAULT_SIZES);
 	caller_context = MemoryContextSwitchTo(anl_context);
@@ -2444,7 +2446,7 @@ compute_scalar_stats(VacAttrStatsP stats,
 	track = (ScalarMCVItem *) palloc(num_mcv * sizeof(ScalarMCVItem));
 
 	memset(&ssup, 0, sizeof(ssup));
-	ssup.ssup_cxt = GetCurrentMemoryContext();
+	ssup.ssup_cxt = CurrentMemoryContext;
 	ssup.ssup_collation = stats->attrcollid;
 	ssup.ssup_nulls_first = false;
 

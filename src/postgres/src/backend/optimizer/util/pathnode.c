@@ -16,7 +16,6 @@
 
 #include <math.h>
 
-#include "catalog/pg_am.h"
 #include "foreign/fdwapi.h"
 #include "miscadmin.h"
 #include "nodes/extensible.h"
@@ -36,9 +35,11 @@
 #include "utils/memutils.h"
 #include "utils/selfuncs.h"
 
-#include "pg_yb_utils.h"
+/* YB includes */
 #include "access/xact.h"
 #include "access/yb_scan.h"
+#include "catalog/pg_am.h"
+#include "pg_yb_utils.h"
 
 typedef enum
 {
@@ -4059,10 +4060,7 @@ create_modifytable_path(PlannerInfo *root, RelOptInfo *rel,
 	pathnode->path.parallel_workers = 0;
 	pathnode->path.pathkeys = NIL;
 
-#ifdef YB_TODO
-	/* YB_TODO(jasonk) subpaths is changed in Pg15 */
-	yb_propagate_fields_list(&pathnode->path.yb_path_info, subpaths);
-#endif
+	yb_propagate_fields(&pathnode->path.yb_path_info, &subpath->yb_path_info);
 
 	/*
 	 * Compute cost & rowcount as subpath cost & rowcount (if RETURNING)

@@ -13,7 +13,7 @@ yba universe edit ysql [flags]
 ### Examples
 
 ```
-yba universe edit ysql --name <universe-name>
+yba universe edit ysql --name <universe-name> --ysql-password <ysql-password>
 ```
 
 ### Options

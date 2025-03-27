@@ -26,7 +26,7 @@
 #include "yb/gutil/ref_counted.h"
 
 #include "yb/master/master_backup.fwd.h"
-#include "yb/master/master_replication.pb.h"
+#include "yb/master/master_replication.fwd.h"
 #include "yb/master/tablet_split_fwd.h"
 
 #include "yb/util/enums.h"
@@ -47,7 +47,10 @@ typedef std::vector<TSDescriptorPtr> TSDescriptorVector;
 
 class EncryptionManager;
 
+class AsyncAddServerTask;
 class AsyncDeleteReplica;
+class AsyncRemoveServerTask;
+class AsyncTryStepDown;
 class CatalogManager;
 class CatalogManagerIf;
 class CatalogManagerBgTasks;

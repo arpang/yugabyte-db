@@ -20,57 +20,55 @@
  *
  *--------------------------------------------------------------------------------------------------
  */
+#include "postgres.h"
 
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
-#include "postgres.h"
 
 #include "access/genam.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
+#include "access/nbtree.h"
+#include "access/relation.h"
 #include "access/relscan.h"
 #include "access/sysattr.h"
 #include "access/xact.h"
 #include "access/yb_pg_inherits_scan.h"
+#include "access/yb_scan.h"
+#include "catalog/catalog.h"
 #include "catalog/heap.h"
-#include "commands/dbcommands.h"
-#include "commands/tablegroup.h"
 #include "catalog/index.h"
 #include "catalog/indexing.h"
-#include "catalog/catalog.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_opfamily.h"
 #include "catalog/pg_type.h"
+#include "catalog/yb_type.h"
+#include "commands/dbcommands.h"
+#include "commands/yb_tablegroup.h"
 #include "miscadmin.h"
-#include "access/relation.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/cost.h"
 #include "optimizer/optimizer.h"
 #include "optimizer/paths.h"
+#include "pg_yb_utils.h"
 #include "pgstat.h"
 #include "postmaster/bgworker_internals.h"	/* for MAX_PARALLEL_WORKER_LIMIT */
 #include "utils/datum.h"
+#include "utils/elog.h"
 #include "utils/fmgroids.h"
-#include "utils/rel.h"
 #include "utils/lsyscache.h"
+#include "utils/rel.h"
 #include "utils/resowner_private.h"
-#include "utils/syscache.h"
 #include "utils/selfuncs.h"
 #include "utils/snapmgr.h"
 #include "utils/spccache.h"
-
-/* Yugabyte includes */
-#include "yb/yql/pggate/ybc_pggate.h"
-#include "pg_yb_utils.h"
-#include "access/nbtree.h"
-#include "access/yb_scan.h"
-#include "catalog/yb_type.h"
-#include "utils/elog.h"
+#include "utils/syscache.h"
 #include "utils/typcache.h"
+#include "yb/yql/pggate/ybc_pggate.h"
 
 typedef struct YbAttnumBmsState
 {
@@ -4089,7 +4087,7 @@ YBCLockTuple(Relation relation, Datum ybctid, RowMarkType mode,
 		estate->yb_exec_params.stmt_in_txn_limit_ht_for_reads;
 
 	TM_Result	res = TM_Ok;
-	MemoryContext exec_context = GetCurrentMemoryContext();
+	MemoryContext exec_context = CurrentMemoryContext;
 
 	PG_TRY();
 	{

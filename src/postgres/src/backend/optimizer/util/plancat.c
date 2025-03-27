@@ -24,7 +24,6 @@
 #include "access/table.h"
 #include "access/tableam.h"
 #include "access/transam.h"
-#include "access/yb_scan.h"
 #include "access/xlog.h"
 #include "catalog/catalog.h"
 #include "catalog/heap.h"
@@ -56,6 +55,8 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
+/* YB includes */
+#include "access/yb_scan.h"
 #include "pg_yb_utils.h"
 
 /* GUC parameter */
@@ -303,6 +304,7 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 			info->amcanmarkpos = (amroutine->ammarkpos != NULL &&
 								  amroutine->amrestrpos != NULL);
 			info->amcostestimate = amroutine->amcostestimate;
+			info->yb_amiscopartitioned = amroutine->yb_amiscopartitioned;
 			info->yb_cached_ybctid_size = 0;
 			Assert(info->amcostestimate != NULL);
 
@@ -2348,7 +2350,7 @@ set_relation_partition_info(PlannerInfo *root, RelOptInfo *rel,
 	if (root->glob->partition_directory == NULL)
 	{
 		root->glob->partition_directory =
-			CreatePartitionDirectory(GetCurrentMemoryContext(), true);
+			CreatePartitionDirectory(CurrentMemoryContext, true);
 	}
 
 	partdesc = PartitionDirectoryLookup(root->glob->partition_directory,
@@ -2459,7 +2461,7 @@ find_partition_scheme(PlannerInfo *root, Relation relation)
 		palloc(sizeof(FmgrInfo) * partnatts);
 	for (i = 0; i < partnatts; i++)
 		fmgr_info_copy(&part_scheme->partsupfunc[i], &partkey->partsupfunc[i],
-					   GetCurrentMemoryContext());
+					   CurrentMemoryContext);
 
 	/* Add the partitioning scheme to PlannerInfo. */
 	root->part_schemes = lappend(root->part_schemes, part_scheme);

@@ -71,6 +71,7 @@
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
 
+/* YB includes */
 #include "pg_yb_utils.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 
@@ -2345,8 +2346,6 @@ YBCRestartWriteTransaction()
 static void
 CommitTransaction(void)
 {
-	if (IsYugaByteEnabled())
-		YbIncrementPgTxnsCommitted();
 	TransactionState s = CurrentTransactionState;
 	TransactionId latestXid;
 	bool		is_parallel_worker;
@@ -2393,14 +2392,28 @@ CommitTransaction(void)
 			break;
 	}
 
-	/*
-	 * Firing the triggers may abort current transaction.
-	 * At this point all the them has been fired already.
-	 * It is time to commit YB transaction.
-	 * Postgres transaction can be aborted at this point without an issue
-	 * in case of YBCCommitTransaction failure.
-	 */
-	YBCCommitTransaction();
+	if (IsYugaByteEnabled())
+	{
+		bool increment_done = false;
+		bool increment_pg_txns = YbCheckPgTxnCommitForAnalyze(&increment_done);
+		/*
+		 * Firing the triggers may abort current transaction.
+		 * At this point all the them has been fired already.
+		 * It is time to commit YB transaction.
+		 * Postgres transaction can be aborted at this point without an issue
+		 * in case of YBCCommitTransaction failure.
+		 */
+		YBCCommitTransaction();
+		if (increment_pg_txns)
+		{
+			Assert(!increment_done);
+			YbIncrementPgTxnsCommitted();
+		}
+		else if (increment_done)
+			YbCheckNewLocalCatalogVersionOptimization();
+	}
+
+
 
 	/*
 	 * The remaining actions cannot call any user-defined code, so it's safe
@@ -2973,6 +2986,15 @@ AbortTransaction(void)
 		elog(WARNING, "AbortTransaction while in %s state",
 			 TransStateAsString(s->state));
 	Assert(s->parent == NULL);
+
+	/*
+	 * Invalidate the table cache for any tables which have been altered as part
+	 * of the transaction. We do this before setting the transaction state to
+	 * TRANS_ABORT since the invalidation requires us to fetch the Relation
+	 * descriptor which requires us to be in a valid PG transaction block.
+	 */
+	if (IsYugaByteEnabled())
+		YbInvalidateTableCacheForAlteredTables();
 
 	/*
 	 * set the current transaction state information appropriately during the
@@ -5311,7 +5333,7 @@ IsSubTransaction(void)
  * If you're wondering why this is separate from PushTransaction: it's because
  * we can't conveniently do this stuff right inside DefineSavepoint.  The
  * SAVEPOINT utility command will be executed inside a Portal, and if we
- * muck with GetCurrentMemoryContext() or CurrentResourceOwner then exit from
+ * muck with CurrentMemoryContext or CurrentResourceOwner then exit from
  * the Portal will undo those settings.  So we make DefineSavepoint just
  * push a dummy transaction block, and when control returns to the main
  * idle loop, CommitTransactionCommand will be called, and we'll come here

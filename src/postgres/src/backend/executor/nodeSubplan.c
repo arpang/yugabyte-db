@@ -67,6 +67,7 @@ ExecSubPlan(SubPlanState *node,
 	EState	   *estate = node->planstate->state;
 	ScanDirection dir = estate->es_direction;
 	Datum		retval;
+	YbcPgExecParameters yb_params = estate->yb_exec_params;
 
 	CHECK_FOR_INTERRUPTS();
 
@@ -90,6 +91,9 @@ ExecSubPlan(SubPlanState *node,
 
 	/* restore scan direction */
 	estate->es_direction = dir;
+
+	/* YB: Restore yb exec params */
+	estate->yb_exec_params = yb_params;
 
 	return retval;
 }
@@ -265,7 +269,7 @@ ExecScanSubPlan(SubPlanState *node,
 	/* Initialize ArrayBuildStateAny in caller's context, if needed */
 	if (subLinkType == ARRAY_SUBLINK)
 		astate = initArrayResultAny(subplan->firstColType,
-									GetCurrentMemoryContext(), true);
+									CurrentMemoryContext, true);
 
 	/*
 	 * We are probably in a short-lived expression-evaluation context. Switch
@@ -877,12 +881,12 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 
 		/* We need a memory context to hold the hash table(s) */
 		sstate->hashtablecxt =
-			AllocSetContextCreate(GetCurrentMemoryContext(),
+			AllocSetContextCreate(CurrentMemoryContext,
 								  "Subplan HashTable Context",
 								  ALLOCSET_DEFAULT_SIZES);
 		/* and a small one for the hash tables to use as temp storage */
 		sstate->hashtempcxt =
-			AllocSetContextCreate(GetCurrentMemoryContext(),
+			AllocSetContextCreate(CurrentMemoryContext,
 								  "Subplan HashTable Temp Context",
 								  ALLOCSET_SMALL_SIZES);
 		/* and a short-lived exprcontext for function evaluation */
@@ -1080,12 +1084,13 @@ ExecSetParamPlan(SubPlanState *node, ExprContext *econtext)
 	 * Enforce forward scan direction regardless of caller. It's hard but not
 	 * impossible to get here in backward scan, so make it work anyway.
 	 */
+	YbcPgExecParameters yb_params = estate->yb_exec_params;
 	estate->es_direction = ForwardScanDirection;
 
 	/* Initialize ArrayBuildStateAny in caller's context, if needed */
 	if (subLinkType == ARRAY_SUBLINK)
 		astate = initArrayResultAny(subplan->firstColType,
-									GetCurrentMemoryContext(), true);
+									CurrentMemoryContext, true);
 
 	/*
 	 * Must switch to per-query memory context.
@@ -1237,6 +1242,9 @@ ExecSetParamPlan(SubPlanState *node, ExprContext *econtext)
 
 	/* restore scan direction */
 	estate->es_direction = dir;
+
+	/* YB: Restore yb exec params */
+	estate->yb_exec_params = yb_params;
 }
 
 /*

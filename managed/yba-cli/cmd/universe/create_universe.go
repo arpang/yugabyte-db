@@ -29,6 +29,7 @@ var v1 = viper.New()
 var createUniverseCmd = &cobra.Command{
 	Use:     "create",
 	Aliases: []string{"add"},
+	GroupID: "action",
 	Short:   "Create YugabyteDB Anywhere universe",
 	Long:    "Create an universe in YugabyteDB Anywhere",
 	Example: `yba universe create -n <universe-name> --provider-code <provider-code> \
@@ -302,6 +303,7 @@ func init() {
 	createUniverseCmd.Flags().StringArray("preferred-region", []string{},
 		"[Optional] Preferred region to place the node of the cluster in. "+
 			"Provide preferred regions for each cluster as a separate flag. (default [])")
+	// Zones would be a []([]string) array
 
 	createUniverseCmd.Flags().String("master-gflags", "",
 		"[Optional] Master GFlags in map (JSON or YAML) format. "+
@@ -358,6 +360,7 @@ func init() {
 	createUniverseCmd.Flags().StringArray("storage-type", []string{},
 		"[Optional] Storage type (EBS for AWS) used for this instance. Provide the storage type "+
 			" of volumes for each cluster as a separate flag. "+
+			"Run \"yba provider [aws/azure/gcp] instance-type supported-storage\" to check list of supported storage types. "+
 			"Defaults to \"GP3\" for aws, \"Premium_LRS\" for azure and \"Persistent\" for gcp.")
 	createUniverseCmd.Flags().StringArray("storage-class", []string{},
 		"[Optional] Name of the storage class, supported for Kubernetes. Provide "+

@@ -185,6 +185,18 @@ const (
 	DeleteInProgressBackupState = "DeleteInProgress"
 )
 
+// Scopes of runtime configuration
+const (
+	// UniverseScope scope
+	UniverseScope = "UNIVERSE"
+	// ProviderScope scope
+	ProviderScope = "PROVIDER"
+	// CustomerScope scope
+	CustomerScope = "CUSTOMER"
+	// GlobalScope scope
+	GlobalScope = "GLOBAL"
+)
+
 // ScheduleBackupStates
 const (
 	// DeletingScheduleBackupState state
@@ -277,6 +289,16 @@ const (
 	StopNode = "STOP"
 	// RemoveNode operation
 	RemoveNode = "REMOVE"
+	// DeleteNode operation
+	DeleteNode = "DELETE"
+	// ReplaceNode operation
+	ReplaceNode = "REPLACE"
+	// DecommissionNode operation
+	DecommissionNode = "DECOMMISSION"
+	// HardRebootNode operation
+	HardRebootNode = "HARD_REBOOT"
+	// StartMasterNode operation
+	StartMasterNode = "START_MASTER"
 	// ReprovisionNode operation
 	ReprovisionNode = "REPROVISION"
 	// ReleaseNode operation
@@ -286,6 +308,14 @@ const (
 const (
 	// StorageCustomerConfigType field name to denote in request bodies
 	StorageCustomerConfigType = "STORAGE"
+)
+
+// Cluster Type
+const (
+	// PrimaryCluster of universe
+	PrimaryCluster = "PRIMARY"
+	// ReadReplicaCluster of universe
+	ReadReplicaCluster = "ASYNC"
 )
 
 // Server Type values
@@ -499,6 +529,28 @@ const (
 	TxnXClusterConfigType = "Txn"
 	// DBXClusterConfigType type
 	DBXClusterConfigType = "Db"
+)
+
+// HttpAuthType
+const (
+	// NoAuthHttpAuthType type
+	NoAuthHttpAuthType = "NONE"
+	// BasicHttpAuthType type
+	BasicHttpAuthType = "BASIC"
+	// TokenHttpAuthType type
+	TokenHttpAuthType = "TOKEN"
+)
+
+// AlertChannelTypes
+const (
+	// EmailAlertChannelType type
+	EmailAlertChannelType = "Email"
+	// PagerDutyAlertChannelType type
+	PagerDutyAlertChannelType = "PagerDuty"
+	// SlackAlertChannelType type
+	SlackAlertChannelType = "Slack"
+	// WebhookAlertChannelType type
+	WebhookAlertChannelType = "WebHook"
 )
 
 // SortDirection

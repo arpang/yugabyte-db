@@ -33,7 +33,7 @@
 #include "utils/tuplesort.h"
 #include "utils/tuplestore.h"
 
-/* YB includes. */
+/* YB includes */
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 
 struct PlanState;				/* forward references in this file */
@@ -226,7 +226,7 @@ typedef struct ExprContext_CB
  *	  before we begin to evaluate expressions for that tuple.  Each
  *	  ExprContext normally has its very own per-tuple memory context.
  *
- *	GetCurrentMemoryContext() should be set to ecxt_per_tuple_memory before
+ *	CurrentMemoryContext should be set to ecxt_per_tuple_memory before
  *	calling ExecEvalExpr() --- see ExecEvalExprSwitchContext().
  * ----------------
  */

@@ -98,7 +98,7 @@ set(INTEGRATION_TESTS_SRCS
   xcluster/xcluster_ysql_test_base.cc
   xcluster/xcluster_ycql_test_base.cc
   xcluster/xcluster_ddl_replication_test_base.cc
-  upgrade-tests/pg15_upgrade_test_base.cc
+  upgrade-tests/ysql_major_upgrade_test_base.cc
   upgrade-tests/upgrade_test_base.cc
 )
 
@@ -270,13 +270,16 @@ ADD_YB_TEST(retryable_request-test)
 ADD_YB_TEST(upgrade-tests/auto_flag_upgrade-test)
 ADD_YB_TEST(upgrade-tests/basic_upgrade-test)
 ADD_YB_TEST(upgrade-tests/replication_info_upgrade-test)
-ADD_YB_TEST(upgrade-tests/pg15_upgrade-test)
-ADD_YB_TEST(upgrade-tests/pg15_upgrade_pgregress-test)
+ADD_YB_TEST(upgrade-tests/ysql_major_upgrade-test)
+ADD_YB_TEST(upgrade-tests/ysql_major_upgrade_pgregress-test)
+ADD_YB_TEST(upgrade-tests/pg_locks_v76_upgrade-test)
 ADD_YB_TEST(upgrade-tests/ycql_only_upgrade-test)
+ADD_YB_TEST(upgrade-tests/ysql_major_extension_upgrade-test)
 ADD_YB_TEST(upgrade-tests/ysql_major_upgrade_rpcs-test)
 ADD_YB_TEST(upgrade-tests/ysql_major_upgrade_ddl_blocking-test)
 ADD_YB_TEST(upgrade-tests/ysql_major_upgrade_matview-test)
 ADD_YB_TEST(upgrade-tests/ysql_major_upgrade_check-test)
+ADD_YB_TEST(upgrade-tests/ysql_major_upgrade_expression_pushdown-test)
 
 set(YB_TEST_LINK_LIBS_SAVED ${YB_TEST_LINK_LIBS})
 set(YB_TEST_LINK_LIBS ${YB_TEST_LINK_LIBS} cassandra)

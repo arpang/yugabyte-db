@@ -19,7 +19,6 @@
 
 #include "postgres.h"
 
-#include <arpa/inet.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
@@ -45,8 +44,6 @@
 #include "commands/prepare.h"
 #include "common/pg_prng.h"
 #include "jit/jit.h"
-
-#include "libpq/auth.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqsignal.h"
@@ -86,22 +83,23 @@
 #include "utils/timestamp.h"
 #include "utils/varlena.h"
 
+/* YB includes */
 #include "catalog/yb_catalog_version.h"
 #include "commands/portalcmds.h"
+#include "libpq/auth.h"
 #include "libpq/yb_pqcomm_extensions.h"
 #include "pg_yb_utils.h"
+#include "replication/walsender_private.h"
 #include "utils/builtins.h"
 #include "utils/catcache.h"
+#include "utils/guc_tables.h"
 #include "utils/inval.h"
 #include "utils/rel.h"
 #include "utils/relcache.h"
 #include "utils/syscache.h"
-
-/* YB includes */
-#include "replication/walsender_private.h"
-#include "utils/guc_tables.h"
-#include "yb_ysql_conn_mgr_helper.h"
 #include "yb_tcmalloc_utils.h"
+#include "yb_ysql_conn_mgr_helper.h"
+#include <arpa/inet.h>
 
 /* ----------------
  *		global variables
@@ -209,6 +207,9 @@ static bool yb_need_cache_refresh = false;
 
 /* whether or not we are executing a multi-statement query received via simple query protocol */
 static bool yb_is_multi_statement_query = false;
+
+static long YbNumCatalogCacheRefreshes = 0;
+static long YbNumCatalogCacheDeltaRefreshes = 0;
 
 /*
  * String constants used for redacting text after the password token in
@@ -4254,6 +4255,7 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 static void
 YBRefreshCache()
 {
+	YbNumCatalogCacheRefreshes++;
 	Assert(OidIsValid(MyDatabaseId));
 
 	/*
@@ -4646,8 +4648,9 @@ YBCheckSharedCatalogCacheVersion()
 	if (YBCIsInitDbModeEnvVarSet())
 		return;
 
-	const uint64_t shared_catalog_version = YbGetSharedCatalogVersion();
-	const bool	need_global_cache_refresh = (YbGetCatalogCacheVersion() <
+	uint64_t shared_catalog_version = YbGetSharedCatalogVersion();
+	const uint64_t local_catalog_version = YbGetCatalogCacheVersion();
+	const bool	need_global_cache_refresh = (local_catalog_version <
 											 shared_catalog_version);
 
 	if (*YBCGetGFlags()->log_ysql_catalog_versions)
@@ -4660,7 +4663,54 @@ YBCheckSharedCatalogCacheVersion()
 	}
 	if (need_global_cache_refresh)
 	{
+		uint32_t num_catalog_versions =
+			shared_catalog_version - local_catalog_version;
+		YbcCatalogMessageLists message_lists = {0};
+		const bool enable_inval_messages = YbIsInvalidationMessageEnabled();
+		if (enable_inval_messages)
+		{
+			const uint64_t catalog_master_version = YbGetMasterCatalogVersion();
+			if (shared_catalog_version < catalog_master_version)
+			{
+				/*
+				 * This can happen when another session executes many DDLs
+				 * in a batch, when we see a new shared catalog version has
+				 * arrived in shared memory, master may have got a even newer
+				 * version. See comments in YbWaitForSharedCatalogVersionToCatchup
+				 * for a scenario that this wait can help.
+				 */
+				YbWaitForSharedCatalogVersionToCatchup(catalog_master_version);
+				shared_catalog_version = YbGetSharedCatalogVersion();
+				num_catalog_versions = shared_catalog_version - local_catalog_version;
+			}
+			HandleYBStatus(YBCGetTserverCatalogMessageLists(MyDatabaseId,
+															local_catalog_version,
+															num_catalog_versions,
+															&message_lists));
+			elog(DEBUG1, "message_lists: num_lists: %u (%" PRIu64 ", %u)",
+				 message_lists.num_lists, local_catalog_version,
+				 num_catalog_versions);
+		}
 		YbUpdateLastKnownCatalogCacheVersion(shared_catalog_version);
+		if (message_lists.num_lists > 0 && YbApplyInvalidationMessages(&message_lists))
+		{
+			YbNumCatalogCacheDeltaRefreshes++;
+			elog(DEBUG1, "YBRefreshCache skipped after applying %d message lists, "
+				 "updating local catalog version from %" PRIu64 " to %" PRIu64,
+				 message_lists.num_lists,
+				 local_catalog_version, shared_catalog_version);
+			YbUpdateCatalogCacheVersion(shared_catalog_version);
+			if (yb_test_delay_after_applying_inval_message_ms > 0)
+				pg_usleep(yb_test_delay_after_applying_inval_message_ms * 1000L);
+			/* TODO(myang): only invalidate affected entries in the pggate cache? */
+			HandleYBStatus(YBCPgInvalidateCache(YbGetCatalogCacheVersion()));
+			return;
+		}
+
+		ereport(enable_inval_messages ? LOG : DEBUG1,
+				(errmsg("calling YBRefreshCache: %d %" PRIu64 " %" PRIu64 " %u",
+						message_lists.num_lists, local_catalog_version,
+						shared_catalog_version, num_catalog_versions)));
 		YBRefreshCache();
 	}
 }
@@ -6224,7 +6274,7 @@ PostgresMain(const char *dbname, const char *username)
 
 					query_string = pq_getmsgstring(&input_message);
 					pq_getmsgend(&input_message);
-					MemoryContext oldcontext = GetCurrentMemoryContext();
+					MemoryContext oldcontext = CurrentMemoryContext;
 
 					PG_TRY();
 					{
@@ -6316,7 +6366,7 @@ PostgresMain(const char *dbname, const char *username)
 					}
 					pq_getmsgend(&input_message);
 
-					MemoryContext oldcontext = GetCurrentMemoryContext();
+					MemoryContext oldcontext = CurrentMemoryContext;
 
 					PG_TRY();
 					{
@@ -6379,7 +6429,7 @@ PostgresMain(const char *dbname, const char *username)
 
 					pq_getmsgend(&input_message);
 
-					MemoryContext oldcontext = GetCurrentMemoryContext();
+					MemoryContext oldcontext = CurrentMemoryContext;
 					const YBQueryRetryData *retry_data = yb_collect_portal_restart_data(portal_name);
 
 					PG_TRY();
@@ -6512,7 +6562,7 @@ PostgresMain(const char *dbname, const char *username)
 								/* Now ready to retry the execute step. */
 								yb_exec_execute_message(max_rows,
 														retry_data,
-														GetCurrentMemoryContext());
+														CurrentMemoryContext);
 							}
 							PG_CATCH();
 							{
@@ -7084,4 +7134,16 @@ YbRedactPasswordIfExists(const char *queryStr, CommandTag commandTag)
 	}
 
 	return queryStr;
+}
+
+long
+YbGetCatCacheRefreshes()
+{
+	return YbNumCatalogCacheRefreshes;
+}
+
+long
+YbGetCatCacheDeltaRefreshes()
+{
+	return YbNumCatalogCacheDeltaRefreshes;
 }

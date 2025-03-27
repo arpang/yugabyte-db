@@ -4,7 +4,7 @@ Set a YugabyteDB Anywhere runtime configuration scope key value
 
 ### Synopsis
 
-Set a runtime configuration scope key value in YugabyteDB Anywhere 
+Set a runtime configuration scope key value in YugabyteDB Anywhere Run "yba runtime-config key-info list" to get the list of keys in a scope type.
 
 ```
 yba runtime-config scope key set [flags]

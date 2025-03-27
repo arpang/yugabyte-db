@@ -25,7 +25,6 @@
 #ifndef PG_YB_UTILS_H
 #define PG_YB_UTILS_H
 
-#include "c.h"
 #include "postgres.h"
 
 #include "access/reloptions.h"
@@ -40,11 +39,9 @@
 #include "utils/resowner.h"
 #include "utils/tuplestore.h"
 #include "utils/typcache.h"
-
 #include "yb/yql/pggate/util/ybc_util.h"
-#include "yb/yql/pggate/ybc_pggate.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
-
+#include "yb/yql/pggate/ybc_pggate.h"
 #include "yb_ysql_conn_mgr_helper.h"
 
 /*
@@ -707,6 +704,11 @@ extern bool yb_test_collation;
 extern bool yb_test_inval_message_portability;
 
 /*
+ * If > 0, add a delay after apply invalidation messages.
+ */
+extern int yb_test_delay_after_applying_inval_message_ms;
+
+/*
  * Denotes whether DDL operations touching DocDB system catalog will be rolled
  * back upon failure. These two GUC variables are used together. See comments
  * for the gflag --ysql_enable_ddl_atomicity_infra in common_flags.cc.
@@ -731,6 +733,13 @@ extern bool yb_enable_inplace_index_update;
  * Enable the advisory lock feature.
  */
 extern bool yb_enable_advisory_locks;
+
+/*
+ * Enable invalidation messages.
+ */
+extern bool yb_enable_invalidation_messages;
+extern int yb_invalidation_message_expiration_secs;
+extern int yb_max_num_invalidation_messages;
 
 typedef struct YBUpdateOptimizationOptions
 {
@@ -798,14 +807,21 @@ bool		YBIsInitDbAlreadyDone();
 
 extern int YBGetDdlNestingLevel();
 extern NodeTag YBGetDdlOriginalNodeTag();
+extern bool YBGetDdlUseRegularTransactionBlock();
 extern void YbSetIsGlobalDDL();
 extern void YbIncrementPgTxnsCommitted();
+extern bool YbCheckPgTxnCommitForAnalyze(bool *increment_done);
+extern void YbCheckNewLocalCatalogVersionOptimization();
+extern void YbTrackAlteredTableId(Oid relid);
+extern void YbInvalidateTableCacheForAlteredTables();
+
 
 typedef enum YbSysCatalogModificationAspect
 {
 	YB_SYS_CAT_MOD_ASPECT_ALTERING_EXISTING_DATA = 1,
 	YB_SYS_CAT_MOD_ASPECT_VERSION_INCREMENT = 2,
-	YB_SYS_CAT_MOD_ASPECT_BREAKING_CHANGE = 4
+	YB_SYS_CAT_MOD_ASPECT_BREAKING_CHANGE = 4,
+	YB_SYS_CAT_MOD_ASPECT_ONLINE_SCHEMA_CHANGE = 8,
 } YbSysCatalogModificationAspect;
 
 typedef enum YbDdlMode
@@ -820,10 +836,17 @@ typedef enum YbDdlMode
 	YB_DDL_MODE_BREAKING_CHANGE = (YB_SYS_CAT_MOD_ASPECT_ALTERING_EXISTING_DATA |
 								   YB_SYS_CAT_MOD_ASPECT_VERSION_INCREMENT |
 								   YB_SYS_CAT_MOD_ASPECT_BREAKING_CHANGE),
+
+	YB_DDL_MODE_ONLINE_SCHEMA_CHANGE_VERSION_INCREMENT =
+		(YB_SYS_CAT_MOD_ASPECT_ALTERING_EXISTING_DATA |
+		 YB_SYS_CAT_MOD_ASPECT_VERSION_INCREMENT |
+		 YB_SYS_CAT_MOD_ASPECT_ONLINE_SCHEMA_CHANGE),
 } YbDdlMode;
 
 void		YBIncrementDdlNestingLevel(YbDdlMode mode);
 void		YBDecrementDdlNestingLevel();
+
+extern void YBCommitTransactionContainingDDL();
 
 typedef struct YbDdlModeOptional
 {
@@ -887,7 +910,7 @@ YbTableDistribution YbGetTableDistribution(Oid relid);
 /*
  * Check whether the given libc locale is supported in YugaByte mode.
  */
-bool		YBIsSupportedLibcLocale(const char *localebuf);
+extern bool YBIsSupportedLibcLocale(const char *localebuf);
 
 /*
  * Check for unsupported libc locale in YugaByte mode.
@@ -915,12 +938,19 @@ extern void YBGetCollationInfo(Oid collation_id,
 /*
  * Setup collation info in attr.
  */
-void		YBSetupAttrCollationInfo(YbcPgAttrValueDescriptor *attr, const YbcPgColumnInfo *column_info);
+extern void		YBSetupAttrCollationInfo(YbcPgAttrValueDescriptor *attr, const YbcPgColumnInfo *column_info);
 
 /*
  * Check whether the collation is a valid non-C collation.
  */
-bool		YBIsCollationValidNonC(Oid collation_id);
+extern bool		YBIsCollationValidNonC(Oid collation_id);
+
+/*
+ * Check whether the DB collation is UTF-8.
+ */
+extern bool		YBIsDbLocaleDefault();
+
+extern bool		YBRequiresCacheToCheckLocale(Oid collation_id);
 
 /*
  * For the column 'attr_num' and its collation id, return the collation id that
@@ -957,14 +987,18 @@ extern const uint32 yb_funcs_safe_for_pushdown[];
 extern const uint32 yb_funcs_unsafe_for_pushdown[];
 
 /*
- * Number of functions in 'yb_funcs_safe_for_pushdown' above.
+ * These functions are some of the more commonly used functions, and are less
+ * likely to cause issues when run in mixed mode pushdown. This list is not
+ * exhaustive, but gives us a useful starting point.
  */
-extern const int yb_funcs_safe_for_pushdown_count;
+extern const uint32 yb_funcs_safe_for_mixed_mode_pushdown[];
 
 /*
- * Number of functions in 'yb_funcs_unsafe_for_pushdown' above.
+ * Number of functions in the lists above.
  */
+extern const int yb_funcs_safe_for_pushdown_count;
 extern const int yb_funcs_unsafe_for_pushdown_count;
+extern const int yb_funcs_safe_for_mixed_mode_pushdown_count;
 
 /**
  * Use the YB_PG_PDEATHSIG environment variable to set the signal to be sent to
@@ -1293,10 +1327,16 @@ extern Oid	YbGetDatabaseOidToIncrementCatalogVersion();
 
 extern bool yb_default_collation_resolved;
 
+extern bool YbApplyInvalidationMessages(YbcCatalogMessageLists *message_lists);
+
 extern bool YbInvalidationMessagesTableExists();
 
 extern bool yb_is_calling_internal_function_for_ddl;
 
 extern char *YbGetPotentiallyHiddenOidText(Oid oid);
+
+extern void YbWaitForSharedCatalogVersionToCatchup(uint64_t version);
+
+extern bool YbIsInvalidationMessageEnabled();
 
 #endif							/* PG_YB_UTILS_H */

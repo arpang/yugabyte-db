@@ -95,6 +95,11 @@ struct PgMemctxHasher {
   size_t operator()(PgMemctx* value) const;
 };
 
+struct PgDdlCommitInfo {
+  uint32_t db_oid;
+  bool is_silent_altering;
+};
+
 //--------------------------------------------------------------------------------------------------
 // Implements support for CAPI.
 class PgApiImpl {
@@ -157,6 +162,8 @@ class PgApiImpl {
   Result<uint64_t> GetSharedCatalogVersion(std::optional<PgOid> db_oid = std::nullopt);
   Result<uint32_t> GetNumberOfDatabases();
   Result<bool> CatalogVersionTableInPerdbMode();
+  Result<tserver::PgGetTserverCatalogMessageListsResponsePB> GetTserverCatalogMessageLists(
+      uint32_t db_oid, uint64_t ysql_catalog_version, uint32_t num_catalog_versions);
   uint64_t GetSharedAuthKey() const;
   const unsigned char *GetLocalTserverUuid() const;
   pid_t GetLocalTServerPid() const;
@@ -642,7 +649,7 @@ class PgApiImpl {
   Status EnsureReadPoint();
   Status RestartReadPoint();
   bool IsRestartReadPointRequested();
-  Status CommitPlainTransaction();
+  Status CommitPlainTransaction(const std::optional<PgDdlCommitInfo>& ddl_commit_info);
   Status AbortPlainTransaction();
   Status SetTransactionIsolationLevel(int isolation);
   Status SetTransactionReadOnly(bool read_only);
@@ -651,6 +658,7 @@ class PgApiImpl {
   Status SetReadOnlyStmt(bool read_only_stmt);
   Status SetEnableTracing(bool tracing);
   Status UpdateFollowerReadsConfig(bool enable_follower_reads, int32_t staleness_ms);
+  Status SetDdlStateInPlainTransaction();
   Status EnterSeparateDdlTxnMode();
   bool HasWriteOperationsInDdlTxnMode() const;
   Status ExitSeparateDdlTxnMode(PgOid db_oid, bool is_silent_modification);
@@ -770,7 +778,6 @@ class PgApiImpl {
 
   void RollbackSubTransactionScopedSessionState();
   void RollbackTransactionScopedSessionState();
-  Status CommitTransactionScopedSessionState();
 
   //------------------------------------------------------------------------------------------------
   // Replication Slots Functions.
@@ -792,7 +799,7 @@ class PgApiImpl {
 
   Result<cdc::InitVirtualWALForCDCResponsePB> InitVirtualWALForCDC(
       const std::string& stream_id, const std::vector<PgObjectId>& table_ids,
-      const YbcReplicationSlotHashRange* slot_hash_range);
+      const YbcReplicationSlotHashRange* slot_hash_range, uint64_t active_pid);
 
   Result<cdc::UpdatePublicationTableListResponsePB> UpdatePublicationTableList(
       const std::string& stream_id, const std::vector<PgObjectId>& table_ids);
@@ -801,6 +808,9 @@ class PgApiImpl {
 
   Result<cdc::GetConsistentChangesResponsePB> GetConsistentChangesForCDC(
       const std::string& stream_id);
+
+  Result<cdc::GetLagMetricsResponsePB> GetLagMetrics(
+      const std::string& stream_id, int64_t *lag_metric);
 
   Result<cdc::UpdateAndPersistLSNResponsePB> UpdateAndPersistLSN(
       const std::string& stream_id, YbcPgXLogRecPtr restart_lsn, YbcPgXLogRecPtr confirmed_flush);
@@ -849,6 +859,8 @@ class PgApiImpl {
   Status AcquireObjectLock(const YbcObjectLockId& lock_id, YbcObjectLockMode mode);
 
  private:
+  void ClearSessionState();
+
   class Interrupter;
 
   class TupleIdBuilder {

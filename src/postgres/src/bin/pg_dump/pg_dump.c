@@ -37,7 +37,6 @@
 #ifdef HAVE_TERMIOS_H
 #include <termios.h>
 #endif
-#include <inttypes.h>
 
 #include "access/attnum.h"
 #include "access/sysattr.h"
@@ -61,14 +60,16 @@
 #include "fe_utils/string_utils.h"
 #include "getopt_long.h"
 #include "libpq/libpq-fs.h"
-#include "catalog/pg_index.h"
 #include "parallel.h"
 #include "pg_backup_db.h"
 #include "pg_backup_utils.h"
 #include "pg_dump.h"
 #include "storage/block.h"
 
+/* YB includes */
+#include "catalog/pg_index.h"	/* TODO: is needed? */
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
+#include <inttypes.h>
 
 typedef struct
 {
@@ -1216,6 +1217,7 @@ setup_connection(Archive *AH, const char *dumpencoding,
 	 * we know how to escape strings.
 	 */
 	AH->encoding = PQclientEncoding(conn);
+	setFmtEncoding(AH->encoding);
 
 	std_strings = PQparameterStatus(conn, "standard_conforming_strings");
 	AH->std_strings = (std_strings && strcmp(std_strings, "on") == 0);

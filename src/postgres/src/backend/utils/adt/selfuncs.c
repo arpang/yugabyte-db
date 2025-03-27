@@ -140,9 +140,10 @@
 #include "utils/typcache.h"
 
 /* YB includes */
-#include "pg_yb_utils.h"
 #include "catalog/pg_opfamily.h"
 #include "catalog/pg_proc.h"
+#include "pg_yb_utils.h"
+
 
 /* Hooks for plugins to get control when we ask for stats */
 get_relation_stats_hook_type get_relation_stats_hook = NULL;
@@ -6358,7 +6359,7 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			ScanKeyData scankeys[1];
 
 			/* Make sure any cruft gets recycled when we're done */
-			tmpcontext = AllocSetContextCreate(GetCurrentMemoryContext(),
+			tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
 											   "get_actual_variable_range workspace",
 											   ALLOCSET_DEFAULT_SIZES);
 			oldcontext = MemoryContextSwitchTo(tmpcontext);

@@ -94,6 +94,9 @@ public class YNPProvisioning extends AbstractTaskBase {
       ynpNode.put(
           "tmp_directory",
           confGetter.getConfForScope(provider, ProviderConfKeys.remoteTmpDirectory));
+      ynpNode.put(
+          "is_configure_clockbound",
+          universe.getUniverseDetails().getPrimaryCluster().userIntent.isUseClockbound());
       rootNode.set("ynp", ynpNode);
 
       // "extra" JSON Object
@@ -140,12 +143,16 @@ public class YNPProvisioning extends AbstractTaskBase {
 
       // Set device paths for cloud providers
       if (!provider.getCode().equals(CloudType.onprem.toString())) {
+        String storageType = null;
+        if (taskParams().deviceInfo.storageType != null) {
+          storageType = taskParams().deviceInfo.storageType.toString().toLowerCase();
+        }
         List<String> devicePaths =
             this.queryHelper.getDeviceNames(
                 provider,
                 Common.CloudType.valueOf(node.cloudInfo.cloud),
                 Integer.toString(taskParams().deviceInfo.numVolumes),
-                taskParams().deviceInfo.storageType.toString().toLowerCase(),
+                storageType,
                 node.cloudInfo.region,
                 node.cloudInfo.instance_type);
         extraNode.put("device_paths", String.join(" ", devicePaths));

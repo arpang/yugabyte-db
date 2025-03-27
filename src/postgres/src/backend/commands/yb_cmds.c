@@ -23,11 +23,16 @@
 
 #include "postgres.h"
 
-#include "miscadmin.h"
+#include "access/heapam.h"
+#include "access/htup_details.h"
+#include "access/nbtree.h"
+#include "access/relation.h"
 #include "access/sysattr.h"
 #include "access/table.h"
 #include "access/xact.h"
+#include "catalog/binary_upgrade.h"
 #include "catalog/catalog.h"
+#include "catalog/heap.h"
 #include "catalog/index.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
@@ -40,46 +45,36 @@
 #include "catalog/pg_tablespace.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_type_d.h"
-#include "catalog/yb_type.h"
+#include "catalog/pg_yb_tablegroup.h"
 #include "catalog/yb_catalog_version.h"
 #include "catalog/yb_logical_client_version.h"
+#include "catalog/yb_type.h"
 #include "commands/dbcommands.h"
+#include "commands/defrem.h"
 #include "commands/event_trigger.h"
-#include "commands/tablegroup.h"
 #include "commands/tablecmds.h"
 #include "commands/tablespace.h"
 #include "commands/yb_cmds.h"
-
-#include "access/heapam.h"
-#include "access/htup_details.h"
-#include "access/relation.h"
-#include "utils/builtins.h"
-#include "utils/lsyscache.h"
-#include "utils/relcache.h"
-#include "utils/rel.h"
-#include "utils/syscache.h"
+#include "commands/yb_tablegroup.h"
 #include "executor/executor.h"
 #include "executor/tuptable.h"
 #include "executor/ybExpr.h"
-
-#include "yb/yql/pggate/ybc_pggate.h"
-#include "pg_yb_utils.h"
-
-#include "access/nbtree.h"
-#include "catalog/heap.h"
-#include "commands/defrem.h"
+#include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
+#include "optimizer/clauses.h"
 #include "optimizer/optimizer.h"
-#include "parser/parser.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_relation.h"
 #include "parser/parse_type.h"
 #include "parser/parse_utilcmd.h"
-
-/* Yugabyte includes */
-#include "catalog/binary_upgrade.h"
-#include "catalog/pg_yb_tablegroup.h"
-#include "optimizer/clauses.h"
+#include "parser/parser.h"
+#include "pg_yb_utils.h"
+#include "utils/builtins.h"
+#include "utils/lsyscache.h"
+#include "utils/rel.h"
+#include "utils/relcache.h"
+#include "utils/syscache.h"
+#include "yb/yql/pggate/ybc_pggate.h"
 
 /* Utility function to calculate column sorting options */
 static void
@@ -1307,8 +1302,7 @@ static List *
 YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 						int *col, bool *needsYBAlter,
 						YbcPgStatement *rollbackHandle,
-						bool isPartitionOfAlteredTable,
-						List *volatile *ybAlteredTableIds)
+						bool isPartitionOfAlteredTable)
 {
 	Oid			relationId = RelationGetRelid(rel);
 	Oid			relfileNodeId = YbGetRelfileNodeId(rel);
@@ -1727,7 +1721,7 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 													  &alter_cmd_handle));
 					HandleYBStatus(YBCPgAlterTableIncrementSchemaVersion(alter_cmd_handle));
 					handles = lappend(handles, alter_cmd_handle);
-					*ybAlteredTableIds = lappend_oid(*ybAlteredTableIds, relationId);
+					YbTrackAlteredTableId(relationId);
 					table_close(dependent_rel, AccessExclusiveLock);
 				}
 				*needsYBAlter = true;
@@ -1771,6 +1765,17 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 			*needsYBAlter = false;
 			break;
 
+		case AT_DropInherit:
+			switch_fallthrough();
+		case AT_AddInherit:
+			/*
+			 * Altering the inheritance should keep the docdb column list the same and not
+			 * require an ALTER.
+			 * This will need to be re-evaluated, if NULLability is propagated to docdb.
+			 */
+			*needsYBAlter = false;
+			break;
+
 		default:
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1785,8 +1790,7 @@ YBCPrepareAlterTable(List **subcmds,
 					 int subcmds_size,
 					 Oid relationId,
 					 YbcPgStatement *rollbackHandle,
-					 bool isPartitionOfAlteredTable,
-					 List *volatile *ybAlteredTableIds)
+					 bool isPartitionOfAlteredTable)
 {
 	/* Appropriate lock was already taken */
 	Relation	rel = relation_open(relationId, NoLock);
@@ -1815,8 +1819,7 @@ YBCPrepareAlterTable(List **subcmds,
 			handles = YBCPrepareAlterTableCmd((AlterTableCmd *) lfirst(lcmd),
 											  rel, handles, &col,
 											  &needsYBAlter, rollbackHandle,
-											  isPartitionOfAlteredTable,
-											  ybAlteredTableIds);
+											  isPartitionOfAlteredTable);
 		}
 	}
 	relation_close(rel, NoLock);
@@ -1825,7 +1828,8 @@ YBCPrepareAlterTable(List **subcmds,
 	{
 		return NULL;
 	}
-	*ybAlteredTableIds = lappend_oid(*ybAlteredTableIds, relationId);
+
+	YbTrackAlteredTableId(relationId);
 	return handles;
 }
 
@@ -2254,7 +2258,8 @@ YBCGetRelfileNodes(Oid *table_oids, size_t num_relations, Oid *relfilenodes)
 void
 YBCInitVirtualWalForCDC(const char *stream_id, Oid *relations,
 						size_t numrelations,
-						const YbcReplicationSlotHashRange *slot_hash_range)
+						const YbcReplicationSlotHashRange *slot_hash_range,
+						uint64_t active_pid)
 {
 	Assert(MyDatabaseId);
 
@@ -2265,9 +2270,15 @@ YBCInitVirtualWalForCDC(const char *stream_id, Oid *relations,
 
 	HandleYBStatus(YBCPgInitVirtualWalForCDC(stream_id, MyDatabaseId, relations,
 											 relfilenodes, numrelations,
-											 slot_hash_range));
+											 slot_hash_range, active_pid));
 
 	pfree(relfilenodes);
+}
+
+void
+YBCGetLagMetrics(const char *stream_id, int64_t *lag_metric)
+{
+	HandleYBStatus(YBCPgGetLagMetrics(stream_id, lag_metric));
 }
 
 void

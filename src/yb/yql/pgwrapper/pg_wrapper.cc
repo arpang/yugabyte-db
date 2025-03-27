@@ -193,6 +193,10 @@ DEFINE_RUNTIME_AUTO_PG_FLAG(bool, yb_enable_pg_locks, kLocalVolatile, false, tru
     "Enable the pg_locks view. This view provides information about the locks held by "
     "active postgres sessions.");
 
+DEFINE_RUNTIME_AUTO_PG_FLAG(bool, yb_pg_locks_integrate_advisory_locks, kLocalPersisted,
+    false, true,
+    "Enables pg_locks to integrate and display advisory locks details correctly.");
+
 DEFINE_RUNTIME_AUTO_PG_FLAG(bool, yb_enable_docdb_vector_type, kExternal, false, true,
     "Enable using the DocDB Vector type from YSQL.");
 
@@ -275,6 +279,12 @@ DEFINE_RUNTIME_AUTO_PG_FLAG(bool, yb_enable_replica_identity, kLocalPersisted, f
 DEFINE_RUNTIME_AUTO_PG_FLAG(bool, yb_allow_block_based_sampling_algorithm,
     kLocalVolatile, false, true, "Allow YsqlSamplingAlgorithm::BLOCK_BASED_SAMPLING");
 
+// TODO(analyze_sampling): https://github.com/yugabyte/yugabyte-db/issues/26366:
+// Convert to auto flag with target value set to true after block-based ANALYZE with concurrent
+// dynamic tablet splitting is fully supported and tested.
+DEFINE_RUNTIME_PG_FLAG(bool, yb_allow_separate_requests_for_sampling_stages, false,
+    "Allow using separate requests for block-based sampling stages");
+
 DEFINE_RUNTIME_PG_FLAG(
     string, yb_default_replica_identity, "CHANGE",
     "The default replica identity to be assigned to user defined tables at the time of creation. "
@@ -335,6 +345,9 @@ DEFINE_NON_RUNTIME_bool(ysql_trust_local_yugabyte_connections, true,
 DEFINE_NON_RUNTIME_PG_PREVIEW_FLAG(bool, yb_enable_query_diagnostics, false,
     "Enables the collection of query diagnostics data for YSQL queries, "
     "facilitating the creation of diagnostic bundles.");
+
+DEFINE_RUNTIME_PG_FLAG(bool, yb_mixed_mode_expression_pushdown, true,
+    "Enables expression pushdown for queries in mixed mode of a YSQL Major version upgrade.");
 
 DECLARE_bool(enable_pg_cron);
 
@@ -956,13 +969,6 @@ namespace {
 
 constexpr auto kVersionChars = 2;
 
-Result<int32_t> GetCurrentPgVersion() {
-  const char* curr_pg_ver_cstr;
-  PG_RETURN_NOT_OK(YbgGetPgVersion(&curr_pg_ver_cstr));
-  string curr_pg_ver_str = curr_pg_ver_cstr;
-  return CheckedStoi(curr_pg_ver_str.substr(0, kVersionChars));
-}
-
 Result<int32_t> GetPgDirectoryVersion(const string& data_dir) {
   std::unique_ptr<SequentialFile> result;
   std::string full_path = JoinPathSegments(data_dir, "PG_VERSION");
@@ -990,7 +996,7 @@ string PgWrapper::MakeVersionedDataDir(int32_t version) {
 // directory.
 // This code is written to be identical for a tablet server hosting any major PG version.
 Status PgWrapper::InitDbLocalOnlyIfNeeded() {
-  int32_t current_pg_version = VERIFY_RESULT(GetCurrentPgVersion());
+  int32_t current_pg_version = YbgGetPgVersion();
 
   // One-time migration in case this installation is not yet using a symlink
   if (VERIFY_RESULT(Env::Default()->DoesDirectoryExist(conf_.data_dir)) &&
@@ -1046,7 +1052,7 @@ Status PgWrapper::InitDbLocalOnlyIfNeeded() {
 }
 
 Status PgWrapper::CleanupPgData(const std::string& data_dir) {
-  const auto current_pg_version = VERIFY_RESULT(GetCurrentPgVersion());
+  const auto current_pg_version = YbgGetPgVersion();
   const std::string versioned_data_dir =
       pgwrapper::MakeVersionedDataDir(data_dir, current_pg_version);
   auto env = Env::Default();

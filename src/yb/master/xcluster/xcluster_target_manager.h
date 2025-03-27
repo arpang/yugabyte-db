@@ -14,10 +14,11 @@
 #pragma once
 
 #include "yb/master/leader_epoch.h"
+#include "yb/master/master_ddl.fwd.h"
 #include "yb/master/master_fwd.h"
-
 #include "yb/master/xcluster/master_xcluster_types.h"
 #include "yb/master/xcluster/xcluster_catalog_entity.h"
+
 #include "yb/util/is_operation_done_result.h"
 #include "yb/util/status_fwd.h"
 
@@ -200,7 +201,8 @@ class XClusterTargetManager {
   Status DeleteUniverseReplication(
       const xcluster::ReplicationGroupId& replication_group_id, bool ignore_errors,
       bool skip_producer_stream_deletion, DeleteUniverseReplicationResponsePB* resp,
-      const LeaderEpoch& epoch);
+      const LeaderEpoch& epoch,
+      std::unordered_map<NamespaceId, uint32_t> source_namespace_id_to_oid_to_bump_above);
 
   Status AddTableToReplicationGroup(
       const xcluster::ReplicationGroupId& replication_group_id, const TableId& source_table_id,

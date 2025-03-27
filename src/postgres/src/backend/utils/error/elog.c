@@ -118,7 +118,6 @@
 
 #include "access/transam.h"
 #include "access/xact.h"
-#include "common/pg_yb_common.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "mb/pg_wchar.h"
@@ -134,9 +133,11 @@
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
 
-/*  YB includes. */
+/* YB includes */
+#include "common/pg_yb_common.h"
 #include "pg_yb_utils.h"
 #include "ybgate/ybgate_status.h"
+
 
 /* In this module, access gettext() via err_gettext() */
 #undef _
@@ -876,7 +877,7 @@ errfinish(const char *filename, int lineno, const char *funcname)
 		CritSectionCount = 0;	/* should be unnecessary, but... */
 
 		/*
-		 * Note that we leave GetCurrentMemoryContext() set to ErrorContext. The
+		 * Note that we leave CurrentMemoryContext set to ErrorContext. The
 		 * handler should reset it to something else soon.
 		 */
 
@@ -2071,7 +2072,7 @@ static ErrorData *
 ybg_status_to_edata(void)
 {
 	YbgStatus	ybg_status = YBCPgGetThreadLocalErrStatus();
-	MemoryContext mctx = GetCurrentMemoryContext();
+	MemoryContext mctx = CurrentMemoryContext;
 
 	/*
 	 * In multi-thread mode current memory context may be null, as well as the
@@ -2161,7 +2162,7 @@ CopyErrorData(void)
 	 */
 	CHECK_STACK_DEPTH();
 
-	Assert(GetCurrentMemoryContext() != ErrorContext);
+	Assert(CurrentMemoryContext != ErrorContext);
 
 	/* Copy the struct itself */
 	newedata = (ErrorData *) palloc(sizeof(ErrorData));
@@ -2202,7 +2203,7 @@ CopyErrorData(void)
 	}
 
 	/* Use the calling context for string allocation */
-	newedata->assoc_context = GetCurrentMemoryContext();
+	newedata->assoc_context = CurrentMemoryContext;
 
 	return newedata;
 }
@@ -2546,7 +2547,7 @@ GetErrorContextStack(void)
 	 * Set up assoc_context to be the caller's context, so any allocations
 	 * done (which will include edata->context) will use their context.
 	 */
-	edata->assoc_context = GetCurrentMemoryContext();
+	edata->assoc_context = CurrentMemoryContext;
 
 	/*
 	 * Call any context callback functions to collect the context information
@@ -2842,13 +2843,13 @@ write_eventlog(int level, const char *line, int len)
 	 *
 	 * Since we palloc the structure required for conversion, also fall
 	 * through to writing unconverted if we have not yet set up
-	 * GetCurrentMemoryContext().
+	 * CurrentMemoryContext.
 	 *
 	 * Also verify that we are not on our way into error recursion trouble due
 	 * to error messages thrown deep inside pgwin32_message_to_UTF16().
 	 */
 	if (!in_error_recursion_trouble() &&
-		GetCurrentMemoryContext() != NULL &&
+		CurrentMemoryContext != NULL &&
 		GetMessageEncoding() != GetACPEncoding())
 	{
 		utf16 = pgwin32_message_to_UTF16(line, len, NULL);
@@ -2903,11 +2904,11 @@ write_console(const char *line, int len)
 	 *
 	 * Since we palloc the structure required for conversion, also fall
 	 * through to writing unconverted if we have not yet set up
-	 * GetCurrentMemoryContext().
+	 * CurrentMemoryContext.
 	 */
 	if (!in_error_recursion_trouble() &&
 		!redirection_done &&
-		GetCurrentMemoryContext() != NULL)
+		CurrentMemoryContext != NULL)
 	{
 		WCHAR	   *utf16;
 		int			utf16len;
@@ -4235,8 +4236,8 @@ yb_additional_errmsg(const char *fmt,...)
 {
 	ErrorData  *edata = &errordata[errordata_stack_depth];
 
-	Assert(GetCurrentMemoryContext() == edata->assoc_context ||
-		   GetCurrentMemoryContext() == ErrorContext);
+	Assert(CurrentMemoryContext == edata->assoc_context ||
+		   CurrentMemoryContext == ErrorContext);
 	EVALUATE_MESSAGE(edata->domain, message, true /* appendval */ ,
 					 false /* translateit */ );
 }

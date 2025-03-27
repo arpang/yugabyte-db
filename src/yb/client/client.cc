@@ -363,6 +363,19 @@ Status SetInternalSignalNumber(int signum) {
   return SetStackTraceSignal(signum);
 }
 
+tserver::PGReplicationSlotLsnType CDCSDKStreamInfo::GetPGReplicationSlotLsnType(
+    ReplicationSlotLsnType lsn_type) {
+  switch (lsn_type) {
+    case ReplicationSlotLsnType_SEQUENCE:
+      return tserver::PGReplicationSlotLsnType::ReplicationSlotLsnTypePg_SEQUENCE;
+    case ReplicationSlotLsnType_HYBRID_TIME:
+      return tserver::PGReplicationSlotLsnType::ReplicationSlotLsnTypePg_HYBRID_TIME;
+    default:
+      LOG(WARNING) << "Invalid LSN type specified: " << lsn_type << ", defaulting to SEQUENCE";
+      return tserver::PGReplicationSlotLsnType::ReplicationSlotLsnTypePg_SEQUENCE;
+  }
+}
+
 YBClientBuilder::YBClientBuilder()
   : data_(new YBClientBuilder::Data()) {
 }
@@ -2051,10 +2064,10 @@ Result<TabletServersInfo> YBClient::ListLiveTabletServers(bool primary_only) {
   CALL_SYNC_LEADER_MASTER_RPC_EX(Cluster, req, resp, ListLiveTabletServers);
 
   TabletServersInfo result;
-  result.resize(resp.servers_size());
+  result.tablet_servers.resize(resp.servers_size());
   for (int i = 0; i < resp.servers_size(); i++) {
     const ListLiveTabletServersResponsePB_Entry& entry = resp.servers(i);
-    auto& out = result[i];
+    auto& out = result.tablet_servers[i];
     out.server = YBTabletServer::FromPB(entry, data_->cloud_info_pb_);
     const CloudInfoPB& cloud_info = entry.registration().common().cloud_info();
 

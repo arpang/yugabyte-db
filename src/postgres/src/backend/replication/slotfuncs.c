@@ -26,7 +26,7 @@
 #include "utils/pg_lsn.h"
 #include "utils/resowner.h"
 
-/* YB includes. */
+/* YB includes */
 #include "commands/yb_cmds.h"
 #include "pg_yb_utils.h"
 #include "utils/uuid.h"
@@ -382,6 +382,7 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 		bool		yb_stream_active;
 		uint64		yb_restart_commit_ht;
 		const char *yb_lsn_type;
+		bool        yb_stream_expired;
 
 		if (IsYugaByteEnabled())
 		{
@@ -393,11 +394,13 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 			yb_stream_id = slot->stream_id;
 			yb_stream_active = slot->active;
 			yb_lsn_type = slot->yb_lsn_type;
+			yb_stream_expired = slot->expired;
 
 			slot_contents.data.restart_lsn = slot->restart_lsn;
 			slot_contents.data.confirmed_flush = slot->confirmed_flush;
 			yb_restart_commit_ht = slot->record_id_commit_time_ht;
 			slot_contents.data.xmin = slot->xmin;
+			slot_contents.active_pid = slot->active_pid;
 			/*
 			 * Set catalog_xmin as xmin to make the PG Debezium connector work.
 			 * It is not used in our implementation.
@@ -405,7 +408,6 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 			slot_contents.data.catalog_xmin = slot->xmin;
 
 			/* Fill in the dummy/constant values. */
-			slot_contents.active_pid = 0;
 			slot_contents.data.persistency = RS_PERSISTENT;
 			slot_contents.data.invalidated_at = InvalidXLogRecPtr;
 			slot_contents.data.two_phase_at = InvalidXLogRecPtr;
@@ -475,64 +477,80 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 		else
 			nulls[i++] = true;
 
-		/*
-		 * If invalidated_at is valid and restart_lsn is invalid, we know for
-		 * certain that the slot has been invalidated.  Otherwise, test
-		 * availability from restart_lsn.
-		 */
-		if (XLogRecPtrIsInvalid(slot_contents.data.restart_lsn) &&
-			!XLogRecPtrIsInvalid(slot_contents.data.invalidated_at))
-			walstate = WALAVAIL_REMOVED;
-		else
-			walstate = GetWALAvailability(slot_contents.data.restart_lsn);
-
-		switch (walstate)
+		if (IsYugaByteEnabled())
 		{
-			case WALAVAIL_INVALID_LSN:
-				nulls[i++] = true;
-				break;
-
-			case WALAVAIL_RESERVED:
-				values[i++] = CStringGetTextDatum("reserved");
-				break;
-
-			case WALAVAIL_EXTENDED:
-				values[i++] = CStringGetTextDatum("extended");
-				break;
-
-			case WALAVAIL_UNRESERVED:
-				values[i++] = CStringGetTextDatum("unreserved");
-				break;
-
-			case WALAVAIL_REMOVED:
-
-				/*
-				 * If we read the restart_lsn long enough ago, maybe that file
-				 * has been removed by now.  However, the walsender could have
-				 * moved forward enough that it jumped to another file after
-				 * we looked.  If checkpointer signalled the process to
-				 * termination, then it's definitely lost; but if a process is
-				 * still alive, then "unreserved" seems more appropriate.
-				 *
-				 * If we do change it, save the state for safe_wal_size below.
-				 */
-				if (!XLogRecPtrIsInvalid(slot_contents.data.restart_lsn))
-				{
-					int			pid;
-
-					SpinLockAcquire(&slot->mutex);
-					pid = slot->active_pid;
-					slot_contents.data.restart_lsn = slot->data.restart_lsn;
-					SpinLockRelease(&slot->mutex);
-					if (pid != 0)
-					{
-						values[i++] = CStringGetTextDatum("unreserved");
-						walstate = WALAVAIL_UNRESERVED;
-						break;
-					}
-				}
+			if (yb_stream_expired)
+			{
 				values[i++] = CStringGetTextDatum("lost");
-				break;
+				walstate = WALAVAIL_REMOVED;
+			}
+			else
+			{
+				values[i++] = CStringGetTextDatum("reserved");
+				walstate = WALAVAIL_RESERVED;
+			}
+		}
+		else
+		{
+			/*
+			 * If invalidated_at is valid and restart_lsn is invalid, we know for
+			 * certain that the slot has been invalidated.  Otherwise, test
+			 * availability from restart_lsn.
+			 */
+			if (XLogRecPtrIsInvalid(slot_contents.data.restart_lsn) &&
+				!XLogRecPtrIsInvalid(slot_contents.data.invalidated_at))
+				walstate = WALAVAIL_REMOVED;
+			else
+				walstate = GetWALAvailability(slot_contents.data.restart_lsn);
+
+			switch (walstate)
+			{
+				case WALAVAIL_INVALID_LSN:
+					nulls[i++] = true;
+					break;
+
+				case WALAVAIL_RESERVED:
+					values[i++] = CStringGetTextDatum("reserved");
+					break;
+
+				case WALAVAIL_EXTENDED:
+					values[i++] = CStringGetTextDatum("extended");
+					break;
+
+				case WALAVAIL_UNRESERVED:
+					values[i++] = CStringGetTextDatum("unreserved");
+					break;
+
+				case WALAVAIL_REMOVED:
+
+					/*
+					 * If we read the restart_lsn long enough ago, maybe that file
+					 * has been removed by now.  However, the walsender could have
+					 * moved forward enough that it jumped to another file after
+					 * we looked.  If checkpointer signalled the process to
+					 * termination, then it's definitely lost; but if a process is
+					 * still alive, then "unreserved" seems more appropriate.
+					 *
+					 * If we do change it, save the state for safe_wal_size below.
+					 */
+					if (!XLogRecPtrIsInvalid(slot_contents.data.restart_lsn))
+					{
+						int			pid;
+
+						SpinLockAcquire(&slot->mutex);
+						pid = slot->active_pid;
+						slot_contents.data.restart_lsn = slot->data.restart_lsn;
+						SpinLockRelease(&slot->mutex);
+						if (pid != 0)
+						{
+							values[i++] = CStringGetTextDatum("unreserved");
+							walstate = WALAVAIL_UNRESERVED;
+							break;
+						}
+					}
+					values[i++] = CStringGetTextDatum("lost");
+					break;
+			}
 		}
 
 		/*
@@ -844,6 +862,11 @@ pg_replication_slot_advance(PG_FUNCTION_ARGS)
 static Datum
 copy_replication_slot(FunctionCallInfo fcinfo, bool logical_slot)
 {
+	ereport(ERROR,
+			(errcode(ERRCODE_SYNTAX_ERROR),
+			 errmsg("copy_replication_slot is unavailable."),
+			 errdetail("Copy of a replication slot is currently not supported.")));
+
 	Name		src_name = PG_GETARG_NAME(0);
 	Name		dst_name = PG_GETARG_NAME(1);
 	ReplicationSlot *src = NULL;

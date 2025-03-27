@@ -20,6 +20,7 @@
 #define YB_XCLUSTER_DDL_REPLICATION_UTIL
 
 #include "postgres.h"
+
 #include "tcop/deparse_utility.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
@@ -31,7 +32,7 @@
 #define INIT_MEM_CONTEXT_AND_SPI_CONNECT(desc) \
 	do \
 	{ \
-		context_new = AllocSetContextCreate(GetCurrentMemoryContext(), desc, \
+		context_new = AllocSetContextCreate(CurrentMemoryContext, desc, \
 											ALLOCSET_DEFAULT_SIZES); \
 		context_old = MemoryContextSwitchTo(context_new); \
 		GetUserIdAndSecContext(&save_userid, &save_sec_context); \

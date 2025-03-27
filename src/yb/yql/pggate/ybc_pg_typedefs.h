@@ -420,9 +420,8 @@ typedef struct {
   const int32_t*  ysql_conn_mgr_max_query_size;
   const int32_t*  ysql_conn_mgr_wait_timeout_ms;
   const bool*     ysql_enable_pg_export_snapshot;
-  const bool*     TEST_yb_enable_invalidation_messages;
-  const int32_t*  TEST_yb_invalidation_message_expiration_secs;
-  const int32_t*  TEST_yb_max_num_invalidation_messages;
+  const bool*     TEST_ysql_yb_ddl_transaction_block_enabled;
+  const bool*     ysql_enable_inheritance;
 } YbcPgGFlagsAccessor;
 
 typedef struct {
@@ -453,6 +452,7 @@ typedef struct {
   bool is_primary;
   uint16_t pg_port;
   const char *uuid;
+  const char *universe_uuid;
 } YbcServerDescriptor;
 
 typedef struct {
@@ -653,6 +653,8 @@ typedef struct {
   int replica_identities_count;
   uint64_t last_pub_refresh_time;
   const char *yb_lsn_type;
+  uint64_t active_pid;
+  bool expired;
 } YbcReplicationSlotDescriptor;
 
 // Upon adding any more palloc'd members in the below struct, add logic to free it in
@@ -953,6 +955,22 @@ typedef enum {
   YB_OBJECT_EXCLUSIVE_LOCK,
   YB_OBJECT_ACCESS_EXCLUSIVE_LOCK
 } YbcObjectLockMode;
+
+// Catalog cache invalidation message list associated with one catalog version for
+// a given database.
+typedef struct {
+  // NULL means a PG null value, which is different from a PG empty string ''.
+  char* message_list;
+  // num_bytes will be zero for both PG null value and a PG empty string ''.
+  size_t num_bytes;
+} YbcCatalogMessageList;
+
+// A list of YbcCatalogMessageList associated with a consecutive list of catalog versions
+// for a given database.
+typedef struct {
+  YbcCatalogMessageList* message_lists;
+  int num_lists;
+} YbcCatalogMessageLists;
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -14,7 +14,6 @@
  */
 
 #include "postgres.h"
-#include "pg_yb_utils.h"
 
 #include <limits.h>
 #include <math.h>
@@ -38,7 +37,6 @@
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "pg_yb_utils.h"
 #ifdef OPTIMIZER_DEBUG
 #include "nodes/print.h"
 #endif
@@ -66,6 +64,9 @@
 #include "utils/rel.h"
 #include "utils/selfuncs.h"
 #include "utils/syscache.h"
+
+/* YB includes */
+#include "pg_yb_utils.h"
 
 /* GUC parameters */
 double		cursor_tuple_fraction = DEFAULT_CURSOR_TUPLE_FRACTION;
@@ -622,7 +623,7 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	root->parent_root = parent_root;
 	root->plan_params = NIL;
 	root->outer_params = NULL;
-	root->planner_cxt = GetCurrentMemoryContext();
+	root->planner_cxt = CurrentMemoryContext;
 	root->init_plans = NIL;
 	root->cte_plan_ids = NIL;
 	root->multiexpr_params = NIL;
@@ -1592,13 +1593,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		preprocess_targetlist(root);
 
 		/*
-		 * YB_TODO(Deepthi@yugabyte)
-		 * Need to reintroduce the following code
-		 * for PG13 which reimplement this function.
-		 * root->yb_num_referenced_relations++;
-		 */
-
-		/*
 		 * Mark all the aggregates with resolved aggtranstypes, and detect
 		 * aggregates that are duplicates or can share transition state.  We
 		 * must do this before slicing and dicing the tlist into various
@@ -1975,6 +1969,8 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					 */
 					if (IS_DUMMY_REL(this_result_rel))
 						continue;
+
+					root->yb_num_referenced_relations++;
 
 					/* Build per-target-rel lists needed by ModifyTable */
 					resultRelations = lappend_int(resultRelations,
@@ -6247,7 +6243,7 @@ plan_cluster_use_sort(Oid tableOid, Oid indexOid)
 	root->parse = query;
 	root->glob = glob;
 	root->query_level = 1;
-	root->planner_cxt = GetCurrentMemoryContext();
+	root->planner_cxt = CurrentMemoryContext;
 	root->wt_param_id = -1;
 
 	/* Build a minimal RTE for the rel */
@@ -6367,7 +6363,7 @@ plan_create_index_workers(Oid tableOid, Oid indexOid)
 	root->parse = query;
 	root->glob = glob;
 	root->query_level = 1;
-	root->planner_cxt = GetCurrentMemoryContext();
+	root->planner_cxt = CurrentMemoryContext;
 	root->wt_param_id = -1;
 
 	/*

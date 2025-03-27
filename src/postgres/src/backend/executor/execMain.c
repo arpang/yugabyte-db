@@ -67,9 +67,10 @@
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
 
-/* Yugabyte includes */
-#include "pg_yb_utils.h"
+/* YB includes */
 #include "commands/extension.h"
+#include "pg_yb_utils.h"
+
 
 /* Hooks for plugins to get control in ExecutorStart/Run/Finish/End */
 ExecutorStart_hook_type ExecutorStart_hook = NULL;
@@ -121,7 +122,7 @@ static void EvalPlanQualStart(EPQState *epqstate, Plan *planTree);
  *
  * eflags contains flag bits as described in executor.h.
  *
- * NB: the GetCurrentMemoryContext() when this is called will become the parent
+ * NB: the CurrentMemoryContext when this is called will become the parent
  * of the per-query context used for this Executor invocation.
  *
  * We provide a function hook variable that lets loadable plugins

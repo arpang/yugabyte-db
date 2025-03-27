@@ -66,7 +66,6 @@
 #include "catalog/storage.h"
 #include "catalog/storage_xlog.h"
 #include "catalog/toasting.h"
-#include "catalog/yb_oid_assignment.h"
 #include "commands/cluster.h"
 #include "commands/comment.h"
 #include "commands/defrem.h"
@@ -121,21 +120,21 @@
 #include "utils/timestamp.h"
 #include "utils/typcache.h"
 
-/* YB includes. */
-#include "pg_yb_utils.h"
+/* YB includes */
 #include "catalog/binary_upgrade.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_policy.h"
 #include "catalog/pg_rewrite.h"
-#include "catalog/pg_statistic_ext.h"
 #include "catalog/pg_shdepend.h"
 #include "catalog/pg_shdepend_d.h"
+#include "catalog/pg_statistic_ext.h"
 #include "catalog/pg_yb_tablegroup_d.h"
+#include "catalog/yb_oid_assignment.h"
 #include "commands/dbcommands.h"
-#include "commands/tablegroup.h"
 #include "commands/view.h"
 #include "commands/yb_cmds.h"
+#include "commands/yb_tablegroup.h"
 #include "executor/ybModifyTable.h"
 #include "parser/analyze.h"
 #include "pg_yb_utils.h"
@@ -436,8 +435,7 @@ static void ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 					  AlterTableUtilityContext *context);
 static void ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 							  AlterTableUtilityContext *context,
-							  List **rollbackHandles,
-							  List *volatile *handles);
+							  List **rollbackHandles);
 static void ATExecCmd(List **wqueue, AlteredTableInfo *tab,
 					  AlterTableCmd *cmd, LOCKMODE lockmode, int cur_pass,
 					  AlterTableUtilityContext *context);
@@ -701,7 +699,6 @@ static void YbATSetPKRewriteChildPartitions(List **yb_wqueue,
 											bool skip_copy_split_options);
 static void YbATCopyIndexSplitOptions(Oid oldId, IndexStmt *stmt,
 									  AlteredTableInfo *tab);
-static void YbATInvalidateTableCacheAfterAlter(List *ybAlteredTableIds);
 
 /* ----------------------------------------------------------------
  *		DefineRelation
@@ -1151,9 +1148,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("specifying a table access method is not supported on a partitioned table")));
 	}
-	else if ((IsYugaByteEnabled() && RELKIND_HAS_PARTITIONS(relkind)
-			  && stmt->relation->relpersistence != RELPERSISTENCE_TEMP) ||
-			 RELKIND_HAS_TABLE_AM(relkind))
+	else if (RELKIND_HAS_TABLE_AM(relkind))
 		accessMethod = default_table_access_method;
 
 	/* look up the access method, verify it is for a table */
@@ -2237,7 +2232,7 @@ ExecuteTruncateGuts(List *explicit_rels,
 				memset(&hctl, 0, sizeof(HASHCTL));
 				hctl.keysize = sizeof(Oid);
 				hctl.entrysize = sizeof(ForeignTruncateInfo);
-				hctl.hcxt = GetCurrentMemoryContext();
+				hctl.hcxt = CurrentMemoryContext;
 
 				ft_htab = hash_create("TRUNCATE for Foreign Tables",
 									  32,	/* start small and extend */
@@ -4774,7 +4769,6 @@ ATController(AlterTableStmt *parsetree,
 
 	/* Phase 2: update system catalogs */
 	List	   *rollbackHandles = NIL;
-	List	   *volatile ybAlteredTableIds = NIL;
 
 	PG_TRY();
 	{
@@ -4783,11 +4777,17 @@ ATController(AlterTableStmt *parsetree,
 		 * If Phase 3 fails, rollbackHandle will specify how to rollback the
 		 * changes done to DocDB.
 		 */
-		ATRewriteCatalogs(&wqueue, lockmode, context, &rollbackHandles, &ybAlteredTableIds);
+		ATRewriteCatalogs(&wqueue, lockmode, context, &rollbackHandles);
 	}
 	PG_CATCH();
 	{
-		YbATInvalidateTableCacheAfterAlter(ybAlteredTableIds);
+		/*
+		 * If the ALTER is executing in a transaction block with support
+		 * enabled, then the invalidation will be taken care of during the Abort
+		 * of the transaction.
+		 */
+		if (!*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled)
+			YbInvalidateTableCacheForAlteredTables();
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -4796,7 +4796,7 @@ ATController(AlterTableStmt *parsetree,
 	PG_TRY();
 	{
 		ATRewriteTables(parsetree, &wqueue, lockmode, context);
-		YbATInvalidateTableCacheAfterAlter(ybAlteredTableIds);
+		YbInvalidateTableCacheForAlteredTables();
 	}
 	PG_CATCH();
 	{
@@ -4816,7 +4816,14 @@ ATController(AlterTableStmt *parsetree,
 				YBCExecAlterTable(handle, RelationGetRelid(rel));
 			}
 		}
-		YbATInvalidateTableCacheAfterAlter(ybAlteredTableIds);
+
+		/*
+		 * If the ALTER is executing in a transaction block with support
+		 * enabled, then the invalidation will be taken care of during the Abort
+		 * of the transaction.
+		 */
+		if (!*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled)
+			YbInvalidateTableCacheForAlteredTables();
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -5230,8 +5237,7 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 static void
 ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 				  AlterTableUtilityContext *context,
-				  List **rollbackHandles,
-				  List *volatile *ybAlteredTableIds)
+				  List **rollbackHandles)
 {
 	int			pass;
 	ListCell   *ltab;
@@ -5252,8 +5258,7 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 											   AT_NUM_PASSES,
 											   main_relid,
 											   &rollbackHandle,
-											   false /* isPartitionOfAlteredTable */ ,
-											   ybAlteredTableIds);
+											   false /* isPartitionOfAlteredTable */ );
 
 	if (rollbackHandle)
 		*rollbackHandles = lappend(*rollbackHandles, rollbackHandle);
@@ -5280,8 +5285,7 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode,
 														 AT_NUM_PASSES,
 														 childrelid,
 														 &childRollbackHandle,
-														 true /* isPartitionOfAlteredTable */ ,
-														 ybAlteredTableIds);
+														 true /* isPartitionOfAlteredTable */ );
 		ListCell   *listcell = NULL;
 
 		foreach(listcell, child_handles)
@@ -6065,6 +6069,32 @@ ATRewriteTables(AlterTableStmt *parsetree, List **wqueue, LOCKMODE lockmode,
 								 " notice.")));
 
 			/*
+			 * In YB, we rewrite parent partitioned tables, as they have
+			 * associated DocDB tables. However, we do not need to execute
+			 * the full flow of ATRewriteTable for them as they do not contain
+			 * any data. So, simply set the new relfilenode and continue.
+			 * Note: dropping a DocDB table also drops the associated indexes.
+			 * In this scenario, these are parent partitioned indexes that
+			 * also do not contain any data. Call reindex_relation() for now
+			 * to re-create them. However, this is redundant and can
+			 * potentially be optimized. The combination of
+			 * RelationSetNewRelfilenode + reindex_relation() is similar to
+			 * what we already do for TRUNCATE (See ExecuteTruncateGuts()).
+			 */
+			if (IsYugaByteEnabled() && tab->relkind == RELKIND_PARTITIONED_TABLE)
+			{
+				RelationSetNewRelfilenode(OldHeap,
+					OldHeap->rd_rel->relpersistence,
+					!tab->yb_skip_copy_split_options);
+				ReindexParams reindex_params = {0};
+				reindex_relation(RelationGetRelid(OldHeap), 0, &reindex_params,
+					true /* is_yb_table_rewrite */ ,
+					!tab->yb_skip_copy_split_options);
+				table_close(OldHeap, NoLock);
+				continue;
+			}
+
+			/*
 			 * Don't allow rewrite on temp tables of other backends ... their
 			 * local buffer manager is not going to cope.
 			 */
@@ -6166,6 +6196,14 @@ ATRewriteTables(AlterTableStmt *parsetree, List **wqueue, LOCKMODE lockmode,
 		}
 		else
 		{
+			/*
+			 * In YB, we can reach here for parent partitioned tables as well.
+			 * However, there is nothing to be done for them as they don't
+			 * contain data. So, skip them.
+			 */
+			if (IsYugaByteEnabled() && tab->relkind == RELKIND_PARTITIONED_TABLE)
+				continue;
+
 			/*
 			 * If required, test the current data within the table against new
 			 * constraints generated by ALTER TABLE commands, but don't
@@ -6594,29 +6632,6 @@ ATRewriteTable(AlteredTableInfo *tab, Oid OIDNewHeap, LOCKMODE lockmode)
 					case CONSTR_CHECK:
 						if (!ExecCheck(con->qualstate, econtext))
 						{
-							/*
-							 * If YugaByte is enabled, the add constraint
-							 * operation is not atomic. So we must delete the
-							 * relevant entries from the catalog tables.
-							 */
-							/*
-							 * YB_TODO(fizaa) : clean this up -- this condition
-							 * is incomplete as we don't want to drop the
-							 * constraint if we are performing the check
-							 * as part of a VALIDATE CONSTRAINT operation.
-							 */
-							if (IsYugaByteEnabled() && !YbDdlRollbackEnabled())
-							{
-								/*
-								 * Even though we pass oldrel as a reference, it won't change
-								 * for CHECK constraint.
-								 */
-								Relation	oldrel_prev PG_USED_FOR_ASSERTS_ONLY = oldrel;
-
-								ATExecDropConstraint(NULL, tab, &oldrel, con->name, DROP_RESTRICT, true,
-													 false, false, lockmode);
-								Assert(oldrel == oldrel_prev);
-							}
 							ereport(ERROR,
 									(errcode(ERRCODE_CHECK_VIOLATION),
 									 errmsg("check constraint \"%s\" of relation \"%s\" is violated by some row",
@@ -9205,6 +9220,12 @@ ATExecDropColumn(List **wqueue, AlteredTableInfo *yb_tab, Relation rel,
 				}
 				else
 				{
+					if (IsYugaByteEnabled() && *YBCGetGFlags()->ysql_enable_inheritance)
+						elog(ERROR, "Dropping a locally defined child col from the parent is not supported in YB."
+												" Please report at #26094."
+												" As a workaround, temporarily disable inheritance on the child, drop col from parent, "
+												" and re-enable inheritance.");
+
 					/* Child column must survive my deletion */
 					childatt->attinhcount--;
 
@@ -12498,11 +12519,11 @@ validateForeignKeyConstraint(char *conname,
 
 	/* YB note: perTupCxt is used as per-batch (and not per-tuple) context */
 	if (IsYBRelation(rel))
-		perTupCxt = AllocSetContextCreate(GetCurrentMemoryContext(),
+		perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
 										  "validateForeignKeyConstraint",
 										  ALLOCSET_DEFAULT_SIZES);
 	else
-		perTupCxt = AllocSetContextCreate(GetCurrentMemoryContext(),
+		perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
 										  "validateForeignKeyConstraint",
 										  ALLOCSET_SMALL_SIZES);
 
@@ -19265,7 +19286,7 @@ AttachPartitionEnsureIndexes(Relation rel, Relation attachrel, List **yb_wqueue)
 	MemoryContext cxt;
 	MemoryContext oldcxt;
 
-	cxt = AllocSetContextCreate(GetCurrentMemoryContext(),
+	cxt = AllocSetContextCreate(CurrentMemoryContext,
 								"AttachPartitionEnsureIndexes",
 								ALLOCSET_DEFAULT_SIZES);
 	oldcxt = MemoryContextSwitchTo(cxt);
@@ -19464,7 +19485,7 @@ CloneRowTriggersToPartition(Relation parent, Relation partition)
 	scan = systable_beginscan(pg_trigger, TriggerRelidNameIndexId,
 							  true, NULL, 1, &key);
 
-	perTupCxt = AllocSetContextCreate(GetCurrentMemoryContext(),
+	perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
 									  "clone trig", ALLOCSET_SMALL_SIZES);
 
 	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
@@ -22304,7 +22325,7 @@ YbATCopyTriggers(const Relation old_rel, const Relation new_rel,
 							  true /* indexOK */ , NULL /* snapshot */ ,
 							  1 /* nkeys */ , &key);
 
-	per_tup_cxt = AllocSetContextCreate(GetCurrentMemoryContext(),
+	per_tup_cxt = AllocSetContextCreate(CurrentMemoryContext,
 										"copy triggers", ALLOCSET_SMALL_SIZES);
 	oldcxt = MemoryContextSwitchTo(per_tup_cxt);
 
@@ -22956,43 +22977,5 @@ YbATCopyIndexSplitOptions(Oid oldId, IndexStmt *stmt, AlteredTableInfo *tab)
 		if (yb_copy_split_options)
 			stmt->split_options = YbGetSplitOptions(idx_rel);
 		RelationClose(idx_rel);
-	}
-}
-
-/*
- * Used in YB to re-invalidate table cache entries at the end of an ALTER TABLE
- * operation.
- */
-static void
-YbATInvalidateTableCacheAfterAlter(List *ybAlteredTableIds)
-{
-	if (YbDdlRollbackEnabled() && ybAlteredTableIds)
-	{
-		/*
-		 * As part of DDL transaction verification, we may have incremented
-		 * the schema version for the affected tables. So, re-invalidate
-		 * the table cache entries of the affected tables.
-		 */
-		ListCell   *lc = NULL;
-
-		foreach(lc, ybAlteredTableIds)
-		{
-			Oid			relid = lfirst_oid(lc);
-			Relation	rel = RelationIdGetRelation(relid);
-
-			/*
-			 * The relation may no longer exist if it was dropped as part of
-			 * a legacy rewrite operation. We can skip invalidation in that
-			 * case.
-			 */
-			if (!rel)
-			{
-				Assert(!yb_enable_alter_table_rewrite);
-				continue;
-			}
-			YBCPgAlterTableInvalidateTableByOid(YBCGetDatabaseOidByRelid(relid),
-												YbGetRelfileNodeIdFromRelId(relid));
-			RelationClose(rel);
-		}
 	}
 }

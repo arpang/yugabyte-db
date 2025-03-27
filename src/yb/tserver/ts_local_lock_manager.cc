@@ -21,6 +21,7 @@
 #include "yb/util/backoff_waiter.h"
 #include "yb/util/monotime.h"
 #include "yb/util/scope_exit.h"
+#include "yb/util/trace.h"
 #include "yb/util/unique_lock.h"
 
 using namespace std::literals;
@@ -30,11 +31,12 @@ namespace yb::tserver {
 
 class TSLocalLockManager::Impl {
  public:
-  explicit Impl(const server::ClockPtr& clock) : clock_(clock) {}
+  Impl(const server::ClockPtr& clock, TabletServerIf* server) : clock_(clock), server_(server) {}
 
   ~Impl() = default;
 
   Status CheckRequestForDeadline(const tserver::AcquireObjectLockRequestPB& req) {
+    TRACE_FUNC();
     server::UpdateClock(req, clock_.get());
     auto now_ht = clock_->Now();
     if (req.has_ignore_after_hybrid_time() && req.ignore_after_hybrid_time() <= now_ht.ToUint64()) {
@@ -44,6 +46,7 @@ class TSLocalLockManager::Impl {
     }
     auto max_seen_lease_epoch = GetMaxSeenLeaseEpoch(req.session_host_uuid());
     if (req.lease_epoch() < max_seen_lease_epoch) {
+      TRACE("Requestor has an old lease epoch, rejecting the request.");
       return STATUS_FORMAT(
           InvalidArgument,
           "Requestor has a lease epoch of $0 but the latest valid lease epoch for "
@@ -56,10 +59,18 @@ class TSLocalLockManager::Impl {
   Status AcquireObjectLocks(
       const tserver::AcquireObjectLockRequestPB& req, CoarseTimePoint deadline,
       WaitForBootstrap wait) {
+    TRACE_FUNC();
     if (wait) {
-      RETURN_NOT_OK(
-          Wait([this]() -> bool { return is_bootstrapped_; }, deadline, "Waiting to Bootstrap."));
+      VTRACE(1, "Waiting for bootstrap.");
+      RETURN_NOT_OK(Wait(
+          [this]() -> bool {
+            bool ret = is_bootstrapped_;
+            VTRACE(2, "Is bootstrapped: $0", ret);
+            return ret;
+          },
+          deadline, "Waiting to Bootstrap."));
     }
+    TRACE("Through wait for bootstrap.");
     auto txn = VERIFY_RESULT(FullyDecodeTransactionId(req.txn_id()));
     ScopedAddToInProgressTxns add_to_in_progress{this, ToString(txn), deadline};
     RETURN_NOT_OK(add_to_in_progress.status());
@@ -69,8 +80,10 @@ class TSLocalLockManager::Impl {
     docdb::ObjectLockOwner object_lock_owner(txn, req.subtxn_id());
     auto keys_to_lock = VERIFY_RESULT(DetermineObjectsToLock(req.object_locks()));
     if (object_lock_manager_.Lock(object_lock_owner, keys_to_lock.lock_batch, deadline)) {
+      TRACE("Successfully obtained object locks.");
       return Status::OK();
     }
+    TRACE("Could not get the object locks.");
     std::string batch_str;
     if (FLAGS_dump_lock_keys) {
       batch_str = Format(", batch: $0", keys_to_lock.lock_batch);
@@ -120,12 +133,17 @@ class TSLocalLockManager::Impl {
     auto txn = VERIFY_RESULT(FullyDecodeTransactionId(req.txn_id()));
     ScopedAddToInProgressTxns add_to_in_progress{this, ToString(txn), deadline};
     RETURN_NOT_OK(add_to_in_progress.status());
+    // In case of exclusive locks, invalidate the db table cache before releasing them.
+    if (req.has_db_catalog_version_data()) {
+      server_->SetYsqlDBCatalogVersions(req.db_catalog_version_data());
+    }
     docdb::ObjectLockOwner object_lock_owner(txn, req.subtxn_id());
     object_lock_manager_.Unlock(object_lock_owner);
     return Status::OK();
   }
 
   void UpdateLeaseEpochIfNecessary(const std::string& uuid, uint64_t lease_epoch) EXCLUDES(mutex_) {
+    TRACE_FUNC();
     std::lock_guard<LockType> lock(mutex_);
     auto it = max_seen_lease_epoch_.find(uuid);
     if (it == max_seen_lease_epoch_.end()) {
@@ -146,11 +164,13 @@ class TSLocalLockManager::Impl {
 
   Status AddToInProgressTxns(const std::string& txn_id, const CoarseTimePoint& deadline)
       EXCLUDES(mutex_) {
+    TRACE_FUNC();
     yb::UniqueLock<LockType> lock(mutex_);
     while (txns_in_progress_.find(txn_id) != txns_in_progress_.end()) {
       if (deadline <= CoarseMonoClock::Now()) {
         LOG(ERROR) << "Failed to add txn " << txn_id << " to in progress txns until deadline: "
                     << ToString(deadline);
+        TRACE("Failed to add by deadline.");
         return STATUS_FORMAT(
             TryAgain, "Failed to add txn $0 to in progress txns until deadline: $1", txn_id,
             deadline);
@@ -162,14 +182,17 @@ class TSLocalLockManager::Impl {
       }
     }
     txns_in_progress_.insert(txn_id);
+    TRACE("Added");
     return Status::OK();
   }
 
   void RemoveFromInProgressTxns(const std::string& txn_id) EXCLUDES(mutex_) {
+    TRACE_FUNC();
     {
       std::lock_guard<LockType> lock(mutex_);
       txns_in_progress_.erase(txn_id);
     }
+    TRACE("Removed from in progress txn.");
     cv_.notify_all();
   }
 
@@ -225,10 +248,11 @@ class TSLocalLockManager::Impl {
   std::condition_variable cv_;
   using LockType = std::mutex;
   LockType mutex_;
-
+  TabletServerIf* server_;
 };
 
-TSLocalLockManager::TSLocalLockManager(const server::ClockPtr& clock) : impl_(new Impl(clock)) {}
+TSLocalLockManager::TSLocalLockManager(const server::ClockPtr& clock, TabletServerIf* server)
+    : impl_(new Impl(clock, server)) {}
 
 TSLocalLockManager::~TSLocalLockManager() {}
 
@@ -249,6 +273,10 @@ void TSLocalLockManager::DumpLocksToHtml(std::ostream& out) {
 
 size_t TSLocalLockManager::TEST_GrantedLocksSize() const {
   return impl_->TEST_GrantedLocksSize();
+}
+
+bool TSLocalLockManager::IsBootstrapped() const {
+  return impl_->IsBootstrapped();
 }
 
 size_t TSLocalLockManager::TEST_WaitingLocksSize() const {

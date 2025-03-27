@@ -40,10 +40,9 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
-#include "utils/guc.h"
-
-/* YB includes. */
+/* YB includes */
 #include "utils/builtins.h"
+#include "utils/guc.h"	/* TODO: is needed? */
 
 PG_MODULE_MAGIC;
 
@@ -547,7 +546,7 @@ bt_check_every_level(Relation rel, Relation heaprel, bool heapkeyspace,
 				 errhint("Only B-Tree version 4 indexes support rootdescend verification.")));
 
 	/* Create context for page */
-	state->targetcontext = AllocSetContextCreate(GetCurrentMemoryContext(),
+	state->targetcontext = AllocSetContextCreate(CurrentMemoryContext,
 												 "amcheck context",
 												 ALLOCSET_DEFAULT_SIZES);
 	state->checkstrategy = GetAccessStrategy(BAS_BULKREAD);

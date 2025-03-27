@@ -598,7 +598,9 @@ PgApiImpl::PgApiImpl(
       fk_reference_cache_(ybctid_reader_provider_, buffering_settings_),
       explicit_row_lock_buffer_(ybctid_reader_provider_) {
   PgBackendSetupSharedMemory();
-  tserver_shared_object_ = &PgSharedMemoryManager().SharedData();
+  // This is an RCU object, but there are no concurrent updates on PG side, only on tserver, so
+  // it's safe to just save the pointer.
+  tserver_shared_object_ = PgSharedMemoryManager().SharedData().get();
 
   CHECK_OK(interrupter_->Start());
   CHECK_OK(clock_->Init());
@@ -811,7 +813,8 @@ Status PgApiImpl::NewCreateDatabase(
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateDatabase>(
           pg_session_, database_name, database_oid, source_database_oid, next_oid, yb_clone_info,
-          colocated, pg_txn_manager_->IsDdlMode()),
+          colocated, pg_txn_manager_->IsDdlMode(),
+          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
       handle);
 }
 
@@ -887,7 +890,8 @@ Status PgApiImpl::NewCreateTablegroup(
          "Tablegroup is being created outside of DDL mode");
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateTablegroup>(
-          pg_session_, database_name, database_oid, tablegroup_oid, tablespace_oid),
+          pg_session_, database_name, database_oid, tablegroup_oid, tablespace_oid,
+          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
       handle);
 }
 
@@ -901,9 +905,11 @@ Status PgApiImpl::NewDropTablegroup(
          IllegalState,
          "Tablegroup is being dropped outside of DDL mode");
   return AddToCurrentPgMemctx(
-      std::make_unique<PgDropTablegroup>(pg_session_, database_oid, tablegroup_oid), handle);
+      std::make_unique<PgDropTablegroup>(
+          pg_session_, database_oid, tablegroup_oid,
+          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
+      handle);
 }
-
 
 Status PgApiImpl::ExecDropTablegroup(PgStatement* handle) {
   return ExecDdlWithSyscatalogChanges<PgDropTablegroup>(handle, *pg_session_);
@@ -934,7 +940,8 @@ Status PgApiImpl::NewCreateTable(const char* database_name,
           pg_session_, database_name, schema_name, table_name, table_id, is_shared_table,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
-          old_relfilenode_oid, is_truncate, pg_txn_manager_->IsDdlMode()),
+          old_relfilenode_oid, is_truncate, pg_txn_manager_->IsDdlMode(),
+          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
       handle);
 }
 
@@ -961,7 +968,10 @@ Status PgApiImpl::ExecCreateTable(PgStatement* handle) {
 
 Status PgApiImpl::NewAlterTable(const PgObjectId& table_id, PgStatement** handle) {
   return AddToCurrentPgMemctx(
-      std::make_unique<PgAlterTable>(pg_session_, table_id, pg_txn_manager_->IsDdlMode()), handle);
+      std::make_unique<PgAlterTable>(
+          pg_session_, table_id, pg_txn_manager_->IsDdlMode(),
+          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
+      handle);
 }
 
 Status PgApiImpl::AlterTableAddColumn(
@@ -1130,7 +1140,8 @@ Status PgApiImpl::NewCreateIndex(const char* database_name,
           pg_session_, database_name, schema_name, index_name, index_id, is_shared_index,
           is_sys_catalog_index, if_not_exist, PG_YBROWID_MODE_NONE, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, false /* is_matview */, pg_table_id,
-          old_relfilenode_id, false /* is_truncate */, pg_txn_manager_->IsDdlMode(), base_table_id,
+          old_relfilenode_id, false /* is_truncate */, pg_txn_manager_->IsDdlMode(),
+          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock(), base_table_id,
           is_unique_index, skip_index_backfill),
       handle);
 }
@@ -1791,6 +1802,13 @@ Result<bool> PgApiImpl::CatalogVersionTableInPerdbMode() {
   return tserver_shared_object_->catalog_version_table_in_perdb_mode().value();
 }
 
+Result<tserver::PgGetTserverCatalogMessageListsResponsePB>
+PgApiImpl::GetTserverCatalogMessageLists(
+    uint32_t db_oid, uint64_t ysql_catalog_version, uint32_t num_catalog_versions) {
+  return pg_client_.GetTserverCatalogMessageLists(
+      db_oid, ysql_catalog_version, num_catalog_versions);
+}
+
 uint64_t PgApiImpl::GetSharedAuthKey() const {
   return tserver_shared_object_->postgres_auth_key();
 }
@@ -1822,12 +1840,12 @@ Status PgApiImpl::BeginTransaction(int64_t start_time) {
 }
 
 Status PgApiImpl::RecreateTransaction() {
-  RollbackTransactionScopedSessionState();
+  ClearSessionState();
   return pg_txn_manager_->RecreateTransaction();
 }
 
 Status PgApiImpl::RestartTransaction() {
-  RollbackTransactionScopedSessionState();
+  ClearSessionState();
   return pg_txn_manager_->RestartTransaction();
 }
 
@@ -1847,13 +1865,20 @@ bool PgApiImpl::IsRestartReadPointRequested() {
   return pg_txn_manager_->IsRestartReadPointRequested();
 }
 
-Status PgApiImpl::CommitPlainTransaction() {
-  RETURN_NOT_OK(CommitTransactionScopedSessionState());
-  return pg_txn_manager_->CommitPlainTransaction();
+Status PgApiImpl::CommitPlainTransaction(const std::optional<PgDdlCommitInfo>& ddl_commit_info) {
+  RSTATUS_DCHECK(
+      explicit_row_lock_buffer_.IsEmpty(),
+      IllegalState, "Expected row lock buffer to be empty");
+  RSTATUS_DCHECK(
+      pg_session_->IsInsertOnConflictBufferEmpty(),
+      IllegalState, "Expected INSERT ... ON CONFLICT buffer to be empty");
+  fk_reference_cache_.Clear();
+  RETURN_NOT_OK(pg_session_->FlushBufferedOperations());
+  return pg_txn_manager_->CommitPlainTransaction(ddl_commit_info);
 }
 
 Status PgApiImpl::AbortPlainTransaction() {
-  RollbackTransactionScopedSessionState();
+  ClearSessionState();
   return pg_txn_manager_->AbortPlainTransaction();
 }
 
@@ -1885,6 +1910,11 @@ Status PgApiImpl::SetReadOnlyStmt(bool read_only_stmt) {
   return pg_txn_manager_->SetReadOnlyStmt(read_only_stmt);
 }
 
+Status PgApiImpl::SetDdlStateInPlainTransaction() {
+  pg_session_->ResetHasWriteOperationsInDdlMode();
+  return pg_txn_manager_->SetDdlStateInPlainTransaction();
+}
+
 Status PgApiImpl::EnterSeparateDdlTxnMode() {
   // Flush all buffered operations as ddl txn use its own transaction session.
   RETURN_NOT_OK(pg_session_->FlushBufferedOperations());
@@ -1906,7 +1936,7 @@ Status PgApiImpl::ExitSeparateDdlTxnMode(PgOid db_oid, bool is_silent_modificati
 }
 
 Status PgApiImpl::ClearSeparateDdlTxnMode() {
-  RollbackTransactionScopedSessionState();
+  ClearSessionState();
   return pg_txn_manager_->ExitSeparateDdlTxnModeWithAbort();
 }
 
@@ -1916,7 +1946,7 @@ Status PgApiImpl::SetActiveSubTransaction(SubTransactionId id) {
 }
 
 Status PgApiImpl::RollbackToSubTransaction(SubTransactionId id) {
-  RollbackSubTransactionScopedSessionState();
+  ClearSessionState();
   return pg_session_->RollbackToSubTransaction(id);
 }
 
@@ -2166,8 +2196,14 @@ Result<tserver::PgGetReplicationSlotResponsePB> PgApiImpl::GetReplicationSlot(
 
 Result<cdc::InitVirtualWALForCDCResponsePB> PgApiImpl::InitVirtualWALForCDC(
     const std::string& stream_id, const std::vector<PgObjectId>& table_ids,
-    const YbcReplicationSlotHashRange* slot_hash_range) {
-  return pg_session_->pg_client().InitVirtualWALForCDC(stream_id, table_ids, slot_hash_range);
+    const YbcReplicationSlotHashRange* slot_hash_range, uint64_t active_pid) {
+  return pg_session_->pg_client().InitVirtualWALForCDC(
+    stream_id, table_ids, slot_hash_range, active_pid);
+}
+
+Result<cdc::GetLagMetricsResponsePB> PgApiImpl::GetLagMetrics(
+    const std::string& stream_id, int64_t* lag_metric) {
+  return pg_session_->pg_client().GetLagMetrics(stream_id, lag_metric);
 }
 
 Result<cdc::UpdatePublicationTableListResponsePB> PgApiImpl::UpdatePublicationTableList(
@@ -2214,29 +2250,11 @@ Result<tserver::PgServersMetricsResponsePB> PgApiImpl::ServersMetrics() {
     return pg_session_->ServersMetrics();
 }
 
-void PgApiImpl::RollbackSubTransactionScopedSessionState() {
+void PgApiImpl::ClearSessionState() {
+  fk_reference_cache_.Clear();
   pg_session_->DropBufferedOperations();
   explicit_row_lock_buffer_.Clear();
   pg_session_->ClearAllInsertOnConflictBuffers();
-}
-
-void PgApiImpl::RollbackTransactionScopedSessionState() {
-  RollbackSubTransactionScopedSessionState();
-  fk_reference_cache_.Clear();
-}
-
-Status PgApiImpl::CommitTransactionScopedSessionState() {
-  RSTATUS_DCHECK(
-      explicit_row_lock_buffer_.IsEmpty(),
-      IllegalState,
-      "Expected row lock buffer to be empty");
-  RSTATUS_DCHECK(
-      pg_session_->IsInsertOnConflictBufferEmpty(),
-      IllegalState,
-      "Expected INSERT ... ON CONFLICT buffer to be empty");
-  RETURN_NOT_OK(pg_session_->FlushBufferedOperations());
-  fk_reference_cache_.Clear();
-  return Status::OK();
 }
 
 bool PgApiImpl::IsCronLeader() const { return tserver_shared_object_->IsCronLeader(); }
