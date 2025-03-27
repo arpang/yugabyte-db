@@ -172,21 +172,6 @@ SELECT yb_index_check('part_2_b_c_d_idx'::regclass::oid);
 SELECT yb_index_check('part_2k_4k_b_c_d_idx'::regclass::oid);
 SELECT yb_index_check('part_4k_6k_b_c_d_idx'::regclass::oid);
 
--- Index of a colocated relation
-CREATE DATABASE colocateddb COLOCATION = TRUE;
-\c colocateddb
-CREATE TABLE abcd1(a int primary key, b int, c int, d int);
-CREATE INDEX abcd1_b_c_d_idx ON abcd1(b ASC) INCLUDE (c, d);
-INSERT INTO abcd1 SELECT i, i, i, i FROM generate_series(1, 1000) i;
-
-CREATE TABLE abcd2(a int primary key, b int, c int, d int);
-CREATE INDEX abcd2_b_c_d_idx ON abcd2(b ASC) INCLUDE (c, d);
-INSERT INTO abcd2 SELECT i, i, i, i FROM generate_series(1, 2000) i;
-
-SELECT yb_index_check('abcd1_b_c_d_idx'::regclass::oid);
-SELECT yb_index_check('abcd2_b_c_d_idx'::regclass::oid);
-\c yugabyte
-
 -- GIN indexes (not support yet)
 CREATE TABLE vectors (i serial PRIMARY KEY, v tsvector);
 CREATE INDEX ON vectors USING ybgin (v) where i > 5;
@@ -200,3 +185,19 @@ INSERT INTO test_bytea (a, b, c)  VALUES (1, 42, E'\\x48656c6c6f20576f726c64');
 INSERT INTO test_bytea (a, b, c)  VALUES (2, 42, 'test');
 SELECT yb_index_check('test_bytea_b_c_idx'::regclass::oid);
 SELECT yb_index_check('test_bytea_c_b_idx'::regclass::oid);
+
+-- Index of a colocated relation
+CREATE DATABASE colocateddb COLOCATION = TRUE;
+\c colocateddb
+CREATE TABLE abcd1(a int primary key, b int, c int, d int);
+CREATE INDEX abcd1_b_c_d_idx ON abcd1(b ASC) INCLUDE (c, d);
+INSERT INTO abcd1 SELECT i, i, i, i FROM generate_series(1, 1000) i;
+
+CREATE TABLE abcd2(a int primary key, b int, c int, d int);
+CREATE INDEX abcd2_b_c_d_idx ON abcd2(b ASC) INCLUDE (c, d);
+INSERT INTO abcd2 SELECT i, i, i, i FROM generate_series(1, 2000) i;
+
+SELECT yb_index_check('abcd1_b_c_d_idx'::regclass::oid);
+SELECT yb_index_check('abcd2_b_c_d_idx'::regclass::oid);
+
+-- Any commands below will be executed in 'colocateddb', a colocated database
