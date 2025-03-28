@@ -135,7 +135,9 @@ typedef struct TupleTableSlot
 
 	/* YugaByte support */
 	Datum		tts_ybctid;
+	Datum		ts_ybbasectid;
 	Datum		ts_ybuniqueidxkeysuffix;
+	Datum		ts_ybindexrowybctid;
 } TupleTableSlot;
 
 /* routines for a TupleTableSlot implementation */
@@ -430,7 +432,7 @@ slot_getsysattr(TupleTableSlot *slot, int attnum, bool *isnull)
 	{
 		/* Used for secondary index scan during index consistency check. */
 		*isnull = false;
-		return TABLETUPLE_YBCTID(slot);
+		return slot->ts_ybbasectid;
 	}
 	else if (attnum == YBUniqueIdxKeySuffixAttributeNumber)
 	{
