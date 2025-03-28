@@ -176,10 +176,8 @@ YBCComputeYBTupleIdFromSlot(Relation rel, TupleTableSlot *slot)
 		 */
 		if (attnum > 0)
 		{
-			Oid			type_id = ((attnum > 0) ?
-								   TupleDescAttr(slot->tts_tupleDescriptor,
-												 attnum - 1)->atttypid :
-								   InvalidOid);
+			Oid			type_id = TupleDescAttr(slot->tts_tupleDescriptor,
+												 attnum - 1)->atttypid;
 
 			next_attr->type_entity = YbDataTypeFromOidMod(attnum, type_id);
 			next_attr->collation_id = ybc_get_attcollation(RelationGetDescr(rel), attnum);
