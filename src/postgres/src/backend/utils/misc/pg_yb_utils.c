@@ -48,6 +48,7 @@
 #include "catalog/catalog.h"
 #include "catalog/index.h"
 #include "catalog/indexing.h"
+#include "catalog/namespace.h"
 #include "catalog/pg_am.h"
 #include "catalog/pg_amop.h"
 #include "catalog/pg_amproc.h"
@@ -840,8 +841,7 @@ FetchUniqueConstraintName(Oid relation_id)
  * message arguments.
  */
 void
-GetStatusMsgAndArgumentsByCode(const uint32_t pg_err_code,
-							   uint16_t txn_err_code, YbcStatus s,
+GetStatusMsgAndArgumentsByCode(const uint32_t pg_err_code, YbcStatus s,
 							   const char **msg_buf, size_t *msg_nargs,
 							   const char ***msg_args, const char **detail_buf,
 							   size_t *detail_nargs, const char ***detail_args)
@@ -858,50 +858,34 @@ GetStatusMsgAndArgumentsByCode(const uint32_t pg_err_code,
 	*detail_buf = NULL;
 	*detail_nargs = 0;
 	*detail_args = NULL;
-	elog(DEBUG2,
-		 "status_msg=%s txn_err_code=%d pg_err_code=%d", status_msg, txn_err_code, pg_err_code);
+	elog(DEBUG2, "status_msg=%s pg_err_code=%d", status_msg, pg_err_code);
 
 	switch (pg_err_code)
 	{
-		case ERRCODE_T_R_SERIALIZATION_FAILURE:
-			if (YBCIsTxnConflictError(txn_err_code))
-			{
-				*msg_buf = "could not serialize access due to concurrent update";
-				*msg_nargs = 0;
-				*msg_args = NULL;
-
-				*detail_buf = status_msg;
-				*detail_nargs = status_nargs;
-				*detail_args = status_args;
-			}
-			else if (YBCIsTxnAbortedError(txn_err_code))
-			{
-				*msg_buf = "current transaction is expired or aborted";
-				*msg_nargs = 0;
-				*msg_args = NULL;
-
-				*detail_buf = status_msg;
-				*detail_nargs = status_nargs;
-				*detail_args = status_args;
-			}
-			break;
 		case ERRCODE_UNIQUE_VIOLATION:
 			*msg_buf = "duplicate key value violates unique constraint \"%s\"";
 			*msg_nargs = 1;
 			*msg_args = (const char **) palloc(sizeof(const char *));
 			(*msg_args)[0] = FetchUniqueConstraintName(YBCStatusRelationOid(s));
 			break;
-		case ERRCODE_T_R_DEADLOCK_DETECTED:
-			if (YBCIsTxnDeadlockError(txn_err_code))
-			{
-				*msg_buf = "deadlock detected";
-				*msg_nargs = 0;
-				*msg_args = NULL;
+		case ERRCODE_YB_TXN_ABORTED:
+		case ERRCODE_YB_TXN_CONFLICT:
+			*msg_buf = "could not serialize access due to concurrent update";
+			*msg_nargs = 0;
+			*msg_args = NULL;
 
-				*detail_buf = status_msg;
-				*detail_nargs = status_nargs;
-				*detail_args = status_args;
-			}
+			*detail_buf = status_msg;
+			*detail_nargs = status_nargs;
+			*detail_args = status_args;
+			break;
+		case ERRCODE_YB_DEADLOCK:
+			*msg_buf = "deadlock detected";
+			*msg_nargs = 0;
+			*msg_args = NULL;
+
+			*detail_buf = status_msg;
+			*detail_nargs = status_nargs;
+			*detail_args = status_args;
 			break;
 		default:
 			break;
@@ -1144,6 +1128,13 @@ typedef struct
 
 } YbCatalogModificationAspects;
 
+typedef struct YbCatalogMessageList
+{
+	SharedInvalidationMessage *msgs;
+	size_t		nmsgs;
+	struct YbCatalogMessageList *next;
+} YbCatalogMessageList;
+
 typedef struct
 {
 	int			nesting_level;
@@ -1186,6 +1177,8 @@ typedef struct
 	 * ddl_transaction_state is reset.
 	 */
 	List	   *altered_table_ids;
+
+	YbCatalogMessageList *committed_pg_txn_messages;
 } YbDdlTransactionState;
 
 static YbDdlTransactionState ddl_transaction_state = {0};
@@ -2050,7 +2043,7 @@ bool		yb_enable_inplace_index_update = true;
 bool		yb_enable_advisory_locks = false;
 bool		yb_ignore_freeze_with_copy = true;
 bool		yb_enable_docdb_vector_type = false;
-bool		yb_enable_invalidation_messages = false;
+bool		yb_enable_invalidation_messages = true;
 int			yb_invalidation_message_expiration_secs = 10;
 int			yb_max_num_invalidation_messages = 4096;
 
@@ -2113,6 +2106,8 @@ bool		yb_silence_advisory_locks_not_supported_error = false;
 bool		yb_use_hash_splitting_by_default = true;
 
 bool		yb_skip_data_insert_for_table_rewrite = false;
+
+bool		yb_enable_extended_sql_codes = false;
 
 const char *
 YBDatumToString(Datum datum, Oid typid)
@@ -2412,16 +2407,38 @@ void
 YBSetDdlState(YbDdlMode mode)
 {
 	Assert(*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled);
-	Assert(!ddl_transaction_state.use_regular_txn_block ||
-		   ddl_transaction_state.nesting_level == 0);
 
-	if (ddl_transaction_state.nesting_level > 0 ||
-		ddl_transaction_state.use_regular_txn_block)
+	/*
+	 * If we have already executed a DDL in the current transaction block, then
+	 * just add the new mode to the existing transaction state.
+	 */
+	if (ddl_transaction_state.use_regular_txn_block)
 	{
+		/*
+		 * We can arrive here in two cases:
+		 * 1. When there has been a DDL statement before in the transaction
+		 *    block. Example: BEGIN; DDL1; DDL2; COMMIT; In this case, when
+		 *    executing DDL2, we will arrive at this function with
+		 *    ddl_transaction_state.use_regular_txn_block already true.
+		 *
+		 * 2. When a DDL statement executes another statement internally.
+		 *    Example: CREATE TABLE test (a int primary key, b int);
+		 *    In this case, the statement also executes a CREATE INDEX
+		 *    internally. So we will arrive at this point with
+		 *    ddl_transaction_state.use_regular_txn_block as true.
+		 */
 		ddl_transaction_state.catalog_modification_aspects.pending |= mode;
 		return;
 	}
 
+	/*
+	 * This is the first DDL statement in the transaction block. We need to set
+	 * the DDL state in the PGGate and also initialize ddl_transaction_state.
+	 *
+	 * Restart counting the number of committed PG transactions during
+	 * this YB DDL transaction.
+	 */
+	ddl_transaction_state.num_committed_pg_txns = 0;
 	ddl_transaction_state.mem_context =
 		AllocSetContextCreate(CurrentMemoryContext,
 							  "aux ddl memory context",
@@ -2479,7 +2496,7 @@ YbIsInvalidationMessageEnabled()
 }
 
 bool
-YbCheckPgTxnCommitForAnalyze(bool *increment_done)
+YbTrackPgTxnInvalMessagesForAnalyze()
 {
 	/*
 	 * In some cases, PG can commit when the outer DDL statement isn't complete yet.
@@ -2529,8 +2546,9 @@ YbCheckPgTxnCommitForAnalyze(bool *increment_done)
 												 YB_CATCACHE_MSGS);
 	numRelCacheMsgs = YbGetSubGroupInvalMessages(&relCacheInvalMessages,
 												 YB_RELCACHE_MSGS);
+	Assert(ddl_transaction_state.mem_context);
 	currentInvalMessages = (SharedInvalidationMessage *)
-		MemoryContextAlloc(CurTransactionContext,
+		MemoryContextAlloc(ddl_transaction_state.mem_context,
 						   nmsgs * sizeof(SharedInvalidationMessage));
 	if (numCatCacheMsgs > 0)
 		memcpy(currentInvalMessages,
@@ -2542,20 +2560,19 @@ YbCheckPgTxnCommitForAnalyze(bool *increment_done)
 			   numRelCacheMsgs * sizeof(SharedInvalidationMessage));
 	if (log_min_messages <= DEBUG1)
 		YbLogInvalidationMessages(currentInvalMessages, nmsgs);
-	elog(DEBUG1, "incrementing catalog version in nested PG commit");
-	*increment_done =
-		YbIncrementMasterCatalogVersionTableEntry(false /* is_breaking_change */ ,
-												  ddl_transaction_state.is_global_ddl,
-												  ddl_transaction_state.original_ddl_command_tag,
-												  currentInvalMessages, nmsgs);
-	pfree(currentInvalMessages);
+	YbCatalogMessageList *current = (YbCatalogMessageList *)
+		MemoryContextAlloc(ddl_transaction_state.mem_context,
+						   sizeof(YbCatalogMessageList));
+	current->msgs = currentInvalMessages;
+	current->nmsgs = nmsgs;
 	/*
-	 * If we have failed to incremented the catalog version and inserted
-	 * the inval messages, we need to count this PG commit so that when
-	 * this ANALYZE DDL finishes we skip the incremental cache refresh
-	 * because we have lost the inval messages for this PG commit here.
+	 * Here we track committed pg txn messages in reverse order. Later
+	 * we reverse it again when copying.
 	 */
-	return !(*increment_done);
+	current->next = ddl_transaction_state.committed_pg_txn_messages;
+	ddl_transaction_state.committed_pg_txn_messages = current;
+	elog(DEBUG1, "tracking catalog version in nested PG commit");
+	return false;
 }
 
 void
@@ -2621,6 +2638,53 @@ YbCheckNewLocalCatalogVersionOptimization()
 		 * to x + 2.
 		 */
 		YbWaitForSharedCatalogVersionToCatchup(new_version);
+	}
+}
+
+static int
+YbTotalCommittedPgTxnMessages()
+{
+	if (!CheckIsAnalyzeDDL())
+	{
+		/* For now we only track committed pg txn for ANALYZE */
+		Assert(ddl_transaction_state.committed_pg_txn_messages == NULL);
+		return 0;
+	}
+	int total = 0;
+	for (YbCatalogMessageList *current = ddl_transaction_state.committed_pg_txn_messages;
+		 current != NULL; current = current->next)
+		total += current->nmsgs;
+	return total;
+}
+
+static void
+YbCopyCommittedPgTxnMessages(SharedInvalidationMessage *currentInvalMessages)
+{
+	YbCatalogMessageList *current;
+	int num_pg_txn_commits = 0;
+	for (current = ddl_transaction_state.committed_pg_txn_messages;
+		 current != NULL; current = current->next)
+		++num_pg_txn_commits;
+	YbCatalogMessageList *temp = (YbCatalogMessageList *)
+		MemoryContextAlloc(ddl_transaction_state.mem_context,
+						   sizeof(YbCatalogMessageList) * num_pg_txn_commits);
+	/*
+	 * Copy the list in reverse order to get back the original order of committed
+	 * pg txns.
+	 */
+	int count = num_pg_txn_commits;
+	for (current = ddl_transaction_state.committed_pg_txn_messages;
+		 current != NULL; current = current->next)
+		temp[--count] = *current;
+	Assert(count == 0);
+	int total = 0;
+	/* Copy the messages of committed pg txns into currentInvalMessages. */
+	for (count = 0; count < num_pg_txn_commits; ++count)
+	{
+		current = &temp[count];
+		memcpy(currentInvalMessages + total, current->msgs,
+			   current->nmsgs * sizeof(SharedInvalidationMessage));
+		total += current->nmsgs;
 	}
 }
 
@@ -2692,6 +2756,11 @@ YBCommitTransactionContainingDDL()
 			int numExistingRelCacheMsgs = YbGetNumInvalMessagesInTxn(YB_RELCACHE_MSGS);
 			Assert(numCatCacheMsgs >= numExistingCatCacheMsgs);
 			Assert(numRelCacheMsgs >= numExistingRelCacheMsgs);
+
+			int total = YbTotalCommittedPgTxnMessages();
+
+			/* We can not have committed pg txns in ANALYZE within a transaction block. */
+			Assert(total == 0 || (numExistingCatCacheMsgs == 0 && numExistingRelCacheMsgs == 0));
 			/*
 			 * Adjust currentCatCacheInvalMessages pointers to the catcache messages
 			 * generated by the current DDL. E.g., if numExistingCatCacheMsgs == 20,
@@ -2713,7 +2782,7 @@ YBCommitTransactionContainingDDL()
 			numRelCacheMsgs -= numExistingRelCacheMsgs;
 			YbAddNumInvalMessagesInTxn(YB_RELCACHE_MSGS, numRelCacheMsgs);
 
-			nmsgs = numCatCacheMsgs + numRelCacheMsgs;
+			nmsgs = numCatCacheMsgs + numRelCacheMsgs + total;
 			if (nmsgs > 0)
 			{
 				int max_allowed = yb_max_num_invalidation_messages;
@@ -2729,24 +2798,23 @@ YBCommitTransactionContainingDDL()
 				else
 				{
 					currentInvalMessages = (SharedInvalidationMessage *)
-						MemoryContextAlloc(CurTransactionContext,
+						MemoryContextAlloc(ddl_transaction_state.mem_context,
 										   nmsgs * sizeof(SharedInvalidationMessage));
+					if (total > 0)
+						YbCopyCommittedPgTxnMessages(currentInvalMessages);
+
 					if (numCatCacheMsgs > 0)
-						memcpy(currentInvalMessages,
+						memcpy(currentInvalMessages + total,
 							   currentCatCacheInvalMessages,
 							   numCatCacheMsgs * sizeof(SharedInvalidationMessage));
 					if (numRelCacheMsgs > 0)
-						memcpy(currentInvalMessages + numCatCacheMsgs,
+						memcpy(currentInvalMessages + total + numCatCacheMsgs,
 							   currentRelCacheInvalMessages,
 							   numRelCacheMsgs * sizeof(SharedInvalidationMessage));
 				}
 			}
 			else
 				Assert(nmsgs == 0);
-			if (catCacheInvalMessages)
-				pfree(catCacheInvalMessages);
-			if (relCacheInvalMessages)
-				pfree(relCacheInvalMessages);
 			YBC_LOG_INFO("currentInvalMessages=%p, nmsgs=%d", currentInvalMessages, nmsgs);
 		}
 		else if (ddl_transaction_state.num_committed_pg_txns > 0)
@@ -2775,9 +2843,6 @@ YBCommitTransactionContainingDDL()
 													  currentInvalMessages, nmsgs);
 
 		is_silent_altering = (mode == YB_DDL_MODE_SILENT_ALTERING);
-
-		if (currentInvalMessages)
-			pfree(currentInvalMessages);
 	}
 
 	Oid			database_oid = YbGetDatabaseOidToIncrementCatalogVersion();
@@ -3342,7 +3407,27 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 			}
 
 		case T_AlterTableStmt:
+			/* We rely on table schema version mismatch to abort transactions that touch the table. */
 			is_breaking_change = false;
+
+			AlterTableStmt *stmt = castNode(AlterTableStmt, parsetree);
+
+			Oid relid = RangeVarGetRelidExtended(stmt->relation, NoLock,
+				RVR_MISSING_OK, /* callback */ NULL, /* callback_arg */ NULL);
+			if (OidIsValid(relid))
+			{
+				Relation	rel;
+				rel = relation_open(relid, NoLock);
+				bool is_temp_table = rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP;
+				relation_close(rel, NoLock);
+
+				if (is_temp_table)
+				{
+					is_version_increment = false;
+					break;
+				}
+			}
+
 			/*
 			 * Must increment catalog version when creating table with foreign
 			 * key reference and refresh PG cache on ongoing transactions.
@@ -3352,7 +3437,6 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 				ddl_transaction_state.original_node_tag == T_CreateStmt &&
 				node_tag == T_AlterTableStmt)
 			{
-				AlterTableStmt *stmt = castNode(AlterTableStmt, parsetree);
 				ListCell   *lcmd;
 
 				foreach(lcmd, stmt->cmds)
@@ -3428,12 +3512,15 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 				RefreshMatViewStmt *stmt = castNode(RefreshMatViewStmt, parsetree);
 
 				is_breaking_change = false;
-				if (stmt->concurrent)
+				if (stmt->concurrent || YbRefreshMatviewInPlace())
 				{
 					/*
 					 * REFRESH MATERIALIZED VIEW CONCURRENTLY does not need
 					 * a catalog version increment as it does not alter any
 					 * metadata. The command only performs data changes.
+					 *
+					 * In-place refresh forces the refresh to happen in a
+					 * similar way.
 					 */
 					is_version_increment = false;
 					/*
@@ -7230,4 +7317,11 @@ YbGetPotentiallyHiddenOidText(Oid oid)
 		 */
 		return oid_text;
 	}
+}
+
+bool
+YbRefreshMatviewInPlace()
+{
+	return yb_refresh_matview_in_place ||
+		   YBCPgYsqlMajorVersionUpgradeInProgress();
 }
