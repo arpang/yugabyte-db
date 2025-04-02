@@ -172,14 +172,13 @@ SELECT yb_index_check('part_2_b_c_d_idx'::regclass::oid);
 SELECT yb_index_check('part_2k_4k_b_c_d_idx'::regclass::oid);
 SELECT yb_index_check('part_4k_6k_b_c_d_idx'::regclass::oid);
 
--- Index of a materialized view
+-- Index of materialized view
 CREATE MATERIALIZED VIEW matview AS SELECT * FROM abcd;
 CREATE INDEX matview_b_idx ON matview (b);
 SELECT yb_index_check('matview_b_idx'::regclass);
--- Executing the same command second time as checks if the dummy index fields are free'd up.
+-- Execute the same command second time to check if the dummy index fields are free'd up.
 -- See yb_dummy_baserel_index_open()/yb_free_dummy_baserel_index().
 SELECT yb_index_check('matview_b_idx'::regclass);
-
 
 -- Index of a colocated relation
 CREATE DATABASE colocateddb COLOCATION = TRUE;
