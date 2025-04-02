@@ -560,7 +560,7 @@ check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
 	while ((output = ExecProcNode(join_state)))
 	{
 		check_index_row_consistency(output, equality_opcodes, indexrel);
-		YBCPgResetTransactionReadPoint();
+		// YBCPgResetTransactionReadPoint();
 	}
 	ExecEndNode(join_state);
 
@@ -767,13 +767,9 @@ baserel_scan_plan2(Relation baserel, Relation indexrel)
 		keyatts = lappend(keyatts, expr);
 	}
 
-	ArrayExpr *keyattsexpr = makeNode(ArrayExpr);
-	keyattsexpr->array_typeid = ANYARRAYOID;
-	keyattsexpr->element_typeid = ANYOID;
-	keyattsexpr->multidims = false;
-	keyattsexpr->array_collid = InvalidOid;
-	keyattsexpr->location = -1;
-	keyattsexpr->elements = keyatts;
+	RowExpr* rowexpr = makeNode(RowExpr);
+	rowexpr->args = keyatts;
+	rowexpr->row_typeid = RECORDOID;
 
 	Const *indexoidarg = makeConst(OIDOID, 0, InvalidOid, sizeof(Oid),
 								   (Datum) indexrel->rd_rel->oid, false, true);
@@ -782,7 +778,7 @@ baserel_scan_plan2(Relation baserel, Relation indexrel)
 	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
 							   attr->atttypmod, attr->attcollation, 0);
 
-	List *args = list_make3(indexoidarg, keyattsexpr, ybctid_expr);
+	List *args = list_make3(indexoidarg, rowexpr, ybctid_expr);
 
 	FuncExpr *funcexpr = makeFuncExpr(F_YB_COMPUTE_YBCTID, BYTEAOID, args,
 									  InvalidOid, InvalidOid,
@@ -915,6 +911,7 @@ missing_check_plan(Relation baserel, Relation indexrel)
 static void
 check_index_row_consistency2(TupleTableSlot *slot)
 {
+	Assert(!TTS_EMPTY(slot));
 	bool ind_null;
 	bool base_null;
 	Datum indexrow_ybctid = slot_getattr(slot, 2, &ind_null);
@@ -948,7 +945,7 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 	while ((output = ExecProcNode(state)))
 	{
 		check_index_row_consistency2(output);
-		YBCPgResetTransactionReadPoint();
+		// YBCPgResetTransactionReadPoint();
 	}
 	ExecEndNode(state);
 	MemoryContextSwitchTo(oldctxt);
@@ -960,45 +957,20 @@ yb_compute_ybctid(PG_FUNCTION_ARGS)
 {
 	Oid relid = PG_GETARG_OID(0);
 	Relation rel = RelationIdGetRelation(relid);
-	TupleDesc desc = RelationGetDescr(rel);
-	TupleTableSlot *slot = MakeTupleTableSlot(desc, &TTSOpsVirtual);
-
-	AnyArrayType *array = PG_GETARG_ANY_ARRAY_P(1);
-	int ndims = AARR_NDIM(array);
-	int *dims = AARR_DIMS(array);
-	Assert(ndims == 1);
-	int nitems = ArrayGetNItems(ndims, dims);
-	Assert(nitems <= desc->natts);
-	Assert(nitems > 0);
-	array_iter iter;
-	array_iter_setup(&iter, array);
-
-	bool null = false;
-	for (int i = 0; i < nitems; i++)
-	{
-		FormData_pg_attribute *att = TupleDescAttr(desc, i);
-		slot->tts_values[i] = array_iter_next(&iter, &slot->tts_isnull[i], i,
-											  att->attlen, att->attbyval,
-											  att->attalign);
-		null = null || slot->tts_isnull[i];
-	}
-
-	slot->tts_nvalid = nitems;
-	slot->tts_flags &= ~TTS_FLAG_EMPTY; /* Not empty */
-	slot->tts_tableOid = relid;
-
+	TupleTableSlot *slot = MakeTupleTableSlot(RelationGetDescr(rel), &TTSOpsVirtual);
 	Form_pg_index index = rel->rd_index;
+
+	ExecStoreHeapTupleDatum(PG_GETARG_DATUM(1), slot);
+
+	bool has_null = PG_GETARG_HEAPTUPLEHEADER(1)->t_infomask & HEAP_HASNULL;
+
 	if (index)
 	{
-		int nkeyatts = index->indnkeyatts;
 		int indisunique = index->indisunique;
-		if (nitems != nkeyatts)
-			elog(ERROR, "Number of argument mimatched. Expected %d, actual %d",
-				 nkeyatts, nitems);
 		Datum ybbasetid = PG_GETARG_DATUM(2);
 		if (!DatumGetPointer(ybbasetid))
 			elog(ERROR, "ybbasetid cannot be NULL for index relations");
-		if (indisunique && !index->indnullsnotdistinct && null)
+		if (indisunique && !index->indnullsnotdistinct && has_null)
 			slot->ts_ybuniqueidxkeysuffix = ybbasetid;
 		else if (!indisunique)
 			slot->ts_ybbasectid = ybbasetid;

@@ -116,7 +116,7 @@ VOLATILE STRICT PARALLEL SAFE
 AS 'yb_cancel_query_diagnostics';
 
 CREATE OR REPLACE FUNCTION
-  yb_compute_ybctid(relid oid, pk_values anyarray, ybbasectid bytea DEFAULT NULL)
+  yb_compute_ybctid(relid oid, key_values record, ybbasectid bytea DEFAULT NULL)
 RETURNS bytea
 LANGUAGE INTERNAL
 IMMUTABLE PARALLEL SAFE

@@ -13,9 +13,9 @@ BEGIN;
     (8095, 'yb_compute_ybctid', 11, 10, 12,
      1, 0, 0, '-', 'f',
      false, false, false, false, 'i',
-     's', 3, 1, '17', '26 2277 17',
-     NULL, NULL, '{relid,pk_values,ybbasectid}',
-     '({CONST :consttype 17 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull true :location 103 :constvalue <>})',
+     's', 3, 1, '17', '26 2249 17',
+     NULL, NULL, '{relid,key_values,ybbasectid}',
+     '({CONST :consttype 17 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull true :location 102 :constvalue <>})',
      NULL, 'yb_compute_ybctid', NULL, NULL, NULL)
   ON CONFLICT DO NOTHING;
 

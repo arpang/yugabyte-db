@@ -12201,7 +12201,7 @@
   prosrc => 'pg_clear_attribute_stats' },
 
 { oid => '8095', descr => 'given index key attributes, returns index row ybctid',
-  proname => 'yb_compute_ybctid', proargtypes => 'oid anyarray bytea',
+  proname => 'yb_compute_ybctid', proargtypes => 'oid record bytea',
   prorettype => 'bytea', prosrc => 'yb_compute_ybctid', proisstrict => 'f'},
 
 ]
