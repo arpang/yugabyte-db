@@ -266,6 +266,15 @@ SELECT yb_index_check('part_4k_6k_b_c_d_idx'::regclass::oid);
  
 (1 row)
 
+-- Index of a materialized view
+CREATE MATERIALIZED VIEW matview AS SELECT * FROM abcd;
+CREATE INDEX matview_b_idx ON matview (b);
+SELECT yb_index_check('matview_b_idx'::REGCLASS);
+ yb_index_check 
+----------------
+ 
+(1 row)
+
 -- Index of a colocated relation
 CREATE DATABASE colocateddb COLOCATION = TRUE;
 \c colocateddb
