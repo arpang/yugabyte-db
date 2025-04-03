@@ -1,7 +1,7 @@
 SET yb_explain_hide_non_deterministic_fields = true;
 
 -- Setup
-CREATE TABLE abcd(a int primary key, b int, c int, d int);
+CREATE TABLE abcd(a int primary key, b int, c int, d int) SPLIT INTO 1 TABLETS;
 CREATE INDEX abcd_b_c_d_idx ON abcd (b ASC) INCLUDE (c, d);
 INSERT INTO abcd SELECT i, i, i, i FROM generate_series(1, 10) i;
 
