@@ -78,6 +78,7 @@
 #include "yb/yql/pggate/pg_txn_manager.h"
 #include "yb/yql/pggate/pg_update.h"
 #include "yb/yql/pggate/pggate_flags.h"
+#include "yb/yql/pggate/ybc_pg_typedefs.h"
 #include "yb/yql/pggate/ybc_pggate.h"
 
 using namespace std::literals;
@@ -1564,6 +1565,10 @@ Status PgApiImpl::DmlANNSetPrefetchSize(PgStatement* handle, int prefetch_size) 
   return VERIFY_RESULT_REF(GetStatementAs<PgDml>(handle)).ANNSetPrefetchSize(prefetch_size);
 }
 
+Status PgApiImpl::DmlHnswSetReadOptions(PgStatement* handle, int ef_search) {
+  return VERIFY_RESULT_REF(GetStatementAs<PgDml>(handle)).HnswSetReadOptions(ef_search);
+}
+
 Status PgApiImpl::ExecSelect(PgStatement* handle, const YbcPgExecParameters* exec_params) {
   auto& select = VERIFY_RESULT_REF(GetStatementAs<PgSelect>(handle));
   if (pg_sys_table_prefetcher_ && select.IsReadFromYsqlCatalog() && select.read_req()) {
@@ -2174,10 +2179,12 @@ void PgApiImpl::RestoreSessionState(const YbcPgSessionState& session_data) {
 
 Status PgApiImpl::NewCreateReplicationSlot(
     const char* slot_name, const char* plugin_name, PgOid database_oid,
-    YbcPgReplicationSlotSnapshotAction snapshot_action, YbcLsnType lsn_type, PgStatement** handle) {
+    YbcPgReplicationSlotSnapshotAction snapshot_action, YbcLsnType lsn_type,
+    YbcOrderingMode ordering_mode, PgStatement** handle) {
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateReplicationSlot>(
-          pg_session_, slot_name, plugin_name, database_oid, snapshot_action, lsn_type),
+          pg_session_, slot_name, plugin_name, database_oid, snapshot_action, lsn_type,
+          ordering_mode),
       handle);
 }
 

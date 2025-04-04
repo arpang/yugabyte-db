@@ -2561,6 +2561,17 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_allow_replication_slot_ordering_modes", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("Allow specifying ordering mode while creating replication slot"),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_allow_replication_slot_ordering_modes,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_enable_consistent_replication_from_hash_range", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Enable replication slot consumption of consistent changes "
 			"from a hash range of table."),
@@ -2604,6 +2615,17 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_ignore_pg_class_oids,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_ignore_relfilenode_ids", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("Ignores requests to set relfilenode IDs in yb_binary_restore mode"),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_ignore_relfilenode_ids,
 		true,
 		NULL, NULL, NULL
 	},
@@ -3213,7 +3235,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_allow_separate_requests_for_sampling_stages,
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 

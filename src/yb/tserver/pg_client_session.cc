@@ -107,6 +107,7 @@ DECLARE_bool(ysql_enable_db_catalog_version_mode);
 DECLARE_bool(ysql_serializable_isolation_for_ddl_txn);
 DECLARE_bool(ysql_yb_enable_ddl_atomicity_infra);
 DECLARE_bool(ysql_yb_allow_replication_slot_lsn_types);
+DECLARE_bool(ysql_yb_allow_replication_slot_ordering_modes);
 DECLARE_bool(ysql_yb_enable_advisory_locks);
 DECLARE_bool(TEST_ysql_yb_ddl_transaction_block_enabled);
 
@@ -1331,6 +1332,20 @@ class PgClientSession::Impl {
       }
     }
 
+    std::optional<yb::ReplicationSlotOrderingMode> ordering_mode;
+    if (FLAGS_ysql_yb_allow_replication_slot_ordering_modes) {
+      switch (req.ordering_mode()) {
+        case ReplicationSlotOrderingModePg_ROW:
+          ordering_mode = ReplicationSlotOrderingMode::ReplicationSlotOrderingMode_ROW;
+          break;
+        case ReplicationSlotOrderingModePg_TRANSACTION:
+          ordering_mode = ReplicationSlotOrderingMode::ReplicationSlotOrderingMode_TRANSACTION;
+          break;
+        default:
+          return STATUS_FORMAT(InvalidArgument, "invalid ordering_mode $0", req.ordering_mode());
+      }
+    }
+
     uint64_t consistent_snapshot_time;
     auto stream_result = VERIFY_RESULT(client_.CreateCDCSDKStreamForNamespace(
         GetPgsqlNamespaceId(req.database_oid()), options,
@@ -1340,7 +1355,8 @@ class PgClientSession::Impl {
         context->GetClientDeadline(),
         CDCSDKDynamicTablesOption::DYNAMIC_TABLES_ENABLED,
         &consistent_snapshot_time,
-        lsn_type));
+        lsn_type,
+        ordering_mode));
     *resp->mutable_stream_id() = stream_result.ToString();
     resp->set_cdcsdk_consistent_snapshot_time(consistent_snapshot_time);
     return Status::OK();
@@ -2577,19 +2593,24 @@ class PgClientSession::Impl {
     }
 
     if (txn) {
-      return txn->isolation() != isolation
-          ? STATUS_FORMAT(
-              IllegalState,
-              "Attempt to change isolation level of running transaction from $0 to $1",
-              txn->isolation(), isolation)
-          : Status::OK();
+      if (txn->isolation() != isolation) {
+        return STATUS_FORMAT(
+          IllegalState,
+          "Attempt to change isolation level of running transaction from $0 to $1",
+          txn->isolation(), isolation);
+      }
+
+      return options.ddl_mode() && options.ddl_use_regular_transaction_block()
+                 ? txn->EnsureGlobal(deadline)
+                 : Status::OK();
     }
 
-    // TODO(#26299): Local to Global transaction promotion might not work with DDLs. Needs to be
-    // investigated and necessary support needs to be added.
+    const client::ForceGlobalTransaction force_global_transaction{
+        options.force_global_transaction() ||
+        (options.ddl_mode() && options.ddl_use_regular_transaction_block())};
     TransactionProvider::EnsureGlobal ensure_global{false};
     std::tie(txn, ensure_global) = transaction_provider_.Take<kSessionKind>(
-        client::ForceGlobalTransaction{options.force_global_transaction()}, deadline);
+      force_global_transaction, deadline);
     txn->SetLogPrefixTag(kTxnLogPrefixTag, id_);
     RETURN_NOT_OK(txn->SetPgTxnStart(options.pg_txn_start_us()));
     auto* read_point = session->read_point();

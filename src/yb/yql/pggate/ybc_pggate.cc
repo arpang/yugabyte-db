@@ -1514,6 +1514,10 @@ YbcStatus YBCPgDmlANNSetPrefetchSize(YbcPgStatement handle, int prefetch_size) {
   return ToYBCStatus(pgapi->DmlANNSetPrefetchSize(handle, prefetch_size));
 }
 
+YbcStatus YBCPgDmlHnswSetReadOptions(YbcPgStatement handle, int ef_search) {
+  return ToYBCStatus(pgapi->DmlHnswSetReadOptions(handle, ef_search));
+}
+
 YbcStatus YBCPgDmlFetch(YbcPgStatement handle, int32_t natts, uint64_t *values, bool *isnulls,
                         YbcPgSysColumns *syscols, bool *has_data) {
   return ToYBCStatus(pgapi->DmlFetch(handle, natts, values, isnulls, syscols, has_data));
@@ -2463,12 +2467,14 @@ YbcStatus YBCPgNewCreateReplicationSlot(const char *slot_name,
                                         YbcPgOid database_oid,
                                         YbcPgReplicationSlotSnapshotAction snapshot_action,
                                         YbcLsnType lsn_type,
+                                        YbcOrderingMode ordering_mode,
                                         YbcPgStatement *handle) {
   return ToYBCStatus(pgapi->NewCreateReplicationSlot(slot_name,
                                                      plugin_name,
                                                      database_oid,
                                                      snapshot_action,
                                                      lsn_type,
+                                                     ordering_mode,
                                                      handle));
 }
 

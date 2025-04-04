@@ -607,6 +607,8 @@ class PgApiImpl {
 
   Status DmlANNSetPrefetchSize(PgStatement *handle, int prefetch_size);
 
+  Status DmlHnswSetReadOptions(PgStatement *handle, int ef_search);
+
 
   //------------------------------------------------------------------------------------------------
   // Functions.
@@ -787,6 +789,7 @@ class PgApiImpl {
                                   const PgOid database_oid,
                                   YbcPgReplicationSlotSnapshotAction snapshot_action,
                                   YbcLsnType lsn_type,
+                                  YbcOrderingMode ordering_mode,
                                   PgStatement **handle);
   Result<tserver::PgCreateReplicationSlotResponsePB> ExecCreateReplicationSlot(
       PgStatement *handle);

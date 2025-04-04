@@ -31,6 +31,8 @@ bool yb_binary_restore = false;
 
 bool yb_ignore_pg_class_oids = true;
 
+bool yb_ignore_relfilenode_ids = true;
+
 bool yb_pushdown_strict_inequality = true;
 
 bool yb_pushdown_is_not_null = true;
@@ -48,6 +50,8 @@ bool yb_enable_replication_commands = true;
 bool yb_enable_replication_slot_consumption = true;
 
 bool yb_allow_replication_slot_lsn_types = true;
+
+bool yb_allow_replication_slot_ordering_modes = true;
 
 bool yb_enable_alter_table_rewrite = true;
 
@@ -89,9 +93,7 @@ int yb_read_after_commit_visibility = 0;
 
 bool yb_allow_block_based_sampling_algorithm = true;
 
-// TODO(analyze_sampling): https://github.com/yugabyte/yugabyte-db/issues/26366:
-// Switch to true here and inside src/postgres/src/backend/utils/misc/guc.c.
-bool yb_allow_separate_requests_for_sampling_stages = false;
+bool yb_allow_separate_requests_for_sampling_stages = true;
 
 // TODO(#24089): Once code duplication between yb_guc and ybc_util is removed, we should be able
 // to use YB_SAMPLING_ALGORITHM_BLOCK_BASED_SAMPLING instead of 1 and do it in one place.
