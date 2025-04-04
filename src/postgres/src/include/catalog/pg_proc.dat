@@ -12165,7 +12165,6 @@
   proname => 'yb_index_check', provolatile => 's',
   prorettype => 'void', proargtypes => 'oid',
   prosrc => 'yb_index_check' },
-]
 
 # Statistics Import
 { oid => '8091',
@@ -12200,3 +12199,9 @@
   proargtypes => 'regclass name bool',
   proargnames => '{relation,attname,inherited}',
   prosrc => 'pg_clear_attribute_stats' },
+
+{ oid => '8095', descr => 'given index key attributes, returns index row ybctid',
+  proname => 'yb_compute_ybctid', proargtypes => 'oid record bytea',
+  prorettype => 'bytea', prosrc => 'yb_compute_ybctid', proisstrict => 'f'},
+
+]

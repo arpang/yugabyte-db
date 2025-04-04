@@ -115,6 +115,13 @@ LANGUAGE INTERNAL
 VOLATILE STRICT PARALLEL SAFE
 AS 'yb_cancel_query_diagnostics';
 
+CREATE OR REPLACE FUNCTION
+  yb_compute_ybctid(relid oid, key_values record, ybbasectid bytea DEFAULT NULL)
+RETURNS bytea
+LANGUAGE INTERNAL
+IMMUTABLE PARALLEL SAFE
+AS 'yb_compute_ybctid';
+
 --
 -- Grant and revoke statements on YB objects.
 --
