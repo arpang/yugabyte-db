@@ -194,6 +194,8 @@ typedef struct Plan
 
 	/* Is this node forced using a UID? */
 	bool		ybHasHintedUid;
+
+	Datum		ybIndexCheckLowerBound;
 } Plan;
 
 /* ----------------

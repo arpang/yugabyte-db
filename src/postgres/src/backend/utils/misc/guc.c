@@ -5246,6 +5246,20 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_index_check_batch_multiplier", PGC_USERSET, QUERY_TUNING_OTHER,
+			gettext_noop("YB index checker performs the check in row batches. It "
+						 "uses a new read time for each batch to circumvent "
+						 "'Snapshot too old' error. Used batch size = "
+						 "yb_index_check_batch_multiplier * yb_bnl_batch_size."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_index_check_batch_multiplier,
+		1, 1, INT_MAX,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, 0, 0, NULL, NULL, NULL
