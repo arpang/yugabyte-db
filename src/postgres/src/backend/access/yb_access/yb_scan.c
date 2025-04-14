@@ -3053,7 +3053,7 @@ is_index_hash_partitioned(Relation relation)
 bool
 is_relation_hash_partitioned(Relation relation)
 {
-	elog(INFO, "relation->rd_indoption %p", relation->rd_indoption);
+	// elog(INFO, "relation->rd_indoption %p", relation->rd_indoption);
 	bool is_hash;
 
 	Oid pkindex = relation->rd_pkindex;

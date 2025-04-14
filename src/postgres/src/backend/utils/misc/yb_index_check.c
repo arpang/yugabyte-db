@@ -72,7 +72,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 	int indnkeyatts = indexrel->rd_index->indnkeyatts;
 
 	Assert(slot->tts_tupleDescriptor->natts ==
-		   2 * (indnatts + 1) + (indisunique ? 1 : 0));
+		   2 * (indnatts + 1) + (indisunique ? 1 : 0) + 1);
 
 	/* First, validate ybctid and ybbasectid. */
 	int ind_attnum = 1;
@@ -194,7 +194,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
  *		unique) from indexrel
  */
 static Plan *
-indexrel_scan_plan(Relation indexrel)
+indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid)
 {
 	TupleDesc indexdesc = RelationGetDescr(indexrel);
 
@@ -209,16 +209,15 @@ indexrel_scan_plan(Relation indexrel)
 	expr = (Expr *) makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
 							attr->atttypid, attr->atttypmod, attr->attcollation,
 							0);
-	target_entry = makeTargetEntry((Expr *) expr, resno, "", false);
+	target_entry = makeTargetEntry((Expr *) expr, resno++, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
-	resno++;
 
-	for (int i = 0; i < indexdesc->natts; i++, resno++)
+	for (int i = 0; i < indexdesc->natts; i++)
 	{
 		attr = TupleDescAttr(indexdesc, i);
 		expr = (Expr *) makeVar(INDEX_VAR, i + 1, attr->atttypid,
 								attr->atttypmod, attr->attcollation, 0);
-		target_entry = makeTargetEntry(expr, resno, "", false);
+		target_entry = makeTargetEntry(expr, resno++, "", false);
 		index_cols = lappend(index_cols, target_entry);
 		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
@@ -229,9 +228,16 @@ indexrel_scan_plan(Relation indexrel)
 		expr = (Expr *) makeVar(INDEX_VAR, YBUniqueIdxKeySuffixAttributeNumber,
 								attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
-		target_entry = makeTargetEntry((Expr *) expr, resno, "", false);
+		target_entry = makeTargetEntry((Expr *) expr, resno++, "", false);
 		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
+
+	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	expr = (Expr *) makeVar(INDEX_VAR, YBTupleIdAttributeNumber,
+							attr->atttypid, attr->atttypmod, attr->attcollation,
+							0);
+	target_entry = makeTargetEntry((Expr *) expr, resno++, "", false);
+	plan_targetlist = lappend(plan_targetlist, target_entry);
 
 	IndexOnlyScan *index_scan = makeNode(IndexOnlyScan);
 	Plan *plan = &index_scan->scan.plan;
@@ -241,6 +247,7 @@ indexrel_scan_plan(Relation indexrel)
 	index_scan->scan.scanrelid = 1; /* only one relation is involved */
 	index_scan->indexid = RelationGetRelid(indexrel);
 	index_scan->indextlist = index_cols;
+	plan->ybIndexCheckLowerBound = lower_bound_ybctid;
 	return (Plan *) index_scan;
 }
 
@@ -280,14 +287,13 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
 							   attr->atttypmod, attr->attcollation, 0);
 	TargetEntry *target_entry =
-		makeTargetEntry((Expr *) ybctid_expr, resno, "", false);
+		makeTargetEntry((Expr *) ybctid_expr, resno++, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
-	resno++;
 
 	Expr *expr;
 	List *indexprs = NIL;
 	ListCell *next_expr = NULL;
-	for (int i = 0; i < indexdesc->natts; i++, resno++)
+	for (int i = 0; i < indexdesc->natts; i++)
 	{
 		AttrNumber attnum = indexrel->rd_index->indkey.values[i];
 		if (attnum > 0)
@@ -314,7 +320,7 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 		/* Assert that type of index attribute match base relation attribute. */
 		Assert(exprType((Node *) expr) ==
 			   TupleDescAttr(indexdesc, i)->atttypid);
-		target_entry = makeTargetEntry(expr, resno, "", false);
+		target_entry = makeTargetEntry(expr, resno++, "", false);
 		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
 
@@ -398,7 +404,7 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 }
 
 static Plan *
-spurious_check_plan(Relation baserel, Relation indexrel)
+spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybctid)
 {
 	/*
 	 * To check for spurious rows in index relation, we join the index relation
@@ -408,7 +414,7 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	 */
 
 	/* Outer subplan: index relation scan */
-	Plan *indexrel_scan = indexrel_scan_plan(indexrel);
+	Plan *indexrel_scan = indexrel_scan_plan(indexrel, lower_bound_ybctid);
 	TupleDesc indexrel_scan_desc = ExecTypeFromTL(indexrel_scan->targetlist);
 
 	/* Inner subplan: base relation scan */
@@ -418,7 +424,7 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	 * Join plan targetlist
 	 *
 	 * Outer subplan tlist: ybbasectid, index_attributes , ybuniqueidxkeysuffix
-	 * (if unique).
+	 * (if unique), ybctid.
 	 * Inner subplan tlist: ybctid, index_attributes (scanned/computed from
 	 * baserel).
 	 *
@@ -433,12 +439,13 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 	const FormData_pg_attribute *attr;
 	List *plan_tlist = NIL;
 	int i;
-	for (i = 0; i < indexrel_scan_desc->natts; i++)
+	int resno = 1;
+	for (i = 0; i < indexrel_scan_desc->natts - 1; i++)
 	{
 		attr = TupleDescAttr(indexrel_scan_desc, i);
 		expr = (Expr *) makeVar(OUTER_VAR, i + 1, attr->atttypid,
 								attr->atttypmod, attr->attcollation, 0);
-		target_entry = makeTargetEntry(expr, 2 * i + 1, "", false);
+		target_entry = makeTargetEntry(expr, resno++, "", false);
 		plan_tlist = lappend(plan_tlist, target_entry);
 
 		/*
@@ -446,14 +453,20 @@ spurious_check_plan(Relation baserel, Relation indexrel)
 		 * doesn't have base rel counterpart.
 		 */
 		if (indexrel->rd_index->indisunique &&
-			i == indexrel_scan_desc->natts - 1)
+			i == indexrel_scan_desc->natts - 2)
 			continue;
 
 		expr = (Expr *) makeVar(INNER_VAR, i + 1, attr->atttypid,
 								attr->atttypmod, attr->attcollation, 0);
-		target_entry = makeTargetEntry(expr, 2 * i + 2, "", false);
+		target_entry = makeTargetEntry(expr, resno++, "", false);
 		plan_tlist = lappend(plan_tlist, target_entry);
 	}
+
+	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	expr = (Expr *) makeVar(OUTER_VAR, i + 1, attr->atttypid,
+		attr->atttypmod, attr->attcollation, 0);
+	target_entry = makeTargetEntry(expr, resno++, "", false);
+	plan_tlist = lappend(plan_tlist, target_entry);
 
 	/* Join claue */
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
@@ -546,27 +559,81 @@ get_equality_opcodes(Relation indexrel)
 	return equality_opcodes;
 }
 
+static bool
+batch_end(int rows_processed)
+{
+	/*
+	 * In order to guarantee processing all the rows, index batch should not end
+	 * in the middle of processing BNL batch. In other words, index check batch
+	 * size should be a multiple of yb_bnl_batch_size.
+	 *
+	 */
+	return rows_processed % (yb_index_check_batch_multiplier * yb_bnl_batch_size) == 0;
+}
+
 static void
 check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
 {
-	Plan *join_plan = spurious_check_plan(baserel, indexrel);
-
-	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
-
-	/* Plan execution */
-	PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
-
-	List *equality_opcodes = get_equality_opcodes(indexrel);
-
-	TupleTableSlot *output;
-	while ((output = ExecProcNode(join_state)))
+	int rows_processed = 0;
+	Datum lower_bound_ybctid = 0;
+	bool done = false;
+	while (true)
 	{
-		check_index_row_consistency(output, equality_opcodes, indexrel);
-		// YBCPgResetTransactionReadPoint();
-	}
-	ExecEndNode(join_state);
+		Plan *join_plan = spurious_check_plan(baserel, indexrel, lower_bound_ybctid);
 
-	MemoryContextSwitchTo(oldctxt);
+		MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
+
+		/* Plan execution */
+		PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
+
+		List *equality_opcodes = get_equality_opcodes(indexrel);
+
+		TupleTableSlot *output;
+		YBCPgResetTransactionReadPoint();
+		while ((output = ExecProcNode(join_state)))
+		{
+			rows_processed++;
+			// elog(INFO, "Scan1 output %s", YbSlotToString(output));
+			check_index_row_consistency(output, equality_opcodes, indexrel);
+			bool null;
+			Datum baserow_ybctid = slot_getattr(output, output->tts_tupleDescriptor->natts, &null);
+			if (null)
+				elog(ERROR, "ybctid unexpectedly null, something's wrong with "
+							"checker");
+			if (!lower_bound_ybctid ||
+				DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
+										baserow_ybctid, lower_bound_ybctid))
+			{
+				// elog(INFO, "copy as %s is gt %s",
+				// 	 YBDatumToString(baserow_ybctid, BYTEAOID),
+				// 	 !lower_bound_ybctid ?
+				// 		 "NULL" :
+				// 		 YBDatumToString(lower_bound_ybctid, BYTEAOID));
+				if (lower_bound_ybctid)
+					pfree(DatumGetPointer(lower_bound_ybctid));
+				COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
+			}
+			// else
+			// 	elog(INFO, "Skipping copy as %s is lte %s",
+			// 		 YBDatumToString(baserow_ybctid, BYTEAOID),
+			// 		 YBDatumToString(lower_bound_ybctid, BYTEAOID));
+
+			if (batch_end(rows_processed))
+			{
+				// elog(INFO, "Breaking scan1 at ybctid %s",
+				// 	 YBDatumToString(lower_bound_ybctid, BYTEAOID));
+				break;
+			}
+
+		}
+		done = !output;
+		ExecEndNode(join_state);
+
+		MemoryContextSwitchTo(oldctxt);
+		if (done)
+			break;
+	}
+	// elog(INFO, "Total rows processed(1) %d", rows_processed);
 	return;
 }
 
@@ -936,18 +1003,6 @@ check_index_row_consistency2(TupleTableSlot *slot)
 						  ind_att->attbyval, ind_att->attlen));
 }
 
-static bool
-batch_end(int rows_processed)
-{
-	/*
-	 * In order to guarantee processing all the rows, index batch should not end
-	 * in the middle of processing BNL batch. In other words, index check batch
-	 * size should be a multiple of yb_bnl_batch_size.
-	 *
-	 */
-	return rows_processed % (yb_index_check_batch_multiplier * yb_bnl_batch_size) == 0;
-}
-
 static void
 check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 {
@@ -964,7 +1019,7 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 		while ((output = ExecProcNode(state)))
 		{
 			rows_processed++;
-			elog(INFO, "Scan2 output %s", YbSlotToString(output));
+			// elog(INFO, "Scan2 output %s", YbSlotToString(output));
 			check_index_row_consistency2(output);
 			bool null;
 			Datum baserow_ybctid = slot_getattr(output, 3, &null);
@@ -992,8 +1047,8 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 
 			if (batch_end(rows_processed))
 			{
-				elog(INFO, "Breaking scan2 at ybctid %s",
-					 YBDatumToString(lower_bound_ybctid, BYTEAOID));
+				// elog(INFO, "Breaking scan2 at ybctid %s",
+				// 	 YBDatumToString(lower_bound_ybctid, BYTEAOID));
 				break;
 			}
 		}
@@ -1003,7 +1058,7 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 		if (done)
 			break;
 	}
-	elog(INFO, "Total rows processed %d", rows_processed);
+	// elog(INFO, "Total rows processed(2) %d", rows_processed);
 	return;
 }
 
