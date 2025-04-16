@@ -988,11 +988,11 @@ IpAddressToBytes(YbcPgAshConfig *ash_config)
 	switch (addr_family)
 	{
 		case AF_UNIX:
-			switch_fallthrough();
+			yb_switch_fallthrough();
 		case AF_UNSPEC:
 			break;
 		case AF_INET:
-			switch_fallthrough();
+			yb_switch_fallthrough();
 		case AF_INET6:
 			if (inet_ntop(addr_family, ash_config->metadata->client_addr,
 						  ash_config->host, INET6_ADDRSTRLEN) == NULL)
@@ -1751,6 +1751,8 @@ YBPgTypeOidToStr(Oid type_id)
 			return "INT8MULTIRANGEARRAY";
 		case CSTRINGARRAYOID:
 			return "CSTRINGARRAY";
+		case BSONOID:
+			return "BSON";
 		default:
 			return "user_defined_type";
 	}
@@ -1825,6 +1827,8 @@ YBCPgDataTypeToStr(YbcPgDataType yb_type)
 			return "UINT32";
 		case YB_YQL_DATA_TYPE_UINT64:
 			return "UINT64";
+		case YB_YQL_DATA_TYPE_BSON:
+			return "BSON";
 		default:
 			return "unknown";
 	}
@@ -2089,8 +2093,6 @@ YBUpdateOptimizationOptions yb_update_optimization_options = {
 
 bool		yb_debug_report_error_stacktrace = false;
 
-bool		yb_debug_log_catcache_events = false;
-
 bool		yb_debug_log_internal_restarts = false;
 
 bool		yb_test_system_catalogs_creation = false;
@@ -2132,7 +2134,7 @@ bool		yb_silence_advisory_locks_not_supported_error = false;
 
 bool		yb_use_hash_splitting_by_default = true;
 
-bool		yb_skip_data_insert_for_table_rewrite = false;
+bool		yb_skip_data_insert_for_xcluster_target = false;
 
 bool		yb_enable_extended_sql_codes = false;
 
@@ -2489,13 +2491,13 @@ YbCatalogModificationAspectsToDdlMode(uint64_t catalog_modification_aspects)
 	switch (mode)
 	{
 		case YB_DDL_MODE_NO_ALTERING:
-			switch_fallthrough();
+			yb_switch_fallthrough();
 		case YB_DDL_MODE_SILENT_ALTERING:
-			switch_fallthrough();
+			yb_switch_fallthrough();
 		case YB_DDL_MODE_VERSION_INCREMENT:
-			switch_fallthrough();
+			yb_switch_fallthrough();
 		case YB_DDL_MODE_BREAKING_CHANGE:
-			switch_fallthrough();
+			yb_switch_fallthrough();
 		case YB_DDL_MODE_ONLINE_SCHEMA_CHANGE_VERSION_INCREMENT:
 			return mode;
 	}
@@ -3885,14 +3887,12 @@ YbInvalidateTableCacheForAlteredTables()
 
 			/*
 			 * The relation may no longer exist if it was dropped as part of
-			 * a legacy rewrite operation. We can skip invalidation in that
-			 * case.
+			 * a legacy rewrite operation or if it was created and then dropped
+			 * in the same transaction block. We can skip invalidation in these
+			 * cases.
 			 */
 			if (!rel)
-			{
-				Assert(!yb_enable_alter_table_rewrite);
 				continue;
-			}
 			YBCPgAlterTableInvalidateTableByOid(YBCGetDatabaseOidByRelid(relid),
 												YbGetRelfileNodeIdFromRelId(relid));
 			RelationClose(rel);
@@ -5947,14 +5947,14 @@ YbRegisterSysTableForPrefetching(int sys_table_id)
 
 		case YBCatalogVersionRelationId:	/* pg_yb_catalog_version */
 			fetch_ybctid = false;
-			switch_fallthrough();
+			yb_switch_fallthrough();
 
 		case DbRoleSettingRelationId:	/* pg_db_role_setting */
-			switch_fallthrough();
+			yb_switch_fallthrough();
 		case TableSpaceRelationId:	/* pg_tablespace */
-			switch_fallthrough();
+			yb_switch_fallthrough();
 		case YbProfileRelationId:	/* pg_yb_profile */
-			switch_fallthrough();
+			yb_switch_fallthrough();
 		case YbRoleProfileRelationId:	/* pg_yb_role_profile */
 			db_id = Template1DbOid;
 			sys_only_filter_attr = InvalidAttrNumber;
@@ -7133,23 +7133,37 @@ YbIsReadCommittedTxn()
 		!(YBCPgIsDdlMode() || YBCIsInitDbModeEnvVarSet());
 }
 
-YbReadTimePointHandle
-YbBuildCurrentReadTimePointHandle()
+static YbOptionalReadPointHandle
+YbMakeReadPointHandle(YbcReadPointHandle read_point)
 {
-	if (YbIsReadCommittedTxn())
-	{
-		return (YbReadTimePointHandle)
-		{
-			.has_value = true,
-				.value = YBCPgGetCurrentReadTimePoint(),
-		};
-	}
-	else
-	{
-		return (YbReadTimePointHandle)
-		{
-		};
-	}
+	return (YbOptionalReadPointHandle)
+		{ .has_value = true, .value = read_point };
+}
+
+YbOptionalReadPointHandle
+YbBuildCurrentReadPointHandle()
+{
+	return YbIsReadCommittedTxn()
+		? YbMakeReadPointHandle(YBCPgGetCurrentReadPoint())
+		: (YbOptionalReadPointHandle) {};
+}
+
+void
+YbUseSnapshotReadTime(uint64_t read_time)
+{
+	HandleYBStatus(YBCPgRegisterSnapshotReadTime(read_time,
+												 true /* use_read_time */ ,
+												 NULL /* handle */ ));
+}
+
+YbOptionalReadPointHandle
+YbRegisterSnapshotReadTime(uint64_t read_time)
+{
+	YbcReadPointHandle handle = 0;
+	HandleYBStatus(YBCPgRegisterSnapshotReadTime(read_time,
+												 false /* use_read_time */ ,
+												 &handle));
+	return YbMakeReadPointHandle(handle);
 }
 
 /*
@@ -7204,12 +7218,23 @@ YbGetIndexKeySortOrdering(Relation indexRel)
 /*
  * Determine if the unsafe truncate (i.e., without table rewrite) should
  * be used for a given relation and its indexes.
+ * Also provide the reason why unsafe truncate is used. The reason is used to
+ * provide appropriate error messages to the users in case unsafe truncate
+ * cannot be used.
  */
-bool
+YbTruncateType
 YbUseUnsafeTruncate(Relation rel)
 {
-	return IsYBRelation(rel) &&
-		(IsSystemRelation(rel) || !yb_enable_alter_table_rewrite);
+	if (!IsYBRelation(rel))
+		return YB_SAFE_TRUNCATE;
+
+	if (IsSystemRelation(rel))
+		return YB_UNSAFE_TRUNCATE_SYSTEM_RELATION;
+
+	if (!yb_enable_alter_table_rewrite)
+		return YB_UNSAFE_TRUNCATE_TABLE_REWRITE_DISABLED;
+
+	return YB_SAFE_TRUNCATE;
 }
 
 

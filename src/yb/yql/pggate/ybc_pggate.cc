@@ -412,7 +412,7 @@ void AshCopyAuxInfo(
   snprintf(
       cb_sample->aux_info, sizeof(cb_sample->aux_info), "%s",
       FLAGS_TEST_ash_debug_aux ? tserver_aux_info.method().c_str()
-                               : (component == to_underlying(ash::Component::kYCQL)
+                               : (component == std::to_underlying(ash::Component::kYCQL)
                                       ? tserver_aux_info.table_id().c_str()
                                       : tserver_aux_info.tablet_id().c_str()));
 }
@@ -2281,26 +2281,29 @@ bool YBCPgIsYugaByteEnabled() {
   return pgapi;
 }
 
-void YBCSetTimeout(int timeout_ms, void* extra) {
-  if (!pgapi) {
-    return;
-  }
+static int GetTimeoutValue(int timeout_ms) {
+  DCHECK_GE(timeout_ms, 0) << "Timeout value should be non-negative";
   const auto default_client_timeout_ms = client::YsqlClientReadWriteTimeoutMs();
-  // We set the rpc timeouts as a min{STATEMENT_TIMEOUT,
-  // FLAGS(_ysql)?_client_read_write_timeout_ms}.
-  // Note that 0 is a valid value of timeout_ms, meaning no timeout in Postgres.
-  if (timeout_ms < 0) {
-    // The timeout is not valid. Use the default GFLAG value.
-    return;
-  } else if (timeout_ms == 0) {
-    timeout_ms = default_client_timeout_ms;
-  } else {
-    timeout_ms = std::min(timeout_ms, default_client_timeout_ms);
+  // If the timeout is 0, it means no timeout in Postgres, so we use the default value.
+  if (timeout_ms == 0) {
+    return default_client_timeout_ms;
   }
+  // Otherwise, return the minimum of the provided timeout and the default timeout.
+  return std::min(timeout_ms, default_client_timeout_ms);
+}
 
-  // The statement timeout is lesser than default_client_timeout, hence the rpcs would
-  // need to use a shorter timeout.
-  pgapi->SetTimeout(timeout_ms);
+void YBCSetLockTimeout(int lock_timeout_ms, void* extra) {
+  if (!pgapi || lock_timeout_ms < 0) {
+    return;
+  }
+  pgapi->SetLockTimeout(GetTimeoutValue(lock_timeout_ms));
+}
+
+void YBCSetTimeout(int timeout_ms, void* extra) {
+  if (!pgapi || timeout_ms < 0) {
+    return;
+  }
+  pgapi->SetTimeout(GetTimeoutValue(timeout_ms));
 }
 
 YbcStatus YBCNewGetLockStatusDataSRF(YbcPgFunction *handle) {
@@ -3060,12 +3063,19 @@ YbcStatus YBCGetCronLastMinute(int64_t* last_minute) {
   return YBCStatusOK();
 }
 
-uint64_t YBCPgGetCurrentReadTimePoint() {
-  return pgapi->GetCurrentReadTimePoint();
+YbcReadPointHandle YBCPgGetCurrentReadPoint() {
+  return pgapi->GetCurrentReadPoint();
 }
 
-YbcStatus YBCRestoreReadTimePoint(uint64_t read_time_point_handle) {
-  return ToYBCStatus(pgapi->RestoreReadTimePoint(read_time_point_handle));
+YbcStatus YBCPgRestoreReadPoint(YbcReadPointHandle read_point) {
+  return ToYBCStatus(pgapi->RestoreReadPoint(read_point));
+}
+
+YbcStatus YBCPgRegisterSnapshotReadTime(
+    uint64_t read_time, bool use_read_time, YbcReadPointHandle* handle) {
+  YbcReadPointHandle tmp_handle;
+  return ExtractValueFromResult(
+      pgapi->RegisterSnapshotReadTime(read_time, use_read_time), handle ? handle : &tmp_handle);
 }
 
 void YBCDdlEnableForceCatalogModification() {
@@ -3090,34 +3100,18 @@ YbcStatus YBCReleaseAllAdvisoryLocks(uint32_t db_oid) {
 }
 
 YbcStatus YBCPgExportSnapshot(
-    const YbcPgTxnSnapshot* snapshot, char** snapshot_id, const uint64_t* explicit_read_time) {
-  std::optional<uint64_t> explicit_read_time_opt = std::nullopt;
-  if (explicit_read_time) {
-    explicit_read_time_opt = *explicit_read_time;
+    const YbcPgTxnSnapshot* snapshot, char** snapshot_id, const YbcReadPointHandle* read_point) {
+  std::optional<YbcReadPointHandle> read_point_handle;
+  if (read_point) {
+    read_point_handle = *read_point;
   }
   return ExtractValueFromResult(
-      pgapi->ExportSnapshot(*snapshot, explicit_read_time_opt),
+      pgapi->ExportSnapshot(*snapshot, read_point_handle),
       [snapshot_id](auto value) { *snapshot_id = YBCPAllocStdString(value); });
 }
 
-YbcStatus PgSetTxnSnapshotImpl(
-    const PgTxnSnapshotDescriptor& descriptor, YbcPgTxnSnapshot* snapshot) {
-  return ExtractValueFromResult(
-      pgapi->SetTxnSnapshot(descriptor), [snapshot](const std::optional<YbcPgTxnSnapshot>& value) {
-        if (snapshot) {
-          DCHECK(value.has_value());
-          *snapshot = value.value();
-        }
-      });
-}
-
 YbcStatus YBCPgImportSnapshot(const char* snapshot_id, YbcPgTxnSnapshot* snapshot) {
-  return PgSetTxnSnapshotImpl(snapshot_id, snapshot);
-}
-
-YbcStatus YBCPgSetTxnSnapshot(uint64_t explicit_read_time) {
-  DCHECK_NE(explicit_read_time, 0);
-  return PgSetTxnSnapshotImpl(explicit_read_time, nullptr);
+  return ExtractValueFromResult(pgapi->ImportSnapshot({snapshot_id}), snapshot);
 }
 
 bool YBCPgHasExportedSnapshots() { return pgapi->HasExportedSnapshots(); }

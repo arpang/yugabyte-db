@@ -742,6 +742,8 @@ class PgApiImpl {
   // Sets the specified timeout in the rpc service.
   void SetTimeout(int timeout_ms);
 
+  void SetLockTimeout(int lock_timeout_ms);
+
   Result<yb::tserver::PgGetLockStatusResponsePB> GetLockStatusData(
       const std::string &table_id, const std::string &transaction_id);
   Result<client::TabletServersInfo> ListTabletServers();
@@ -823,9 +825,8 @@ class PgApiImpl {
   Status ExecDropReplicationSlot(PgStatement *handle);
 
   Result<std::string> ExportSnapshot(
-      const YbcPgTxnSnapshot& snapshot, std::optional<uint64_t> explicit_read_time);
-  Result<std::optional<YbcPgTxnSnapshot>> SetTxnSnapshot(
-      PgTxnSnapshotDescriptor snapshot_descriptor);
+      const YbcPgTxnSnapshot& snapshot, std::optional<YbcReadPointHandle> explicit_read_time);
+  Result<YbcPgTxnSnapshot> ImportSnapshot(std::string_view snapshot_id);
 
   bool HasExportedSnapshots() const;
   void ClearExportedTxnSnapshots();
@@ -841,8 +842,9 @@ class PgApiImpl {
   Status SetCronLastMinute(int64_t last_minute);
   Result<int64_t> GetCronLastMinute();
 
-  [[nodiscard]] uint64_t GetCurrentReadTimePoint() const;
-  Status RestoreReadTimePoint(uint64_t read_time_point_handle);
+  [[nodiscard]] YbcReadPointHandle GetCurrentReadPoint() const;
+  Status RestoreReadPoint(YbcReadPointHandle read_point);
+  Result<YbcReadPointHandle> RegisterSnapshotReadTime(uint64_t read_time, bool use_read_time);
 
   void DdlEnableForceCatalogModification();
 

@@ -133,6 +133,9 @@ DEFINE_test_flag(uint64, ysql_oid_prefetch_adjustment, 0,
                  "production environment. In unit test we use this flag to force allocation of "
                  "large Postgres OIDs.");
 
+DEFINE_test_flag(uint64, delay_before_complete_expired_pg_sessions_shutdown_ms, 0,
+                 "Inject delay before completing shutdown of expired PG sessions.");
+
 DEFINE_RUNTIME_uint64(ysql_cdc_active_replication_slot_window_ms, 60000,
                       "Determines the window in milliseconds in which if a client has consumed the "
                       "changes of a ReplicationSlot across any tablet, then it is considered to be "
@@ -244,7 +247,8 @@ class LockablePgClientSession {
   }
 
   bool ReadyToShutdown() const {
-    return !exchange_runnable_ || exchange_runnable_->ReadyToShutdown();
+    return (!exchange_runnable_ || exchange_runnable_->ReadyToShutdown()) &&
+           session_.ReadyToShutdown();
   }
 
   void CompleteShutdown() {
@@ -452,8 +456,8 @@ class PgClientServiceImpl::Impl {
         transaction_pool_provider_(std::move(transaction_pool_provider)),
         messenger_(*messenger),
         table_cache_(client_future_),
-        check_expired_sessions_(&messenger->scheduler()),
-        check_object_id_allocators_(&messenger->scheduler()),
+        check_expired_sessions_("check_expired_sessions", &messenger->scheduler()),
+        check_object_id_allocators_("check_object_id_allocators", &messenger->scheduler()),
         response_cache_(parent_mem_tracker, metric_entity),
         instance_id_(permanent_uuid),
         shared_mem_pool_(parent_mem_tracker, instance_id_),
@@ -1520,12 +1524,10 @@ class PgClientServiceImpl::Impl {
       rpc::RpcContext* context) {
     VLOG(1) << "ExportTxnSnapshot from " << RequestorString(context) << ": " << req.DebugString();
     auto session = VERIFY_RESULT(GetSession(req.session_id()));
-    const auto read_time = req.has_explicit_read_time()
-        ? ReadHybridTime::FromPB(req.explicit_read_time())
-        : VERIFY_RESULT(session->GetTxnSnapshotReadTime(req.options(),
-                                                        context->GetClientDeadline()));
-    const auto snapshot = PgTxnSnapshot::Make(req.snapshot(), read_time);
-    resp->set_snapshot_id(VERIFY_RESULT(txn_snapshot_manager_.Register(session->id(), snapshot)));
+    const auto read_time = VERIFY_RESULT(session->GetTxnSnapshotReadTime(
+        req.options(), context->GetClientDeadline()));
+    resp->set_snapshot_id(VERIFY_RESULT(txn_snapshot_manager_.Register(
+        session->id(), PgTxnSnapshot::Make(req.snapshot(), read_time))));
     return Status::OK();
   }
 
@@ -1533,21 +1535,17 @@ class PgClientServiceImpl::Impl {
     return txn_snapshot_manager_.Get(snapshot_id);
   }
 
-  Status SetTxnSnapshot(
-      const PgSetTxnSnapshotRequestPB& req, PgSetTxnSnapshotResponsePB* resp,
+  Status ImportTxnSnapshot(
+      const PgImportTxnSnapshotRequestPB& req, PgImportTxnSnapshotResponsePB* resp,
       rpc::RpcContext* context) {
-    VLOG(1) << "SetTxnSnapshot from " << RequestorString(context) << ": " << req.DebugString();
-    PgTxnSnapshot snapshot;
+    VLOG(1) << "ImportTxnSnapshot from " << RequestorString(context) << ": " << req.DebugString();
+    auto snapshot = VERIFY_RESULT(txn_snapshot_manager_.Get(req.snapshot_id()));
     auto options = req.options();
-    if (!req.has_explicit_read_time()) {
-      snapshot = VERIFY_RESULT(txn_snapshot_manager_.Get(req.snapshot_id()));
-      snapshot.read_time.ToPB(options.mutable_read_time());
-      snapshot.ToPBNoReadTime(*resp->mutable_snapshot());
-    } else {
-      *options.mutable_read_time() = req.explicit_read_time();
-    }
-    return VERIFY_RESULT(GetSession(req.session_id()))
-        ->SetTxnSnapshotReadTime(options, context->GetClientDeadline());
+    snapshot.read_time.ToPB(options.mutable_read_time());
+    RETURN_NOT_OK(VERIFY_RESULT(GetSession(req.session_id()))->SetTxnSnapshotReadTime(
+        options, context->GetClientDeadline()));
+    snapshot.ToPBNoReadTime(*resp->mutable_snapshot());
+    return Status::OK();
   }
 
   Status ClearExportedTxnSnapshots(
@@ -1606,7 +1604,7 @@ class PgClientServiceImpl::Impl {
     return (
         !call.has_wait_state() ||
         // Ignore log-appenders which are just Idle
-        call.wait_state().wait_state_code() == yb::to_underlying(ash::WaitStateCode::kIdle) ||
+        call.wait_state().wait_state_code() == std::to_underlying(ash::WaitStateCode::kIdle) ||
         // Ignore ActiveSessionHistory/Perform calls, if desired.
         (req.ignore_ash_and_perform_calls() && call.wait_state().has_aux_info() &&
          call.wait_state().aux_info().has_method() &&
@@ -1649,7 +1647,7 @@ class PgClientServiceImpl::Impl {
       return;
     }
 
-    resp->set_component(yb::to_underlying(component));
+    resp->set_component(std::to_underlying(component));
 
     rpc::DumpRunningRpcsRequestPB dump_req;
     rpc::DumpRunningRpcsResponsePB dump_resp;
@@ -1677,14 +1675,14 @@ class PgClientServiceImpl::Impl {
       tserver::WaitStatesPB* resp, int sample_size, int& samples_considered) {
     Result<Uuid> local_uuid = Uuid::FromHexStringBigEndian(instance_id_);
     DCHECK_OK(local_uuid);
-    resp->set_component(yb::to_underlying(ash::Component::kTServer));
+    resp->set_component(std::to_underlying(ash::Component::kTServer));
     for (auto& wait_state_ptr : tracker.GetWaitStates()) {
       if (!wait_state_ptr) {
         continue;
       }
       WaitStateInfoPB wait_state_pb;
       wait_state_ptr->ToPB(&wait_state_pb, export_wait_state_names);
-      if (wait_state_pb.wait_state_code() == yb::to_underlying(ash::WaitStateCode::kIdle)) {
+      if (wait_state_pb.wait_state_code() == std::to_underlying(ash::WaitStateCode::kIdle)) {
         continue;
       }
       if (local_uuid) {
@@ -1823,6 +1821,17 @@ class PgClientServiceImpl::Impl {
     CleanupSessions(std::move(sessions), CoarseMonoClock::now());
   }
 
+  YSQLLeaseInfo GetYSQLLeaseInfo() {
+    SharedLock lock(mutex_);
+    YSQLLeaseInfo lease_info;
+    // todo(zdrudi): For now just return is live if we've ever received a lease.
+    lease_info.is_live = last_lease_refresh_time_.Initialized();
+    if (lease_info.is_live) {
+      lease_info.lease_epoch = lease_epoch_;
+    }
+    return lease_info;
+  }
+
   void CleanupSessions(
       std::vector<SessionInfoPtr>&& expired_sessions, CoarseTimePoint time) {
     if (expired_sessions.empty()) {
@@ -1833,6 +1842,7 @@ class PgClientServiceImpl::Impl {
       session->session().StartShutdown();
       txn_snapshot_manager_.UnregisterAll(session->id());
     }
+    AtomicFlagSleepMs(&FLAGS_TEST_delay_before_complete_expired_pg_sessions_shutdown_ms);
     for (const auto& session : expired_sessions) {
       if (session->session().ReadyToShutdown()) {
         session->session().CompleteShutdown();
@@ -2407,6 +2417,10 @@ Result<PgTxnSnapshot> PgClientServiceImpl::GetLocalPgTxnSnapshot(
 void PgClientServiceImpl::ProcessLeaseUpdate(const master::RefreshYsqlLeaseInfoPB&
                                              lease_refresh_info, MonoTime time) {
   impl_->ProcessLeaseUpdate(lease_refresh_info, time);
+}
+
+YSQLLeaseInfo PgClientServiceImpl::GetYSQLLeaseInfo() const {
+  return impl_->GetYSQLLeaseInfo();
 }
 
 size_t PgClientServiceImpl::TEST_SessionsCount() { return impl_->TEST_SessionsCount(); }

@@ -431,8 +431,8 @@ buildDependentArtifacts := {
 generateOssConfig := {
   ybLog("Generating oss config class.")
   val srcTemplatePath = (baseDirectory.value / "src/main/resources/templates/OperatorConfig.template").toPath
-  val generatedFilePath = (baseDirectory.value / "target/scala-2.13/com/yugabyte/operator/OperatorConfig.java").toPath
-  val directoryPath =  (baseDirectory.value / "target/scala-2.13/com/yugabyte/operator/").toPath
+  val generatedFilePath = (baseDirectory.value / "src/main/java/com/yugabyte/operator/OperatorConfig.java").toPath
+  val directoryPath =  (baseDirectory.value / "src/main/java/com/yugabyte/operator/").toPath
 
   Files.createDirectories(directoryPath)
 
@@ -500,7 +500,7 @@ cleanVenv := {
 }
 
 cleanOperatorConfig := {
-  val filePath = baseDirectory.value / "target/scala-2.13/OperatorConfig.java"
+  val filePath = baseDirectory.value / "src/main/java/com/yugabyte/operator/OperatorConfig.java"
   val file = sbt.file(filePath.toString)
   if (file.exists()) {
     sbt.IO.delete(file)
@@ -931,7 +931,7 @@ runPlatform := {
   Project.extract(newState).runTask(runPlatformTask, newState)
 }
 
-libraryDependencies += "org.yb" % "yb-client" % "0.8.101-SNAPSHOT"
+libraryDependencies += "org.yb" % "yb-client" % "0.8.102-SNAPSHOT"
 libraryDependencies += "org.yb" % "ybc-client" % "2.2.0.2-b1"
 libraryDependencies += "org.yb" % "yb-perf-advisor" % "1.0.0-b35"
 

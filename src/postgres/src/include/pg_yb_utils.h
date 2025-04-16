@@ -616,9 +616,6 @@ extern int	StatementTimeout;
 /* Add stacktrace information to every YSQL error. */
 extern bool yb_debug_report_error_stacktrace;
 
-/* Log cache misses and cache refresh events. */
-extern bool yb_debug_log_catcache_events;
-
 /*
  * Log automatic statement (or transaction) restarts such as read-restarts and
  * schema-version restarts (e.g. catalog version mismatch errors).
@@ -768,7 +765,7 @@ extern bool yb_enable_docdb_vector_type;
  */
 extern bool yb_silence_advisory_locks_not_supported_error;
 
-extern bool yb_skip_data_insert_for_table_rewrite;
+extern bool yb_skip_data_insert_for_xcluster_target;
 
 /*
  * See also ybc_util.h which contains additional such variable declarations for
@@ -1311,7 +1308,10 @@ extern Oid	YbGetSQLIncrementCatalogVersionsFunctionOid();
 
 extern bool YbIsReadCommittedTxn();
 
-extern YbReadTimePointHandle YbBuildCurrentReadTimePointHandle();
+extern YbOptionalReadPointHandle YbBuildCurrentReadPointHandle();
+extern void YbUseSnapshotReadTime(uint64_t read_time);
+extern YbOptionalReadPointHandle YbRegisterSnapshotReadTime(uint64_t read_time);
+
 
 extern bool YbUseFastBackwardScan();
 
@@ -1323,7 +1323,14 @@ bool		YbIsAttrPrimaryKeyColumn(Relation rel, AttrNumber attnum);
 
 SortByDir	YbGetIndexKeySortOrdering(Relation indexRel);
 
-bool		YbUseUnsafeTruncate(Relation rel);
+typedef enum YbTruncateType
+{
+	YB_SAFE_TRUNCATE,
+	YB_UNSAFE_TRUNCATE_SYSTEM_RELATION,
+	YB_UNSAFE_TRUNCATE_TABLE_REWRITE_DISABLED,
+} YbTruncateType;
+
+extern YbTruncateType YbUseUnsafeTruncate(Relation rel);
 
 extern AttrNumber YbGetIndexAttnum(Relation index, AttrNumber table_attno);
 

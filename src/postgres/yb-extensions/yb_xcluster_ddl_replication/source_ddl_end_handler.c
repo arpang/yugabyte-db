@@ -170,32 +170,12 @@ typedef struct YbEnumLabelMapEntry
 	char *label_name;
 } YbEnumLabelMapEntry;
 
-typedef struct YbSequenceInfoMapEntry
+typedef struct YbNameToOidMapEntry
 {
 	char       *schema;
 	char       *name;
-	Oid         pg_class_oid;
-} YbSequenceInfoMapEntry;
-
-void
-CheckAlterColumnTypeDDL(CollectedCommand *cmd)
-{
-	if (cmd && cmd->type == SCT_AlterTable && cmd->d.alterTable.subcmds)
-	{
-		ListCell   *cell;
-
-		foreach(cell, cmd->d.alterTable.subcmds)
-		{
-			AlterTableCmd *subcmd = castNode(AlterTableCmd,
-											 ((CollectedATSubcmd *) lfirst(cell))->parsetree);
-
-			if (subcmd->subtype == AT_AlterColumnType)
-			{
-				elog(ERROR, "Table Rewrite ALTER COLUMN TYPE is not supported\n");
-			}
-		}
-	}
-}
+	Oid         oid;
+} YbNameToOidMapEntry;
 
 bool
 IsIndex(Relation rel)
@@ -286,6 +266,58 @@ ShouldReplicateNewRelation(Oid rel_oid, List **new_rel_list)
 
   RelationClose(rel);
 	return true;
+}
+
+void
+CheckAlterColumnTypeDDL(Oid rel_oid, CollectedCommand *cmd, List **new_rel_list,
+						bool is_table_rewrite, bool is_temporary_object)
+{
+	/* Ignore temp objects. */
+	if (is_temporary_object)
+		return;
+
+	if (cmd && cmd->type == SCT_AlterTable && cmd->d.alterTable.subcmds)
+	{
+		ListCell   *cell;
+
+		foreach(cell, cmd->d.alterTable.subcmds)
+		{
+			AlterTableCmd *subcmd = castNode(AlterTableCmd,
+											 ((CollectedATSubcmd *) lfirst(cell))->parsetree);
+
+			switch (subcmd->subtype)
+			{
+				case AT_AlterColumnType:
+				{
+					if (is_table_rewrite)
+						elog(ERROR, "Table Rewrite ALTER COLUMN TYPE is not "
+									"supported\n");
+					break;
+				}
+				case AT_AddIndex:
+				case AT_ReAddIndex:
+				{
+					/* Need to fetch the index oid from the index name. */
+					IndexStmt *index = (IndexStmt *) subcmd->def;
+
+					/* Skip processing the index if null (eg adding primary key). */
+					if (index->indexOid == InvalidOid)
+						break;
+
+					Relation rel = RelationIdGetRelation(rel_oid);
+					Oid index_oid = get_relname_relid(index->idxname,
+																						RelationGetNamespace(rel));
+					RelationClose(rel);
+
+					/* Once we have the oid, we can capture its info. */
+					ShouldReplicateNewRelation(index_oid, new_rel_list);
+					break;
+				}
+				default:
+					break;
+			}
+		}
+	}
 }
 
 void
@@ -391,12 +423,6 @@ ShouldReplicateAlterReplication(Oid rel_oid)
 		RelationClose(rel);
 		return false;
 	}
-	/* Primary indexes are YB-backed, but don't have table properties. */
-	if (IsPrimaryIndex(rel))
-	{
-		RelationClose(rel);
-		return true;
-	}
 
 	RelationClose(rel);
 	return true;
@@ -433,6 +459,19 @@ GetEnumLabels(Oid enum_oid, List **enum_label_list)
 }
 
 static void
+AddNameToOidInfo(char *schema, char *name, Oid oid,
+				 List **name_to_oid_info_list)
+{
+	YbNameToOidMapEntry *name_to_oid_info_entry =
+		palloc(sizeof(YbNameToOidMapEntry));
+	name_to_oid_info_entry->name = name;
+	name_to_oid_info_entry->schema = pstrdup(schema);
+	name_to_oid_info_entry->oid = oid;
+	*name_to_oid_info_list = lappend(*name_to_oid_info_list,
+									 name_to_oid_info_entry);
+}
+
+static void
 AddSequenceInfo(Oid pg_class_oid, char *schema, List **sequence_info_list)
 {
 	char       *name = get_rel_name(pg_class_oid);
@@ -442,13 +481,20 @@ AddSequenceInfo(Oid pg_class_oid, char *schema, List **sequence_info_list)
 	if (!schema)
 		elog(ERROR, "Schema of sequence with pg_class OID %u unknown",
 			 pg_class_oid);
+	AddNameToOidInfo(schema, name, pg_class_oid, sequence_info_list);
+}
 
-	YbSequenceInfoMapEntry *sequence_info_entry =
-		palloc(sizeof(YbSequenceInfoMapEntry));
-	sequence_info_entry->name = name;
-	sequence_info_entry->schema = pstrdup(schema);
-	sequence_info_entry->pg_class_oid = pg_class_oid;
-	*sequence_info_list = lappend(*sequence_info_list, sequence_info_entry);
+static void
+AddTypeInfo(Oid pg_type_oid, char *schema, List **type_info_list)
+{
+	char       *name = get_typname(pg_type_oid);
+	if (!name)
+		elog(ERROR, "Unable to find name of type with pg_type OID %u",
+			 pg_type_oid);
+	if (!schema)
+		elog(ERROR, "Schema of type with pg_type OID %u unknown",
+			 pg_type_oid);
+	AddNameToOidInfo(schema, name, pg_type_oid, type_info_list);
 }
 
 typedef struct YbCommandInfo
@@ -489,6 +535,79 @@ GetSourceEventTriggerDDLCommands(YbCommandInfo **info_array_out)
 	return num_of_rows;
 }
 
+void
+PushEnumLabelMap(JsonbParseState *state, char *map_key,
+				 List *enum_label_list)
+{
+	if (!enum_label_list)
+		return;
+
+	/*----------
+	 * Add the enum_label_list to the JSON output.  We use a flat array of
+	 * entries because JSON doesn't allow maps on composite values.
+	 *
+	 * If two entries have the same enum and label OIDs, then the
+	 * remaining fields are guaranteed to be the same.
+	 *----------
+	 */
+	AddJsonKey(state, map_key);
+	(void) pushJsonbValue(&state, WJB_BEGIN_ARRAY, NULL);
+
+	ListCell *l;
+	foreach (l, enum_label_list)
+	{
+		YbEnumLabelMapEntry *entry = (YbEnumLabelMapEntry *) lfirst(l);
+
+		(void) pushJsonbValue(&state, WJB_BEGIN_OBJECT, NULL);
+		AddNumericJsonEntry(state, "enum_oid", entry->enum_oid);
+		AddStringJsonEntry(state, "label", entry->label_name);
+		AddNumericJsonEntry(state, "label_oid", entry->label_oid);
+		(void) pushJsonbValue(&state, WJB_END_OBJECT, NULL);
+
+		pfree(entry->label_name);
+		pfree(entry);
+	}
+
+	(void) pushJsonbValue(&state, WJB_END_ARRAY, NULL);
+}
+
+void
+PushNameToOidMap(JsonbParseState *state, char *map_key,
+				 List *name_to_oid_info_list)
+{
+	if (!name_to_oid_info_list)
+		return;
+
+	/*----------
+	 * Add the name_to_oid_info_list to the JSON output.  We use a flat array
+	 * of entries because JSON doesn't allow maps on composite values.
+	 *
+	 * If two entries have the same schema and name, then the oid field is
+	 * guaranteed to be the same.
+	 *----------
+	 */
+	AddJsonKey(state, map_key);
+	(void) pushJsonbValue(&state, WJB_BEGIN_ARRAY, NULL);
+
+	ListCell *l;
+	foreach (l, name_to_oid_info_list)
+	{
+		YbNameToOidMapEntry *entry = (YbNameToOidMapEntry *) lfirst(l);
+
+		(void) pushJsonbValue(&state, WJB_BEGIN_OBJECT, NULL);
+		AddStringJsonEntry(state, "schema", entry->schema);
+		AddStringJsonEntry(state, "name", entry->name);
+		AddNumericJsonEntry(state, "oid", entry->oid);
+		(void) pushJsonbValue(&state, WJB_END_OBJECT, NULL);
+
+		pfree(entry->schema);
+		pfree(entry->name);
+		pfree(entry);
+	}
+
+	(void) pushJsonbValue(&state, WJB_END_ARRAY, NULL);
+}
+
 bool
 ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 {
@@ -505,6 +624,7 @@ ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 	List	   *new_rel_list = NIL;
 	List       *enum_label_list = NIL;
 	List       *sequence_info_list = NIL;
+	List       *type_info_list = NIL;
 	/*
 	 * As long as there is at least one command that needs to be replicated, we
 	 * will set this to true and replicate the entire query string.
@@ -535,6 +655,7 @@ ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 		{
 			if (type_is_enum(obj_id))
 				GetEnumLabels(obj_id, &enum_label_list);
+			AddTypeInfo(obj_id, schema, &type_info_list);
 			should_replicate_ddl |= true;
 		}
 		else if (command_tag == CMDTAG_CREATE_SEQUENCE ||
@@ -567,7 +688,9 @@ ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 			 * resolving issue #24007.
 			 */
 			CollectedCommand *cmd = info->command;
-			CheckAlterColumnTypeDDL(cmd);
+			CheckAlterColumnTypeDDL(obj_id, cmd, &new_rel_list,
+									/* is_table_rewrite */ true,
+									is_temporary_object);
 
 			rewritten_table_oid_list = list_delete_oid(rewritten_table_oid_list, obj_id);
 
@@ -590,10 +713,12 @@ ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 		else if (command_tag == CMDTAG_ALTER_TABLE ||
 				 command_tag == CMDTAG_ALTER_INDEX)
 		{
-			/*
-			 * TODO(jhe): May need finer grained control over ALTER TABLE
-			 * commands.
-			 */
+			/* Perform additional checks on subcommands. */
+			CollectedCommand *cmd = info->command;
+			CheckAlterColumnTypeDDL(obj_id, cmd, &new_rel_list,
+									/* is_table_rewrite */ false,
+									is_temporary_object);
+
 			should_replicate_ddl |= ShouldReplicateAlterReplication(obj_id);
 		}
 		else if (IsPassThroughDdlSupported(command_tag_name))
@@ -609,67 +734,12 @@ ProcessSourceEventTriggerDDLCommands(JsonbParseState *state)
 
 	ProcessNewRelationsList(state, &new_rel_list);
 
-	if (enum_label_list)
-	{
-		/*----------
-		 * Add the enum_label_list to the JSON output.  We use a flat array of
-		 * entries because JSON doesn't allow maps on composite values.
-		 *
-		 * If two entries have the same enum and label OIDs, then the
-		 * remaining fields are guaranteed to be the same.
-		 *----------
-		 */
-		AddJsonKey(state, "enum_label_info");
-		(void) pushJsonbValue(&state, WJB_BEGIN_ARRAY, NULL);
-
-		ListCell *l;
-		foreach (l, enum_label_list)
-		{
-			YbEnumLabelMapEntry *entry = (YbEnumLabelMapEntry *) lfirst(l);
-
-			(void) pushJsonbValue(&state, WJB_BEGIN_OBJECT, NULL);
-			AddNumericJsonEntry(state, "enum_oid", entry->enum_oid);
-			AddStringJsonEntry(state, "label", entry->label_name);
-			AddNumericJsonEntry(state, "label_oid", entry->label_oid);
-			(void) pushJsonbValue(&state, WJB_END_OBJECT, NULL);
-
-			pfree(entry->label_name);
-			pfree(entry);
-		}
-
-		(void) pushJsonbValue(&state, WJB_END_ARRAY, NULL);
-	}
-	if (sequence_info_list)
-	{
-		/*----------
-		 * Add the sequence_info_list to the JSON output.  We use a flat array
-		 * of entries because JSON doesn't allow maps on composite values.
-		 *
-		 * If two entries have the same schema and name, then the remaining
-		 * fields are guaranteed to be the same.
-		 *----------
-		 */
-		AddJsonKey(state, "sequence_info");
-		(void) pushJsonbValue(&state, WJB_BEGIN_ARRAY, NULL);
-
-		ListCell *l;
-		foreach (l, sequence_info_list)
-		{
-			YbSequenceInfoMapEntry *entry = (YbSequenceInfoMapEntry *) lfirst(l);
-
-			(void) pushJsonbValue(&state, WJB_BEGIN_OBJECT, NULL);
-			AddStringJsonEntry(state, "schema", entry->schema);
-			AddStringJsonEntry(state, "name", entry->name);
-			AddNumericJsonEntry(state, "oid", entry->pg_class_oid);
-			(void) pushJsonbValue(&state, WJB_END_OBJECT, NULL);
-
-			pfree(entry->schema);
-			pfree(entry->name);
-			pfree(entry);
-		}
-
-		(void) pushJsonbValue(&state, WJB_END_ARRAY, NULL);
-	}
+	/*
+	 * Add non-empty OID assignment maps to JSON.
+	 */
+	PushEnumLabelMap(state, "enum_label_info", enum_label_list);
+	PushNameToOidMap(state, "sequence_info", sequence_info_list);
+	PushNameToOidMap(state, "type_info", type_info_list);
 
 	return should_replicate_ddl;
 }

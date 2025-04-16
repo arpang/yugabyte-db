@@ -444,7 +444,7 @@ SocketBackend(StringInfo inBuf)
 				ereport(FATAL,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						 errmsg("invalid frontend message type %d", qtype)));
-			switch_fallthrough();
+			yb_switch_fallthrough();
 		case 'B':				/* bind */
 		case 'P':				/* parse */
 			maxmsglen = PQ_LARGE_MESSAGE_LIMIT;
@@ -1367,7 +1367,7 @@ exec_simple_query(const char *query_string)
 		(void) PortalRun(portal,
 						 FETCH_ALL,
 						 true,	/* always top level */
-						 true,
+						 true,	/* ignored */
 						 receiver,
 						 receiver,
 						 &qc);
@@ -1749,6 +1749,7 @@ exec_bind_message(StringInfo input_message)
 	char		msec_str[32];
 	ParamsErrorCbData params_data;
 	ErrorContextCallback params_errcxt;
+	ListCell   *lc;
 	CommandTag	command_tag;
 
 	/* Get the fixed part of the message */
@@ -1787,6 +1788,17 @@ exec_bind_message(StringInfo input_message)
 	command_tag = YbParseCommandTag(psrc->query_string);
 	redacted_query_string = YbRedactPasswordIfExists(psrc->query_string, command_tag);
 	pgstat_report_activity(STATE_RUNNING, redacted_query_string);
+
+	foreach(lc, psrc->query_list)
+	{
+		Query	   *query = lfirst_node(Query, lc);
+
+		if (query->queryId != UINT64CONST(0))
+		{
+			pgstat_report_query_id(query->queryId, false);
+			break;
+		}
+	}
 
 	set_ps_display("BIND");
 
@@ -2211,6 +2223,7 @@ exec_execute_message(const char *portal_name, long max_rows)
 	char		msec_str[32];
 	ParamsErrorCbData params_data;
 	ErrorContextCallback params_errcxt;
+	ListCell   *lc;
 
 	/* Adjust destination to tell printtup.c what to do */
 	dest = whereToSendOutput;
@@ -2256,6 +2269,17 @@ exec_execute_message(const char *portal_name, long max_rows)
 	debug_query_string = sourceText;
 
 	pgstat_report_activity(STATE_RUNNING, sourceText);
+
+	foreach(lc, portal->stmts)
+	{
+		PlannedStmt *stmt = lfirst_node(PlannedStmt, lc);
+
+		if (stmt->queryId != UINT64CONST(0))
+		{
+			pgstat_report_query_id(stmt->queryId, false);
+			break;
+		}
+	}
 
 	set_ps_display(GetCommandTagName(portal->commandTag));
 
@@ -2335,7 +2359,7 @@ exec_execute_message(const char *portal_name, long max_rows)
 	completed = PortalRun(portal,
 						  max_rows,
 						  true, /* always top level */
-						  !execute_is_fetch && max_rows == FETCH_ALL,
+						  true, /* ignored */
 						  receiver,
 						  receiver,
 						  &qc);
@@ -3192,7 +3216,7 @@ RecoveryConflictInterrupt(ProcSignalReason reason)
 					return;
 
 				/* Intentional fall through to check wait for pin */
-				switch_fallthrough();
+				yb_switch_fallthrough();
 
 			case PROCSIG_RECOVERY_CONFLICT_BUFFERPIN:
 
@@ -3218,7 +3242,7 @@ RecoveryConflictInterrupt(ProcSignalReason reason)
 				MyProc->recoveryConflictPending = true;
 
 				/* Intentional fall through to error handling */
-				switch_fallthrough();
+				yb_switch_fallthrough();
 
 			case PROCSIG_RECOVERY_CONFLICT_LOCK:
 			case PROCSIG_RECOVERY_CONFLICT_TABLESPACE:
@@ -3263,7 +3287,7 @@ RecoveryConflictInterrupt(ProcSignalReason reason)
 				}
 
 				/* Intentional fall through to session cancel */
-				switch_fallthrough();
+				yb_switch_fallthrough();
 
 			case PROCSIG_RECOVERY_CONFLICT_DATABASE:
 				RecoveryConflictPending = true;
@@ -3867,6 +3891,11 @@ check_restrict_nonsystem_relation_kind(char **newval, void **extra, GucSource so
 
 	/* Save the flags in *extra, for use by the assign function */
 	*extra = malloc(sizeof(int));
+	if (*extra == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_OUT_OF_MEMORY),
+				 errmsg("out of memory")));
+
 	*((int *) *extra) = flags;
 
 	return true;
@@ -4303,6 +4332,80 @@ YBRefreshCache()
 	finish_xact_command();
 }
 
+static void
+YBRefreshCacheWrapper(uint64_t catalog_master_version)
+{
+	uint64_t shared_catalog_version = YbGetSharedCatalogVersion();
+	uint64_t local_catalog_version = YbGetCatalogCacheVersion();
+	uint32_t num_catalog_versions =
+		shared_catalog_version - local_catalog_version;
+	YbcCatalogMessageLists message_lists = {0};
+	const bool enable_inval_messages = YbIsInvalidationMessageEnabled();
+	if (enable_inval_messages)
+	{
+		if (catalog_master_version == YB_CATCACHE_VERSION_UNINITIALIZED)
+			catalog_master_version = YbGetMasterCatalogVersion();
+		if (shared_catalog_version < catalog_master_version)
+		{
+			YbUpdateLastKnownCatalogCacheVersion(catalog_master_version);
+
+			/*
+			 * This can happen when another session executes many DDLs
+			 * in a batch, when we see a new shared catalog version has
+			 * arrived in shared memory, master may have got a even newer
+			 * version. See comments in YbWaitForSharedCatalogVersionToCatchup
+			 * for a scenario that this wait can help.
+			 */
+			YbWaitForSharedCatalogVersionToCatchup(catalog_master_version);
+			shared_catalog_version = YbGetSharedCatalogVersion();
+			num_catalog_versions = shared_catalog_version - local_catalog_version;
+		}
+		/*
+		 * When num_catalog_versions == 0, it means that local_catalog_version
+		 * and shared_catalog_version are the same. This can happen when we come
+		 * here due to error (e.g., catalog version mismatch) when a master
+		 * already has a newer version. It is possible that heartbeat failed
+		 * due to network partition and YbWaitForSharedCatalogVersionToCatchup
+		 * returns after timeout without shared_catalog_version catching up
+		 * catalog_master_version. We cannot do incremental catalog refresh in
+		 * this case because tserver does not have the invalidation messages of
+		 * catalog_master_version yet.
+		 */
+		if (num_catalog_versions > 0)
+		{
+			HandleYBStatus(YBCGetTserverCatalogMessageLists(MyDatabaseId,
+															local_catalog_version,
+															num_catalog_versions,
+															&message_lists));
+			elog(DEBUG1, "message_lists: num_lists: %u (%" PRIu64 ", %u)",
+				 message_lists.num_lists, local_catalog_version,
+				 num_catalog_versions);
+		}
+	}
+	if (message_lists.num_lists > 0 && YbApplyInvalidationMessages(&message_lists))
+	{
+		YbNumCatalogCacheDeltaRefreshes++;
+		elog(DEBUG1, "YBRefreshCache skipped after applying %d message lists, "
+			 "updating local catalog version from %" PRIu64 " to %" PRIu64,
+			 message_lists.num_lists,
+			 local_catalog_version, shared_catalog_version);
+		YbUpdateCatalogCacheVersion(shared_catalog_version);
+		if (yb_test_delay_after_applying_inval_message_ms > 0)
+			pg_usleep(yb_test_delay_after_applying_inval_message_ms * 1000L);
+		/* TODO(myang): only invalidate affected entries in the pggate cache? */
+		HandleYBStatus(YBCPgInvalidateCache(YbGetCatalogCacheVersion()));
+		yb_need_cache_refresh = false;
+		return;
+	}
+
+	ereport(enable_inval_messages ? LOG : DEBUG1,
+			(errmsg("calling YBRefreshCache: %d %" PRIu64 " %" PRIu64 " %u",
+					message_lists.num_lists, local_catalog_version,
+					shared_catalog_version, num_catalog_versions)));
+	YbUpdateLastKnownCatalogCacheVersion(shared_catalog_version);
+	YBRefreshCache();
+}
+
 static bool
 YBTableSchemaVersionMismatchError(ErrorData *edata, char **table_id)
 {
@@ -4376,10 +4479,11 @@ YBPrepareCacheRefreshIfNeeded(ErrorData *edata,
 	 * below YbGetMasterCatalogVersion() is not expected to succeed either as it
 	 * would be using the same transaction as the failed operation.
 	*/
+	uint64_t catalog_master_version = YB_CATCACHE_VERSION_UNINITIALIZED;
 	if (!yb_non_ddl_txn_for_sys_tables_allowed)
 	{
 		YBCPgResetCatalogReadTime();
-		const uint64_t catalog_master_version = YbGetMasterCatalogVersion();
+		catalog_master_version = YbGetMasterCatalogVersion();
 
 		if (YbGetCatalogCacheVersion() != catalog_master_version)
 		{
@@ -4456,7 +4560,7 @@ YBPrepareCacheRefreshIfNeeded(ErrorData *edata,
 
 		/* Refresh cache now so that the retry uses latest version. */
 		if (need_global_cache_refresh)
-			YBRefreshCache();
+			YBRefreshCacheWrapper(catalog_master_version);
 
 		*need_retry = true;
 	}
@@ -4658,57 +4762,7 @@ YBCheckSharedCatalogCacheVersion()
 						__func__, shared_catalog_version)));
 	}
 	if (need_global_cache_refresh)
-	{
-		uint32_t num_catalog_versions =
-			shared_catalog_version - local_catalog_version;
-		YbcCatalogMessageLists message_lists = {0};
-		const bool enable_inval_messages = YbIsInvalidationMessageEnabled();
-		if (enable_inval_messages)
-		{
-			const uint64_t catalog_master_version = YbGetMasterCatalogVersion();
-			if (shared_catalog_version < catalog_master_version)
-			{
-				/*
-				 * This can happen when another session executes many DDLs
-				 * in a batch, when we see a new shared catalog version has
-				 * arrived in shared memory, master may have got a even newer
-				 * version. See comments in YbWaitForSharedCatalogVersionToCatchup
-				 * for a scenario that this wait can help.
-				 */
-				YbWaitForSharedCatalogVersionToCatchup(catalog_master_version);
-				shared_catalog_version = YbGetSharedCatalogVersion();
-				num_catalog_versions = shared_catalog_version - local_catalog_version;
-			}
-			HandleYBStatus(YBCGetTserverCatalogMessageLists(MyDatabaseId,
-															local_catalog_version,
-															num_catalog_versions,
-															&message_lists));
-			elog(DEBUG1, "message_lists: num_lists: %u (%" PRIu64 ", %u)",
-				 message_lists.num_lists, local_catalog_version,
-				 num_catalog_versions);
-		}
-		YbUpdateLastKnownCatalogCacheVersion(shared_catalog_version);
-		if (message_lists.num_lists > 0 && YbApplyInvalidationMessages(&message_lists))
-		{
-			YbNumCatalogCacheDeltaRefreshes++;
-			elog(DEBUG1, "YBRefreshCache skipped after applying %d message lists, "
-				 "updating local catalog version from %" PRIu64 " to %" PRIu64,
-				 message_lists.num_lists,
-				 local_catalog_version, shared_catalog_version);
-			YbUpdateCatalogCacheVersion(shared_catalog_version);
-			if (yb_test_delay_after_applying_inval_message_ms > 0)
-				pg_usleep(yb_test_delay_after_applying_inval_message_ms * 1000L);
-			/* TODO(myang): only invalidate affected entries in the pggate cache? */
-			HandleYBStatus(YBCPgInvalidateCache(YbGetCatalogCacheVersion()));
-			return;
-		}
-
-		ereport(enable_inval_messages ? LOG : DEBUG1,
-				(errmsg("calling YBRefreshCache: %d %" PRIu64 " %" PRIu64 " %u",
-						message_lists.num_lists, local_catalog_version,
-						shared_catalog_version, num_catalog_versions)));
-		YBRefreshCache();
-	}
+		YBRefreshCacheWrapper(YB_CATCACHE_VERSION_UNINITIALIZED);
 }
 
 /*
@@ -4826,6 +4880,27 @@ yb_is_retry_possible(ErrorData *edata, int attempt,
 	}
 
 	/*
+	 * This check is not strictly necessary.
+	 * However, recommend read committed isolation level when
+	 * increasing ysql_output_buffer_size is ineffective.
+	 *
+	 * This scenario is retryable if isolation is read committed instead.
+	 */
+	if (!IsYBReadCommitted() && YBIsDataSent() && !YBIsDataSentForCurrQuery())
+	{
+		const char *retry_err = "";
+
+		retry_err = psprintf("query layer retry isn't possible because "
+							 "this is not the first command in the "
+							 "transaction. Consider using READ COMMITTED "
+							 "isolation level.");
+		edata->message = psprintf("%s (%s)", edata->message, retry_err);
+		if (yb_debug_log_internal_restarts)
+			elog(LOG, "%s", retry_err);
+		return false;
+	}
+
+	/*
 	 * In REPEATABLE READ and SERIALIZABLE isolation levels, retrying involves restarting the whole
 	 * transaction. So, we can only retry if no data has been sent to the external client as part of
 	 * the current transaction.
@@ -4838,10 +4913,7 @@ yb_is_retry_possible(ErrorData *edata, int attempt,
 		(IsYBReadCommitted() && YBIsDataSentForCurrQuery()))
 	{
 		const char *retry_err = ("query layer retry isn't possible because "
-								 "data was already sent, if this is the read "
-								 "committed isolation (or) the first "
-								 "statement in repeatable read/ serializable "
-								 "isolation transaction, consider increasing "
+								 "data was already transferred, consider increasing "
 								 "the tserver gflag ysql_output_buffer_size");
 
 		edata->message = psprintf("%s (%s)", edata->message, retry_err);
@@ -5664,12 +5736,12 @@ PostgresSingleUserMain(int argc, char *argv[],
 void
 PostgresMain(const char *dbname, const char *username)
 {
-	int			firstchar;
-	StringInfoData input_message;
 	sigjmp_buf	local_sigjmp_buf;
+
+	/* these must be volatile to ensure state is preserved across longjmp: */
 	volatile bool send_ready_for_query = true;
-	bool		idle_in_transaction_timeout_enabled = false;
-	bool		idle_session_timeout_enabled = false;
+	volatile bool idle_in_transaction_timeout_enabled = false;
+	volatile bool idle_session_timeout_enabled = false;
 
 	AssertArg(dbname != NULL);
 	AssertArg(username != NULL);
@@ -5908,8 +5980,10 @@ PostgresMain(const char *dbname, const char *username)
 		 * query cancels from being misreported as timeouts in case we're
 		 * forgetting a timeout cancel.
 		 */
-		disable_all_timeouts(false);
-		QueryCancelPending = false; /* second to avoid race condition */
+		disable_all_timeouts(false);	/* do first to avoid race condition */
+		QueryCancelPending = false;
+		idle_in_transaction_timeout_enabled = false;
+		idle_session_timeout_enabled = false;
 
 		/* Not reading from the client anymore. */
 		DoingCommandRead = false;
@@ -5998,6 +6072,9 @@ PostgresMain(const char *dbname, const char *username)
 
 	for (;;)
 	{
+		int			firstchar;
+		StringInfoData input_message;
+
 		/*
 		 * At top of loop, reset extended-query-message flag, so that any
 		 * errors encountered in "idle" state don't provoke skip.
@@ -6067,10 +6144,8 @@ PostgresMain(const char *dbname, const char *username)
 			{
 				long		stats_timeout;
 
-				if (IsYugaByteEnabled() && yb_need_cache_refresh)
-				{
-					YBRefreshCache();
-				}
+				if (yb_need_cache_refresh)
+					YBRefreshCacheWrapper(YB_CATCACHE_VERSION_UNINITIALIZED);
 
 				/*
 				 * Process incoming notifies (including self-notifies), if
@@ -6254,6 +6329,8 @@ PostgresMain(const char *dbname, const char *username)
 				yb_catalog_version_type != CATALOG_VERSION_CATALOG_TABLE)
 				yb_catalog_version_type = CATALOG_VERSION_UNSET;
 			yb_is_multi_statement_query = false;
+			/* New Query => Did not sent any data for the current query. */
+			YBMarkDataNotSentForCurrQuery();
 		}
 
 		switch (firstchar)
@@ -6347,7 +6424,7 @@ PostgresMain(const char *dbname, const char *username)
 							(errcode(ERRCODE_PROTOCOL_VIOLATION),
 							 errmsg("invalid frontend message type %d",
 									firstchar)));
-				switch_fallthrough();
+				yb_switch_fallthrough();
 			case 'P':			/* parse */
 				{
 					const char *stmt_name;
@@ -6380,7 +6457,7 @@ PostgresMain(const char *dbname, const char *username)
 										   paramTypes,
 										   numParams,
 										   whereToSendOutput,
-										   (firstchar == 'p')); /* YB: from switch_fallthrough() */
+										   (firstchar == 'p')); /* YB: from yb_switch_fallthrough() */
 					}
 					PG_CATCH();
 					{
@@ -6735,7 +6812,7 @@ PostgresMain(const char *dbname, const char *username)
 				/* for the cumulative statistics system */
 				pgStatSessionEndCause = DISCONNECT_CLIENT_EOF;
 
-				switch_fallthrough();	/* FALLTHROUGH */
+				yb_switch_fallthrough();	/* FALLTHROUGH */
 
 			case 'X':
 

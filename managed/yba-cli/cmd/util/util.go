@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -385,7 +387,33 @@ func YAMLtoString(filePath string) string {
 				formatter.RedColor))
 	}
 	return string(contentBytes)
+}
 
+// StringToYAMLFile converts a string to a yaml file
+func StringToYAMLFile(contentString string, filePath string, perms fs.FileMode) (bool, error) {
+	logrus.Debug("YAML File Path: ", filePath)
+
+	var data yaml.MapSlice
+
+	// Unmarshal the YAML string into MapSlice
+	err := yaml.Unmarshal([]byte(contentString), &data)
+	if err != nil {
+		return false, fmt.Errorf("Error unmarshalling YAML string: " + err.Error())
+	}
+
+	// Marshal it again to ensure proper formatting (optional)
+	contentBytes, err := yaml.Marshal(data)
+	if err != nil {
+		return false, fmt.Errorf("Error marshalling YAML string: " + err.Error())
+	}
+
+	// Write YAML content to file
+	err = os.WriteFile(filePath, contentBytes, perms)
+	if err != nil {
+		return false, fmt.Errorf("Error writing YAML to file: " + err.Error())
+	}
+
+	return true, nil
 }
 
 // IsOutputType check if the output type is t
@@ -517,10 +545,97 @@ func MustGetFlagBool(cmd *cobra.Command, name string) bool {
 	return value
 }
 
+// MustGetFlagStringSlice returns the value of the string slice flag with the given name
+func MustGetFlagStringSlice(cmd *cobra.Command, name string) []string {
+	value, err := cmd.Flags().GetStringSlice(name)
+	if err != nil {
+		logrus.Fatal(formatter.Colorize(
+			fmt.Sprintf("Error getting flag '%s': %s\n", name, err), formatter.RedColor))
+	}
+	// Check if the slice is empty
+	if len(value) == 0 {
+		logrus.Fatal(formatter.Colorize(
+			fmt.Sprintf("Flag '%s' is required\n", name), formatter.RedColor))
+	}
+	return value
+}
+
+// MustGetStringArray returns the value of the string array flag with the given name
+// If the flag is set but empty, it returns an error
+func MustGetStringArray(cmd *cobra.Command, name string) []string {
+	value, err := cmd.Flags().GetStringArray(name)
+	if err != nil {
+		logrus.Fatal(formatter.Colorize(
+			fmt.Sprintf("Error getting flag '%s': %s\n", name, err), formatter.RedColor))
+	}
+	// Check if the array is empty
+	if len(value) == 0 {
+		logrus.Fatal(formatter.Colorize(
+			fmt.Sprintf("Flag '%s' is required\n", name), formatter.RedColor))
+	}
+	return value
+}
+
+// MaybeGetFlagString returns the value of the string flag with the given name
+// If the flag is not set, it returns an empty string
+func MaybeGetFlagString(cmd *cobra.Command, name string) string {
+	value, err := cmd.Flags().GetString(name)
+	if err != nil {
+		logrus.Fatal(formatter.Colorize(
+			fmt.Sprintf("Error getting flag '%s': %s\n", name, err), formatter.RedColor))
+	}
+	return value
+}
+
+// MaybeGetFlagStringSlice returns the value of the string slice flag with the given name
+// If the flag is not set, it returns an empty slice
+func MaybeGetFlagStringSlice(cmd *cobra.Command, name string) []string {
+	value, err := cmd.Flags().GetStringSlice(name)
+	if err != nil {
+		logrus.Fatal(formatter.Colorize(
+			fmt.Sprintf("Error getting flag '%s': %s\n", name, err), formatter.RedColor))
+	}
+	return value
+}
+
+// MaybeGetFlagStringArray returns the value of the string array flag with the given name
+func MaybeGetFlagStringArray(cmd *cobra.Command, name string) []string {
+	value, err := cmd.Flags().GetStringArray(name)
+	if err != nil {
+		logrus.Fatal(formatter.Colorize(
+			fmt.Sprintf("Error getting flag '%s': %s\n", name, err), formatter.RedColor))
+	}
+	return value
+}
+
 // MissingKeyFromStringDeclaration for complex structures in flags
 func MissingKeyFromStringDeclaration(key, flag string) {
 	logrus.Fatalln(
 		formatter.Colorize(
 			fmt.Sprintf("%s not specified in %s.\n", key, flag),
 			formatter.RedColor))
+}
+
+// GetCLIConfigDirectoryPath returns the CLI config directory path
+func GetCLIConfigDirectoryPath() (string, fs.FileMode, error) {
+	configFileUsed := viper.GetViper().ConfigFileUsed()
+	directory := filepath.Dir(configFileUsed)
+
+	info, err := os.Stat(directory)
+	if err != nil {
+		return "", 0644, err
+	}
+	return directory, info.Mode(), nil
+}
+
+// GetCLIOutputFormat returns the output format for the CLI
+func GetCLIOutputFormat(outputType string) string {
+	outputFormat := strings.TrimPrefix(outputType, "cli-")
+	if outputFormat == "flags" || outputFormat == "" {
+		outputFormat = "flag"
+	}
+	if outputFormat == "yml" {
+		outputFormat = "yaml"
+	}
+	return outputFormat
 }

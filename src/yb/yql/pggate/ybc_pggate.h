@@ -836,6 +836,8 @@ bool YBCPgIsYugaByteEnabled();
 // Sets the specified timeout in the rpc service.
 void YBCSetTimeout(int timeout_ms, void* extra);
 
+void YBCSetLockTimeout(int lock_timeout_ms, void* extra);
+
 //--------------------------------------------------------------------------------------------------
 // Thread-Local variables.
 
@@ -972,8 +974,10 @@ YbcStatus YBCServersMetrics(YbcPgServerMetricsInfo** serverMetricsInfo, size_t* 
 
 YbcStatus YBCDatabaseClones(YbcPgDatabaseCloneInfo** databaseClones, size_t* count);
 
-uint64_t YBCPgGetCurrentReadTimePoint();
-YbcStatus YBCRestoreReadTimePoint(uint64_t read_time_point_handle);
+YbcReadPointHandle YBCPgGetCurrentReadPoint();
+YbcStatus YBCPgRestoreReadPoint(YbcReadPointHandle read_point);
+YbcStatus YBCPgRegisterSnapshotReadTime(
+    uint64_t read_time, bool use_read_time, YbcReadPointHandle* handle);
 
 void YBCDdlEnableForceCatalogModification();
 
@@ -985,9 +989,9 @@ YbcStatus YBCReleaseAdvisoryLock(YbcAdvisoryLockId lock_id, YbcAdvisoryLockMode 
 YbcStatus YBCReleaseAllAdvisoryLocks(uint32_t db_oid);
 
 YbcStatus YBCPgExportSnapshot(
-    const YbcPgTxnSnapshot* snapshot, char** snapshot_id, const uint64_t* explicit_read_time);
+    const YbcPgTxnSnapshot* snapshot, char** snapshot_id,
+    const YbcReadPointHandle* explicit_read_point);
 YbcStatus YBCPgImportSnapshot(const char* snapshot_id, YbcPgTxnSnapshot* snapshot);
-YbcStatus YBCPgSetTxnSnapshot(uint64_t explicit_read_time);
 
 bool YBCPgHasExportedSnapshots();
 void YBCPgClearExportedTxnSnapshots();

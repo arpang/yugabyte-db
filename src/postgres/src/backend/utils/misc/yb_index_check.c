@@ -977,7 +977,7 @@ missing_check_plan(Relation baserel, Relation indexrel,
 }
 
 static void
-check_index_row_consistency2(TupleTableSlot *slot)
+check_index_row_consistency2(TupleTableSlot *slot, Relation indexrel)
 {
 	Assert(!TTS_EMPTY(slot));
 	bool ind_null;
@@ -991,7 +991,8 @@ check_index_row_consistency2(TupleTableSlot *slot)
 	if (ind_null)
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
-				 errmsg("index is missing rows")));
+				 errmsg("index is missing rows"),
+				 errdetail(IndRelDetail(indexrel))));
 
 	/*
 	 * TODO: datumIsEqual() returns false due to header size mismatch for types
@@ -1020,7 +1021,7 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 		{
 			rows_processed++;
 			// elog(INFO, "Scan2 output %s", YbSlotToString(output));
-			check_index_row_consistency2(output);
+			check_index_row_consistency2(output, indexrel);
 			bool null;
 			Datum baserow_ybctid = slot_getattr(output, 3, &null);
 			if (null)

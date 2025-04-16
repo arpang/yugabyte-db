@@ -3692,6 +3692,12 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 						ereport(WARNING,
 								(errmsg("split options on TEMP table will be ignored")));
 					}
+					if ($9 && $14)
+					{
+						n->split_options = NULL;
+						ereport(WARNING,
+								(errmsg("split options on a partitioned table will be ignored")));
+					}
 					if ($15 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(ERROR,
@@ -3739,6 +3745,12 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					{
 						ereport(WARNING,
 								(errmsg("split options on TEMP table will be ignored")));
+					}
+					if ($12 && $17)
+					{
+						n->split_options = NULL;
+						ereport(WARNING,
+								(errmsg("split options on a partitioned table will be ignored")));
 					}
 					if ($18 && $2 == RELPERSISTENCE_TEMP)
 					{
@@ -3789,6 +3801,12 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 						ereport(WARNING,
 								(errmsg("split options on TEMP table will be ignored")));
 					}
+					if ($8 && $13)
+					{
+						n->split_options = NULL;
+						ereport(WARNING,
+								(errmsg("split options on a partitioned table will be ignored")));
+					}
 					if ($14 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(ERROR,
@@ -3838,6 +3856,12 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 						ereport(WARNING,
 								(errmsg("split options on TEMP table will be ignored")));
 					}
+					if ($11 && $16)
+					{
+						n->split_options = NULL;
+						ereport(WARNING,
+								(errmsg("split options on a partitioned table will be ignored")));
+					}
 					if ($17 && $2 == RELPERSISTENCE_TEMP)
 					{
 						ereport(ERROR,
@@ -3886,6 +3910,12 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 						ereport(WARNING,
 								(errmsg("split options on TEMP table will be ignored")));
 					}
+					if ($10 && $15)
+					{
+						n->split_options = NULL;
+						ereport(WARNING,
+								(errmsg("split options on a partitioned table will be ignored")));
+					}
 					$$ = (Node *) n;
 				}
 		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name PARTITION OF
@@ -3913,6 +3943,12 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					{
 						ereport(WARNING,
 								(errmsg("split options on TEMP table will be ignored")));
+					}
+					if ($13 && $18)
+					{
+						n->split_options = NULL;
+						ereport(WARNING,
+								(errmsg("split options on a partitioned table will be ignored")));
 					}
 					$$ = (Node *) n;
 				}
@@ -5206,6 +5242,10 @@ SeqOptElem: AS SimpleTypename
 				{
 					$$ = makeDefElem("increment", (Node *) $3, @1);
 				}
+			| LOGGED
+				{
+					$$ = makeDefElem("logged", NULL, @1);
+				}
 			| MAXVALUE NumericOnly
 				{
 					$$ = makeDefElem("maxvalue", (Node *) $2, @1);
@@ -5228,7 +5268,6 @@ SeqOptElem: AS SimpleTypename
 				}
 			| SEQUENCE NAME_P any_name
 				{
-					/* not documented, only used by pg_dump */
 					$$ = makeDefElem("sequence_name", (Node *) $3, @1);
 				}
 			| START opt_with NumericOnly
@@ -5242,6 +5281,10 @@ SeqOptElem: AS SimpleTypename
 			| RESTART opt_with NumericOnly
 				{
 					$$ = makeDefElem("restart", (Node *) $3, @1);
+				}
+			| UNLOGGED
+				{
+					$$ = makeDefElem("unlogged", NULL, @1);
 				}
 		;
 
@@ -19529,7 +19572,7 @@ preprocess_pubobj_list(List *pubobjspec_list, core_yyscan_t yyscanner)
 			if (!pubobj->name && !pubobj->pubtable)
 				ereport(ERROR,
 						errcode(ERRCODE_SYNTAX_ERROR),
-						errmsg("invalid table name at or near"),
+						errmsg("invalid table name"),
 						parser_errposition(pubobj->location));
 
 			if (pubobj->name)
@@ -19571,7 +19614,7 @@ preprocess_pubobj_list(List *pubobjspec_list, core_yyscan_t yyscanner)
 			else
 				ereport(ERROR,
 						errcode(ERRCODE_SYNTAX_ERROR),
-						errmsg("invalid schema name at or near"),
+						errmsg("invalid schema name"),
 						parser_errposition(pubobj->location));
 		}
 

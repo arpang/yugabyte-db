@@ -104,6 +104,7 @@ typedef enum {
   YB_YQL_DATA_TYPE_UINT64 = 103,
   YB_YQL_DATA_TYPE_GIN_NULL = 104,
   YB_YQL_DATA_TYPE_VECTOR = 105,
+  YB_YQL_DATA_TYPE_BSON = 106,
 } YbcPgDataType;
 
 // Datatypes that are internally designated to be unsupported.
@@ -207,6 +208,8 @@ static const int64_t kYBCMaxPostgresTextSizeBytes = 1024ll * 1024 * 1024 - 4;
 
 // Postgres object identifier (OID) defined in Postgres' postgres_ext.h
 typedef unsigned int YbcPgOid;
+
+typedef uint64_t YbcReadPointHandle;
 
 const YbcPgTypeEntity *YBCPgFindTypeEntity(YbcPgOid type_oid);
 
@@ -617,7 +620,8 @@ typedef enum {
   // Force non-transactional semantics to avoid overhead of a distributed transaction. This is used
   // in the following cases as of today:
   //   (1) Index backfill
-  //   (2) COPY with ysql_non_txn_copy=true
+  //   (2) COPY with ysql_non_txn_copy=true or COPY to colocated table with
+  //       yb_fast_path_for_colocated_copy=true.
   //   (3) For normal DML writes if yb_disable_transactional_writes is set by the user
   YB_NON_TRANSACTIONAL,
   // Use a distributed transaction for full ACID semantics (common case).
