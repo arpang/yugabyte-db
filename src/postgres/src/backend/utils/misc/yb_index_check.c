@@ -593,7 +593,6 @@ check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
 		while ((output = ExecProcNode(join_state)))
 		{
 			rows_processed++;
-			// elog(INFO, "Scan1 output %s", YbSlotToString(output));
 			check_index_row_consistency(output, equality_opcodes, indexrel);
 			bool null;
 			Datum baserow_ybctid = slot_getattr(output, output->tts_tupleDescriptor->natts, &null);
@@ -604,24 +603,13 @@ check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
 				DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
 										baserow_ybctid, lower_bound_ybctid))
 			{
-				// elog(INFO, "copy as %s is gt %s",
-				// 	 YBDatumToString(baserow_ybctid, BYTEAOID),
-				// 	 !lower_bound_ybctid ?
-				// 		 "NULL" :
-				// 		 YBDatumToString(lower_bound_ybctid, BYTEAOID));
 				if (lower_bound_ybctid)
 					pfree(DatumGetPointer(lower_bound_ybctid));
 				COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
 			}
-			// else
-			// 	elog(INFO, "Skipping copy as %s is lte %s",
-			// 		 YBDatumToString(baserow_ybctid, BYTEAOID),
-			// 		 YBDatumToString(lower_bound_ybctid, BYTEAOID));
 
 			if (batch_end(rows_processed))
 			{
-				// elog(INFO, "Breaking scan1 at ybctid %s",
-				// 	 YBDatumToString(lower_bound_ybctid, BYTEAOID));
 				break;
 			}
 
@@ -633,7 +621,6 @@ check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
 		if (done)
 			break;
 	}
-	// elog(INFO, "Total rows processed(1) %d", rows_processed);
 	return;
 }
 
@@ -1020,7 +1007,6 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 		while ((output = ExecProcNode(state)))
 		{
 			rows_processed++;
-			// elog(INFO, "Scan2 output %s", YbSlotToString(output));
 			check_index_row_consistency2(output, indexrel);
 			bool null;
 			Datum baserow_ybctid = slot_getattr(output, 3, &null);
@@ -1032,24 +1018,13 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 				DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
 										baserow_ybctid, lower_bound_ybctid))
 			{
-				// elog(INFO, "copy as %s is gt %s",
-				// 	 YBDatumToString(baserow_ybctid, BYTEAOID),
-				// 	 !lower_bound_ybctid ?
-				// 		 "NULL" :
-				// 		 YBDatumToString(lower_bound_ybctid, BYTEAOID));
 				if (lower_bound_ybctid)
 					pfree(DatumGetPointer(lower_bound_ybctid));
 				COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
 			}
-			// else
-			// 	elog(INFO, "Skipping copy as %s is lte %s",
-			// 		 YBDatumToString(baserow_ybctid, BYTEAOID),
-			// 		 YBDatumToString(lower_bound_ybctid, BYTEAOID));
 
 			if (batch_end(rows_processed))
 			{
-				// elog(INFO, "Breaking scan2 at ybctid %s",
-				// 	 YBDatumToString(lower_bound_ybctid, BYTEAOID));
 				break;
 			}
 		}
@@ -1059,7 +1034,6 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 		if (done)
 			break;
 	}
-	// elog(INFO, "Total rows processed(2) %d", rows_processed);
 	return;
 }
 
