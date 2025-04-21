@@ -1492,7 +1492,7 @@ YbcStatus YBCPgDmlBindRange(YbcPgStatement handle,
             Slice(upper_bound, upper_bound_len), false));
 }
 
-YbcStatus YBCPgDmlBindLowerBound(
+YbcStatus YBCIndexCheckBindLowerBound(
     YbcPgStatement handle, uint64_t lower_bound_ybctid, bool is_hash_partitioned) {
   auto lower_bound_slice = YbctidAsSlice(lower_bound_ybctid);
   if (is_hash_partitioned) {

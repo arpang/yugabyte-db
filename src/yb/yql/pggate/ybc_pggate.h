@@ -1006,8 +1006,8 @@ YbcStatus YBCAcquireObjectLock(YbcObjectLockId lock_id, YbcObjectLockMode mode);
 // and YsqlUpgrade. This will return false after the AutoFlag Finalize step.
 bool YBCPgYsqlMajorVersionUpgradeInProgress();
 
-// Used for performing batched index consistency check via yb_index_check().
-YbcStatus YBCPgDmlBindLowerBound(
+// Set lower bound for the scan, used by yb_index_check().
+YbcStatus YBCIndexCheckBindLowerBound(
     YbcPgStatement handle, uint64_t lower_bound_ybctid, bool is_is_hash_partitionedhash);
 
 #ifdef __cplusplus

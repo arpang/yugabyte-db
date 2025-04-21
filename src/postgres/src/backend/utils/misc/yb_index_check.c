@@ -247,7 +247,7 @@ indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid)
 	index_scan->scan.scanrelid = 1; /* only one relation is involved */
 	index_scan->indexid = RelationGetRelid(indexrel);
 	index_scan->indextlist = index_cols;
-	plan->ybIndexCheckLowerBound = lower_bound_ybctid;
+	index_scan->scan.yb_index_check_lower_bound = lower_bound_ybctid;
 	return (Plan *) index_scan;
 }
 
@@ -871,7 +871,7 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 														  NIL;
 	base_scan->yb_pushdown.colrefs =
 		partial_idx_pushdown ? partial_idx_colrefs : NIL;
-	plan->ybIndexCheckLowerBound = lower_bound_ybctid;
+	base_scan->scan.yb_index_check_lower_bound = lower_bound_ybctid;
 	return (Plan *) base_scan;
 }
 

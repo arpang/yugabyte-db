@@ -3049,29 +3049,6 @@ YbApplySecondaryIndexPushdown(YbcPgStatement dml, const YbPushdownExprs *pushdow
 	YbApplyPushdownImpl(dml, pushdown, true /* is_for_secondary_index */ );
 }
 
-bool
-is_index_hash_partitioned(Relation relation)
-{
-	Assert(relation->rd_indoption);
-	return (relation->rd_indoption[0] & INDOPTION_HASH) != 0;
-}
-
-bool
-is_relation_hash_partitioned(Relation relation)
-{
-	bool is_hash;
-
-	Oid pkindex = relation->rd_pkindex;
-	is_hash = !MyDatabaseColocated && (pkindex == InvalidOid);
-	if (pkindex != InvalidOid)
-	{
-		Relation indexrel = index_open(pkindex, NoLock);
-		is_hash = is_hash || is_index_hash_partitioned(indexrel);
-		index_close(indexrel, NoLock);
-	}
-	return is_hash;
-}
-
 /*
  * Begin a scan for
  *   SELECT <Targets> FROM <relation> USING <index> WHERE <Binds>
@@ -3188,14 +3165,13 @@ ybcBeginScan(Relation relation,
 	if (distinct_prefixlen > 0)
 		YBCPgSetDistinctPrefixLength(ybScan->handle, distinct_prefixlen);
 
-	if (pg_scan_plan && pg_scan_plan->plan.ybIndexCheckLowerBound)
+	/* Set lower bound (if any) during yb_index_check(). */
+	if (pg_scan_plan && pg_scan_plan->yb_index_check_lower_bound)
 	{
-		bool is_hash_partitioned = index ?
-									   is_index_hash_partitioned(index) :
-									   is_relation_hash_partitioned(relation);
-		HandleYBStatus(YBCPgDmlBindLowerBound(
-			ybScan->handle, pg_scan_plan->plan.ybIndexCheckLowerBound,
-			is_hash_partitioned));
+		bool is_hash_partitioned = YbIsRelHashPartitioned(index ? index : relation);
+		HandleYBStatus(YBCIndexCheckBindLowerBound(ybScan->handle,
+												   pg_scan_plan->yb_index_check_lower_bound,
+												   is_hash_partitioned));
 	}
 
 	bms_free(scan_plan.hash_key);
