@@ -817,7 +817,7 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 		keyatts = lappend(keyatts, expr);
 	}
 
-	RowExpr* rowexpr = makeNode(RowExpr);
+	RowExpr *rowexpr = makeNode(RowExpr);
 	rowexpr->args = keyatts;
 	rowexpr->row_typeid = RECORDOID;
 
