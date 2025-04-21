@@ -3057,7 +3057,6 @@ is_index_hash_partitioned(Relation relation)
 bool
 is_relation_hash_partitioned(Relation relation)
 {
-	// elog(INFO, "relation->rd_indoption %p", relation->rd_indoption);
 	bool is_hash;
 
 	Oid pkindex = relation->rd_pkindex;
@@ -3189,10 +3188,6 @@ ybcBeginScan(Relation relation,
 
 	if (pg_scan_plan && pg_scan_plan->plan.ybIndexCheckLowerBound)
 	{
-		// elog(INFO, "YbSeqNext lower bound %s",
-		// 	 YBDatumToString(plan->scan.plan.ybIndexCheckLowerBound,
-		// 					 BYTEAOID));
-		// elog(INFO, "Is hash %d", is_hash);
 		bool is_hash_partitioned = index ?
 									   is_index_hash_partitioned(index) :
 									   is_relation_hash_partitioned(relation);
