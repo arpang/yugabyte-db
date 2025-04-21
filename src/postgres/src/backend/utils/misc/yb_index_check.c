@@ -38,7 +38,6 @@
 #include "fmgr.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "utils/arrayaccess.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/fmgroids.h"
@@ -1037,6 +1036,7 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 	return;
 }
 
+/* Should rename it to yb_compute_row_ybctid? */
 Datum
 yb_compute_ybctid(PG_FUNCTION_ARGS)
 {

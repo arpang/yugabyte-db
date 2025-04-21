@@ -5255,7 +5255,7 @@ static struct config_int ConfigureNamesInt[] =
 	{
 		{"yb_index_check_max_bnl_batches", PGC_USERSET, QUERY_TUNING_OTHER,
 			gettext_noop("Max number of BNL batches that are executed using the same "
-						 "read time in yb_index_check(). A new read time chosen "
+						 "read time in yb_index_check(). New read times are chosen "
 						 "for remaining rows."),
 			NULL,
 			GUC_NOT_IN_SAMPLE
