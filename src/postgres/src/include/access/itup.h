@@ -35,10 +35,12 @@
 typedef struct IndexTupleData
 {
 	ItemPointerData t_tid;		/* reference TID to heap tuple */
-	// TODO: rename the following field to ybidxbasectid
-	Datum		t_ybctid;		/* system column ybidxbasectid */
+
+	Datum		t_ybidxbasectid;		/* system column ybidxbasectid */
+
+	/* Fields used by yb_index_check() */
 	Datum		t_ybuniqueidxkeysuffix;	/* system column ybuniqueidxkeysuffix */
-	Datum		t_ybindexrowybctid;	/* index row's ybctid */
+	Datum		t_ybindexrowybctid;		/* index row's ybctid */
 
 	/* ---------------
 	 * t_info is laid out in the following fashion:

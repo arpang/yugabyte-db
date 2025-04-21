@@ -32,11 +32,6 @@
 #define HEAPTUPLE_COPY_YBCTID(fromHtup, toHtup) \
 	COPY_YBCTID(HEAPTUPLE_YBCTID(fromHtup), HEAPTUPLE_YBCTID(toHtup))
 
-#define INDEXTUPLE_YBCTID(itup) ((itup)->t_ybctid)
-
-#define INDEXTUPLE_COPY_YBCTID(fromItup, toItup)			\
-	COPY_YBCTID(INDEXTUPLE_YBCTID(fromItup), INDEXTUPLE_YBCTID(toItup))
-
 #define TABLETUPLE_YBCTID(tslot) ((tslot)->tts_ybctid)
 
 #define TABLETUPLE_COPY_YBCTID(fromTslot, toTslot)			\
