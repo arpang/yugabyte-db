@@ -47,7 +47,7 @@
 #include "utils/relcache.h"
 #include "utils/syscache.h"
 
-int	yb_index_check_batch_multiplier = 1;
+int yb_index_check_max_bnl_batches = 1;
 
 static void yb_index_check_internal(Oid indexoid);
 static void check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate);
@@ -568,17 +568,17 @@ batch_end(int rows_processed)
 	 * size should be a multiple of yb_bnl_batch_size.
 	 *
 	 */
-	return rows_processed % (yb_index_check_batch_multiplier * yb_bnl_batch_size) == 0;
+	return rows_processed % (yb_index_check_max_bnl_batches * yb_bnl_batch_size) == 0;
 }
 
 static void
 check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
 {
-	int rows_processed = 0;
 	Datum lower_bound_ybctid = 0;
 	bool done = false;
 	while (true)
 	{
+		int rows_processed = 0;
 		Plan *join_plan = spurious_check_plan(baserel, indexrel, lower_bound_ybctid);
 
 		MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
@@ -994,11 +994,11 @@ check_index_row_consistency2(TupleTableSlot *slot, Relation indexrel)
 static void
 check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 {
-	int rows_processed = 0;
 	Datum lower_bound_ybctid = 0;
 	bool done = false;
 	while (true)
 	{
+		int rows_processed = 0;
 		Plan *plan = missing_check_plan(baserel, indexrel, lower_bound_ybctid);
 		MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 		PlanState *state = ExecInitNode((Plan *) plan, estate, 0);
