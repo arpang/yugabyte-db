@@ -74,14 +74,13 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 		   2 * (indnatts + 1) + (indisunique ? 1 : 0) + 1);
 
 	/* First, validate ybctid and ybbasectid. */
-	int ind_attnum = 1;
-	int base_attnum = ind_attnum + 1;
+	int attnum = 1;
 
 	bool ind_null;
 	bool base_null;
-	Datum ybbasectid_datum = slot_getattr(slot, ind_attnum, &ind_null);
-	Datum ybctid_datum = slot_getattr(slot, base_attnum, &base_null);
-	Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
+	Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1);
+	Datum ybbasectid_datum = slot_getattr(slot, attnum++, &ind_null);
+	Datum ybctid_datum = slot_getattr(slot, attnum++, &base_null);
 
 	if (ind_null)
 		ereport(ERROR,
@@ -109,15 +108,13 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 						"issue is likely with the checker, and not with the index"),
 				 errdetail(IndRowDetail(indexrel, ybbasectid_datum))));
 
-	ind_attnum += 2;
-	base_attnum += 2;
 	/* Validate the index attributes */
-	for (int i = 0; i < indnatts; i++, ind_attnum += 2, base_attnum += 2)
+	for (int i = 0; i < indnatts; i++)
 	{
-		Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
+		Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1);
 
-		Datum ind_datum = slot_getattr(slot, ind_attnum, &ind_null);
-		Datum base_datum = slot_getattr(slot, base_attnum, &base_null);
+		Datum ind_datum = slot_getattr(slot, attnum++, &ind_null);
+		Datum base_datum = slot_getattr(slot, attnum++, &base_null);
 
 		if (ind_null && i < indnkeyatts)
 			indkeyhasnull = true;
@@ -162,7 +159,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 	if (indisunique)
 	{
 		/* Validate the ybuniqueidxkeysuffix */
-		Datum ybuniqueidxkeysuffix_datum = slot_getattr(slot, ind_attnum, &ind_null);
+		Datum ybuniqueidxkeysuffix_datum = slot_getattr(slot, attnum, &ind_null);
 
 		if (indnullsnotdistinct || !indkeyhasnull)
 		{
@@ -174,7 +171,7 @@ check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
 		}
 		else
 		{
-			ind_att = TupleDescAttr(slot->tts_tupleDescriptor, ind_attnum - 1);
+			ind_att = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1);
 			bool equal = datum_image_eq(ybbasectid_datum,
 										ybuniqueidxkeysuffix_datum,
 										ind_att->attbyval, ind_att->attlen);

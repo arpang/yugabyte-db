@@ -7,9 +7,11 @@ INSERT INTO abcd SELECT i, i, i, i FROM generate_series(1, 10) i;
 
 -- Basic test
 SET yb_bnl_batch_size = 3;
+SET yb_index_check_max_bnl_batches = 1;
 EXPLAIN (ANALYZE, DIST, COSTS OFF, SUMMARY OFF) SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
 RESET yb_bnl_batch_size;
+RESET yb_index_check_max_bnl_batches;
 
 -- Insert more data
 INSERT INTO abcd SELECT i, i, i, i FROM generate_series(11, 2000) i;
