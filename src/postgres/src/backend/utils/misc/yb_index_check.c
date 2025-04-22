@@ -774,7 +774,7 @@ indexrel_scan_plan2(Relation indexrel)
 
 /*
  * Generate plan corresponding to:
- *		SELECT yb_compute_ybctid(indexreloid, keyatts, ybctid) AS
+ *		SELECT yb_compute_row_ybctid(indexreloid, keyatts, ybctid) AS
  *computed_index_row_ybctid, ybctid from baserel where <partial index predicate,
  *if any>.
  */
@@ -830,7 +830,7 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 
 	List *args = list_make3(indexoidarg, rowexpr, ybctid_expr);
 
-	FuncExpr *funcexpr = makeFuncExpr(F_YB_COMPUTE_YBCTID, BYTEAOID, args,
+	FuncExpr *funcexpr = makeFuncExpr(F_YB_COMPUTE_ROW_YBCTID, BYTEAOID, args,
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
 
@@ -1036,9 +1036,8 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
 	return;
 }
 
-/* Should rename it to yb_compute_row_ybctid? */
 Datum
-yb_compute_ybctid(PG_FUNCTION_ARGS)
+yb_compute_row_ybctid(PG_FUNCTION_ARGS)
 {
 	Oid relid = PG_GETARG_OID(0);
 	Relation rel = RelationIdGetRelation(relid);
@@ -1047,18 +1046,17 @@ yb_compute_ybctid(PG_FUNCTION_ARGS)
 
 	ExecStoreHeapTupleDatum(PG_GETARG_DATUM(1), slot);
 
-	bool has_null = PG_GETARG_HEAPTUPLEHEADER(1)->t_infomask & HEAP_HASNULL;
-
 	if (index)
 	{
+		bool has_null = PG_GETARG_HEAPTUPLEHEADER(1)->t_infomask & HEAP_HASNULL;
 		int indisunique = index->indisunique;
-		Datum ybbasetid = PG_GETARG_DATUM(2);
-		if (!DatumGetPointer(ybbasetid))
+		Datum ybbasectid = PG_GETARG_DATUM(2);
+		if (!DatumGetPointer(ybbasectid))
 			elog(ERROR, "ybbasetid cannot be NULL for index relations");
-		if (indisunique && !index->indnullsnotdistinct && has_null)
-			slot->ts_ybuniqueidxkeysuffix = ybbasetid;
-		else if (!indisunique)
-			slot->ts_ybbasectid = ybbasetid;
+		if (!indisunique)
+			slot->ts_ybbasectid = ybbasectid;
+		else if (!index->indnullsnotdistinct && has_null)
+			slot->ts_ybuniqueidxkeysuffix = ybbasectid;
 	}
 
 	Datum result = YBCComputeYBTupleIdFromSlot(rel, slot);
