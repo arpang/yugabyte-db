@@ -44,12 +44,16 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/relcache.h"
+#include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
 int yb_index_check_max_bnl_batches = 1;
+bool batch_mode = false;
 
 static void yb_index_check_internal(Oid indexoid);
-static void check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate);
+static void check_missing_index_rows(Relation baserel, Relation indexrel,
+									 EState *estate,
+									 int64 actual_index_rowcount);
 
 #define IndRelDetail(indexrel)	\
 	"index: '%s'", RelationGetRelationName(indexrel)
@@ -61,8 +65,8 @@ static void check_missing_index_rows(Relation baserel, Relation indexrel, EState
 	"index: '%s', ybbasectid: '%s', index attnum: %d", RelationGetRelationName(indexrel), YBDatumToString(ybbasectid_datum, BYTEAOID), attnum
 
 static void
-check_index_row_consistency(TupleTableSlot *slot, List *equality_opcodes,
-							Relation indexrel)
+check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
+							List *equality_opcodes)
 {
 	bool indisunique = indexrel->rd_index->indisunique;
 	bool indnullsnotdistinct = indexrel->rd_index->indnullsnotdistinct;
@@ -556,7 +560,7 @@ get_equality_opcodes(Relation indexrel)
 }
 
 static bool
-batch_end(int rows_processed)
+batch_end(int rowcount)
 {
 	/*
 	 * In order to guarantee processing all the rows, index batch should not end
@@ -564,60 +568,82 @@ batch_end(int rows_processed)
 	 * size should be a multiple of yb_bnl_batch_size.
 	 *
 	 */
-	return rows_processed % (yb_index_check_max_bnl_batches * yb_bnl_batch_size) == 0;
+	return batch_mode &&
+		   (rowcount % (yb_index_check_max_bnl_batches * yb_bnl_batch_size) ==
+			0);
 }
 
-static void
-check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
+typedef Plan *(*GetPlanCB)(Relation baserel, Relation indexrel,
+						   Datum lower_bound_ybctid);
+
+typedef void (*RowConsistencyCheckCB)(TupleTableSlot *slot, Relation indexrel,
+									  List *equality_opcodes);
+
+static int64
+join_execution_helper(GetPlanCB get_plan_cb, Relation baserel, Relation indexrel,
+					  EState *estate, RowConsistencyCheckCB consistency_check_cb,
+					  List *equality_opcodes)
 {
 	Datum lower_bound_ybctid = 0;
-	bool done = false;
-	while (true)
+	bool execution_complete = false;
+	int rowcount = 0;
+	while (!execution_complete)
 	{
-		int rows_processed = 0;
-		Plan *join_plan = spurious_check_plan(baserel, indexrel, lower_bound_ybctid);
-
+		bool batch_complete = false;
+		Plan *plan = get_plan_cb(baserel, indexrel, lower_bound_ybctid);
 		MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 
 		/* Plan execution */
-		PlanState *join_state = ExecInitNode((Plan *) join_plan, estate, 0);
-
-		List *equality_opcodes = get_equality_opcodes(indexrel);
+		PlanState *join_state = ExecInitNode((Plan *) plan, estate, 0);
 
 		TupleTableSlot *output;
-		YBCPgResetTransactionReadPoint();
-		while ((output = ExecProcNode(join_state)))
+
+		if (batch_mode)
+			PushActiveSnapshot(GetLatestSnapshot());
+
+		while (!batch_complete && (output = ExecProcNode(join_state)))
 		{
-			rows_processed++;
-			check_index_row_consistency(output, equality_opcodes, indexrel);
-			bool null;
-			Datum baserow_ybctid = slot_getattr(output, output->tts_tupleDescriptor->natts, &null);
-			if (null)
-				elog(ERROR, "ybctid unexpectedly null, something's wrong with "
-							"checker");
-			if (!lower_bound_ybctid ||
-				DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
-										baserow_ybctid, lower_bound_ybctid))
+			consistency_check_cb(output, indexrel, equality_opcodes);
+			if (batch_mode)
 			{
-				if (lower_bound_ybctid)
+				bool null;
+
+				Datum baserow_ybctid =
+					slot_getattr(output, output->tts_tupleDescriptor->natts, &null);
+				if (null)
+					elog(ERROR, "ybctid is unexpectedly null. Issue is likely with the "
+								"checker, and not with the index");
+
+				if (!lower_bound_ybctid)
+					COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
+				else if (DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
+												 baserow_ybctid, lower_bound_ybctid))
+				{
 					pfree(DatumGetPointer(lower_bound_ybctid));
-				COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
+					COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
+				}
 			}
-
-			if (batch_end(rows_processed))
-			{
-				break;
-			}
-
+			batch_complete = batch_end(++rowcount);
 		}
-		done = !output;
-		ExecEndNode(join_state);
 
+		if (batch_mode)
+			PopActiveSnapshot();
+
+		execution_complete = !output;
+		ExecEndNode(join_state);
 		MemoryContextSwitchTo(oldctxt);
-		if (done)
-			break;
 	}
-	return;
+
+	return rowcount;
+}
+
+static int64
+check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
+{
+	/* Is the following ok? Or do I need to redeclare for every batch? */
+	List *equality_opcodes = get_equality_opcodes(indexrel);
+	return join_execution_helper(spurious_check_plan, baserel, indexrel, estate,
+								 check_index_row_consistency, equality_opcodes);
 }
 
 static void
@@ -630,6 +656,48 @@ partitioned_index_check(Oid parentindexId)
 		/* TODO: A new read time can be used for each partition. */
 		yb_index_check_internal(childindexId);
 	}
+}
+
+static int64
+get_expected_index_rowcount(Relation baserel, Relation indexrel)
+{
+	StringInfoData querybuf;
+	initStringInfo(&querybuf);
+	appendStringInfo(&querybuf, "/*+SeqScan(%s)*/ SELECT count(*) from %s",
+					 RelationGetRelationName(baserel),
+					 RelationGetRelationName(baserel));
+
+	bool indpred_isnull;
+	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+										  Anum_pg_index_indpred,
+										  &indpred_isnull);
+	if (!indpred_isnull)
+	{
+		Oid basereloid = RelationGetRelid(baserel);
+		char *indpred_clause = TextDatumGetCString(
+			DirectFunctionCall2(pg_get_expr, indpred_datum, basereloid));
+		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
+	}
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	if (SPI_execute(querybuf.data, true, 0) != SPI_OK_SELECT)
+		elog(ERROR, "SPI_exec failed:");
+
+	Assert(SPI_processed == 1);
+	Assert(SPI_tuptable->tupdesc->natts == 1);
+
+	bool isnull;
+	Datum val =
+		heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
+	Assert(!isnull);
+	int64 expected_rowcount = DatumGetInt64(val);
+
+	if (SPI_finish() != SPI_OK_FINISH)
+		elog(ERROR, "SPI_finish failed");
+
+	return expected_rowcount;
 }
 
 static void
@@ -667,10 +735,12 @@ yb_index_check_internal(Oid indexoid)
 
 	EState *estate = init_estate(baserel);
 
+	int64 actual_index_rowcount = 0;
 	PG_TRY();
 	{
-		check_spurious_index_rows(baserel, indexrel, estate);
-		check_missing_index_rows(baserel, indexrel, estate);
+		actual_index_rowcount = check_spurious_index_rows(baserel, indexrel, estate);
+		check_missing_index_rows(baserel, indexrel, estate,
+								 actual_index_rowcount);
 	}
 	PG_CATCH();
 	{
@@ -690,6 +760,7 @@ Datum
 yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
+	batch_mode = PG_GETARG_OID(1);
 	yb_index_check_internal(indexoid);
 	PG_RETURN_VOID();
 }
@@ -960,7 +1031,8 @@ missing_check_plan(Relation baserel, Relation indexrel,
 }
 
 static void
-check_index_row_consistency2(TupleTableSlot *slot, Relation indexrel)
+check_index_row_consistency2(TupleTableSlot *slot, Relation indexrel,
+							 List *unsed_equality_opcodes)
 {
 	Assert(!TTS_EMPTY(slot));
 	bool ind_null;
@@ -988,47 +1060,25 @@ check_index_row_consistency2(TupleTableSlot *slot, Relation indexrel)
 }
 
 static void
-check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate)
+check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate,
+						 int64 actual_index_rowcount)
 {
-	Datum lower_bound_ybctid = 0;
-	bool done = false;
-	while (true)
+	if (batch_mode)
+		join_execution_helper(missing_check_plan, baserel, indexrel, estate,
+							  check_index_row_consistency2, NIL);
+	else
 	{
-		int rows_processed = 0;
-		Plan *plan = missing_check_plan(baserel, indexrel, lower_bound_ybctid);
-		MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
-		PlanState *state = ExecInitNode((Plan *) plan, estate, 0);
-		TupleTableSlot *output;
-		YBCPgResetTransactionReadPoint();
-		while ((output = ExecProcNode(state)))
-		{
-			rows_processed++;
-			check_index_row_consistency2(output, indexrel);
-			bool null;
-			Datum baserow_ybctid = slot_getattr(output, 3, &null);
-			if (null)
-				elog(ERROR, "ybctid unexpectedly null, something's wrong with "
-							"checker");
-
-			if (!lower_bound_ybctid ||
-				DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
-										baserow_ybctid, lower_bound_ybctid))
-			{
-				if (lower_bound_ybctid)
-					pfree(DatumGetPointer(lower_bound_ybctid));
-				COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
-			}
-
-			if (batch_end(rows_processed))
-			{
-				break;
-			}
-		}
-		done = !output;
-		ExecEndNode(state);
-		MemoryContextSwitchTo(oldctxt);
-		if (done)
-			break;
+		int64 expected_index_rowcount =
+			get_expected_index_rowcount(baserel, indexrel);
+		/* We already verified that index doesn't contain spurious rows. */
+		Assert(expected_index_rowcount >= actual_index_rowcount);
+		if (actual_index_rowcount != expected_index_rowcount)
+			ereport(ERROR,
+					(errcode(ERRCODE_INDEX_CORRUPTED),
+					 errmsg("index is missing some rows: expected %ld, actual "
+							"%ld",
+							expected_index_rowcount, actual_index_rowcount),
+					 errdetail(IndRelDetail(indexrel))));
 	}
 	return;
 }

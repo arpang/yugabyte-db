@@ -22,8 +22,6 @@ SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
  
 (1 row)
 
-RESET yb_bnl_batch_size;
-RESET yb_index_check_max_bnl_batches;
 -- Insert more data
 INSERT INTO abcd SELECT i, i, i, i FROM generate_series(11, 2000) i;
 INSERT INTO abcd values (2001, NULL, NULL, NULL);

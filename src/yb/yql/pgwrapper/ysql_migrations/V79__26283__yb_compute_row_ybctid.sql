@@ -22,6 +22,6 @@ BEGIN;
   INSERT INTO pg_catalog.pg_description (
     objoid, classoid, objsubid, description
   ) VALUES (
-    8095, 1255, 0, 'given index key attributes, returns index row ybctid'
+    8095, 1255, 0, 'returns the ybctid given a relation and its key attributes'
   ) ON CONFLICT DO NOTHING;
 COMMIT;
