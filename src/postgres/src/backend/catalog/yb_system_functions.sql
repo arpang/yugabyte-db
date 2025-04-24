@@ -122,8 +122,9 @@ LANGUAGE INTERNAL
 IMMUTABLE PARALLEL SAFE
 AS 'yb_compute_row_ybctid';
 
+-- TODO: Is batch_mode arg (with true default) the right thing to do?
 CREATE OR REPLACE FUNCTION
-  yb_index_check(index oid, batch_mode bool DEFAULT FALSE)
+  yb_index_check(index oid, batch_mode bool DEFAULT TRUE)
 RETURNS void
 LANGUAGE INTERNAL
 VOLATILE STRICT PARALLEL SAFE

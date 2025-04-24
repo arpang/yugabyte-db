@@ -3167,12 +3167,8 @@ ybcBeginScan(Relation relation,
 
 	/* Set lower bound (if any) during yb_index_check(). */
 	if (pg_scan_plan && pg_scan_plan->yb_index_check_lower_bound)
-	{
-		bool is_hash_partitioned = YbIsRelHashPartitioned(index ? index : relation);
-		HandleYBStatus(YBCIndexCheckBindLowerBound(ybScan->handle,
-												   pg_scan_plan->yb_index_check_lower_bound,
-												   is_hash_partitioned));
-	}
+		HandleYBStatus(YBCPgIndexCheckBindLowerBound(ybScan->handle,
+													 pg_scan_plan->yb_index_check_lower_bound));
 
 	bms_free(scan_plan.hash_key);
 	bms_free(scan_plan.primary_key);

@@ -7404,33 +7404,3 @@ YbRefreshMatviewInPlace()
 	return yb_refresh_matview_in_place ||
 		   YBCPgYsqlMajorVersionUpgradeInProgress();
 }
-
-bool
-YbIsIndexHashPartitioned(Relation relation)
-{
-	Assert(relation->rd_index);
-	Assert(relation->rd_indoption);
-	return (relation->rd_indoption[0] & INDOPTION_HASH) != 0;
-}
-
-bool
-YbIsRelHashPartitioned(Relation relation)
-{
-	/* Colocated relations cannot be hash partitioned. */
-	if (MyDatabaseColocated)
-		return false;
-
-	if (relation->rd_index)
-		return YbIsIndexHashPartitioned(relation);
-
-	Oid pkindex = relation->rd_pkindex;
-
-	/* Relations without primary key index are hash partitioned. */
-	if (pkindex == InvalidOid)
-		return true;
-
-	Relation pkindexrel = index_open(pkindex, NoLock);
-	bool hash_partitioned = YbIsIndexHashPartitioned(pkindexrel);
-	index_close(pkindexrel, NoLock);
-	return hash_partitioned;
-}

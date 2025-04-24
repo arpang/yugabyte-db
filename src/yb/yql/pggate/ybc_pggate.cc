@@ -1492,15 +1492,6 @@ YbcStatus YBCPgDmlBindRange(YbcPgStatement handle,
             Slice(upper_bound, upper_bound_len), false));
 }
 
-YbcStatus YBCIndexCheckBindLowerBound(
-    YbcPgStatement handle, uint64_t lower_bound_ybctid, bool is_hash_partitioned) {
-  auto lower_bound_slice = YbctidAsSlice(lower_bound_ybctid);
-  if (is_hash_partitioned) {
-    lower_bound_slice.consume_byte();
-  }
-  return ToYBCStatus(pgapi->DmlBindRange(handle, lower_bound_slice, false, Slice(), false));
-}
-
 YbcStatus YBCPgDmlBindTable(YbcPgStatement handle) {
   return ToYBCStatus(pgapi->DmlBindTable(handle));
 }
@@ -3132,6 +3123,10 @@ bool YBCPgYsqlMajorVersionUpgradeInProgress() {
    * DevNote: Keep this in sync with IsYsqlMajorVersionUpgradeInProgress.
    */
   return yb_major_version_upgrade_compatibility > 0 || !yb_upgrade_to_pg15_completed;
+}
+
+YbcStatus YBCPgIndexCheckBindLowerBound(YbcPgStatement handle, uint64_t lower_bound) {
+  return ToYBCStatus(pgapi->IndexCheckBindLowerBound(handle, YbctidAsSlice(lower_bound)));
 }
 
 } // extern "C"

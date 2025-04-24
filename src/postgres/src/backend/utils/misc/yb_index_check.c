@@ -64,6 +64,10 @@ static void check_missing_index_rows(Relation baserel, Relation indexrel,
 #define IndAttrDetail(indexrel, ybbasectid_datum, attnum)	\
 	"index: '%s', ybbasectid: '%s', index attnum: %d", RelationGetRelationName(indexrel), YBDatumToString(ybbasectid_datum, BYTEAOID), attnum
 
+typedef Plan *(*GetPlanCB)(Relation baserel, Relation indexrel, Datum lower_bound_ybctid);
+
+typedef void (*RowConsistencyCheckCB)(TupleTableSlot *slot, Relation indexrel,
+									  List *equality_opcodes);
 static void
 check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
 							List *equality_opcodes)
@@ -566,18 +570,11 @@ batch_end(int rowcount)
 	 * In order to guarantee processing all the rows, index batch should not end
 	 * in the middle of processing BNL batch. In other words, index check batch
 	 * size should be a multiple of yb_bnl_batch_size.
-	 *
 	 */
 	return batch_mode &&
 		   (rowcount % (yb_index_check_max_bnl_batches * yb_bnl_batch_size) ==
 			0);
 }
-
-typedef Plan *(*GetPlanCB)(Relation baserel, Relation indexrel,
-						   Datum lower_bound_ybctid);
-
-typedef void (*RowConsistencyCheckCB)(TupleTableSlot *slot, Relation indexrel,
-									  List *equality_opcodes);
 
 static int64
 join_execution_helper(GetPlanCB get_plan_cb, Relation baserel, Relation indexrel,

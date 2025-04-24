@@ -1007,8 +1007,7 @@ YbcStatus YBCAcquireObjectLock(YbcObjectLockId lock_id, YbcObjectLockMode mode);
 bool YBCPgYsqlMajorVersionUpgradeInProgress();
 
 // Set lower bound for the scan, used by yb_index_check().
-YbcStatus YBCIndexCheckBindLowerBound(
-    YbcPgStatement handle, uint64_t lower_bound_ybctid, bool is_is_hash_partitionedhash);
+YbcStatus YBCPgIndexCheckBindLowerBound(YbcPgStatement handle, uint64_t lower_bound);
 
 #ifdef __cplusplus
 }  // extern "C"

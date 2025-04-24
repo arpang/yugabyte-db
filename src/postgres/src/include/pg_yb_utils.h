@@ -1354,6 +1354,4 @@ extern bool YbIsInvalidationMessageEnabled();
 
 extern bool YbRefreshMatviewInPlace();
 
-extern bool YbIsRelHashPartitioned(Relation relation);
-
 #endif							/* PG_YB_UTILS_H */

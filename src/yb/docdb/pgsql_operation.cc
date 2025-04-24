@@ -435,7 +435,8 @@ Result<YQLRowwiseIteratorIf::UniPtr> CreateIterator(
         request.paging_state().has_next_row_key() &&
         !request.paging_state().next_row_key().empty()) {
       dockv::KeyBytes start_key_bytes(request.paging_state().next_row_key());
-      RETURN_NOT_OK(start_sub_doc_key.FullyDecodeFrom(start_key_bytes.AsSlice()));
+      // TODO: Think through
+      RETURN_NOT_OK(start_sub_doc_key.FullyDecodeFrom(start_key_bytes.AsSlice(), dockv::HybridTimeRequired::kFalse));
       // TODO(dmitry) Remove backward compatibility block when obsolete.
       if (!data.is_explicit_request_read_time) {
         if (request.paging_state().has_read_time()) {
