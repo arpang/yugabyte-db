@@ -64,10 +64,13 @@ static void check_missing_index_rows(Relation baserel, Relation indexrel,
 #define IndAttrDetail(indexrel, ybbasectid_datum, attnum)	\
 	"index: '%s', ybbasectid: '%s', index attnum: %d", RelationGetRelationName(indexrel), YBDatumToString(ybbasectid_datum, BYTEAOID), attnum
 
-typedef Plan *(*GetPlanCB)(Relation baserel, Relation indexrel, Datum lower_bound_ybctid);
+typedef Plan *(*yb_get_plan_function)(Relation baserel, Relation indexrel,
+									  Datum lower_bound_ybctid);
 
-typedef void (*RowConsistencyCheckCB)(TupleTableSlot *slot, Relation indexrel,
-									  List *equality_opcodes);
+typedef void (*yb_row_consistency_check_function)(TupleTableSlot *slot,
+												  Relation indexrel,
+												  List *equality_opcodes);
+
 static void
 check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
 							List *equality_opcodes)
@@ -577,8 +580,9 @@ batch_end(int rowcount)
 }
 
 static int64
-join_execution_helper(GetPlanCB get_plan_cb, Relation baserel, Relation indexrel,
-					  EState *estate, RowConsistencyCheckCB consistency_check_cb,
+join_execution_helper(yb_get_plan_function get_plan_cb, Relation baserel,
+					  Relation indexrel, EState *estate,
+					  yb_row_consistency_check_function consistency_check_cb,
 					  List *equality_opcodes)
 {
 	Datum lower_bound_ybctid = 0;
