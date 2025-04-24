@@ -1047,7 +1047,7 @@ check_index_row_consistency2(TupleTableSlot *slot, Relation indexrel,
 	if (ind_null)
 		ereport(ERROR,
 				(errcode(ERRCODE_INDEX_CORRUPTED),
-				 errmsg("index is missing rows"),
+				 errmsg("index is missing some rows"),
 				 errdetail(IndRelDetail(indexrel))));
 
 	/*
