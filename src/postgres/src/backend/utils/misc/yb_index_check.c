@@ -671,8 +671,9 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 	if (!indpred_isnull)
 	{
 		Oid basereloid = RelationGetRelid(baserel);
-		char *indpred_clause = TextDatumGetCString(
-			DirectFunctionCall2(pg_get_expr, indpred_datum, basereloid));
+		char *indpred_clause = TextDatumGetCString(DirectFunctionCall2(pg_get_expr,
+																	   indpred_datum,
+																	   basereloid));
 		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
 	}
 
@@ -686,8 +687,7 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 	Assert(SPI_tuptable->tupdesc->natts == 1);
 
 	bool isnull;
-	Datum val =
-		heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
+	Datum val = heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
 	Assert(!isnull);
 	int64 expected_rowcount = DatumGetInt64(val);
 

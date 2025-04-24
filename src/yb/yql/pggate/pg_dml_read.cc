@@ -863,14 +863,14 @@ void PgDmlRead::BindHashCode(const std::optional<Bound>& start, const std::optio
 }
 
 // TODO: Can be deduped with PgsqlReadOperation::SetPagingState()
-Status PgDmlRead::IndexCheckBindLowerBound(Slice lower_bound)
-{
+Status PgDmlRead::IndexCheckBindLowerBound(Slice lower_bound) {
   if (read_req_->has_paging_state()) {
     return STATUS_FORMAT(InternalError, "Paging state already set");
   }
 
   dockv::DocKey row_key(bind_->schema());
-  VERIFY_RESULT(row_key.DecodeFrom(lower_bound, dockv::DocKeyPart::kWholeDocKey, dockv::AllowSpecial::kTrue));
+  VERIFY_RESULT(row_key.DecodeFrom(lower_bound, dockv::DocKeyPart::kWholeDocKey,
+                                   dockv::AllowSpecial::kTrue));
 
   auto* paging_state = read_req_->mutable_paging_state();
   auto encoded_row_key = row_key.Encode().ToStringBuffer();

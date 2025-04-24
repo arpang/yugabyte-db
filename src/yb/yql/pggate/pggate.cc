@@ -2345,8 +2345,7 @@ void PgApiImpl::ClearExportedTxnSnapshots() { pg_txn_manager_->ClearExportedTxnS
 //------------------------------------------------------------------------------------------------
 // Index Consistency Checker.
 //------------------------------------------------------------------------------------------------
-Status PgApiImpl::IndexCheckBindLowerBound(PgStatement* handle, Slice lower_bound)
-{
+Status PgApiImpl::IndexCheckBindLowerBound(PgStatement* handle, Slice lower_bound) {
   return VERIFY_RESULT_REF(GetStatementAs<PgDmlRead>(handle)).IndexCheckBindLowerBound(lower_bound);
 }
 
