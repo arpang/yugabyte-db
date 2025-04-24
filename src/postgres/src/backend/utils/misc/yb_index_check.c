@@ -47,7 +47,7 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
-int yb_index_check_max_bnl_batches = 1;
+int yb_index_check_max_bnl_batches = 0;
 bool batch_mode = false;
 
 static void yb_index_check_internal(Oid indexoid);
@@ -761,7 +761,7 @@ Datum
 yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
-	batch_mode = PG_GETARG_OID(1);
+	batch_mode = yb_index_check_max_bnl_batches > 0;
 	yb_index_check_internal(indexoid);
 	PG_RETURN_VOID();
 }

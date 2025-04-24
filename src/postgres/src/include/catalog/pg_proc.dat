@@ -12167,8 +12167,8 @@
 
 { oid => '8090', descr => 'returns whether the index is logically consistent with its base relation',
   proname => 'yb_index_check', provolatile => 'v',
-  prorettype => 'void', proargtypes => 'oid bool',
-  proargnames => '{index,batch_mode}',
+  prorettype => 'void', proargtypes => 'oid',
+  proargnames => '{index}',
   prosrc => 'yb_index_check'},
 
 # Statistics Import
