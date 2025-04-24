@@ -872,8 +872,12 @@ Status PgDmlRead::IndexCheckBindLowerBound(Slice lower_bound) {
   VERIFY_RESULT(row_key.DecodeFrom(lower_bound, dockv::DocKeyPart::kWholeDocKey,
                                    dockv::AllowSpecial::kTrue));
 
+  auto encoded_row_key_raw = row_key.Encode();
+  // Add invalid hybrid time to keep decoder silent (it expects hybrid time by default).
+  AppendDocHybridTime(DocHybridTime::kInvalid, &encoded_row_key_raw);
+  auto encoded_row_key = encoded_row_key_raw.ToStringBuffer();
+
   auto* paging_state = read_req_->mutable_paging_state();
-  auto encoded_row_key = row_key.Encode().ToStringBuffer();
   if (bind_->schema().num_hash_key_columns() > 0) {
     paging_state->dup_next_partition_key(
         dockv::PartitionSchema::EncodeMultiColumnHashValue(row_key.hash()));
