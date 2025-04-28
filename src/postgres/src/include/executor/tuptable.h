@@ -135,6 +135,8 @@ typedef struct TupleTableSlot
 
 	/* YugaByte support */
 	Datum		tts_ybctid;
+
+	/* Fields used by yb_index_check() */
 	Datum		tts_ybidxbasectid;
 	Datum		ts_ybuniqueidxkeysuffix;
 	Datum		tts_ybindexrowybctid;

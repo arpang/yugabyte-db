@@ -389,9 +389,8 @@ StoreIndexTuple(IndexOnlyScanState *node, TupleTableSlot *slot,
 
 	ExecStoreVirtualTuple(slot);
 
-	slot->tts_ybidxbasectid = itup->t_ybidxbasectid; /* ybidxbasectid */
-
 	/* Fields used by yb_index_check() */
+	slot->tts_ybidxbasectid = itup->t_ybidxbasectid; /* ybidxbasectid */
 	slot->ts_ybuniqueidxkeysuffix = itup->t_ybuniqueidxkeysuffix; /* ybuniqueidxkeysuffix */
 	slot->tts_ybctid = itup->t_ybindexrowybctid; /* index row's ybctid */
 }

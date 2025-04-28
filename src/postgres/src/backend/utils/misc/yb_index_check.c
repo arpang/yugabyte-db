@@ -49,6 +49,7 @@
 
 int yb_index_check_max_bnl_batches = 0;
 bool batch_mode = false;
+int yb_index_check_batch_size = 0;
 
 static void yb_index_check_internal(Oid indexoid);
 static void check_missing_index_rows(Relation baserel, Relation indexrel,
@@ -567,16 +568,10 @@ get_equality_opcodes(Relation indexrel)
 }
 
 static bool
-batch_end(int rowcount)
+end_of_batch(int rowcount)
 {
-	/*
-	 * In order to guarantee processing all the rows, index batch should not end
-	 * in the middle of processing BNL batch. In other words, index check batch
-	 * size should be a multiple of yb_bnl_batch_size.
-	 */
 	return batch_mode &&
-		   (rowcount % (yb_index_check_max_bnl_batches * yb_bnl_batch_size) ==
-			0);
+		   (rowcount % yb_index_check_batch_size == 0);
 }
 
 static int64
@@ -623,7 +618,7 @@ join_execution_helper(Relation baserel, Relation indexrel, EState *estate,
 					COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
 				}
 			}
-			batch_complete = batch_end(++rowcount);
+			batch_complete = end_of_batch(++rowcount);
 		}
 
 		if (batch_mode)
@@ -761,7 +756,15 @@ Datum
 yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
+
 	batch_mode = yb_index_check_max_bnl_batches > 0;
+	/*
+	 * In batch mode, to ensure all the rows are processed, index batch should
+	 * not end in the middle of a BNL batch. In other words,
+	 * yb_index_check_batch_size should be a multiple of yb_bnl_batch_size.
+	 */
+	yb_index_check_batch_size =
+		yb_index_check_max_bnl_batches * yb_bnl_batch_size;
 	yb_index_check_internal(indexoid);
 	PG_RETURN_VOID();
 }
