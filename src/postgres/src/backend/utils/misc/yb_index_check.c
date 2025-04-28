@@ -64,12 +64,11 @@ static void check_missing_index_rows(Relation baserel, Relation indexrel,
 #define IndAttrDetail(indexrel, ybbasectid_datum, attnum)	\
 	"index: '%s', ybbasectid: '%s', index attnum: %d", RelationGetRelationName(indexrel), YBDatumToString(ybbasectid_datum, BYTEAOID), attnum
 
-typedef Plan *(*yb_get_plan_function)(Relation baserel, Relation indexrel,
-									  Datum lower_bound_ybctid);
+typedef Plan *(*YbGetPlanFunction)(Relation baserel, Relation indexrel,
+								   Datum lower_bound_ybctid);
 
-typedef void (*yb_row_consistency_check_function)(TupleTableSlot *slot,
-												  Relation indexrel,
-												  List *equality_opcodes);
+typedef void (*YbCheckIndexRowFunction)(TupleTableSlot *slot, Relation indexrel,
+										List *equality_opcodes);
 
 static void
 check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
@@ -435,10 +434,10 @@ spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybcti
 	 * Inner subplan tlist: ybctid, index_attributes (scanned/computed from
 	 * baserel).
 	 *
-	 * Join plan tlist: union of the above such that semantically same entries
+	 * Join plan tlist: union of the above such that semantically same attributes
 	 * are next to each other:
-	 * (outer_attr1, inner_attr1, outer_attr2, inner_att2 ..*,
-	 * ybuniqueidxkeysuffix if unqiue index)
+	 * (outer.att1, inner.att1, outer.att2, inner.att2 ... and so on,
+	 * outer.ybuniqueidxkeysuffix if unqiue index, outer.ybctid)
 	 *
 	 */
 	Expr *expr;
@@ -447,31 +446,32 @@ spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybcti
 	List *plan_tlist = NIL;
 	int i;
 	int resno = 1;
-	for (i = 0; i < indexrel_scan_desc->natts - 1; i++)
+
+	for (i = 1; i <= RelationGetDescr(indexrel)->natts + 1; i++)
 	{
-		attr = TupleDescAttr(indexrel_scan_desc, i);
-		expr = (Expr *) makeVar(OUTER_VAR, i + 1, attr->atttypid,
-								attr->atttypmod, attr->attcollation, 0);
+		attr = TupleDescAttr(indexrel_scan_desc, i - 1);
+		expr = (Expr *) makeVar(OUTER_VAR, i, attr->atttypid, attr->atttypmod,
+								attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, resno++, "", false);
 		plan_tlist = lappend(plan_tlist, target_entry);
 
-		/*
-		 * For unique index, the last tlist entry is ybuniqueidxkeysuffix, which
-		 * doesn't have base rel counterpart.
-		 */
-		if (indexrel->rd_index->indisunique &&
-			i == indexrel_scan_desc->natts - 2)
-			continue;
-
-		expr = (Expr *) makeVar(INNER_VAR, i + 1, attr->atttypid,
-								attr->atttypmod, attr->attcollation, 0);
+		expr = (Expr *) makeVar(INNER_VAR, i, attr->atttypid, attr->atttypmod,
+								attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, resno++, "", false);
 		plan_tlist = lappend(plan_tlist, target_entry);
 	}
 
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
-	expr = (Expr *) makeVar(OUTER_VAR, i + 1, attr->atttypid,
-		attr->atttypmod, attr->attcollation, 0);
+	if (indexrel->rd_index->indisunique)
+	{
+		expr = (Expr *) makeVar(OUTER_VAR, i++, attr->atttypid, attr->atttypmod,
+								attr->attcollation, 0);
+		target_entry = makeTargetEntry(expr, resno++, "", false);
+		plan_tlist = lappend(plan_tlist, target_entry);
+	}
+
+	expr = (Expr *) makeVar(OUTER_VAR, i++, attr->atttypid, attr->atttypmod,
+							attr->attcollation, 0);
 	target_entry = makeTargetEntry(expr, resno++, "", false);
 	plan_tlist = lappend(plan_tlist, target_entry);
 
@@ -580,10 +580,9 @@ batch_end(int rowcount)
 }
 
 static int64
-join_execution_helper(yb_get_plan_function get_plan_cb, Relation baserel,
-					  Relation indexrel, EState *estate,
-					  yb_row_consistency_check_function consistency_check_cb,
-					  List *equality_opcodes)
+join_execution_helper(Relation baserel, Relation indexrel, EState *estate,
+					  List *equality_opcodes, YbGetPlanFunction get_plan,
+					  YbCheckIndexRowFunction check_index_row)
 {
 	Datum lower_bound_ybctid = 0;
 	bool execution_complete = false;
@@ -591,7 +590,7 @@ join_execution_helper(yb_get_plan_function get_plan_cb, Relation baserel,
 	while (!execution_complete)
 	{
 		bool batch_complete = false;
-		Plan *plan = get_plan_cb(baserel, indexrel, lower_bound_ybctid);
+		Plan *plan = get_plan(baserel, indexrel, lower_bound_ybctid);
 		MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 
 		/* Plan execution */
@@ -604,7 +603,7 @@ join_execution_helper(yb_get_plan_function get_plan_cb, Relation baserel,
 
 		while (!batch_complete && (output = ExecProcNode(join_state)))
 		{
-			consistency_check_cb(output, indexrel, equality_opcodes);
+			check_index_row(output, indexrel, equality_opcodes);
 			if (batch_mode)
 			{
 				bool null;
@@ -643,8 +642,9 @@ check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
 {
 	/* Is the following ok? Or do I need to redeclare for every batch? */
 	List *equality_opcodes = get_equality_opcodes(indexrel);
-	return join_execution_helper(spurious_check_plan, baserel, indexrel, estate,
-								 check_index_row_consistency, equality_opcodes);
+	return join_execution_helper(baserel, indexrel, estate, equality_opcodes,
+								 spurious_check_plan,
+								 check_index_row_consistency);
 }
 
 static void
@@ -1032,8 +1032,8 @@ missing_check_plan(Relation baserel, Relation indexrel,
 }
 
 static void
-check_index_row_consistency2(TupleTableSlot *slot, Relation indexrel,
-							 List *unsed_equality_opcodes)
+check_index_row_presence(TupleTableSlot *slot, Relation indexrel,
+						 List *unsed_equality_opcodes)
 {
 	Assert(!TTS_EMPTY(slot));
 	bool ind_null;
@@ -1065,8 +1065,8 @@ check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate,
 						 int64 actual_index_rowcount)
 {
 	if (batch_mode)
-		join_execution_helper(missing_check_plan, baserel, indexrel, estate,
-							  check_index_row_consistency2, NIL);
+		join_execution_helper(baserel, indexrel, estate, NIL,
+							  missing_check_plan, check_index_row_presence);
 	else
 	{
 		int64 expected_index_rowcount =
@@ -1098,13 +1098,13 @@ yb_compute_row_ybctid(PG_FUNCTION_ARGS)
 	{
 		bool has_null = PG_GETARG_HEAPTUPLEHEADER(1)->t_infomask & HEAP_HASNULL;
 		int indisunique = index->indisunique;
-		Datum ybbasectid = PG_GETARG_DATUM(2);
-		if (!DatumGetPointer(ybbasectid))
-			elog(ERROR, "ybbasetid cannot be NULL for index relations");
+		Datum ybidxbasectid = PG_GETARG_DATUM(2);
+		if (!DatumGetPointer(ybidxbasectid))
+			elog(ERROR, "ybidxbasectid cannot be NULL for index relations");
 		if (!indisunique)
-			slot->ts_ybbasectid = ybbasectid;
+			slot->tts_ybidxbasectid = ybidxbasectid;
 		else if (!index->indnullsnotdistinct && has_null)
-			slot->ts_ybuniqueidxkeysuffix = ybbasectid;
+			slot->ts_ybuniqueidxkeysuffix = ybidxbasectid;
 	}
 
 	Datum result = YBCComputeYBTupleIdFromSlot(rel, slot);

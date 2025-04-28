@@ -12208,6 +12208,6 @@
 { oid => '8096', descr => 'returns the ybctid given a relation and its key attributes',
   proname => 'yb_compute_row_ybctid', provolatile => 's',
   prorettype => 'bytea', proargtypes => 'oid record bytea',
-  proargnames => '{relid,key_atts,ybbasectid}',
+  proargnames => '{relid,key_atts,ybidxbasectid}',
   prosrc => 'yb_compute_row_ybctid', proisstrict => 'f'},
 ]
