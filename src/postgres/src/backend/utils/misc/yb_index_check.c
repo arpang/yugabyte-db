@@ -49,12 +49,12 @@
 
 int yb_index_check_max_bnl_batches = 0;
 bool batch_mode = false;
-int yb_index_check_batch_size = 0;
+size_t yb_index_check_batch_size = 0;
 
 static void yb_index_check_internal(Oid indexoid);
 static void check_missing_index_rows(Relation baserel, Relation indexrel,
 									 EState *estate,
-									 int64 actual_index_rowcount);
+									 size_t actual_index_rowcount);
 
 #define IndRelDetail(indexrel)	\
 	"index: '%s'", RelationGetRelationName(indexrel)
@@ -568,20 +568,20 @@ get_equality_opcodes(Relation indexrel)
 }
 
 static bool
-end_of_batch(int rowcount)
+end_of_batch(size_t rowcount)
 {
 	return batch_mode &&
 		   (rowcount % yb_index_check_batch_size == 0);
 }
 
-static int64
+static size_t
 join_execution_helper(Relation baserel, Relation indexrel, EState *estate,
 					  List *equality_opcodes, YbGetPlanFunction get_plan,
 					  YbCheckIndexRowFunction check_index_row)
 {
 	Datum lower_bound_ybctid = 0;
 	bool execution_complete = false;
-	int rowcount = 0;
+	size_t rowcount = 0;
 	while (!execution_complete)
 	{
 		bool batch_complete = false;
@@ -632,7 +632,7 @@ join_execution_helper(Relation baserel, Relation indexrel, EState *estate,
 	return rowcount;
 }
 
-static int64
+static size_t
 check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
 {
 	/* Is the following ok? Or do I need to redeclare for every batch? */
@@ -731,7 +731,7 @@ yb_index_check_internal(Oid indexoid)
 
 	EState *estate = init_estate(baserel);
 
-	int64 actual_index_rowcount = 0;
+	size_t actual_index_rowcount = 0;
 	PG_TRY();
 	{
 		actual_index_rowcount = check_spurious_index_rows(baserel, indexrel, estate);
@@ -764,7 +764,7 @@ yb_index_check(PG_FUNCTION_ARGS)
 	 * yb_index_check_batch_size should be a multiple of yb_bnl_batch_size.
 	 */
 	yb_index_check_batch_size =
-		yb_index_check_max_bnl_batches * yb_bnl_batch_size;
+		(size_t) yb_index_check_max_bnl_batches * (size_t) yb_bnl_batch_size;
 	yb_index_check_internal(indexoid);
 	PG_RETURN_VOID();
 }
@@ -1065,14 +1065,14 @@ check_index_row_presence(TupleTableSlot *slot, Relation indexrel,
 
 static void
 check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate,
-						 int64 actual_index_rowcount)
+						 size_t actual_index_rowcount)
 {
 	if (batch_mode)
 		join_execution_helper(baserel, indexrel, estate, NIL,
 							  missing_check_plan, check_index_row_presence);
 	else
 	{
-		int64 expected_index_rowcount =
+		size_t expected_index_rowcount =
 			get_expected_index_rowcount(baserel, indexrel);
 		/* We already verified that index doesn't contain spurious rows. */
 		Assert(expected_index_rowcount >= actual_index_rowcount);
@@ -1100,7 +1100,7 @@ yb_compute_row_ybctid(PG_FUNCTION_ARGS)
 	if (index)
 	{
 		bool has_null = PG_GETARG_HEAPTUPLEHEADER(1)->t_infomask & HEAP_HASNULL;
-		int indisunique = index->indisunique;
+		bool indisunique = index->indisunique;
 		Datum ybidxbasectid = PG_GETARG_DATUM(2);
 		if (!DatumGetPointer(ybidxbasectid))
 			elog(ERROR, "ybidxbasectid cannot be NULL for index relations");
