@@ -47,10 +47,6 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
-int yb_index_check_max_bnl_batches = 0;
-bool batch_mode = false;
-size_t yb_index_check_batch_size = 0;
-
 static void yb_index_check_internal(Oid indexoid);
 static void check_missing_index_rows(Relation baserel, Relation indexrel,
 									 size_t actual_index_rowcount);
@@ -69,6 +65,10 @@ typedef Plan *(*YbGetPlanFunction)(Relation baserel, Relation indexrel,
 
 typedef void (*YbCheckIndexRowFunction)(TupleTableSlot *slot, Relation indexrel,
 										List *equality_opcodes);
+
+int yb_index_check_max_bnl_batches = 0;
+bool batch_mode = false;
+size_t yb_index_check_batch_size = 0;
 
 static void
 check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
@@ -514,12 +514,9 @@ spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybcti
 	return (Plan *) join_plan;
 }
 
-static EState *
-init_estate(Relation baserel)
+static void
+init_estate(EState* estate, Relation baserel)
 {
-	EState *estate = CreateExecutorState();
-	MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
-
 	estate->yb_exec_params.yb_index_check = true;
 
 	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
@@ -530,8 +527,6 @@ init_estate(Relation baserel)
 
 	estate->es_param_exec_vals =
 		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
-	MemoryContextSwitchTo(oldctxt);
-	return estate;
 }
 
 static void
@@ -581,30 +576,33 @@ join_execution_helper(Relation baserel, Relation indexrel,
 	Datum lower_bound_ybctid = 0;
 	bool execution_complete = false;
 	size_t rowcount = 0;
+	TupleTableSlot *slot;
+
 	List *equality_opcodes = get_equality_opcodes(indexrel);
+
 	while (!execution_complete)
 	{
 		bool batch_complete = false;
-		EState *estate = init_estate(baserel);
+
+		EState *estate = CreateExecutorState();
 		MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
+		init_estate(estate, baserel);
 
 		Plan *plan = get_plan(baserel, indexrel, lower_bound_ybctid);
 		PlanState *join_state = ExecInitNode((Plan *) plan, estate, 0);
 
-		TupleTableSlot *output;
-
 		if (batch_mode)
 			PushActiveSnapshot(GetLatestSnapshot());
 
-		while (!batch_complete && (output = ExecProcNode(join_state)))
+		while (!batch_complete && (slot = ExecProcNode(join_state)))
 		{
-			check_index_row(output, indexrel, equality_opcodes);
+			check_index_row(slot, indexrel, equality_opcodes);
 			if (batch_mode)
 			{
 				bool null;
 
 				Datum baserow_ybctid =
-					slot_getattr(output, output->tts_tupleDescriptor->natts, &null);
+					slot_getattr(slot, slot->tts_tupleDescriptor->natts, &null);
 				if (null)
 					elog(ERROR, "ybctid is unexpectedly null. Issue is likely with the "
 								"checker, and not with the index");
@@ -626,7 +624,7 @@ join_execution_helper(Relation baserel, Relation indexrel,
 		if (batch_mode)
 			PopActiveSnapshot();
 
-		execution_complete = !output;
+		execution_complete = !slot;
 		ExecEndNode(join_state);
 		MemoryContextSwitchTo(oldctxt);
 		cleanup_estate(estate);
