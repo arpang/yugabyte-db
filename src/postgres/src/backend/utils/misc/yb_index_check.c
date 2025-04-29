@@ -53,7 +53,6 @@ size_t yb_index_check_batch_size = 0;
 
 static void yb_index_check_internal(Oid indexoid);
 static void check_missing_index_rows(Relation baserel, Relation indexrel,
-									 EState *estate,
 									 size_t actual_index_rowcount);
 
 #define IndRelDetail(indexrel)	\
@@ -575,20 +574,21 @@ end_of_batch(size_t rowcount)
 }
 
 static size_t
-join_execution_helper(Relation baserel, Relation indexrel, EState *estate,
-					  List *equality_opcodes, YbGetPlanFunction get_plan,
+join_execution_helper(Relation baserel, Relation indexrel,
+					  YbGetPlanFunction get_plan,
 					  YbCheckIndexRowFunction check_index_row)
 {
 	Datum lower_bound_ybctid = 0;
 	bool execution_complete = false;
 	size_t rowcount = 0;
+	List *equality_opcodes = get_equality_opcodes(indexrel);
 	while (!execution_complete)
 	{
 		bool batch_complete = false;
-		Plan *plan = get_plan(baserel, indexrel, lower_bound_ybctid);
+		EState *estate = init_estate(baserel);
 		MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
 
-		/* Plan execution */
+		Plan *plan = get_plan(baserel, indexrel, lower_bound_ybctid);
 		PlanState *join_state = ExecInitNode((Plan *) plan, estate, 0);
 
 		TupleTableSlot *output;
@@ -609,13 +609,15 @@ join_execution_helper(Relation baserel, Relation indexrel, EState *estate,
 					elog(ERROR, "ybctid is unexpectedly null. Issue is likely with the "
 								"checker, and not with the index");
 
-				if (!lower_bound_ybctid)
-					COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
-				else if (DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
-												 baserow_ybctid, lower_bound_ybctid))
+				if (!lower_bound_ybctid ||
+					DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
+											baserow_ybctid, lower_bound_ybctid))
 				{
-					pfree(DatumGetPointer(lower_bound_ybctid));
+					if (lower_bound_ybctid)
+						pfree(DatumGetPointer(lower_bound_ybctid));
+					MemoryContextSwitchTo(oldctxt);
 					COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
+					MemoryContextSwitchTo(estate->es_query_cxt);
 				}
 			}
 			batch_complete = end_of_batch(++rowcount);
@@ -627,18 +629,20 @@ join_execution_helper(Relation baserel, Relation indexrel, EState *estate,
 		execution_complete = !output;
 		ExecEndNode(join_state);
 		MemoryContextSwitchTo(oldctxt);
+		cleanup_estate(estate);
 	}
+
+	pfree(equality_opcodes);
+	if (lower_bound_ybctid)
+		pfree(DatumGetPointer(lower_bound_ybctid));
 
 	return rowcount;
 }
 
 static size_t
-check_spurious_index_rows(Relation baserel, Relation indexrel, EState *estate)
+check_spurious_index_rows(Relation baserel, Relation indexrel)
 {
-	/* Is the following ok? Or do I need to redeclare for every batch? */
-	List *equality_opcodes = get_equality_opcodes(indexrel);
-	return join_execution_helper(baserel, indexrel, estate, equality_opcodes,
-								 spurious_check_plan,
+	return join_execution_helper(baserel, indexrel, spurious_check_plan,
 								 check_index_row_consistency);
 }
 
@@ -729,14 +733,11 @@ yb_index_check_internal(Oid indexoid)
 
 	Relation baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
 
-	EState *estate = init_estate(baserel);
-
 	size_t actual_index_rowcount = 0;
 	PG_TRY();
 	{
-		actual_index_rowcount = check_spurious_index_rows(baserel, indexrel, estate);
-		check_missing_index_rows(baserel, indexrel, estate,
-								 actual_index_rowcount);
+		actual_index_rowcount = check_spurious_index_rows(baserel, indexrel);
+		check_missing_index_rows(baserel, indexrel, actual_index_rowcount);
 	}
 	PG_CATCH();
 	{
@@ -745,8 +746,6 @@ yb_index_check_internal(Oid indexoid)
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
-
-	cleanup_estate(estate);
 
 	RelationClose(indexrel);
 	RelationClose(baserel);
@@ -1064,12 +1063,12 @@ check_index_row_presence(TupleTableSlot *slot, Relation indexrel,
 }
 
 static void
-check_missing_index_rows(Relation baserel, Relation indexrel, EState *estate,
+check_missing_index_rows(Relation baserel, Relation indexrel,
 						 size_t actual_index_rowcount)
 {
 	if (batch_mode)
-		join_execution_helper(baserel, indexrel, estate, NIL,
-							  missing_check_plan, check_index_row_presence);
+		join_execution_helper(baserel, indexrel, missing_check_plan,
+							  check_index_row_presence);
 	else
 	{
 		size_t expected_index_rowcount =
