@@ -515,7 +515,7 @@ spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybcti
 }
 
 static void
-init_estate(EState* estate, Relation baserel)
+init_estate(EState *estate, Relation baserel)
 {
 	estate->yb_exec_params.yb_index_check = true;
 
