@@ -15,13 +15,16 @@ BEGIN;
      false, false, false, false, 'i',
      's', 3, 1, '17', '26 2249 17',
      NULL, NULL, '{relid,key_atts,ybbasectid}',
-     '({CONST :consttype 17 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull true :location 102 :constvalue <>})',
+     '({CONST :consttype 17 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull true :location 104 :constvalue <>})',
      NULL, 'yb_compute_row_ybctid', NULL, NULL, NULL)
   ON CONFLICT DO NOTHING;
 
   INSERT INTO pg_catalog.pg_description (
     objoid, classoid, objsubid, description
   ) VALUES (
-    8095, 1255, 0, 'returns the ybctid given a relation and its key attributes'
+    8096, 1255, 0, 'returns the ybctid given a relation and its key attributes'
   ) ON CONFLICT DO NOTHING;
+
+  UPDATE pg_catalog.pg_proc SET provolatile='v', proargnames='{index}' WHERE oid = 8090;
+
 COMMIT;
