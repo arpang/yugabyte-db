@@ -684,7 +684,7 @@ TEST_F(PgTxnTest, FlushLargeTransaction) {
   ASSERT_EQ(res, kValueLen * kTxnRows + kExtraValueLen * kExtraRows);
 }
 
-TEST_F(PgTxnTest, YbIndexCheckReadCommitted) {
+TEST_F(PgTxnTest, BatchedYbIndexCheckReadCommitted) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_read_committed_isolation) = true;
   ASSERT_OK(RestartCluster());
   auto conn =
@@ -709,13 +709,14 @@ TEST_F(PgTxnTest, YbIndexCheckReadCommitted) {
   latch.CountDown();
   latch.Wait();
   // Note: yb_index_check() should not be used with FROM clause on the base relation. It is done
-  // here to increase the operation time.
+  // here to verify that changing read time inside yb_index_check() doesn't change the read time of
+  // the root query.
   auto rows = ASSERT_RESULT((
       conn.FetchRows<string>("SELECT yb_index_check('abcd_b_c_d_idx'::regclass)::text FROM abcd")));
   ASSERT_EQ(rows.size(), rowcount);
 }
 
-TEST_F(PgTxnTest, YbIndexCheckRepeatableRead) {
+TEST_F(PgTxnTest, BatchedYbIndexCheckRepeatableRead) {
   auto conn = ASSERT_RESULT(Connect());
   int64_t rowcount = 10;
   ASSERT_OK(conn.Execute("CREATE TABLE abcd(a int primary key, b int, c int, d int)"));
