@@ -684,7 +684,7 @@ TEST_F(PgTxnTest, FlushLargeTransaction) {
   ASSERT_EQ(res, kValueLen * kTxnRows + kExtraValueLen * kExtraRows);
 }
 
-// TODO (GH#26999): Enable was GH#23648 is resolved.
+// TODO(GH#26999): Enable this test after GH#23648 is resolved.
 TEST_F(PgTxnTest, YB_DISABLE_TEST(BatchedYbIndexCheckReadCommitted)) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_read_committed_isolation) = true;
   ASSERT_OK(RestartCluster());
