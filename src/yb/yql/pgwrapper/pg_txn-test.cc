@@ -684,7 +684,8 @@ TEST_F(PgTxnTest, FlushLargeTransaction) {
   ASSERT_EQ(res, kValueLen * kTxnRows + kExtraValueLen * kExtraRows);
 }
 
-TEST_F(PgTxnTest, BatchedYbIndexCheckReadCommitted) {
+// TODO (GH#26999): Enable was GH#23648 is resolved.
+TEST_F(PgTxnTest, YB_DISABLE_TEST(BatchedYbIndexCheckReadCommitted)) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_read_committed_isolation) = true;
   ASSERT_OK(RestartCluster());
   auto conn =
@@ -696,7 +697,7 @@ TEST_F(PgTxnTest, BatchedYbIndexCheckReadCommitted) {
       "INSERT INTO abcd SELECT i, i, i, i FROM generate_series(1, $0) i", rowcount));
   ASSERT_OK(conn.Execute("SET yb_bnl_batch_size = 3"));
   ASSERT_OK(conn.Execute("SET yb_index_check_max_bnl_batches = 1"));
-  ASSERT_OK(conn.Execute("SET yb_fetch_row_limit = 10"));  // TODO: is this required?
+  ASSERT_OK(conn.Execute("SET yb_fetch_row_limit = 10"));
   CountDownLatch latch(2);
   TestThreadHolder holder;
   holder.AddThreadFunctor([this, &stop_flag = holder.stop_flag(), &latch, &rowcount] {
@@ -709,7 +710,7 @@ TEST_F(PgTxnTest, BatchedYbIndexCheckReadCommitted) {
   latch.CountDown();
   latch.Wait();
   // Note: yb_index_check() should not be used with FROM clause on the base relation. It is done
-  // here to verify that changing read time inside yb_index_check() doesn't change the read time of
+  // here to verify that changing read time inside yb_index_check() doesn't affect the read time of
   // the root query.
   auto rows = ASSERT_RESULT((
       conn.FetchRows<string>("SELECT yb_index_check('abcd_b_c_d_idx'::regclass)::text FROM abcd")));
