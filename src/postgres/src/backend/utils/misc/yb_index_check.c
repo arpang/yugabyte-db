@@ -762,7 +762,16 @@ yb_index_check(PG_FUNCTION_ARGS)
 	 */
 	yb_index_check_batch_size =
 		(size_t) yb_index_check_max_bnl_batches * (size_t) yb_bnl_batch_size;
+
+	uint64 start_read_point = YBCPgGetCurrentReadPoint();
 	yb_index_check_internal(indexoid);
+
+	/*
+	 * yb_index_check() uses the latest snapshot in the batch_mode. Verify that
+	 * it did not change the readpoint.
+	 */
+	Assert(start_read_point == YBCPgGetCurrentReadPoint());
+
 	PG_RETURN_VOID();
 }
 

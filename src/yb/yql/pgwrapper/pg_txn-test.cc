@@ -684,39 +684,6 @@ TEST_F(PgTxnTest, FlushLargeTransaction) {
   ASSERT_EQ(res, kValueLen * kTxnRows + kExtraValueLen * kExtraRows);
 }
 
-// TODO(GH#26999): Enable this test after GH#23648 is resolved.
-TEST_F(PgTxnTest, YB_DISABLE_TEST(BatchedYbIndexCheckReadCommitted)) {
-  ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_read_committed_isolation) = true;
-  ASSERT_OK(RestartCluster());
-  auto conn =
-      ASSERT_RESULT(SetDefaultTransactionIsolation(Connect(), IsolationLevel::READ_COMMITTED));
-  int rowcount = 100;
-  ASSERT_OK(conn.Execute("CREATE TABLE abcd(a int primary key, b int, c int, d int)"));
-  ASSERT_OK(conn.Execute("CREATE INDEX abcd_b_c_d_idx ON abcd (b ASC) INCLUDE (c, d)"));
-  ASSERT_OK(conn.ExecuteFormat(
-      "INSERT INTO abcd SELECT i, i, i, i FROM generate_series(1, $0) i", rowcount));
-  ASSERT_OK(conn.Execute("SET yb_bnl_batch_size = 3"));
-  ASSERT_OK(conn.Execute("SET yb_index_check_max_bnl_batches = 1"));
-  ASSERT_OK(conn.Execute("SET yb_fetch_row_limit = 10"));
-  CountDownLatch latch(2);
-  TestThreadHolder holder;
-  holder.AddThreadFunctor([this, &stop_flag = holder.stop_flag(), &latch, &rowcount] {
-    auto aux_conn = ASSERT_RESULT(Connect());
-    latch.CountDown();
-    latch.Wait();
-    ASSERT_OK(aux_conn.Fetch("SELECT pg_sleep(2)"));
-    ASSERT_OK(aux_conn.ExecuteFormat("INSERT INTO abcd VALUES ($0, $0, $0, $0)", rowcount + 1));
-  });
-  latch.CountDown();
-  latch.Wait();
-  // Note: yb_index_check() should not be used with FROM clause on the base relation. It is done
-  // here to verify that using latest snapshot in yb_index_check() doesn't affect the read time of
-  // the root query.
-  auto rows = ASSERT_RESULT((
-      conn.FetchRows<string>("SELECT yb_index_check('abcd_b_c_d_idx'::regclass)::text FROM abcd")));
-  ASSERT_EQ(rows.size(), rowcount);
-}
-
 TEST_F(PgTxnTest, BatchedYbIndexCheckRepeatableRead) {
   auto conn = ASSERT_RESULT(Connect());
   int64_t rowcount = 3;
