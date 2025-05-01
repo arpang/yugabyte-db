@@ -710,7 +710,7 @@ TEST_F(PgTxnTest, YB_DISABLE_TEST(BatchedYbIndexCheckReadCommitted)) {
   latch.CountDown();
   latch.Wait();
   // Note: yb_index_check() should not be used with FROM clause on the base relation. It is done
-  // here to verify that changing read time inside yb_index_check() doesn't affect the read time of
+  // here to verify that using latest snapshot in yb_index_check() doesn't affect the read time of
   // the root query.
   auto rows = ASSERT_RESULT((
       conn.FetchRows<string>("SELECT yb_index_check('abcd_b_c_d_idx'::regclass)::text FROM abcd")));
@@ -719,22 +719,26 @@ TEST_F(PgTxnTest, YB_DISABLE_TEST(BatchedYbIndexCheckReadCommitted)) {
 
 TEST_F(PgTxnTest, BatchedYbIndexCheckRepeatableRead) {
   auto conn = ASSERT_RESULT(Connect());
-  int64_t rowcount = 10;
+  int64_t rowcount = 3;
   ASSERT_OK(conn.Execute("CREATE TABLE abcd(a int primary key, b int, c int, d int)"));
   ASSERT_OK(conn.Execute("CREATE INDEX abcd_b_c_d_idx ON abcd (b ASC) INCLUDE (c, d)"));
   ASSERT_OK(conn.ExecuteFormat(
       "INSERT INTO abcd SELECT i, i, i, i FROM generate_series(1, $0) i", rowcount));
-  ASSERT_OK(conn.Execute("SET yb_bnl_batch_size = 3"));
-  ASSERT_OK(conn.Execute("SET yb_index_check_max_bnl_batches = 1"));
+  ASSERT_OK(conn.Execute("SET yb_fetch_row_limit = 1"));
   ASSERT_OK(conn.Execute("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ"));
   ASSERT_OK(conn.Fetch("SELECT count(*) from abcd"));
 
   auto aux_conn = ASSERT_RESULT(Connect());
-  ASSERT_OK(aux_conn.ExecuteFormat("INSERT INTO abcd VALUES ($0, $0, $0, $0)", rowcount + 1));
-
-  ASSERT_OK((conn.Fetch("SELECT yb_index_check('abcd_b_c_d_idx'::regclass)")));
-  auto readrows = ASSERT_RESULT(conn.FetchRow<int64_t>("SELECT count(*) from abcd"));
-  ASSERT_EQ(readrows, rowcount);
+  ASSERT_OK(aux_conn.ExecuteFormat(
+      "INSERT INTO abcd SELECT i, i, i, i from generate_series($0, $1) i", rowcount + 1,
+      rowcount + 50));
+  // Note: yb_index_check() should not be used with FROM clause on the base relation. It is done
+  // here to verify that using latest snapshot in yb_index_check() doesn't affect the read time of
+  // the root query.
+  auto rows = ASSERT_RESULT((
+      conn.FetchRows<string>("SELECT yb_index_check('abcd_b_c_d_idx'::regclass)::text FROM abcd")));
+  ASSERT_OK(conn.Execute("COMMIT"));
+  ASSERT_EQ(rows.size(), rowcount);
 }
 
 } // namespace yb::pgwrapper
