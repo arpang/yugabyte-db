@@ -3329,6 +3329,17 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_test_slowdown_index_check", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Slows down yb_index_check() by sleeping for 1s for "
+						 "every row. Used in tests."),
+			NULL
+		},
+		&yb_test_slowdown_index_check,
+		false,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL

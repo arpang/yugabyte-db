@@ -69,6 +69,7 @@ typedef void (*YbCheckIndexRowFunction)(TupleTableSlot *slot, Relation indexrel,
 int yb_index_check_max_bnl_batches = 0;
 bool batch_mode = false;
 size_t yb_index_check_batch_size = 0;
+bool yb_test_slowdown_index_check = false;
 
 static void
 check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
@@ -619,6 +620,9 @@ join_execution_helper(Relation baserel, Relation indexrel,
 				}
 			}
 			batch_complete = end_of_batch(++rowcount);
+
+			if (yb_test_slowdown_index_check)
+				sleep(1);
 		}
 
 		if (batch_mode)
