@@ -47,10 +47,10 @@ TEST_F(PgYbIndexCheckTest, BatchedYbIndexCheckRepeatableRead) {
 }
 
 TEST_F(PgYbIndexCheckTest, BatchedYbIndexCheckSnapshotTooOld) {
-  ANNOTATE_UNPROTECTED_WRITE(FLAGS_timestamp_history_retention_interval_sec) = 30;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_timestamp_history_retention_interval_sec) = 15;
   ASSERT_OK(RestartCluster());
   auto conn = ASSERT_RESULT(Connect());
-  int rowcount = 50;
+  int rowcount = 25;
 
   ASSERT_OK(conn.Execute("CREATE TABLE abcd(a int primary key, b int, c int, d int)"));
   ASSERT_OK(conn.Execute("CREATE INDEX abcd_b_c_d_idx ON abcd (b ASC) INCLUDE (c, d)"));
@@ -58,15 +58,15 @@ TEST_F(PgYbIndexCheckTest, BatchedYbIndexCheckSnapshotTooOld) {
       "INSERT INTO abcd SELECT i, i, i, i FROM generate_series(1, $0) i", rowcount));
 
   ASSERT_OK(conn.Execute("SET yb_test_slowdown_index_check = true"));
-  ASSERT_OK(conn.Execute("SET yb_bnl_batch_size = 3"));
+  ASSERT_OK(conn.Execute("SET yb_bnl_batch_size = 10"));
   ASSERT_OK(conn.Execute("SET yb_index_check_max_bnl_batches = 1"));
-      
+
   CountDownLatch latch(2);
   TestThreadHolder holder;
   holder.AddThreadFunctor([this, &latch] {
       latch.CountDown();
       latch.Wait();
-      SleepFor(MonoDelta::FromSeconds(35));
+      SleepFor(MonoDelta::FromSeconds(20));
       auto tableid = ASSERT_RESULT(GetTableIDFromTableName("abcd"));
       ASSERT_OK(client_->FlushTables({tableid}, false, 60, true));
   });
