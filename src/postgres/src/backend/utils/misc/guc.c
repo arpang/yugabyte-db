@@ -5265,10 +5265,10 @@ static struct config_int ConfigureNamesInt[] =
 
 	{
 		{"yb_index_check_max_bnl_batches", PGC_USERSET, QUERY_TUNING_OTHER,
-			gettext_noop("Max number of batched nested loop (BNL) batches that "
-						 "are processed using the same read time during yb_index_check(). "
-						 "New read times are chosen for subsequent rows. If set "
-						 "to 0, all the rows will be processed using a single read time"),
+			gettext_noop("Max number of batched nested loop (BNL) join batches that "
+						 "are processed using the same snapshot during yb_index_check(). "
+						 "New snapshots are chosen for subsequent BNL batches. If set "
+						 "to 0, all the BNL batches are processed using a single snapshot"),
 			NULL,
 			GUC_NOT_IN_SAMPLE
 		},
