@@ -862,7 +862,6 @@ void PgDmlRead::BindHashCode(const std::optional<Bound>& start, const std::optio
   ApplyBound(read_req_.get(), end, false /* is_lower */);
 }
 
-// TODO: Can be deduped with PgsqlReadOperation::SetPagingState()
 Status PgDmlRead::IndexCheckBindLowerBound(Slice lower_bound) {
   if (read_req_->has_paging_state()) {
     return STATUS_FORMAT(InternalError, "Paging state already set");
@@ -872,19 +871,21 @@ Status PgDmlRead::IndexCheckBindLowerBound(Slice lower_bound) {
   VERIFY_RESULT(row_key.DecodeFrom(lower_bound, dockv::DocKeyPart::kWholeDocKey,
                                    dockv::AllowSpecial::kTrue));
 
-  auto encoded_row_key_raw = row_key.Encode();
-  // Add invalid hybrid time to keep decoder silent (it expects hybrid time by default).
-  AppendDocHybridTime(DocHybridTime::kInvalid, &encoded_row_key_raw);
-  auto encoded_row_key = encoded_row_key_raw.ToStringBuffer();
+  auto encoded_row_key = row_key.Encode();
+
+  // Decoder expects hybrid time by default, append invalid hybrid time.
+  AppendDocHybridTime(DocHybridTime::kInvalid, &encoded_row_key);
+
+  auto encoded_row_key_str = encoded_row_key.ToStringBuffer();
 
   auto* paging_state = read_req_->mutable_paging_state();
   if (bind_->schema().num_hash_key_columns() > 0) {
     paging_state->dup_next_partition_key(
         dockv::PartitionSchema::EncodeMultiColumnHashValue(row_key.hash()));
   } else {
-    paging_state->dup_next_partition_key(encoded_row_key);
+    paging_state->dup_next_partition_key(encoded_row_key_str);
   }
-  paging_state->dup_next_row_key(std::move(encoded_row_key));
+  paging_state->dup_next_row_key(std::move(encoded_row_key_str));
   return Status::OK();
 }
 
