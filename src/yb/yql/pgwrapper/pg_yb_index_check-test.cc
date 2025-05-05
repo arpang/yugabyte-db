@@ -63,12 +63,15 @@ TEST_F(PgYbIndexCheckTest, BatchedYbIndexCheckSnapshotTooOld) {
 
   CountDownLatch latch(2);
   TestThreadHolder holder;
-  holder.AddThreadFunctor([this, &latch] {
+  holder.AddThreadFunctor([this, &stop = holder.stop_flag(), &latch] {
       latch.CountDown();
       latch.Wait();
-      SleepFor(MonoDelta::FromSeconds(20));
-      auto tableid = ASSERT_RESULT(GetTableIDFromTableName("abcd"));
-      ASSERT_OK(client_->FlushTables({tableid}, false, 60, true));
+      while (!stop.load())
+      {
+        SleepFor(MonoDelta::FromSeconds(20));
+        auto tableid = ASSERT_RESULT(GetTableIDFromTableName("abcd"));
+        ASSERT_OK(client_->FlushTables({tableid}, false, 60, true));
+      }
   });
 
   latch.CountDown();

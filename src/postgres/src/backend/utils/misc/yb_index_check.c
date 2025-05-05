@@ -581,7 +581,6 @@ partitioned_index_check(Oid parentindexId)
 	foreach (lc, find_inheritance_children(parentindexId, AccessShareLock))
 	{
 		Oid childindexId = ObjectIdGetDatum(lfirst_oid(lc));
-		/* TODO: A new read time can be used for each partition. */
 		yb_index_check_internal(childindexId);
 	}
 }
