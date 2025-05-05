@@ -47,9 +47,6 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
-static void yb_index_check_internal(Oid indexoid);
-static void check_missing_index_rows(Relation baserel, Relation indexrel,
-									 size_t actual_index_rowcount);
 
 #define IndRelDetail(indexrel)	\
 	"index: '%s'", RelationGetRelationName(indexrel)
@@ -65,6 +62,13 @@ typedef Plan *(*YbGetPlanFunction)(Relation baserel, Relation indexrel,
 
 typedef void (*YbCheckIndexRowFunction)(TupleTableSlot *slot, Relation indexrel,
 										List *equality_opcodes);
+
+static void yb_index_check_internal(Oid indexoid);
+static void check_missing_index_rows(Relation baserel, Relation indexrel,
+									 size_t actual_index_rowcount);
+static size_t join_execution_helper(Relation baserel, Relation indexrel,
+									YbGetPlanFunction get_plan,
+									YbCheckIndexRowFunction check_index_row);
 
 int yb_index_check_max_bnl_batches = 0;
 bool batch_mode = false;
@@ -562,131 +566,6 @@ spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybcti
 						 join_clause_rhs, plan_tlist);
 }
 
-static void
-init_estate(EState *estate, Relation baserel)
-{
-	estate->yb_exec_params.yb_index_check = true;
-
-	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
-	rte1->rtekind = RTE_RELATION;
-	rte1->relid = RelationGetRelid(baserel);
-	rte1->relkind = RELKIND_RELATION;
-	ExecInitRangeTable(estate, list_make1(rte1));
-
-	estate->es_param_exec_vals =
-		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
-}
-
-static void
-cleanup_estate(EState *estate)
-{
-	ExecResetTupleTable(estate->es_tupleTable, true);
-	ExecCloseResultRelations(estate);
-	ExecCloseRangeTableRelations(estate);
-	FreeExecutorState(estate);
-}
-
-List *
-get_equality_opcodes(Relation indexrel)
-{
-	List *equality_opcodes = NIL;
-
-	TupleDesc indexdesc = RelationGetDescr(indexrel);
-
-	for (int i = 0; i < indexdesc->natts; i++)
-	{
-		const FormData_pg_attribute *attr = TupleDescAttr(indexdesc, i);
-		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
-											attr->atttypid, attr->atttypid);
-		if (operator_oid == InvalidOid)
-		{
-			equality_opcodes = lappend_int(equality_opcodes, InvalidOid);
-			continue;
-		}
-		RegProcedure proc_oid = get_opcode(operator_oid);
-		equality_opcodes = lappend_int(equality_opcodes, proc_oid);
-	}
-	return equality_opcodes;
-}
-
-static bool
-end_of_batch(size_t rowcount)
-{
-	return batch_mode &&
-		   (rowcount % yb_index_check_batch_size == 0);
-}
-
-static size_t
-join_execution_helper(Relation baserel, Relation indexrel,
-					  YbGetPlanFunction get_plan,
-					  YbCheckIndexRowFunction check_index_row)
-{
-	Datum lower_bound_ybctid = 0;
-	bool execution_complete = false;
-	size_t rowcount = 0;
-	TupleTableSlot *slot;
-
-	List *equality_opcodes = get_equality_opcodes(indexrel);
-
-	while (!execution_complete)
-	{
-		bool batch_complete = false;
-
-		EState *estate = CreateExecutorState();
-		MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
-		init_estate(estate, baserel);
-
-		Plan *plan = get_plan(baserel, indexrel, lower_bound_ybctid);
-		PlanState *join_state = ExecInitNode((Plan *) plan, estate, 0);
-
-		if (batch_mode)
-			PushActiveSnapshot(GetLatestSnapshot());
-
-		while (!batch_complete && (slot = ExecProcNode(join_state)))
-		{
-			check_index_row(slot, indexrel, equality_opcodes);
-			if (batch_mode)
-			{
-				bool null;
-
-				Datum baserow_ybctid = slot_getattr(slot,
-													slot->tts_tupleDescriptor->natts,
-													&null);
-				if (null)
-					elog(ERROR, "ybctid is unexpectedly null");
-
-				if (!lower_bound_ybctid ||
-					DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
-											baserow_ybctid, lower_bound_ybctid))
-				{
-					if (lower_bound_ybctid)
-						pfree(DatumGetPointer(lower_bound_ybctid));
-					MemoryContextSwitchTo(oldctxt);
-					COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
-					MemoryContextSwitchTo(estate->es_query_cxt);
-				}
-			}
-			batch_complete = end_of_batch(++rowcount);
-
-			if (yb_test_slowdown_index_check)
-				sleep(1);
-		}
-
-		if (batch_mode)
-			PopActiveSnapshot();
-
-		execution_complete = !slot;
-		ExecEndNode(join_state);
-		MemoryContextSwitchTo(oldctxt);
-		cleanup_estate(estate);
-	}
-
-	pfree(equality_opcodes);
-	if (lower_bound_ybctid)
-		pfree(DatumGetPointer(lower_bound_ybctid));
-
-	return rowcount;
-}
 
 static size_t
 check_spurious_index_rows(Relation baserel, Relation indexrel)
@@ -824,6 +703,132 @@ yb_index_check(PG_FUNCTION_ARGS)
 	Assert(start_read_point == YBCPgGetCurrentReadPoint());
 
 	PG_RETURN_VOID();
+}
+
+static void
+init_estate(EState *estate, Relation baserel)
+{
+	estate->yb_exec_params.yb_index_check = true;
+
+	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
+	rte1->rtekind = RTE_RELATION;
+	rte1->relid = RelationGetRelid(baserel);
+	rte1->relkind = RELKIND_RELATION;
+	ExecInitRangeTable(estate, list_make1(rte1));
+
+	estate->es_param_exec_vals =
+		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
+}
+
+static void
+cleanup_estate(EState *estate)
+{
+	ExecResetTupleTable(estate->es_tupleTable, true);
+	ExecCloseResultRelations(estate);
+	ExecCloseRangeTableRelations(estate);
+	FreeExecutorState(estate);
+}
+
+List *
+get_equality_opcodes(Relation indexrel)
+{
+	List *equality_opcodes = NIL;
+
+	TupleDesc indexdesc = RelationGetDescr(indexrel);
+
+	for (int i = 0; i < indexdesc->natts; i++)
+	{
+		const FormData_pg_attribute *attr = TupleDescAttr(indexdesc, i);
+		Oid operator_oid = OpernameGetOprid(list_make1(makeString("=")),
+											attr->atttypid, attr->atttypid);
+		if (operator_oid == InvalidOid)
+		{
+			equality_opcodes = lappend_int(equality_opcodes, InvalidOid);
+			continue;
+		}
+		RegProcedure proc_oid = get_opcode(operator_oid);
+		equality_opcodes = lappend_int(equality_opcodes, proc_oid);
+	}
+	return equality_opcodes;
+}
+
+static bool
+end_of_batch(size_t rowcount)
+{
+	return batch_mode &&
+		   (rowcount % yb_index_check_batch_size == 0);
+}
+
+static size_t
+join_execution_helper(Relation baserel, Relation indexrel,
+					  YbGetPlanFunction get_plan,
+					  YbCheckIndexRowFunction check_index_row)
+{
+	Datum lower_bound_ybctid = 0;
+	bool execution_complete = false;
+	size_t rowcount = 0;
+	TupleTableSlot *slot;
+
+	List *equality_opcodes = get_equality_opcodes(indexrel);
+
+	while (!execution_complete)
+	{
+		bool batch_complete = false;
+
+		EState *estate = CreateExecutorState();
+		MemoryContext oldctxt = MemoryContextSwitchTo(estate->es_query_cxt);
+		init_estate(estate, baserel);
+
+		Plan *plan = get_plan(baserel, indexrel, lower_bound_ybctid);
+		PlanState *join_state = ExecInitNode((Plan *) plan, estate, 0);
+
+		if (batch_mode)
+			PushActiveSnapshot(GetLatestSnapshot());
+
+		while (!batch_complete && (slot = ExecProcNode(join_state)))
+		{
+			check_index_row(slot, indexrel, equality_opcodes);
+			if (batch_mode)
+			{
+				bool null;
+
+				Datum baserow_ybctid = slot_getattr(slot,
+													slot->tts_tupleDescriptor->natts,
+													&null);
+				if (null)
+					elog(ERROR, "ybctid is unexpectedly null");
+
+				if (!lower_bound_ybctid ||
+					DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
+											baserow_ybctid, lower_bound_ybctid))
+				{
+					if (lower_bound_ybctid)
+						pfree(DatumGetPointer(lower_bound_ybctid));
+					MemoryContextSwitchTo(oldctxt);
+					COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
+					MemoryContextSwitchTo(estate->es_query_cxt);
+				}
+			}
+			batch_complete = end_of_batch(++rowcount);
+
+			if (yb_test_slowdown_index_check)
+				sleep(1);
+		}
+
+		if (batch_mode)
+			PopActiveSnapshot();
+
+		execution_complete = !slot;
+		ExecEndNode(join_state);
+		MemoryContextSwitchTo(oldctxt);
+		cleanup_estate(estate);
+	}
+
+	pfree(equality_opcodes);
+	if (lower_bound_ybctid)
+		pfree(DatumGetPointer(lower_bound_ybctid));
+
+	return rowcount;
 }
 
 /*
