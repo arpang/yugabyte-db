@@ -66,8 +66,7 @@ TEST_F(PgYbIndexCheckTest, BatchedYbIndexCheckSnapshotTooOld) {
   holder.AddThreadFunctor([this, &stop = holder.stop_flag(), &latch] {
       latch.CountDown();
       latch.Wait();
-      while (!stop.load())
-      {
+      while (!stop.load()) {
         SleepFor(MonoDelta::FromSeconds(20));
         auto tableid = ASSERT_RESULT(GetTableIDFromTableName("abcd"));
         ASSERT_OK(client_->FlushTables({tableid}, false, 60, true));
