@@ -363,7 +363,10 @@ YbFindReferencedPartition(EState *estate, const RI_ConstraintInfo *riinfo,
 		ResultRelInfo *pk_part_rri = ExecFindPartition(&mtstate, &pk_root_rri,
 													   proute, pkslot, estate);
 
+		// elog(INFO, "pk_part_rri %p, name %s", pk_part_rri, RelationGetRelationName(pk_part_rri->ri_RelationDesc));
+		MemoryContext oldcxt = MemoryContextSwitchTo(estate->es_query_cxt);
 		*leaf_root_conversion_map = ExecGetChildToRootMap(pk_part_rri);
+		MemoryContextSwitchTo(oldcxt);
 
 		if (!using_index)
 			referenced_rel = pk_part_rri->ri_RelationDesc;

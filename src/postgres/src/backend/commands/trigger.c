@@ -4696,6 +4696,7 @@ AfterTriggerExecute(EState *estate,
 	if (TRIGGER_FOR_UPDATE(LocTriggerData.tg_trigger->tgtype))
 		LocTriggerData.tg_updatedcols = evtshared->ats_modifiedcols;
 
+	// elog(INFO, "Resetting AfterTriggerTupleContext");
 	MemoryContextReset(per_tuple_context);
 
 	/*
@@ -4861,6 +4862,7 @@ afterTriggerInvokeEvents(AfterTriggerEventList *events,
 		local_estate = true;
 	}
 
+	// elog(INFO, "Allocating AfterTriggerTupleContext");
 	/* Make a per-tuple memory context for trigger function calls */
 	per_tuple_context =
 		AllocSetContextCreate(CurrentMemoryContext,
@@ -4984,6 +4986,7 @@ afterTriggerInvokeEvents(AfterTriggerEventList *events,
 		ExecDropSingleTupleTableSlot(slot2);
 	}
 
+	// elog(INFO, "Deleting AfterTriggerTupleContext");
 	/* Release working resources */
 	MemoryContextDelete(per_tuple_context);
 

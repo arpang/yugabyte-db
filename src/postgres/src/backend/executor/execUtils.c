@@ -1286,6 +1286,7 @@ ExecGetChildToRootMap(ResultRelInfo *resultRelInfo)
 	/* If we didn't already do so, compute the map for this child. */
 	if (!resultRelInfo->ri_ChildToRootMapValid)
 	{
+		// elog(INFO, "ExecGetChildToRootMap (alloc) mem ctxt %s", YbGetCurrentMemoryContext()->name);
 		ResultRelInfo *rootRelInfo = resultRelInfo->ri_RootResultRelInfo;
 
 		if (rootRelInfo)
@@ -1297,6 +1298,10 @@ ExecGetChildToRootMap(ResultRelInfo *resultRelInfo)
 
 		resultRelInfo->ri_ChildToRootMapValid = true;
 	}
+	// else
+	// {
+	// 	elog(INFO, "ExecGetChildToRootMap (read from) mem ctxt %s", YbGetCurrentMemoryContext()->name);
+	// }
 
 	return resultRelInfo->ri_ChildToRootMap;
 }
