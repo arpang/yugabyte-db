@@ -356,7 +356,7 @@ YbFindReferencedPartition(EState *estate, const RI_ConstraintInfo *riinfo,
 	Relation	referenced_rel = NULL;
 
 	/* Get current context, will be helpful during error recovery. */
-	MemoryContext cur_context = YbGetCurrentMemoryContext();
+	MemoryContext cur_context = CurrentMemoryContext;
 
 	PG_TRY();
 	{
