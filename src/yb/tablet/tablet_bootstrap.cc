@@ -38,6 +38,8 @@
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/stringize.hpp>
 
+#include "yb/ash/wait_state.h"
+
 #include "yb/common/common_fwd.h"
 #include "yb/common/opid.h"
 #include "yb/common/schema_pbutil.h"
@@ -137,8 +139,8 @@ DEFINE_RUNTIME_bool(skip_flushed_entries_in_first_replayed_segment, true,
             "If applicable, only replay entries that are not flushed to RocksDB or necessary "
             "to bootstrap retryable requests in the first replayed wal segment.");
 
-DEFINE_RUNTIME_bool(use_bootstrap_intent_ht_filter, true,
-                    "Use min replay txn start time filter for bootstrap.");
+DEFINE_NON_RUNTIME_bool(use_bootstrap_intent_ht_filter, true,
+                        "Use min replay txn start time filter for bootstrap.");
 
 DECLARE_int32(retryable_request_timeout_secs);
 
@@ -503,6 +505,11 @@ class TabletBootstrap {
     }
 
     listener_->StatusMessage("Bootstrap starting.");
+
+    const auto& wait_state = ash::WaitStateInfo::CurrentWaitState();
+    if (wait_state) {
+      wait_state->UpdateAuxInfo({.tablet_id = tablet_id, .method = "LocalBootstrap"});
+    }
 
     if (VLOG_IS_ON(1)) {
       RaftGroupReplicaSuperBlockPB super_block;

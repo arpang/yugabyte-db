@@ -1796,7 +1796,7 @@ Result<YsqlMetric> PgLibPqTest::GetCatCacheTableMissMetric(const std::string& ta
   auto found_it =
       std::find_if(json_metrics.begin(), json_metrics.end(), [table_name](YsqlMetric& metric) {
         return (
-            metric.name.find("CatalogCacheTableMisses") != std::string::npos &&
+            metric.name.find("yb_ysqlserver_CatalogCacheTableMisses") != std::string::npos &&
             metric.labels["table_name"] == table_name);
       });
   if (found_it == json_metrics.end()) {
@@ -2931,7 +2931,11 @@ void PgLibPqTest::TestCacheRefreshRetry(const bool is_retry_disabled) {
   int num_successes = 0;
   std::array<PGConn, 2> conns = {
     ASSERT_RESULT(ConnectToDB(kNamespaceName, true /* simple_query_protocol */)),
-    ASSERT_RESULT(ConnectToDB(kNamespaceName, true /* simple_query_protocol */)),
+    // For this test, we need to have the DDL connection and DML connection connected to
+    // two nodes in order to have heartbeat delay to cause stale cache which shows catalog
+    // version mismatch symptom.
+    ASSERT_RESULT((pg_ts = cluster_->tablet_server(1),
+                   ConnectToDB(kNamespaceName, true /* simple_query_protocol */))),
   };
 
   ASSERT_OK(conns[0].ExecuteFormat("CREATE TABLE $0 (i int)", kTableName));
@@ -2996,6 +3000,8 @@ class PgLibPqTestEnumType: public PgLibPqTest {
  public:
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     options->extra_tserver_flags.push_back("--TEST_do_not_add_enum_sort_order=true");
+    // The EnumType test kills all postmasters on tservers so it must wait until they are spawned.
+    options->wait_for_tservers_to_accept_ysql_connections = true;
   }
 };
 
@@ -4100,20 +4106,13 @@ TEST_F(PgLibPqTest, CatalogCacheIdMissMetricsTest) {
   EasyCurl c;
   faststring buf;
 
-  auto prometheus_metrics_url =
-      Substitute("http://$0/prometheus-metrics?reset_histograms=false&show_help=true", hostport);
-  ASSERT_OK(c.FetchURL(prometheus_metrics_url, &buf));
-  auto prometheus_metrics = ParsePrometheusMetrics(buf.ToString());
-
-  auto json_metrics_url =
-      Substitute("http://$0/metrics?reset_histograms=false&show_help=true", hostport);
-  ASSERT_OK(c.FetchURL(json_metrics_url, &buf));
-  auto json_metrics = ParseJsonMetrics(buf.ToString());
+  auto prometheus_metrics = GetPrometheusMetrics();
+  auto json_metrics = GetJsonMetrics();
 
   for (const auto& metrics : {json_metrics, prometheus_metrics}) {
     int64_t expected_total_cache_misses = 0;
     for (const auto& metric : metrics) {
-      if (metric.name.find("CatalogCacheMisses") != std::string::npos &&
+      if (metric.name.find("yb_ysqlserver_CatalogCacheMisses") != std::string::npos &&
           metric.labels.find("table_name") == metric.labels.end()) {
         expected_total_cache_misses = metric.value;
         break;
@@ -4126,7 +4125,7 @@ TEST_F(PgLibPqTest, CatalogCacheIdMissMetricsTest) {
     int64_t total_index_cache_misses = 0;
     std::unordered_map<std::string, int64_t> per_table_index_cache_misses;
     for (const auto& metric : metrics) {
-      if (metric.name.find("CatalogCacheMisses") != std::string::npos &&
+      if (metric.name.find("yb_ysqlserver_CatalogCacheMisses") != std::string::npos &&
           metric.labels.find("table_name") != metric.labels.end()) {
         auto table_name = GetCatalogTableNameFromIndexName(metric.labels.at("table_name"));
         ASSERT_TRUE(table_name) << "Failed to get table name from index name: "
@@ -4144,7 +4143,7 @@ TEST_F(PgLibPqTest, CatalogCacheIdMissMetricsTest) {
     // table-level cache miss metric.
     int64_t total_table_cache_misses = 0;
     for (const auto& metric : metrics) {
-      if (metric.name.find("CatalogCacheTableMisses") != std::string::npos) {
+      if (metric.name.find("yb_ysqlserver_CatalogCacheTableMisses") != std::string::npos) {
         auto table_name = metric.labels.at("table_name");
         ASSERT_EQ(per_table_index_cache_misses[table_name], metric.value)
             << "Expected sum of index cache misses for table " << table_name

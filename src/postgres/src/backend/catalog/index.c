@@ -67,6 +67,7 @@
 #include "optimizer/optimizer.h"
 #include "parser/parser.h"
 #include "pgstat.h"
+#include "postmaster/autovacuum.h"
 #include "rewrite/rewriteManip.h"
 #include "storage/bufmgr.h"
 #include "storage/lmgr.h"
@@ -1521,7 +1522,7 @@ index_concurrently_create_copy(Relation heapRelation, Oid oldIndexId,
 	}
 
 	/*
-	 * Get whether the indexed table is colocated
+	 * YB: Get whether the indexed table is colocated
 	 * (either via database or a tablegroup).
 	 * If the indexed table is colocated, then this index is colocated as well.
 	 */
@@ -2977,6 +2978,27 @@ index_update_stats(Relation rel,
 	update_stats = reltuples >= 0;
 
 	/*
+	 * If autovacuum is off, user may not be expecting table relstats to
+	 * change.  This can be important when restoring a dump that includes
+	 * statistics, as the table statistics may be restored before the index is
+	 * created, and we want to preserve the restored table statistics.
+	 */
+	if (AutoVacuumingActive())
+	{
+		if (rel->rd_rel->relkind == RELKIND_RELATION ||
+			rel->rd_rel->relkind == RELKIND_TOASTVALUE ||
+			rel->rd_rel->relkind == RELKIND_MATVIEW)
+		{
+			StdRdOptions *options = (StdRdOptions *) rel->rd_options;
+
+			if (options != NULL && !options->autovacuum.enabled)
+				update_stats = false;
+		}
+	}
+	else
+		update_stats = false;
+
+	/*
 	 * Finish I/O and visibility map buffer locks before
 	 * systable_inplace_update_begin() locks the pg_class buffer.  The rd_rel
 	 * we modify may differ from rel->rd_rel due to e.g. commit of concurrent
@@ -3622,7 +3644,6 @@ validate_index(Oid heapId, Oid indexId, Snapshot snapshot)
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 	save_nestlevel = NewGUCNestLevel();
 
-	/* And the target index relation */
 	indexRelation = index_open(indexId, RowExclusiveLock);
 
 	/*

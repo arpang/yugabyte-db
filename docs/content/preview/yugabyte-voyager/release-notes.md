@@ -13,6 +13,41 @@ type: docs
 
 What follows are the release notes for the YugabyteDB Voyager v1 release series. Content will be added as new notable features and changes are available in the patch releases of the YugabyteDB v1 series.
 
+## v1.8.17 - May 6, 2025
+
+### New Feature
+
+- New Command: `finalize-schema-post-data-import`
+    This command is used to re-add NOT VALID constraints and refresh materialized views after import, and replaces the use of `import schema` with the `--post-snapshot-import true` and `--refresh-mviews` flags; both of these flags are now deprecated in import schema.
+
+### Enhancements
+
+- Sizing Recommendations in Assessment Reports
+  - Improved the accuracy of the estimated data load time mentioned in the assessment report by incorporating the `target-db-version` specified during the `assess-migration` command.
+  - Removed `Parallel jobs` recommendations as the Adaptive Parallelism feature now dynamically adjusts parallelism based on cluster load.
+- Schema Recommendations in Assessment and Schema Analysis Reports
+  - The assessment and schema analysis reports now include recommendations for performance optimization by identifying and suggesting the removal of redundant indexes present in the source schema.
+- Improved Assessment HTML Report
+  - The HTML report generated during the `assess-migration` command now features a cleaner, more user-friendly design for better readability and usability.
+
+## v1.8.16 - April 22, 2025
+
+### New Features
+
+- Regularly monitor the YugabyteDB cluster during data import to ensure good health and prevent suboptimal configurations.
+  - If a YugabyteDB node goes down, the terminal UI notifies the user, and Voyager automatically shifts the load to the remaining nodes.
+  - Voyager aborts the import process if replication (CDC/xCluster) is detected. Bulk data loads with replication enabled are not recommended, as they can significantly increase WAL file sizes. To bypass this check, use the `--skip-replication-checks` flag.
+- Enhanced assessment and schema analysis reports now include schema change recommendations to optimize performance. Specifically, range-sharded indexes on timestamp columns that can cause hotspots are detected and reported with recommended workarounds.
+
+### Enhancements
+
+- Improved user experience in import schema in case of an error, by making the user aware of the `--continue-on-error` and `ignore-exist` flags.
+- Added a prompt to the `yb-voyager-pg-grant-migration-permissions.sql` script for live migrations to notify users about the change in table ownership.
+
+### Bug fixes
+
+- Fixed a bug where certain data types supported in newer YugabyteDB versions (e.g., 2.25) were incorrectly flagged as issues in the assessment report.
+
 ## v1.8.15 - April 8, 2025
 
 ### Enhancements

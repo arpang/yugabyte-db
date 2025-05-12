@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <stdbool.h>  // Needed for bool in C.
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -272,6 +273,8 @@ extern bool yb_debug_log_catcache_events;
 extern bool yb_extension_upgrade;
 
 extern bool yb_mixed_mode_expression_pushdown;
+
+extern bool yb_mixed_mode_saop_pushdown;
 
 // Should be in sync with YsqlSamplingAlgorithm protobuf.
 typedef enum {

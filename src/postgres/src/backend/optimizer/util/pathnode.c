@@ -1507,7 +1507,7 @@ create_bitmap_and_path(PlannerInfo *root,
 					   RelOptInfo *rel,
 					   List *bitmapquals)
 {
-	BitmapAndPath *pathnode = makeNode(BitmapAndPath);;
+	BitmapAndPath *pathnode = makeNode(BitmapAndPath);
 	Relids		required_outer = NULL;
 	ListCell   *lc;
 
@@ -1712,6 +1712,7 @@ create_append_path(PlannerInfo *root,
 	 */
 	if (root && rel->reloptkind == RELOPT_BASEREL && IS_PARTITIONED_REL(rel))
 	{
+		/* YB */
 		if (subpaths)
 		{
 			/* YB: Accumulate batching info from subpaths for this "baserel". */
@@ -1720,6 +1721,7 @@ create_append_path(PlannerInfo *root,
 			root->yb_cur_batched_relids =
 				YB_PATH_REQ_OUTER_BATCHED((Path *) linitial(subpaths));
 		}
+
 		pathnode->path.param_info = get_baserel_parampathinfo(root,
 															  rel,
 															  required_outer);
@@ -5536,7 +5538,12 @@ yb_assign_unique_path_node_id(PlannerInfo *root, Path *path)
 	 * set_dummy_rel_pathlist((). mark_dummy_rel() also creates an Append path
 	 * without a PlannerInfo instance.
 	 */
-	if (root != NULL)
+	if (root == NULL && path->parent != NULL)
+	{
+		root = path->parent->ybRoot;
+	}
+
+	if (root != NULL && root->glob != NULL)
 	{
 		path->ybUniqueId = ybGetNextNodeUid(root->glob);
 
