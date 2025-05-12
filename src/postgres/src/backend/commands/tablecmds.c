@@ -12732,6 +12732,14 @@ static void
 YbFKTriggerScanEnd(YbFKTriggerScanDesc descr)
 {
 	Assert(descr);
+	ExecResetTupleTable(descr->estate->es_tupleTable, false);
+	/*
+	 * No relations should be opened in this estate, still, be conservative and
+	 * call the relation closing functions. They should be no-op.
+	 */
+	ExecCloseResultRelations(descr->estate);
+	ExecCloseRangeTableRelations(descr->estate);
+
 	if (descr->estate)
 		FreeExecutorState(descr->estate);
 	pfree(descr);

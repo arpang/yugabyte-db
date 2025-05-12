@@ -356,14 +356,13 @@ YbFindReferencedPartition(EState *estate, const RI_ConstraintInfo *riinfo,
 	Relation	referenced_rel = NULL;
 
 	/* Get current context, will be helpful during error recovery. */
-	MemoryContext cur_context = CurrentMemoryContext;
+	MemoryContext cur_context = YbGetCurrentMemoryContext();
 
 	PG_TRY();
 	{
 		ResultRelInfo *pk_part_rri = ExecFindPartition(&mtstate, &pk_root_rri,
 													   proute, pkslot, estate);
 
-		// elog(INFO, "pk_part_rri %p, name %s", pk_part_rri, RelationGetRelationName(pk_part_rri->ri_RelationDesc));
 		MemoryContext oldcxt = MemoryContextSwitchTo(estate->es_query_cxt);
 		*leaf_root_conversion_map = ExecGetChildToRootMap(pk_part_rri);
 		MemoryContextSwitchTo(oldcxt);
