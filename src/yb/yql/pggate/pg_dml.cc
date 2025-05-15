@@ -321,17 +321,38 @@ Result<bool> PgDml::ProcessProvidedYbctids() {
   if (!data) {
     return false;
   }
+  size_t count = data->ybctids.size();
+  std::vector<YbctidBatch> batches;
+  batches.push_back(data.value());
+  while(count < 1024)
+  {
+    const auto data =  provider ? VERIFY_RESULT(provider->Fetch()) : std::nullopt;
+    if (!data) {
+      break;
+    }
+    count += data->ybctids.size();
+    batches.push_back(data.value());
+  }
+
 
   // Update request with the new batch of ybctids to fetch the next batch of rows.
-  return UpdateRequestWithYbctids(data->ybctids, KeepOrder(data->keep_order));
+  return UpdateRequestWithYbctids(batches, count, KeepOrder(data->keep_order));
 }
 
 Result<bool> PgDml::UpdateRequestWithYbctids(
-    const std::vector<Slice>& ybctids, KeepOrder keep_order) {
-  auto i = ybctids.begin();
-  return doc_op_->PopulateByYbctidOps({make_lw_function([&i, end = ybctids.end()] {
-    return i != end ? *i++ : Slice();
-  }), ybctids.size()}, keep_order);
+    const std::vector<YbctidBatch>& batches, size_t count, KeepOrder keep_order) {
+  auto i = batches.begin();
+  auto j = i->ybctids.begin();
+  return doc_op_->PopulateByYbctidOps({make_lw_function([&i, &j, end = batches.end()] {
+    if (i == end)
+      return Slice();
+    if (j == i->ybctids.end())
+    {
+      i++;
+      j = i->ybctids.begin();
+    }
+    return *j++;
+  }), count}, keep_order);
 }
 
 Status PgDml::Fetch(
