@@ -327,7 +327,7 @@ Result<bool> PgDml::ProcessProvidedYbctids() {
 }
 
 Result<bool> PgDml::UpdateRequestWithYbctids(
-  const std::vector<Slice>& ybctids, KeepOrder keep_order) {
+    const std::vector<Slice>& ybctids, KeepOrder keep_order) {
   auto i = ybctids.begin();
   return doc_op_->PopulateByYbctidOps({make_lw_function([&i, end = ybctids.end()] {
     return i != end ? *i++ : Slice();

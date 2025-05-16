@@ -145,7 +145,7 @@ class PgDml : public PgStatement {
   void ColRefsToPB();
 
   Result<bool> UpdateRequestWithYbctids(
-    const std::vector<Slice>& ybctids, KeepOrder keep_order = KeepOrder::kFalse);
+      const std::vector<Slice>& ybctids, KeepOrder keep_order = KeepOrder::kFalse);
 
   template<class Request>
   static void DoSetCatalogCacheVersion(
