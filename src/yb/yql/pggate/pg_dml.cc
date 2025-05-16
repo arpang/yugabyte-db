@@ -312,47 +312,29 @@ Status PgDml::UpdateAssignPBs() {
 }
 
 Result<bool> PgDml::ProcessProvidedYbctids() {
+  LOG(INFO) << "ProcessProvidedYbctids before secondary index execution secondary_index_ " << secondary_index_.has_value();
   if (secondary_index_) {
     RETURN_NOT_OK(secondary_index_->Execute());
   }
+  LOG(INFO) << "ProcessProvidedYbctids after secondary index execution secondary_index_ " << secondary_index_.has_value();
 
   auto* provider = ybctid_provider();
   const auto data =  provider ? VERIFY_RESULT(provider->Fetch()) : std::nullopt;
   if (!data) {
     return false;
   }
-  size_t count = data->ybctids.size();
-  std::vector<YbctidBatch> batches;
-  batches.push_back(data.value());
-  while(count < 1024)
-  {
-    const auto data =  VERIFY_RESULT(provider->Fetch());
-    if (!data) {
-      break;
-    }
-    count += data->ybctids.size();
-    batches.push_back(data.value());
-  }
 
-
+  LOG(INFO) << "ProcessProvidedYbctids before UpdateRequestWithYbctids";
   // Update request with the new batch of ybctids to fetch the next batch of rows.
-  return UpdateRequestWithYbctids(batches, count, KeepOrder(data->keep_order));
+  return UpdateRequestWithYbctids(data->ybctids, KeepOrder(data->keep_order));
 }
 
 Result<bool> PgDml::UpdateRequestWithYbctids(
-    const std::vector<YbctidBatch>& batches, size_t count, KeepOrder keep_order) {
-  auto i = batches.begin();
-  auto j = i->ybctids.begin();
-  return doc_op_->PopulateByYbctidOps({make_lw_function([&i, &j, end = batches.end()] {
-    if (j == i->ybctids.end())
-    {
-      i++;
-      if (i == end)
-        return Slice();
-      j = i->ybctids.begin();
-    }
-    return *j++;
-  }), count}, keep_order);
+  const std::vector<Slice>& ybctids, KeepOrder keep_order) {
+  auto i = ybctids.begin();
+  return doc_op_->PopulateByYbctidOps({make_lw_function([&i, end = ybctids.end()] {
+    return i != end ? *i++ : Slice();
+  }), ybctids.size()}, keep_order);
 }
 
 Status PgDml::Fetch(
@@ -469,6 +451,7 @@ void PgDml::SetYbctidProvider(std::unique_ptr<YbctidProvider>&& provider) {
 }
 
 void PgDml::SetSecondaryIndex(std::unique_ptr<PgSelectIndex>&& index_query) {
+  LOG(INFO) << "Arpan SetSecondaryIndex";
   DCHECK(!secondary_index_ && !ybctid_provider_);
   if (index_query->doc_op_) {
     ybctid_provider_ = std::make_unique<IndexYbctidProvider>(*index_query);
