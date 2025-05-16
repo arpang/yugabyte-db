@@ -428,7 +428,7 @@ void PgDmlRead::SetRequestedYbctids(std::reference_wrapper<const std::vector<Sli
   SetYbctidProvider(std::make_unique<SimpleYbctidProvider>(ybctids));
 }
 
-void PgDmlRead::SetRequestedYbctids(std::unique_ptr<const std::vector<Slice>> ybctids) {
+void PgDmlRead::SetRequestedYbctids(std::unique_ptr<const std::vector<Slice>>&& ybctids) {
   SetYbctidProvider(std::make_unique<HoldingContainerYbctidProvider>(std::move(ybctids)));
 }
 
