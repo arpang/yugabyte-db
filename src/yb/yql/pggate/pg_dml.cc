@@ -326,7 +326,7 @@ Result<bool> PgDml::ProcessProvidedYbctids() {
   batches.push_back(data.value());
   while(count < 1024)
   {
-    const auto data =  provider ? VERIFY_RESULT(provider->Fetch()) : std::nullopt;
+    const auto data =  VERIFY_RESULT(provider->Fetch());
     if (!data) {
       break;
     }
@@ -344,11 +344,11 @@ Result<bool> PgDml::UpdateRequestWithYbctids(
   auto i = batches.begin();
   auto j = i->ybctids.begin();
   return doc_op_->PopulateByYbctidOps({make_lw_function([&i, &j, end = batches.end()] {
-    if (i == end)
-      return Slice();
     if (j == i->ybctids.end())
     {
       i++;
+      if (i == end)
+        return Slice();
       j = i->ybctids.begin();
     }
     return *j++;
