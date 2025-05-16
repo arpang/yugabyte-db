@@ -312,11 +312,9 @@ Status PgDml::UpdateAssignPBs() {
 }
 
 Result<bool> PgDml::ProcessProvidedYbctids() {
-  LOG(INFO) << "ProcessProvidedYbctids before secondary index execution secondary_index_ " << secondary_index_.has_value();
   if (secondary_index_) {
     RETURN_NOT_OK(secondary_index_->Execute());
   }
-  LOG(INFO) << "ProcessProvidedYbctids after secondary index execution secondary_index_ " << secondary_index_.has_value();
 
   auto* provider = ybctid_provider();
   const auto data =  provider ? VERIFY_RESULT(provider->Fetch()) : std::nullopt;
@@ -324,7 +322,6 @@ Result<bool> PgDml::ProcessProvidedYbctids() {
     return false;
   }
 
-  LOG(INFO) << "ProcessProvidedYbctids before UpdateRequestWithYbctids";
   // Update request with the new batch of ybctids to fetch the next batch of rows.
   return UpdateRequestWithYbctids(data->ybctids, KeepOrder(data->keep_order));
 }
@@ -451,7 +448,6 @@ void PgDml::SetYbctidProvider(std::unique_ptr<YbctidProvider>&& provider) {
 }
 
 void PgDml::SetSecondaryIndex(std::unique_ptr<PgSelectIndex>&& index_query) {
-  LOG(INFO) << "Arpan SetSecondaryIndex";
   DCHECK(!secondary_index_ && !ybctid_provider_);
   if (index_query->doc_op_) {
     ybctid_provider_ = std::make_unique<IndexYbctidProvider>(*index_query);

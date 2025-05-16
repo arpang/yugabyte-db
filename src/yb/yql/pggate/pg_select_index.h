@@ -49,6 +49,11 @@ class PgSelectIndex : public PgSelect {
   // accessing the IndexTable via an outer select (Sequential or primary scans)
   Status PrepareSubquery(
         const PgObjectId& index_id, std::shared_ptr<LWPgsqlReadRequestPB>&& read_req);
+
+  // System columns.
+  // - ybctids_ contains pointers to the buffers "data_".
+  // - System columns must be processed before these fields have any meaning.
+  std::vector<Slice> ybctids_;
 };
 
 }  // namespace yb::pggate

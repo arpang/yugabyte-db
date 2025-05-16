@@ -235,7 +235,7 @@ Status PgDocResult::WritePgTuple(const std::vector<PgFetchedTarget*>& targets, P
   return Status::OK();
 }
 
-Status PgDocResult::ProcessSystemColumns() {
+Status PgDocResult::ProcessSystemColumns(std::vector<Slice>* ybctids) {
   if (syscol_processed_) {
     return Status::OK();
   }
@@ -247,7 +247,10 @@ Status PgDocResult::ProcessSystemColumns() {
 
     auto data_size = PgDocData::ReadNumber<int64_t>(&row_iterator_);
 
-    ybctids_.emplace_back(row_iterator_.data(), data_size);
+    if (ybctids)
+      ybctids->emplace_back(row_iterator_.data(), data_size);
+    else
+      ybctids_.emplace_back(row_iterator_.data(), data_size);
     row_iterator_.remove_prefix(data_size);
   }
   return Status::OK();

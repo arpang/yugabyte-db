@@ -52,24 +52,30 @@ Result<std::optional<YbctidBatch>> PgSelectIndex::FetchYbctidBatch() {
   }
 
   // Got the next batch of ybctids.
-  DCHECK(!rowsets_.empty());
+  DCHECK(!ybctids_.empty());
 
   AtomicFlagSleepMs(&FLAGS_TEST_inject_delay_between_prepare_ybctid_execute_batch_ybctid_ms);
-  return YbctidBatch{rowsets_.front().ybctids(), read_req_->has_is_forward_scan()};
+  return YbctidBatch{ybctids_, read_req_->has_is_forward_scan()};
 }
 
-Result<bool> PgSelectIndex::GetNextYbctidBatch() {
+Result<bool> PgSelectIndex:: GetNextYbctidBatch() {
+  // std::vector<Slice>().swap(ybctids_);
+  ybctids_.clear();
+  int64_t count = 0;
   for (auto rowset_iter = rowsets_.begin(); rowset_iter != rowsets_.end();) {
     if (rowset_iter->is_eof()) {
       rowset_iter = rowsets_.erase(rowset_iter);
-    } else {
+    } else if (count == 0 || (count + rowset_iter->row_count() <= yb_fetch_row_limit))  {
       // Write all found rows to ybctid array.
-      RETURN_NOT_OK(rowset_iter->ProcessSystemColumns());
-      return true;
+      count += rowset_iter->row_count();
+      RETURN_NOT_OK(rowset_iter->ProcessSystemColumns(&ybctids_));
+      ++rowset_iter;
+    } else {
+      break;
     }
   }
 
-  return false;
+  return count > 0;
 }
 
 Result<std::unique_ptr<PgSelectIndex>> PgSelectIndex::Make(
