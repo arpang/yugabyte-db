@@ -21,6 +21,7 @@
 #include "yb/yql/pggate/pggate_flags.h"
 #include "yb/yql/pggate/util/pg_doc_data.h"
 
+bool yb_indexscan_batch_ybctids_across_requests;
 
 namespace yb::pggate {
 
@@ -58,7 +59,7 @@ Result<std::optional<YbctidBatch>> PgSelectIndex::FetchYbctidBatch() {
   return YbctidBatch{ybctids_, read_req_->has_is_forward_scan()};
 }
 
-Result<bool> PgSelectIndex:: GetNextYbctidBatch() {
+Result<bool> PgSelectIndex::GetNextYbctidBatch() {
   // std::vector<Slice>().swap(ybctids_);
   ybctids_.clear();
   int64_t count = 0;
@@ -69,6 +70,8 @@ Result<bool> PgSelectIndex:: GetNextYbctidBatch() {
       // Write all found rows to ybctid array.
       count += rowset_iter->row_count();
       RETURN_NOT_OK(rowset_iter->ProcessSystemColumns(&ybctids_));
+      if (!yb_indexscan_batch_ybctids_across_requests)
+        break;
       ++rowset_iter;
     } else {
       break;

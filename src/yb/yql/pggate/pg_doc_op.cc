@@ -169,6 +169,7 @@ Status UpdateMetricOnRequestBuffering(
       make_lw_function([]() -> Status { return Status::OK(); }), info, metrics);
 }
 
+// it waits for the response (it seems from all the parallel rpcs)
 Result<PgDocResponse::Data> GetResponse(
     PgDocResponse::FutureInfo& future_info, PgSession& session) {
   PgDocResponse::Data result;
@@ -450,6 +451,7 @@ Result<std::list<PgDocResult>> PgDocOp::ProcessCallResponse(const rpc::CallRespo
   // Process data coming from tablet server.
   std::list<PgDocResult> result;
 
+  LOG(INFO) << "Arpan ProcessCallResponse pgsql_ops_.size() " << pgsql_ops_.size();
   rows_affected_count_ = 0;
   for (auto& op : pgsql_ops_) {
     if (!op->is_active()) {
@@ -457,6 +459,7 @@ Result<std::list<PgDocResult>> PgDocOp::ProcessCallResponse(const rpc::CallRespo
     }
     auto* op_response = op->response();
     if (!op_response) {
+      LOG(INFO) << "Arpan ProcessCallResponse op_response not received yet, skipping";
       continue;
     }
 
