@@ -756,7 +756,9 @@ class PgClient::Impl : public BigDataFetcher {
     return ResponseStatus(resp);
   }
 
+  // a single future is returned for all the parallel ops
   PerformResultFuture PerformAsync(tserver::PgPerformOptionsPB* options, PgsqlOps&& operations) {
+    LOG(INFO) << "Arpan PerformAsync operations.size " << operations.size();
     auto& arena = operations.front()->arena();
     tserver::LWPgPerformRequestPB req(&arena);
     AshMetadataToPB(*options);

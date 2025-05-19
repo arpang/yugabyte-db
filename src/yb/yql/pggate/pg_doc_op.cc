@@ -169,6 +169,7 @@ Status UpdateMetricOnRequestBuffering(
       make_lw_function([]() -> Status { return Status::OK(); }), info, metrics);
 }
 
+// it waits for the response (it seems from all the parallel rpcs)
 Result<PgDocResponse::Data> GetResponse(
     PgDocResponse::FutureInfo& future_info, PgSession& session) {
   PgDocResponse::Data result;
@@ -235,7 +236,7 @@ Status PgDocResult::WritePgTuple(const std::vector<PgFetchedTarget*>& targets, P
   return Status::OK();
 }
 
-Status PgDocResult::ProcessSystemColumns() {
+Status PgDocResult::ProcessSystemColumns(std::vector<Slice>* ybctids) {
   if (syscol_processed_) {
     return Status::OK();
   }
@@ -247,7 +248,10 @@ Status PgDocResult::ProcessSystemColumns() {
 
     auto data_size = PgDocData::ReadNumber<int64_t>(&row_iterator_);
 
-    ybctids_.emplace_back(row_iterator_.data(), data_size);
+    if (ybctids)
+      ybctids->emplace_back(row_iterator_.data(), data_size);
+    else
+      ybctids_.emplace_back(row_iterator_.data(), data_size);
     row_iterator_.remove_prefix(data_size);
   }
   return Status::OK();
@@ -447,6 +451,7 @@ Result<std::list<PgDocResult>> PgDocOp::ProcessCallResponse(const rpc::CallRespo
   // Process data coming from tablet server.
   std::list<PgDocResult> result;
 
+  LOG(INFO) << "Arpan ProcessCallResponse pgsql_ops_.size() " << pgsql_ops_.size();
   rows_affected_count_ = 0;
   for (auto& op : pgsql_ops_) {
     if (!op->is_active()) {
@@ -454,6 +459,7 @@ Result<std::list<PgDocResult>> PgDocOp::ProcessCallResponse(const rpc::CallRespo
     }
     auto* op_response = op->response();
     if (!op_response) {
+      LOG(INFO) << "Arpan ProcessCallResponse op_response not received yet, skipping";
       continue;
     }
 

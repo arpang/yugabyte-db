@@ -65,7 +65,7 @@ class PgDocResult {
 
   // Get system columns' values from this batch.
   // Currently, we only have ybctids, but there could be more.
-  Status ProcessSystemColumns();
+  Status ProcessSystemColumns(std::vector<Slice>* ybctids = NULL);
 
   // Processes indexed results using specified function.
   Status ProcessIndexedEntries(std::function<Status (int32_t index, Slice* data)> processor);

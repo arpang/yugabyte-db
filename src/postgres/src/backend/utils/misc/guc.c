@@ -3394,6 +3394,16 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_indexscan_batch_ybctids_across_requests", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("yb_indexscan_batch_ybctids_across_requests"),
+			NULL
+		},
+		&yb_indexscan_batch_ybctids_across_requests,
+		true,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL

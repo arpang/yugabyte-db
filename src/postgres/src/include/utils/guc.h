@@ -312,6 +312,7 @@ extern PGDLLIMPORT bool yb_enable_fkey_catcache;
 extern PGDLLIMPORT bool	yb_index_checker;
 extern PGDLLIMPORT bool yb_enable_planner_trace;
 extern PGDLLIMPORT char	*yb_hinted_uids;
+extern PGDLLIMPORT bool yb_indexscan_batch_ybctids_across_requests;
 
 /*
  * Functions exported by guc.c
