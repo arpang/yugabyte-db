@@ -29,6 +29,8 @@
 
 #define HEAPTUPLE_YBCTID(htup) ((htup)->t_ybctid)
 
+#define INDEXTUPLE_BASECTID(itup) ((itup)->t_ybidxbasectid)
+
 #define HEAPTUPLE_COPY_YBCTID(fromHtup, toHtup) \
 	COPY_YBCTID(HEAPTUPLE_YBCTID(fromHtup), HEAPTUPLE_YBCTID(toHtup))
 

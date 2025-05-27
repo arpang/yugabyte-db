@@ -728,8 +728,8 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, ScanDirection dir)
 				tuple = index_form_tuple(RelationGetDescr(index), ivalues, inulls);
 				if (syscols.ybctid != NULL)
 				{
-					tuple->t_ybidxbasectid = PointerGetDatum(syscols.ybctid);
-					ybcUpdateFKCache(ybScan, tuple->t_ybidxbasectid);
+					INDEXTUPLE_BASECTID(tuple) = PointerGetDatum(syscols.ybctid);
+					ybcUpdateFKCache(ybScan, INDEXTUPLE_BASECTID(tuple));
 				}
 			}
 			else
@@ -737,8 +737,8 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, ScanDirection dir)
 				tuple = index_form_tuple(tupdesc, values, nulls);
 				if (syscols.ybbasectid != NULL)
 				{
-					tuple->t_ybidxbasectid = PointerGetDatum(syscols.ybbasectid);
-					ybcUpdateFKCache(ybScan, tuple->t_ybidxbasectid);
+					INDEXTUPLE_BASECTID(tuple) = PointerGetDatum(syscols.ybbasectid);
+					ybcUpdateFKCache(ybScan, INDEXTUPLE_BASECTID(tuple));
 				}
 
 				/* Fields used by yb_index_check() */
