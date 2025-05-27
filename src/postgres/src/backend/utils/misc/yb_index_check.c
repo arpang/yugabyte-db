@@ -85,6 +85,17 @@ check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
 	int indnatts = indexrel->rd_index->indnatts;
 	int indnkeyatts = indexrel->rd_index->indnkeyatts;
 
+	/*
+	 * Assert that the slot (resulting from join) has expected number of
+	 * attributes. The slot should have:
+	 * - indexrel.ybbasectid and baserel.ybctid: (2)
+	 * - two attributes for each index attribute - one from the index relation
+	 *   and the other from the base relation: (2 * indnatts)
+	 * - indexrel.ybuniqueidxkeysuffix if the index is
+	 *   unique: (indisunique ? 1 : 0)
+	 * - indexrel.ybctid (used in batched mode to set the lower bound of the
+	 *   next batch): 1
+	 */
 	Assert(slot->tts_tupleDescriptor->natts ==
 		   2 * (indnatts + 1) + (indisunique ? 1 : 0) + 1);
 
@@ -216,8 +227,8 @@ make_indexonlyscan_plan(Relation indexrel, List *plan_targetlist,
 
 /*
  * Generate plan corresponding to:
- *		SELECT (ybbasectid, index attributes, ybuniqueidxkeysuffix if index is
- *		unique) from indexrel
+ *		SELECT ybbasectid, index attributes, ybuniqueidxkeysuffix if index is
+ *		unique, ybctid from indexrel
  */
 static Plan *
 indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid)
@@ -231,6 +242,7 @@ indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid)
 	const FormData_pg_attribute *attr;
 	int resno = 1;
 
+	/* ybbasectid */
 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
 	expr = (Expr *) makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
 							attr->atttypid, attr->atttypmod, attr->attcollation,
@@ -238,6 +250,7 @@ indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid)
 	target_entry = makeTargetEntry((Expr *) expr, resno++, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
+	/* index attributes */
 	for (int i = 0; i < indexdesc->natts; i++)
 	{
 		attr = TupleDescAttr(indexdesc, i);
@@ -248,6 +261,7 @@ indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid)
 		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
 
+	/* ybuniqueidxkeysuffix (if index is unique) */
 	if (indexrel->rd_index->indisunique)
 	{
 		attr = SystemAttributeDefinition(YBUniqueIdxKeySuffixAttributeNumber);
@@ -258,6 +272,7 @@ indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid)
 		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
 
+	/* ybctid (used in batched mode to set the lower bound of the next batch) */
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	expr = (Expr *) makeVar(INDEX_VAR, YBTupleIdAttributeNumber,
 							attr->atttypid, attr->atttypmod, attr->attcollation,
@@ -375,13 +390,13 @@ get_partial_index_predicate(Relation baserel, Relation indexrel,
 
 /*
  * Generate plan corresponding to:
- *		SELECT (ybctid, index attributes) from baserel where ybctid IN (....)
- *		 AND <partial index predicate, if any>
+ *		SELECT ybctid, index attributes from baserel where ybctid IN (....)
+ *		AND <partial index predicate, if any>
  * This plan makes the inner subplan of BNL. So this must be an IndexScan, but
  * at the same time this should scan the base relation. To achive this, index
- * scan is done an a dummy index that is on the ybctid column. Under the hood,
- * it works as an index only scan on the base relation. This is similair to how
- * PK index scan works in YB.
+ * scan is done an a dummy index that's indexed on the ybctid column. Under the
+ * hood, it works as an IndexOnlyScan on the base relation. This is similair
+ * to how PK index scan works in YB.
  */
 static Plan *
 baserel_scan_plan(Relation baserel, Relation indexrel)
@@ -392,6 +407,8 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	/* Plan target list */
 	List *plan_targetlist = NIL;
 	int resno = 1;
+
+	/* ybctid */
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
 							   attr->atttypmod, attr->attcollation, 0);
@@ -399,6 +416,7 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 												"", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
+	/* index attributes */
 	List *indexprs = NIL;
 	ListCell *next_expr = NULL;
 	for (int i = 0; i < indexdesc->natts; i++)
@@ -494,32 +512,34 @@ static Plan *
 spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybctid)
 {
 	/*
-	 * To check for spurious rows in index relation, we join the index relation
-	 * with the base relation on indexrow.ybbasectid == baserow.ybctid. We use
-	 * BNL for this purpose. To satisfy the BNL's join condition requirement,
-	 * index relation is used as the outer (left) subplan.
+	 * To check for spurious rows in index relation, we LEFT join the index
+	 * relation with the base relation on indexrel.ybbasectid == baserel.ybctid.
+	 * We use BNL for this purpose. To satisfy the BNL's join condition
+	 * requirement, index relation is used as the outer (left) subplan.
 	 */
 
-	/* Outer subplan: index relation scan */
+	/*
+	 * Outer subplan: index relation scan
+	 * Targetlist: ybbasectid, index_attributes, ybuniqueidxkeysuffix (if
+	 * unique), ybctid.
+	 */
 	Plan *indexrel_scan = indexrel_scan_plan(indexrel, lower_bound_ybctid);
 	TupleDesc indexrel_scan_desc = ExecTypeFromTL(indexrel_scan->targetlist);
 
-	/* Inner subplan: base relation scan */
+	/*
+	 * Inner subplan: base relation scan
+	 * Targetlist: ybctid, index_attributes (scanned/computed from baserel).
+	 */
 	Plan *baserel_scan = baserel_scan_plan(baserel, indexrel);
 
 	/*
-	 * Join plan targetlist
-	 *
-	 * Outer subplan tlist: ybbasectid, index_attributes , ybuniqueidxkeysuffix
-	 * (if unique), ybctid.
-	 * Inner subplan tlist: ybctid, index_attributes (scanned/computed from
-	 * baserel).
-	 *
-	 * Join plan tlist: union of the above such that semantically same attributes
-	 * are next to each other:
-	 * (outer.att1, inner.att1, outer.att2, inner.att2 ... and so on,
-	 * outer.ybuniqueidxkeysuffix if unqiue index, outer.ybctid)
-	 *
+	 * Join plan targetlist:
+	 * - outer.ybbasectid, inner.ybctid
+	 * - index attributes from the outer and the inner subplan such that
+	 *   semantically same attributes are next to each other: (outer.att1,
+	 *   inner.att1, outer.att2, inner.att2, ... and so on)
+	 * - outer.ybuniqueidxkeysuffix (if index is uniue)
+	 * - outer.ybctid
 	 */
 	Expr *expr;
 	TargetEntry *target_entry;
@@ -528,6 +548,7 @@ spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybcti
 	int i;
 	int resno = 1;
 
+	/* outer.ybbasectid, inner.ybctid, index attributes */
 	for (i = 1; i <= RelationGetDescr(indexrel)->natts + 1; i++)
 	{
 		attr = TupleDescAttr(indexrel_scan_desc, i - 1);
@@ -542,6 +563,7 @@ spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybcti
 		plan_tlist = lappend(plan_tlist, target_entry);
 	}
 
+	/* outer.ybuniqueidxkeysuffix (if index is uniue) */
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	if (indexrel->rd_index->indisunique)
 	{
@@ -551,6 +573,7 @@ spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybcti
 		plan_tlist = lappend(plan_tlist, target_entry);
 	}
 
+	/* outer.ybctid */
 	expr = (Expr *) makeVar(OUTER_VAR, i++, attr->atttypid, attr->atttypmod,
 							attr->attcollation, 0);
 	target_entry = makeTargetEntry(expr, resno++, "", false);
@@ -832,7 +855,9 @@ join_execution_helper(Relation baserel, Relation indexrel,
 
 /*
  * Generate plan corresponding to:
- *		SELECT index_row_ybctid from indexrel where index_row_ybctid IN (....)
+ *		SELECT ybctid from indexrel where index_row_ybctid IN (....)
+ *
+ * Note: ybctid refers to index row's ybctid, not the ybbasectid.
  */
 static Plan *
 indexrel_scan_plan2(Relation indexrel)
@@ -874,17 +899,26 @@ indexrel_scan_plan2(Relation indexrel)
 /*
  * Generate plan corresponding to:
  *		SELECT yb_compute_row_ybctid(indexreloid, keyatts, ybctid) AS
- *computed_index_row_ybctid, ybctid from baserel where <partial index predicate,
- *if any>.
+ *      computed_index_row_ybctid, ybctid from baserel where <partial index
+ *      predicate, if any>.
  */
 static Plan *
 baserel_scan_plan2(Relation baserel, Relation indexrel,
 				   Datum lower_bound_ybctid)
 {
+	List *plan_targetlist = NIL;
+
 	const FormData_pg_attribute *attr;
 	List *indexprs = NIL;
 	ListCell *next_expr = NULL;
 	List *keyatts = NIL;
+	TargetEntry *target_entry;
+	int resno = 1;
+
+	/* Plan targetlist */
+
+	/* yb_compute_row_ybctid(indexreloid, keyatts, ybctid) AS
+	 * computed_index_row_ybctid */
 	for (int i = 0; i < indexrel->rd_index->indnkeyatts; i++)
 	{
 		Expr *expr = get_index_attr_expr(baserel, indexrel, i, &indexprs,
@@ -892,9 +926,9 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 		keyatts = lappend(keyatts, expr);
 	}
 
-	RowExpr *rowexpr = makeNode(RowExpr);
-	rowexpr->args = keyatts;
-	rowexpr->row_typeid = RECORDOID;
+	RowExpr *keyattsexpr = makeNode(RowExpr);
+	keyattsexpr->args = keyatts;
+	keyattsexpr->row_typeid = RECORDOID;
 
 	Const *indexoidarg = makeConst(OIDOID, 0, InvalidOid, sizeof(Oid),
 								   (Datum) indexrel->rd_rel->oid, false, true);
@@ -903,19 +937,15 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 	Var *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
 							   attr->atttypmod, attr->attcollation, 0);
 
-	List *args = list_make3(indexoidarg, rowexpr, ybctid_expr);
-
+	List *args = list_make3(indexoidarg, keyattsexpr, ybctid_expr);
 	FuncExpr *funcexpr = makeFuncExpr(F_YB_COMPUTE_ROW_YBCTID, BYTEAOID, args,
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
-
-	int resno = 1;
-	TargetEntry *target_entry;
-	List *plan_targetlist = NIL;
 	target_entry = makeTargetEntry((Expr *) funcexpr, resno++,
 								   "computed_indexrow_ybctid", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
+	/* ybctid (used in batched mode to set the lower bound of the next batch) */
 	target_entry = makeTargetEntry((Expr *) ybctid_expr, resno++, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
@@ -947,26 +977,30 @@ missing_check_plan(Relation baserel, Relation indexrel,
 				   Datum lower_bound_ybctid)
 {
 	/*
-	 * To check for missing rows in index relation, we use LEFT join to join
-	 * the base relation with the index relation on
-	 * computed_indexrow_ybctid == indexrow.ybctid. We use BNL for this
-	 * purpose.
+	 * To check for missing rows in index relation, we perform a LEFT join on
+	 * the base relation (on left) and the index relation (on right). BNL is
+	 * used for this purpose.
+	 * Join condition: baserel.computed_indexrow_ybctid == indexrel.ybctid.
+	 *
+	 * Procedure yb_compute_row_ybctid() is used to get the
+	 * computed_indexrow_ybctid.
 	 */
 
-	/* Outer subplan: base relation scan */
+	/*
+	 * Outer subplan: base relation scan
+	 * Targetlist: computed_indexrow_ybctid, ybctid
+	 */
 	Plan *baserel_scan = baserel_scan_plan2(baserel, indexrel,
 											lower_bound_ybctid);
 
-	/* Inner subplan: index relation scan */
+	/*
+	 * Inner subplan: index relation scan
+	 * Targetlist: ybctid (the index row's ybctid, not the ybbasectid)
+	 */
 	Plan *indexrel_scan = indexrel_scan_plan2(indexrel);
 
 	/*
-	 * Join plan targetlist
-	 *
-	 * Outer subplan tlist: computed_indexrow_ybctid, ybctid
-	 * Inner subplan tlist: ybctid
-	 *
-	 * Join plan tlist: baserel.computed_indexrow_ybctid, indexrel.ybctid,
+	 * Join plan targetlist: baserel.computed_indexrow_ybctid, indexrel.ybctid,
 	 * baserel.ybctid.
 	 */
 	int resno = 1;
@@ -1054,6 +1088,11 @@ check_missing_index_rows(Relation baserel, Relation indexrel,
 	return;
 }
 
+/*
+ * Given a relation and its key attributes, returns the row's ybctid.
+ * Arguments: relation oid, values of key attributes, ybidxbasectid (required
+ * only if the relation is an index).
+ */
 Datum
 yb_compute_row_ybctid(PG_FUNCTION_ARGS)
 {
