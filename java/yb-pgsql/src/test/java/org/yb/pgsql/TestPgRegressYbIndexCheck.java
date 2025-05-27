@@ -28,7 +28,7 @@ public class TestPgRegressYbIndexCheck extends BasePgRegressTest {
   }
 
   @Test
-  public void testPgRegressFeature() throws Exception {
+  public void testPgRegressYbIndexCheck() throws Exception {
     runPgRegressTest("yb_index_check_schedule");
   }
 
