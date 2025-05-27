@@ -20,7 +20,7 @@ import org.yb.YBTestRunner;
  * Runs the pg_regress test suite on YB code.
  */
 @RunWith(value=YBTestRunner.class)
-public class TestPgRegressYbIndexCheck extends BasePgRegressTest {
+public class TestPgRegressYbIndexCheckBatched extends BasePgRegressTest {
 
   @Override
   public int getTestMethodTimeoutSec() {
@@ -35,7 +35,8 @@ public class TestPgRegressYbIndexCheck extends BasePgRegressTest {
   @Override
   protected Map<String, String> getTServerFlags() {
     Map<String, String> flagMap = super.getTServerFlags();
-    appendToYsqlPgConf(flagMap, "yb_index_check_max_bnl_batches=0");
+    appendToYsqlPgConf(flagMap, "yb_index_check_max_bnl_batches=1");
     return flagMap;
   }
+
 }
