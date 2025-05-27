@@ -12,6 +12,7 @@
 //
 package org.yb.pgsql;
 
+import java.util.Collections;
 import java.util.Map;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -28,14 +29,18 @@ public class TestPgRegressYbIndexCheck extends BasePgRegressTest {
   }
 
   @Test
-  public void testPgRegressFeature() throws Exception {
+  public void testPgRegressYbIndexCheckNonBatched() throws Exception {
+    Map<String, String> flagMap = super.getTServerFlags();
+    appendToYsqlPgConf(flagMap, "yb_index_check_max_bnl_batches=0");
+    restartClusterWithFlags(Collections.emptyMap(), flagMap);
     runPgRegressTest("yb_index_check_schedule");
   }
 
-  @Override
-  protected Map<String, String> getTServerFlags() {
+  @Test
+  public void testPgRegressYbIndexCheckBatched() throws Exception {
     Map<String, String> flagMap = super.getTServerFlags();
-    appendToYsqlPgConf(flagMap, "yb_index_check_max_bnl_batches=0");
-    return flagMap;
+    appendToYsqlPgConf(flagMap, "yb_index_check_max_bnl_batches=1");
+    restartClusterWithFlags(Collections.emptyMap(), flagMap);
+    runPgRegressTest("yb_index_check_schedule");
   }
 }
