@@ -1564,7 +1564,8 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 				{
 					YbcPgStatement increment_schema_handle = (YbcPgStatement) lfirst(handle);
 
-					HandleYBStatus(YBCPgAlterTableIncrementSchemaVersion(increment_schema_handle));
+					if (!YbIsSysCatalogTabletRelation(rel))
+						HandleYBStatus(YBCPgAlterTableIncrementSchemaVersion(increment_schema_handle));
 				}
 				List	   *dependent_rels = NIL;
 
@@ -1812,7 +1813,7 @@ YBCPrepareAlterTable(List **subcmds,
 	/* Appropriate lock was already taken */
 	Relation	rel = relation_open(relationId, NoLock);
 
-	if (!IsYBRelation(rel))
+	if (!IsYBRelation(rel) || YbIsSysCatalogTabletRelation(rel))
 	{
 		relation_close(rel, NoLock);
 		return NULL;

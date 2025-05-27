@@ -9644,7 +9644,7 @@ ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
 	 * We do not need to rewrite any children as this operation is not supported
 	 * on partitioned tables (checked above).
 	 */
-	if (IsYBRelation(rel) && stmt->primary)
+	if (IsYBRelation(rel) && stmt->primary && !(YbIsSysCatalogTabletRelation(rel) && indexRel->rd_index->indisprimary))
 	{
 		YbGetTableProperties(rel);
 		/* Don't copy split options if we are creating a range key. */
@@ -9685,7 +9685,7 @@ ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
 	}
 
 	/* Extra checks needed if making primary key */
-	if (stmt->primary)
+	if (stmt->primary && !(YbIsSysCatalogTabletRelation(rel) && indexRel->rd_index->indisprimary))
 		index_check_primary_key(rel, indexInfo, true, stmt);
 
 	/* Note we currently don't support EXCLUSION constraints here */
