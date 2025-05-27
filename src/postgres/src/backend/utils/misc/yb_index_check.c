@@ -917,8 +917,10 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 
 	/* Plan targetlist */
 
-	/* yb_compute_row_ybctid(indexreloid, keyatts, ybctid) AS
-	 * computed_index_row_ybctid */
+	/*
+	 * yb_compute_row_ybctid(indexreloid, keyatts, ybctid) AS
+	 * computed_index_row_ybctid.
+	 */
 	for (int i = 0; i < indexrel->rd_index->indnkeyatts; i++)
 	{
 		Expr *expr = get_index_attr_expr(baserel, indexrel, i, &indexprs,
