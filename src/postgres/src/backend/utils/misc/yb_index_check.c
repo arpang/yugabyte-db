@@ -79,11 +79,11 @@ static void
 check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
 							List *equality_opcodes)
 {
-	bool indisunique = indexrel->rd_index->indisunique;
-	bool indnullsnotdistinct = indexrel->rd_index->indnullsnotdistinct;
-	bool indkeyhasnull = false;
-	int indnatts = indexrel->rd_index->indnatts;
-	int indnkeyatts = indexrel->rd_index->indnkeyatts;
+	bool		indisunique = indexrel->rd_index->indisunique;
+	bool		indnullsnotdistinct = indexrel->rd_index->indnullsnotdistinct;
+	bool		indkeyhasnull = false;
+	int			indnatts = indexrel->rd_index->indnatts;
+	int			indnkeyatts = indexrel->rd_index->indnkeyatts;
 
 	/*
 	 * Assert that the slot (resulting from join) has expected number of
@@ -168,6 +168,7 @@ check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
 					 errdetail(IndAttrDetail(indexrel, ybbasectid_datum, i + 1))));
 
 		RegProcedure proc_oid = lfirst_int(list_nth_cell(equality_opcodes, i));
+
 		if (proc_oid == InvalidOid)
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
@@ -233,14 +234,14 @@ make_indexonlyscan_plan(Relation indexrel, List *plan_targetlist,
 static Plan *
 indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid)
 {
-	TupleDesc indexdesc = RelationGetDescr(indexrel);
+	TupleDesc	indexdesc = RelationGetDescr(indexrel);
 
-	Expr *expr;
-	List *index_cols = NIL;
-	List *plan_targetlist = NIL;
+	Expr	   *expr;
+	List	   *index_cols = NIL;
+	List	   *plan_targetlist = NIL;
 	TargetEntry *target_entry;
 	const FormData_pg_attribute *attr;
-	int resno = 1;
+	int			resno = 1;
 
 	/* ybbasectid */
 	attr = SystemAttributeDefinition(YBIdxBaseTupleIdAttributeNumber);
@@ -290,10 +291,11 @@ indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid)
 List *
 fetch_index_expressions(Relation indexrel)
 {
-	bool isnull;
-	List *indexprs = NIL;
-	Datum exprs_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
-										Anum_pg_index_indexprs, &isnull);
+	bool		isnull;
+	List	   *indexprs = NIL;
+	Datum		exprs_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+											  Anum_pg_index_indexprs, &isnull);
+
 	if (!isnull)
 		indexprs = (List *) stringToNode(TextDatumGetCString(exprs_datum));
 	return indexprs;
@@ -310,7 +312,8 @@ get_saop_expr(AttrNumber attnum, Expr *leftarg)
 	for (int i = 0; i < yb_bnl_batch_size; i++)
 	{
 		params_bms = bms_add_member(params_bms, i);
-		Param *param = makeNode(Param);
+		Param	   *param = makeNode(Param);
+
 		param->paramkind = PARAM_EXEC;
 		param->paramid = i;
 		param->paramtype = attr->atttypid;
@@ -319,7 +322,8 @@ get_saop_expr(AttrNumber attnum, Expr *leftarg)
 		param->location = -1;
 		params = lappend(params, param);
 	}
-	ArrayExpr *arrexpr = makeNode(ArrayExpr);
+	ArrayExpr  *arrexpr = makeNode(ArrayExpr);
+
 	arrexpr->array_typeid = BYTEAARRAYOID;
 	arrexpr->element_typeid = BYTEAOID;
 	arrexpr->multidims = false;
@@ -328,6 +332,7 @@ get_saop_expr(AttrNumber attnum, Expr *leftarg)
 	arrexpr->elements = params;
 
 	ScalarArrayOpExpr *saop = makeNode(ScalarArrayOpExpr);
+
 	saop->opno = ByteaEqualOperator;
 	saop->opfuncid = get_opcode(ByteaEqualOperator);
 	saop->useOr = true;
@@ -454,8 +459,9 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	 * yb_dummy_baserel_index_open() and yb_free_dummy_baserel_index() should
 	 * not be be required.
 	 */
-	IndexScan *base_scan = makeNode(IndexScan);
-	Plan *plan = &base_scan->scan.plan;
+	IndexScan  *base_scan = makeNode(IndexScan);
+	Plan	   *plan = &base_scan->scan.plan;
+
 	plan->targetlist = plan_targetlist;
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
@@ -465,7 +471,7 @@ baserel_scan_plan(Relation baserel, Relation indexrel)
 	base_scan->indextlist = indextlist;
 	base_scan->indexqual = list_make1(saop);
 	base_scan->yb_rel_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
-															  NIL;
+		NIL;
 	base_scan->yb_rel_pushdown.colrefs =
 		partial_idx_pushdown ? partial_idx_colrefs : NIL;
 	return (Plan *) base_scan;
@@ -484,13 +490,15 @@ make_bnl_plan(Plan *lefttree, Plan *righttree, Var *join_clause_lhs,
 
 	/* NestLoopParam */
 	NestLoopParam *nlp = makeNode(NestLoopParam);
+
 	nlp->paramno = 0;
 	nlp->paramval = join_clause_lhs;
 	nlp->yb_batch_size = yb_bnl_batch_size;
 
 	/* BNL join plan */
 	YbBatchedNestLoop *join_plan = makeNode(YbBatchedNestLoop);
-	Plan *plan = &join_plan->nl.join.plan;
+	Plan	   *plan = &join_plan->nl.join.plan;
+
 	plan->targetlist = plan_tlist;
 	plan->lefttree = (Plan *) lefttree;
 	plan->righttree = (Plan *) righttree;
@@ -600,8 +608,9 @@ check_spurious_index_rows(Relation baserel, Relation indexrel)
 static void
 partitioned_index_check(Oid parentindexId)
 {
-	ListCell *lc;
-	foreach (lc, find_inheritance_children(parentindexId, AccessShareLock))
+	ListCell   *lc;
+
+	foreach(lc, find_inheritance_children(parentindexId, AccessShareLock))
 	{
 		Oid childindexId = ObjectIdGetDatum(lfirst_oid(lc));
 		yb_index_check_internal(childindexId);
@@ -612,21 +621,24 @@ static int64
 get_expected_index_rowcount(Relation baserel, Relation indexrel)
 {
 	StringInfoData querybuf;
+
 	initStringInfo(&querybuf);
 	appendStringInfo(&querybuf, "/*+SeqScan(%s)*/ SELECT count(*) from %s",
 					 RelationGetRelationName(baserel),
 					 RelationGetRelationName(baserel));
 
-	bool indpred_isnull;
-	Datum indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
-										  Anum_pg_index_indpred,
-										  &indpred_isnull);
+	bool		indpred_isnull;
+	Datum		indpred_datum = SysCacheGetAttr(INDEXRELID, indexrel->rd_indextuple,
+												Anum_pg_index_indpred,
+												&indpred_isnull);
+
 	if (!indpred_isnull)
 	{
-		Oid basereloid = RelationGetRelid(baserel);
-		char *indpred_clause = TextDatumGetCString(DirectFunctionCall2(pg_get_expr,
-																	   indpred_datum,
-																	   basereloid));
+		Oid			basereloid = RelationGetRelid(baserel);
+		char	   *indpred_clause = TextDatumGetCString(DirectFunctionCall2(pg_get_expr,
+																			 indpred_datum,
+																			 basereloid));
+
 		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
 	}
 
@@ -639,10 +651,11 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 	Assert(SPI_processed == 1);
 	Assert(SPI_tuptable->tupdesc->natts == 1);
 
-	bool isnull;
-	Datum val = heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
+	bool		isnull;
+	Datum		val = heap_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
+
 	Assert(!isnull);
-	int64 expected_rowcount = DatumGetInt64(val);
+	int64		expected_rowcount = DatumGetInt64(val);
 
 	if (SPI_finish() != SPI_OK_FINISH)
 		elog(ERROR, "SPI_finish failed");
@@ -653,7 +666,7 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 static void
 yb_index_check_internal(Oid indexoid)
 {
-	Relation indexrel = RelationIdGetRelation(indexoid);
+	Relation	indexrel = RelationIdGetRelation(indexoid);
 
 	if (indexrel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
 	{
@@ -681,7 +694,7 @@ yb_index_check_internal(Oid indexoid)
 		return;
 	}
 
-	Relation baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
+	Relation	baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
 
 	size_t actual_index_rowcount = 0;
 	PG_TRY();

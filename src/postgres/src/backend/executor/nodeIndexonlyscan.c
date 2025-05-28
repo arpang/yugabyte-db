@@ -165,7 +165,7 @@ IndexOnlyNext(IndexOnlyScanState *node)
 	MemoryContext oldcontext;
 
 	/*
-	 * To handle dead tuple for temp table, we shouldn't store its index
+	 * YB: To handle dead tuple for temp table, we shouldn't store its index
 	 * in per-tuple memory context.
 	 */
 	if (IsYBRelation(node->ss.ss_currentRelation))
@@ -390,9 +390,9 @@ StoreIndexTuple(IndexOnlyScanState *node, TupleTableSlot *slot,
 	ExecStoreVirtualTuple(slot);
 
 	/* Fields used by yb_index_check() */
-	slot->tts_ybidxbasectid = INDEXTUPLE_BASECTID(itup); /* ybidxbasectid */
-	slot->ts_ybuniqueidxkeysuffix = itup->t_ybuniqueidxkeysuffix; /* ybuniqueidxkeysuffix */
-	slot->tts_ybctid = itup->t_ybindexrowybctid; /* index row's ybctid */
+	slot->tts_ybidxbasectid = INDEXTUPLE_BASECTID(itup);	/* ybidxbasectid */
+	slot->ts_ybuniqueidxkeysuffix = itup->t_ybuniqueidxkeysuffix;	/* ybuniqueidxkeysuffix */
+	slot->tts_ybctid = itup->t_ybindexrowybctid;	/* index row's ybctid */
 }
 
 /*
@@ -718,10 +718,10 @@ ExecInitIndexOnlyScan(IndexOnlyScan *node, EState *estate, int eflags)
 						   NULL);
 
 	/*
-	 * For aggregate pushdown purposes, using the scan keys, determine ahead of
-	 * beginning the scan whether indexqual recheck might happen, and pass that
-	 * information up to the aggregate node.  Only attempt this for YB
-	 * relations since pushdown is not supported otherwise.
+	 * YB: For aggregate pushdown purposes, using the scan keys, determine
+	 * ahead of beginning the scan whether indexqual recheck might happen, and
+	 * pass that information up to the aggregate node.  Only attempt this for
+	 * YB relations since pushdown is not supported otherwise.
 	 */
 	if (IsYBRelation(indexstate->ioss_RelationDesc) &&
 		(eflags & EXEC_FLAG_YB_AGG_PARENT))
@@ -802,7 +802,7 @@ ExecInitIndexOnlyScan(IndexOnlyScan *node, EState *estate, int eflags)
 		 * need to be converted from cstring to name.
 		 */
 		indexstate->ioss_NameCStringAttNums = (AttrNumber *)
-									palloc(sizeof(AttrNumber) * namecount);
+			palloc(sizeof(AttrNumber) * namecount);
 
 		for (int attnum = 0; attnum < indnkeyatts; attnum++)
 		{

@@ -219,7 +219,8 @@ public class UpgradeUniverseHandler {
   public UUID upgradeDBVersion(
       SoftwareUpgradeParams requestParams, Customer customer, Universe universe) {
 
-    requestParams = setSoftwareUpgradeRequestParams(requestParams, universe, true);
+    requestParams =
+        setSoftwareUpgradeRequestParams(requestParams, universe, requestParams.rollbackSupport);
     TaskType taskType = getSoftwareUpgradeTaskType(universe, requestParams);
 
     return submitUpgradeTask(
@@ -631,7 +632,9 @@ public class UpgradeUniverseHandler {
     String typeName = generateTypeName(userIntent, requestParams);
 
     return submitUpgradeTask(
-        TaskType.TlsToggle,
+        userIntent.providerType.equals(CloudType.kubernetes)
+            ? TaskType.TlsToggleKubernetes
+            : TaskType.TlsToggle,
         CustomerTask.TaskType.TlsToggle,
         requestParams,
         customer,

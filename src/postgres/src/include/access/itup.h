@@ -38,12 +38,18 @@ typedef struct IndexTupleData
 	Datum		t_ybidxbasectid;		/* system column ybidxbasectid */
 
 	/* Fields used by yb_index_check() */
-	Datum		t_ybuniqueidxkeysuffix;	/* system column ybuniqueidxkeysuffix */
+	Datum		t_ybuniqueidxkeysuffix; /* system column ybuniqueidxkeysuffix */
 	Datum		t_ybindexrowybctid;		/* index row's ybctid */
 
 	/* ---------------
 	 * t_info is laid out in the following fashion:
 	 *
+	 * 15th (high) bit: has nulls
+	 * 14th bit: has var-width attributes
+	 * 13th bit: AM-defined meaning
+	 * 12-0 bit: size of tuple
+	 *
+	 * YB: change layout from short to uint32:
 	 * 31st (high) bit: has nulls
 	 * 30th bit: has var-width attributes
 	 * 29th bit: AM-defined meaning
@@ -68,6 +74,7 @@ typedef IndexAttributeBitMapData * IndexAttributeBitMap;
 /*
  * t_info manipulation macros
  */
+/* YB: modify some numbers to account for short to uint32 change */
 #define INDEX_SIZE_MASK 0x1FFF	/* 8 KB */
 #define YB_INDEX_SIZE_MASK 0x1FFFFFF	/* 32 MB */
 #define INDEX_AM_RESERVED_BIT 0x20000000	/* reserved for index-AM specific
