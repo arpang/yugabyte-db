@@ -774,7 +774,12 @@ init_estate(EState *estate, Relation baserel)
 static void
 cleanup_estate(EState *estate)
 {
-	ExecResetTupleTable(estate->es_tupleTable, true);
+	/*
+	 * destroy the executor's tuple table.  Actually we only care about
+	 * tupdesc refcounts; there's no need to pfree the TupleTableSlots, since
+	 * the containing memory context is about to go away anyway.
+	 */
+	ExecResetTupleTable(estate->es_tupleTable, false /* shouldFree */ );
 	ExecCloseResultRelations(estate);
 	ExecCloseRangeTableRelations(estate);
 	FreeExecutorState(estate);
