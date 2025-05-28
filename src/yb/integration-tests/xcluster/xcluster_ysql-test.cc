@@ -111,6 +111,7 @@ DECLARE_uint64(snapshot_coordinator_poll_interval_ms);
 DECLARE_uint32(cdc_wal_retention_time_secs);
 DECLARE_int32(catalog_manager_bg_task_wait_ms);
 DECLARE_bool(TEST_enable_sync_points);
+DECLARE_bool(TEST_dcheck_for_missing_schema_packing);
 
 namespace yb {
 
@@ -2071,7 +2072,8 @@ TEST_F(XClusterYsqlTest, ValidateSchemaPackingGCDuringNetworkPartition) {
     }
   }
 
-  ASSERT_OK(VerifyWrittenRecords(producer_table_, consumer_table_));
+  // Skip checking column counts since consumer has an additional column.
+  ASSERT_OK(VerifyWrittenRecords(ExpectNoRecords::kFalse, CheckColumnCounts::kFalse));
 }
 
 void PrepareChangeRequest(
@@ -2181,6 +2183,7 @@ void XClusterYsqlTest::ValidateRecordsXClusterWithCDCSDK(
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
   }
   std::vector<uint32_t> tables_vector = {kNTabletsPerTable, kNTabletsPerTable};
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_dcheck_for_missing_schema_packing) = false;
   ASSERT_OK(SetUpWithParams(tables_vector, tables_vector, 1));
 
   // 2. Setup replication.
@@ -2757,7 +2760,7 @@ TEST_F(XClusterYsqlTest, InsertUpdateDeleteTransactionsWithUnevenTabletPartition
     ASSERT_OK(p_conn.ExecuteFormat(
         "DELETE FROM $0 WHERE $1 >= $2 AND $1 <= $3", table_name, kKeyColumnName, start, end));
     ASSERT_OK(p_conn.Execute("COMMIT"));
-    }
+  }
 
   ASSERT_OK(VerifyWrittenRecords(ExpectNoRecords::kTrue));
 }
