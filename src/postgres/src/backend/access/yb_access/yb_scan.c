@@ -728,8 +728,8 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, ScanDirection dir)
 				tuple = index_form_tuple(RelationGetDescr(index), ivalues, inulls);
 				if (syscols.ybctid != NULL)
 				{
-					INDEXTUPLE_YBCTID(tuple) = PointerGetDatum(syscols.ybctid);
-					ybcUpdateFKCache(ybScan, INDEXTUPLE_YBCTID(tuple));
+					INDEXTUPLE_BASECTID(tuple) = PointerGetDatum(syscols.ybctid);
+					ybcUpdateFKCache(ybScan, INDEXTUPLE_BASECTID(tuple));
 				}
 			}
 			else
@@ -737,12 +737,16 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, ScanDirection dir)
 				tuple = index_form_tuple(tupdesc, values, nulls);
 				if (syscols.ybbasectid != NULL)
 				{
-					INDEXTUPLE_YBCTID(tuple) = PointerGetDatum(syscols.ybbasectid);
-					ybcUpdateFKCache(ybScan, INDEXTUPLE_YBCTID(tuple));
+					INDEXTUPLE_BASECTID(tuple) = PointerGetDatum(syscols.ybbasectid);
+					ybcUpdateFKCache(ybScan, INDEXTUPLE_BASECTID(tuple));
 				}
+
+				/* Fields used by yb_index_check() */
 				if (syscols.ybuniqueidxkeysuffix != NULL)
 					tuple->t_ybuniqueidxkeysuffix =
 						PointerGetDatum(syscols.ybuniqueidxkeysuffix);
+				if (syscols.ybctid != NULL)
+					tuple->t_ybindexrowybctid = PointerGetDatum(syscols.ybctid);
 			}
 			break;
 		}
@@ -3170,6 +3174,11 @@ ybcBeginScan(Relation relation,
 	/* Set distinct prefix length. */
 	if (distinct_prefixlen > 0)
 		YBCPgSetDistinctPrefixLength(ybScan->handle, distinct_prefixlen);
+
+	/* Set lower bound (if any) during yb_index_check(). */
+	if (pg_scan_plan && pg_scan_plan->yb_index_check_lower_bound)
+		HandleYBStatus(YBCPgIndexCheckBindLowerBound(ybScan->handle,
+													 pg_scan_plan->yb_index_check_lower_bound));
 
 	bms_free(scan_plan.hash_key);
 	bms_free(scan_plan.primary_key);

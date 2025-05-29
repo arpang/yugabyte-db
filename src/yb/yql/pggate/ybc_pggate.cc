@@ -3159,6 +3159,10 @@ bool YBCPgYsqlMajorVersionUpgradeInProgress() {
   return yb_major_version_upgrade_compatibility > 0 || !yb_upgrade_to_pg15_completed;
 }
 
+YbcStatus YBCPgIndexCheckBindLowerBound(YbcPgStatement handle, uint64_t lower_bound) {
+  return ToYBCStatus(pgapi->IndexCheckBindLowerBound(handle, YbctidAsSlice(lower_bound)));
+}
+
 } // extern "C"
 
 } // namespace yb::pggate

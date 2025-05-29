@@ -515,6 +515,9 @@ typedef struct Scan
 {
 	Plan		plan;
 	Index		scanrelid;		/* relid is index into the range table */
+
+	Datum		yb_index_check_lower_bound; /* lower bound for scan during
+											 * yb_index_check() */
 } Scan;
 
 /* ----------------

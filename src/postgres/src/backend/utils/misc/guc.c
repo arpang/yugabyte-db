@@ -3382,6 +3382,17 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_test_slowdown_index_check", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Slows down yb_index_check() by sleeping for 1s for "
+						 "every row. Used in tests."),
+			NULL
+		},
+		&yb_test_slowdown_index_check,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_query_diagnostics_disable_database_connection_bgworker", PGC_SIGHUP, STATS_MONITORING,
 			gettext_noop("This disables creating extra bgworker "
 						 "which creates database connection for query diagnostics. "
@@ -5355,6 +5366,20 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&yb_max_num_invalidation_messages,
 		4096, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_index_check_max_bnl_batches", PGC_USERSET, QUERY_TUNING_OTHER,
+			gettext_noop("Max number of batched nested loop (BNL) join batches that "
+						 "are processed using the same snapshot during yb_index_check(). "
+						 "New snapshots are chosen for subsequent BNL batches. If set "
+						 "to 0, all the BNL batches are processed using a single snapshot"),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_index_check_max_bnl_batches,
+		1024, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 
