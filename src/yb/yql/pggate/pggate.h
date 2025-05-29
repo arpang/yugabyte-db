@@ -865,6 +865,11 @@ class PgApiImpl {
   //----------------------------------------------------------------------------------------------
   Status AcquireObjectLock(const YbcObjectLockId& lock_id, YbcObjectLockMode mode);
 
+  //------------------------------------------------------------------------------------------------
+  // Index Consistency Checker.
+  //------------------------------------------------------------------------------------------------
+  Status IndexCheckBindLowerBound(PgStatement* handle, Slice lower_bound);
+
  private:
   void ClearSessionState();
 

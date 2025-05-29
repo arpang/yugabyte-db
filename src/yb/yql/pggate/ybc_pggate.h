@@ -1018,6 +1018,9 @@ YbcStatus YBCAcquireObjectLock(YbcObjectLockId lock_id, YbcObjectLockMode mode);
 // and YsqlUpgrade. This will return false after the AutoFlag Finalize step.
 bool YBCPgYsqlMajorVersionUpgradeInProgress();
 
+// Set lower bound for the scan, used by yb_index_check().
+YbcStatus YBCPgIndexCheckBindLowerBound(YbcPgStatement handle, uint64_t lower_bound);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

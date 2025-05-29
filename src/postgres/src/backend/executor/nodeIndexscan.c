@@ -1674,14 +1674,25 @@ ExecIndexBuildScanKeys(PlanState *planstate, Relation index,
 				elog(ERROR, "indexqual doesn't have key on left side");
 
 			varattno = ((Var *) leftop)->varattno;
-			if (varattno < 1 || varattno > indnkeyatts)
-				elog(ERROR, "bogus index qualification");
 
 			/*
-			 * We have to look up the operator's strategy number.  This
-			 * provides a cross-check that the operator does match the index.
+			 * Special handling for yb_index_check() which executes
+			 * indexrowybctid op ANY (array-expression).
 			 */
-			opfamily = index->rd_opfamily[varattno - 1];
+			if (planstate->state->yb_exec_params.yb_index_check &&
+				varattno == YBTupleIdAttributeNumber)
+				opfamily = BYTEA_LSM_FAM_OID;
+			else
+			{
+				if (varattno < 1 || varattno > indnkeyatts)
+					elog(ERROR, "bogus index qualification");
+
+				/*
+				 * We have to look up the operator's strategy number.  This
+				 * provides a cross-check that the operator does match the index.
+				 */
+				opfamily = index->rd_opfamily[varattno - 1];
+			}
 
 			get_op_opfamily_properties(opno, opfamily, isorderby,
 									   &op_strategy,
