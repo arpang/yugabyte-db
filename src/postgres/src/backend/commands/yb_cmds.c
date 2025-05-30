@@ -1566,8 +1566,7 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 				{
 					YbcPgStatement increment_schema_handle = (YbcPgStatement) lfirst(handle);
 
-					HandleYBStatus(YBCPgAlterTableIncrementSchemaVersion(
-						increment_schema_handle));
+					HandleYBStatus(YBCPgAlterTableIncrementSchemaVersion(increment_schema_handle));
 				}
 
 				if (YbIsSysCatalogTabletRelation(rel))
