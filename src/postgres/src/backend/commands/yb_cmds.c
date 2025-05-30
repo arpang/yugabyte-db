@@ -1566,9 +1566,20 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 				{
 					YbcPgStatement increment_schema_handle = (YbcPgStatement) lfirst(handle);
 
-					if (!YbIsSysCatalogTabletRelation(rel))
-						HandleYBStatus(YBCPgAlterTableIncrementSchemaVersion(increment_schema_handle));
+					HandleYBStatus(YBCPgAlterTableIncrementSchemaVersion(
+						increment_schema_handle));
 				}
+
+				if (YbIsSysCatalogTabletRelation(rel))
+				{
+					Assert(IsYsqlUpgrade || YBCIsInitDbModeEnvVarSet());
+					/*
+					 * For ALTERs on catalog table (only possible during initdb
+					 * or YSQL upgrade), we can skip schema version increment.
+					 */
+					return handles;
+				}
+
 				List	   *dependent_rels = NIL;
 
 				/*
@@ -1806,7 +1817,7 @@ YBCPrepareAlterTable(List **subcmds,
 	/* Appropriate lock was already taken */
 	Relation	rel = relation_open(relationId, NoLock);
 
-	if (!IsYBRelation(rel) || YbIsSysCatalogTabletRelation(rel))
+	if (!IsYBRelation(rel))
 	{
 		relation_close(rel, NoLock);
 		return NULL;
