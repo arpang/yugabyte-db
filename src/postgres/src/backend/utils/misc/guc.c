@@ -1262,7 +1262,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_EXPLAIN
 		},
 		&enable_partitionwise_aggregate,
-		false,
+		true,					/* YB: change default from false to true */
 		NULL, NULL, NULL
 	},
 	{
@@ -5275,18 +5275,6 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&yb_query_diagnostics_circular_buffer_size,
 		64, 1, INT_MAX,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"yb_major_version_upgrade_compatibility", PGC_SIGHUP, CUSTOM_OPTIONS,
-			gettext_noop("The compatibility level to use during a YSQL Major version upgrade. "
-						 "Allowed values are 0 and 11."),
-			NULL,
-			GUC_NOT_IN_SAMPLE
-		},
-		&yb_major_version_upgrade_compatibility,
-		0, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 

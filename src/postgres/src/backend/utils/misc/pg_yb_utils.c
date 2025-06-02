@@ -296,7 +296,7 @@ CheckIsYBSupportedRelationByKind(char relkind)
 		  relkind == RELKIND_VIEW || relkind == RELKIND_SEQUENCE ||
 		  relkind == RELKIND_COMPOSITE_TYPE || relkind == RELKIND_PARTITIONED_TABLE ||
 		  relkind == RELKIND_PARTITIONED_INDEX || relkind == RELKIND_FOREIGN_TABLE ||
-		  relkind == RELKIND_MATVIEW))
+		  relkind == RELKIND_MATVIEW || relkind == RELKIND_TOASTVALUE))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("this feature is not supported in Yugabyte")));
@@ -2945,7 +2945,7 @@ YBCommitTransactionContainingDDL()
 			}
 			else
 				Assert(nmsgs == 0);
-			YBC_LOG_INFO("currentInvalMessages=%p, nmsgs=%d", currentInvalMessages, nmsgs);
+			YBC_LOG_INFO("pg null=%d, nmsgs=%d", !currentInvalMessages, nmsgs);
 		}
 		else if (ddl_transaction_state.num_committed_pg_txns > 0)
 			YBC_LOG_INFO("num_committed_pg_txns: %d",
@@ -3231,13 +3231,22 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 		case T_CreatedbStmt:
 		case T_DefineStmt:		/* CREATE OPERATOR/AGGREGATE/COLLATION/etc */
 		case T_CommentStmt:		/* COMMENT (create new comment) */
-		case T_RuleStmt:		/* CREATE RULE */
 		case T_YbCreateProfileStmt:
 			/*
 			 * Simple add objects are not breaking changes, and they do not even require
 			 * a version increment because we do not do any negative caching for them.
 			 */
 			is_version_increment = false;
+			is_breaking_change = false;
+			break;
+
+		case T_RuleStmt:		/* CREATE RULE */
+			/*
+			 * CREATE RULE sets relhasrules to true in the table's pg_class entry.
+			 * We need to increment the catalog version to ensure this change is
+			 * picked up by other backends.
+			 */
+			is_version_increment = true;
 			is_breaking_change = false;
 			break;
 
