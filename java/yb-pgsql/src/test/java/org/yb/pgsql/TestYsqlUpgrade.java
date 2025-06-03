@@ -415,16 +415,28 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
       LOG.info("Created unique index {}", newTi.indexes.get(0).getLeft());
 
       setAllowNonDdlTxnsGuc(stmtA, true);
-      String createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname, connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid, conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype, conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop, conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
-          + newTi.constraints.get(0).getRight() + ",'" + newTi.constraints.get(0).getLeft() + "', 11, 'u', false, false, true, " + newTi.getOid()
+      String createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname,"
+          + " connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid,"
+          + " conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype,"
+          + " conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop,"
+          + " conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
+          + newTi.constraints.get(0).getRight() + ",'" + newTi.constraints.get(0).getLeft()
+          + "', 11, 'u', false, false, true, " + newTi.getOid()
           + ", 0, " + newTi.indexes.get(0).getRight()
-          + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{2}', NULL, NULL, NULL, NULL, NULL, NULL, NULL)";
+          + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{2}', NULL, NULL, NULL, NULL, NULL, NULL,"
+          + " NULL)";
       LOG.info("Executing '{}'", createConstraintSql);
       stmtA.execute(createConstraintSql);
-      createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname, connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid, conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype, conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop, conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
-          + newTi.constraints.get(1).getRight() + ",'" + newTi.constraints.get(1).getLeft() + "', 11, 'p', false, false, true, " + newTi.getOid()
+      createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname,"
+          + " connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid,"
+          + " conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype,"
+          + " conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop,"
+          + " conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
+          + newTi.constraints.get(1).getRight() + ",'" + newTi.constraints.get(1).getLeft()
+          + "', 11, 'p', false, false, true, " + newTi.getOid()
           + ", 0, " + newTi.indexes.get(1).getRight()
-          + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{1}', NULL, NULL, NULL, NULL, NULL, NULL, NULL)";
+          + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{1}', NULL, NULL, NULL, NULL, NULL, NULL,"
+          + " NULL)";
       LOG.info("Executing '{}'", createConstraintSql);
       stmtA.execute(createConstraintSql);
       setAllowNonDdlTxnsGuc(stmtA, false);
@@ -522,22 +534,32 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
         LOG.info("Created index {}", newTi.indexes.get(2).getLeft());
       }
 
-      {
-        setAllowNonDdlTxnsGuc(stmtA, true);
-        String createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname, connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid, conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype, conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop, conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
-            + newTi.constraints.get(0).getRight() + ",'" + newTi.constraints.get(0).getLeft() + "', 11, 'p', false, false, true, " + newTi.getOid()
-            + ", 0, " + newTi.indexes.get(0).getRight()
-            + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{1}', NULL, NULL, NULL, NULL, NULL, NULL, NULL)";
-        LOG.info("Executing '{}'", createConstraintSql);
-        stmtA.execute(createConstraintSql);
-        createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname, connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid, conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype, conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop, conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
-            + newTi.constraints.get(1).getRight() + ",'" + newTi.constraints.get(1).getLeft() + "', 11, 'u', false, false, true, " + newTi.getOid()
-            + ", 0, " + newTi.indexes.get(1).getRight()
-            + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{2,3}', NULL, NULL, NULL, NULL, NULL, NULL, NULL)";
-        LOG.info("Executing '{}'", createConstraintSql);
-        stmtA.execute(createConstraintSql);
-        setAllowNonDdlTxnsGuc(stmtA, false);
-      }
+      setAllowNonDdlTxnsGuc(stmtA, true);
+      String createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname,"
+          + " connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid,"
+          + " conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype,"
+          + " conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop,"
+          + " conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
+          + newTi.constraints.get(0).getRight() + ",'" + newTi.constraints.get(0).getLeft()
+          + "', 11, 'p', false, false, true, " + newTi.getOid()
+          + ", 0, " + newTi.indexes.get(0).getRight()
+          + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{1}', NULL, NULL, NULL, NULL, NULL, NULL,"
+          + " NULL)";
+      LOG.info("Executing '{}'", createConstraintSql);
+      stmtA.execute(createConstraintSql);
+      createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname,"
+          + " connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid,"
+          + " conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype,"
+          + " conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop,"
+          + " conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
+          + newTi.constraints.get(1).getRight() + ",'" + newTi.constraints.get(1).getLeft()
+          + "', 11, 'u', false, false, true, " + newTi.getOid()
+          + ", 0, " + newTi.indexes.get(1).getRight()
+          + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{2,3}', NULL, NULL, NULL, NULL, NULL, NULL,"
+          + " NULL)";
+      LOG.info("Executing '{}'", createConstraintSql);
+      stmtA.execute(createConstraintSql);
+      setAllowNonDdlTxnsGuc(stmtA, false);
 
       assertTablesAreSimilar(origTi, newTi, stmtA, stmtB, true /* checkViewDefinition */);
     }
@@ -1497,7 +1519,8 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
           })
           .map(r -> {
             for (int i = 0; i < newTi.constraints.size(); ++i) {
-              r = replaced(r, newTi.constraints.get(i).getRight(), origTi.constraints.get(i).getRight());
+              r = replaced(r, newTi.constraints.get(i).getRight(),
+                  origTi.constraints.get(i).getRight());
             }
             return r;
           })
