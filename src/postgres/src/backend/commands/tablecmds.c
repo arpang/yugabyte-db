@@ -9642,11 +9642,25 @@ ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
 		elog(ERROR, "index \"%s\" is not unique", indexName);
 
 	/*
+	 * YB note: Initdb adds primary key constraint on catalog relations by
+	 * executing statements like:
+	 *  ALTER TABLE pg_proc ADD PRIMARY KEY USING INDEX pg_proc_oid_index
+	 *
+	 * These indexes are UNIQUE in PG, whereas they are PK index in YB. Hence, a
+	 * table rewrite/index_check_primary_key() is not required. These ALTER
+	 * TABLE statements essentially insert an entry in pg_constraint.
+	 */
+	bool yb_skip_pk_rewrite = stmt->primary && YBCIsInitDbModeEnvVarSet() &&
+							  indexRel->rd_index->indisprimary;
+
+	/* skip_pk_rewrite should only be true for catalog relations. */
+	Assert(!yb_skip_pk_rewrite || YbIsSysCatalogTabletRelation(rel));
+	/*
 	 * YB: Adding a primary key requires table rewrite.
 	 * We do not need to rewrite any children as this operation is not supported
 	 * on partitioned tables (checked above).
 	 */
-	if (IsYBRelation(rel) && stmt->primary && !(YbIsSysCatalogTabletRelation(rel) && indexRel->rd_index->indisprimary))
+	if (IsYBRelation(rel) && stmt->primary && !yb_skip_pk_rewrite)
 	{
 		YbGetTableProperties(rel);
 		/* Don't copy split options if we are creating a range key. */
@@ -9687,7 +9701,9 @@ ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
 	}
 
 	/* Extra checks needed if making primary key */
-	if (stmt->primary && !(YbIsSysCatalogTabletRelation(rel) && indexRel->rd_index->indisprimary))
+	/* YB note: not required if yb_skip_pk_rewrite is true, see its definition
+	 */
+	if (stmt->primary && !yb_skip_pk_rewrite)
 		index_check_primary_key(rel, indexInfo, true, stmt);
 
 	/* Note we currently don't support EXCLUSION constraints here */
