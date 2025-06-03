@@ -2138,6 +2138,9 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
      */
     Consumer<Integer> simplifyPgNodeTree = (nodeTreeColIdx) -> {
       for (Row row : copy) {
+        if (row.get(nodeTreeColIdx) == null) {
+          continue;
+        }
         String nodeTree = ((PGobject) row.get(nodeTreeColIdx)).getValue();
         String[] nodeTreeParts = nodeTree.split("\\s+");
         for (int i = 0; i < nodeTreeParts.length; i++) {
@@ -2201,6 +2204,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
         break;
       case "pg_proc":
         replace.accept(2 /* pronamespace */, entityNamesMap.get(pgNamespaceOid));
+        simplifyPgNodeTree.accept(27 /* prosqlbody */);
         break;
       case "pg_ts_dict":
         replace.accept(4 /* dicttemplate */, entityNamesMap.get(pgTsTemplateOid));
