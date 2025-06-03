@@ -9701,7 +9701,8 @@ ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
 	}
 
 	/* Extra checks needed if making primary key */
-	/* YB note: not required if yb_skip_pk_rewrite is true, see its definition
+	/*
+	 * YB note: not required if yb_skip_pk_rewrite is true, see its definition
 	 */
 	if (stmt->primary && !yb_skip_pk_rewrite)
 		index_check_primary_key(rel, indexInfo, true, stmt);
