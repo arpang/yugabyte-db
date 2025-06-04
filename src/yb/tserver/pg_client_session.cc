@@ -691,7 +691,7 @@ std::byte* SerializeWithCachedSizesToArray(
   return pointer_cast<std::byte*>(msg.SerializeWithCachedSizesToArray(pointer_cast<uint8_t*>(out)));
 }
 
-struct PerformData {
+struct PerformData : public PgResponseCacheWaiter {
   uint64_t session_id;
   PgTableCache& table_cache;
 
@@ -715,7 +715,6 @@ struct PerformData {
         sidecars(*sidecars_) {}
 
   virtual ~PerformData() = default;
-  virtual void SendResponse() = 0;
 
   void FlushDone(client::FlushStatus* flush_status) {
     TabletReadTime used_read_time;
@@ -751,6 +750,10 @@ struct PerformData {
       used_read_time_applier(std::move(used_read_time));
     }
     SendResponse();
+  }
+
+  std::pair<PgPerformResponsePB&, rpc::Sidecars&> ResponseAndSidecars() override {
+    return std::pair<PgPerformResponsePB&, rpc::Sidecars&>(resp, sidecars);
   }
 
  private:
@@ -1088,6 +1091,7 @@ class TransactionProvider {
       CoarseTimePoint deadline, bool is_for_release = false) {
     client::internal::InFlightOpsGroupsWithMetadata ops_info;
     if (!next_plain_) {
+      VLOG_WITH_FUNC(1) << "requesting new transaction";
       auto txn = Build(deadline, {});
       // Don't execute txn->GetMetadata() here since the transaction is not iniatialized with
       // its full metadata yet, like isolation level.
@@ -1099,12 +1103,15 @@ class TransactionProvider {
       }
       RETURN_NOT_OK(synchronizer.Wait());
       next_plain_.swap(txn);
+    } else {
+      VLOG_WITH_FUNC(1) << "trying to reuse existing transaction " << next_plain_->id();
     }
     // next_plain_ would be ready at this point i.e status tablet picked.
     auto txn_meta_res = next_plain_->metadata();
     if (txn_meta_res.ok()) {
       return txn_meta_res;
     }
+    VLOG_WITH_FUNC(1) << "transaction already failed";
     if (!is_for_release) {
       return txn_meta_res.status();
     }
@@ -1113,6 +1120,7 @@ class TransactionProvider {
     TransactionMetadata txn_meta_for_release;
     txn_meta_for_release.transaction_id = next_plain_->id();
     next_plain_ = nullptr;
+    VLOG_WITH_FUNC(1) << "next_plain_ transaction reset";
     return txn_meta_for_release;
   }
 
@@ -1314,6 +1322,35 @@ void ReleaseWithRetries(
         }
       },
       ToCoarse(deadline));
+}
+
+void AcquireObjectLockLocallyWithRetries(
+    std::weak_ptr<TSLocalLockManager> lock_manager, AcquireObjectLockRequestPB&& req,
+    CoarseTimePoint deadline, StdStatusCallback&& lock_cb,
+    std::function<Status(CoarseTimePoint)> check_txn_running) {
+  auto retry_cb = [lock_manager, req, lock_cb = std::move(lock_cb), deadline,
+                   check_txn_running](const Status& s) mutable {
+    if (!s.IsTryAgain()) {
+      return lock_cb(s);
+    }
+    auto txn_status = check_txn_running(deadline);
+    if (!txn_status.ok()) {
+      // Transaction has already failed.
+      return lock_cb(txn_status);
+    }
+    if (CoarseMonoClock::Now() < deadline) {
+      return AcquireObjectLockLocallyWithRetries(
+          lock_manager, std::move(req), deadline, std::move(lock_cb), check_txn_running);
+    }
+    return lock_cb(s);
+  };
+  auto shared_lock_manager = lock_manager.lock();
+  if (!shared_lock_manager) {
+    return retry_cb(STATUS_FORMAT(
+        IllegalState,
+        "TsLocalLockManager unavailable, tserver could have underwent lease apoch change"));
+  }
+  shared_lock_manager->AcquireObjectLocksAsync(req, deadline, std::move(retry_cb));
 }
 
 } // namespace
@@ -2367,14 +2404,29 @@ class PgClientSession::Impl {
           instance_uuid(), txn_meta_res->transaction_id, options.active_sub_transaction_id(),
           req.lock_oid(), lock_type, lease_epoch_, context_.clock.get(), deadline,
           txn_meta_res->status_tablet);
-      client_.AcquireObjectLocksGlobalAsync(lock_req, std::move(callback), deadline);
+      client_.AcquireObjectLocksGlobalAsync(
+          lock_req, std::move(callback), deadline,
+          [txn = setup_session_result.session_data.transaction]() -> Status {
+            RETURN_NOT_OK(txn->metadata());
+            return Status::OK();
+          });
       return Status::OK();
     }
     auto lock_req = AcquireRequestFor<tserver::AcquireObjectLockRequestPB>(
         instance_uuid(), txn_meta_res->transaction_id, options.active_sub_transaction_id(),
         req.lock_oid(), lock_type, lease_epoch_, context_.clock.get(), deadline,
         txn_meta_res->status_tablet);
-    ts_lock_manager()->AcquireObjectLocksAsync(lock_req, deadline, std::move(callback));
+    AcquireObjectLockLocallyWithRetries(
+        ts_lock_manager(), std::move(lock_req), deadline, std::move(callback),
+        [session_impl = this, txn = setup_session_result.session_data.transaction]
+            (CoarseTimePoint deadline) -> Status {
+          if (txn) {
+            RETURN_NOT_OK(txn->metadata());
+          } else {
+            RETURN_NOT_OK(session_impl->transaction_provider_.NextTxnMetaForPlain(deadline));
+          }
+          return Status::OK();
+        });
     return Status::OK();
   }
 
@@ -2518,9 +2570,9 @@ class PgClientSession::Impl {
       VLOG_WITH_PREFIX(3)
           << "Executing read from response cache for session " << data->req.session_id();
       data->cache_setter = VERIFY_RESULT(response_cache().Get(
-          options.mutable_caching_info(), &data->resp, &data->sidecars, deadline));
+          options.mutable_caching_info(), deadline, data));
       if (!data->cache_setter) {
-        data->SendResponse();
+
         return Status::OK();
       }
     }
