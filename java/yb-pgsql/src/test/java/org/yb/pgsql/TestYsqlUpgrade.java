@@ -1546,12 +1546,12 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
     {
       // pg_depend (for rel, type, rule and indexes)
 
-      // Initdb assigns an oid between [FirstGenbkiObjectId, FirstUnpinnedObjectId) to
-      // the unique and PK constraints, making them pinned objects and hence,
+      // Initdb assigns an oid in [FirstGenbkiObjectId, FirstUnpinnedObjectId) to
+      // the unique and PK constraints, making them pinned objects and hence
       // dependencies on them are not explicity recorded. Migration, on the other
-      // hand, assigns them oid in [FirstUnpinnedObjectId, FirstNormalObjectId,)
-      // making them unpinned objects and hence, dependencies on them are recorded in
-      // pg_depend. Till the time this discrepancy is resolved, ignore the
+      // hand, assigns them oid in [FirstUnpinnedObjectId, FirstNormalObjectId)
+      // making them unpinned objects and hence dependencies on them are recorded in
+      // pg_depend. Until this discrepancy is resolved (GH #27514), ignore the
       // dependencies on pg_constraint objects.
 
       String sql = "SELECT * FROM pg_depend"
@@ -2179,9 +2179,6 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
      */
     Consumer<Integer> simplifyPgNodeTree = (nodeTreeColIdx) -> {
       for (Row row : copy) {
-        if (row.get(nodeTreeColIdx) == null) {
-          continue;
-        }
         String nodeTree = ((PGobject) row.get(nodeTreeColIdx)).getValue();
         String[] nodeTreeParts = nodeTree.split("\\s+");
         for (int i = 0; i < nodeTreeParts.length; i++) {
@@ -2245,7 +2242,6 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
         break;
       case "pg_proc":
         replace.accept(2 /* pronamespace */, entityNamesMap.get(pgNamespaceOid));
-        simplifyPgNodeTree.accept(27 /* prosqlbody */);
         break;
       case "pg_ts_dict":
         replace.accept(4 /* dicttemplate */, entityNamesMap.get(pgTsTemplateOid));
