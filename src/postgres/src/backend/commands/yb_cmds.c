@@ -1569,21 +1569,6 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 					HandleYBStatus(YBCPgAlterTableIncrementSchemaVersion(increment_schema_handle));
 				}
 
-				if (YBCIsInitDbModeEnvVarSet() || IsYsqlUpgrade)
-				{
-					Assert(YbIsSysCatalogTabletRelation(rel));
-					/*
-					 * There is atmost a single session per db during
-					 * initdb/ysql-upgrade. So we can skip the schema version
-					 * increment.
-					 *
-					 * This allows us to execute system_constraints.sql during
-					 * initdb without the need to handle ALTER TABLE on catalog
-					 * relations in CatalogManager::AlterTable().
-					 */
-					return handles;
-				}
-
 				List	   *dependent_rels = NIL;
 
 				/*
@@ -1727,6 +1712,31 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 					}
 					dependent_rels = lappend(dependent_rels,
 											 table_openrv(index->relation, AccessExclusiveLock));
+				}
+				/*
+				 * For ALTER TABLE ... ADD RIMARY KEY/UNIQUE USING INDEX on
+				 * catalog relations, skip the schema version increment.
+				 *
+				 * This command is executed by initdb/YSQL upgrade to create
+				 * constraints on catalog relations.
+				 *
+				 * Currently, CatalogManager::AlterTable() does not support
+				 * altering catalog relations. During initdb /
+				 * ysql-upgrade there is atmost a single connection per
+				 * database, so we can skip the schema version increment.
+				 * This allows us to execute this command without handling
+				 * catalog relations in CatalogManager::AlterTable().
+				 */
+				else if (cmd->subtype == AT_AddConstraintRecurse &&
+						 (((Constraint *) cmd->def)->contype == CONSTR_UNIQUE ||
+						  ((Constraint *) cmd->def)->contype ==
+							  CONSTR_PRIMARY) &&
+						 ((Constraint *) cmd->def)->indexname != NULL &&
+						 (YBCIsInitDbModeEnvVarSet() || IsYsqlUpgrade))
+				{
+					Assert(YbIsSysCatalogTabletRelation(rel));
+					Assert(dependent_rels == NIL);
+					return handles;
 				}
 				/*
 				 * If dependent relation exists, apply increment schema version
