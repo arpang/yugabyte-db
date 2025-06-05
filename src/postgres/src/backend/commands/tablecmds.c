@@ -9647,9 +9647,9 @@ ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
 	 *
 	 * The index referenced by ADD PRIMARY KEY USING INDEX is already primary
 	 * index in YB due to YB-specific customization (see yb_genbki.pl). But
-	 * since initdb doesn't create the corresponding constraint (in
-	 * pg_constraint), we still want to execute this ALTER TABLE. However, a
-	 * table rewrite/index_check_primary_key() is not required.
+	 * since initdb doesn't create the corresponding constraint objects, we
+	 * still want to execute this ALTER TABLE. However, a table
+	 * rewrite/index_check_primary_key() is not required.
 	 */
 	bool yb_skip_pk_rewrite = stmt->primary && YBCIsInitDbModeEnvVarSet() &&
 							  indexRel->rd_index->indisprimary;

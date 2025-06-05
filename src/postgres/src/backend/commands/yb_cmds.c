@@ -1713,7 +1713,7 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 											 table_openrv(index->relation, AccessExclusiveLock));
 				}
 				/*
-				 * For ALTER TABLE ... ADD RIMARY KEY/UNIQUE USING INDEX on
+				 * For ALTER TABLE ... ADD PRIMARY KEY/UNIQUE USING INDEX on
 				 * catalog relations, skip the schema version increment.
 				 *
 				 * This command is executed by initdb/YSQL upgrade to create
