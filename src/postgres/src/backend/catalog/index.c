@@ -1172,8 +1172,7 @@ index_create(Relation heapRelation,
 
 		if ((flags & INDEX_CREATE_ADD_CONSTRAINT) != 0)
 		{
-			elog(INFO, "Inside (flags & INDEX_CREATE_ADD_CONSTRAINT) != 0");
-			char constraintType;
+			char		constraintType;
 			ObjectAddress localaddr;
 
 			if (isprimary)
@@ -1188,10 +1187,15 @@ index_create(Relation heapRelation,
 				constraintType = 0; /* keep compiler quiet */
 			}
 
-			localaddr = index_constraint_create(
-				heapRelation, indexRelationId, parentConstraintId, indexInfo,
-				indexRelationName, constraintType, constr_flags,
-				allow_system_table_mods, is_internal);
+			localaddr = index_constraint_create(heapRelation,
+												indexRelationId,
+												parentConstraintId,
+												indexInfo,
+												indexRelationName,
+												constraintType,
+												constr_flags,
+												allow_system_table_mods,
+												is_internal);
 			if (constraintId)
 				*constraintId = localaddr.objectId;
 		}
@@ -1201,7 +1205,7 @@ index_create(Relation heapRelation,
 			 * YB note: Catalog relations are pinned, so no dependencies on them
 			 * will be recorded.
 			 */
-			bool have_simple_col = false;
+			bool		have_simple_col = false;
 
 			addrs = new_object_addresses();
 

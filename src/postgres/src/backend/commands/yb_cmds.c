@@ -1568,7 +1568,6 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 
 					HandleYBStatus(YBCPgAlterTableIncrementSchemaVersion(increment_schema_handle));
 				}
-
 				List	   *dependent_rels = NIL;
 
 				/*
