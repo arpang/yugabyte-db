@@ -1569,12 +1569,13 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 					HandleYBStatus(YBCPgAlterTableIncrementSchemaVersion(increment_schema_handle));
 				}
 
-				if (YBCIsInitDbModeEnvVarSet())
+				if (YBCIsInitDbModeEnvVarSet() || IsYsqlUpgrade)
 				{
 					Assert(YbIsSysCatalogTabletRelation(rel));
 					/*
-					 * There is a single session during initdb. So we can skip
-					 * the schema version increment.
+					 * There is atmost a single session per db during
+					 * initdb/ysql-upgrade. So we can skip the schema version
+					 * increment.
 					 *
 					 * This allows us to execute system_constraints.sql during
 					 * initdb without the need to handle ALTER TABLE on catalog

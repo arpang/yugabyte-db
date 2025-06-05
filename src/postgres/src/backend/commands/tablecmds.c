@@ -9651,7 +9651,8 @@ ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
 	 * pg_constraint), we still want to execute this ALTER TABLE. However, a
 	 * table rewrite/index_check_primary_key() is not required.
 	 */
-	bool yb_skip_pk_rewrite = stmt->primary && YBCIsInitDbModeEnvVarSet() &&
+	bool yb_skip_pk_rewrite = stmt->primary &&
+							  (YBCIsInitDbModeEnvVarSet() || IsYsqlUpgrade) &&
 							  indexRel->rd_index->indisprimary;
 
 	/* yb_skip_pk_rewrite can only be true for catalog relations. */

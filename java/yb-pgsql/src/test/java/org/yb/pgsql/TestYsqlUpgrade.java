@@ -93,7 +93,13 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
   private interface ConvertedRowFetcher {
     // Ideally, args should be (String, TableInfo -> Object[]) but in Java that's too much
     // boilerplate
-    public List<Row> fetch(TableInfoSqlFormatter formatter) throws Exception;
+
+    List<Row> fetch(TableInfoSqlFormatter formatter, boolean replaceSysGeneratedOid)
+        throws Exception;
+
+    default public List<Row> fetch(TableInfoSqlFormatter formatter) throws Exception {
+      return fetch(formatter, false /* replaceSysGeneratedOid */);
+    }
   }
 
   private class TableInfo {
@@ -106,29 +112,23 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
 
     public final List<Pair<String, Long>> indexes;
 
-    public final List<Pair<String, Long>> constraints;
-
     // To be used by rels for which arrayTypeOid is hardcoded (pg_type,
     // pg_attribute, pg_proc, and pg_class).
     public TableInfo(
-        String name, long oid, long typeOid, long arrayTypeOid, List<Pair<String, Long>> indexes,
-        List<Pair<String, Long>> constraints) {
+        String name, long oid, long typeOid, long arrayTypeOid, List<Pair<String, Long>> indexes) {
       this.name = name;
       this.setOid(oid);
       this.setTypeOid(typeOid);
       this.setArrayTypeOid(arrayTypeOid);
       this.indexes = Collections.unmodifiableList(new ArrayList<>(indexes));
-      this.constraints = Collections.unmodifiableList(new ArrayList<>(constraints));
     }
 
-    public TableInfo(String name, long oid, long typeOid, List<Pair<String, Long>> indexes,
-        List<Pair<String, Long>> constraints) {
+    public TableInfo(String name, long oid, long typeOid, List<Pair<String, Long>> indexes) {
       this.name = name;
       this.setOid(oid);
       this.setTypeOid(typeOid);
       this.setArrayTypeOid(0L);
       this.indexes = Collections.unmodifiableList(new ArrayList<>(indexes));
-      this.constraints = Collections.unmodifiableList(new ArrayList<>(constraints));
     }
 
     public long getOid() {
@@ -160,7 +160,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
     private long ruleOid = 0L;
 
     public ViewInfo(String name) {
-      super(name, 0L, 0L, Collections.emptyList(), Collections.emptyList());
+      super(name, 0L, 0L, Collections.emptyList());
     }
 
     public long getRuleOid() {
@@ -360,15 +360,9 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
     TableInfo origTi = new TableInfo("pg_database", 1262L, 1248L,
         Arrays.asList(
             Pair.of("pg_database_datname_index", 2671L),
-            Pair.of("pg_database_oid_index", 2672L)),
-        Arrays.asList(
-            Pair.of("pg_database_datname_index", 10175L),
-            Pair.of("pg_database_oid_index", 10176L)));
+            Pair.of("pg_database_oid_index", 2672L)));
 
     TableInfo newTi = new TableInfo(SHARED_ENTITY_PREFIX + "database_2", newSysOid(), newSysOid(),
-        Arrays.asList(
-            Pair.of(SHARED_ENTITY_PREFIX + "database_2_datname_index", newSysOid()),
-            Pair.of(SHARED_ENTITY_PREFIX + "database_2_oid_index", newSysOid())),
         Arrays.asList(
             Pair.of(SHARED_ENTITY_PREFIX + "database_2_datname_index", newSysOid()),
             Pair.of(SHARED_ENTITY_PREFIX + "database_2_oid_index", newSysOid())));
@@ -414,32 +408,12 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
       stmtA.execute(createIndexSql);
       LOG.info("Created unique index {}", newTi.indexes.get(0).getLeft());
 
-      setAllowNonDdlTxnsGuc(stmtA, true);
-      String createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname,"
-          + " connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid,"
-          + " conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype,"
-          + " conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop,"
-          + " conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
-          + newTi.constraints.get(0).getRight() + ",'" + newTi.constraints.get(0).getLeft()
-          + "', 11, 'u', false, false, true, " + newTi.getOid()
-          + ", 0, " + newTi.indexes.get(0).getRight()
-          + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{2}', NULL, NULL, NULL, NULL, NULL, NULL,"
-          + " NULL)";
+      // Add the corresponding constraint.
+      String createConstraintSql = "ALTER TABLE " + newTi.name + " ADD UNIQUE USING INDEX "
+          + newTi.indexes.get(0).getLeft();
       LOG.info("Executing '{}'", createConstraintSql);
       stmtA.execute(createConstraintSql);
-      createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname,"
-          + " connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid,"
-          + " conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype,"
-          + " conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop,"
-          + " conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
-          + newTi.constraints.get(1).getRight() + ",'" + newTi.constraints.get(1).getLeft()
-          + "', 11, 'p', false, false, true, " + newTi.getOid()
-          + ", 0, " + newTi.indexes.get(1).getRight()
-          + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{1}', NULL, NULL, NULL, NULL, NULL, NULL,"
-          + " NULL)";
-      LOG.info("Executing '{}'", createConstraintSql);
-      stmtA.execute(createConstraintSql);
-      setAllowNonDdlTxnsGuc(stmtA, false);
+      LOG.info("Created constraint {}", newTi.indexes.get(0).getLeft());
 
       assertTablesAreSimilar(origTi, newTi, stmtB, stmtA, true /* checkViewDefinition */);
     }
@@ -452,19 +426,13 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
         Arrays.asList(
             Pair.of("pg_class_oid_index", 2662L),
             Pair.of("pg_class_relname_nsp_index", 2663L),
-            Pair.of("pg_class_tblspc_relfilenode_index", 3455L)),
-        Arrays.asList(
-            Pair.of("pg_class_oid_index", 10128L),
-            Pair.of("pg_class_relname_nsp_index", 10129L)));
+            Pair.of("pg_class_tblspc_relfilenode_index", 3455L)));
 
     TableInfo newTi = new TableInfo("pg_class_2", newSysOid(), newSysOid(),
         Arrays.asList(
             Pair.of("pg_class_2_oid_index", newSysOid()),
             Pair.of("pg_class_2_relname_nsp_index", newSysOid()),
-            Pair.of("pg_class_2_tblspc_relfilenode_index", newSysOid())),
-        Arrays.asList(
-            Pair.of("pg_class_2_oid_index", newSysOid()),
-            Pair.of("pg_class_2_relname_nsp_index", newSysOid())));
+            Pair.of("pg_class_2_tblspc_relfilenode_index", newSysOid())));
 
     try (Connection conn = customDbCb.connect();
          Statement stmtA = conn.createStatement();
@@ -525,6 +493,15 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
       }
 
       {
+        // Add the corresponding constraint.
+        String createConstraintSql = "ALTER TABLE " + newTi.name + " ADD UNIQUE USING INDEX "
+            + newTi.indexes.get(1).getLeft();
+        LOG.info("Executing '{}'", createConstraintSql);
+        stmtA.execute(createConstraintSql);
+        LOG.info("Created constraint {}", newTi.indexes.get(1).getLeft());
+      }
+
+      {
         String createIndexSql = "CREATE INDEX " + newTi.indexes.get(2).getLeft() + " "
             + "ON pg_catalog." + newTi.name + " (reltablespace ASC, relfilenode ASC) WITH ("
             + "  table_oid = " + newTi.indexes.get(2).getRight()
@@ -533,33 +510,6 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
         stmtA.execute(createIndexSql);
         LOG.info("Created index {}", newTi.indexes.get(2).getLeft());
       }
-
-      setAllowNonDdlTxnsGuc(stmtA, true);
-      String createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname,"
-          + " connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid,"
-          + " conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype,"
-          + " conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop,"
-          + " conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
-          + newTi.constraints.get(0).getRight() + ",'" + newTi.constraints.get(0).getLeft()
-          + "', 11, 'p', false, false, true, " + newTi.getOid()
-          + ", 0, " + newTi.indexes.get(0).getRight()
-          + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{1}', NULL, NULL, NULL, NULL, NULL, NULL,"
-          + " NULL)";
-      LOG.info("Executing '{}'", createConstraintSql);
-      stmtA.execute(createConstraintSql);
-      createConstraintSql = "INSERT INTO pg_catalog.pg_constraint (oid, conname,"
-          + " connamespace, contype, condeferrable, condeferred, convalidated, conrelid, contypid,"
-          + " conindid, conparentid, confrelid, confupdtype, confdeltype, confmatchtype,"
-          + " conislocal, coninhcount, connoinherit, conkey, confkey, conpfeqop, conppeqop,"
-          + " conffeqop, confdelsetcols, conexclop, conbin) VALUES ("
-          + newTi.constraints.get(1).getRight() + ",'" + newTi.constraints.get(1).getLeft()
-          + "', 11, 'u', false, false, true, " + newTi.getOid()
-          + ", 0, " + newTi.indexes.get(1).getRight()
-          + ", 0, 0, ' ', ' ', ' ', true, 0, true, '{2,3}', NULL, NULL, NULL, NULL, NULL, NULL,"
-          + " NULL)";
-      LOG.info("Executing '{}'", createConstraintSql);
-      stmtA.execute(createConstraintSql);
-      setAllowNonDdlTxnsGuc(stmtA, false);
 
       assertTablesAreSimilar(origTi, newTi, stmtA, stmtB, true /* checkViewDefinition */);
     }
@@ -1481,7 +1431,8 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
     // names and OIDs, etc - thus making them comparable
     // Also changes/removes values expected to mismatch due to PG vs YB difference.
 
-    ConvertedRowFetcher fetchExpected = (TableInfoSqlFormatter formatter) -> {
+    ConvertedRowFetcher fetchExpected = (TableInfoSqlFormatter formatter,
+        boolean replaceSysGeneratedOid) -> {
       String sql = formatter.format(origTi);
       LOG.info("Executing '{}'", sql);
       return getRowList(stmtForOrig, sql)
@@ -1492,10 +1443,14 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
           .map(r -> excluded(r, "initprivs")) // pg_init_privs.initprivs will be compared separately.
           .map(r -> bootstrapRelation ? excluded(r, "relfrozenxid") : r)
           .map(r -> bootstrapRelation ? excluded(r, "relminmxid") : r)
+          .map(r -> (replaceSysGeneratedOid && isSysGeneratedOid(r.getLong(0))
+              ? replaced(r, r.getLong(0), PLACEHOLDER_OID)
+              : r))
           .collect(Collectors.toList());
     };
 
-    ConvertedRowFetcher fetchActual = (TableInfoSqlFormatter formatter) -> {
+    ConvertedRowFetcher fetchActual = (TableInfoSqlFormatter formatter,
+        boolean replaceSysGeneratedOid) -> {
       List<Row> rows = getRowList(stmtForNew, formatter.format(newTi));
       return rows.stream()
           .map(r -> excluded(r, "reltuples"))
@@ -1517,13 +1472,9 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
             }
             return r;
           })
-          .map(r -> {
-            for (int i = 0; i < newTi.constraints.size(); ++i) {
-              r = replaced(r, newTi.constraints.get(i).getRight(),
-                  origTi.constraints.get(i).getRight());
-            }
-            return r;
-          })
+          .map(r -> (replaceSysGeneratedOid && isSysGeneratedOid(r.getLong(0))
+              ? replaced(r, r.getLong(0), PLACEHOLDER_OID)
+              : r))
           .collect(Collectors.toList());
     };
 
@@ -1588,13 +1539,24 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
           + " WHERE conrelid = %d ORDER BY conname";
       TableInfoSqlFormatter fmt = (ti) -> String.format(sql, ti.getOid());
       assertRows("pg_constraint",
-          fetchExpected.fetch(fmt), fetchActual.fetch(fmt));
+          fetchExpected.fetch(fmt, true /* replaceSysGeneratedOid */),
+          fetchActual.fetch(fmt, true /* replaceSysGeneratedOid */));
     }
 
     {
       // pg_depend (for rel, type, rule and indexes)
+
+      // Initdb assigns an oid between [FirstGenbkiObjectId, FirstUnpinnedObjectId) to
+      // the unique and PK constraints, making them pinned objects and hence,
+      // dependencies on them are not explicity recorded. Migration, on the other
+      // hand, assigns them oid in [FirstUnpinnedObjectId, FirstNormalObjectId,)
+      // making them unpinned objects and hence, dependencies on them are recorded in
+      // pg_depend. Till the time this discrepancy is resolved, ignore the
+      // dependencies on pg_constraint objects.
+
       String sql = "SELECT * FROM pg_depend"
-          + " WHERE objid = %d OR refobjid = %d"
+          + " WHERE (objid = %d OR refobjid = %d)"
+          + " AND refclassid != 'pg_constraint'::regclass"
           + " ORDER BY classid, objid, objsubid, refclassid, refobjid, refobjsubid, deptype";
       {
         TableInfoSqlFormatter fmt = (ti) -> String.format(sql, ti.getOid(), ti.getOid());
