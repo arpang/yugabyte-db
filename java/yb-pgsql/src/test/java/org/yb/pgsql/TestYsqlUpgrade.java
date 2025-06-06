@@ -1529,18 +1529,8 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
 
     {
       // pg_depend (for rel, type, rule and indexes)
-
-      // Initdb assigns an oid in [FirstGenbkiObjectId, FirstUnpinnedObjectId) to
-      // the unique and PK constraints, making them pinned objects and hence
-      // dependencies on them are not explicity recorded. Migration, on the other
-      // hand, assigns them oid in [FirstUnpinnedObjectId, FirstNormalObjectId)
-      // making them unpinned objects and hence dependencies on them are recorded in
-      // pg_depend. Until this discrepancy is resolved (GH #27514), ignore the
-      // dependencies on pg_constraint objects.
-
       String sql = "SELECT * FROM pg_depend"
-          + " WHERE (objid = %d OR refobjid = %d)"
-          + " AND refclassid != 'pg_constraint'::regclass"
+          + " WHERE objid = %d OR refobjid = %d"
           + " ORDER BY classid, objid, objsubid, refclassid, refobjid, refobjsubid, deptype";
       {
         TableInfoSqlFormatter fmt = (ti) -> String.format(sql, ti.getOid(), ti.getOid());

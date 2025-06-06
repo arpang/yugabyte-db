@@ -2153,10 +2153,26 @@ index_constraint_create(Relation heapRelation,
 	 *
 	 * Note that the constraint has a dependency on the table, so we don't
 	 * need (or want) any direct dependency from the index to the table.
+	 *
+	 * YB note:
+	 * For constraint on catalog relations, initdb assigns an oid in
+	 * [FirstGenbkiObjectId, FirstUnpinnedObjectId), making them pinned objects
+	 * and hence dependencies on them are not explicity recorded. Migration
+	 * during YSQL upgrade, on the other hand, assigns them oid in
+	 * [FirstUnpinnedObjectId, FirstNormalObjectId) making them unpinned objects
+	 * (GH #27514). Calling recordDependencyOn() would add the dependency
+	 * in pg_depend. It requires additional work to do this correctly for shared
+	 * catalog relations. Adding this dependency is not even required because
+	 * ALTER TABLE ... DROP CONSTRAINT on catalog relations is not supported.
+	 * So, just skp it.
 	 */
-	ObjectAddressSet(myself, ConstraintRelationId, conOid);
-	ObjectAddressSet(idxaddr, RelationRelationId, indexRelationId);
-	recordDependencyOn(&idxaddr, &myself, DEPENDENCY_INTERNAL);
+	if (!(IsYsqlUpgrade && IsYBRelation(heapRelation) &&
+		  IsCatalogRelation(heapRelation)))
+	{
+		ObjectAddressSet(myself, ConstraintRelationId, conOid);
+		ObjectAddressSet(idxaddr, RelationRelationId, indexRelationId);
+		recordDependencyOn(&idxaddr, &myself, DEPENDENCY_INTERNAL);
+	}
 
 	/*
 	 * Also, if this is a constraint on a partition, give it partition-type
