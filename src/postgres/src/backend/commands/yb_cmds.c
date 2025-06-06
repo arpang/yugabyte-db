@@ -1716,13 +1716,12 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 				 * For ALTER TABLE ... ADD PRIMARY KEY/UNIQUE USING INDEX on
 				 * catalog relations, skip the schema version increment.
 				 *
-				 * This command is executed by initdb/YSQL upgrade to create
-				 * constraints on catalog relations.
+				 * This command is executed by initdb to create constraints on
+				 * catalog relations.
 				 *
 				 * Currently, CatalogManager::AlterTable() does not support
-				 * altering catalog relations. During initdb /
-				 * ysql-upgrade there is atmost a single connection per
-				 * database, so we can skip the schema version increment.
+				 * altering catalog relations. During there is a single
+				 * connection, so we can skip the schema version  increment.
 				 * This allows us to execute this command without handling
 				 * catalog relations in CatalogManager::AlterTable().
 				 */
@@ -1731,7 +1730,7 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 						  ((Constraint *) cmd->def)->contype ==
 							  CONSTR_PRIMARY) &&
 						 ((Constraint *) cmd->def)->indexname != NULL &&
-						 (YBCIsInitDbModeEnvVarSet() || IsYsqlUpgrade))
+						 YBCIsInitDbModeEnvVarSet())
 				{
 					Assert(YbIsSysCatalogTabletRelation(rel));
 					Assert(dependent_rels == NIL);

@@ -408,13 +408,6 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
       stmtA.execute(createIndexSql);
       LOG.info("Created unique index {}", newTi.indexes.get(0).getLeft());
 
-      // Add the corresponding constraint.
-      String createConstraintSql = "ALTER TABLE " + newTi.name + " ADD UNIQUE USING INDEX "
-          + newTi.indexes.get(0).getLeft();
-      LOG.info("Executing '{}'", createConstraintSql);
-      stmtA.execute(createConstraintSql);
-      LOG.info("Created constraint {}", newTi.indexes.get(0).getLeft());
-
       assertTablesAreSimilar(origTi, newTi, stmtA, stmtB, true /* checkViewDefinition */);
     }
   }
@@ -490,15 +483,6 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
         LOG.info("Executing '{}'", createIndexSql);
         stmtA.execute(createIndexSql);
         LOG.info("Created unique index {}", newTi.indexes.get(1).getLeft());
-      }
-
-      {
-        // Add the corresponding constraint.
-        String createConstraintSql = "ALTER TABLE " + newTi.name + " ADD UNIQUE USING INDEX "
-            + newTi.indexes.get(1).getLeft();
-        LOG.info("Executing '{}'", createConstraintSql);
-        stmtA.execute(createConstraintSql);
-        LOG.info("Created constraint {}", newTi.indexes.get(1).getLeft());
       }
 
       {

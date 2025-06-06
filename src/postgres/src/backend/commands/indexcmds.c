@@ -1580,9 +1580,14 @@ DefineIndex(Oid relationId,
 	 * step also actually builds the index, except if caller requested not to
 	 * or in concurrent mode, in which case it'll be done later, or doing a
 	 * partitioned index (because those don't have storage).
+	 *
+	 * YB NOTE:
+	 * We also create constraints for non-constraint unique indexes on system
+	 * relation indexes during YSQL upgrade, to simulate initdb behaviour.
 	 */
 	flags = constr_flags = 0;
-	if (stmt->isconstraint)
+	if (stmt->isconstraint || (stmt->unique && IsYBRelation(rel) &&
+							   IsYsqlUpgrade && IsCatalogRelation(rel)))
 		flags |= INDEX_CREATE_ADD_CONSTRAINT;
 	if (skip_build || concurrent || partitioned)
 		flags |= INDEX_CREATE_SKIP_BUILD;

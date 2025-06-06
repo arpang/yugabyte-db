@@ -2564,7 +2564,7 @@ transformIndexConstraints(CreateStmtContext *cxt)
 		ListCell   *k;
 
 		index = lfirst(lc);
-		if (IsYsqlUpgrade && cxt->isSystem && !OidIsValid(index->indexOid))
+		if (IsYsqlUpgrade && cxt->isSystem)
 		{
 			if (index->idxname == NULL)
 				elog(ERROR,
