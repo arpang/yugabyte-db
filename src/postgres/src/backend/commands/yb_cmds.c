@@ -1731,7 +1731,7 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 						 cmd->subtype == AT_AddConstraintRecurse &&
 						 (((Constraint *) cmd->def)->contype == CONSTR_UNIQUE ||
 						  ((Constraint *) cmd->def)->contype ==
-							  CONSTR_PRIMARY) &&
+						  CONSTR_PRIMARY) &&
 						 ((Constraint *) cmd->def)->indexname != NULL)
 				{
 					Assert(YbIsSysCatalogTabletRelation(rel));
