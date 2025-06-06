@@ -1713,24 +1713,26 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 											 table_openrv(index->relation, AccessExclusiveLock));
 				}
 				/*
-				 * For ALTER TABLE ... ADD PRIMARY KEY/UNIQUE USING INDEX on
-				 * catalog relations, skip the schema version increment.
-				 *
-				 * This command is executed by initdb to create constraints on
-				 * catalog relations.
+				 * During initdb, skip the schema version increment for ALTER
+				 * TABLE ... ADD PRIMARY KEY/UNIQUE USING INDEX.
 				 *
 				 * Currently, CatalogManager::AlterTable() does not support
-				 * altering catalog relations. During there is a single
-				 * connection, so we can skip the schema version  increment.
-				 * This allows us to execute this command without handling
-				 * catalog relations in CatalogManager::AlterTable().
+				 * altering catalog relations. During initdb there is a single
+				 * connection, so we can skip the schema version increment and
+				 * thus, avoid any YB metadata update. This allows us to
+				 * execute this command without handling catalog relations in
+				 * CatalogManager::AlterTable().
+				 *
+				 * This should be applicable to all ALTER TABLEs that reach this
+				 * switch block. But, for now, only apply it to ALTER TABLE ...
+				 * ADD PRIMARY KEY/UNIQUE USING INDEX.
 				 */
-				else if (cmd->subtype == AT_AddConstraintRecurse &&
+				else if (YBCIsInitDbModeEnvVarSet() &&
+						 cmd->subtype == AT_AddConstraintRecurse &&
 						 (((Constraint *) cmd->def)->contype == CONSTR_UNIQUE ||
 						  ((Constraint *) cmd->def)->contype ==
 							  CONSTR_PRIMARY) &&
-						 ((Constraint *) cmd->def)->indexname != NULL &&
-						 YBCIsInitDbModeEnvVarSet())
+						 ((Constraint *) cmd->def)->indexname != NULL)
 				{
 					Assert(YbIsSysCatalogTabletRelation(rel));
 					Assert(dependent_rels == NIL);
