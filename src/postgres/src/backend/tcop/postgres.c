@@ -4576,8 +4576,11 @@ YBPrepareCacheRefreshIfNeeded(ErrorData *edata,
 	if (consider_retry &&
 		!IsTransactionBlock() &&
 		!YbIsBatchedExecution() &&
-		!YBCGetDisableTransparentCacheRefreshRetry())
+		!YBCGetDisableTransparentCacheRefreshRetry() &&
+		!YBIsDataSent())
 	{
+		YBRestoreOutputBufferPosition();
+
 		/* Clear error state */
 		FlushErrorState();
 
@@ -4772,7 +4775,7 @@ yb_is_dml_command(const char *query_string)
 static bool
 yb_check_retry_allowed(const char *query_string)
 {
-	return yb_is_dml_command(query_string);
+	return yb_is_dml_command(query_string) && !*YBCGetGFlags()->enable_object_locking_for_table_locks;
 }
 
 static void
