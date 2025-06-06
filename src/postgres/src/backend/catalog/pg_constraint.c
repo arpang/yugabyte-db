@@ -246,7 +246,12 @@ CreateConstraintEntry(const char *constraintName,
 
 	tup = heap_form_tuple(RelationGetDescr(conDesc), values, nulls);
 
-	CatalogTupleInsert(conDesc, tup);
+	Relation rel = RelationIdGetRelation(relId);
+	YBCatalogTupleInsert(conDesc, tup,
+						 IsYsqlUpgrade && RelationIsValid(rel) &&
+							 rel->rd_rel->relisshared);
+	if (RelationIsValid(rel))
+		RelationClose(rel);
 
 	ObjectAddressSet(conobject, ConstraintRelationId, conOid);
 

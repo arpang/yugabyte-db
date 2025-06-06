@@ -415,7 +415,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
       stmtA.execute(createConstraintSql);
       LOG.info("Created constraint {}", newTi.indexes.get(0).getLeft());
 
-      assertTablesAreSimilar(origTi, newTi, stmtB, stmtA, true /* checkViewDefinition */);
+      assertTablesAreSimilar(origTi, newTi, stmtA, stmtB, true /* checkViewDefinition */);
     }
   }
 
