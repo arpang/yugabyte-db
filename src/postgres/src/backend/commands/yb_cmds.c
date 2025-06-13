@@ -23,6 +23,8 @@
 
 #include "postgres.h"
 
+#include "yb/yql/pggate/ybc_pg_typedefs.h"
+#include "yb/yql/pggate/ybc_pggate.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/nbtree.h"
@@ -63,6 +65,7 @@
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/optimizer.h"
+#include "optimizer/plancat.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_relation.h"
 #include "parser/parse_type.h"
@@ -74,8 +77,6 @@
 #include "utils/rel.h"
 #include "utils/relcache.h"
 #include "utils/syscache.h"
-#include "yb/yql/pggate/ybc_pg_typedefs.h"
-#include "yb/yql/pggate/ybc_pggate.h"
 
 /* Utility function to calculate column sorting options */
 static void
@@ -1480,11 +1481,48 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 					break;
 				Assert(list_length(handles) == 1);
 				YbcPgStatement drop_col_handle = (YbcPgStatement) lfirst(list_head(handles));
+				HandleYBStatus(
+					YBCPgAlterTableDropColumn(drop_col_handle, cmd->name));
 
-				HandleYBStatus(YBCPgAlterTableDropColumn(drop_col_handle,
-														 cmd->name));
+				if (cmd->behavior != DROP_CASCADE)
+				{
+					*needsYBAlter = true;
+					break;
+				}
+
+				AttrNumber offset = YBGetFirstLowInvalidAttributeNumber(rel);
+				Bitmapset *bms = bms_make_singleton(attnum - offset);
+				Bitmapset *dependent_bms =
+					yb_get_dependent_generated_columns_helper(rel, bms, NULL);
+
+				int bms_index;
+				while ((bms_index = bms_first_member(dependent_bms)) >= 0)
+				{
+					AttrNumber dependent_attnum = bms_index + offset;
+
+					/*
+					 * Skip yb alter for primary key columns (the table will be
+					 * rewritten)
+					 */
+					if (YbIsAttrPrimaryKeyColumn(rel, dependent_attnum))
+						break;
+
+					HeapTuple tuple =
+						SearchSysCacheAttNum(relationId, dependent_attnum);
+
+					if (!HeapTupleIsValid(tuple))
+						continue;
+
+					NameData dependent_attname =
+						((Form_pg_attribute) GETSTRUCT(tuple))->attname;
+					HandleYBStatus(YBCPgAlterTableDropColumn(
+						drop_col_handle, dependent_attname.data));
+					ReleaseSysCache(tuple);
+				}
+				bms_free(bms);
+				bms_free(dependent_bms);
+
 				*needsYBAlter = true;
-
 				break;
 			}
 
@@ -1804,7 +1842,6 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 		case AT_DropOf:
 			*needsYBAlter = false;
 			break;
-
 		case AT_DropInherit:
 			yb_switch_fallthrough();
 		case AT_AddInherit:
