@@ -70,9 +70,7 @@ static size_t join_execution_helper(Relation baserel, Relation indexrel,
 									YbGetPlanFunction get_plan,
 									YbCheckIndexRowFunction check_index_row);
 
-int			yb_index_check_max_bnl_batches = 0;
-bool		batch_mode = false;
-size_t		yb_index_check_batch_size = 0;
+bool yb_index_check_batch_mode = false;
 bool		yb_test_slowdown_index_check = false;
 
 static void
@@ -733,15 +731,6 @@ yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid			indexoid = PG_GETARG_OID(0);
 
-	batch_mode = yb_index_check_max_bnl_batches > 0;
-	/*
-	 * In batch mode, to ensure all the rows are processed, index batch should
-	 * not end in the middle of a BNL batch. In other words,
-	 * yb_index_check_batch_size should be a multiple of yb_bnl_batch_size.
-	 */
-	yb_index_check_batch_size =
-		(size_t) yb_index_check_max_bnl_batches * (size_t) yb_bnl_batch_size;
-
 	uint64		start_read_point = YBCPgGetCurrentReadPoint();
 
 	yb_index_check_internal(indexoid);
@@ -811,10 +800,34 @@ get_equality_opcodes(Relation indexrel)
 }
 
 static bool
-end_of_batch(size_t rowcount)
+end_of_batch(size_t rowcount, time_t batch_start_time)
 {
-	return batch_mode &&
-		(rowcount % yb_index_check_batch_size == 0);
+	/*
+	 * To ensure all the rows are processed, index batch should not end in the
+	 * middle of a BNL batch.
+	 */
+	if (yb_index_check_batch_mode && !(rowcount % yb_bnl_batch_size))
+	{
+		time_t current_time;
+		time(&current_time);
+		time_t elapsed_time = difftime(current_time, batch_start_time);
+
+		/*
+		 * End the current batch if elapsed time > 70% of the
+		 * timestamp_history_retention_interval_sec. This threshold is heuristic
+		 * based. The idea is to keep it closer to 100% so that as many rows as
+		 * possible are processed within a single batch - to avoid the overhead
+		 * of creating too many batches. At the same time, keeping it too close
+		 * to 100% risks running into Snapshot too old error in scenarios when
+		 * elapsed time is marginally less than the threshold, and hence next of
+		 * rows are processed in the same batch but that pushes the elapsed time
+		 * beyond the timestamp_history_retention_interval_sec.
+		 */
+		return elapsed_time >
+			   (0.7 *
+				*YBCGetGFlags()->timestamp_history_retention_interval_sec);
+	}
+	return false;
 }
 
 static size_t
@@ -826,6 +839,7 @@ join_execution_helper(Relation baserel, Relation indexrel,
 	bool		execution_complete = false;
 	size_t		rowcount = 0;
 	TupleTableSlot *slot;
+	time_t batch_start_time;
 
 	List	   *equality_opcodes = get_equality_opcodes(indexrel);
 
@@ -841,13 +855,14 @@ join_execution_helper(Relation baserel, Relation indexrel,
 		Plan	   *plan = get_plan(baserel, indexrel, lower_bound_ybctid);
 		PlanState  *join_state = ExecInitNode((Plan *) plan, estate, 0);
 
-		if (batch_mode)
+		if (yb_index_check_batch_mode)
 			PushActiveSnapshot(GetLatestSnapshot());
 
+		time(&batch_start_time);
 		while (!batch_complete && (slot = ExecProcNode(join_state)))
 		{
 			check_index_row(slot, indexrel, equality_opcodes);
-			if (batch_mode)
+			if (yb_index_check_batch_mode)
 			{
 				bool		null;
 
@@ -869,13 +884,14 @@ join_execution_helper(Relation baserel, Relation indexrel,
 					MemoryContextSwitchTo(estate->es_query_cxt);
 				}
 			}
-			batch_complete = end_of_batch(++rowcount);
+
+			batch_complete = end_of_batch(++rowcount, batch_start_time);
 
 			if (yb_test_slowdown_index_check)
 				sleep(1);
 		}
 
-		if (batch_mode)
+		if (yb_index_check_batch_mode)
 			PopActiveSnapshot();
 
 		execution_complete = !slot;
@@ -1116,7 +1132,7 @@ static void
 check_missing_index_rows(Relation baserel, Relation indexrel,
 						 size_t actual_index_rowcount)
 {
-	if (batch_mode)
+	if (yb_index_check_batch_mode)
 		join_execution_helper(baserel, indexrel, missing_check_plan,
 							  check_index_row_presence);
 	else

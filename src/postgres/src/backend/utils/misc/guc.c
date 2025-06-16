@@ -3436,6 +3436,21 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_index_check_batch_mode", PGC_USERSET, QUERY_TUNING_OTHER,
+			gettext_noop("If set to true, yb_index_check() is executed in a batched fashion. "
+						 "In this mode, a new snapshot is chosen for each batch. "
+						 "The size of batch is such that it can be processed under "
+						 "timestamp_history_retention_interval_sec duration."
+						 "This helps circumvent 'Snapshot too old' errors."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_index_check_batch_mode,
+		true,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
@@ -5366,20 +5381,6 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&yb_max_num_invalidation_messages,
 		4096, 0, INT_MAX,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"yb_index_check_max_bnl_batches", PGC_USERSET, QUERY_TUNING_OTHER,
-			gettext_noop("Max number of batched nested loop (BNL) join batches that "
-						 "are processed using the same snapshot during yb_index_check(). "
-						 "New snapshots are chosen for subsequent BNL batches. If set "
-						 "to 0, all the BNL batches are processed using a single snapshot"),
-			NULL,
-			GUC_NOT_IN_SAMPLE
-		},
-		&yb_index_check_max_bnl_batches,
-		1024, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 
