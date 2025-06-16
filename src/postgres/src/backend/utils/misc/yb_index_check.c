@@ -70,7 +70,7 @@ static size_t join_execution_helper(Relation baserel, Relation indexrel,
 									YbGetPlanFunction get_plan,
 									YbCheckIndexRowFunction check_index_row);
 
-bool yb_index_check_batch_mode = false;
+bool		yb_index_check_batch_mode = false;
 bool		yb_test_slowdown_index_check = false;
 
 static void
@@ -808,9 +808,10 @@ end_of_batch(size_t rowcount, time_t batch_start_time)
 	 */
 	if (yb_index_check_batch_mode && !(rowcount % yb_bnl_batch_size))
 	{
-		time_t current_time;
+		time_t		current_time;
+
 		time(&current_time);
-		time_t elapsed_time = difftime(current_time, batch_start_time);
+		time_t		elapsed_time = difftime(current_time, batch_start_time);
 
 		/*
 		 * End the current batch if elapsed time > 70% of the
@@ -824,8 +825,8 @@ end_of_batch(size_t rowcount, time_t batch_start_time)
 		 * beyond the timestamp_history_retention_interval_sec.
 		 */
 		return elapsed_time >
-			   (0.7 *
-				*YBCGetGFlags()->timestamp_history_retention_interval_sec);
+			(0.7 *
+			 *YBCGetGFlags()->timestamp_history_retention_interval_sec);
 	}
 	return false;
 }
@@ -839,7 +840,7 @@ join_execution_helper(Relation baserel, Relation indexrel,
 	bool		execution_complete = false;
 	size_t		rowcount = 0;
 	TupleTableSlot *slot;
-	time_t batch_start_time;
+	time_t		batch_start_time;
 
 	List	   *equality_opcodes = get_equality_opcodes(indexrel);
 
