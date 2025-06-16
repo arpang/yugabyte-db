@@ -876,9 +876,10 @@ Status PgDmlRead::IndexCheckBindLowerBound(Slice lower_bound) {
   // Decoder expects hybrid time by default, append invalid hybrid time.
   AppendDocHybridTime(DocHybridTime::kInvalid, &encoded_row_key);
 
+  // The following logic is taken from PgsqlReadOperation::SetPagingState().
+  auto* paging_state = read_req_->mutable_paging_state();
   auto encoded_row_key_str = encoded_row_key.ToStringBuffer();
 
-  auto* paging_state = read_req_->mutable_paging_state();
   if (bind_->schema().num_hash_key_columns() > 0) {
     paging_state->dup_next_partition_key(
         dockv::PartitionSchema::EncodeMultiColumnHashValue(row_key.hash()));
