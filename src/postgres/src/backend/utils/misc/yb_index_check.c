@@ -1109,8 +1109,8 @@ check_index_row_presence(TupleTableSlot *slot, Relation indexrel,
 	Assert(!TTS_EMPTY(slot));
 	bool		ind_null;
 	bool		base_null;
-	Datum		indexrow_ybctid = slot_getattr(slot, 2, &ind_null);
 	Datum		computed_indexrow_ybctid = slot_getattr(slot, 1, &base_null);
+	Datum		indexrow_ybctid = slot_getattr(slot, 2, &ind_null);
 	const FormData_pg_attribute *ind_att = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 
 	Assert(!base_null);
