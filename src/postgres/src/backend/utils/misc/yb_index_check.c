@@ -57,26 +57,27 @@
 #define IndAttrDetail(indexrel, ybbasectid_datum, attnum)	\
 	"index: '%s', ybbasectid: '%s', index attnum: %d", RelationGetRelationName(indexrel), YBDatumToString(ybbasectid_datum, BYTEAOID), attnum
 
-typedef Plan *(*YbGetPlanFunction) (Relation baserel, Relation indexrel,
-									Datum lower_bound_ybctid);
+typedef Plan *(*YbIssueDetectionPlan) (Relation baserel, Relation indexrel,
+									   Datum lower_bound_ybctid);
 
-typedef void (*YbCheckIndexRowFunction) (TupleTableSlot *slot, Relation indexrel,
-										 List *equality_opcodes);
+typedef void (*YbIssueDetectionCheck) (TupleTableSlot *outslot,
+									   Relation indexrel,
+									   List *equality_opcodes);
 
 static void yb_index_check_internal(Oid indexoid);
-static void check_missing_index_rows(Relation baserel, Relation indexrel,
-									 size_t actual_index_rowcount);
-static size_t join_execution_helper(Relation baserel, Relation indexrel,
-									YbGetPlanFunction get_plan,
-									YbCheckIndexRowFunction check_index_row);
+static void detect_missing_rows(Relation baserel, Relation indexrel,
+								size_t actual_index_rowcount);
+static size_t detect_index_issues(Relation baserel, Relation indexrel,
+								  YbIssueDetectionPlan get_plan,
+								  YbIssueDetectionCheck check_index_row);
 
 bool		multi_snapshot_mode = true;
 bool		yb_test_force_index_check_single_snapshot = false;
 bool		yb_test_slowdown_index_check = false;
 
 static void
-check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
-							List *equality_opcodes)
+inconsistent_row_detection_check(TupleTableSlot *outslot, Relation indexrel,
+								 List *equality_opcodes)
 {
 	bool		indisunique = indexrel->rd_index->indisunique;
 	bool		indnullsnotdistinct = indexrel->rd_index->indnullsnotdistinct;
@@ -92,10 +93,10 @@ check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
 	 *   and the other from the base relation: (2 * indnatts)
 	 * - indexrel.ybuniqueidxkeysuffix if the index is
 	 *   unique: (indisunique ? 1 : 0)
-	 * - indexrel.ybctid (used in batched mode to set the lower bound of the
-	 *   next batch): 1
+	 * - indexrel.ybctid (used in multi_snapshot_mode to set the lower bound of
+	 * 	 the next batch): 1
 	 */
-	Assert(slot->tts_tupleDescriptor->natts ==
+	Assert(outslot->tts_tupleDescriptor->natts ==
 		   2 * (indnatts + 1) + (indisunique ? 1 : 0) + 1);
 
 	/* First, validate ybctid and ybbasectid. */
@@ -103,9 +104,10 @@ check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
 
 	bool		ind_null;
 	bool		base_null;
-	Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1);
-	Datum		ybbasectid_datum = slot_getattr(slot, attnum++, &ind_null);
-	Datum		ybctid_datum = slot_getattr(slot, attnum++, &base_null);
+	Form_pg_attribute ind_att =
+		TupleDescAttr(outslot->tts_tupleDescriptor, attnum - 1);
+	Datum		ybbasectid_datum = slot_getattr(outslot, attnum++, &ind_null);
+	Datum		ybctid_datum = slot_getattr(outslot, attnum++, &base_null);
 
 	if (ind_null)
 		ereport(ERROR,
@@ -136,10 +138,11 @@ check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
 	/* Validate the index attributes */
 	for (int i = 0; i < indnatts; i++)
 	{
-		Form_pg_attribute ind_att = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1);
+		Form_pg_attribute ind_att =
+			TupleDescAttr(outslot->tts_tupleDescriptor, attnum - 1);
 
-		Datum		ind_datum = slot_getattr(slot, attnum++, &ind_null);
-		Datum		base_datum = slot_getattr(slot, attnum++, &base_null);
+		Datum		ind_datum = slot_getattr(outslot, attnum++, &ind_null);
+		Datum		base_datum = slot_getattr(outslot, attnum++, &base_null);
 
 		if (ind_null && i < indnkeyatts)
 			indkeyhasnull = true;
@@ -185,7 +188,8 @@ check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
 	if (indisunique)
 	{
 		/* Validate the ybuniqueidxkeysuffix */
-		Datum		ybuniqueidxkeysuffix_datum = slot_getattr(slot, attnum, &ind_null);
+		Datum		ybuniqueidxkeysuffix_datum =
+			slot_getattr(outslot, attnum, &ind_null);
 
 		if (indnullsnotdistinct || !indkeyhasnull)
 		{
@@ -197,7 +201,7 @@ check_index_row_consistency(TupleTableSlot *slot, Relation indexrel,
 		}
 		else
 		{
-			ind_att = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1);
+			ind_att = TupleDescAttr(outslot->tts_tupleDescriptor, attnum - 1);
 			bool		equal = datum_image_eq(ybbasectid_datum,
 											   ybuniqueidxkeysuffix_datum,
 											   ind_att->attbyval, ind_att->attlen);
@@ -274,7 +278,7 @@ indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid)
 		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
 
-	/* ybctid (used in batched mode to set the lower bound of the next batch) */
+	/* ybctid (used in multi_snapshot_mode to set lower bound of next batch) */
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	expr = (Expr *) makeVar(INDEX_VAR, YBTupleIdAttributeNumber,
 							attr->atttypid, attr->atttypmod, attr->attcollation,
@@ -528,7 +532,8 @@ make_bnl_plan(Plan *lefttree, Plan *righttree, Var *join_clause_lhs,
 }
 
 static Plan *
-spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybctid)
+inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
+								Datum lower_bound_ybctid)
 {
 	/*
 	 * To check for spurious rows in index relation, we LEFT join the index
@@ -608,12 +613,12 @@ spurious_check_plan(Relation baserel, Relation indexrel, Datum lower_bound_ybcti
 						 join_clause_rhs, plan_tlist);
 }
 
-
 static size_t
-check_spurious_index_rows(Relation baserel, Relation indexrel)
+detect_inconsistent_rows(Relation baserel, Relation indexrel)
 {
-	return join_execution_helper(baserel, indexrel, spurious_check_plan,
-								 check_index_row_consistency);
+	return detect_index_issues(baserel, indexrel,
+							   inconsistent_row_detection_plan,
+							   inconsistent_row_detection_check);
 }
 
 static void
@@ -712,8 +717,8 @@ yb_index_check_internal(Oid indexoid)
 
 	PG_TRY();
 	{
-		actual_index_rowcount = check_spurious_index_rows(baserel, indexrel);
-		check_missing_index_rows(baserel, indexrel, actual_index_rowcount);
+		actual_index_rowcount = detect_inconsistent_rows(baserel, indexrel);
+		detect_missing_rows(baserel, indexrel, actual_index_rowcount);
 	}
 	PG_CATCH();
 	{
@@ -737,15 +742,15 @@ yb_index_check(PG_FUNCTION_ARGS)
 	if (yb_test_force_index_check_single_snapshot)
 		multi_snapshot_mode = false;
 
-	uint64		start_read_point = YBCPgGetCurrentReadPoint();
+	uint64		original_read_point = YBCPgGetCurrentReadPoint();
 
 	yb_index_check_internal(indexoid);
 
 	/*
-	 * yb_index_check() uses the latest snapshot in the batch_mode. Verify that
-	 * it did not change the readpoint.
+	 * yb_index_check() uses multiple snapshots in multi_snapshot_mode. Verify
+	 * that it restored the original read point at the end.
 	 */
-	Assert(start_read_point == YBCPgGetCurrentReadPoint());
+	Assert(original_read_point == YBCPgGetCurrentReadPoint());
 
 	PG_RETURN_VOID();
 }
@@ -812,7 +817,7 @@ end_of_batch(size_t rowcount, time_t batch_start_time)
 	 * To ensure all the rows are processed, index batch should not end in the
 	 * middle of a BNL batch.
 	 */
-	if (multi_snapshot_mode && !(rowcount % yb_bnl_batch_size))
+	if (!(rowcount % yb_bnl_batch_size))
 	{
 		time_t		current_time;
 
@@ -838,15 +843,19 @@ end_of_batch(size_t rowcount, time_t batch_start_time)
 	return false;
 }
 
+/*
+ * Fetches and executes the plan and runs the output through check function.
+ * Returns the number of rows processed.
+ */
 static size_t
-join_execution_helper(Relation baserel, Relation indexrel,
-					  YbGetPlanFunction get_plan,
-					  YbCheckIndexRowFunction check_index_row)
+detect_index_issues(Relation baserel, Relation indexrel,
+					YbIssueDetectionPlan issue_detection_plan,
+					YbIssueDetectionCheck issue_detection_check)
 {
 	Datum		lower_bound_ybctid = 0;
 	bool		execution_complete = false;
 	size_t		rowcount = 0;
-	TupleTableSlot *slot;
+	TupleTableSlot *outslot;
 	time_t		batch_start_time;
 
 	List	   *equality_opcodes = get_equality_opcodes(indexrel);
@@ -860,36 +869,36 @@ join_execution_helper(Relation baserel, Relation indexrel,
 
 		init_estate(estate, baserel);
 
-		Plan	   *plan = get_plan(baserel, indexrel, lower_bound_ybctid);
-		PlanState  *join_state = ExecInitNode((Plan *) plan, estate, 0);
+		Plan	   *plan = issue_detection_plan(baserel, indexrel, lower_bound_ybctid);
+		PlanState  *planstate = ExecInitNode((Plan *) plan, estate, 0);
 
 		if (multi_snapshot_mode)
-			PushActiveSnapshot(GetLatestSnapshot());
-
-		time(&batch_start_time);
-
-		while (!batch_complete && (slot = ExecProcNode(join_state)))
 		{
-			check_index_row(slot, indexrel, equality_opcodes);
+			PushActiveSnapshot(GetLatestSnapshot());
+			time(&batch_start_time);
+		}
+
+		while (!batch_complete && (outslot = ExecProcNode(planstate)))
+		{
+			issue_detection_check(outslot, indexrel, equality_opcodes);
 			if (multi_snapshot_mode)
 			{
 				bool		null;
 
-				Datum		baserow_ybctid = slot_getattr(slot,
-														  slot->tts_tupleDescriptor->natts,
-														  &null);
+				Datum		ybctid =
+					slot_getattr(outslot, outslot->tts_tupleDescriptor->natts, &null);
 
 				if (null)
 					elog(ERROR, "ybctid is unexpectedly null");
 
 				if (!lower_bound_ybctid ||
 					DirectFunctionCall2Coll(byteagt, DEFAULT_COLLATION_OID,
-											baserow_ybctid, lower_bound_ybctid))
+											ybctid, lower_bound_ybctid))
 				{
 					if (lower_bound_ybctid)
 						pfree(DatumGetPointer(lower_bound_ybctid));
 					MemoryContextSwitchTo(oldctxt);
-					COPY_YBCTID(baserow_ybctid, lower_bound_ybctid);
+					COPY_YBCTID(ybctid, lower_bound_ybctid);
 					MemoryContextSwitchTo(estate->es_query_cxt);
 				}
 			}
@@ -897,14 +906,15 @@ join_execution_helper(Relation baserel, Relation indexrel,
 			if (yb_test_slowdown_index_check)
 				sleep(1);
 
-			batch_complete = end_of_batch(++rowcount, batch_start_time);
+			if (multi_snapshot_mode)
+				batch_complete = end_of_batch(++rowcount, batch_start_time);
 		}
 
 		if (multi_snapshot_mode)
 			PopActiveSnapshot();
 
-		execution_complete = !slot;
-		ExecEndNode(join_state);
+		execution_complete = !outslot;
+		ExecEndNode(planstate);
 		MemoryContextSwitchTo(oldctxt);
 		cleanup_estate(estate);
 	}
@@ -1017,7 +1027,7 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 								   "computed_indexrow_ybctid", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
-	/* ybctid (used in batched mode to set the lower bound of the next batch) */
+	/* ybctid (used in multi_snapshot_mode to set lower bound of next batch) */
 	target_entry = makeTargetEntry((Expr *) ybctid_expr, resno++, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
@@ -1046,8 +1056,8 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 }
 
 static Plan *
-missing_check_plan(Relation baserel, Relation indexrel,
-				   Datum lower_bound_ybctid)
+missing_row_detection_plan(Relation baserel, Relation indexrel,
+						   Datum lower_bound_ybctid)
 {
 	/*
 	 * To check for missing rows in index relation, we perform a LEFT join on
@@ -1110,25 +1120,25 @@ missing_check_plan(Relation baserel, Relation indexrel,
 }
 
 static void
-check_index_row_presence(TupleTableSlot *slot, Relation indexrel,
-						 List *unsed_equality_opcodes)
+missing_row_detection_check(TupleTableSlot *outslot, Relation indexrel,
+							List *unsed_equality_opcodes)
 {
-	Assert(!TTS_EMPTY(slot));
+	Assert(!TTS_EMPTY(outslot));
 	bool		ind_null;
 	bool		base_null;
 
 	/*
-	 * Slot attributes: baserel.computed_indexrow_ybctid, indexrel.ybctid,
+	 * outslot attributes: baserel.computed_indexrow_ybctid, indexrel.ybctid,
 	 * baserel.ybctid
 	 */
-	Datum		computed_indexrow_ybctid = slot_getattr(slot, 1, &base_null);
-	Datum		indexrow_ybctid = slot_getattr(slot, 2, &ind_null);
+	Datum		computed_indexrow_ybctid = slot_getattr(outslot, 1, &base_null);
+	Datum		indexrow_ybctid = slot_getattr(outslot, 2, &ind_null);
 	const FormData_pg_attribute *ind_att = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 
 	Assert(!base_null);
 	if (ind_null)
 	{
-		Datum		ybctid = slot_getattr(slot, 3, &base_null);
+		Datum		ybctid = slot_getattr(outslot, 3, &base_null);
 
 		Assert(!base_null);
 		ereport(ERROR,
@@ -1149,12 +1159,12 @@ check_index_row_presence(TupleTableSlot *slot, Relation indexrel,
 }
 
 static void
-check_missing_index_rows(Relation baserel, Relation indexrel,
-						 size_t actual_index_rowcount)
+detect_missing_rows(Relation baserel, Relation indexrel,
+					size_t actual_index_rowcount)
 {
 	if (multi_snapshot_mode)
-		join_execution_helper(baserel, indexrel, missing_check_plan,
-							  check_index_row_presence);
+		detect_index_issues(baserel, indexrel, missing_row_detection_plan,
+							missing_row_detection_check);
 	else
 	{
 		size_t		expected_index_rowcount = get_expected_index_rowcount(baserel,
