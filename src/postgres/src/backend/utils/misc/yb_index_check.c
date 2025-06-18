@@ -1131,11 +1131,11 @@ check_index_row_presence(TupleTableSlot *slot, Relation indexrel,
 		Datum		ybctid = slot_getattr(slot, 3, &base_null);
 
 		Assert(!base_null);
-		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
-						errmsg("index '%s' is missing row corresponding to "
-							   "ybctid '%s'",
-							   RelationGetRelationName(indexrel),
-							   YBDatumToString(ybctid, BYTEAOID))));
+		ereport(ERROR,
+				(errcode(ERRCODE_INDEX_CORRUPTED),
+				 errmsg("index '%s' is missing row corresponding to ybctid "
+						"'%s'", RelationGetRelationName(indexrel),
+						YBDatumToString(ybctid, BYTEAOID))));
 	}
 
 	/*
