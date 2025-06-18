@@ -20,7 +20,7 @@ import org.yb.YBTestRunner;
  * Runs the pg_regress test suite on YB code.
  */
 @RunWith(value=YBTestRunner.class)
-public class TestPgRegressYbIndexCheckBatched extends BasePgRegressTest {
+public class TestPgRegressYbIndexCheckSingleBatch extends BasePgRegressTest {
 
   @Override
   public int getTestMethodTimeoutSec() {
@@ -28,14 +28,14 @@ public class TestPgRegressYbIndexCheckBatched extends BasePgRegressTest {
   }
 
   @Test
-  public void testPgRegressYbIndexCheckBatched() throws Exception {
+  public void testPgRegressYbIndexCheckSingleBatched() throws Exception {
     runPgRegressTest("yb_index_check_schedule");
   }
 
   @Override
   protected Map<String, String> getTServerFlags() {
     Map<String, String> flagMap = super.getTServerFlags();
-    appendToYsqlPgConf(flagMap, "yb_index_check_batch_mode=1");
+    appendToYsqlPgConf(flagMap, "yb_test_force_index_check_singlebatch=1");
     return flagMap;
   }
 

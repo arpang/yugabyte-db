@@ -3464,6 +3464,17 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_test_force_index_check_singlebatch", PGC_SUSET, CUSTOM_OPTIONS,
+			gettext_noop("Set to test yb_index_check() in non-batched mode."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_test_force_index_check_singlebatch,
+		false,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL

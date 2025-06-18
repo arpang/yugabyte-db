@@ -59,7 +59,6 @@ TEST_F(PgYbIndexCheckTest, BatchedYbIndexCheckSnapshotTooOld) {
 
   ASSERT_OK(conn.Execute("SET yb_test_slowdown_index_check = true"));
   ASSERT_OK(conn.Execute("SET yb_bnl_batch_size = 10"));
-  ASSERT_OK(conn.Execute("SET yb_index_check_batch_mode = 1"));
 
   CountDownLatch latch(2);
   TestThreadHolder holder;

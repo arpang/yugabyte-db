@@ -70,7 +70,8 @@ static size_t join_execution_helper(Relation baserel, Relation indexrel,
 									YbGetPlanFunction get_plan,
 									YbCheckIndexRowFunction check_index_row);
 
-bool		yb_index_check_batch_mode = true;
+bool		batched_mode = true;
+bool		yb_test_force_index_check_singlebatch = false;
 bool		yb_test_slowdown_index_check = false;
 
 static void
@@ -730,7 +731,10 @@ Datum
 yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid			indexoid = PG_GETARG_OID(0);
-	yb_index_check_batch_mode = PG_GETARG_OID(1);
+	batched_mode = PG_GETARG_OID(1);
+
+	if (yb_test_force_index_check_singlebatch)
+		batched_mode = false;
 
 	uint64		start_read_point = YBCPgGetCurrentReadPoint();
 
@@ -807,7 +811,7 @@ end_of_batch(size_t rowcount, time_t batch_start_time)
 	 * To ensure all the rows are processed, index batch should not end in the
 	 * middle of a BNL batch.
 	 */
-	if (yb_index_check_batch_mode && !(rowcount % yb_bnl_batch_size))
+	if (batched_mode && !(rowcount % yb_bnl_batch_size))
 	{
 		time_t		current_time;
 
@@ -858,14 +862,15 @@ join_execution_helper(Relation baserel, Relation indexrel,
 		Plan	   *plan = get_plan(baserel, indexrel, lower_bound_ybctid);
 		PlanState  *join_state = ExecInitNode((Plan *) plan, estate, 0);
 
-		if (yb_index_check_batch_mode)
+		if (batched_mode)
 			PushActiveSnapshot(GetLatestSnapshot());
 
 		time(&batch_start_time);
+
 		while (!batch_complete && (slot = ExecProcNode(join_state)))
 		{
 			check_index_row(slot, indexrel, equality_opcodes);
-			if (yb_index_check_batch_mode)
+			if (batched_mode)
 			{
 				bool		null;
 
@@ -888,13 +893,13 @@ join_execution_helper(Relation baserel, Relation indexrel,
 				}
 			}
 
-			batch_complete = end_of_batch(++rowcount, batch_start_time);
-
 			if (yb_test_slowdown_index_check)
 				sleep(1);
+
+			batch_complete = end_of_batch(++rowcount, batch_start_time);
 		}
 
-		if (yb_index_check_batch_mode)
+		if (batched_mode)
 			PopActiveSnapshot();
 
 		execution_complete = !slot;
@@ -1145,7 +1150,7 @@ static void
 check_missing_index_rows(Relation baserel, Relation indexrel,
 						 size_t actual_index_rowcount)
 {
-	if (yb_index_check_batch_mode)
+	if (batched_mode)
 		join_execution_helper(baserel, indexrel, missing_check_plan,
 							  check_index_row_presence);
 	else

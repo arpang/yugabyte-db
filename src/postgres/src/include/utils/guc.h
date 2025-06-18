@@ -311,6 +311,7 @@ extern PGDLLIMPORT int yb_toast_catcache_threshold;
 extern PGDLLIMPORT bool yb_enable_fkey_catcache;
 extern PGDLLIMPORT bool yb_index_checker;
 extern PGDLLIMPORT bool yb_test_slowdown_index_check;
+extern PGDLLIMPORT bool yb_test_force_index_check_singlebatch;
 
 extern PGDLLIMPORT bool yb_enable_planner_trace;
 extern PGDLLIMPORT char *yb_hinted_uids;
