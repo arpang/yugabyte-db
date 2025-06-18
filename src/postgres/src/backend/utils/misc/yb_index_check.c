@@ -70,7 +70,7 @@ static size_t join_execution_helper(Relation baserel, Relation indexrel,
 									YbGetPlanFunction get_plan,
 									YbCheckIndexRowFunction check_index_row);
 
-bool		yb_index_check_batch_mode = false;
+bool		yb_index_check_batch_mode = true;
 bool		yb_test_slowdown_index_check = false;
 
 static void
@@ -730,6 +730,7 @@ Datum
 yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid			indexoid = PG_GETARG_OID(0);
+	yb_index_check_batch_mode = PG_GETARG_OID(1);
 
 	uint64		start_read_point = YBCPgGetCurrentReadPoint();
 

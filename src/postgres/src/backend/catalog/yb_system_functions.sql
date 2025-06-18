@@ -116,6 +116,13 @@ VOLATILE STRICT PARALLEL SAFE
 AS 'yb_cancel_query_diagnostics';
 
 CREATE OR REPLACE FUNCTION
+  yb_index_check(indexrelid oid, batch_mode bool DEFAULT true)
+RETURNS void
+LANGUAGE INTERNAL
+VOLATILE PARALLEL SAFE
+AS 'yb_index_check';
+
+CREATE OR REPLACE FUNCTION
   yb_compute_row_ybctid(relid oid, key_atts record, ybidxbasectid bytea DEFAULT NULL)
 RETURNS bytea
 LANGUAGE INTERNAL
