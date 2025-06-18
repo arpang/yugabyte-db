@@ -35,7 +35,7 @@ public class TestPgRegressYbIndexCheckSingleBatch extends BasePgRegressTest {
   @Override
   protected Map<String, String> getTServerFlags() {
     Map<String, String> flagMap = super.getTServerFlags();
-    appendToYsqlPgConf(flagMap, "yb_test_force_index_check_singlebatch=1");
+    appendToYsqlPgConf(flagMap, "yb_test_force_index_check_single_snapshot=1");
     return flagMap;
   }
 

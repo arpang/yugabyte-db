@@ -3383,17 +3383,6 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"yb_test_slowdown_index_check", PGC_USERSET, CUSTOM_OPTIONS,
-			gettext_noop("Slows down yb_index_check() by sleeping for 1s for "
-						 "every row. Used in tests."),
-			NULL
-		},
-		&yb_test_slowdown_index_check,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"yb_query_diagnostics_disable_database_connection_bgworker", PGC_SIGHUP, STATS_MONITORING,
 			gettext_noop("This disables creating extra bgworker "
 						 "which creates database connection for query diagnostics. "
@@ -3465,12 +3454,23 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"yb_test_force_index_check_singlebatch", PGC_SUSET, CUSTOM_OPTIONS,
-			gettext_noop("Set to test yb_index_check() in non-batched mode."),
+		{"yb_test_slowdown_index_check", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Slows down yb_index_check() by sleeping for 1s after processing "
+						 "every row. Used in tests to simulate long running yb_index_check()."),
+			NULL
+		},
+		&yb_test_slowdown_index_check,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_test_force_index_check_single_snapshot", PGC_SUSET, CUSTOM_OPTIONS,
+			gettext_noop("Execute yb_index_check() using single snapshot."),
 			NULL,
 			GUC_NOT_IN_SAMPLE
 		},
-		&yb_test_force_index_check_singlebatch,
+		&yb_test_force_index_check_single_snapshot,
 		false,
 		NULL, NULL, NULL
 	},

@@ -12177,7 +12177,7 @@
 { oid => '8090', descr => 'checks whether the index is consistent with its base relation',
   proname => 'yb_index_check', provolatile => 'v', proisstrict => 'f',
   prorettype => 'void', proargtypes => 'oid bool',
-  proargnames => '{indexrelid,batch_mode}',
+  proargnames => '{indexrelid,multi_snapshot_mode}',
   prosrc => 'yb_index_check'},
 
 # Statistics Import
