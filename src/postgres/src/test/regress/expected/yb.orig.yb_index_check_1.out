@@ -131,8 +131,7 @@ ERROR:  Index 'abcd_b_c_d_idx' is marked invalid
 UPDATE pg_index SET indisready = TRUE, indisvalid = TRUE, indislive = TRUE WHERE indexrelid = 'abcd_b_c_d_idx'::regclass;
 :force_cache_refresh
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
-ERROR:  index is missing some rows
-DETAIL:  index: 'abcd_b_c_d_idx'
+ERROR:  index 'abcd_b_c_d_idx' is missing row corresponding to ybctid '\x471c99488000000b2121'
 DELETE FROM abcd WHERE a = 11; -- Reset
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
  yb_index_check 

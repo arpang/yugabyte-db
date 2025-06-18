@@ -1110,16 +1110,26 @@ check_index_row_presence(TupleTableSlot *slot, Relation indexrel,
 	Assert(!TTS_EMPTY(slot));
 	bool		ind_null;
 	bool		base_null;
+
+	/*
+	 * Slot attributes: baserel.computed_indexrow_ybctid, indexrel.ybctid,
+	 * baserel.ybctid
+	 */
 	Datum		computed_indexrow_ybctid = slot_getattr(slot, 1, &base_null);
 	Datum		indexrow_ybctid = slot_getattr(slot, 2, &ind_null);
 	const FormData_pg_attribute *ind_att = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 
 	Assert(!base_null);
 	if (ind_null)
-		ereport(ERROR,
-				(errcode(ERRCODE_INDEX_CORRUPTED),
-				 errmsg("index is missing some rows"),
-				 errdetail(IndRelDetail(indexrel))));
+	{
+		Datum ybctid = slot_getattr(slot, 3, &base_null);
+		Assert(!base_null);
+		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
+						errmsg("index '%s' is missing row corresponding to "
+							   "ybctid '%s'",
+							   RelationGetRelationName(indexrel),
+							   YBDatumToString(ybctid, BYTEAOID))));
+	}
 
 	/*
 	 * TODO: datumIsEqual() returns false due to header size mismatch for types

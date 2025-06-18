@@ -60,6 +60,7 @@ DEFINE_test_flag(uint64, committed_history_cutoff_initial_value_usec, 0,
                  "Initial value for committed_history_cutoff_");
 
 DECLARE_int32(timestamp_history_retention_interval_sec);
+
 namespace yb {
 namespace tablet {
 
