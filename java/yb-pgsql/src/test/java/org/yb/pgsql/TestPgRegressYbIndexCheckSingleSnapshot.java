@@ -20,7 +20,7 @@ import org.yb.YBTestRunner;
  * Runs the pg_regress test suite on YB code.
  */
 @RunWith(value=YBTestRunner.class)
-public class TestPgRegressYbIndexCheckSingleBatch extends BasePgRegressTest {
+public class TestPgRegressYbIndexCheckSingleSnapshot extends BasePgRegressTest {
 
   @Override
   public int getTestMethodTimeoutSec() {
@@ -28,7 +28,7 @@ public class TestPgRegressYbIndexCheckSingleBatch extends BasePgRegressTest {
   }
 
   @Test
-  public void testPgRegressYbIndexCheckSingleBatched() throws Exception {
+  public void testPgRegressYbIndexCheckSingleSnapshot() throws Exception {
     runPgRegressTest("yb_index_check_schedule");
   }
 
