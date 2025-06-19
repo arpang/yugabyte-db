@@ -946,8 +946,9 @@ detect_index_issues(Relation baserel, Relation indexrel,
 			if (yb_test_slowdown_index_check)
 				sleep(1);
 
+			++rowcount;
 			if (multi_snapshot_mode)
-				batch_complete = end_of_batch(++rowcount, batch_start_time);
+				batch_complete = end_of_batch(rowcount, batch_start_time);
 		}
 
 		if (multi_snapshot_mode)
