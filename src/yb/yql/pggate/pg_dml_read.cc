@@ -863,7 +863,8 @@ void PgDmlRead::BindHashCode(const std::optional<Bound>& start, const std::optio
 
 Status PgDmlRead::IndexCheckBindLowerBound(Slice lower_bound) {
   if (read_req_->has_paging_state()) {
-    return STATUS_FORMAT(InternalError, "Paging state already set");
+    return STATUS_FORMAT(
+        InternalError, "Cannot set index check lower bound, paging state already set");
   }
 
   dockv::DocKey row_key(bind_->schema());
