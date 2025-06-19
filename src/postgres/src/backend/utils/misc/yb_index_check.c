@@ -107,7 +107,8 @@ inconsistent_row_detection_check(TupleTableSlot *outslot, Relation indexrel,
 	Form_pg_attribute ind_att =
 		TupleDescAttr(outslot->tts_tupleDescriptor, attnum - 1);
 	Datum		ybbasectid_datum = slot_getattr(outslot, attnum++, &ind_null);
-	Datum		ybctid_datum = slot_getattr(outslot, attnum++, &base_null);
+	Datum		ybctid_datum PG_USED_FOR_ASSERTS_ONLY =
+		slot_getattr(outslot, attnum++, &base_null);
 
 	if (ind_null)
 		ereport(ERROR,
@@ -126,14 +127,9 @@ inconsistent_row_detection_check(TupleTableSlot *outslot, Relation indexrel,
 	 * with variable length. For instance, in the following case, ybbasectid is
 	 * VARATT_IS_1B, whereas ybctid VARATT_IS_4B. Look into it.
 	 */
-	/* This should never happen because this was the join condition */
-	if (unlikely(!datum_image_eq(ybbasectid_datum, ybctid_datum,
-								 ind_att->attbyval, ind_att->attlen)))
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("indexrow ybbasectid mismatch with baserow ybctid. The "
-						"issue is likely with the checker, and not with the index"),
-				 errdetail(IndRowDetail(indexrel, ybbasectid_datum))));
+	/* Assert the join condiition. */
+	Assert(datum_image_eq(ybbasectid_datum, ybctid_datum, ind_att->attbyval,
+						  ind_att->attlen));
 
 	/* Validate the index attributes */
 	for (int i = 0; i < indnatts; i++)
@@ -742,7 +738,8 @@ yb_index_check(PG_FUNCTION_ARGS)
 	if (yb_test_force_index_check_single_snapshot)
 		multi_snapshot_mode = false;
 
-	uint64		original_read_point = YBCPgGetCurrentReadPoint();
+	uint64		original_read_point PG_USED_FOR_ASSERTS_ONLY =
+		YBCPgGetCurrentReadPoint();
 
 	yb_index_check_internal(indexoid);
 
@@ -1131,9 +1128,12 @@ missing_row_detection_check(TupleTableSlot *outslot, Relation indexrel,
 	 * outslot attributes: baserel.computed_indexrow_ybctid, indexrel.ybctid,
 	 * baserel.ybctid
 	 */
-	Datum		computed_indexrow_ybctid = slot_getattr(outslot, 1, &base_null);
-	Datum		indexrow_ybctid = slot_getattr(outslot, 2, &ind_null);
-	const FormData_pg_attribute *ind_att = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	Datum		computed_indexrow_ybctid PG_USED_FOR_ASSERTS_ONLY =
+		slot_getattr(outslot, 1, &base_null);
+	Datum		indexrow_ybctid PG_USED_FOR_ASSERTS_ONLY =
+		slot_getattr(outslot, 2, &ind_null);
+	const FormData_pg_attribute *ind_att PG_USED_FOR_ASSERTS_ONLY =
+		SystemAttributeDefinition(YBTupleIdAttributeNumber);
 
 	Assert(!base_null);
 	if (ind_null)

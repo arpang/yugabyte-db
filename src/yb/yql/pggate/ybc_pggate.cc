@@ -2287,14 +2287,14 @@ const YbcPgGFlagsAccessor* YBCGetGFlags() {
         &FLAGS_ysql_enable_neghit_full_inheritscache,
       .TEST_ysql_yb_ddl_transaction_block_enabled =
           &FLAGS_TEST_ysql_yb_ddl_transaction_block_enabled,
-      .timestamp_history_retention_interval_sec =
-          &FLAGS_timestamp_history_retention_interval_sec,
       .enable_object_locking_for_table_locks =
           &FLAGS_enable_object_locking_for_table_locks,
       .ysql_max_invalidation_message_queue_size =
           &FLAGS_ysql_max_invalidation_message_queue_size,
       .ysql_max_replication_slots = &FLAGS_max_replication_slots,
-      .yb_max_recursion_depth = &FLAGS_yb_max_recursion_depth
+      .yb_max_recursion_depth = &FLAGS_yb_max_recursion_depth,
+      .timestamp_history_retention_interval_sec =
+          &FLAGS_timestamp_history_retention_interval_sec,
   };
   // clang-format on
   return &accessor;
