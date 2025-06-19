@@ -430,6 +430,7 @@ typedef struct {
   const uint32_t* ysql_max_invalidation_message_queue_size;
   const uint32_t* ysql_max_replication_slots;
   const int32_t*  timestamp_history_retention_interval_sec;
+  const uint32_t* yb_max_recursion_depth;
 } YbcPgGFlagsAccessor;
 
 typedef struct {
@@ -906,6 +907,14 @@ typedef struct {
   const char* src_owner;
   const char* tgt_owner;
 } YbcCloneInfo;
+
+// A thread-safe way to cache compiled regexes.
+typedef struct {
+  void* array;
+} YbcPgThreadLocalRegexpCache;
+
+typedef void (*YbcPgThreadLocalRegexpCacheCleanup)(YbcPgThreadLocalRegexpCache*);
+
 
 typedef struct {
   void *slot;

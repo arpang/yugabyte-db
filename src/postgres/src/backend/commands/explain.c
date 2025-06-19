@@ -131,7 +131,9 @@ static void show_buffer_usage(ExplainState *es, const BufferUsage *usage,
 							  bool planning);
 static void show_wal_usage(ExplainState *es, const WalUsage *usage);
 static void ExplainIndexScanDetails(Oid indexid, ScanDirection indexorderdir,
-									YbPlanInfo *yb_plan_info, ExplainState *es);
+									YbPlanInfo *yb_plan_info,
+									bool yb_is_agg_pushdown,
+									ExplainState *es);
 static void ExplainScanTarget(Scan *plan, ExplainState *es);
 static void ExplainModifyTarget(ModifyTable *plan, ExplainState *es);
 static void ExplainTargetRel(Plan *plan, Index rti, ExplainState *es);
@@ -163,7 +165,15 @@ static void ExplainYAMLLineStarting(ExplainState *es);
 static void escape_yaml(StringInfo buf, const char *str);
 
 /* YB declarations */
+static void show_yb_planning_stats_common(double num_seeks,
+										  double num_nexts_prevs,
+										  double num_table_pages,
+										  double num_index_pages,
+										  int docdb_result_width,
+										  ExplainState *es);
 static void show_yb_planning_stats(YbPlanInfo *planinfo, ExplainState *es);
+static void show_yb_bitmap_scan_planning_stats(YbPlanInfo *planinfo,
+											   ExplainState *es);
 static void show_yb_rpc_stats(PlanState *planstate, ExplainState *es);
 static void YbAppendPgMemInfo(ExplainState *es, const Size peakMem);
 static void YbAggregateExplainableRPCRequestStat(ExplainState *es,
@@ -2049,6 +2059,8 @@ ExplainNode(PlanState *planstate, List *ancestors,
 	int			save_indent = es->indent;
 	bool		haschildren;
 
+	bool		yb_is_agg_pushdown = false;
+
 	/* YB */
 	if (planstate->instrument)
 	{
@@ -2383,6 +2395,13 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		ExplainPropertyBool("Async Capable", plan->async_capable, es);
 	}
 
+	if (IsYugaByteEnabled())
+	{
+		List	  **aggrefs = YbPlanStateTryGetAggrefs(planstate);
+
+		yb_is_agg_pushdown = aggrefs && *aggrefs != NIL;
+	}
+
 	switch (nodeTag(plan))
 	{
 		case T_SeqScan:
@@ -2415,6 +2434,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 				ExplainIndexScanDetails(indexscan->indexid,
 										indexscan->indexorderdir,
 										&indexscan->yb_plan_info,
+										yb_is_agg_pushdown,
 										es);
 				ExplainScanTarget((Scan *) indexscan, es);
 			}
@@ -2426,6 +2446,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 				ExplainIndexScanDetails(indexonlyscan->indexid,
 										indexonlyscan->indexorderdir,
 										&indexonlyscan->yb_plan_info,
+										yb_is_agg_pushdown,
 										es);
 				ExplainScanTarget((Scan *) indexonlyscan, es);
 			}
@@ -2807,7 +2828,8 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (is_yb_rpc_stats_required)
 				show_yb_rpc_stats(planstate, es);
 			if (is_yb_planning_stats_required)
-				show_yb_planning_stats(&((YbBitmapIndexScan *) plan)->yb_plan_info, es);
+				show_yb_bitmap_scan_planning_stats(&((YbBitmapIndexScan *) plan)->yb_plan_info,
+												   es);
 			break;
 		case T_BitmapHeapScan:
 			show_scan_qual(((BitmapHeapScan *) plan)->bitmapqualorig,
@@ -3161,13 +3183,8 @@ ExplainNode(PlanState *planstate, List *ancestors,
 	}
 
 	/* YB aggregate pushdown */
-	if (IsYugaByteEnabled())
-	{
-		List	  **aggrefs = YbPlanStateTryGetAggrefs(planstate);
-
-		if (aggrefs && *aggrefs != NIL)
-			ExplainPropertyBool("Partial Aggregate", true, es);
-	}
+	if (yb_is_agg_pushdown)
+		ExplainPropertyBool("Partial Aggregate", true, es);
 
 	/*
 	 * Prepare per-worker JIT instrumentation.  As with the overall JIT
@@ -4857,27 +4874,50 @@ show_buffer_usage(ExplainState *es, const BufferUsage *usage, bool planning)
 }
 
 static void
-show_yb_planning_stats(YbPlanInfo *planinfo, ExplainState *es)
+show_yb_planning_stats_common(double num_seeks, double num_nexts_prevs,
+							  double num_table_pages, double num_index_pages,
+							  int docdb_result_width, ExplainState *es)
 {
-	ExplainPropertyFloat("Estimated Seeks", NULL,
-						 planinfo->estimated_num_seeks, 0, es);
-	ExplainPropertyFloat("Estimated Nexts And Prevs", NULL,
-						 planinfo->estimated_num_nexts_prevs, 0, es);
+	ExplainPropertyFloat("Estimated Seeks", NULL, num_seeks, 0, es);
+	ExplainPropertyFloat("Estimated Nexts And Prevs", NULL, num_nexts_prevs, 0,
+						 es);
 
 	/*
 	 * YB_TODO(#27210): Do not print values of estimated_num_table_result_pages
 	 * or estimated_num_index_result_pages if == 0.
 	 */
-	if (planinfo->estimated_num_table_result_pages >= 0)
+	if (num_table_pages >= 0)
 		ExplainPropertyFloat("Estimated Table Roundtrips", NULL,
-							 planinfo->estimated_num_table_result_pages, 0, es);
+							 num_table_pages, 0, es);
 
-	if (planinfo->estimated_num_index_result_pages >= 0)
+	if (num_index_pages >= 0)
 		ExplainPropertyFloat("Estimated Index Roundtrips", NULL,
-							 planinfo->estimated_num_index_result_pages, 0, es);
+							 num_index_pages, 0, es);
 
 	ExplainPropertyInteger("Estimated Docdb Result Width", NULL,
-						   planinfo->estimated_docdb_result_width, es);
+						   docdb_result_width, es);
+}
+
+static void
+show_yb_planning_stats(YbPlanInfo *planinfo, ExplainState *es)
+{
+	show_yb_planning_stats_common(planinfo->estimated_num_seeks,
+								  planinfo->estimated_num_nexts_prevs,
+								  planinfo->estimated_num_table_result_pages,
+								  planinfo->estimated_num_index_result_pages,
+								  planinfo->estimated_docdb_result_width,
+								  es);
+}
+
+static void
+show_yb_bitmap_scan_planning_stats(YbPlanInfo *planinfo, ExplainState *es)
+{
+	show_yb_planning_stats_common(planinfo->estimated_num_bmscan_seeks,
+								  planinfo->estimated_num_bmscan_nexts_prevs,
+								  -1,
+								  planinfo->estimated_num_bmscan_result_pages,
+								  planinfo->estimated_docdb_result_width,
+								  es);
 }
 
 /*
@@ -4984,13 +5024,15 @@ show_yb_rpc_stats(PlanState *planstate, ExplainState *es)
  */
 static void
 ExplainIndexScanDetails(Oid indexid, ScanDirection indexorderdir,
-						YbPlanInfo *yb_plan_info, ExplainState *es)
+						YbPlanInfo *yb_plan_info, bool yb_is_agg_pushdown,
+						ExplainState *es)
 {
 	const char *indexname = explain_get_index_name(indexid);
 
 	if (es->format == EXPLAIN_FORMAT_TEXT)
 	{
-		if (ScanDirectionIsBackward(indexorderdir))
+		/* YB: index aggregate pushdown does not actually set any ordering. */
+		if (ScanDirectionIsBackward(indexorderdir) && !yb_is_agg_pushdown)
 			appendStringInfoString(es->str, " Backward");
 		appendStringInfo(es->str, " using %s", quote_identifier(indexname));
 	}

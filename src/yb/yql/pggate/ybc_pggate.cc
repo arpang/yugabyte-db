@@ -2293,7 +2293,8 @@ const YbcPgGFlagsAccessor* YBCGetGFlags() {
           &FLAGS_enable_object_locking_for_table_locks,
       .ysql_max_invalidation_message_queue_size =
           &FLAGS_ysql_max_invalidation_message_queue_size,
-      .ysql_max_replication_slots                = &FLAGS_max_replication_slots
+      .ysql_max_replication_slots = &FLAGS_max_replication_slots,
+      .yb_max_recursion_depth = &FLAGS_yb_max_recursion_depth
   };
   // clang-format on
   return &accessor;
@@ -2402,6 +2403,15 @@ int YBCPgGetThreadLocalYbExpressionVersion() {
 
 void YBCPgSetThreadLocalYbExpressionVersion(int yb_expr_version) {
   PgSetThreadLocalYbExpressionVersion(yb_expr_version);
+}
+
+YbcPgThreadLocalRegexpCache* YBCPgGetThreadLocalRegexpCache() {
+  return PgGetThreadLocalRegexpCache();
+}
+
+YbcPgThreadLocalRegexpCache* YBCPgInitThreadLocalRegexpCache(
+    size_t buffer_size, YbcPgThreadLocalRegexpCacheCleanup cleanup) {
+  return PgInitThreadLocalRegexpCache(buffer_size, cleanup);
 }
 
 void* YBCPgSetThreadLocalJumpBuffer(void* new_buffer) {

@@ -375,11 +375,10 @@ fi
 # fn(arg1 /* acceptable */ ,
 #    arg2 /* acceptable */ );
 # pg_dump has some comments in strings, hence the allowance of '"'.
-# TODO(jason): make this an error after running pgindent in the future.
 if ! [[ "$1" == src/postgres/src/interfaces/ecpg/preproc/output.c ]]; then
   grep -nE '\s\*/' "$1" \
     | grep -vE '\s\*/([\"[:space:]]|$)' \
-    | sed 's/^/warning:bad_spacing_after_comment:'\
+    | sed 's/^/error:bad_spacing_after_comment:'\
 'Comment should generally be followed by space or EOL:/'
 fi
 # fn(/* bad */ arg1,
@@ -392,8 +391,14 @@ if ! [[ "$1" == src/postgres/src/interfaces/ecpg/preproc/output.c ]]; then
 fi
 
 # Comments
-grep -nE '//\s' "$1" \
-  | sed 's|^|error:bad_comment_style:Use /* comment */, not // comment:|'
+# The second grep excludes // comments if the first non-space character of the
+# line is a '*', to allow most cases where // comments are inside a /* */ block
+if ! [[ "$1" == src/postgres/src/common/d2s.c ||
+        "$1" == src/postgres/src/common/d2s_intrinsics.h ]]; then
+  grep -nE '//\s' "$1" \
+    | grep -vE '^[0-9]+:\s+\*\s' \
+    | sed 's|^|error:bad_comment_style:Use /* comment */, not // comment:|'
+fi
 # /* this is a bad
 #  * multiline comment */
 # TupleTableSlot slot /* this is a good
