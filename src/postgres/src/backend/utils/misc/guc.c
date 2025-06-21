@@ -3453,6 +3453,28 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_test_slowdown_index_check", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Slows down yb_index_check() by sleeping for 1s after processing "
+						 "every row. Used in tests to simulate long running yb_index_check()."),
+			NULL
+		},
+		&yb_test_slowdown_index_check,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_test_force_index_check_single_snapshot", PGC_SUSET, CUSTOM_OPTIONS,
+			gettext_noop("Execute yb_index_check() using single snapshot."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_test_force_index_check_single_snapshot,
+		false,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL

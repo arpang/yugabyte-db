@@ -183,6 +183,7 @@ DECLARE_bool(TEST_ysql_log_perdb_allocated_new_objectid);
 DECLARE_bool(TEST_ysql_yb_ddl_transaction_block_enabled);
 
 DECLARE_bool(use_fast_backward_scan);
+DECLARE_int32(timestamp_history_retention_interval_sec);
 DECLARE_uint32(ysql_max_invalidation_message_queue_size);
 DECLARE_uint32(max_replication_slots);
 
@@ -2291,7 +2292,9 @@ const YbcPgGFlagsAccessor* YBCGetGFlags() {
       .ysql_max_invalidation_message_queue_size =
           &FLAGS_ysql_max_invalidation_message_queue_size,
       .ysql_max_replication_slots = &FLAGS_max_replication_slots,
-      .yb_max_recursion_depth = &FLAGS_yb_max_recursion_depth
+      .yb_max_recursion_depth = &FLAGS_yb_max_recursion_depth,
+      .timestamp_history_retention_interval_sec =
+          &FLAGS_timestamp_history_retention_interval_sec,
   };
   // clang-format on
   return &accessor;
@@ -3164,6 +3167,10 @@ bool YBCPgYsqlMajorVersionUpgradeInProgress() {
    * DevNote: Keep this in sync with IsYsqlMajorVersionUpgradeInProgress.
    */
   return yb_major_version_upgrade_compatibility > 0 || !yb_upgrade_to_pg15_completed;
+}
+
+YbcStatus YBCPgIndexCheckBindLowerBound(YbcPgStatement handle, uint64_t lower_bound) {
+  return ToYBCStatus(pgapi->IndexCheckBindLowerBound(handle, YbctidAsSlice(lower_bound)));
 }
 
 } // extern "C"
