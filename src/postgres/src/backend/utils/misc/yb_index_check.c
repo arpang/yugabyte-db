@@ -70,7 +70,7 @@ static size_t join_execution_helper(Relation baserel, Relation indexrel,
 									YbGetPlanFunction get_plan,
 									YbCheckIndexRowFunction check_index_row);
 
-bool		yb_index_check_batch_mode = false;
+bool		yb_index_check_batch_mode = true;
 bool		yb_test_slowdown_index_check = false;
 
 static void
