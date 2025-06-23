@@ -807,28 +807,7 @@ end_of_batch(size_t rowcount, time_t batch_start_time)
 	 * middle of a BNL batch.
 	 */
 	if (yb_index_check_batch_mode && !(rowcount % yb_bnl_batch_size))
-	{
-		time_t		current_time;
-
-		time(&current_time);
-		time_t		elapsed_time = difftime(current_time, batch_start_time);
-
-		/*
-		 * End the current batch if elapsed time > 70% of the
-		 * timestamp_history_retention_interval_sec. This threshold of 70% is
-		 * based on heuristic. The idea is to keep it closer to 100% so that as
-		 * many rows as possible are processed within a single batch - to avoid
-		 * the overhead of creating too many batches. At the same time, keeping
-		 * it too close to 100% risks running into Snapshot too old error in
-		 * scenarios when elapsed time is marginally less than the threshold,
-		 * and hence next set of rows are processed in the same batch but that
-		 * pushes the elapsed time beyond the
-		 * timestamp_history_retention_interval_sec.
-		 */
-		return elapsed_time >
-			(0.7 *
-			 *YBCGetGFlags()->timestamp_history_retention_interval_sec);
-	}
+		return true;
 	return false;
 }
 
