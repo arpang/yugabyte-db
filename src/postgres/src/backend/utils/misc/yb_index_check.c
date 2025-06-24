@@ -101,7 +101,8 @@ static void cleanup_estate(EState *estate);
 static bool end_of_batch(size_t rowcount, time_t batch_start_time);
 static IndexOnlyScan *make_indexonlyscan_plan(Relation indexrel,
 											  List *plan_targetlist,
-											  List *index_cols);
+											  List *index_cols,
+											  ScanDirection direction);
 static Plan *make_bnl_plan(Plan *lefttree, Plan *righttree,
 						   Var *join_clause_lhs, Var *join_clause_rhs,
 						   List *plan_tlist);
@@ -347,9 +348,15 @@ indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid)
 	target_entry = makeTargetEntry((Expr *) expr, resno++, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
-	IndexOnlyScan *index_only_scan = make_indexonlyscan_plan(indexrel,
-															 plan_targetlist,
-															 index_cols);
+	/*
+	 * Execute the index scan in forward direction in multi_snapshot_mode.
+	 * This ensures the index rows are ordered by ybctid.
+	 */
+	ScanDirection direction = multi_snapshot_mode ? ForwardScanDirection :
+													NoMovementScanDirection;
+
+	IndexOnlyScan *index_only_scan = make_indexonlyscan_plan(
+		indexrel, plan_targetlist, index_cols, direction);
 
 	index_only_scan->scan.yb_index_check_lower_bound = lower_bound_ybctid;
 	return (Plan *) index_only_scan;
@@ -786,8 +793,8 @@ indexrel_scan_plan2(Relation indexrel)
 	ScalarArrayOpExpr *saop =
 		get_saop_expr(YBTupleIdAttributeNumber, ybctid_expr);
 
-	IndexOnlyScan *index_only_scan =
-		make_indexonlyscan_plan(indexrel, plan_targetlist, index_cols);
+	IndexOnlyScan *index_only_scan = make_indexonlyscan_plan(
+		indexrel, plan_targetlist, index_cols, NoMovementScanDirection);
 
 	index_only_scan->indexqual = list_make1(saop);
 	return (Plan *) index_only_scan;
@@ -1057,7 +1064,7 @@ end_of_batch(size_t rowcount, time_t batch_start_time)
 
 static IndexOnlyScan *
 make_indexonlyscan_plan(Relation indexrel, List *plan_targetlist,
-						List *index_cols)
+						List *index_cols, ScanDirection direction)
 {
 	IndexOnlyScan *index_only_scan = makeNode(IndexOnlyScan);
 	Plan *plan = &index_only_scan->scan.plan;
@@ -1068,6 +1075,7 @@ make_indexonlyscan_plan(Relation indexrel, List *plan_targetlist,
 	index_only_scan->scan.scanrelid = 1; /* only one relation is involved */
 	index_only_scan->indexid = RelationGetRelid(indexrel);
 	index_only_scan->indextlist = index_cols;
+	index_only_scan->indexorderdir = direction;
 	return index_only_scan;
 }
 
