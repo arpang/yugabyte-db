@@ -1484,19 +1484,18 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 				HandleYBStatus(
 					YBCPgAlterTableDropColumn(drop_col_handle, cmd->name));
 
+				*needsYBAlter = true;
+
 				if (cmd->behavior != DROP_CASCADE)
-				{
-					*needsYBAlter = true;
 					break;
-				}
 
 				AttrNumber offset = YBGetFirstLowInvalidAttributeNumber(rel);
-				Bitmapset *bms = bms_make_singleton(attnum - offset);
-				Bitmapset *dependent_bms =
-					yb_get_dependent_generated_columns_helper(rel, bms, NULL);
+				Bitmapset *dependent_generated_cols =
+					YbGetDependentGeneratedColumns(rel, attnum);
 
 				int bms_index;
-				while ((bms_index = bms_first_member(dependent_bms)) >= 0)
+				while ((bms_index =
+							bms_first_member(dependent_generated_cols)) >= 0)
 				{
 					AttrNumber dependent_attnum = bms_index + offset;
 
@@ -1505,7 +1504,10 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 					 * rewritten)
 					 */
 					if (YbIsAttrPrimaryKeyColumn(rel, dependent_attnum))
+					{
+						*needsYBAlter = false;
 						break;
+					}
 
 					HeapTuple tuple =
 						SearchSysCacheAttNum(relationId, dependent_attnum);
@@ -1519,10 +1521,7 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 						drop_col_handle, dependent_attname.data));
 					ReleaseSysCache(tuple);
 				}
-				bms_free(bms);
-				bms_free(dependent_bms);
-
-				*needsYBAlter = true;
+				bms_free(dependent_generated_cols);
 				break;
 			}
 

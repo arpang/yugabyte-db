@@ -79,8 +79,7 @@ extern Bitmapset *get_dependent_generated_columns(PlannerInfo *root, Index rti,
 												  Bitmapset **yb_generated_cols_source);
 
 extern Bitmapset *
-yb_get_dependent_generated_columns_helper(Relation relation,
-										  Bitmapset *target_cols,
-										  Bitmapset **yb_generated_cols_source);
+yb_get_dependent_generated_columns(Relation relation, Bitmapset *target_cols,
+								   Bitmapset **yb_generated_cols_source);
 
 #endif							/* PLANCAT_H */

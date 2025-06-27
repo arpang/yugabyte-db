@@ -2300,16 +2300,15 @@ get_dependent_generated_columns(PlannerInfo *root, Index rti,
 	/* Assume we already have adequate lock */
 	relation = table_open(rte->relid, NoLock);
 
-	dependentCols = yb_get_dependent_generated_columns_helper(
+	dependentCols = yb_get_dependent_generated_columns(
 		relation, target_cols, yb_generated_cols_source);
 	table_close(relation, NoLock);
 	return dependentCols;
 }
 
 Bitmapset *
-yb_get_dependent_generated_columns_helper(Relation relation,
-										  Bitmapset *target_cols,
-										  Bitmapset **yb_generated_cols_source)
+yb_get_dependent_generated_columns(Relation relation, Bitmapset *target_cols,
+								   Bitmapset **yb_generated_cols_source)
 {
 	Bitmapset *dependentCols = NULL;
 	TupleDesc	tupdesc;
@@ -2348,6 +2347,7 @@ yb_get_dependent_generated_columns_helper(Relation relation,
 			}
 		}
 	}
+
 	return dependentCols;
 }
 
