@@ -2200,7 +2200,7 @@ DefineIndex(Oid relationId,
 
 		StartTransactionCommand();
 
-		YbDdlMode	ddl_mode = (*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled) ?
+		YbDdlMode	ddl_mode = (YBIsDdlTransactionBlockEnabled()) ?
 			YB_DDL_MODE_AUTONOMOUS_TRANSACTION_CHANGE_VERSION_INCREMENT :
 			YB_DDL_MODE_VERSION_INCREMENT;
 
@@ -5113,6 +5113,7 @@ YbWaitForBackendsCatalogVersion()
 								 " the lagging backends: SELECT * FROM"
 								 " pg_stat_activity WHERE"
 								 " backend_type != 'walsender' AND"
+								 " backend_type != 'yb-conn-mgr walsender' AND"
 								 " catalog_version < %" PRIu64
 								 " AND datid = %u;",
 								 catalog_version,
