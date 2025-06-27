@@ -7790,8 +7790,8 @@ Bitmapset *
 YbGetDependentGeneratedColumns(Relation rel, AttrNumber attnum)
 {
 	AttrNumber	offset = YBGetFirstLowInvalidAttributeNumber(rel);
-	Bitmapset	*bms = bms_make_singleton(attnum - offset);
-	Bitmapset	*generated_cols =
+	Bitmapset  *bms = bms_make_singleton(attnum - offset);
+	Bitmapset  *generated_cols =
 		yb_get_dependent_generated_columns(rel, bms, NULL);
 	bms_free(bms);
 	return generated_cols;
@@ -7801,13 +7801,14 @@ bool
 YbHasDependentPKCols(Relation rel, AttrNumber attnum)
 {
 	AttrNumber	offset = YBGetFirstLowInvalidAttributeNumber(rel);
-	Bitmapset	*dependent_generated_cols =
+	Bitmapset  *dependent_generated_cols =
 		YbGetDependentGeneratedColumns(rel, attnum);
 	int			bms_index;
 
 	while ((bms_index = bms_first_member(dependent_generated_cols)) >= 0)
 	{
 		AttrNumber	dependent_attnum = bms_index + offset;
+
 		if (YbIsAttrPrimaryKeyColumn(rel, dependent_attnum))
 			return true;
 	}
