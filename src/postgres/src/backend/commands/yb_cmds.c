@@ -1489,10 +1489,11 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 				Bitmapset  *dependent_generated_cols =
 					YbGetDependentGeneratedCols(rel, attnum);
 
-				int			bms_index;
-
 				Assert(bms_is_empty(dependent_generated_cols) ||
 					   cmd->behavior == DROP_CASCADE);
+
+				int			bms_index;
+
 				while ((bms_index =
 						bms_first_member(dependent_generated_cols)) >= 0)
 				{
