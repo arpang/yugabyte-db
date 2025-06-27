@@ -1396,9 +1396,8 @@ extern void YbForceSendInvalMessages();
 
 extern long YbGetPeakRssKb();
 
-extern Bitmapset *YbGetDependentGeneratedColumns(Relation rel,
-												 AttrNumber attnum);
+extern Bitmapset *YbGetDependentGeneratedCols(Relation rel, AttrNumber attnum);
 
-extern bool YbHasDependentPKCols(Relation rel, AttrNumber attnum);
+extern bool YbIsDependentGeneratedColPK(Relation rel, AttrNumber attnum);
 
 #endif							/* PG_YB_UTILS_H */

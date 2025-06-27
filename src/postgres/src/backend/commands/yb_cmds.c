@@ -63,7 +63,6 @@
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/optimizer.h"
-#include "optimizer/plancat.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_relation.h"
 #include "parser/parse_type.h"
@@ -1491,7 +1490,7 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 
 				AttrNumber	offset = YBGetFirstLowInvalidAttributeNumber(rel);
 				Bitmapset  *dependent_generated_cols =
-					YbGetDependentGeneratedColumns(rel, attnum);
+					YbGetDependentGeneratedCols(rel, attnum);
 
 				int			bms_index;
 
@@ -1896,7 +1895,6 @@ YBCPrepareAlterTable(List **subcmds,
 		foreach(lcmd, subcmds[cmd_idx])
 		{
 			bool subcmd_needs_yb_alter = false;
-
 			handles = YBCPrepareAlterTableCmd((AlterTableCmd *) lfirst(lcmd),
 											  rel, handles, &col,
 											  &subcmd_needs_yb_alter, rollbackHandle,
