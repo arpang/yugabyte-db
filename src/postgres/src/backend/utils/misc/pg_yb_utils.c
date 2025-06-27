@@ -29,7 +29,6 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <inttypes.h>
-#include "optimizer/plancat.h"
 #ifdef HAVE_SYS_PRCTL_H
 #include <sys/prctl.h>
 #endif
@@ -106,6 +105,7 @@
 #include "nodes/makefuncs.h"
 #include "nodes/readfuncs.h"
 #include "optimizer/cost.h"
+#include "optimizer/plancat.h"
 #include "parser/parse_utilcmd.h"
 #include "pg_yb_utils.h"
 #include "pgstat.h"

@@ -2300,8 +2300,8 @@ get_dependent_generated_columns(PlannerInfo *root, Index rti,
 	/* Assume we already have adequate lock */
 	relation = table_open(rte->relid, NoLock);
 
-	dependentCols = yb_get_dependent_generated_columns(
-		relation, target_cols, yb_generated_cols_source);
+	dependentCols = yb_get_dependent_generated_columns(relation, target_cols,
+													   yb_generated_cols_source);
 	table_close(relation, NoLock);
 	return dependentCols;
 }

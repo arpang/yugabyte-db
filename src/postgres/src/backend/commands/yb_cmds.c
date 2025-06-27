@@ -23,8 +23,6 @@
 
 #include "postgres.h"
 
-#include "yb/yql/pggate/ybc_pg_typedefs.h"
-#include "yb/yql/pggate/ybc_pggate.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/nbtree.h"
@@ -1481,8 +1479,8 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 					break;
 				Assert(list_length(handles) == 1);
 				YbcPgStatement drop_col_handle = (YbcPgStatement) lfirst(list_head(handles));
-				HandleYBStatus(
-					YBCPgAlterTableDropColumn(drop_col_handle, cmd->name));
+				HandleYBStatus(YBCPgAlterTableDropColumn(drop_col_handle,
+														 cmd->name));
 
 				*needsYBAlter = true;
 
@@ -1517,8 +1515,8 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 
 					NameData dependent_attname =
 						((Form_pg_attribute) GETSTRUCT(tuple))->attname;
-					HandleYBStatus(YBCPgAlterTableDropColumn(
-						drop_col_handle, dependent_attname.data));
+					HandleYBStatus(YBCPgAlterTableDropColumn(drop_col_handle,
+															 dependent_attname.data));
 					ReleaseSysCache(tuple);
 				}
 				bms_free(dependent_generated_cols);
@@ -1841,6 +1839,7 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 		case AT_DropOf:
 			*needsYBAlter = false;
 			break;
+
 		case AT_DropInherit:
 			yb_switch_fallthrough();
 		case AT_AddInherit:
