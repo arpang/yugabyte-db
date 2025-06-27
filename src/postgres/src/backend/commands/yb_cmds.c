@@ -75,6 +75,8 @@
 #include "utils/rel.h"
 #include "utils/relcache.h"
 #include "utils/syscache.h"
+#include "yb/yql/pggate/ybc_pg_typedefs.h"
+#include "yb/yql/pggate/ybc_pggate.h"
 
 /* Utility function to calculate column sorting options */
 static void
@@ -1479,9 +1481,9 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 					break;
 				Assert(list_length(handles) == 1);
 				YbcPgStatement drop_col_handle = (YbcPgStatement) lfirst(list_head(handles));
+
 				HandleYBStatus(YBCPgAlterTableDropColumn(drop_col_handle,
 														 cmd->name));
-
 				*needsYBAlter = true;
 
 				if (cmd->behavior != DROP_CASCADE)
