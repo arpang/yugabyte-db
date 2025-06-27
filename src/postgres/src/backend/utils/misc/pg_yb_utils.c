@@ -7793,6 +7793,7 @@ YbGetDependentGeneratedColumns(Relation rel, AttrNumber attnum)
 	Bitmapset  *bms = bms_make_singleton(attnum - offset);
 	Bitmapset  *generated_cols =
 		yb_get_dependent_generated_columns(rel, bms, NULL);
+
 	bms_free(bms);
 	return generated_cols;
 }
