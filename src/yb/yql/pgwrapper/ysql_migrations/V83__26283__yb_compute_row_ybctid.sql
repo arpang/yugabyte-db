@@ -25,8 +25,8 @@ BEGIN;
     8097, 1255, 0, 'returns the ybctid given a relation and its key attributes'
   ) ON CONFLICT DO NOTHING;
 
-  UPDATE pg_catalog.pg_proc SET provolatile='v', proargnames='{indexrelid,multi_snapshot_mode}',
-  proargdefaults='({CONST :consttype 16 :consttypmod -1 :constcollid 0 :constlen 1 :constbyval true :constisnull false :location 93 :constvalue 1 [ 1 0 0 0 0 0 0 0 ]})',
+  UPDATE pg_catalog.pg_proc SET provolatile='v', proargnames='{indexrelid,single_snapshot_mode}',
+  proargdefaults='({CONST :consttype 16 :consttypmod -1 :constcollid 0 :constlen 1 :constbyval true :constisnull false :location 94 :constvalue 1 [ 0 0 0 0 0 0 0 0 ]})',
   proisstrict=false, proargtypes='26 16', pronargdefaults=1, pronargs=2 WHERE oid = 8090;
 
   UPDATE pg_catalog.pg_description SET description = 'checks whether the index is consistent with its base relation'

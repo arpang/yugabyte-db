@@ -122,8 +122,9 @@ Datum
 yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid indexoid = PG_GETARG_OID(0);
+	bool single_snapshot_mode = PG_GETARG_BOOL(1);
 
-	multi_snapshot_mode = PG_GETARG_OID(1);
+	multi_snapshot_mode = !single_snapshot_mode;
 
 	if (yb_test_force_index_check_single_snapshot)
 		multi_snapshot_mode = false;

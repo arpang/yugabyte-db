@@ -116,7 +116,7 @@ VOLATILE STRICT PARALLEL SAFE
 AS 'yb_cancel_query_diagnostics';
 
 CREATE OR REPLACE FUNCTION
-  yb_index_check(indexrelid oid, multi_snapshot_mode bool DEFAULT true)
+  yb_index_check(indexrelid oid, single_snapshot_mode bool DEFAULT false)
 RETURNS void
 LANGUAGE INTERNAL
 VOLATILE PARALLEL SAFE
