@@ -1485,12 +1485,12 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 														 cmd->name));
 				*needsYBAlter = true;
 
+				if (cmd->behavior != DROP_CASCADE)
+					break;
+
 				AttrNumber	offset = YBGetFirstLowInvalidAttributeNumber(rel);
 				Bitmapset  *dependent_generated_cols =
 					YbGetDependentGeneratedCols(rel, attnum);
-
-				Assert(bms_is_empty(dependent_generated_cols) ||
-					   cmd->behavior == DROP_CASCADE);
 
 				int			bms_index;
 
