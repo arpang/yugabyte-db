@@ -103,6 +103,9 @@ static IndexOnlyScan *make_indexonlyscan_plan(Relation indexrel,
 											  List *plan_targetlist,
 											  List *index_cols,
 											  ScanDirection direction);
+static IndexScan *make_basescan_plan(Relation baserel, Relation indexrel,
+									 List *plan_targetlist, List *indextlist,
+									 ScanDirection direction);
 static Plan *make_bnl_plan(Plan *lefttree, Plan *righttree,
 						   Var *join_clause_lhs, Var *join_clause_rhs,
 						   List *plan_tlist);
@@ -419,34 +422,11 @@ baserel_scan_plan1(Relation baserel, Relation indexrel)
 	ScalarArrayOpExpr *saop = get_saop_expr(YBIdxBaseTupleIdAttributeNumber,
 											(Expr *) ybctid_from_index);
 
-	/* Partial index predicate */
-	List	   *partial_idx_colrefs = NIL;
-	bool		partial_idx_pushdown = false;
-	List	   *partial_idx_pred = get_partial_index_predicate(baserel, indexrel,
-															   &partial_idx_colrefs,
-															   &partial_idx_pushdown);
-
 	/* Scan plan */
-	/*
-	 * TODO: TidScan, once supported, can be used here instead. With that,
-	 * yb_dummy_baserel_index_open() and yb_free_dummy_baserel_index() should
-	 * not be be required.
-	 */
-	IndexScan  *base_scan = makeNode(IndexScan);
-	Plan	   *plan = &base_scan->scan.plan;
-
-	plan->targetlist = plan_targetlist;
-	plan->lefttree = NULL;
-	plan->righttree = NULL;
-	plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
-	base_scan->scan.scanrelid = 1;	/* only one relation is involved */
-	base_scan->indexid = RelationGetRelid(baserel);
-	base_scan->indextlist = indextlist;
+	IndexScan *base_scan = make_basescan_plan(baserel, indexrel,
+											  plan_targetlist, indextlist,
+											  NoMovementScanDirection);
 	base_scan->indexqual = list_make1(saop);
-	base_scan->yb_rel_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
-		NIL;
-	base_scan->yb_rel_pushdown.colrefs =
-		partial_idx_pushdown ? partial_idx_colrefs : NIL;
 	return (Plan *) base_scan;
 }
 
@@ -731,25 +711,24 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 	target_entry = makeTargetEntry((Expr *) ybctid_expr, resno++, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
-	/* Partial index predicate */
-	List *partial_idx_colrefs = NIL;
-	bool partial_idx_pushdown = false;
-	List *partial_idx_pred = get_partial_index_predicate(
-		baserel, indexrel, &partial_idx_colrefs, &partial_idx_pushdown);
+	/* Index target list */
+	Var *ybctid_from_index = (Var *) copyObject(ybctid_expr);
+	ybctid_from_index->varno = INDEX_VAR;
+	ybctid_from_index->varattno = 1;
+	target_entry = makeTargetEntry((Expr *) ybctid_from_index, 1, "", false);
+	List *indextlist = list_make1(target_entry);
+
+	/*
+	 * Execute the index scan in forward direction in multi_snapshot_mode.
+	 * This ensures the index rows are ordered by ybctid.
+	 */
+	ScanDirection direction = multi_snapshot_mode ? ForwardScanDirection :
+													NoMovementScanDirection;
 
 	/* Scan plan */
-	YbSeqScan *base_scan = makeNode(YbSeqScan);
-	Plan *plan = &base_scan->scan.plan;
-
-	plan->targetlist = plan_targetlist;
-	plan->lefttree = NULL;
-	plan->righttree = NULL;
-	plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
-	base_scan->scan.scanrelid = 1; /* only one relation is involved */
-	base_scan->yb_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
-														  NIL;
-	base_scan->yb_pushdown.colrefs =
-		partial_idx_pushdown ? partial_idx_colrefs : NIL;
+	IndexScan *base_scan = make_basescan_plan(baserel, indexrel,
+											  plan_targetlist, indextlist,
+											  direction);
 	base_scan->scan.yb_index_check_lower_bound = lower_bound_ybctid;
 	return (Plan *) base_scan;
 }
@@ -1077,6 +1056,39 @@ make_indexonlyscan_plan(Relation indexrel, List *plan_targetlist,
 	index_only_scan->indextlist = index_cols;
 	index_only_scan->indexorderdir = direction;
 	return index_only_scan;
+}
+
+static IndexScan *
+make_basescan_plan(Relation baserel, Relation indexrel, List *plan_targetlist,
+				   List *indextlist, ScanDirection direction)
+{
+	/* Partial index predicate */
+	List *partial_idx_colrefs = NIL;
+	bool partial_idx_pushdown = false;
+	List *partial_idx_pred = get_partial_index_predicate(
+		baserel, indexrel, &partial_idx_colrefs, &partial_idx_pushdown);
+
+	/*
+	 * TODO: TidScan, once supported, can be used here instead. With that,
+	 * yb_dummy_baserel_index_open() and yb_free_dummy_baserel_index() will
+	 * not be be required.
+	 */
+	IndexScan *base_scan = makeNode(IndexScan);
+	Plan *plan = &base_scan->scan.plan;
+
+	plan->targetlist = plan_targetlist;
+	plan->lefttree = NULL;
+	plan->righttree = NULL;
+	plan->qual = !partial_idx_pushdown ? partial_idx_pred : NIL;
+	base_scan->scan.scanrelid = 1; /* only one relation is involved */
+	base_scan->indexid = RelationGetRelid(baserel);
+	base_scan->indextlist = indextlist;
+	base_scan->yb_rel_pushdown.quals = partial_idx_pushdown ? partial_idx_pred :
+															  NIL;
+	base_scan->yb_rel_pushdown.colrefs =
+		partial_idx_pushdown ? partial_idx_colrefs : NIL;
+	base_scan->indexorderdir = direction;
+	return base_scan;
 }
 
 static Plan *
