@@ -1,10 +1,9 @@
 SET yb_explain_hide_non_deterministic_fields = true;
--- Setup
+SET yb_bnl_batch_size = 3;
+-- Basic test
 CREATE TABLE abcd(a int primary key, b int, c int, d int) SPLIT INTO 1 TABLETS;
 CREATE INDEX abcd_b_c_d_idx ON abcd (b ASC) INCLUDE (c, d);
 INSERT INTO abcd SELECT i, i, i, i FROM generate_series(1, 10) i;
--- Basic test
-SET yb_bnl_batch_size = 3;
 EXPLAIN (ANALYZE, DIST, COSTS OFF, SUMMARY OFF) SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
                QUERY PLAN                
 -----------------------------------------
@@ -21,6 +20,11 @@ SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
  
 (1 row)
 
+DROP TABLE abcd;
+-- Set up
+CREATE TABLE abcd(a int primary key, b int, c int, d int);
+CREATE INDEX abcd_b_c_d_idx ON abcd (b ASC) INCLUDE (c, d);
+INSERT INTO abcd SELECT i, i, i, i FROM generate_series(1, 10) i;
 -- Partial index
 CREATE INDEX abcd_b_c_idx ON abcd(b) INCLUDE (c) WHERE d > 5;
 SELECT yb_index_check('abcd_b_c_idx'::regclass::oid);
