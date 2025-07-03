@@ -35,7 +35,7 @@ public class TestPgRegressYbIndexCheck extends BasePgRegressTest {
   @Override
   protected Map<String, String> getTServerFlags() {
     Map<String, String> flagMap = super.getTServerFlags();
-    flagMap.put("timestamp_history_retention_interval_sec", "4");
+    appendToYsqlPgConf(flagMap, "yb_test_index_check_num_batches_per_snapshot=1");
     return flagMap;
   }
 }

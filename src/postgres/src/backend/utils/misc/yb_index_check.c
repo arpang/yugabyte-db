@@ -64,7 +64,7 @@ typedef void (*YbIssueDetectionCheck) (TupleTableSlot *outslot,
 									   List *equality_opcodes);
 
 bool multi_snapshot_mode = true;
-bool yb_test_force_index_check_single_snapshot = false;
+int yb_test_index_check_num_batches_per_snapshot = -1;
 bool yb_test_slowdown_index_check = false;
 
 static void yb_index_check_internal(Oid indexoid);
@@ -126,7 +126,7 @@ yb_index_check(PG_FUNCTION_ARGS)
 
 	multi_snapshot_mode = !single_snapshot_mode;
 
-	if (yb_test_force_index_check_single_snapshot)
+	if (yb_test_index_check_num_batches_per_snapshot == 0)
 		multi_snapshot_mode = false;
 
 	uint64 original_read_point PG_USED_FOR_ASSERTS_ONLY =
@@ -1018,7 +1018,19 @@ end_of_batch(size_t rowcount, time_t batch_start_time)
 	 */
 	if (!(rowcount % yb_bnl_batch_size))
 	{
-		time_t		current_time;
+		/*
+		 * For testing purposes, if yb_test_index_check_num_batches_per_snapshot
+		 * is > 0, use batch size = yb_bnl_batch_size *
+		 * yb_test_index_check_num_batches_per_snapshot.
+		 */
+		if (yb_test_index_check_num_batches_per_snapshot > 0)
+		{
+			size_t batch_size = yb_test_index_check_num_batches_per_snapshot *
+								yb_bnl_batch_size;
+			return rowcount % batch_size == 0;
+		}
+
+		time_t current_time;
 
 		time(&current_time);
 		time_t		elapsed_time = difftime(current_time, batch_start_time);

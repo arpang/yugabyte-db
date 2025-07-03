@@ -3454,23 +3454,13 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"yb_test_slowdown_index_check", PGC_USERSET, CUSTOM_OPTIONS,
+		{"yb_test_slowdown_index_check", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Slows down yb_index_check() by sleeping for 1s after processing "
 						 "every row. Used in tests to simulate long running yb_index_check()."),
-			NULL
-		},
-		&yb_test_slowdown_index_check,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"yb_test_force_index_check_single_snapshot", PGC_SUSET, CUSTOM_OPTIONS,
-			gettext_noop("Execute yb_index_check() using single snapshot."),
 			NULL,
 			GUC_NOT_IN_SAMPLE
 		},
-		&yb_test_force_index_check_single_snapshot,
+		&yb_test_slowdown_index_check,
 		false,
 		NULL, NULL, NULL
 	},
@@ -5406,6 +5396,21 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_UNIT_KB | GUC_NOT_IN_SAMPLE
 		},
 		&yb_log_heap_snapshot_on_exit_threshold,
+		-1,
+		-1,
+		INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_test_index_check_num_batches_per_snapshot", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Used to test yb_index_check()"),
+			gettext_noop("If set to > 0, number of index rows processed per snapshot "
+						 "is equal to  yb_test_index_check_num_batches_per_snapshot*yb_bnl_batch_size "
+						 "If set to 0, yb_index_check() will execute in single snapshot mode."),
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_test_index_check_num_batches_per_snapshot,
 		-1,
 		-1,
 		INT_MAX,

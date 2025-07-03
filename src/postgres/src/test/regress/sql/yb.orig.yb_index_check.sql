@@ -7,9 +7,7 @@ INSERT INTO abcd SELECT i, i, i, i FROM generate_series(1, 10) i;
 
 -- Basic test
 SET yb_bnl_batch_size = 3;
-SET yb_test_slowdown_index_check = 1;
 EXPLAIN (ANALYZE, DIST, COSTS OFF, SUMMARY OFF) SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
-SET yb_test_slowdown_index_check = 0;
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);
 
 -- Partial index
