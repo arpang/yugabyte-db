@@ -94,7 +94,8 @@ static int64 get_expected_index_rowcount(Relation baserel, Relation indexrel);
 
 static size_t detect_index_issues(Relation baserel, Relation indexrel,
 								  YbIssueDetectionPlan issue_detection_plan,
-								  YbIssueDetectionCheck issue_detection_check);
+								  YbIssueDetectionCheck issue_detection_check,
+								  char *task_identifier);
 static List *get_equality_opcodes(Relation indexrel);
 static void init_estate(EState *estate, Relation baserel);
 static void cleanup_estate(EState *estate);
@@ -214,7 +215,8 @@ detect_inconsistent_rows(Relation baserel, Relation indexrel)
 {
 	return detect_index_issues(baserel, indexrel,
 							   inconsistent_row_detection_plan,
-							   inconsistent_row_detection_check);
+							   inconsistent_row_detection_check,
+							   "detect_inconsistent_rows");
 }
 
 /*
@@ -573,7 +575,7 @@ detect_missing_rows(Relation baserel, Relation indexrel,
 {
 	if (multi_snapshot_mode)
 		detect_index_issues(baserel, indexrel, missing_row_detection_plan,
-							missing_row_detection_check);
+							missing_row_detection_check, "detect_missing_rows");
 	else
 	{
 		size_t expected_index_rowcount =
@@ -876,11 +878,13 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 static size_t
 detect_index_issues(Relation baserel, Relation indexrel,
 					YbIssueDetectionPlan issue_detection_plan,
-					YbIssueDetectionCheck issue_detection_check)
+					YbIssueDetectionCheck issue_detection_check,
+					char *task_identifier)
 {
 	Datum lower_bound_ybctid = 0;
 	bool execution_complete = false;
 	size_t rowcount = 0;
+	int batchcount = 0;
 	TupleTableSlot *outslot;
 	time_t batch_start_time;
 
@@ -945,12 +949,24 @@ detect_index_issues(Relation baserel, Relation indexrel,
 		ExecEndNode(planstate);
 		MemoryContextSwitchTo(oldctxt);
 		cleanup_estate(estate);
+		++batchcount;
 	}
 
 	pfree(equality_opcodes);
 	if (lower_bound_ybctid)
 		pfree(DatumGetPointer(lower_bound_ybctid));
 
+	/*
+	 * The row with min(ybctid) in each batch (starting with batch #2) is same
+	 * as the the row with max(ybctid) of the previous batch. Hence, there are
+	 * (batchcount - 1) duplicate rows processed.
+	 */
+	size_t unique_rowcount = rowcount - (batchcount - 1);
+	elog(DEBUG1,
+		 "%s processed %ld rows (%ld unique) in %d batche(s) in "
+		 "%s-snapshot-mode",
+		 task_identifier, rowcount, unique_rowcount, batchcount,
+		 multi_snapshot_mode ? "multi" : "single");
 	return rowcount;
 }
 
