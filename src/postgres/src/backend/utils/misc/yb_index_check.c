@@ -1195,7 +1195,7 @@ lower_bound_ybctid_indexqual(Expr *ybctid_expr, Datum lower_bound)
 		makeConst(attr->atttypid, attr->atttypmod, attr->attcollation,
 				  attr->attlen, lower_bound, lower_bound == 0, attr->attbyval);
 
-	/* 1959 corresponds of > operator on bytea type. */
+	/* OID 1959 corresponds to '>' operator on bytea type. */
 	OpExpr	   *op = (OpExpr *) make_opclause(1959, BOOLOID, false, ybctid_expr,
 											  (Expr *) lower_bound_expr, InvalidOid,
 											  InvalidOid);

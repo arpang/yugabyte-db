@@ -258,7 +258,7 @@ YbBindColumnCondBetween(YbScanDesc ybScan,
 	{
 		/*
 		 * Special handling of indexqual 'ybctid > lower_bound' that
-		 * yb_index_check() sets.
+		 * yb_index_check() executes.
 		 */
 		Assert(!start_inclusive);
 		HandleYBStatus(YBCPgIndexCheckBindLowerBound(ybScan->handle, value));

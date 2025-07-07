@@ -1409,6 +1409,12 @@ ExecIndexBuildScanKeys(PlanState *planstate, Relation index,
 			else
 			{
 				varattno = ((Var *) leftop)->varattno;
+
+				/*
+				 * Special handling for ybctid column. This is currenly used
+				 * only by yb_index_check() which executes indexqual of the
+				 * form 'ybctid > lower_bound'.
+				 */
 				if (varattno == YBTupleIdAttributeNumber)
 					opfamily = BYTEA_LSM_FAM_OID;
 				else
@@ -1682,9 +1688,8 @@ ExecIndexBuildScanKeys(PlanState *planstate, Relation index,
 
 			/*
 			 * Special handling for ybctid column. This is currenly used only by
-			 * yb_index_check() which executes query of the form:
-			 * 		ybctid op ANY (array-expression)
-			 * on the index relation.
+			 * yb_index_check() which executes indexqual of the form:
+			 * 	'ybctid IN (array-expression)'
 			 */
 			if (varattno == YBTupleIdAttributeNumber)
 				opfamily = BYTEA_LSM_FAM_OID;
