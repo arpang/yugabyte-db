@@ -22,7 +22,7 @@ namespace pgwrapper {
 class PgYbIndexCheckTest : public PgMiniTestBase {
 };
 
-TEST_F(PgYbIndexCheckTest, BatchedYbIndexCheckRepeatableRead) {
+TEST_F(PgYbIndexCheckTest, YbIndexCheckRepeatableRead) {
   auto conn = ASSERT_RESULT(Connect());
   int64_t rowcount = 3;
   ASSERT_OK(conn.Execute("CREATE TABLE abcd(a int primary key, b int, c int, d int)"));
@@ -46,7 +46,7 @@ TEST_F(PgYbIndexCheckTest, BatchedYbIndexCheckRepeatableRead) {
   ASSERT_EQ(rows.size(), rowcount);
 }
 
-TEST_F(PgYbIndexCheckTest, BatchedYbIndexCheckSnapshotTooOld) {
+TEST_F(PgYbIndexCheckTest, YbIndexCheckSnapshotTooOld) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_timestamp_history_retention_interval_sec) = 15;
   ASSERT_OK(RestartCluster());
   auto conn = ASSERT_RESULT(Connect());
