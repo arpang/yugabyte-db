@@ -363,16 +363,17 @@ indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid)
 	ScanDirection direction = multi_snapshot_mode ? ForwardScanDirection :
 													NoMovementScanDirection;
 
-	IndexOnlyScan *index_only_scan = make_indexonlyscan_plan(
-		indexrel, plan_targetlist, index_cols, direction);
+	IndexOnlyScan *scan_plan = make_indexonlyscan_plan(indexrel,
+													   plan_targetlist,
+													   index_cols, direction);
 
 	if (lower_bound_ybctid)
 	{
 		OpExpr *indexqual =
 			lower_bound_ybctid_indexqual(ybctid_from_index, lower_bound_ybctid);
-		index_only_scan->indexqual = list_make1(indexqual);
+		scan_plan->indexqual = list_make1(indexqual);
 	}
-	return (Plan *) index_only_scan;
+	return (Plan *) scan_plan;
 }
 
 /*
@@ -736,17 +737,17 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 													NoMovementScanDirection;
 
 	/* Scan plan */
-	IndexScan *base_scan = make_basescan_plan(baserel, indexrel,
+	IndexScan *scan_plan = make_basescan_plan(baserel, indexrel,
 											  plan_targetlist, indextlist,
 											  direction);
 
 	if (lower_bound_ybctid)
 	{
-		OpExpr *indexqual = lower_bound_ybctid_indexqual(
-			(Expr *) ybctid_from_index, lower_bound_ybctid);
-		base_scan->indexqual = list_make1(indexqual);
+		OpExpr *indexqual = lower_bound_ybctid_indexqual((Expr *) ybctid_from_index,
+														 lower_bound_ybctid);
+		scan_plan->indexqual = list_make1(indexqual);
 	}
-	return (Plan *) base_scan;
+	return (Plan *) scan_plan;
 }
 
 /*
@@ -788,11 +789,13 @@ indexrel_scan_plan2(Relation indexrel)
 	ScalarArrayOpExpr *saop =
 		get_saop_expr(YBTupleIdAttributeNumber, ybctid_expr);
 
-	IndexOnlyScan *index_only_scan = make_indexonlyscan_plan(
-		indexrel, plan_targetlist, index_cols, NoMovementScanDirection);
+	IndexOnlyScan *scan_plan = make_indexonlyscan_plan(indexrel,
+													   plan_targetlist,
+													   index_cols,
+													   NoMovementScanDirection);
 
-	index_only_scan->indexqual = list_make1(saop);
-	return (Plan *) index_only_scan;
+	scan_plan->indexqual = list_make1(saop);
+	return (Plan *) scan_plan;
 }
 
 static void
@@ -820,12 +823,11 @@ missing_row_detection_check(TupleTableSlot *outslot, Relation indexrel,
 		Datum ybctid = slot_getattr(outslot, 3, &base_null);
 
 		Assert(!base_null);
-		ereport(ERROR, (errcode(ERRCODE_INDEX_CORRUPTED),
-						errmsg("index '%s' is missing row corresponding to "
-							   "ybctid "
-							   "'%s'",
-							   RelationGetRelationName(indexrel),
-							   YBDatumToString(ybctid, BYTEAOID))));
+		ereport(ERROR,
+				(errcode(ERRCODE_INDEX_CORRUPTED),
+				 errmsg("index '%s' is missing row corresponding to ybctid "
+						"'%s'", RelationGetRelationName(indexrel),
+						YBDatumToString(ybctid, BYTEAOID))));
 	}
 
 	/*
@@ -856,8 +858,9 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 	if (!indpred_isnull)
 	{
 		Oid basereloid = RelationGetRelid(baserel);
-		char *indpred_clause = TextDatumGetCString(
-			DirectFunctionCall2(pg_get_expr, indpred_datum, basereloid));
+		char *indpred_clause =
+			TextDatumGetCString(DirectFunctionCall2(pg_get_expr, indpred_datum,
+													basereloid));
 
 		appendStringInfo(&querybuf, " WHERE %s", indpred_clause);
 	}
@@ -929,8 +932,9 @@ detect_index_issues(Relation baserel, Relation indexrel,
 			{
 				bool null;
 
-				Datum ybctid = slot_getattr(
-					outslot, outslot->tts_tupleDescriptor->natts, &null);
+				Datum ybctid = slot_getattr(outslot,
+											outslot->tts_tupleDescriptor->natts,
+											&null);
 
 				if (null)
 					elog(ERROR, "ybctid is unexpectedly null");
@@ -1107,8 +1111,9 @@ make_basescan_plan(Relation baserel, Relation indexrel, List *plan_targetlist,
 	/* Partial index predicate */
 	List *partial_idx_colrefs = NIL;
 	bool partial_idx_pushdown = false;
-	List *partial_idx_pred = get_partial_index_predicate(
-		baserel, indexrel, &partial_idx_colrefs, &partial_idx_pushdown);
+	List *partial_idx_pred = get_partial_index_predicate(baserel, indexrel,
+														 &partial_idx_colrefs,
+														 &partial_idx_pushdown);
 
 	/*
 	 * TODO: TidScan, once supported, can be used here instead. With that,
