@@ -110,6 +110,8 @@ static IndexScan *make_basescan_plan(Relation baserel, Relation indexrel,
 static Plan *make_bnl_plan(Plan *lefttree, Plan *righttree,
 						   Var *join_clause_lhs, Var *join_clause_rhs,
 						   List *plan_tlist);
+static OpExpr *lower_bound_ybctid_indexqual(Expr *ybctid_expr,
+											Datum lower_bound);
 static ScalarArrayOpExpr *get_saop_expr(AttrNumber attnum, Expr *leftarg);
 static Expr *get_index_attr_expr(Relation baserel, Relation indexrel,
 								 int index_attnum, List **indexprs,
@@ -321,7 +323,7 @@ indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid)
 	expr = (Expr *) makeVar(INDEX_VAR, YBIdxBaseTupleIdAttributeNumber,
 							attr->atttypid, attr->atttypmod, attr->attcollation,
 							0);
-	target_entry = makeTargetEntry((Expr *) expr, resno++, "", false);
+	target_entry = makeTargetEntry(expr, resno++, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
 	/* index attributes */
@@ -342,16 +344,16 @@ indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid)
 		expr = (Expr *) makeVar(INDEX_VAR, YBUniqueIdxKeySuffixAttributeNumber,
 								attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
-		target_entry = makeTargetEntry((Expr *) expr, resno++, "", false);
+		target_entry = makeTargetEntry(expr, resno++, "", false);
 		plan_targetlist = lappend(plan_targetlist, target_entry);
 	}
 
 	/* ybctid (used in multi_snapshot_mode to set lower bound of next batch) */
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
-	expr = (Expr *) makeVar(INDEX_VAR, YBTupleIdAttributeNumber,
-							attr->atttypid, attr->atttypmod, attr->attcollation,
-							0);
-	target_entry = makeTargetEntry((Expr *) expr, resno++, "", false);
+	Expr *ybctid_from_index =
+		(Expr *) makeVar(INDEX_VAR, YBTupleIdAttributeNumber, attr->atttypid,
+						 attr->atttypmod, attr->attcollation, 0);
+	target_entry = makeTargetEntry(ybctid_from_index, resno++, "", false);
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
 	/*
@@ -364,7 +366,12 @@ indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid)
 	IndexOnlyScan *index_only_scan = make_indexonlyscan_plan(
 		indexrel, plan_targetlist, index_cols, direction);
 
-	index_only_scan->scan.yb_index_check_lower_bound = lower_bound_ybctid;
+	if (lower_bound_ybctid)
+	{
+		OpExpr *indexqual =
+			lower_bound_ybctid_indexqual(ybctid_from_index, lower_bound_ybctid);
+		index_only_scan->indexqual = list_make1(indexqual);
+	}
 	return (Plan *) index_only_scan;
 }
 
@@ -732,7 +739,13 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 	IndexScan *base_scan = make_basescan_plan(baserel, indexrel,
 											  plan_targetlist, indextlist,
 											  direction);
-	base_scan->scan.yb_index_check_lower_bound = lower_bound_ybctid;
+
+	if (lower_bound_ybctid)
+	{
+		OpExpr *indexqual = lower_bound_ybctid_indexqual(
+			(Expr *) ybctid_from_index, lower_bound_ybctid);
+		base_scan->indexqual = list_make1(indexqual);
+	}
 	return (Plan *) base_scan;
 }
 
@@ -755,7 +768,7 @@ indexrel_scan_plan2(Relation indexrel)
 										 attr->atttypid, attr->atttypmod,
 										 attr->attcollation, 0);
 
-	target_entry = makeTargetEntry((Expr *) ybctid_expr, 1, "", false);
+	target_entry = makeTargetEntry(ybctid_expr, 1, "", false);
 	List *plan_targetlist = list_make1(target_entry);
 
 	/* Index columns */
@@ -1158,6 +1171,22 @@ make_bnl_plan(Plan *lefttree, Plan *righttree, Var *join_clause_lhs,
 	join_plan->hashClauseInfos->outerParamExpr = (Expr *) join_clause_lhs;
 	join_plan->hashClauseInfos->orig_expr = (Expr *) join_clause;
 	return (Plan *) join_plan;
+}
+
+static OpExpr *
+lower_bound_ybctid_indexqual(Expr *ybctid_expr, Datum lower_bound)
+{
+	const FormData_pg_attribute *attr;
+	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
+	Const *lower_bound_expr =
+		makeConst(attr->atttypid, attr->atttypmod, attr->attcollation,
+				  attr->attlen, lower_bound, lower_bound == 0, attr->attbyval);
+	/* 1959 corresponds of > operator on bytea type. */
+	OpExpr *op = (OpExpr *) make_opclause(1959, BOOLOID, false, ybctid_expr,
+										  (Expr *) lower_bound_expr, InvalidOid,
+										  InvalidOid);
+	op->opfuncid = get_opcode(1959);
+	return op;
 }
 
 static ScalarArrayOpExpr *

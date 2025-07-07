@@ -254,6 +254,17 @@ YbBindColumnCondBetween(YbScanDesc ybScan,
 						bool start_valid, bool start_inclusive, Datum value,
 						bool end_valid, bool end_inclusive, Datum value_end)
 {
+	if (attnum == YBTupleIdAttributeNumber && start_valid && !end_valid)
+	{
+		/*
+		 * Special handling of indexqual 'ybctid > lower_bound' that
+		 * yb_index_check() sets.
+		 */
+		Assert(!start_inclusive);
+		HandleYBStatus(YBCPgIndexCheckBindLowerBound(ybScan->handle, value));
+		return;
+	}
+
 	Oid			atttypid = ybc_get_atttypid(bind_desc, attnum);
 	Oid			attcollation = YBEncodingCollation(ybScan->handle, attnum,
 												   ybc_get_attcollation(bind_desc,
@@ -3174,11 +3185,6 @@ ybcBeginScan(Relation relation,
 	/* Set distinct prefix length. */
 	if (distinct_prefixlen > 0)
 		YBCPgSetDistinctPrefixLength(ybScan->handle, distinct_prefixlen);
-
-	/* Set lower bound (if any) during yb_index_check(). */
-	if (pg_scan_plan && pg_scan_plan->yb_index_check_lower_bound)
-		HandleYBStatus(YBCPgIndexCheckBindLowerBound(ybScan->handle,
-													 pg_scan_plan->yb_index_check_lower_bound));
 
 	bms_free(scan_plan.hash_key);
 	bms_free(scan_plan.primary_key);
