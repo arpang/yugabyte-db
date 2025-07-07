@@ -50,6 +50,8 @@
 #include "yb/common/wire_protocol.h"
 #include "yb/common/ysql_operation_lease.h"
 
+#include "yb/docdb/object_lock_shared_state_manager.h"
+
 #include "yb/encryption/encrypted_file_factory.h"
 #include "yb/encryption/header_manager_impl.h"
 #include "yb/encryption/universe_key_manager.h"
@@ -367,7 +369,8 @@ TabletServer::TabletServer(const TabletServerOptions& opts)
       path_handlers_(new TabletServerPathHandlers(this)),
       maintenance_manager_(new MaintenanceManager(MaintenanceManager::DEFAULT_OPTIONS)),
       master_config_index_(0),
-      xcluster_context_(new TserverXClusterContext()) {
+      xcluster_context_(new TserverXClusterContext()),
+      object_lock_shared_state_manager_(new docdb::ObjectLockSharedStateManager()) {
   SetConnectionContextFactory(rpc::CreateConnectionContextFactory<rpc::YBInboundConnectionContext>(
       FLAGS_inbound_rpc_memory_limit, mem_tracker()));
   if (FLAGS_ysql_enable_db_catalog_version_mode) {
@@ -568,6 +571,12 @@ Status TabletServer::Init() {
   }
 
   shared->SetTserverUuid(fs_manager()->uuid());
+
+  shared_mem_manager_->SetReadyCallback([this] {
+    if (auto* object_lock_state = shared_mem_manager_->SharedData()->object_lock_state()) {
+      object_lock_shared_state_manager_->SetupShared(*object_lock_state);
+    }
+  });
 
   return Status::OK();
 }
@@ -818,7 +827,7 @@ void TabletServer::StartTSLocalLockManager() {
     std::lock_guard l(lock_);
     ts_local_lock_manager_ = std::make_shared<tserver::TSLocalLockManager>(
         clock_, this /* TabletServerIf* */, *this /* RpcServerBase& */,
-        tablet_manager_->waiting_txn_pool());
+        tablet_manager_->waiting_txn_pool(), object_lock_shared_state_manager_.get());
     ts_local_lock_manager_->Start(tablet_manager_->waiting_txn_registry());
   }
 }
@@ -1116,9 +1125,17 @@ Status TabletServer::GetTserverCatalogMessageLists(
     auto max_version = *current_versions.rbegin();
     auto min_version = *current_versions.begin();
     if (max_version - min_version + 1 > current_versions.size()) {
-      // There are holes from min_version to max_version. Print the entire list
-      // of versions to allow one to find out the holes.
-      current_versions_str = yb::ToString(current_versions);
+      // There are holes from min_version to max_version. Printing the entire list
+      // of versions can cause too long log lines. Skip the early versions less than
+      // ysql_catalog_version. This shortens the log line but still allows one to
+      // find out holes that are relevant for this request.
+      auto it = std::lower_bound(current_versions.begin(), current_versions.end(),
+                                 ysql_catalog_version);
+      if (it == current_versions.end() ||
+          (it != current_versions.begin() && *it > ysql_catalog_version)) {
+        --it;
+      }
+      current_versions_str = yb::RangeToString(it, current_versions.end());
     } else {
       // There are no holes from min_version to max_version. Print a shorthand
       // rather than the entire list of versions.
@@ -1166,13 +1183,41 @@ Status TabletServer::SetTserverCatalogMessageList(
     }
   });
 
-  // First, update catalog version.
+  // Check all the cases when we should make this call a no-op.
   auto it = ysql_db_catalog_version_map_.find(db_oid);
   if (it == ysql_db_catalog_version_map_.end()) {
     // If db_oid does not already have an existing entry in ysql_db_catalog_version_map_,
     // we will not have a way to find out the breaking version, bail out.
-    return Status::OK();
+    return STATUS_FORMAT(TryAgain, "db oid $0 not found in db catalog version map", db_oid);
   }
+  auto it2 = ysql_db_invalidation_messages_map_.find(db_oid);
+  if (it2 == ysql_db_invalidation_messages_map_.end()) {
+    // If db_oid does not have an entry yet, bail out. The creation of the entry for
+    // db_oid is managed by heartbeat response.
+    return STATUS_FORMAT(TryAgain, "db oid $0 not found in db inval messages map", db_oid);
+  }
+  const auto cutoff_catalog_version = it2->second.cutoff_catalog_version;
+  if (new_catalog_version <= cutoff_catalog_version) {
+    // This is possible in theory: if the DDL backend that generated the new_catalog_version
+    // has exited after sending out the call to SetTserverCatalogMessageList, and background
+    // task has advanced cutoff_catalog_version forward.
+    return STATUS_FORMAT(TryAgain,
+                         "new catalog version $0 is stale due to cut off catalog version $1",
+                         new_catalog_version, cutoff_catalog_version);
+  }
+  db_message_lists = &it2->second.queue;
+  if (!db_message_lists->empty() &&
+      std::get<0>(*db_message_lists->rbegin()) + 1 < new_catalog_version) {
+    // There is at least a hole between the  existing max catalog version and
+    // the new version. If we appended the new version and its messages, we would
+    // have created a hole that can lead to full catalog cache refresh. In this
+    // case let's wait for the heartbeat to propagate the missing versions.
+    return STATUS_FORMAT(TryAgain,
+                         "new catalog version $0 has a gap from $1",
+                         new_catalog_version, std::get<0>(*db_message_lists->rbegin()));
+  }
+
+  // First, update catalog version.
   auto& existing_entry = it->second;
   // Only update the existing entry if new_catalog_version is newer.
   if (new_catalog_version > existing_entry.current_version) {
@@ -1196,20 +1241,6 @@ Status TabletServer::SetTserverCatalogMessageList(
   }
 
   // Second, insert the new pair into ysql_db_invalidation_messages_map_[db_oid].
-  auto it2 = ysql_db_invalidation_messages_map_.find(db_oid);
-  if (it2 == ysql_db_invalidation_messages_map_.end()) {
-    // If db_oid does not have an entry yet, bail out. The creation of the entry for
-    // db_oid is managed by heartbeat response.
-    return Status::OK();
-  }
-  const auto cutoff_catalog_version = it2->second.cutoff_catalog_version;
-  if (new_catalog_version <= cutoff_catalog_version) {
-    // This is possible in theory: if the DDL backend that generated the new_catalog_version
-    // has exited after sending out the call to SetTserverCatalogMessageList, and background
-    // task has advanced cutoff_catalog_version forward.
-    return Status::OK();
-  }
-  db_message_lists = &it2->second.queue;
 
   CoarseTimePoint now = CoarseMonoClock::Now();
   // Insert the new pair to the right position. Because db_message_lists is sorted, we can use
@@ -1220,16 +1251,21 @@ Status TabletServer::SetTserverCatalogMessageList(
               };
   auto it3 = std::lower_bound(db_message_lists->begin(), db_message_lists->end(),
                               new_catalog_version, comp);
+  const auto msg_info = message_list.has_value() ? std::to_string(message_list.value().size())
+                                                 : "nullopt";
   if (it3 == db_message_lists->end()) {
     // This means that either the queue is empty, or the new_catalog_version is larger than
     // the last version in the queue (the queue is sorted in catalog version).
-    LOG(INFO) << "appending new version: " << new_catalog_version;
-    db_message_lists->emplace_back(std::make_tuple(new_catalog_version, message_list, now));
+    LOG(INFO) << "appending version " << new_catalog_version << ", message_list: " << msg_info
+              << ", db " << db_oid;
+    db_message_lists->emplace_back(new_catalog_version, message_list, now);
   } else  {
     // std::lower_bound: returns an iterator pointing to the first element in the range
     // that is not less than (i.e., greater than or equal to) new_catalog_version.
     if (std::get<0>(*it3) > new_catalog_version) {
-      LOG(INFO) << "inserting new version: " << new_catalog_version;
+      LOG(INFO) << "inserting version " << new_catalog_version << ", message_list: "
+                << msg_info << " before existing version " << std::get<0>(*it3)
+                << ", db " << db_oid;
       db_message_lists->insert(it3, std::make_tuple(new_catalog_version, message_list, now));
     } else {
       VLOG(2) << "found existing version: " << new_catalog_version;
@@ -1705,7 +1741,7 @@ void TabletServer::DoMergeInvalMessagesIntoQueueUnlocked(
                                                     : "nullopt";
     LOG(INFO) << "appending version " << current_version << ", message_list: " << msg_info
               << ", db " << db_oid << ", debug_id: " << debug_id;
-    db_message_lists->emplace_back(std::make_tuple(current_version, message_list, now));
+    db_message_lists->emplace_back(current_version, message_list, now);
     changed = true;
   }
   if (changed) {

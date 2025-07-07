@@ -109,6 +109,7 @@ class PgCatalogVersionTest : public LibPqTestBase {
     for (size_t i = 0; i != cluster_->num_masters(); ++i) {
       cluster_->master(i)->mutable_flags()->push_back(
           Format("--ysql_yb_enable_invalidation_messages=$0", mode_str));
+      cluster_->master(i)->mutable_flags()->push_back("--log_ysql_catalog_versions=true");
     }
     for (size_t i = 0; i != cluster_->num_tablet_servers(); ++i) {
       cluster_->tablet_server(i)->mutable_flags()->push_back(
@@ -557,7 +558,6 @@ class PgCatalogVersionTest : public LibPqTestBase {
 
     int count = 0;
     for (const auto& metric : json_metrics) {
-      // Should see one full refresh.
       if (metric.name.find("CatCacheRefresh") != std::string::npos) {
         ++count;
         LOG(INFO) << "CatCacheRefresh count: " << metric.value;
@@ -567,7 +567,6 @@ class PgCatalogVersionTest : public LibPqTestBase {
           ASSERT_EQ(metric.value, num_full_refreshes);
         }
       }
-      // Should not see any incremental refresh.
       if (metric.name.find("CatCacheDeltaRefresh") != std::string::npos) {
         ++count;
         LOG(INFO) << "CatCacheDeltaRefresh count: " << metric.value;
@@ -3027,6 +3026,101 @@ TEST_F(PgCatalogVersionTest, InvalMessageMinimalRetention) {
   VerifyCatCacheRefreshMetricsHelper(
       0 /* num_full_refreshes */, 1 /* num_delta_refreshes */,
       std::make_pair(false, true) /* at_least */);
+}
+
+// https://github.com/yugabyte/yugabyte-db/issues/27822
+TEST_F(PgCatalogVersionTest, InvalMessageWaitOnVersionGap) {
+  RestartClusterWithInvalMessageEnabled(
+      { "--heartbeat_interval_ms=10000",
+        "--ysql_pg_conf_csv=log_statement=all" });
+  // Create a test table.
+  auto conn = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
+  ASSERT_OK(conn.Execute("CREATE TABLE test_table(id int)"));
+  ASSERT_OK(conn.Execute("INSERT INTO test_table VALUES(1)"));
+
+  // Execute a pair of DDLs to get some initial catalog version/inval messages
+  // propagated to all tservers.
+  ASSERT_OK(conn.Execute("ANALYZE"));
+  ASSERT_OK(conn.Execute("ANALYZE"));
+  SleepFor(12s);
+
+  // conn1 connects to node 1
+  auto conn1 = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
+  auto v = ASSERT_RESULT(GetCatalogVersion(&conn1));
+  ASSERT_EQ(v, 3);
+  // At this time, conn1's local catalog version should be 3.
+  auto result = ASSERT_RESULT(conn1.FetchAllAsString("SELECT id FROM test_table"));
+  ASSERT_EQ(result, "1");
+
+  std::atomic<bool> conn2_executed_ddl = false;
+  TestThreadHolder thread_holder;
+  thread_holder.AddThreadFunctor([this, &conn2_executed_ddl, &stop = thread_holder.stop_flag()] {
+    // conn2 connects to node 2
+    pg_ts = cluster_->tablet_server(1);
+    auto conn2 = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
+    // Execute a DDL on conn2 to cause catalog version bump to v+1.
+    ASSERT_OK(conn2.Execute("ALTER TABLE test_table ADD COLUMN c2 INT"));
+    conn2_executed_ddl = true;
+    while (!stop.load(std::memory_order_acquire)) { }
+  });
+  thread_holder.AddThreadFunctor([this, &conn2_executed_ddl, &stop = thread_holder.stop_flag()] {
+    // Ensure conn3 sees catalog version v+1.
+    while (!conn2_executed_ddl.load(std::memory_order_acquire)) {}
+
+    // Start conn3 connects to node 1 before the new catalog version v+1 has propagated to node 1.
+    pg_ts = cluster_->tablet_server(0);
+    auto conn3 = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
+    // Execute a DDL on conn3 to cause catalog version bump again to new catalog version v+2.
+    // This DDL should not set version v+2 in tserver at node 1 because tserver 1 has
+    // only seen catalog version 1, the missing version v+1 is yet to propagate to tserver 1
+    // via heartbeat response. Setting new catalog version v+2 on tserver 1 would have cause
+    // a gap between version 1 and version v+2, which can lead to the next query on conn1
+    // to trigger a full catalog cache refresh because it would need catalog versions v+1 and
+    // v+2 and their invalidation messages in order to do incremental catalog cache refresh.
+    // After fixing GHI 27822, the DDL on conn3 will not set catalog version v+2 in tserver 1,
+    // instead it waits for version v+2 to propagate to tserver 1.
+
+    // Let the next query on conn1 starts first.
+    SleepFor(100ms);
+
+    ASSERT_OK(conn3.Execute("ALTER TABLE test_table DROP COLUMN c2"));
+    while (!stop.load(std::memory_order_acquire)) { }
+  });
+
+  // Ensure conn1 sees new table schema.
+  while (!conn2_executed_ddl.load(std::memory_order_acquire)) {}
+
+  // Execute query on conn1 again.
+  result = ASSERT_RESULT(conn1.FetchAllAsString("SELECT id FROM test_table"));
+  ASSERT_EQ(result, "1");
+  thread_holder.Stop();
+
+  // Verify that the incremental catalog cache refresh happened on conn3.
+  // Before the fix of GHI 27822, there would be a full catalog cache refresh.
+  VerifyCatCacheRefreshMetricsHelper(0 /* num_full_refreshes */, 1 /* num_delta_refreshes */);
+}
+
+// Test GUC yb_test_preload_catalog_tables=true triggers full catalog cache refresh.
+TEST_F(PgCatalogVersionTest, TestPreloadCatalogTables) {
+  RestartClusterWithInvalMessageEnabled({ "--ysql_pg_conf_csv=log_statement=all" });
+
+  // Note that yb_test_preload_catalog_tables=true does not invalidate tserver cache,
+  // so preloading will read the same catalog data from tserver cache as other active
+  // connections. A typical use is to start a new session, set this GUC, and then
+  // SELECT yb_mem_usage_sql_kb();
+  for (int i = 0; i < 5; ++i) {
+    auto conn = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
+
+    // Make a new connection to get the default memory size.
+    conn = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
+    auto defaultSize = ASSERT_RESULT(conn.FetchRow<PGUint64>("SELECT yb_mem_usage_sql_kb()"));
+    ASSERT_OK(conn.Execute("SET yb_test_preload_catalog_tables=true"));
+    auto preloadSize = ASSERT_RESULT(conn.FetchRow<PGUint64>("SELECT yb_mem_usage_sql_kb()"));
+    LOG(INFO) << "defaultSize: " << defaultSize << ", preloadSize: " << preloadSize;
+    // With preloading, we see significant increase in session memory.
+    ASSERT_GT(preloadSize, defaultSize * 5);
+  }
+  VerifyCatCacheRefreshMetricsHelper(5 /* num_full_refreshes */, 0 /* num_delta_refreshes */);
 }
 
 } // namespace pgwrapper
