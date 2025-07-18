@@ -684,7 +684,7 @@ YbcStatus YBCPgSetForwardScan(YbcPgStatement handle, bool is_forward_scan);
 // Set prefix length for distinct index scans.
 YbcStatus YBCPgSetDistinctPrefixLength(YbcPgStatement handle, int distinct_prefix_length);
 
-YbcStatus YBCPgSetHashBounds(YbcPgStatement handle, uint16_t low_bound, uint16_t high_bound);
+// YbcStatus YBCPgSetHashBounds(YbcPgStatement handle, uint16_t low_bound, uint16_t high_bound);
 
 YbcStatus YBCPgExecSelect(YbcPgStatement handle, const YbcPgExecParameters *exec_params);
 

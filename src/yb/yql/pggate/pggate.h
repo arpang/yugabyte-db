@@ -593,7 +593,7 @@ class PgApiImpl {
 
   Status SetDistinctPrefixLength(PgStatement *handle, int distinct_prefix_length);
 
-  Status SetHashBounds(PgStatement *handle, uint16_t low_bound, uint16_t high_bound);
+//   Status SetHashBounds(PgStatement *handle, uint16_t low_bound, uint16_t high_bound);
 
   Status ExecSelect(PgStatement *handle, const YbcPgExecParameters *exec_params);
   Result<bool> RetrieveYbctids(
