@@ -189,8 +189,13 @@ Result<size_t> PgTableDesc::FindPartitionIndex(const Slice& ybctid) const {
   return client::FindPartitionStartIndex(table_partition_list_.keys, partition_key);
 }
 
-Result<bool> PgTableDesc::CheckScanBoundary(LWPgsqlReadRequestPB* req) {
-  if (req->has_lower_bound() && req->has_upper_bound() &&
+Result<bool> PgTableDesc::CheckScanBoundary(LWPgsqlReadRequestPB* req, bool hash_partitioned) {
+  if (hash_partitioned)
+  {
+    if (req->has_hash_code() && req->has_max_hash_code() && req->hash_code() > req->max_hash_code())
+      return false;
+  }
+  else if (req->has_lower_bound() && req->has_upper_bound() &&
       ((req->lower_bound().key() > req->upper_bound().key()) ||
        (req->lower_bound().key() == req->upper_bound().key() &&
           !(req->lower_bound().is_inclusive() && req->upper_bound().is_inclusive())))) {
@@ -203,32 +208,54 @@ Result<bool> PgTableDesc::SetScanBoundary(LWPgsqlReadRequestPB* req,
                                           const std::string& partition_lower_bound,
                                           bool lower_bound_is_inclusive,
                                           const std::string& partition_upper_bound,
-                                          bool upper_bound_is_inclusive) {
+                                          bool upper_bound_is_inclusive,
+                                          bool hash_partitioned) {
   // Update lower boundary if necessary.
   if (!partition_lower_bound.empty()) {
-    if (!req->has_lower_bound() ||
+    if (hash_partitioned) {
+      uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_lower_bound);
+      if (!lower_bound_is_inclusive)
+        hash++;
+      if (!req->has_hash_code() ||
+          req->hash_code() < hash) {
+        req->set_hash_code(hash);
+      }
+    } else {
+      if (!req->has_lower_bound() ||
         req->lower_bound().key() < partition_lower_bound) {
-      req->mutable_lower_bound()->dup_key(partition_lower_bound);
-      req->mutable_lower_bound()->set_is_inclusive(lower_bound_is_inclusive);
-    } else if (req->lower_bound().key() == partition_lower_bound &&
-               req->lower_bound().is_inclusive() && !lower_bound_is_inclusive) {
-      req->mutable_lower_bound()->set_is_inclusive(false);
+        req->mutable_lower_bound()->dup_key(partition_lower_bound);
+        req->mutable_lower_bound()->set_is_inclusive(lower_bound_is_inclusive);
+      } else if (req->lower_bound().key() == partition_lower_bound &&
+                req->lower_bound().is_inclusive() && !lower_bound_is_inclusive) {
+        req->mutable_lower_bound()->set_is_inclusive(false);
+      }
     }
   }
 
   // Update upper boundary if necessary.
   if (!partition_upper_bound.empty()) {
-    if (!req->has_upper_bound() ||
-        req->upper_bound().key() > partition_upper_bound) {
-      req->mutable_upper_bound()->dup_key(partition_upper_bound);
-      req->mutable_upper_bound()->set_is_inclusive(upper_bound_is_inclusive);
-    } else if (req->upper_bound().key() == partition_upper_bound &&
-               req->upper_bound().is_inclusive() && !upper_bound_is_inclusive) {
-      req->mutable_upper_bound()->set_is_inclusive(false);
+    if (hash_partitioned) {
+      uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_upper_bound);
+      if (!upper_bound_is_inclusive)
+        hash--;
+      if (!req->has_max_hash_code() ||
+          req->max_hash_code() > hash) {
+        LOG(INFO) << "SetScanBoundary adding max  hash code " << hash;
+        req->set_max_hash_code(hash);
+      }
+    } else {
+      if (!req->has_upper_bound() ||
+          req->upper_bound().key() > partition_upper_bound) {
+        req->mutable_upper_bound()->dup_key(partition_upper_bound);
+        req->mutable_upper_bound()->set_is_inclusive(upper_bound_is_inclusive);
+      } else if (req->upper_bound().key() == partition_upper_bound &&
+                req->upper_bound().is_inclusive() && !upper_bound_is_inclusive) {
+        req->mutable_upper_bound()->set_is_inclusive(false);
+      }
     }
   }
 
-  return CheckScanBoundary(req);
+  return CheckScanBoundary(req, hash_partitioned);
 }
 
 const client::YBTableName& PgTableDesc::table_name() const {

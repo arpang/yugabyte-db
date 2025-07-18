@@ -617,7 +617,7 @@ Result<bool> PgDocReadOp::SetScanBounds() {
       table_->schema(), std::move(upper_range_components)).Encode().ToStringBuffer();
   VLOG_WITH_FUNC(2) << "Lower bound: " << Slice(lower_bound).ToDebugHexString()
                     << ", upper bound: " << Slice(upper_bound).ToDebugHexString();
-  return table_->SetScanBoundary(&request, lower_bound, true, upper_bound, false);
+  return table_->SetScanBoundary(&request, lower_bound, true, upper_bound, false, table_->IsHashPartitioned());
 }
 
 bool CouldBeExecutedInParallel(const LWPgsqlReadRequestPB& req) {
@@ -1274,7 +1274,8 @@ Result<bool> PgDocReadOp::SetScanPartitionBoundary() {
                                  *partition_key,
                                  true /* lower_bound_is_inclusive */,
                                  upper_bound,
-                                 false /* upper_bound_is_inclusive */);
+                                 false /* upper_bound_is_inclusive */,
+                                 table_->IsHashPartitioned());
 }
 
 Status PgDocReadOp::CompleteProcessResponse() {
@@ -1503,7 +1504,8 @@ Result<bool> PgDocReadOp::SetLowerUpperBound(LWPgsqlReadRequestPB* request, size
                                  partition_keys[partition],
                                  /* lower_bound_is_inclusive */ true,
                                  upper_bound,
-                                 /* upper_bound_is_inclusive */ false);
+                                 /* upper_bound_is_inclusive */ false,
+                                 table_->IsHashPartitioned());
 }
 
 void PgDocReadOp::ClonePgsqlOps(size_t op_count) {

@@ -70,9 +70,19 @@ Result<dockv::DocKey> BuildDocKey(
 inline void ApplyBound(
     ::yb::LWPgsqlReadRequestPB* req, const std::optional<Bound>& bound, bool is_lower) {
   if (bound) {
-    auto* mutable_bound = is_lower ? req->mutable_lower_bound() : req->mutable_upper_bound();
-    mutable_bound->dup_key(dockv::PartitionSchema::EncodeMultiColumnHashValue(bound->value));
-    mutable_bound->set_is_inclusive(bound->is_inclusive);
+    uint16_t hash = bound->value;
+    if (is_lower)
+    {
+      if (!bound->is_inclusive)
+        hash++;
+      req->set_hash_code(hash);
+    }
+    else
+    {
+      if (!bound->is_inclusive)
+        hash--;
+      req->set_max_hash_code(hash);
+    }
   }
 }
 
@@ -862,31 +872,8 @@ void PgDmlRead::BindHashCode(const std::optional<Bound>& start, const std::optio
 }
 
 Status PgDmlRead::IndexCheckBindLowerBound(Slice lower_bound) {
-  if (read_req_->has_paging_state()) {
-    return STATUS_FORMAT(
-        InternalError, "Cannot set index check lower bound, paging state already set");
-  }
-
-  dockv::DocKey row_key(bind_->schema());
-  VERIFY_RESULT(row_key.DecodeFrom(lower_bound, dockv::DocKeyPart::kWholeDocKey,
-                                   dockv::AllowSpecial::kTrue));
-
-  auto encoded_row_key = row_key.Encode();
-
-  // Decoder expects hybrid time by default, append invalid hybrid time.
-  AppendDocHybridTime(DocHybridTime::kInvalid, &encoded_row_key);
-
-  // The following logic is taken from PgsqlReadOperation::SetPagingState().
-  auto* paging_state = read_req_->mutable_paging_state();
-  auto encoded_row_key_str = encoded_row_key.ToStringBuffer();
-
-  if (bind_->schema().num_hash_key_columns() > 0) {
-    paging_state->dup_next_partition_key(
-        dockv::PartitionSchema::EncodeMultiColumnHashValue(row_key.hash()));
-  } else {
-    paging_state->dup_next_partition_key(encoded_row_key_str);
-  }
-  paging_state->dup_next_row_key(std::move(encoded_row_key_str));
+  read_req_->mutable_lower_bound()->dup_key(lower_bound);
+  read_req_->mutable_lower_bound()->set_is_inclusive(false);
   return Status::OK();
 }
 

@@ -2144,8 +2144,10 @@ Result<bool> Tablet::HasScanReachedMaxPartitionKey(
       if (!pgsql_read_request.upper_bound().has_key()) {
           return false;
       }
-      uint16_t upper_bound_hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(
-          pgsql_read_request.upper_bound().key());
+      // uint16_t upper_bound_hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(
+      //     pgsql_read_request.upper_bound().key());
+      uint16_t upper_bound_hash =
+          VERIFY_RESULT(dockv::DocKey::DecodeHash(pgsql_read_request.upper_bound().key()));
       uint16_t partition_hash =
           dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_key);
       return pgsql_read_request.upper_bound().is_inclusive() ?
