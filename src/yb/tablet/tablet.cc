@@ -2163,6 +2163,8 @@ Result<bool> Tablet::HasScanReachedMaxPartitionKey(
       LOG(INFO) << "Return true from 1";
       return true;
     }
+
+    // TODO: Should respect upper bound too
   } else if (pgsql_read_request.has_upper_bound()) {
     dockv::DocKey partition_doc_key(*schema);
     VERIFY_RESULT(partition_doc_key.DecodeFrom(
