@@ -617,8 +617,8 @@ Result<bool> PgDocReadOp::SetScanBounds() {
       table_->schema(), std::move(upper_range_components)).Encode().ToStringBuffer();
   VLOG_WITH_FUNC(2) << "Lower bound: " << Slice(lower_bound).ToDebugHexString()
                     << ", upper bound: " << Slice(upper_bound).ToDebugHexString();
-  return table_->SetScanBoundary(
-      &request, lower_bound, true, upper_bound, false, table_->IsHashPartitioned());
+  return table_->SetScanBoundary(&request, lower_bound, true, upper_bound, false,
+                                 table_->IsHashPartitioned());
 }
 
 bool CouldBeExecutedInParallel(const LWPgsqlReadRequestPB& req) {
