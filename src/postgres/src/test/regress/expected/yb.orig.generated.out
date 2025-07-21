@@ -894,9 +894,14 @@ DROP TABLE part;
 --- DROP COLUMN CASCASE should DROP dependent columns
 -- base case
 CREATE TABLE table1(id INT, c1 INT, stored_col INT GENERATED ALWAYS AS (c1 * 2) STORED);
+ALTER TABLE table1 DROP COLUMN c1; -- error
+ERROR:  cannot drop column c1 of table table1 because other objects depend on it
+DETAIL:  column stored_col of table table1 depends on column c1 of table table1
+HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 ALTER TABLE table1 DROP COLUMN c1 CASCADE;
 NOTICE:  drop cascades to column stored_col of table table1
 ALTER TABLE table1 ADD COLUMN stored_col INT;
+ALTER TABLE table1 ADD COLUMN c1 INT;
 DROP TABLE table1;
 -- generated column is PK
 CREATE TABLE table1(id INT, c1 INT, stored_col INT GENERATED ALWAYS AS (c1 * 2) STORED, PRIMARY KEY (stored_col));
@@ -945,4 +950,5 @@ NOTICE:  table rewrite may lead to inconsistencies
 DETAIL:  Concurrent DMLs may not be reflected in the new table.
 HINT:  See https://github.com/yugabyte/yugabyte-db/issues/19860. Set 'ysql_suppress_unsafe_alter_notice' yb-tserver gflag to true to suppress this notice.
 ALTER TABLE part ADD COLUMN c INT;
+ALTER TABLE part ADD COLUMN b INT;
 DROP TABLE part;

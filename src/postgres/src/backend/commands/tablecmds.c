@@ -9432,7 +9432,10 @@ ATExecDropColumn(List **wqueue, AlteredTableInfo *yb_tab, Relation rel,
 		 * the ALTER TABLE flow.
 		 */
 		performMultipleDeletions(addrs, behavior,
-								 IsYugaByteEnabled() ? YB_SKIP_YB_DROP_COLUMN : 0);
+								 IsYugaByteEnabled() ?
+									 YB_SKIP_YB_DROP_ORIGNAL_COLUMN |
+										 YB_SKIP_YB_DROP_PK_COLUMN :
+									 0);
 		free_object_addresses(addrs);
 	}
 

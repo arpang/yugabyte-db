@@ -1485,44 +1485,6 @@ YBCPrepareAlterTableCmd(AlterTableCmd *cmd, Relation rel, List *handles,
 														 cmd->name));
 				*needsYBAlter = true;
 
-				if (cmd->behavior != DROP_CASCADE)
-					break;
-
-				AttrNumber	offset = YBGetFirstLowInvalidAttributeNumber(rel);
-				Bitmapset  *dependent_generated_cols =
-					YbGetDependentGeneratedCols(rel, attnum);
-
-				int			bms_index;
-
-				while ((bms_index =
-						bms_first_member(dependent_generated_cols)) >= 0)
-				{
-					AttrNumber	dependent_attnum = bms_index + offset;
-
-					/*
-					 * Skip yb alter for primary key columns (the table will be
-					 * rewritten)
-					 */
-					if (YbIsAttrPrimaryKeyColumn(rel, dependent_attnum))
-					{
-						*needsYBAlter = false;
-						break;
-					}
-
-					HeapTuple	tuple =
-						SearchSysCacheAttNum(relationId, dependent_attnum);
-
-					if (!HeapTupleIsValid(tuple))
-						continue;
-
-					NameData	dependent_attname =
-						((Form_pg_attribute) GETSTRUCT(tuple))->attname;
-
-					HandleYBStatus(YBCPgAlterTableDropColumn(drop_col_handle,
-															 dependent_attname.data));
-					ReleaseSysCache(tuple);
-				}
-				bms_free(dependent_generated_cols);
 				break;
 			}
 
