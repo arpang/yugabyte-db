@@ -71,14 +71,11 @@ inline void ApplyBound(
     ::yb::LWPgsqlReadRequestPB* req, const std::optional<Bound>& bound, bool is_lower) {
   if (bound) {
     uint16_t hash = bound->value;
-    if (is_lower)
-    {
+    if (is_lower) {
       if (!bound->is_inclusive)
         hash++;
       req->set_hash_code(hash);
-    }
-    else
-    {
+    } else {
       if (!bound->is_inclusive)
         hash--;
       req->set_max_hash_code(hash);
@@ -225,15 +222,6 @@ void PgDmlRead::SetDistinctPrefixLength(int distinct_prefix_length) {
     read_req_->set_prefix_length(distinct_prefix_length);
   }
 }
-
-// void PgDmlRead::SetHashBounds(uint16_t low_bound, uint16_t high_bound) {
-//   if (auto* secondary_index = SecondaryIndexQuery(); secondary_index) {
-//     secondary_index->SetHashBounds(low_bound, high_bound);
-//     return;
-//   }
-//   read_req_->set_hash_code(low_bound);
-//   read_req_->set_max_hash_code(high_bound);
-// }
 
 //--------------------------------------------------------------------------------------------------
 // DML support.

@@ -190,12 +190,10 @@ Result<size_t> PgTableDesc::FindPartitionIndex(const Slice& ybctid) const {
 }
 
 Result<bool> PgTableDesc::CheckScanBoundary(LWPgsqlReadRequestPB* req, bool hash_partitioned) {
-  if (hash_partitioned)
-  {
+  if (hash_partitioned) {
     if (req->has_hash_code() && req->has_max_hash_code() && req->hash_code() > req->max_hash_code())
       return false;
-  }
-  else if (req->has_lower_bound() && req->has_upper_bound() &&
+  } else if (req->has_lower_bound() && req->has_upper_bound() &&
       ((req->lower_bound().key() > req->upper_bound().key()) ||
        (req->lower_bound().key() == req->upper_bound().key() &&
           !(req->lower_bound().is_inclusive() && req->upper_bound().is_inclusive())))) {

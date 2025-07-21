@@ -1707,10 +1707,6 @@ YbcStatus YBCPgSetDistinctPrefixLength(YbcPgStatement handle, int distinct_prefi
   return ToYBCStatus(pgapi->SetDistinctPrefixLength(handle, distinct_prefix_length));
 }
 
-// YbcStatus YBCPgSetHashBounds(YbcPgStatement handle, uint16_t low_bound, uint16_t high_bound) {
-//   return ToYBCStatus(pgapi->SetHashBounds(handle, low_bound, high_bound));
-// }
-
 YbcStatus YBCPgExecSelect(YbcPgStatement handle, const YbcPgExecParameters *exec_params) {
   return ToYBCStatus(pgapi->ExecSelect(handle, exec_params));
 }

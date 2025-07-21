@@ -220,24 +220,23 @@ Status InitHashPartitionKey(
     }
 
   } else  if (request->has_hash_code()) {
+    // If the read request provides a hash code bounds, use that to derive the partition key.
     auto hash_code = static_cast<uint16>(request->hash_code());
     auto lower_bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(hash_code);
     SetPartitionKey(std::move(lower_bound), request);
   } else if (request->has_lower_bound() || request->has_upper_bound()) {
-    // If the read request provides a scan boundary, use that to derive the partition key.
+    // If the read request provides a ybctid boundary, use that to derive the partition key and
+    // hash-code bounds.
     auto lower_bound = request->lower_bound().key();
     auto upper_bound = request->upper_bound().key();
 
-    // Translate to hash-code bounds as well.
     if (request->has_lower_bound()) {
       uint16 hash = VERIFY_RESULT(dockv::DocKey::DecodeHash(lower_bound));
       SetPartitionKey(std::move(dockv::PartitionSchema::EncodeMultiColumnHashValue(hash)), request);
-      LOG(INFO) << "Setting hash code to " << hash;
       request->set_hash_code(hash);
     }
     if (request->has_upper_bound()) {
       uint16 hash = VERIFY_RESULT(dockv::DocKey::DecodeHash(upper_bound));
-      LOG(INFO) << "Setting max hash code to " << hash;
       request->set_max_hash_code(hash);
     }
   } else {

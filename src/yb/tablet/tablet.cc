@@ -2137,34 +2137,10 @@ Result<bool> Tablet::HasScanReachedMaxPartitionKey(
 
   if (schema->num_hash_key_columns() > 0) {
     uint16_t next_hash_code = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_key);
-    // For batched index lookup of ybctids, check if the current partition hash is lesser than
-    // upper bound. If it is, we can then avoid paging. Paging of batched index lookup of ybctids
-    // occur when tablets split after request is prepared.
-    LOG(INFO) << "batch_arguments_size " << pgsql_read_request.batch_arguments_size() << " row_count " << row_count;
-    // if (implicit_cast<size_t>(pgsql_read_request.batch_arguments_size()) > row_count) {
-    //   LOG(INFO) << "Inside batch_arguments > rowcount " << pgsql_read_request.ShortDebugString();
-    //   if (!pgsql_read_request.upper_bound().has_key()) {
-    //     LOG(INFO) << "Return false from 1";
-    //       return false;
-    //   }
-    //   // uint16_t upper_bound_hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(
-    //   //     pgsql_read_request.upper_bound().key());
-    //   uint16_t upper_bound_hash =
-    //       VERIFY_RESULT(dockv::DocKey::DecodeHash(pgsql_read_request.upper_bound().key()));
-    //   uint16_t partition_hash =
-    //       dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_key);
-    //   LOG(INFO) << "Return partition_hash " << partition_hash << " >= " << upper_bound_hash;
-    //   return pgsql_read_request.upper_bound().is_inclusive() ?
-    //       partition_hash > upper_bound_hash :
-    //       partition_hash >= upper_bound_hash;
-    // }
     if (pgsql_read_request.has_max_hash_code() &&
         next_hash_code > pgsql_read_request.max_hash_code()) {
-      LOG(INFO) << "Return true from 1";
       return true;
     }
-
-    // TODO: Should respect upper bound too
   } else if (pgsql_read_request.has_upper_bound()) {
     dockv::DocKey partition_doc_key(*schema);
     VERIFY_RESULT(partition_doc_key.DecodeFrom(
@@ -2177,7 +2153,7 @@ Result<bool> Tablet::HasScanReachedMaxPartitionKey(
     auto cmp = partition_doc_key.CompareTo(max_partition_doc_key);
     return pgsql_read_request.upper_bound().is_inclusive() ? cmp > 0 : cmp >= 0;
   }
-  LOG(INFO) << "Return false from 2";
+
   return false;
 }
 
