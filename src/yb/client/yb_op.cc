@@ -219,25 +219,53 @@ Status InitHashPartitionKey(
       request->set_max_hash_code(hash_code);
     }
 
-  } else  if (request->has_hash_code()) {
-    // If the read request provides a hash code bounds, use that to derive the partition key.
-    auto hash_code = static_cast<uint16>(request->hash_code());
-    auto lower_bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(hash_code);
-    SetPartitionKey(std::move(lower_bound), request);
-  } else if (request->has_lower_bound() || request->has_upper_bound()) {
-    // If the read request provides a ybctid boundary, use that to derive the partition key and
-    // hash-code bounds.
-    auto lower_bound = request->lower_bound().key();
-    auto upper_bound = request->upper_bound().key();
-
-    if (request->has_lower_bound()) {
-      uint16 hash = VERIFY_RESULT(dockv::DocKey::DecodeHash(lower_bound));
-      SetPartitionKey(std::move(dockv::PartitionSchema::EncodeMultiColumnHashValue(hash)), request);
-      request->set_hash_code(hash);
+  } else if (
+      request->has_hash_code() || request->has_max_hash_code() || request->has_lower_bound() ||
+      request->has_upper_bound()) {
+    if (request->has_max_hash_code() && request->has_lower_bound()) {
+      uint16 lower_bound_hash =
+          VERIFY_RESULT(dockv::DocKey::DecodeHash(request->lower_bound().key()));
+      if (lower_bound_hash > request->max_hash_code()) {
+        return STATUS_SUBSTITUTE(
+            InternalError,
+            "Read request to partition will yield empty result as lower_bound hash code ($0) is "
+            "greater than max_hash_code ($1)",
+            lower_bound_hash, request->max_hash_code());
+      }
     }
+
+    if (request->has_hash_code() && request->has_upper_bound()) {
+      uint16 upper_bound_hash =
+          VERIFY_RESULT(dockv::DocKey::DecodeHash(request->upper_bound().key()));
+      if (request->hash_code() > upper_bound_hash) {
+        return STATUS_SUBSTITUTE(
+            InternalError,
+            "Read request to partition will yield empty result as upper_bound hash code ($0) is "
+            "less than hash_code ($1)",
+            upper_bound_hash, request->hash_code());
+      }
+    }
+
+    auto hash_code = static_cast<uint16>(request->hash_code());
+    uint16_t lower_bound_hash_code =
+        request->has_lower_bound()
+            ? VERIFY_RESULT(dockv::DocKey::DecodeHash(request->lower_bound().key()))
+            : 0;
+
+    request->set_hash_code(std::max(hash_code, lower_bound_hash_code));
+    auto partition_key = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
+    SetPartitionKey(std::move(partition_key), request);
+
     if (request->has_upper_bound()) {
-      uint16 hash = VERIFY_RESULT(dockv::DocKey::DecodeHash(upper_bound));
-      request->set_max_hash_code(hash);
+      auto upper_bound_hash_code =
+          VERIFY_RESULT(dockv::DocKey::DecodeHash(request->upper_bound().key()));
+
+      if (request->has_max_hash_code()) {
+        auto max_hash_code = static_cast<uint16>(request->max_hash_code());
+        request->set_max_hash_code(std::min(max_hash_code, upper_bound_hash_code));
+      } else {
+        request->set_max_hash_code(upper_bound_hash_code);
+      }
     }
   } else {
     // Full scan. Default to empty key.
