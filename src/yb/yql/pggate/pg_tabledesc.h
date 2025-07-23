@@ -90,7 +90,7 @@ class PgTableDesc : public RefCountedThreadSafe<PgTableDesc> {
   Result<size_t> FindPartitionIndex(const Slice& ybctid) const;
 
   // Check if boundaries set on request define valid (not empty) range
-  static Result<bool> CheckScanBoundary(LWPgsqlReadRequestPB* req, bool hash_partitioned);
+  static Result<bool> CheckScanBoundary(LWPgsqlReadRequestPB* req);
   // These values are set by  PgGate to optimize query to narrow the scanning range of a query.
   // Returns false if new boundary makes request range empty.
   static Result<bool> SetScanBoundary(LWPgsqlReadRequestPB* req,

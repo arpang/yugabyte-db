@@ -189,16 +189,33 @@ Result<size_t> PgTableDesc::FindPartitionIndex(const Slice& ybctid) const {
   return client::FindPartitionStartIndex(table_partition_list_.keys, partition_key);
 }
 
-Result<bool> PgTableDesc::CheckScanBoundary(LWPgsqlReadRequestPB* req, bool hash_partitioned) {
-  if (hash_partitioned) {
-    if (req->has_hash_code() && req->has_max_hash_code() && req->hash_code() > req->max_hash_code())
-      return false;
-  } else if (req->has_lower_bound() && req->has_upper_bound() &&
+Result<bool> PgTableDesc::CheckScanBoundary(LWPgsqlReadRequestPB* req) {
+  if (req->has_lower_bound() && req->has_upper_bound() &&
       ((req->lower_bound().key() > req->upper_bound().key()) ||
        (req->lower_bound().key() == req->upper_bound().key() &&
-          !(req->lower_bound().is_inclusive() && req->upper_bound().is_inclusive())))) {
+        !(req->lower_bound().is_inclusive() && req->upper_bound().is_inclusive())))) {
     return false;
   }
+
+  // The following checks are applicable only for hash partitioned tables.
+  if (req->has_hash_code() && req->has_max_hash_code() && req->hash_code() > req->max_hash_code()) {
+    return false;
+  }
+
+  if (req->has_max_hash_code() && req->has_lower_bound()) {
+    uint16 lower_bound_hash = VERIFY_RESULT(dockv::DocKey::DecodeHash(req->lower_bound().key()));
+    if (lower_bound_hash > req->max_hash_code()) {
+      return false;
+    }
+  }
+
+  if (req->has_hash_code() && req->has_upper_bound()) {
+    uint16 upper_bound_hash = VERIFY_RESULT(dockv::DocKey::DecodeHash(req->upper_bound().key()));
+    if (req->hash_code() > upper_bound_hash) {
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -253,7 +270,7 @@ Result<bool> PgTableDesc::SetScanBoundary(LWPgsqlReadRequestPB* req,
     }
   }
 
-  return CheckScanBoundary(req, hash_partitioned);
+  return CheckScanBoundary(req);
 }
 
 const client::YBTableName& PgTableDesc::table_name() const {
