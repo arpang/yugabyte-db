@@ -255,7 +255,6 @@ Result<bool> PgTableDesc::SetScanBoundary(LWPgsqlReadRequestPB* req,
         hash--;
       if (!req->has_max_hash_code() ||
           req->max_hash_code() > hash) {
-        LOG(INFO) << "SetScanBoundary adding max  hash code " << hash;
         req->set_max_hash_code(hash);
       }
     } else {
