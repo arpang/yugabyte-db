@@ -131,3 +131,5 @@ bool yb_use_internal_auto_analyze_service_conn = false;
 bool yb_ddl_transaction_block_enabled = false;
 
 bool yb_disable_ddl_transaction_block_for_read_committed = false;
+
+bool yb_allow_row_boundary_for_hash_partitioned_tables = true;

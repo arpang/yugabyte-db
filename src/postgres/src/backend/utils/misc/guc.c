@@ -3508,6 +3508,17 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_allow_row_boundary_for_hash_partitioned_tables", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("If true, allows specifying row boundary when scanning hash partitioned tables"),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_allow_row_boundary_for_hash_partitioned_tables,
+		true,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
