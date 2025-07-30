@@ -636,8 +636,9 @@ missing_row_detection_plan(Relation baserel, Relation indexrel,
 	 * Outer subplan: base relation scan
 	 * Targetlist: computed_indexrow_ybctid, ybctid
 	 */
-	Plan	   *baserel_scan = baserel_scan_plan2(
-												  baserel, indexrel, lower_bound_ybctid, multi_snapshot_mode);
+	Plan	   *baserel_scan = baserel_scan_plan2(baserel, indexrel,
+												  lower_bound_ybctid,
+												  multi_snapshot_mode);
 
 	/*
 	 * Inner subplan: index relation scan
