@@ -540,6 +540,8 @@ message PgsqlReadRequestPB {
   // - Don't overload these fields for different purposes to avoid confusion.
   optional PgsqlPartitionBound lower_bound = 27;
   optional PgsqlPartitionBound upper_bound = 28;
+  // Applicable only for hash partitioned tables. If true, lower_bound/upper_bound store dockeys.
+  optional bool range_bounds_have_dockeys = 45;
 
   // Deprecated fields.
   // Field "max_partition_key" is replaced by "lower_bound" and "upper_bound". This field is only
