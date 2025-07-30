@@ -264,7 +264,8 @@ Status InitHashPartitionKey(
       }
 
       if (request->has_max_hash_code()) {
-        auto upper_bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->max_hash_code());
+        auto upper_bound =
+            dockv::PartitionSchema::EncodeMultiColumnHashValue(request->max_hash_code());
         SetUpperBound(upper_bound, true, request);
       }
     } else {
@@ -312,7 +313,8 @@ Status InitHashPartitionKey(
         }
       }
 
-      request->set_range_bounds_have_dockeys(request->has_upper_bound() || request->has_hash_code());
+      request->set_range_bounds_have_dockeys(
+          request->has_upper_bound() || request->has_lower_bound());
     }
 
     auto partition_key = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
