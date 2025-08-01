@@ -3509,12 +3509,14 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"yb_allow_row_boundary_for_hash_partitioned_tables", PGC_SUSET, DEVELOPER_OPTIONS,
-			gettext_noop("If true, allows specifying row boundary when scanning hash partitioned tables"),
+		{"yb_lower_upper_bounds_are_dockeys", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("If this auto fag is true, lower_bound/upper_bound fields "
+						 "of PgsqlReadRequestPB are dockeys; encoded hash codes "
+						 "otherwise. Applicable only for hash partitioned tables"),
 			NULL,
 			GUC_NOT_IN_SAMPLE
 		},
-		&yb_allow_row_boundary_for_hash_partitioned_tables,
+		&yb_lower_upper_bounds_are_dockeys,
 		true,
 		NULL, NULL, NULL
 	},

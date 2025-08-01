@@ -67,22 +67,6 @@ Result<dockv::DocKey> BuildDocKey(
   return dockv::DocKey(std::move(range_components));
 }
 
-inline void ApplyBound(
-    ::yb::LWPgsqlReadRequestPB* req, const std::optional<Bound>& bound, bool is_lower) {
-  if (bound) {
-    uint16_t hash = bound->value;
-    if (is_lower) {
-      if (!bound->is_inclusive)
-        hash++;
-      req->set_hash_code(hash);
-    } else {
-      if (!bound->is_inclusive)
-        hash--;
-      req->set_max_hash_code(hash);
-    }
-  }
-}
-
 [[nodiscard]] inline bool IsForInOperator(const LWPgsqlExpressionPB& expr) {
   // For IN operator expr->has_condition() returns 'true'.
   return expr.has_condition();
@@ -693,29 +677,7 @@ Status PgDmlRead::AddRowUpperBound(
   }
 
   auto dockey = VERIFY_RESULT(EncodeRowKeyForBound(handle, n_col_values, col_values, false));
-
-  if (read_req_->has_upper_bound()) {
-      dockv::DocKey current_upper_bound_key;
-      RETURN_NOT_OK(current_upper_bound_key.DecodeFrom(
-                    read_req_->upper_bound().key(),
-                    dockv::DocKeyPart::kWholeDocKey,
-                    dockv::AllowSpecial::kTrue));
-
-      if (current_upper_bound_key < dockey) {
-        return Status::OK();
-      }
-
-      if (current_upper_bound_key == dockey) {
-          is_inclusive = is_inclusive & read_req_->upper_bound().is_inclusive();
-          read_req_->mutable_upper_bound()->set_is_inclusive(is_inclusive);
-          return Status::OK();
-      }
-
-      // current_upper_bound_key > dockey
-  }
-  read_req_->mutable_upper_bound()->dup_key(dockey.Encode().AsSlice());
-  read_req_->mutable_upper_bound()->set_is_inclusive(is_inclusive);
-
+  AddUpperBound(*read_req_, dockey.Encode().AsSlice(), is_inclusive);
   return Status::OK();
 }
 
@@ -727,28 +689,7 @@ Status PgDmlRead::AddRowLowerBound(
   }
 
   auto dockey = VERIFY_RESULT(EncodeRowKeyForBound(handle, n_col_values, col_values, true));
-  if (read_req_->has_lower_bound()) {
-      dockv::DocKey current_lower_bound_key;
-      RETURN_NOT_OK(current_lower_bound_key.DecodeFrom(
-                    read_req_->lower_bound().key(),
-                    dockv::DocKeyPart::kWholeDocKey,
-                    dockv::AllowSpecial::kTrue));
-
-      if (current_lower_bound_key > dockey) {
-        return Status::OK();
-      }
-
-      if (current_lower_bound_key == dockey) {
-          is_inclusive = is_inclusive & read_req_->lower_bound().is_inclusive();
-          read_req_->mutable_lower_bound()->set_is_inclusive(is_inclusive);
-          return Status::OK();
-      }
-
-      // current_lower_bound_key > dockey
-  }
-  read_req_->mutable_lower_bound()->dup_key(dockey.Encode().AsSlice());
-  read_req_->mutable_lower_bound()->set_is_inclusive(is_inclusive);
-
+  AddLowerBound(*read_req_, dockey.Encode().AsSlice(), is_inclusive);
   return Status::OK();
 }
 
@@ -855,8 +796,18 @@ void PgDmlRead::BindHashCode(const std::optional<Bound>& start, const std::optio
     secondary_index->BindHashCode(start, end);
     return;
   }
-  ApplyBound(read_req_.get(), start, true /* is_lower */);
-  ApplyBound(read_req_.get(), end, false /* is_lower */);
+
+  if (start) {
+    const auto lower_bound =
+        HashCodeToBound(bind_->schema(), start->value, start->is_inclusive, true /* is_lower */);
+    AddLowerBound(*read_req_.get(), lower_bound, false /* is_inclusive */);
+  }
+
+  if (end) {
+    const auto upper_bound =
+        HashCodeToBound(bind_->schema(), start->value, start->is_inclusive, false /* is_lower */);
+    AddUpperBound(*read_req_, upper_bound, false /* is_inclusive */);
+  }
 }
 
 Status PgDmlRead::IndexCheckBindLowerBound(Slice lower_bound) {
@@ -906,17 +857,13 @@ Status PgDmlRead::BindRange(
   if (lower_bound.empty()) {
     read_req_->clear_lower_bound();
   } else {
-    auto* mutable_bound = read_req_->mutable_lower_bound();
-    mutable_bound->dup_key(lower_bound);
-    mutable_bound->set_is_inclusive(lower_bound_inclusive);
+    AddLowerBound(*read_req_, lower_bound, lower_bound_inclusive);
   }
   // Set upper bound
   if (upper_bound.empty()) {
     read_req_->clear_upper_bound();
   } else {
-    auto* mutable_bound = read_req_->mutable_upper_bound();
-    mutable_bound->dup_key(upper_bound);
-    mutable_bound->set_is_inclusive(upper_bound_inclusive);
+    AddUpperBound(*read_req_, upper_bound, upper_bound_inclusive);
   }
   return Status::OK();
 }

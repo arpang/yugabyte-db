@@ -283,7 +283,7 @@ extern bool yb_ddl_transaction_block_enabled;
 
 extern bool yb_disable_ddl_transaction_block_for_read_committed;
 
-extern bool yb_allow_row_boundary_for_hash_partitioned_tables;
+extern bool yb_lower_upper_bounds_are_dockeys;
 
 // Should be in sync with YsqlSamplingAlgorithm protobuf.
 typedef enum {

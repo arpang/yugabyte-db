@@ -240,85 +240,41 @@ Status InitHashPartitionKey(
       request->set_max_hash_code(hash_code);
     }
 
-  } else if (
-      request->has_hash_code() || request->has_max_hash_code() || request->has_lower_bound() ||
-      request->has_upper_bound()) {
-    if (!yb_allow_row_boundary_for_hash_partitioned_tables) {
-      // Starting with D45476, lower_bound and upper_bound fields store dockeys for hash
-      // partitioned tables. Since the auto flag is not yet true, some tservers may not have this
-      // change yet. These tserver will expects these fields to be hash code and not dockeys.
+  } else if (request->has_lower_bound() || request->has_upper_bound()) {
+    if (request->has_lower_bound()) {
+      uint16_t lower_bound_hash_code =
+          VERIFY_RESULT(dockv::DocKey::DecodeHash(request->lower_bound().key()));
+      request->set_hash_code(lower_bound_hash_code);
+    }
 
-      // Firstly, check if these fields are set and if so, error out as these fields will be
-      // dockeys.
-      if (request->has_lower_bound() || request->has_upper_bound()) {
-        return STATUS(
-            NotSupported,
-            "Dockey bounds while scanning hash partitioned tables is not allowed during this "
-            "upgrade");
-      }
+    if (request->has_upper_bound()) {
+      uint16_t upper_bound_hash_code =
+          VERIFY_RESULT(dockv::DocKey::DecodeHash(request->upper_bound().key()));
+      request->set_max_hash_code(upper_bound_hash_code);
+    }
 
-      // Now that these fields are not set, set them to the encoded hash code boundaries.
+    auto partition_key = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
+    SetPartitionKey(std::move(partition_key), request);
+
+    if (!yb_lower_upper_bounds_are_dockeys) {
+      // With D45476, lower_bound and upper_bound fields are dockeys for hash partitioned tables.
+      // Since the auto flag is not true, it is possible that some tservers may not have this
+      // change yet. So set these fields to encoded hash codes.
+
       if (request->has_hash_code()) {
         auto lower_bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
-        SetLowerBound(lower_bound, true, request);
+        SetLowerBound(lower_bound, true /* is_inclusive */, request);
       }
 
       if (request->has_max_hash_code()) {
         auto upper_bound =
             dockv::PartitionSchema::EncodeMultiColumnHashValue(request->max_hash_code());
-        SetUpperBound(upper_bound, true, request);
+        SetUpperBound(upper_bound, true /* is_inclusive */, request);
       }
     } else {
-      if (request->has_max_hash_code() && request->has_lower_bound()) {
-        uint16 lower_bound_hash =
-            VERIFY_RESULT(dockv::DocKey::DecodeHash(request->lower_bound().key()));
-        if (lower_bound_hash > request->max_hash_code()) {
-          return STATUS_SUBSTITUTE(
-              InternalError,
-              "Read request to partition will yield empty result as lower_bound hash code ($0) is "
-              "greater than max_hash_code ($1)",
-              lower_bound_hash, request->max_hash_code());
-        }
-      }
-
-      if (request->has_hash_code() && request->has_upper_bound()) {
-        uint16 upper_bound_hash =
-            VERIFY_RESULT(dockv::DocKey::DecodeHash(request->upper_bound().key()));
-        if (request->hash_code() > upper_bound_hash) {
-          return STATUS_SUBSTITUTE(
-              InternalError,
-              "Read request to partition will yield empty result as upper_bound hash code ($0) is "
-              "less than hash_code ($1)",
-              upper_bound_hash, request->hash_code());
-        }
-      }
-
-      auto hash_code = static_cast<uint16>(request->hash_code());
-      uint16_t lower_bound_hash_code =
-          request->has_lower_bound()
-              ? VERIFY_RESULT(dockv::DocKey::DecodeHash(request->lower_bound().key()))
-              : 0;
-
-      request->set_hash_code(std::max(hash_code, lower_bound_hash_code));
-
-      if (request->has_upper_bound()) {
-        auto upper_bound_hash_code =
-            VERIFY_RESULT(dockv::DocKey::DecodeHash(request->upper_bound().key()));
-
-        if (request->has_max_hash_code()) {
-          auto max_hash_code = static_cast<uint16>(request->max_hash_code());
-          request->set_max_hash_code(std::min(max_hash_code, upper_bound_hash_code));
-        } else {
-          request->set_max_hash_code(upper_bound_hash_code);
-        }
-      }
-
-      request->set_range_bounds_have_dockeys(
-          request->has_upper_bound() || request->has_lower_bound());
+      request->set_lower_upper_bounds_are_dockeys(true);
     }
 
-    auto partition_key = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
-    SetPartitionKey(std::move(partition_key), request);
   } else {
     // Full scan. Default to empty key.
     request->clear_partition_key();
