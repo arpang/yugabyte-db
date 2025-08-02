@@ -67,6 +67,7 @@
 #include "yb/util/flags.h"
 #include "yb/util/result.h"
 #include "yb/util/status_format.h"
+#include "yb/yql/pggate/util/ybc_guc.h"
 
 using namespace std::literals;
 
@@ -99,6 +100,26 @@ void SetPartitionKey(const Slice& value, LWPgsqlWriteRequestPB* request) {
 
 void SetPartitionKey(const Slice& value, PgsqlWriteRequestPB* request) {
   request->set_partition_key(value.cdata(), value.size());
+}
+
+void SetLowerBound(const Slice& value, bool is_inclusive, LWPgsqlReadRequestPB* request) {
+  request->mutable_lower_bound()->dup_key(value);
+  request->mutable_lower_bound()->set_is_inclusive(is_inclusive);
+}
+
+void SetLowerBound(const Slice& value, bool is_inclusive, PgsqlReadRequestPB* request) {
+  request->mutable_lower_bound()->set_key(value.cdata(), value.size());
+  request->mutable_lower_bound()->set_is_inclusive(is_inclusive);
+}
+
+void SetUpperBound(const Slice& value, bool is_inclusive, LWPgsqlReadRequestPB* request) {
+  request->mutable_upper_bound()->dup_key(value);
+  request->mutable_upper_bound()->set_is_inclusive(is_inclusive);
+}
+
+void SetUpperBound(const Slice& value, bool is_inclusive, PgsqlReadRequestPB* request) {
+  request->mutable_upper_bound()->set_key(value.cdata(), value.size());
+  request->mutable_upper_bound()->set_is_inclusive(is_inclusive);
 }
 
 template <typename Req>
@@ -220,24 +241,40 @@ Status InitHashPartitionKey(
     }
 
   } else if (request->has_lower_bound() || request->has_upper_bound()) {
-    // If the read request provides a scan boundary, use that to derive the partition key.
-    SetPartitionKey(request->lower_bound().key(), request);
-
-    // Translate to hash-code bounds as well.
     if (request->has_lower_bound()) {
-      auto hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(request->lower_bound().key());
-      if (!request->lower_bound().is_inclusive()) {
-        ++hash;
-      }
-      request->set_hash_code(hash);
+      uint16_t lower_bound_hash_code =
+          VERIFY_RESULT(dockv::DocKey::DecodeHash(request->lower_bound().key()));
+      request->set_hash_code(lower_bound_hash_code);
     }
+
     if (request->has_upper_bound()) {
-      auto hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(request->upper_bound().key());
-      if (!request->upper_bound().is_inclusive()) {
-        --hash;
-      }
-      request->set_max_hash_code(hash);
+      uint16_t upper_bound_hash_code =
+          VERIFY_RESULT(dockv::DocKey::DecodeHash(request->upper_bound().key()));
+      request->set_max_hash_code(upper_bound_hash_code);
     }
+
+    auto partition_key = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
+    SetPartitionKey(std::move(partition_key), request);
+
+    if (!yb_lower_upper_bounds_are_dockeys) {
+      // With D45476, lower_bound and upper_bound fields are dockeys for hash partitioned tables.
+      // Since the auto flag is not true, it is possible that some tservers may not have this
+      // change yet. So, set these fields to encoded hash codes just as before.
+
+      if (request->has_hash_code()) {
+        auto lower_bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
+        SetLowerBound(lower_bound, true /* is_inclusive */, request);
+      }
+
+      if (request->has_max_hash_code()) {
+        auto upper_bound =
+            dockv::PartitionSchema::EncodeMultiColumnHashValue(request->max_hash_code());
+        SetUpperBound(upper_bound, true /* is_inclusive */, request);
+      }
+    } else {
+      request->set_lower_upper_bounds_are_dockeys(true);
+    }
+
   } else {
     // Full scan. Default to empty key.
     request->clear_partition_key();

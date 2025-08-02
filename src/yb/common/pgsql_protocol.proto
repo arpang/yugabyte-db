@@ -540,6 +540,12 @@ message PgsqlReadRequestPB {
   // - Don't overload these fields for different purposes to avoid confusion.
   optional PgsqlPartitionBound lower_bound = 27;
   optional PgsqlPartitionBound upper_bound = 28;
+  // Before D45476, lower_bound/upper_bound fields were encoded hash codes for hash partitioned
+  // tables and dockeys for range partitioned. Now they are dockeys even for hash partitioned
+  // tables. This change is under an auto flag yb_lower_upper_bounds_are_dockeys. During the
+  // upgrade when the auto flag is true in some nodes and false in other, the following field helps
+  // docdb interpret the bounds. Applicable only for hash partitioned tables.
+  optional bool lower_upper_bounds_are_dockeys = 45;
 
   // Deprecated fields.
   // Field "max_partition_key" is replaced by "lower_bound" and "upper_bound". This field is only

@@ -1543,11 +1543,6 @@ Status PgApiImpl::SetDistinctPrefixLength(PgStatement* handle, int distinct_pref
   return Status::OK();
 }
 
-Status PgApiImpl::SetHashBounds(PgStatement* handle, uint16_t low_bound, uint16_t high_bound) {
-  VERIFY_RESULT_REF(GetStatementAs<PgSelect>(handle)).SetHashBounds(low_bound, high_bound);
-  return Status::OK();
-}
-
 Result<bool> PgApiImpl::RetrieveYbctids(
     PgStatement* handle, const YbcPgExecParameters* exec_params, int natts, YbcSliceVector* ybctids,
     size_t* count) {
