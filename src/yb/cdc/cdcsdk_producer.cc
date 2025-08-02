@@ -149,7 +149,7 @@ Status AddColumnToMap(
     const Value& col, const EnumOidLabelMap& enum_oid_label_map,
     const CompositeAttsMap& composite_atts_map, CDCSDKRequestSource request_source,
     DatumMessagePB* cdc_datum_message, const QLValuePB* old_ql_value_passed) {
-  auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet_safe());
+  auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet());
   cdc_datum_message->set_column_name(col_schema.name());
   QLValuePB ql_value;
   if (old_ql_value_passed) {
@@ -504,7 +504,7 @@ Status DoPopulateBeforeImage(
     return Status::OK();
   }
 
-  auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet_safe());
+  auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet());
   auto docdb = tablet->doc_db();
   auto pending_op = tablet->CreateScopedRWOperationNotBlockingRocksDbShutdownStart();
 
@@ -720,7 +720,7 @@ Result<TableName> GetColocatedTableName(
       continue;
     }
 
-    const auto& tablet = VERIFY_RESULT(tablet_peer->shared_tablet_safe());
+    const auto& tablet = VERIFY_RESULT(tablet_peer->shared_tablet());
     return tablet->metadata()->table_name(cur_table_id);
   }
 
@@ -741,7 +741,7 @@ Result<SchemaDetails> GetOrPopulateRequiredSchemaDetails(
       continue;
     }
 
-    auto tablet_result = tablet_peer->shared_tablet_safe();
+    auto tablet_result = tablet_peer->shared_tablet();
     RETURN_NOT_OK(tablet_result);
 
     auto tablet = *tablet_result;
@@ -886,7 +886,7 @@ Status PopulateCDCSDKIntentRecord(
     client::YBClient* client,
     const bool& end_of_transaction,
     CDCThroughputMetrics* throughput_metrics) {
-  auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet_safe());
+  auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet());
 
   bool colocated = tablet->metadata()->colocated();
   Schema schema = Schema();
@@ -1259,7 +1259,7 @@ Status PopulateCDCSDKWriteRecord(
     FillBeginRecordForSingleShardTransaction(msg->hybrid_time(), resp, throughput_metrics);
   }
 
-  auto tablet_ptr = VERIFY_RESULT(tablet_peer->shared_tablet_safe());
+  auto tablet_ptr = VERIFY_RESULT(tablet_peer->shared_tablet());
   const auto& batch = msg->write().write_batch();
   CDCSDKProtoRecordPB* proto_record = nullptr;
   RowMessage* row_message = nullptr;
@@ -1560,7 +1560,7 @@ Status PopulateCDCSDKWriteRecordWithInvalidSchemaRetry(
     }
 
     // Clear the scheam for all the colocated tables assocaited with the tablet
-    auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet_safe());
+    auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet());
     for (auto const& cur_table_id : tablet_peer->tablet_metadata()->GetAllColocatedTables()) {
       auto it = cached_schema_details->find(cur_table_id);
       if (it != cached_schema_details->end()) {
@@ -1706,14 +1706,14 @@ Status ProcessIntents(
     TableSchemaPackingStorage* schema_packing_storages,
     HybridTime commit_time,
     CDCThroughputMetrics* throughput_metrics) {
-  auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet_safe());
+  auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet());
   if (stream_state->key.empty() && stream_state->write_id == 0 &&
       FLAGS_cdc_populate_end_markers_transactions) {
     FillBeginRecord(transaction_id, commit_time.ToUint64(), resp, throughput_metrics);
     TEST_SYNC_POINT("AddBeginRecord::End");
   }
 
-  RETURN_NOT_OK(tablet->GetIntents(transaction_id, keyValueIntents, stream_state));
+  RETURN_NOT_OK(tablet->GetIntentsForCDC(transaction_id, keyValueIntents, stream_state));
   VLOG(1) << "The size of intentKeyValues for transaction id: " << transaction_id
           << ", with apply record op_id : " << op_id << ", is: " << (*keyValueIntents).size();
 
@@ -1805,7 +1805,7 @@ Status PrcoessIntentsWithInvalidSchemaRetry(
     }
 
     // Clear the scheam for all the colocated tables assocaited with the tablet
-    auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet_safe());
+    auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet());
     for (auto const& cur_table_id : tablet_peer->tablet_metadata()->GetAllColocatedTables()) {
       auto it = cached_schema_details->find(cur_table_id);
       if (it != cached_schema_details->end()) {
@@ -2556,15 +2556,18 @@ Status GetChangesForCDCSDK(
   bool report_tablet_split = false, snapshot_operation = false, pending_intents = false,
        wait_for_wal_update = false, txn_load_in_progress = false;
 
-  auto tablet_ptr = VERIFY_RESULT(tablet_peer->shared_tablet_safe());
-  auto leader_safe_time = tablet_ptr->SafeTime();
-  if (!leader_safe_time.ok()) {
+  auto tablet_ptr = VERIFY_RESULT(tablet_peer->shared_tablet());
+  auto leader_safe_time_result = tablet_ptr->SafeTime();
+  HybridTime leader_safe_time;
+  if (!leader_safe_time_result.ok()) {
     YB_LOG_EVERY_N_SECS(WARNING, 10)
-        << "Could not compute safe time: " << leader_safe_time.status();
+        << "Could not compute safe time: " << leader_safe_time_result.status();
     leader_safe_time = HybridTime::kInvalid;
+  } else {
+    leader_safe_time = *leader_safe_time_result;
   }
   uint64_t consistent_stream_safe_time = VERIFY_RESULT(GetConsistentStreamSafeTime(
-      tablet_peer, tablet_ptr, leader_safe_time.get(), safe_hybrid_time_req, deadline,
+      tablet_peer, tablet_ptr, leader_safe_time, safe_hybrid_time_req, deadline,
       &txn_load_in_progress));
   OpId historical_max_op_id = tablet_ptr->transaction_participant()
                                   ? tablet_ptr->transaction_participant()->GetHistoricalMaxOpId()
@@ -2690,7 +2693,7 @@ Status GetChangesForCDCSDK(
       size_t next_checkpoint_index = 0;
 
       consistent_stream_safe_time = VERIFY_RESULT(GetConsistentStreamSafeTime(
-          tablet_peer, tablet_ptr, leader_safe_time.get(), safe_hybrid_time_req, deadline,
+          tablet_peer, tablet_ptr, leader_safe_time, safe_hybrid_time_req, deadline,
           &txn_load_in_progress));
 
       if (txn_load_in_progress) {
@@ -3086,19 +3089,19 @@ Status GetChangesForCDCSDK(
   auto safe_time = (wait_for_wal_update || txn_load_in_progress)
                        ? computed_safe_hybrid_time_req
                        : GetCDCSDKSafeTimeForTarget(
-                             leader_safe_time.get(), safe_hybrid_time_resp, have_more_messages,
+                             leader_safe_time, safe_hybrid_time_resp, have_more_messages,
                              consistent_stream_safe_time, snapshot_operation);
 
   if (!snapshot_operation && !CheckResponseSafeTimeCorrectness(
                                  last_read_wal_op_record_time, safe_time, is_entire_wal_read)) {
     LOG(DFATAL) << "Stream_id: " << stream_id << ", tablet_id: " << tablet_id
-                 << ", response safe time: " << safe_time
-                 << " is greater than last read WAL OP's record time: "
-                 << last_read_wal_op_record_time
-                 << ", req_safe_time: " << computed_safe_hybrid_time_req
-                 << ", consistent stream safe time: " << HybridTime(consistent_stream_safe_time)
-                 << ", leader safe time: " << leader_safe_time.get()
-                 << ", is_entire_wal_read: " << is_entire_wal_read;
+                << ", response safe time: " << safe_time
+                << " is greater than last read WAL OP's record time: "
+                << last_read_wal_op_record_time
+                << ", req_safe_time: " << computed_safe_hybrid_time_req
+                << ", consistent stream safe time: " << HybridTime(consistent_stream_safe_time)
+                << ", leader safe time: " << leader_safe_time
+                << ", is_entire_wal_read: " << is_entire_wal_read;
   }
   resp->set_safe_hybrid_time(safe_time.ToUint64());
 

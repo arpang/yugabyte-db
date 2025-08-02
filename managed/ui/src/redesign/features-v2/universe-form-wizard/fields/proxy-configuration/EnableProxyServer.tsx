@@ -1,12 +1,21 @@
 import { FC } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { useFormContext, useWatch } from 'react-hook-form';
-import { mui, YBToggleField, YBInputField } from '@yugabyte-ui-library/core';
-import { StyledLink } from '../../components/DefaultComponents';
-import { ProxyAdvancedProps } from '../../steps/advanced-settings/dtos';
+import { mui, YBToggleField, YBInputField, YBMultiEntryField } from '@yugabyte-ui-library/core';
+import { StyledLink } from '@app/redesign/features-v2/universe-form-wizard/components/DefaultComponents';
+import { ProxyAdvancedProps } from '@app/redesign/features-v2/universe-form-wizard/steps/advanced-settings/dtos';
+import {
+  ENABLE_PROXY_SERVER_FIELD,
+  SECURE_WEB_PROXY_FIELD,
+  SECURE_WEB_PROXY_SERVER_FIELD,
+  SECURE_WEB_PROXY_PORT_FIELD,
+  WEB_PROXY_FIELD,
+  BYPASS_PROXY_LIST_FIELD,
+  BYPASS_PROXY_LIST_VALUES_FIELD
+} from '@app/redesign/features-v2/universe-form-wizard/fields/FieldNames';
+import { ReactComponent as NextLineIcon } from '@app/redesign/assets/next-line.svg';
 
 const { Box, Typography, styled } = mui;
-
-import { ReactComponent as NextLineIcon } from '../../../../assets/next-line.svg';
 
 interface EnableProxyServerProps {
   disabled: boolean;
@@ -17,11 +26,11 @@ const ProxyContainer = styled(Box)(({ theme }) => ({
   flexDirection: 'column',
   width: '734px',
   borderRadius: '8px',
-  border: '1px solid #D7DEE4',
+  border: `1px solid ${theme.palette.grey[300]}`,
   backgroundColor: '#FBFCFD'
 }));
 
-const StyledSubText = styled(Typography)(({ theme }) => ({
+const StyledSubText = styled(Typography)(() => ({
   color: '#4E5F6D',
   fontSize: 11.5,
   fontWeight: 400,
@@ -30,19 +39,28 @@ const StyledSubText = styled(Typography)(({ theme }) => ({
 }));
 
 export const EnableProxyServer: FC<EnableProxyServerProps> = ({ disabled }) => {
-  const { control, setValue } = useFormContext<ProxyAdvancedProps>();
+  const { control } = useFormContext<ProxyAdvancedProps>();
 
-  const enableProxyValue = useWatch({ name: 'enableProxyServer' });
-  const secureWebProxyValue = useWatch({ name: 'secureWebProxy' });
-  const byPassProxyValue = useWatch({ name: 'byPassProxyList' });
+  const { t } = useTranslation('translation', {
+    keyPrefix: 'createUniverseV2.proxySettings.enableProxyServer'
+  });
+
+  const enableProxyValue = useWatch({ name: ENABLE_PROXY_SERVER_FIELD });
+  const secureWebProxyValue = useWatch({ name: SECURE_WEB_PROXY_FIELD });
+  const byPassProxyValue = useWatch({ name: BYPASS_PROXY_LIST_FIELD });
 
   return (
     <ProxyContainer>
       <Box sx={{ display: 'flex', flexDirection: 'column', padding: '16px 24px' }}>
-        <YBToggleField name={'enableProxyServer'} control={control} label={'Enable Proxy Server'} />
+        <YBToggleField
+          name={ENABLE_PROXY_SERVER_FIELD}
+          control={control}
+          label={t('toggleLabel')}
+          dataTestId="enable-proxy-server-field"
+        />
         <StyledSubText>
-          Configure web proxies as gateways for traffic from your database nodes.
-          <StyledLink>Learn more</StyledLink>
+          {t('toggleHelper')}&nbsp;
+          <StyledLink>{t('learnMore')}</StyledLink>
         </StyledSubText>
       </Box>
       {enableProxyValue && (
@@ -61,9 +79,10 @@ export const EnableProxyServer: FC<EnableProxyServerProps> = ({ disabled }) => {
             <NextLineIcon />
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <YBToggleField
-                name={'secureWebProxy'}
+                name={SECURE_WEB_PROXY_FIELD}
                 control={control}
-                label={'Secure Web Proxy (HTTPS)'}
+                label={t('secureWebProxyLabel')}
+                dataTestId="secure-web-proxy-field"
               />
               {secureWebProxyValue && (
                 <Box
@@ -71,21 +90,23 @@ export const EnableProxyServer: FC<EnableProxyServerProps> = ({ disabled }) => {
                 >
                   <YBInputField
                     control={control}
-                    name={'secureWebProxyServer'}
+                    name={SECURE_WEB_PROXY_SERVER_FIELD}
                     fullWidth
                     disabled={disabled}
-                    label={'Server'}
+                    label={t('serverLabel')}
                     sx={{ width: '444px' }}
-                    placeholder={'https://proxy.example.com'}
+                    placeholder={t('serverPlaceholder')}
+                    dataTestId="secure-web-proxy-server-field"
                   />
                   <YBInputField
                     control={control}
-                    name={'secureWebProxyPort'}
+                    name={SECURE_WEB_PROXY_PORT_FIELD}
                     fullWidth
                     disabled={disabled}
-                    label={'Port'}
+                    label={t('portLabel')}
                     sx={{ width: '96px' }}
-                    placeholder={'8080'}
+                    placeholder={t('portPlaceholder')}
+                    dataTestId="secure-web-proxy-port-field"
                   />
                 </Box>
               )}
@@ -93,7 +114,12 @@ export const EnableProxyServer: FC<EnableProxyServerProps> = ({ disabled }) => {
           </Box>
           <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
             <NextLineIcon />
-            <YBToggleField name={'webProxy'} control={control} label={'Web Proxy (HTTP)'} />
+            <YBToggleField
+              name={WEB_PROXY_FIELD}
+              control={control}
+              label={t('webProxy')}
+              dataTestId="web-proxy-field"
+            />
           </Box>
           <Box
             sx={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '16px' }}
@@ -101,23 +127,34 @@ export const EnableProxyServer: FC<EnableProxyServerProps> = ({ disabled }) => {
             <NextLineIcon />
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <YBToggleField
-                name={'byPassProxyList'}
+                name={BYPASS_PROXY_LIST_FIELD}
                 control={control}
-                label={'Bypass Proxy List'}
+                label={t('byPassProxy')}
+                dataTestId="by-pass-proxy-list-field"
               />
               {byPassProxyValue && (
-                <YBInputField
-                  control={control}
-                  name={'byPassProxyListValues'}
-                  fullWidth
-                  disabled={disabled}
-                  label={'Bypass Proxy List (WIP)'}
-                  sx={{ width: '572px' }}
-                  multiline={true}
-                  rows={10}
-                  placeholder={'example.com, example.com:8080'}
-                  helperText="Separate multiple values by pressing Enter, Space, or Comma."
-                />
+                <Box sx={{ gap: 'unset' }}>
+                  <YBMultiEntryField
+                    control={control}
+                    name={BYPASS_PROXY_LIST_VALUES_FIELD}
+                    disabled={disabled}
+                    label={t('byPassProxy')}
+                    overrideWidth={572}
+                    overrideHeight={154}
+                    placeholderText={t('byPassListPlaceholder')}
+                    subLabel={
+                      <Typography variant="body2" color="textSecondary" sx={{ fontSize: 11.5 }}>
+                        <Trans
+                          i18nKey="createUniverseV2.proxySettings.enableProxyServer.byPassHelper"
+                          components={{
+                            b: <Box component="span" sx={{ fontWeight: 600, fontSize: 11.5 }} />
+                          }}
+                        />
+                      </Typography>
+                    }
+                    dataTestId="by-pass-proxy-list-values-field"
+                  />
+                </Box>
               )}
             </Box>
           </Box>

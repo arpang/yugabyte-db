@@ -155,7 +155,7 @@ std::string GetFsRoot(const MiniClusterOptions& options) {
 
 template <typename PeersGetter>
 Status WaitAllReplicasRunning(MiniCluster* cluster, MonoDelta timeout, PeersGetter peers_getter) {
-  return LoggedWaitFor([cluster, list_peers = std::move(peers_getter)] {
+  return LoggedWaitFor([list_peers = std::move(peers_getter)] {
     std::unordered_set<std::string> tablet_ids;
     auto peers = list_peers();
     for (const auto& peer : peers) {
@@ -164,7 +164,7 @@ Status WaitAllReplicasRunning(MiniCluster* cluster, MonoDelta timeout, PeersGett
       }
       tablet_ids.insert(peer->tablet_id());
     }
-    auto replication_factor = cluster->num_tablet_servers();
+    auto replication_factor = FLAGS_replication_factor;
     return tablet_ids.size() * replication_factor == peers.size();
   }, timeout, "Wait all replicas to be ready");
 }
@@ -657,6 +657,13 @@ Status MiniCluster::CompactTablets(docdb::SkipFlush skip_flush) {
   return Status::OK();
 }
 
+Status MiniCluster::CompactTablet(const TabletId& tablet_id, docdb::SkipFlush skip_flush) {
+  for (const auto& tablet_server : mini_tablet_servers_) {
+    RETURN_NOT_OK(tablet_server->CompactTablet(tablet_id, skip_flush));
+  }
+  return Status::OK();
+}
+
 Status MiniCluster::SwitchMemtables() {
   for (const auto& tablet_server : mini_tablet_servers_) {
     RETURN_NOT_OK(tablet_server->SwitchMemtables());
@@ -1122,7 +1129,7 @@ std::vector<tablet::TabletPtr> PeersToTablets(const std::vector<tablet::TabletPe
   std::vector<tablet::TabletPtr> result;
   result.reserve(peers.size());
   for (const auto& peer : peers) {
-    auto tablet = peer->shared_tablet();
+    auto tablet = peer->shared_tablet_maybe_null();
     if (tablet) {
       result.push_back(tablet);
     }
@@ -1151,7 +1158,7 @@ std::vector<tablet::TabletPeerPtr> ListTableInactiveSplitTabletPeers(
     MiniCluster* cluster, const TableId& table_id) {
   std::vector<tablet::TabletPeerPtr> result;
   for (auto peer : ListTableTabletPeers(cluster, table_id)) {
-    auto tablet = peer->shared_tablet();
+    auto tablet = peer->shared_tablet_maybe_null();
     if (tablet &&
         tablet->metadata()->tablet_data_state() ==
             tablet::TabletDataState::TABLET_DATA_SPLIT_COMPLETED) {
@@ -1301,11 +1308,12 @@ std::thread RestartsThread(
   });
 }
 
-Status WaitAllReplicasReady(MiniCluster* cluster, MonoDelta timeout) {
+Status WaitAllReplicasReady(
+    MiniCluster* cluster, MonoDelta timeout, UserTabletsOnly user_tablets_only) {
   return WaitAllReplicasRunning(
       cluster, timeout,
-      [cluster]() {
-        return ListTabletPeers(cluster, ListPeersFilter::kAll);
+      [cluster, user_tablets_only]() {
+        return ListTabletPeers(cluster, ListPeersFilter::kAll, user_tablets_only);
   });
 }
 
@@ -1342,7 +1350,7 @@ void PushBackIfNotNull(const typename Collection::value_type& value, Collection*
 std::vector<rocksdb::DB*> GetAllRocksDbs(MiniCluster* cluster, bool include_intents) {
   std::vector<rocksdb::DB*> dbs;
   for (auto& peer : ListTabletPeers(cluster, ListPeersFilter::kAll)) {
-    auto tablet = peer->shared_tablet();
+    auto tablet = peer->shared_tablet_maybe_null();
     if (tablet) {
       PushBackIfNotNull(tablet->regular_db(), &dbs);
       if (include_intents) {
@@ -1423,7 +1431,7 @@ size_t CountIntents(MiniCluster* cluster, const TabletPeerFilter& filter) {
   size_t result = 0;
   auto peers = ListTabletPeers(cluster, ListPeersFilter::kAll);
   for (const auto &peer : peers) {
-    auto tablet = peer->shared_tablet();
+    auto tablet = peer->shared_tablet_maybe_null();
     auto participant = tablet ? tablet->transaction_participant() : nullptr;
     if (!participant) {
       continue;
@@ -1542,7 +1550,7 @@ void SetCompactFlushRateLimitBytesPerSec(MiniCluster* cluster, const size_t byte
             << " and updating compact/flush rate in existing tablets";
   FLAGS_rocksdb_compact_flush_rate_limit_bytes_per_sec = bytes_per_sec;
   for (auto& tablet_peer : ListTabletPeers(cluster, ListPeersFilter::kAll)) {
-    auto tablet_result = tablet_peer->shared_tablet_safe();
+    auto tablet_result = tablet_peer->shared_tablet();
     if (!tablet_result.ok()) {
       LOG(WARNING) << "Unable to get tablet: " << tablet_result.status();
       continue;
@@ -1647,14 +1655,13 @@ Status WaitAllReplicasSynchronizedWithLeader(MiniCluster* cluster, CoarseDuratio
 
 Status WaitForAnySstFiles(tablet::TabletPeerPtr peer, MonoDelta timeout) {
   CHECK_NOTNULL(peer.get());
-  return LoggedWaitFor([peer] {
-      auto tablet = peer->shared_tablet();
-      if (!tablet)
-        return false;
-      return tablet->regular_db()->GetCurrentVersionNumSSTFiles() > 0;
-    },
-    timeout,
-    Format("Wait for SST files of peer: $0", peer->permanent_uuid()));
+  return LoggedWaitFor(
+      [peer] {
+        auto tablet = peer->shared_tablet_maybe_null();
+        if (!tablet) return false;
+        return tablet->regular_db()->GetCurrentVersionNumSSTFiles() > 0;
+      },
+      timeout, Format("Wait for SST files of peer: $0", peer->permanent_uuid()));
 }
 
 Status WaitForAnySstFiles(MiniCluster* cluster, const TabletId& tablet_id, MonoDelta timeout) {
@@ -1728,7 +1735,11 @@ void ActivateCompactionTimeLogging(MiniCluster* cluster) {
 void DumpDocDB(MiniCluster* cluster, ListPeersFilter filter) {
   auto peers = ListTabletPeers(cluster, filter);
   for (const auto& peer : peers) {
-    peer->shared_tablet()->TEST_DocDBDumpToLog(docdb::IncludeIntents::kTrue);
+    auto tablet = peer->shared_tablet_maybe_null();
+    if (!tablet) {
+      continue;
+    }
+    tablet->TEST_DocDBDumpToLog(docdb::IncludeIntents::kTrue);
   }
 }
 
@@ -1736,14 +1747,18 @@ std::vector<std::string> DumpDocDBToStrings(MiniCluster* cluster, ListPeersFilte
   std::vector<std::string> result;
   auto peers = ListTabletPeers(cluster, filter);
   for (const auto& peer : peers) {
-    result.push_back(peer->shared_tablet()->TEST_DocDBDumpStr());
+    auto tablet = peer->shared_tablet_maybe_null();
+    if (!tablet) {
+      continue;
+    }
+    result.push_back(tablet->TEST_DocDBDumpStr());
   }
   return result;
 }
 
 void DisableFlushOnShutdown(MiniCluster& cluster, bool disable) {
   for (const auto& peer : ListTabletPeers(&cluster, ListPeersFilter::kAll)) {
-    auto tablet = peer->shared_tablet();
+    auto tablet = peer->shared_tablet_maybe_null();
     if (!tablet) {
       continue;
     }

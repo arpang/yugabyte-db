@@ -12,7 +12,7 @@
 [
 
 # For better version control conflict detection, list latest migration filename
-# here: V83__26283__yb_compute_row_ybctid.sql
-{ major => '83', minor => '0', name => '<baseline>', time_applied => '_null_' }
+# here: V86__26283__yb_compute_row_ybctid.sql
+{ major => '86', minor => '0', name => '<baseline>', time_applied => '_null_' }
 
 ]
