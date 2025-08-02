@@ -27,10 +27,21 @@ using std::string;
 
 using namespace std::literals;
 
+DECLARE_string(vmodule);
+METRIC_DECLARE_counter(handler_latency_yb_tserver_PgClientService_OpenTable);
+METRIC_DECLARE_counter(handler_latency_yb_master_MasterDdl_GetTableSchema);
+
 namespace yb {
 namespace pgwrapper {
 
 class PgCatalogVersionTest : public LibPqTestBase {
+
+ public:
+  void SetUp() override {
+    LibPqTestBase::SetUp();
+    ANNOTATE_UNPROTECTED_WRITE(FLAGS_vmodule) = "libpq_utils=1";
+  }
+
  protected:
   using Version = uint64_t;
 
@@ -85,6 +96,12 @@ class PgCatalogVersionTest : public LibPqTestBase {
       cluster_->tablet_server(i)->mutable_flags()->push_back(db_catalog_version_gflag);
       for (const auto& flag : extra_tserver_flags) {
         cluster_->tablet_server(i)->mutable_flags()->push_back(flag);
+      }
+      if (!enabled) {
+        cluster_->tablet_server(i)->mutable_flags()->push_back(
+            "--allowed_preview_flags_csv=enable_object_locking_for_table_locks");
+        cluster_->tablet_server(i)->mutable_flags()->push_back(
+            "--enable_object_locking_for_table_locks=false");
       }
     }
     ASSERT_OK(cluster_->Restart());
@@ -2332,8 +2349,7 @@ ALTER TABLE testtable ADD COLUMN value INT;
 TEST_F(PgCatalogVersionTest, InvalMessageSampleDDLs) {
   // Disable auto analyze to prevent unexpected invalidation messages.
   RestartClusterWithInvalMessageEnabled(
-      { "--ysql_enable_auto_analyze_service=false",
-        "--ysql_enable_table_mutation_counter=false",
+      { "--ysql_enable_auto_analyze=false",
         "--ysql_yb_invalidation_message_expiration_secs=36000" });
   const string sample_ddl_script =
         R"#(
@@ -3121,6 +3137,93 @@ TEST_F(PgCatalogVersionTest, TestPreloadCatalogTables) {
     ASSERT_GT(preloadSize, defaultSize * 5);
   }
   VerifyCatCacheRefreshMetricsHelper(5 /* num_full_refreshes */, 0 /* num_delta_refreshes */);
+}
+
+// Make sure ALTER ROLE SET GUC has global impact.
+TEST_F(PgCatalogVersionTest, TestAlterRoleSetGUCHasGlobalImpact) {
+  auto conn = ASSERT_RESULT(ConnectToDB("yugabyte"));
+  ASSERT_OK(conn.Execute("CREATE ROLE user1 WITH login"));
+  ASSERT_OK(conn.Execute("CREATE ROLE user2 WITH login"));
+  ASSERT_OK(conn.Execute("CREATE DATABASE db1"));
+
+  auto conn_db1_user1 = ASSERT_RESULT(ConnectToDBAsUser("db1" /* db_name */, "user1"));
+  auto conn_db1_user2 = ASSERT_RESULT(ConnectToDBAsUser("db1" /* db_name */, "user2"));
+  auto row1 = ASSERT_RESULT(conn_db1_user1.FetchAllAsString("SHOW log_planner_stats"));
+  auto row2 = ASSERT_RESULT(conn_db1_user2.FetchAllAsString("SHOW log_planner_stats"));
+  ASSERT_EQ(row1, "off");
+  ASSERT_EQ(row2, "off");
+
+  ASSERT_OK(conn.Execute("ALTER ROLE user1 SET log_planner_stats = on"));
+
+  conn_db1_user1 = ASSERT_RESULT(ConnectToDBAsUser("db1" /* db_name */, "user1"));
+  auto conn_yb_user1 = ASSERT_RESULT(ConnectToDBAsUser("yugabyte" /* db_name */, "user1"));
+  conn_db1_user2 = ASSERT_RESULT(ConnectToDBAsUser("db1" /* db_name */, "user2"));
+  auto conn_yb_user2 = ASSERT_RESULT(ConnectToDBAsUser("yugabyte" /* db_name */, "user2"));
+
+  auto row3 = ASSERT_RESULT(conn_db1_user1.FetchAllAsString("SHOW log_planner_stats"));
+  auto row4 = ASSERT_RESULT(conn_yb_user1.FetchAllAsString("SHOW log_planner_stats"));
+  auto row5 = ASSERT_RESULT(conn_db1_user2.FetchAllAsString("SHOW log_planner_stats"));
+  auto row6 = ASSERT_RESULT(conn_yb_user2.FetchAllAsString("SHOW log_planner_stats"));
+  ASSERT_EQ(row3, "on");
+  ASSERT_EQ(row4, "on");
+  ASSERT_EQ(row5, "off");
+  ASSERT_EQ(row6, "off");
+}
+
+TEST_F(PgCatalogVersionTest, InvalMessageDeltaTableLoad) {
+  for (int i = 0; i < 2; i++) {
+    if (i == 0) {
+      RestartClusterWithInvalMessageEnabled();
+    } else {
+      RestartClusterWithInvalMessageEnabled(
+          { "--ysql_yb_enable_invalidate_table_cache_entry=false" });
+    }
+    auto conn = CHECK_RESULT(Connect());
+    ASSERT_OK(conn.ExecuteFormat("create table test_table$0(id int)", i));
+    auto conn1 = ASSERT_RESULT(Connect());
+    auto conn2 = ASSERT_RESULT(Connect());
+    auto open_table_count = [this]() -> Result<int64_t> {
+      int64_t result = 0;
+      for (auto* tserver : cluster_->tserver_daemons()) {
+        int64_t count = CHECK_RESULT(tserver->GetMetric<int64>(
+            &METRIC_ENTITY_server, "yb.tabletserver",
+            &METRIC_handler_latency_yb_tserver_PgClientService_OpenTable, "total_count"));
+        result += count;
+      }
+      return result;
+    };
+
+    auto get_schema_count = [this]() -> Result<int64_t> {
+      int64_t result = 0;
+      for (auto* master : cluster_->master_daemons()) {
+        int64_t count = CHECK_RESULT(master->GetMetric<int64>(
+            &METRIC_ENTITY_server, "yb.master",
+            &METRIC_handler_latency_yb_master_MasterDdl_GetTableSchema, "total_count"));
+        result += count;
+      }
+      return result;
+    };
+    auto open_table_count_before = CHECK_RESULT(open_table_count());
+    auto get_schema_count_before = CHECK_RESULT(open_table_count());
+    for (int col = 0; col < 100; col++) {
+      ASSERT_OK(conn1.ExecuteFormat("alter table test_table$0 add column c$1 int", i, col));
+      auto res = CHECK_RESULT(conn2.FetchFormat("select * from test_table$0", i));
+    }
+    auto open_table_count_after = CHECK_RESULT(open_table_count());
+    auto get_schema_count_after = CHECK_RESULT(get_schema_count());
+    LOG(INFO) << "i: " << i
+              << ", open_table_count_before: " << open_table_count_before
+              << ", open_table_count_after: " << open_table_count_after
+              << ", get_schema_count_before: " << get_schema_count_before
+              << ", get_schema_count_after: " << get_schema_count_after;
+    if (i == 0) {
+      ASSERT_EQ(open_table_count_after - open_table_count_before, 143);
+      ASSERT_EQ(get_schema_count_after - get_schema_count_before, 681);
+    } else {
+      ASSERT_EQ(open_table_count_after - open_table_count_before, 638);
+      ASSERT_EQ(get_schema_count_after - get_schema_count_before, 781);
+    }
+  }
 }
 
 } // namespace pgwrapper

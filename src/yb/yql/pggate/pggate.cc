@@ -24,6 +24,9 @@
 
 #include <ev++.h>
 
+#include "yb/ash/pg_wait_state.h"
+#include "yb/ash/rpc_wait_state.h"
+
 #include "yb/client/client_utils.h"
 #include "yb/client/table_info.h"
 
@@ -52,6 +55,7 @@
 #include "yb/util/range.h"
 #include "yb/util/status_format.h"
 #include "yb/util/thread.h"
+#include "yb/util/scope_exit.h"
 
 #include "yb/yql/pggate/pg_column.h"
 #include "yb/yql/pggate/pg_ddl.h"
@@ -414,6 +418,16 @@ Result<bool> RetrieveYbctidsImpl(
   return true;
 }
 
+[[nodiscard]] auto UpdateCatalogReadTime(PgSession& session, const ReadHybridTime& read_time) {
+  DCHECK(read_time);
+  const auto current_catalog_read_time = session.catalog_read_time();
+  session.TrySetCatalogReadPoint(read_time);
+  return MakeOptionalScopeExit(
+      [&session, current_catalog_read_time] {
+        session.TrySetCatalogReadPoint(current_catalog_read_time);
+      });
+}
+
 } // namespace
 
 //--------------------------------------------------------------------------------------------------
@@ -575,7 +589,7 @@ Result<dockv::KeyBytes> PgApiImpl::TupleIdBuilder::Build(
 
 PgApiImpl::PgApiImpl(
     YbcPgTypeEntities type_entities, const YbcPgCallbacks& callbacks,
-    std::optional<uint64_t> session_id, const YbcPgAshConfig& ash_config)
+    std::optional<uint64_t> session_id, YbcPgAshConfig& ash_config)
     : pg_types_(type_entities),
       metric_registry_(new MetricRegistry()),
       metric_entity_(METRIC_ENTITY_server.Instantiate(metric_registry_.get(), "yb.pggate")),
@@ -590,7 +604,7 @@ PgApiImpl::PgApiImpl(
               ash::WaitStateCode wait_event, ash::PggateRPC pggate_rpc) {
             return PgWaitEventWatcher{starter, wait_event, pggate_rpc};
       }),
-      pg_client_(ash_config, wait_event_watcher_),
+      pg_client_(wait_event_watcher_),
       clock_(new server::HybridClock()),
       pg_txn_manager_(new PgTxnManager(&pg_client_, clock_, pg_callbacks_)),
       ybctid_reader_provider_(pg_session_),
@@ -600,6 +614,10 @@ PgApiImpl::PgApiImpl(
   // This is an RCU object, but there are no concurrent updates on PG side, only on tserver, so
   // it's safe to just save the pointer.
   tserver_shared_object_ = PgSharedMemoryManager().SharedData().get();
+
+  std::memcpy(ash_config.top_level_node_id, tserver_shared_object_->tserver_uuid(), kUuidSize);
+  wait_state_ = ash::WaitStateInfo::CreateIfAshIsEnabled<ash::PgWaitStateInfo>(ash_config);
+  ash::WaitStateInfo::SetCurrentWaitState(wait_state_);
 
   CHECK_OK(interrupter_->Start());
   CHECK_OK(clock_->Init());
@@ -635,6 +653,11 @@ uint64_t PgApiImpl::GetSessionID() const { return pg_client_.SessionID(); }
 
 Status PgApiImpl::InvalidateCache(uint64_t min_ysql_catalog_version) {
   pg_session_->InvalidateAllTablesCache(min_ysql_catalog_version);
+  return Status::OK();
+}
+
+Status PgApiImpl::UpdateTableCacheMinVersion(uint64_t min_ysql_catalog_version) {
+  pg_session_->UpdateTableCacheMinVersion(min_ysql_catalog_version);
   return Status::OK();
 }
 
@@ -877,6 +900,10 @@ Result<PgTableDescPtr> PgApiImpl::LoadTable(const PgObjectId& table_id) {
 
 void PgApiImpl::InvalidateTableCache(const PgObjectId& table_id) {
   pg_session_->InvalidateTableCache(table_id, InvalidateOnPgClient::kTrue);
+}
+
+void PgApiImpl::RemoveTableCacheEntry(const PgObjectId& table_id) {
+  pg_session_->InvalidateTableCache(table_id, InvalidateOnPgClient::kFalse);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -1543,14 +1570,20 @@ Status PgApiImpl::FetchRequestedYbctids(
 }
 
 Status PgApiImpl::BindYbctids(PgStatement* handle, int n, uintptr_t* ybctids) {
-  std::vector<Slice> ybctid_slice;
-  ybctid_slice.reserve(n);
-  for (int i = 0; i < n; i++)
-    ybctid_slice.push_back(YbctidAsSlice(pg_types(), ybctids[i]));
-
-  auto& select = VERIFY_RESULT_REF(GetStatementAs<PgSelect>(handle));
-  select.SetHoldingRequestedYbctids(ybctid_slice);
+  const auto sz = yb::make_unsigned(n);
+  const auto ybctids_span = std::span{ybctids, sz};
+  VERIFY_RESULT_REF(GetStatementAs<PgSelect>(handle)).SetRequestedYbctids(
+      {
+        make_lw_function([this, i = ybctids_span.begin(), end = ybctids_span.end()] mutable {
+          return i != end ? YbctidAsSlice(pg_types_, *i++) : Slice();
+        }), sz});
   return Status::OK();
+}
+
+bool PgApiImpl::IsValidYbctid(uint64_t ybctid) {
+  dockv::DocKey key;
+  auto s = key.DecodeFrom(YbctidAsSlice(pg_types_, ybctid));
+  return s.ok();
 }
 
 Status PgApiImpl::DmlANNBindVector(PgStatement* handle, PgExpr* vector) {
@@ -1567,18 +1600,21 @@ Status PgApiImpl::DmlHnswSetReadOptions(PgStatement* handle, int ef_search) {
 
 Status PgApiImpl::ExecSelect(PgStatement* handle, const YbcPgExecParameters* exec_params) {
   auto& select = VERIFY_RESULT_REF(GetStatementAs<PgSelect>(handle));
-  if (pg_sys_table_prefetcher_ && !paused_catalog_read_time_ &&
-      select.IsReadFromYsqlCatalog() && select.read_req()) {
+  auto* read_req = select.read_req();
+  if (pg_sys_table_prefetcher_ && select.IsReadFromYsqlCatalog() && read_req) {
     // In case of sys tables prefetching is enabled all reads from sys table must use cached data.
-    auto data = pg_sys_table_prefetcher_->GetData(
-        *select.read_req(), select.IsIndexOrderedScan());
-    if (!data) {
-      // LOG(DFATAL) is used instead of SCHECK to let user on release build proceed by reading
-      // data from a master in a non efficient way (by using separate RPC).
-      LOG(DFATAL) << "Data was not prefetched for request "
-                  << select.read_req()->ShortDebugString();
+    auto data = pg_sys_table_prefetcher_->GetData(*read_req, select.IsIndexOrderedScan());
+    if (std::holds_alternative<PrefetchedDataHolder>(data)) {
+      select.UpgradeDocOp(MakeDocReadOpWithData(
+          pg_session_, std::move(std::get<PrefetchedDataHolder>(data))));
     } else {
-      select.UpgradeDocOp(MakeDocReadOpWithData(pg_session_, std::move(data)));
+      LOG(WARNING) << "Data was not prefetched for table " << read_req->table_id();
+      VLOG(5) << "Non prefetched request is: " << read_req->ShortDebugString();
+      DCHECK(std::holds_alternative<MissedPrefetchedDataAlternativeReadTime>(data));
+      const auto& alternative_read_time = std::get<MissedPrefetchedDataAlternativeReadTime>(data);
+      auto catalog_read_time_guard = alternative_read_time
+          ? UpdateCatalogReadTime(*pg_session_, *alternative_read_time) : std::nullopt;
+      return select.Exec(exec_params);
     }
   }
   return select.Exec(exec_params);
@@ -2022,8 +2058,16 @@ bool PgApiImpl::IsDdlMode() const {
   return pg_txn_manager_->IsDdlMode();
 }
 
+Result<bool> PgApiImpl::CurrentTransactionUsesFastPath() const {
+  return pg_session_->CurrentTransactionUsesFastPath();
+}
+
 void PgApiImpl::ResetCatalogReadTime() {
   pg_session_->ResetCatalogReadPoint();
+}
+
+ReadHybridTime PgApiImpl::GetCatalogReadTime() const {
+  return pg_session_->catalog_read_time();
 }
 
 Result<bool> PgApiImpl::ForeignKeyReferenceExists(
@@ -2149,24 +2193,6 @@ void PgApiImpl::StopSysTablePrefetching() {
   } else {
     pg_sys_table_prefetcher_.reset();
     ResetCatalogReadTime();
-  }
-}
-
-void PgApiImpl::PauseSysTablePrefetching() {
-  if (pg_sys_table_prefetcher_) {
-    paused_catalog_read_time_ = pg_session_->catalog_read_time();
-    ResetCatalogReadTime();
-  }
-}
-
-void PgApiImpl::ResumeSysTablePrefetching() {
-  if (pg_sys_table_prefetcher_) {
-    if (!paused_catalog_read_time_) {
-      LOG(DFATAL) << "Cannot resume sys table prefetching because it wasn't paused";
-    } else {
-      pg_session_->TrySetCatalogReadPoint(paused_catalog_read_time_);
-      paused_catalog_read_time_ = ReadHybridTime();
-    }
   }
 }
 

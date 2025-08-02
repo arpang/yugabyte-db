@@ -57,35 +57,42 @@
 	"index: '%s', ybbasectid: '%s', index attnum: %d", RelationGetRelationName(indexrel), YBDatumToString(ybbasectid_datum, BYTEAOID), attnum
 
 typedef Plan *(*YbIssueDetectionPlan) (Relation baserel, Relation indexrel,
-									   Datum lower_bound_ybctid);
+									   Datum lower_bound_ybctid,
+									   bool multi_snapshot_mode);
 
 typedef void (*YbIssueDetectionCheck) (TupleTableSlot *outslot,
 									   Relation indexrel,
 									   List *equality_opcodes);
 
-bool		multi_snapshot_mode = true;
 int			yb_test_index_check_num_batches_per_snapshot = -1;
 bool		yb_test_slowdown_index_check = false;
 
-static void yb_index_check_internal(Oid indexoid);
-static void partitioned_index_check(Oid parentindexId);
+static void yb_index_check_internal(Oid indexoid, bool multi_snapshot_mode);
+static void partitioned_index_check(Oid parentindexId,
+									bool multi_snapshot_mode);
 
-static size_t detect_inconsistent_rows(Relation baserel, Relation indexrel);
+static size_t detect_inconsistent_rows(Relation baserel, Relation indexrel,
+									   bool multi_snapshot_mode);
 static Plan *inconsistent_row_detection_plan(Relation baserel,
 											 Relation indexrel,
-											 Datum lower_bound_ybctid);
-static Plan *indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid);
+											 Datum lower_bound_ybctid,
+											 bool multi_snapshot_mode);
+static Plan *indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid,
+								 bool multi_snapshot_mode);
 static Plan *baserel_scan_plan1(Relation baserel, Relation indexrel);
 static void inconsistent_row_detection_check(TupleTableSlot *outslot,
 											 Relation indexrel,
 											 List *equality_opcodes);
 
 static void detect_missing_rows(Relation baserel, Relation indexrel,
-								size_t actual_index_rowcount);
+								size_t actual_index_rowcount,
+								bool multi_snapshot_mode);
 static Plan *missing_row_detection_plan(Relation baserel, Relation indexrel,
-										Datum lower_bound_ybctid);
+										Datum lower_bound_ybctid,
+										bool multi_snapshot_mode);
 static Plan *baserel_scan_plan2(Relation baserel, Relation indexrel,
-								Datum lower_bound_ybctid);
+								Datum lower_bound_ybctid,
+								bool multi_snapshot_mode);
 static Plan *indexrel_scan_plan2(Relation indexrel);
 static void missing_row_detection_check(TupleTableSlot *outslot,
 										Relation indexrel,
@@ -95,7 +102,8 @@ static int64 get_expected_index_rowcount(Relation baserel, Relation indexrel);
 static size_t detect_index_issues(Relation baserel, Relation indexrel,
 								  YbIssueDetectionPlan issue_detection_plan,
 								  YbIssueDetectionCheck issue_detection_check,
-								  char *task_identifier);
+								  char *task_identifier,
+								  bool multi_snapshot_mode);
 static List *get_equality_opcodes(Relation indexrel);
 static void init_estate(EState *estate, Relation baserel);
 static void cleanup_estate(EState *estate);
@@ -126,8 +134,7 @@ yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid			indexoid = PG_GETARG_OID(0);
 	bool		single_snapshot_mode = PG_GETARG_BOOL(1);
-
-	multi_snapshot_mode = !single_snapshot_mode;
+	bool		multi_snapshot_mode = !single_snapshot_mode;
 
 	if (yb_test_index_check_num_batches_per_snapshot == 0)
 		multi_snapshot_mode = false;
@@ -135,7 +142,7 @@ yb_index_check(PG_FUNCTION_ARGS)
 	uint64		original_read_point PG_USED_FOR_ASSERTS_ONLY =
 		YBCPgGetCurrentReadPoint();
 
-	yb_index_check_internal(indexoid);
+	yb_index_check_internal(indexoid, multi_snapshot_mode);
 
 	/*
 	 * yb_index_check() uses multiple snapshots in multi_snapshot_mode. Verify
@@ -147,14 +154,14 @@ yb_index_check(PG_FUNCTION_ARGS)
 }
 
 static void
-yb_index_check_internal(Oid indexoid)
+yb_index_check_internal(Oid indexoid, bool multi_snapshot_mode)
 {
 	Relation	indexrel = RelationIdGetRelation(indexoid);
 
 	if (indexrel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
 	{
 		RelationClose(indexrel);
-		return partitioned_index_check(indexoid);
+		return partitioned_index_check(indexoid, multi_snapshot_mode);
 	}
 
 	if (indexrel->rd_rel->relkind != RELKIND_INDEX)
@@ -184,8 +191,10 @@ yb_index_check_internal(Oid indexoid)
 
 	PG_TRY();
 	{
-		actual_index_rowcount = detect_inconsistent_rows(baserel, indexrel);
-		detect_missing_rows(baserel, indexrel, actual_index_rowcount);
+		actual_index_rowcount =
+			detect_inconsistent_rows(baserel, indexrel, multi_snapshot_mode);
+		detect_missing_rows(baserel, indexrel, actual_index_rowcount,
+							multi_snapshot_mode);
 	}
 	PG_CATCH();
 	{
@@ -200,7 +209,7 @@ yb_index_check_internal(Oid indexoid)
 }
 
 static void
-partitioned_index_check(Oid parentindexId)
+partitioned_index_check(Oid parentindexId, bool multi_snapshot_mode)
 {
 	ListCell   *lc;
 
@@ -208,17 +217,18 @@ partitioned_index_check(Oid parentindexId)
 	{
 		Oid			childindexId = ObjectIdGetDatum(lfirst_oid(lc));
 
-		yb_index_check_internal(childindexId);
+		yb_index_check_internal(childindexId, multi_snapshot_mode);
 	}
 }
 
 static size_t
-detect_inconsistent_rows(Relation baserel, Relation indexrel)
+detect_inconsistent_rows(Relation baserel, Relation indexrel,
+						 bool multi_snapshot_mode)
 {
 	return detect_index_issues(baserel, indexrel,
 							   inconsistent_row_detection_plan,
 							   inconsistent_row_detection_check,
-							   "detect_inconsistent_rows");
+							   "detect_inconsistent_rows", multi_snapshot_mode);
 }
 
 /*
@@ -228,14 +238,16 @@ detect_inconsistent_rows(Relation baserel, Relation indexrel)
  */
 static Plan *
 inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
-								Datum lower_bound_ybctid)
+								Datum lower_bound_ybctid,
+								bool multi_snapshot_mode)
 {
 	/*
 	 * Outer subplan: index relation scan
 	 * Targetlist: ybbasectid, index_attributes, ybuniqueidxkeysuffix (if
 	 * unique), ybctid.
 	 */
-	Plan	   *indexrel_scan = indexrel_scan_plan1(indexrel, lower_bound_ybctid);
+	Plan	   *indexrel_scan =
+		indexrel_scan_plan1(indexrel, lower_bound_ybctid, multi_snapshot_mode);
 	TupleDesc	indexrel_scan_desc = ExecTypeFromTL(indexrel_scan->targetlist);
 
 	/*
@@ -307,7 +319,8 @@ inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
  *		unique, ybctid from indexrel
  */
 static Plan *
-indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid)
+indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid,
+					bool multi_snapshot_mode)
 {
 	TupleDesc	indexdesc = RelationGetDescr(indexrel);
 
@@ -582,11 +595,12 @@ inconsistent_row_detection_check(TupleTableSlot *outslot, Relation indexrel,
 
 static void
 detect_missing_rows(Relation baserel, Relation indexrel,
-					size_t actual_index_rowcount)
+					size_t actual_index_rowcount, bool multi_snapshot_mode)
 {
 	if (multi_snapshot_mode)
 		detect_index_issues(baserel, indexrel, missing_row_detection_plan,
-							missing_row_detection_check, "detect_missing_rows");
+							missing_row_detection_check, "detect_missing_rows",
+							multi_snapshot_mode);
 	else
 	{
 		size_t		expected_index_rowcount =
@@ -616,14 +630,15 @@ detect_missing_rows(Relation baserel, Relation indexrel,
  */
 static Plan *
 missing_row_detection_plan(Relation baserel, Relation indexrel,
-						   Datum lower_bound_ybctid)
+						   Datum lower_bound_ybctid, bool multi_snapshot_mode)
 {
 	/*
 	 * Outer subplan: base relation scan
 	 * Targetlist: computed_indexrow_ybctid, ybctid
 	 */
-	Plan	   *baserel_scan =
-		baserel_scan_plan2(baserel, indexrel, lower_bound_ybctid);
+	Plan	   *baserel_scan = baserel_scan_plan2(baserel, indexrel,
+												  lower_bound_ybctid,
+												  multi_snapshot_mode);
 
 	/*
 	 * Inner subplan: index relation scan
@@ -675,7 +690,7 @@ missing_row_detection_plan(Relation baserel, Relation indexrel,
  */
 static Plan *
 baserel_scan_plan2(Relation baserel, Relation indexrel,
-				   Datum lower_bound_ybctid)
+				   Datum lower_bound_ybctid, bool multi_snapshot_mode)
 {
 	List	   *plan_targetlist = NIL;
 
@@ -900,7 +915,7 @@ static size_t
 detect_index_issues(Relation baserel, Relation indexrel,
 					YbIssueDetectionPlan issue_detection_plan,
 					YbIssueDetectionCheck issue_detection_check,
-					char *task_identifier)
+					char *task_identifier, bool multi_snapshot_mode)
 {
 	Datum		lower_bound_ybctid = 0;
 	bool		execution_complete = false;
@@ -920,8 +935,8 @@ detect_index_issues(Relation baserel, Relation indexrel,
 
 		init_estate(estate, baserel);
 
-		Plan	   *plan =
-			issue_detection_plan(baserel, indexrel, lower_bound_ybctid);
+		Plan	   *plan = issue_detection_plan(baserel, indexrel, lower_bound_ybctid,
+												multi_snapshot_mode);
 		PlanState  *planstate = ExecInitNode((Plan *) plan, estate, 0);
 
 		if (multi_snapshot_mode)
@@ -978,17 +993,10 @@ detect_index_issues(Relation baserel, Relation indexrel,
 	if (lower_bound_ybctid)
 		pfree(DatumGetPointer(lower_bound_ybctid));
 
-	/*
-	 * The row with min(ybctid) in each batch (starting with batch #2) is same
-	 * as the the row with max(ybctid) of the previous batch. Hence, there are
-	 * (batchcount - 1) duplicate rows processed.
-	 */
-	size_t		unique_rowcount = rowcount - (batchcount - 1);
-
 	elog(DEBUG1,
-		 "%s processed %ld rows (%ld unique) in %d batche(s) in "
+		 "%s processed %ld rows in %d batche(s) in "
 		 "%s-snapshot-mode",
-		 task_identifier, rowcount, unique_rowcount, batchcount,
+		 task_identifier, rowcount, batchcount,
 		 multi_snapshot_mode ? "multi" : "single");
 	return rowcount;
 }

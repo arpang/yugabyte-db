@@ -220,6 +220,7 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
   std::string GenerateNewYbrowid();
 
   void InvalidateAllTablesCache(uint64_t min_ysql_catalog_version);
+  void UpdateTableCacheMinVersion(uint64_t min_ysql_catalog_version);
 
   // Check if initdb has already been run before. Needed to make initdb idempotent.
   Result<bool> IsInitDbDone();
@@ -245,8 +246,13 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
     return pg_client_;
   }
 
+  Status SetupIsolationAndPerformOptionsForDdl(
+      tserver::PgPerformOptionsPB* options, bool use_regular_transaction_block);
+
   Status SetActiveSubTransaction(SubTransactionId id);
   Status RollbackToSubTransaction(SubTransactionId id);
+  void SetTransactionHasWrites();
+  Result<bool> CurrentTransactionUsesFastPath() const;
 
   void ResetHasCatalogWriteOperationsInDdlMode();
   bool HasCatalogWriteOperationsInDdlMode() const;

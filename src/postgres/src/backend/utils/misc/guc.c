@@ -123,6 +123,7 @@
 #include "pg_yb_utils.h"
 #include "tcop/pquery.h"
 #include "utils/syscache.h"
+#include "yb/util/debug/leak_annotations.h"
 #include "yb_ash.h"
 #include "yb_query_diagnostics.h"
 #include "yb_tcmalloc_utils.h"
@@ -1301,7 +1302,8 @@ static struct config_bool ConfigureNamesBool[] =
 			gettext_noop("Enables batched nested loop joins to predict the "
 						 "size of its first batch and optimize if it's "
 						 "smaller than yb_bnl_batch_size."),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_bnl_optimize_first_batch,
 		true,
@@ -1341,7 +1343,8 @@ static struct config_bool ConfigureNamesBool[] =
 			gettext_noop("If enabled, planner will force a preference of batched"
 						 " nested loop join plans over classic nested loop"
 						 " join plans."),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_prefer_bnl,
 		true,
@@ -1351,7 +1354,8 @@ static struct config_bool ConfigureNamesBool[] =
 		{"yb_enable_batchednl", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of batched nested-loop "
 						 "join plans."),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_enable_batchednl,
 		true,
@@ -1361,7 +1365,8 @@ static struct config_bool ConfigureNamesBool[] =
 		{"yb_enable_parallel_append", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of parallel append plans "
 						 "if YB is enabled."),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_enable_parallel_append,
 		false,
@@ -1371,7 +1376,8 @@ static struct config_bool ConfigureNamesBool[] =
 		{"yb_enable_bitmapscan", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of YB bitmap-scan plans."),
 			gettext_noop("To use YB Bitmap Scans, both yb_enable_bitmapscan "
-						 "and enable_bitmapscan must be true.")
+						 "and enable_bitmapscan must be true."),
+			GUC_EXPLAIN
 		},
 		&yb_enable_bitmapscan,
 		false,
@@ -2500,8 +2506,10 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 	{
 		{"yb_enable_geolocation_costing", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Allow the optimizer to cost and choose between duplicate indexes based on locality"),
-			NULL
+			gettext_noop("Allow the optimizer to cost and choose between "
+						 "duplicate indexes based on locality"),
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_enable_geolocation_costing,
 		true,
@@ -2512,7 +2520,7 @@ static struct config_bool ConfigureNamesBool[] =
 		{"yb_pushdown_strict_inequality", PGC_USERSET, CUSTOM_OPTIONS,
 			gettext_noop("If true, strict inequality filters are pushed down."),
 			NULL,
-			GUC_NOT_IN_SAMPLE
+			GUC_NOT_IN_SAMPLE | GUC_EXPLAIN
 		},
 		&yb_pushdown_strict_inequality,
 		true,
@@ -2523,7 +2531,7 @@ static struct config_bool ConfigureNamesBool[] =
 		{"yb_pushdown_is_not_null", PGC_USERSET, CUSTOM_OPTIONS,
 			gettext_noop("If true, IS NOT NULL is pushed down."),
 			NULL,
-			GUC_NOT_IN_SAMPLE
+			GUC_NOT_IN_SAMPLE | GUC_EXPLAIN
 		},
 		&yb_pushdown_is_not_null,
 		true,
@@ -2693,14 +2701,16 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"yb_skip_data_insert_for_xcluster_target", PGC_SUSET, DEVELOPER_OPTIONS,
-			gettext_noop("If enabled, any DDL operations will skip the data loading "
-						 "phase. This includes table rewrites and nonconcurrent indexes."
+		{"yb_xcluster_automatic_mode_target_ddl", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("Used to identify DDLs executed in Automatic xCluster mode target "
+						 "universe. For example, DDL operations will skip the data loading "
+						 "phase, including table rewrites and nonconcurrent indexes. Sequence "
+						 "restarts via TRUNCATE TABLE are also skipped."
 						 "WARNING: Incorrect usage will result in data loss."),
 			NULL,
 			GUC_NOT_IN_SAMPLE
 		},
-		&yb_skip_data_insert_for_xcluster_target,
+		&yb_xcluster_automatic_mode_target_ddl,
 		false,
 		NULL, NULL, NULL
 	},
@@ -2871,7 +2881,8 @@ static struct config_bool ConfigureNamesBool[] =
 						 "  DEPRECATED: This settting is deprecated and will "
 						 "be removed in a future release."
 						 "  Use \"yb_enable_cbo\" instead."),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_enable_optimizer_statistics,
 		false,
@@ -2890,7 +2901,8 @@ static struct config_bool ConfigureNamesBool[] =
 	{
 		{"yb_enable_distinct_pushdown", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Push supported DISTINCT operations to DocDB."),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_enable_distinct_pushdown,
 		true,
@@ -2922,7 +2934,8 @@ static struct config_bool ConfigureNamesBool[] =
 	{
 		{"yb_bypass_cond_recheck", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("If true then condition rechecking is bypassed at YSQL if the condition is bound to DocDB."),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_bypass_cond_recheck,
 		true,
@@ -3038,7 +3051,8 @@ static struct config_bool ConfigureNamesBool[] =
 						 "  DEPRECATED: This setting is deprecated and will "
 						 "be removed in a future release."
 						 "  Use \"yb_enable_cbo\" instead."),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_enable_base_scans_cost_model,
 		false,
@@ -3412,6 +3426,18 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_enable_invalidate_table_cache_entry", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("Enable invalidation of individual table cache entry on "
+						 "catalog cache refresh."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_enable_invalidate_table_cache_entry,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_enable_extended_sql_codes", PGC_USERSET, CUSTOM_OPTIONS,
 			gettext_noop("Allow to return to the client SQL status codes "
 						 "defined by YugabyteDB (YBxxx). Those codes are used "
@@ -3557,7 +3583,7 @@ static struct config_int ConfigureNamesInt[] =
 		{"yb_bnl_batch_size", PGC_USERSET, QUERY_TUNING_OTHER,
 			gettext_noop("Batch size of nested loop joins"),
 			gettext_noop("Set to 1 to always use simple nested loop joins"),
-			GUC_NOT_IN_SAMPLE
+			GUC_NOT_IN_SAMPLE | GUC_EXPLAIN
 		},
 		&yb_bnl_batch_size,
 		1024, 1, INT_MAX,
@@ -5227,7 +5253,8 @@ static struct config_int ConfigureNamesInt[] =
 	{
 		{"yb_fetch_row_limit", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Maximum number of rows to fetch per scan. 0 = No limit"),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_fetch_row_limit,
 		1024, 0, INT_MAX,
@@ -5237,7 +5264,8 @@ static struct config_int ConfigureNamesInt[] =
 	{
 		{"yb_fetch_size_limit", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Maximum size of a fetch response. 0 = No limit"),
-			NULL, GUC_UNIT_BYTE
+			NULL,
+			GUC_UNIT_BYTE | GUC_EXPLAIN
 		},
 		&yb_fetch_size_limit,
 		0, 0, INT_MAX,
@@ -5272,7 +5300,8 @@ static struct config_int ConfigureNamesInt[] =
 	{
 		{"yb_parallel_range_rows", PGC_USERSET, QUERY_TUNING_OTHER,
 			gettext_noop("The number of rows to plan per parallel worker"),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_parallel_range_rows,
 		0, 0, INT_MAX,
@@ -5343,7 +5372,7 @@ static struct config_int ConfigureNamesInt[] =
 		{"yb_parallel_range_size", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Approximate size of parallel range for DocDB relation scans"),
 			NULL,
-			GUC_UNIT_BYTE
+			GUC_UNIT_BYTE | GUC_EXPLAIN
 		},
 		&yb_parallel_range_size,
 		1024 * 1024, 1, INT_MAX,
@@ -5472,6 +5501,15 @@ static struct config_int ConfigureNamesInt[] =
 		INT_MAX,
 		NULL, NULL, NULL
 	},
+	{
+		{"yb_fk_references_cache_limit", PGC_USERSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Sets the maximum size for the FK reference cache filled by the INSERT, SELECT ... FOR KEY SHARE or similar statmements"),
+			NULL
+		},
+		&yb_fk_references_cache_limit,
+		65535, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
 
 	/* End-of-list marker */
 	{
@@ -5570,7 +5608,8 @@ static struct config_real ConfigureNamesReal[] =
 		{"yb_network_fetch_cost", PGC_USERSET, QUERY_TUNING_COST,
 			gettext_noop("Sets the planner's estimate of the fixed cost of "
 						 "fetching a batch of rows from a YB relation"),
-			NULL
+			NULL,
+			GUC_EXPLAIN
 		},
 		&yb_network_fetch_cost,
 		YB_DEFAULT_FETCH_COST, 0, DBL_MAX,
@@ -7355,6 +7394,7 @@ guc_strdup(int elevel, const char *src)
 		ereport(elevel,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of memory")));
+	__lsan_ignore_object(data);
 	return data;
 }
 

@@ -206,8 +206,6 @@ DEFINE_UNKNOWN_int32(xcluster_svc_queue_length, 5000,
              "RPC queue length for the xCluster service");
 TAG_FLAG(xcluster_svc_queue_length, advanced);
 
-DECLARE_bool(ysql_enable_table_mutation_counter);
-
 DEFINE_NON_RUNTIME_bool(allow_encryption_at_rest, true,
                         "Whether or not to allow encryption at rest to be enabled. Toggling this "
                         "flag does not turn on or off encryption at rest, but rather allows or "
@@ -265,6 +263,8 @@ TAG_FLAG(min_invalidation_message_retention_time_secs, advanced);
 DEFINE_test_flag(int32, delay_set_catalog_version_table_mode_count, 0,
     "Delay set catalog version table mode by this many times of heartbeat responses "
     "after tserver starts");
+
+DECLARE_bool(ysql_enable_auto_analyze_infra);
 
 namespace yb::tserver {
 
@@ -541,9 +541,8 @@ Status TabletServer::Init() {
     metrics_snapshotter_.reset(new MetricsSnapshotter(opts_, this));
   }
 
-  if (GetAtomicFlag(&FLAGS_ysql_enable_table_mutation_counter)) {
+  if (FLAGS_ysql_enable_auto_analyze_infra)
     pg_table_mutation_count_sender_.reset(new TableMutationCountSender(this));
-  }
 
   if (!FLAGS_enable_ysql) {
     RETURN_NOT_OK(SkipSharedMemoryNegotiation());
@@ -554,13 +553,7 @@ Status TabletServer::Init() {
 
   initted_.store(true, std::memory_order_release);
 
-  auto bound_addresses = rpc_server()->GetBoundAddresses();
   auto shared = shared_object();
-  if (!bound_addresses.empty()) {
-    ServerRegistrationPB reg;
-    RETURN_NOT_OK(GetRegistration(&reg, server::RpcOnly::kTrue));
-    shared->SetHostEndpoint(bound_addresses.front(), PublicHostPort(reg).host());
-  }
 
   // 5433 is kDefaultPort in src/yb/yql/pgwrapper/pg_wrapper.h.
   RETURN_NOT_OK(pgsql_proxy_bind_address_.ParseString(FLAGS_pgsql_proxy_bind_address, 5433));
@@ -710,20 +703,22 @@ Status TabletServer::RegisterServices() {
         RegisterService(FLAGS_stateful_svc_default_queue_length, std::move(test_echo_service)));
   }
 
-  auto connect_to_pg = [this](const std::string& database_name,
-                              const std::optional<CoarseTimePoint>& deadline) {
-    return pgwrapper::CreateInternalPGConnBuilder(pgsql_proxy_bind_address(), database_name,
-                                                  GetSharedMemoryPostgresAuthKey(),
-                                                  deadline).Connect();
-  };
-  auto pg_auto_analyze_service =
-      std::make_shared<stateful_service::PgAutoAnalyzeService>(metric_entity(), client_future(),
-                                                               connect_to_pg);
-  LOG(INFO) << "yb::tserver::stateful_service::PgAutoAnalyzeService created at "
-            << pg_auto_analyze_service.get();
-  RETURN_NOT_OK(pg_auto_analyze_service->Init(tablet_manager_.get()));
-  RETURN_NOT_OK(
-      RegisterService(FLAGS_stateful_svc_default_queue_length, std::move(pg_auto_analyze_service)));
+  if (FLAGS_ysql_enable_auto_analyze_infra) {
+    auto connect_to_pg = [this](const std::string& database_name,
+                                const std::optional<CoarseTimePoint>& deadline) {
+      return pgwrapper::CreateInternalPGConnBuilder(pgsql_proxy_bind_address(), database_name,
+                                                    GetSharedMemoryPostgresAuthKey(),
+                                                    deadline).Connect();
+    };
+    auto pg_auto_analyze_service =
+        std::make_shared<stateful_service::PgAutoAnalyzeService>(metric_entity(), client_future(),
+                                                                  connect_to_pg);
+    LOG(INFO) << "yb::tserver::stateful_service::PgAutoAnalyzeService created at "
+              << pg_auto_analyze_service.get();
+    RETURN_NOT_OK(pg_auto_analyze_service->Init(tablet_manager_.get()));
+    RETURN_NOT_OK(RegisterService(FLAGS_stateful_svc_default_queue_length,
+                                  std::move(pg_auto_analyze_service)));
+  }
 
   if (FLAGS_enable_pg_cron) {
     auto pg_cron_leader_service = std::make_unique<stateful_service::PgCronLeaderService>(
@@ -827,7 +822,8 @@ void TabletServer::StartTSLocalLockManager() {
     std::lock_guard l(lock_);
     ts_local_lock_manager_ = std::make_shared<tserver::TSLocalLockManager>(
         clock_, this /* TabletServerIf* */, *this /* RpcServerBase& */,
-        tablet_manager_->waiting_txn_pool(), object_lock_shared_state_manager_.get());
+        tablet_manager_->waiting_txn_pool(), metric_entity(),
+        object_lock_shared_state_manager_.get());
     ts_local_lock_manager_->Start(tablet_manager_->waiting_txn_registry());
   }
 }
@@ -1562,7 +1558,7 @@ void TabletServer::UpdateCatalogVersionsFingerprintUnlocked() {
 
 void TabletServer::SetYsqlDBCatalogVersionsWithInvalMessages(
     const tserver::DBCatalogVersionDataPB& db_catalog_version_data,
-    const master::DBCatalogInvalMessagesDataPB& db_catalog_inval_messages_data) {
+    const tserver::DBCatalogInvalMessagesDataPB& db_catalog_inval_messages_data) {
   // std::atomic needed to avoid tsan reporting data race.
   static std::atomic<uint64_t> next_debug_id{0};
   std::lock_guard l(lock_);
@@ -1572,8 +1568,8 @@ void TabletServer::SetYsqlDBCatalogVersionsWithInvalMessages(
 }
 
 void TabletServer::SetYsqlDBCatalogInvalMessagesUnlocked(
-    const master::DBCatalogInvalMessagesDataPB& db_catalog_inval_messages_data,
-    uint64_t debug_id) {
+  const tserver::DBCatalogInvalMessagesDataPB& db_catalog_inval_messages_data,
+  uint64_t debug_id) {
   if (db_catalog_inval_messages_data.db_catalog_inval_messages_size() == 0) {
     LOG(INFO) << "empty db_catalog_inval_messages, debug_id: " << debug_id;
     return;
@@ -1632,7 +1628,7 @@ void TabletServer::SetYsqlDBCatalogInvalMessagesUnlocked(
  */
 void TabletServer::MergeInvalMessagesIntoQueueUnlocked(
     uint32_t db_oid,
-    const master::DBCatalogInvalMessagesDataPB& db_catalog_inval_messages_data,
+    const tserver::DBCatalogInvalMessagesDataPB& db_catalog_inval_messages_data,
     int start_index, int end_index,
     uint64_t debug_id) {
   DCHECK_LT(start_index, end_index);
@@ -1675,7 +1671,7 @@ void TabletServer::MergeInvalMessagesIntoQueueUnlocked(
 
 void TabletServer::DoMergeInvalMessagesIntoQueueUnlocked(
     uint32_t db_oid,
-    const master::DBCatalogInvalMessagesDataPB& db_catalog_inval_messages_data,
+    const tserver::DBCatalogInvalMessagesDataPB& db_catalog_inval_messages_data,
     int start_index, int end_index, InvalidationMessagesQueue *db_message_lists,
     uint64_t debug_id) {
   bool changed = false;

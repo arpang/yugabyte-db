@@ -132,4 +132,6 @@ bool yb_ddl_transaction_block_enabled = false;
 
 bool yb_disable_ddl_transaction_block_for_read_committed = false;
 
+int yb_fk_references_cache_limit = 65535;
+
 bool yb_lower_upper_bounds_are_dockeys = true;

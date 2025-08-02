@@ -485,6 +485,23 @@ Result<HybridTime> CheckSafeTime(HybridTime time, HybridTime min_allowed) {
   return STATUS_FORMAT(TimedOut, "Timed out waiting for safe time $0", min_allowed);
 }
 
+class ActiveCompactionToken {
+ public:
+  explicit ActiveCompactionToken(std::atomic<size_t>& counter) : counter_(counter) {
+    ++counter;
+  }
+
+  ~ActiveCompactionToken() {
+    --counter_;
+  }
+
+  ActiveCompactionToken(const ActiveCompactionToken&) = delete;
+  void operator=(const ActiveCompactionToken&) = delete;
+
+ private:
+  std::atomic<size_t>& counter_;
+};
+
 } // namespace
 
 class Tablet::RocksDbListener : public rocksdb::EventListener {
@@ -593,16 +610,16 @@ class Tablet::RegularRocksDbListener : public Tablet::RocksDbListener {
       return;
     }
 
-    // TODO(jhe) - Also handle historical packing schemas (#25926).
+    // We only need to handle colocated tables that have been created. Upcoming colocated tables are
+    // not included in this list, but that is fine since they are skipped by compaction.
     auto colocated_tables = tablet_.metadata()->GetAllColocatedTablesWithColocationId();
     for(auto& [table_id, schema_version] : min_schema_versions) {
       ColocationId colocation_id = colocated_tables[table_id.ToHexString()];
       auto xcluster_min_schema_version = tablet_.get_min_xcluster_schema_version_(primary_table_id,
           colocation_id);
-      VLOG_WITH_PREFIX_AND_FUNC(4) <<
-          Format("MinNonXClusterSchemaVersion, MinXClusterSchemaVersion for $0,$1:$2,$3",
-              primary_table_id, colocation_id, min_schema_versions[table_id],
-              xcluster_min_schema_version);
+      VLOG_WITH_PREFIX_AND_FUNC(4) << Format(
+          "MinNonXClusterSchemaVersion, MinXClusterSchemaVersion for $0,$1:$2,$3", primary_table_id,
+          colocation_id, min_schema_versions[table_id], xcluster_min_schema_version);
       if (xcluster_min_schema_version < min_schema_versions[table_id]) {
         min_schema_versions[table_id] = xcluster_min_schema_version;
       }
@@ -1219,6 +1236,13 @@ HybridTime Tablet::GetMinStartHTRunningTxnsForCDCProducer() const {
     LOG_WITH_FUNC(INFO) << "Returning " << min_start_ht_running_txns
                         << " as TEST_simulate_load_txn is true";
     return min_start_ht_running_txns;
+  }
+
+  // If there does not exist a transaction participant and the table is non-transactional, there
+  // will be no running txns, so we return kMax. This is the case when distributed transactions are
+  // not enabled on YCQL tables.
+  if (!transaction_participant() && !IsTransactionalRequest(false /* is_ysql_request */)) {
+    return HybridTime::kMax;
   }
 
   if (transaction_participant()) {
@@ -2491,7 +2515,7 @@ Status Tablet::WritePostApplyMetadata(std::span<const PostApplyTransactionMetada
 }
 
 // We batch this as some tx could be very large and may not fit in one batch
-Status Tablet::GetIntents(
+Status Tablet::GetIntentsForCDC(
     const TransactionId& id, std::vector<docdb::IntentKeyValueForCDC>* key_value_intents,
     docdb::ApplyTransactionState* stream_state) {
   auto scoped_read_operation = CreateScopedRWOperationNotBlockingRocksDbShutdownStart();
@@ -2499,8 +2523,8 @@ Status Tablet::GetIntents(
 
   docdb::ApplyTransactionState new_stream_state;
 
-  new_stream_state = VERIFY_RESULT(
-      docdb::GetIntentsBatch(id, &key_bounds_, stream_state, intents_db_.get(), key_value_intents));
+  new_stream_state = VERIFY_RESULT(docdb::GetIntentsBatchForCDC(
+      id, &key_bounds_, stream_state, intents_db_.get(), key_value_intents));
   stream_state->key = new_stream_state.key;
   stream_state->write_id = new_stream_state.write_id;
 
@@ -4569,6 +4593,10 @@ bool Tablet::HasActiveFullCompaction() {
   return HasActiveFullCompactionUnlocked();
 }
 
+bool Tablet::HasActiveFullCompactionUnlocked() const REQUIRES(full_compaction_token_mutex_) {
+  return num_active_full_compactions_ != 0;
+}
+
 void Tablet::TriggerPostSplitCompactionIfNeeded() {
   if (PREDICT_FALSE(FLAGS_TEST_skip_post_split_compaction)) {
     LOG(INFO) << "Skipping post split compaction due to FLAGS_TEST_skip_post_split_compaction";
@@ -4602,8 +4630,10 @@ Status Tablet::TriggerManualCompactionIfNeeded(rocksdb::CompactionReason compact
         full_compaction_pool_->NewToken(ThreadPool::ExecutionMode::SERIAL);
   }
 
-  return full_compaction_task_pool_token_->SubmitFunc(
-      std::bind(&Tablet::TriggerManualCompactionSync, this, compaction_reason));
+  auto token = std::make_shared<ActiveCompactionToken>(num_active_full_compactions_);
+  return full_compaction_task_pool_token_->SubmitFunc([this, token, compaction_reason] {
+    WARN_NOT_OK(TriggerManualCompactionSync(compaction_reason), "Trigger manual compaction failed");
+  });
 }
 
 Status Tablet::TriggerAdminFullCompactionIfNeeded(const AdminCompactionOptions& options) {
@@ -4617,7 +4647,8 @@ Status Tablet::TriggerAdminFullCompactionIfNeeded(const AdminCompactionOptions& 
         admin_triggered_compaction_pool_->NewToken(ThreadPool::ExecutionMode::SERIAL);
   }
 
-  return admin_full_compaction_task_pool_token_->SubmitFunc([this, options]() {
+  auto token = std::make_shared<ActiveCompactionToken>(num_active_full_compactions_);
+  return admin_full_compaction_task_pool_token_->SubmitFunc([this, token, options]() {
     // TODO(vector_index): since full vector index compaction is not optimized and may take a
     // significant amount of time, let's trigger it separately from regular manual compaction.
     // This logic should be revised later.

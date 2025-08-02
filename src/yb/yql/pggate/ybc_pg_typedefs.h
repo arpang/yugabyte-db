@@ -508,6 +508,7 @@ typedef struct {
 
 typedef struct {
   uint64_t reads;
+  uint64_t read_ops;
   uint64_t writes;
   uint64_t read_wait;
   uint64_t rows_scanned;
@@ -622,7 +623,16 @@ typedef enum {
 } YbcPgSysTablePrefetcherCacheMode;
 
 typedef struct {
+  uint64_t read;
+  uint64_t local_limit;
+  uint64_t global_limit;
+  uint64_t in_txn_limit;
+  int64_t serial_no;
+} YbcReadHybridTime;
+
+typedef struct {
   uint64_t version;
+  YbcReadHybridTime version_read_time;
   bool is_db_catalog_version_mode;
 } YbcPgLastKnownCatalogVersionInfo;
 
@@ -803,7 +813,6 @@ typedef struct {
 // A struct to pass ASH postgres config to PgClient
 typedef struct {
   YbcAshMetadata* metadata;
-  bool* yb_enable_ash;
   unsigned char top_level_node_id[16];
   // length of host should be equal to INET6_ADDRSTRLEN
   char host[46];
@@ -988,6 +997,18 @@ typedef struct {
   YbcCatalogMessageList* message_lists;
   int num_lists;
 } YbcCatalogMessageLists;
+
+typedef enum {
+  /*
+   * Taken from XClusterNamespaceInfoPB.XClusterRole in
+   * yb/common/common_types.proto.
+   */
+  XCLUSTER_ROLE_UNSPECIFIED = 0,
+  XCLUSTER_ROLE_UNAVAILABLE = 1,
+  XCLUSTER_ROLE_NOT_AUTOMATIC_MODE = 2,
+  XCLUSTER_ROLE_AUTOMATIC_SOURCE = 3,
+  XCLUSTER_ROLE_AUTOMATIC_TARGET = 4,
+} YbcXClusterReplicationRole;
 
 #ifdef __cplusplus
 }  // extern "C"
