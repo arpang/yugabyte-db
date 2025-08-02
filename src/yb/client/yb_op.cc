@@ -259,7 +259,7 @@ Status InitHashPartitionKey(
     if (!yb_lower_upper_bounds_are_dockeys) {
       // With D45476, lower_bound and upper_bound fields are dockeys for hash partitioned tables.
       // Since the auto flag is not true, it is possible that some tservers may not have this
-      // change yet. So set these fields to encoded hash codes.
+      // change yet. So, set these fields to encoded hash codes just as before.
 
       if (request->has_hash_code()) {
         auto lower_bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
