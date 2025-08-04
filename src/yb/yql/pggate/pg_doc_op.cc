@@ -1879,24 +1879,23 @@ Result<bool> SetScanBoundary(LWPgsqlReadRequestPB& req,
                              const std::string& partition_upper_bound,
                              bool upper_bound_is_inclusive,
                              const Schema& schema) {
-
   bool hash_partitioned = schema.num_hash_key_columns() > 0;
   // Update lower boundary if necessary.
   if (!partition_lower_bound.empty()) {
-     Slice lower_bound;
+    Slice lower_bound;
     if (hash_partitioned) {
       uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_lower_bound);
       lower_bound = HashCodeToBound(schema, hash, lower_bound_is_inclusive, true /* is_lower */);
       lower_bound_is_inclusive = false;
     } else {
-      lower_bound = partition_upper_bound;
+      lower_bound = partition_lower_bound;
     }
     AddLowerBound(req, lower_bound, lower_bound_is_inclusive);
   }
 
   // Update upper boundary if necessary.
   if (!partition_upper_bound.empty()) {
-     Slice upper_bound;
+    Slice upper_bound;
     if (hash_partitioned) {
       uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_upper_bound);
       upper_bound = HashCodeToBound(schema, hash, upper_bound_is_inclusive, false /* is_lower */);
