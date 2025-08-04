@@ -1809,25 +1809,16 @@ PgDocOp::SharedPtr MakeDocReadOpWithData(
   return std::make_shared<PgDocReadOpCached>(pg_session, std::move(data));
 }
 
-dockv::DocKey HashCodeToBound(
+dockv::DocKey HashCodeToDocKeyBound(
     const Schema& schema, uint16_t hash, bool is_inclusive, bool is_lower) {
-  dockv::DocKey dockey;
-  if (is_lower) {
-    if (!is_inclusive) {
-      hash++;
-    }
-    dockey = dockv::DocKey(
-        schema, hash, {dockv::KeyEntryValue(dockv::KeyEntryType::kLowest)},
-        {dockv::KeyEntryValue(dockv::KeyEntryType::kLowest)});
-  } else {
-    if (!is_inclusive) {
-      hash--;
-    }
-    dockey = dockv::DocKey(
-        schema, hash, {dockv::KeyEntryValue(dockv::KeyEntryType::kHighest)},
-        {dockv::KeyEntryValue(dockv::KeyEntryType::kHighest)});
+  if (!is_inclusive) {
+    is_lower ? ++hash : --hash;
   }
-  return dockey;
+  auto special_boundary_value = is_lower ? dockv::KeyEntryValue(dockv::KeyEntryType::kLowest)
+                                         : dockv::KeyEntryValue(dockv::KeyEntryType::kHighest);
+  std::vector<dockv::KeyEntryValue> hash_and_range_component{special_boundary_value};
+
+  return dockv::DocKey(schema, hash, hash_and_range_component, hash_and_range_component);
 }
 
 void AddLowerBound(LWPgsqlReadRequestPB& req, const Slice& lower_bound, bool is_inclusive) {
@@ -1887,7 +1878,7 @@ Result<bool> SetScanBoundary(LWPgsqlReadRequestPB& req,
     if (hash_partitioned) {
       uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_lower_bound);
       const auto& lower_bound_dockey =
-          HashCodeToBound(schema, hash, lower_bound_is_inclusive, true /* is_lower */);
+          HashCodeToDocKeyBound(schema, hash, lower_bound_is_inclusive, true /* is_lower */);
       lower_bound = lower_bound_dockey.Encode().AsSlice();
       lower_bound_is_inclusive = false;
     } else {
@@ -1902,7 +1893,7 @@ Result<bool> SetScanBoundary(LWPgsqlReadRequestPB& req,
     if (hash_partitioned) {
       uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_upper_bound);
       const auto& upper_bound_dockey =
-          HashCodeToBound(schema, hash, upper_bound_is_inclusive, false /* is_lower */);
+          HashCodeToDocKeyBound(schema, hash, upper_bound_is_inclusive, false /* is_lower */);
       upper_bound = upper_bound_dockey.Encode().AsSlice();
       upper_bound_is_inclusive = false;
     } else {
