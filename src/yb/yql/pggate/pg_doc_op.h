@@ -875,7 +875,7 @@ class PgDocWriteOp : public PgDocOp {
 PgDocOp::SharedPtr MakeDocReadOpWithData(
     const PgSession::ScopedRefPtr& pg_session, PrefetchedDataHolder data);
 
-Slice HashCodeToBound(const Schema& schema, uint16_t hash, bool is_inclusive, bool is_lower);
+dockv::DocKey HashCodeToBound(const Schema& schema, uint16_t hash, bool is_inclusive, bool is_lower);
 void AddLowerBound(LWPgsqlReadRequestPB& req, const Slice& lower_bound, bool is_inclusive);
 void AddUpperBound(LWPgsqlReadRequestPB& req, const Slice& upper_bound, bool is_inclusive);
 // Check if boundaries set on request define valid (not empty) range

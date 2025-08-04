@@ -1809,7 +1809,8 @@ PgDocOp::SharedPtr MakeDocReadOpWithData(
   return std::make_shared<PgDocReadOpCached>(pg_session, std::move(data));
 }
 
-Slice HashCodeToBound(const Schema& schema, uint16_t hash, bool is_inclusive, bool is_lower) {
+dockv::DocKey HashCodeToBound(
+    const Schema& schema, uint16_t hash, bool is_inclusive, bool is_lower) {
   dockv::DocKey dockey;
   if (is_lower) {
     if (!is_inclusive) {
@@ -1826,7 +1827,7 @@ Slice HashCodeToBound(const Schema& schema, uint16_t hash, bool is_inclusive, bo
         schema, hash, {dockv::KeyEntryValue(dockv::KeyEntryType::kHighest)},
         {dockv::KeyEntryValue(dockv::KeyEntryType::kHighest)});
   }
-  return dockey.Encode().AsSlice();
+  return dockey;
 }
 
 void AddLowerBound(LWPgsqlReadRequestPB& req, const Slice& lower_bound, bool is_inclusive) {
@@ -1885,7 +1886,9 @@ Result<bool> SetScanBoundary(LWPgsqlReadRequestPB& req,
     Slice lower_bound;
     if (hash_partitioned) {
       uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_lower_bound);
-      lower_bound = HashCodeToBound(schema, hash, lower_bound_is_inclusive, true /* is_lower */);
+      const auto& lower_bound_dockey =
+          HashCodeToBound(schema, hash, lower_bound_is_inclusive, true /* is_lower */);
+      lower_bound = lower_bound_dockey.Encode().AsSlice();
       lower_bound_is_inclusive = false;
     } else {
       lower_bound = partition_lower_bound;
@@ -1898,7 +1901,9 @@ Result<bool> SetScanBoundary(LWPgsqlReadRequestPB& req,
     Slice upper_bound;
     if (hash_partitioned) {
       uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_upper_bound);
-      upper_bound = HashCodeToBound(schema, hash, upper_bound_is_inclusive, false /* is_lower */);
+      const auto& upper_bound_dockey =
+          HashCodeToBound(schema, hash, upper_bound_is_inclusive, false /* is_lower */);
+      upper_bound = upper_bound_dockey.Encode().AsSlice();
       upper_bound_is_inclusive = false;
     } else {
       upper_bound = partition_upper_bound;

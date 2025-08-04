@@ -804,15 +804,15 @@ void PgDmlRead::BindHashCode(const std::optional<Bound>& start, const std::optio
   }
 
   if (start) {
-    const auto lower_bound =
+    const auto& lower_bound =
         HashCodeToBound(bind_->schema(), start->value, start->is_inclusive, true /* is_lower */);
-    AddLowerBound(*read_req_, lower_bound, false /* is_inclusive */);
+    AddLowerBound(*read_req_, lower_bound.Encode().AsSlice(), false /* is_inclusive */);
   }
 
   if (end) {
-    const auto upper_bound =
+    const auto& upper_bound =
         HashCodeToBound(bind_->schema(), end->value, end->is_inclusive, false /* is_lower */);
-    AddUpperBound(*read_req_, upper_bound, false /* is_inclusive */);
+    AddUpperBound(*read_req_, upper_bound.Encode().AsSlice(), false /* is_inclusive */);
   }
 }
 
