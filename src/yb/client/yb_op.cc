@@ -122,6 +122,19 @@ void OverrideUpperBound(const Slice& value, bool is_inclusive, PgsqlReadRequestP
   request->mutable_upper_bound()->set_is_inclusive(is_inclusive);
 }
 
+Result<bool> IsDerivedFromHashCode(const Slice& value, bool is_lower) {
+  dockv::DocKey dockey;
+  RETURN_NOT_OK(
+      dockey.DecodeFrom(value, dockv::DocKeyPart::kWholeDocKey, dockv::AllowSpecial::kTrue));
+  const auto& hashed_components = dockey.hashed_group();
+  const auto& range_components = dockey.range_group();
+
+  auto expected_type = is_lower ? dockv::KeyEntryType::kLowest : dockv::KeyEntryType::kHighest;
+
+  return hashed_components.size() == 1 && hashed_components[0].type() == expected_type &&
+         range_components.size() == 1 && range_components[0].type() == expected_type;
+}
+
 template <typename Req>
 void GetPartitionKey(const Req& request, std::string* partition_key) {
   if (request.has_partition_key()) {
@@ -261,9 +274,17 @@ Status InitHashPartitionKey(
       // Since the auto flag is not true, it is possible that some tservers may not have this
       // change yet.
 
-      // Firstly, check if bounds are such that the docdb may not be able to honor. If so, throw an
-      // error.
-      // TODO
+      // Check if bounds are such that docdb may not be able to honor them. If so, throw an error.
+      if ((request->has_lower_bound() && !VERIFY_RESULT(IsDerivedFromHashCode(
+                                             request->lower_bound().key(), true /* is_lower */))) ||
+          (request->has_upper_bound() &&
+           !VERIFY_RESULT(
+               IsDerivedFromHashCode(request->upper_bound().key(), false /* is_lower */)))) {
+        return STATUS(
+            NotSupported,
+            "dockey based upper/lower bounds for hash partitioned tables are not supported when "
+            "auto flag yb_lower_upper_bounds_are_dockeys is false");
+      }
 
       // Set these fields to encoded hash codes just as before.
       if (request->has_hash_code()) {
