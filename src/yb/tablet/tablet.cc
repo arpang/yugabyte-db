@@ -2161,21 +2161,6 @@ Result<bool> Tablet::HasScanReachedMaxPartitionKey(
 
   if (schema->num_hash_key_columns() > 0) {
     uint16_t next_hash_code = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_key);
-    // For batched index lookup of ybctids, check if the current partition hash is lesser than
-    // upper bound. If it is, we can then avoid paging. Paging of batched index lookup of ybctids
-    // occur when tablets split after request is prepared.
-    if (implicit_cast<size_t>(pgsql_read_request.batch_arguments_size()) > row_count) {
-      if (!pgsql_read_request.upper_bound().has_key()) {
-          return false;
-      }
-      uint16_t upper_bound_hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(
-          pgsql_read_request.upper_bound().key());
-      uint16_t partition_hash =
-          dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_key);
-      return pgsql_read_request.upper_bound().is_inclusive() ?
-          partition_hash > upper_bound_hash :
-          partition_hash >= upper_bound_hash;
-    }
     if (pgsql_read_request.has_max_hash_code() &&
         next_hash_code > pgsql_read_request.max_hash_code()) {
       return true;

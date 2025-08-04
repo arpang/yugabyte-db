@@ -875,4 +875,18 @@ class PgDocWriteOp : public PgDocOp {
 PgDocOp::SharedPtr MakeDocReadOpWithData(
     const PgSession::ScopedRefPtr& pg_session, PrefetchedDataHolder data);
 
+Slice HashCodeToBound(const Schema& schema, uint16_t hash, bool is_inclusive, bool is_lower);
+void AddLowerBound(LWPgsqlReadRequestPB& req, const Slice& lower_bound, bool is_inclusive);
+void AddUpperBound(LWPgsqlReadRequestPB& req, const Slice& upper_bound, bool is_inclusive);
+// Check if boundaries set on request define valid (not empty) range
+Result<bool> CheckScanBoundary(LWPgsqlReadRequestPB& req);
+// These values are set by  PgGate to optimize query to narrow the scanning range of a query.
+// Returns false if new boundary makes request range empty.
+Result<bool> SetScanBoundary(LWPgsqlReadRequestPB& req,
+                             const std::string& partition_lower_bound,
+                             bool lower_bound_is_inclusive,
+                             const std::string& partition_upper_bound,
+                             bool upper_bound_is_inclusive,
+                             const Schema& schema);
+
 }  // namespace yb::pggate
