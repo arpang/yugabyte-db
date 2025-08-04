@@ -102,22 +102,22 @@ void SetPartitionKey(const Slice& value, PgsqlWriteRequestPB* request) {
   request->set_partition_key(value.cdata(), value.size());
 }
 
-void SetLowerBound(const Slice& value, bool is_inclusive, LWPgsqlReadRequestPB* request) {
+void OverrideLowerBound(const Slice& value, bool is_inclusive, LWPgsqlReadRequestPB* request) {
   request->mutable_lower_bound()->dup_key(value);
   request->mutable_lower_bound()->set_is_inclusive(is_inclusive);
 }
 
-void SetLowerBound(const Slice& value, bool is_inclusive, PgsqlReadRequestPB* request) {
+void OverrideLowerBound(const Slice& value, bool is_inclusive, PgsqlReadRequestPB* request) {
   request->mutable_lower_bound()->set_key(value.cdata(), value.size());
   request->mutable_lower_bound()->set_is_inclusive(is_inclusive);
 }
 
-void SetUpperBound(const Slice& value, bool is_inclusive, LWPgsqlReadRequestPB* request) {
+void OverrideUpperBound(const Slice& value, bool is_inclusive, LWPgsqlReadRequestPB* request) {
   request->mutable_upper_bound()->dup_key(value);
   request->mutable_upper_bound()->set_is_inclusive(is_inclusive);
 }
 
-void SetUpperBound(const Slice& value, bool is_inclusive, PgsqlReadRequestPB* request) {
+void OverrideUpperBound(const Slice& value, bool is_inclusive, PgsqlReadRequestPB* request) {
   request->mutable_upper_bound()->set_key(value.cdata(), value.size());
   request->mutable_upper_bound()->set_is_inclusive(is_inclusive);
 }
@@ -259,17 +259,22 @@ Status InitHashPartitionKey(
     if (!yb_lower_upper_bounds_are_dockeys) {
       // With D45476, lower_bound and upper_bound fields are dockeys for hash partitioned tables.
       // Since the auto flag is not true, it is possible that some tservers may not have this
-      // change yet. So, set these fields to encoded hash codes just as before.
+      // change yet.
 
+      // Firstly, check if bounds are such that the docdb may not be able to honor. If so, throw an
+      // error.
+      // TODO
+
+      // Set these fields to encoded hash codes just as before.
       if (request->has_hash_code()) {
         auto lower_bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
-        SetLowerBound(lower_bound, true /* is_inclusive */, request);
+        OverrideLowerBound(lower_bound, true /* is_inclusive */, request);
       }
 
       if (request->has_max_hash_code()) {
         auto upper_bound =
             dockv::PartitionSchema::EncodeMultiColumnHashValue(request->max_hash_code());
-        SetUpperBound(upper_bound, true /* is_inclusive */, request);
+        OverrideUpperBound(upper_bound, true /* is_inclusive */, request);
       }
     } else {
       request->set_lower_upper_bounds_are_dockeys(true);
