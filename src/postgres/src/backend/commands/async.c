@@ -134,9 +134,11 @@
 #include "access/slru.h"
 #include "access/transam.h"
 #include "access/xact.h"
+#include "catalog/namespace.h"
 #include "catalog/pg_database.h"
 #include "commands/async.h"
 #include "common/hashfn.h"
+#include "executor/ybModifyTable.h"
 #include "funcapi.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
@@ -149,6 +151,7 @@
 #include "storage/sinval.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
+#include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
 #include "utils/snapmgr.h"
@@ -156,7 +159,7 @@
 
 /* YB includes */
 #include "pg_yb_utils.h"
-
+#include "utils/uuid.h"
 
 /*
  * Maximum size of a NOTIFY payload, including terminating NULL.  This
@@ -184,8 +187,10 @@ typedef struct AsyncQueueEntry
 {
 	int			length;			/* total allocated length of entry */
 	Oid			dboid;			/* sender's database OID */
+	/* TODO: What is the use of xid? Is it applicable to YB? */
 	TransactionId xid;			/* sender's XID */
 	int32		srcPid;			/* sender's PID */
+	pg_uuid_t yb_node_uuid;		/* TODO: populate */
 	char		data[NAMEDATALEN + NOTIFY_PAYLOAD_MAX_LENGTH];
 } AsyncQueueEntry;
 
@@ -445,6 +450,10 @@ static bool tryAdvanceTail = false;
 /* GUC parameter */
 bool		Trace_notify = false;
 
+static Oid YbCachedNotificationsRelId = InvalidOid;
+static const char *YB_NOTIFY_SCHEMA_NAME = "yb_notify";
+static const char *YB_NOTIFICATIONS_RELNAME = "notifications";
+
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
 static bool asyncQueuePagePrecedes(int p, int q);
@@ -475,6 +484,7 @@ static void AddEventToPendingNotifies(Notification *n);
 static uint32 notification_hash(const void *key, Size keysize);
 static int	notification_match(const void *key1, const void *key2, Size keysize);
 static void ClearPendingActionsAndNotifies(void);
+static Oid YbGetNotificationsRelId(void);
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -630,12 +640,6 @@ pg_notify(PG_FUNCTION_ARGS)
 void
 Async_Notify(const char *channel, const char *payload)
 {
-	/*
-	 * (YB) Note: This function is replaced by NOOP, but we don't raise warning
-	 * here to avoid double warning message when using "NOTIFY channel".
-	 */
-	return;
-
 	int			my_level = GetCurrentTransactionNestLevel();
 	size_t		channel_len;
 	size_t		payload_len;
@@ -906,6 +910,54 @@ AtPrepare_Notify(void)
 				 errmsg("cannot PREPARE a transaction that has executed LISTEN, UNLISTEN, or NOTIFY")));
 }
 
+void
+YbInsertNotifications(void)
+{
+	if (!pendingNotifies)
+		return;
+
+	Oid relid = YbGetNotificationsRelId();
+	Relation rel = RelationIdGetRelation(relid);
+	TupleDesc desc = RelationGetDescr(rel);
+	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
+
+	ListCell *nextNotify = list_head(pendingNotifies->events);
+
+	while (nextNotify)
+	{
+		Notification *n = (Notification *) lfirst(nextNotify);
+		slot->tts_values[0] = CStringGetDatum(YBCGetLocalTserverUuid());
+		slot->tts_values[1] = Int32GetDatum(MyProcPid);
+		slot->tts_values[2] = ObjectIdGetDatum(MyDatabaseId);
+		char *channel = n->data;
+		slot->tts_values[3] = CStringGetDatum(channel);
+		char *payload = n->data + strlen(channel) + 1;
+		slot->tts_values[4] = CStringGetDatum(payload);
+
+		slot->tts_isnull[0] = false;
+		slot->tts_isnull[1] = false;
+		slot->tts_isnull[2] = false;
+		slot->tts_isnull[3] = false;
+		slot->tts_isnull[4] = false;
+
+		slot->tts_nvalid = 5;
+
+		// todo: check this logic (or should i use
+		// IsTransactionOrTransactionBlock())
+		bool within_txn = IsTransactionBlock();
+		elog(INFO, "within_txn %d", within_txn);
+		YBCExecuteInsertForDb(MyDatabaseId, rel, slot, ONCONFLICT_NONE, NULL,
+							  within_txn ? YB_TRANSACTIONAL :
+										   YB_SINGLE_SHARD_TRANSACTION);
+
+		// TODO: delete it too.
+		nextNotify = lnext(pendingNotifies->events, nextNotify);
+	}
+
+	ExecDropSingleTupleTableSlot(slot);
+	RelationClose(rel);
+}
+
 /*
  * PreCommit_Notify
  *
@@ -954,8 +1006,10 @@ PreCommit_Notify(void)
 		}
 	}
 
+	YbInsertNotifications();
+
 	/* Queue any pending notifies (must happen after the above) */
-	if (pendingNotifies)
+	if (!IsYugaByteEnabled() && pendingNotifies)
 	{
 		ListCell   *nextNotify;
 
@@ -1074,7 +1128,7 @@ AtCommit_Notify(void)
 	 * pending notifies, which were previously added to the shared queue by
 	 * PreCommit_Notify().
 	 */
-	if (pendingNotifies != NULL)
+	if (pendingNotifies != NULL && !IsYugaByteEnabled())
 		SignalBackends();
 
 	/*
@@ -2482,4 +2536,16 @@ ClearPendingActionsAndNotifies(void)
 	 */
 	pendingActions = NULL;
 	pendingNotifies = NULL;
+}
+
+static Oid
+YbGetNotificationsRelId(void)
+{
+	if (YbCachedNotificationsRelId == InvalidOid)
+	{
+		Oid schemaoid = get_namespace_oid(YB_NOTIFY_SCHEMA_NAME, false);
+		YbCachedNotificationsRelId =
+			get_relname_relid(YB_NOTIFICATIONS_RELNAME, schemaoid);
+	}
+	return YbCachedNotificationsRelId;
 }
