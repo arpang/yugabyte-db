@@ -138,6 +138,7 @@
 #include "catalog/pg_database.h"
 #include "commands/async.h"
 #include "common/hashfn.h"
+#include "executor/spi.h"
 #include "executor/ybModifyTable.h"
 #include "funcapi.h"
 #include "libpq/libpq.h"
@@ -484,7 +485,7 @@ static void AddEventToPendingNotifies(Notification *n);
 static uint32 notification_hash(const void *key, Size keysize);
 static int	notification_match(const void *key1, const void *key2, Size keysize);
 static void ClearPendingActionsAndNotifies(void);
-static Oid YbGetNotificationsRelId(void);
+static Oid YbGetNotificationsRelId(bool create_if_not_exits);
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -726,6 +727,9 @@ Async_Notify(const char *channel, const char *payload)
 	}
 
 	MemoryContextSwitchTo(oldcontext);
+
+	Oid relid = YbGetNotificationsRelId(true /* create_if_not_exits */);
+	Assert(OidIsValid(relid));
 }
 
 /*
@@ -916,7 +920,7 @@ YbInsertNotifications(void)
 	if (!pendingNotifies)
 		return;
 
-	Oid relid = YbGetNotificationsRelId();
+	Oid relid = YbGetNotificationsRelId(false /* create_if_not_exits */);
 	Relation rel = RelationIdGetRelation(relid);
 	TupleDesc desc = RelationGetDescr(rel);
 	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
@@ -2541,14 +2545,98 @@ ClearPendingActionsAndNotifies(void)
 	pendingNotifies = NULL;
 }
 
-static Oid
-YbGetNotificationsRelId(void)
+static void
+YbCreateNotificationRel()
 {
-	if (YbCachedNotificationsRelId == InvalidOid)
+	StringInfoData querybuf;
+
+	initStringInfo(&querybuf);
+
+	appendStringInfo(&querybuf,
+					 "CREATE TABLE %s.%s(node uuid, pid int, db oid, channel "
+					 "text, payload text,  primary key((node, pid) HASH))",
+					 YB_NOTIFY_SCHEMA_NAME, YB_NOTIFICATIONS_RELNAME);
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	elog(INFO, "Executing %s", querybuf.data);
+	if (SPI_execute(querybuf.data, false, 0) != SPI_OK_UTILITY)
+		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
+
+	pfree(querybuf.data);
+
+	if (SPI_finish() != SPI_OK_FINISH)
+		elog(ERROR, "SPI_finish failed");
+}
+
+static Oid
+YbCreateNotificationRelIfNotExists(Oid schemaoid)
+{
+	Oid reloid;
+	LockSharedObject(DatabaseRelationId, MyDatabaseId, 0, AccessExclusiveLock);
+	reloid = get_relname_relid(YB_NOTIFICATIONS_RELNAME, schemaoid);
+	if (!OidIsValid(reloid))
 	{
-		Oid schemaoid = get_namespace_oid(YB_NOTIFY_SCHEMA_NAME, false);
-		YbCachedNotificationsRelId =
-			get_relname_relid(YB_NOTIFICATIONS_RELNAME, schemaoid);
+		YbCreateNotificationRel();
+		reloid = get_relname_relid(YB_NOTIFICATIONS_RELNAME, schemaoid);
+	}
+	UnlockSharedObject(DatabaseRelationId, MyDatabaseId, 0,
+					   AccessExclusiveLock);
+	return reloid;
+}
+
+static void
+YbCreateNotifySchema()
+{
+	StringInfoData querybuf;
+
+	initStringInfo(&querybuf);
+	appendStringInfo(&querybuf, "CREATE SCHEMA %s", YB_NOTIFY_SCHEMA_NAME);
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	elog(INFO, "Executing %s", querybuf.data);
+
+	if (SPI_execute(querybuf.data, false, 0) != SPI_OK_UTILITY)
+		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
+
+	pfree(querybuf.data);
+	if (SPI_finish() != SPI_OK_FINISH)
+		elog(ERROR, "SPI_finish failed");
+
+	YbCreateNotificationRel();
+}
+
+static Oid
+YbCreateNotifySchemaIfNotExists()
+{
+	Oid schemaoid;
+	LockSharedObject(DatabaseRelationId, MyDatabaseId, 0, AccessExclusiveLock);
+	schemaoid = get_namespace_oid(YB_NOTIFY_SCHEMA_NAME, true);
+	if (!OidIsValid(schemaoid))
+	{
+		YbCreateNotifySchema();
+		schemaoid = get_namespace_oid(YB_NOTIFY_SCHEMA_NAME, false);
+	}
+	UnlockSharedObject(DatabaseRelationId, MyDatabaseId, 0,
+					   AccessExclusiveLock);
+	return schemaoid;
+}
+
+static Oid
+YbGetNotificationsRelId(bool create_if_not_exits)
+{
+	if (!OidIsValid(YbCachedNotificationsRelId))
+	{
+		Oid schemaoid = get_namespace_oid(YB_NOTIFY_SCHEMA_NAME, true);
+		if (create_if_not_exits && !OidIsValid(schemaoid))
+			schemaoid = YbCreateNotifySchemaIfNotExists();
+		Oid reloid = get_relname_relid(YB_NOTIFICATIONS_RELNAME, schemaoid);
+		if (create_if_not_exits && !OidIsValid(reloid))
+			reloid = YbCreateNotificationRelIfNotExists(schemaoid);
+		YbCachedNotificationsRelId = reloid;
 	}
 	return YbCachedNotificationsRelId;
 }
