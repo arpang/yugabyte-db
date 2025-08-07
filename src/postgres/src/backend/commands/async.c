@@ -134,9 +134,12 @@
 #include "access/slru.h"
 #include "access/transam.h"
 #include "access/xact.h"
+#include "catalog/namespace.h"
 #include "catalog/pg_database.h"
 #include "commands/async.h"
 #include "common/hashfn.h"
+#include "executor/spi.h"
+#include "executor/ybModifyTable.h"
 #include "funcapi.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
@@ -149,6 +152,7 @@
 #include "storage/sinval.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
+#include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
 #include "utils/snapmgr.h"
@@ -156,7 +160,7 @@
 
 /* YB includes */
 #include "pg_yb_utils.h"
-
+#include "utils/uuid.h"
 
 /*
  * Maximum size of a NOTIFY payload, including terminating NULL.  This
@@ -184,8 +188,10 @@ typedef struct AsyncQueueEntry
 {
 	int			length;			/* total allocated length of entry */
 	Oid			dboid;			/* sender's database OID */
+	/* TODO: What is the use of xid? Is it applicable to YB? */
 	TransactionId xid;			/* sender's XID */
 	int32		srcPid;			/* sender's PID */
+	pg_uuid_t yb_node_uuid;		/* TODO: populate */
 	char		data[NAMEDATALEN + NOTIFY_PAYLOAD_MAX_LENGTH];
 } AsyncQueueEntry;
 
@@ -445,6 +451,10 @@ static bool tryAdvanceTail = false;
 /* GUC parameter */
 bool		Trace_notify = false;
 
+static Oid YbCachedNotificationsRelId = InvalidOid;
+static const char *YB_NOTIFY_SCHEMA_NAME = "yb_notify";
+static const char *YB_NOTIFICATIONS_RELNAME = "notifications";
+
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
 static bool asyncQueuePagePrecedes(int p, int q);
@@ -475,6 +485,7 @@ static void AddEventToPendingNotifies(Notification *n);
 static uint32 notification_hash(const void *key, Size keysize);
 static int	notification_match(const void *key1, const void *key2, Size keysize);
 static void ClearPendingActionsAndNotifies(void);
+static Oid YbGetNotificationsRelId(bool create_if_not_exits);
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -630,12 +641,6 @@ pg_notify(PG_FUNCTION_ARGS)
 void
 Async_Notify(const char *channel, const char *payload)
 {
-	/*
-	 * (YB) Note: This function is replaced by NOOP, but we don't raise warning
-	 * here to avoid double warning message when using "NOTIFY channel".
-	 */
-	return;
-
 	int			my_level = GetCurrentTransactionNestLevel();
 	size_t		channel_len;
 	size_t		payload_len;
@@ -722,6 +727,9 @@ Async_Notify(const char *channel, const char *payload)
 	}
 
 	MemoryContextSwitchTo(oldcontext);
+
+	Oid relid = YbGetNotificationsRelId(true /* create_if_not_exits */);
+	Assert(OidIsValid(relid));
 }
 
 /*
@@ -906,6 +914,57 @@ AtPrepare_Notify(void)
 				 errmsg("cannot PREPARE a transaction that has executed LISTEN, UNLISTEN, or NOTIFY")));
 }
 
+void
+YbInsertNotifications(void)
+{
+	if (!pendingNotifies)
+		return;
+
+	Oid relid = YbGetNotificationsRelId(false /* create_if_not_exits */);
+	Relation rel = RelationIdGetRelation(relid);
+	TupleDesc desc = RelationGetDescr(rel);
+	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
+	EState *estate = CreateExecutorState();
+
+	ListCell *nextNotify = list_head(pendingNotifies->events);
+	while (nextNotify)
+	{
+		Notification *n = (Notification *) lfirst(nextNotify);
+		slot->tts_values[0] = CStringGetDatum(YBCGetLocalTserverUuid());
+		slot->tts_values[1] = Int32GetDatum(MyProcPid);
+		slot->tts_values[2] = ObjectIdGetDatum(MyDatabaseId);
+		char *channel = n->data;
+		slot->tts_values[3] =
+			CStringGetDatum(cstring_to_text_with_len(channel, n->channel_len));
+		char *payload = n->data + strlen(channel) + 1;
+		slot->tts_values[4] =
+			CStringGetDatum(cstring_to_text_with_len(payload, n->payload_len));
+
+		slot->tts_isnull[0] = false;
+		slot->tts_isnull[1] = false;
+		slot->tts_isnull[2] = false;
+		slot->tts_isnull[3] = false;
+		slot->tts_isnull[4] = false;
+
+		slot->tts_nvalid = 5;
+
+		YbcPgTransactionSetting txn_setting = IsTransactionBlock() ?
+												  YB_TRANSACTIONAL :
+												  YB_SINGLE_SHARD_TRANSACTION;
+		YBCExecuteInsertForDb(MyDatabaseId, rel, slot, ONCONFLICT_NONE, NULL,
+							  txn_setting);
+
+		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */,
+						 txn_setting, false /* changingPart */, estate);
+		MemoryContextReset(GetPerTupleMemoryContext(estate));
+		nextNotify = lnext(pendingNotifies->events, nextNotify);
+	}
+
+	FreeExecutorState(estate);
+	ExecDropSingleTupleTableSlot(slot);
+	RelationClose(rel);
+}
+
 /*
  * PreCommit_Notify
  *
@@ -954,8 +1013,10 @@ PreCommit_Notify(void)
 		}
 	}
 
+	YbInsertNotifications();
+
 	/* Queue any pending notifies (must happen after the above) */
-	if (pendingNotifies)
+	if (!IsYugaByteEnabled() && pendingNotifies)
 	{
 		ListCell   *nextNotify;
 
@@ -1074,7 +1135,7 @@ AtCommit_Notify(void)
 	 * pending notifies, which were previously added to the shared queue by
 	 * PreCommit_Notify().
 	 */
-	if (pendingNotifies != NULL)
+	if (pendingNotifies != NULL && !IsYugaByteEnabled())
 		SignalBackends();
 
 	/*
@@ -2482,4 +2543,100 @@ ClearPendingActionsAndNotifies(void)
 	 */
 	pendingActions = NULL;
 	pendingNotifies = NULL;
+}
+
+static void
+YbCreateNotificationRel()
+{
+	StringInfoData querybuf;
+
+	initStringInfo(&querybuf);
+
+	appendStringInfo(&querybuf,
+					 "CREATE TABLE %s.%s(node uuid, pid int, db oid, channel "
+					 "text, payload text,  primary key((node, pid) HASH))",
+					 YB_NOTIFY_SCHEMA_NAME, YB_NOTIFICATIONS_RELNAME);
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	elog(INFO, "Executing %s", querybuf.data);
+	if (SPI_execute(querybuf.data, false, 0) != SPI_OK_UTILITY)
+		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
+
+	pfree(querybuf.data);
+
+	if (SPI_finish() != SPI_OK_FINISH)
+		elog(ERROR, "SPI_finish failed");
+}
+
+static Oid
+YbCreateNotificationRelIfNotExists(Oid schemaoid)
+{
+	Oid reloid;
+	LockSharedObject(DatabaseRelationId, MyDatabaseId, 0, AccessExclusiveLock);
+	reloid = get_relname_relid(YB_NOTIFICATIONS_RELNAME, schemaoid);
+	if (!OidIsValid(reloid))
+	{
+		YbCreateNotificationRel();
+		reloid = get_relname_relid(YB_NOTIFICATIONS_RELNAME, schemaoid);
+	}
+	UnlockSharedObject(DatabaseRelationId, MyDatabaseId, 0,
+					   AccessExclusiveLock);
+	return reloid;
+}
+
+static void
+YbCreateNotifySchema()
+{
+	StringInfoData querybuf;
+
+	initStringInfo(&querybuf);
+	appendStringInfo(&querybuf, "CREATE SCHEMA %s", YB_NOTIFY_SCHEMA_NAME);
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	elog(INFO, "Executing %s", querybuf.data);
+
+	if (SPI_execute(querybuf.data, false, 0) != SPI_OK_UTILITY)
+		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
+
+	pfree(querybuf.data);
+	if (SPI_finish() != SPI_OK_FINISH)
+		elog(ERROR, "SPI_finish failed");
+
+	YbCreateNotificationRel();
+}
+
+static Oid
+YbCreateNotifySchemaIfNotExists()
+{
+	Oid schemaoid;
+	LockSharedObject(DatabaseRelationId, MyDatabaseId, 0, AccessExclusiveLock);
+	schemaoid = get_namespace_oid(YB_NOTIFY_SCHEMA_NAME, true);
+	if (!OidIsValid(schemaoid))
+	{
+		YbCreateNotifySchema();
+		schemaoid = get_namespace_oid(YB_NOTIFY_SCHEMA_NAME, false);
+	}
+	UnlockSharedObject(DatabaseRelationId, MyDatabaseId, 0,
+					   AccessExclusiveLock);
+	return schemaoid;
+}
+
+static Oid
+YbGetNotificationsRelId(bool create_if_not_exits)
+{
+	if (!OidIsValid(YbCachedNotificationsRelId))
+	{
+		Oid schemaoid = get_namespace_oid(YB_NOTIFY_SCHEMA_NAME, true);
+		if (create_if_not_exits && !OidIsValid(schemaoid))
+			schemaoid = YbCreateNotifySchemaIfNotExists();
+		Oid reloid = get_relname_relid(YB_NOTIFICATIONS_RELNAME, schemaoid);
+		if (create_if_not_exits && !OidIsValid(reloid))
+			reloid = YbCreateNotificationRelIfNotExists(schemaoid);
+		YbCachedNotificationsRelId = reloid;
+	}
+	return YbCachedNotificationsRelId;
 }
