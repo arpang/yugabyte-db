@@ -920,9 +920,9 @@ YbInsertNotifications(void)
 	Relation rel = RelationIdGetRelation(relid);
 	TupleDesc desc = RelationGetDescr(rel);
 	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
+	EState *estate = CreateExecutorState();
 
 	ListCell *nextNotify = list_head(pendingNotifies->events);
-
 	while (nextNotify)
 	{
 		Notification *n = (Notification *) lfirst(nextNotify);
@@ -930,9 +930,11 @@ YbInsertNotifications(void)
 		slot->tts_values[1] = Int32GetDatum(MyProcPid);
 		slot->tts_values[2] = ObjectIdGetDatum(MyDatabaseId);
 		char *channel = n->data;
-		slot->tts_values[3] = CStringGetDatum(channel);
+		slot->tts_values[3] =
+			CStringGetDatum(cstring_to_text_with_len(channel, n->channel_len));
 		char *payload = n->data + strlen(channel) + 1;
-		slot->tts_values[4] = CStringGetDatum(payload);
+		slot->tts_values[4] =
+			CStringGetDatum(cstring_to_text_with_len(payload, n->payload_len));
 
 		slot->tts_isnull[0] = false;
 		slot->tts_isnull[1] = false;
@@ -942,18 +944,19 @@ YbInsertNotifications(void)
 
 		slot->tts_nvalid = 5;
 
-		// todo: check this logic (or should i use
-		// IsTransactionOrTransactionBlock())
-		bool within_txn = IsTransactionBlock();
-		elog(INFO, "within_txn %d", within_txn);
+		YbcPgTransactionSetting txn_setting = IsTransactionBlock() ?
+												  YB_TRANSACTIONAL :
+												  YB_SINGLE_SHARD_TRANSACTION;
 		YBCExecuteInsertForDb(MyDatabaseId, rel, slot, ONCONFLICT_NONE, NULL,
-							  within_txn ? YB_TRANSACTIONAL :
-										   YB_SINGLE_SHARD_TRANSACTION);
+							  txn_setting);
 
-		// TODO: delete it too.
+		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */,
+						 txn_setting, false /* changingPart */, estate);
+		MemoryContextReset(GetPerTupleMemoryContext(estate));
 		nextNotify = lnext(pendingNotifies->events, nextNotify);
 	}
 
+	FreeExecutorState(estate);
 	ExecDropSingleTupleTableSlot(slot);
 	RelationClose(rel);
 }
