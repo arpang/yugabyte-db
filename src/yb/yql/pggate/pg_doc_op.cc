@@ -1870,11 +1870,16 @@ dockv::DocKey HashCodeToDocKeyBound(
       --hash;
     }
   }
-  auto special_boundary_value = is_lower ? dockv::KeyEntryValue(dockv::KeyEntryType::kLowest)
-                                         : dockv::KeyEntryValue(dockv::KeyEntryType::kHighest);
-  std::vector<dockv::KeyEntryValue> hash_and_range_component{special_boundary_value};
 
-  return dockv::DocKey(schema, hash, hash_and_range_component, hash_and_range_component);
+  // Use static vectors to avoid repeated construction
+  static const dockv::KeyEntryValues kLowestVector{
+      dockv::KeyEntryValue(dockv::KeyEntryType::kLowest)};
+  static const dockv::KeyEntryValues kHighestVector{
+      dockv::KeyEntryValue(dockv::KeyEntryType::kHighest)};
+
+  const auto& hash_range_components = is_lower ? kLowestVector : kHighestVector;
+
+  return dockv::DocKey(schema, hash, hash_range_components, hash_range_components);
 }
 
 void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice& lower_bound, bool is_inclusive) {
