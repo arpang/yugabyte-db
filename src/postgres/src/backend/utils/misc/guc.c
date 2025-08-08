@@ -3524,9 +3524,9 @@ static struct config_bool ConfigureNamesBool[] =
 
 	{
 		{"yb_lower_upper_bounds_are_dockeys", PGC_SUSET, DEVELOPER_OPTIONS,
-			gettext_noop("If this auto fag is true, lower_bound/upper_bound fields "
-						 "of PgsqlReadRequestPB are dockeys; encoded hash codes "
-						 "otherwise. Applicable only for hash partitioned tables"),
+			gettext_noop("If true, lower_bound/upper_bound fields of PgsqlReadRequestPB "
+						 "are dockeys; encoded hash codes otherwise. Applicable only "
+						 "for hash partitioned tables."),
 			NULL,
 			GUC_NOT_IN_SAMPLE
 		},
