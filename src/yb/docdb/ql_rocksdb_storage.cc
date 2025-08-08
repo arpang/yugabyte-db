@@ -225,8 +225,8 @@ Status QLRocksDBStorage::GetIterator(
     // Construct the scan spec basing on the HASH condition.
 
     DocKey lower_doc_key(schema);
-    if (request.has_lower_bound() &&
-        (schema.num_hash_key_columns() == 0 || request.lower_upper_bounds_are_dockeys())) {
+    if (request.has_lower_bound() && (schema.num_hash_key_columns() == 0 ||
+                                      dockv::IsValidEncodedDocKey(request.lower_bound().key()))) {
         Slice lower_key_slice = request.lower_bound().key();
         RETURN_NOT_OK(lower_doc_key.DecodeFrom(
             &lower_key_slice, dockv::DocKeyPart::kWholeDocKey, dockv::AllowSpecial::kTrue));
@@ -237,8 +237,8 @@ Status QLRocksDBStorage::GetIterator(
     }
 
     DocKey upper_doc_key(schema);
-    if (request.has_upper_bound() &&
-        (schema.num_hash_key_columns() == 0 || request.lower_upper_bounds_are_dockeys())) {
+    if (request.has_upper_bound() && (schema.num_hash_key_columns() == 0 ||
+                                      dockv::IsValidEncodedDocKey(request.upper_bound().key()))) {
         Slice upper_key_slice = request.upper_bound().key();
         RETURN_NOT_OK(upper_doc_key.DecodeFrom(
             &upper_key_slice, dockv::DocKeyPart::kWholeDocKey, dockv::AllowSpecial::kTrue));

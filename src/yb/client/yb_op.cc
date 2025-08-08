@@ -141,7 +141,6 @@ void OverrideBoundWithHashCode(uint16_t hash_code, bool is_lower, LWPgsqlReadReq
   } else {
     request->mutable_upper_bound()->dup_key(bound);
   }
-  request->set_lower_upper_bounds_are_dockeys(false);
 }
 
 void OverrideBoundWithHashCode(uint16_t hash_code, bool is_lower, PgsqlReadRequestPB* request) {
@@ -151,7 +150,6 @@ void OverrideBoundWithHashCode(uint16_t hash_code, bool is_lower, PgsqlReadReque
   } else {
     request->mutable_upper_bound()->set_key(bound);
   }
-  request->set_lower_upper_bounds_are_dockeys(false);
 }
 
 template <typename Req>
@@ -317,8 +315,6 @@ Status InitHashPartitionKey(
 
       // Set these fields to encoded hash codes just as before.
       OverrideBoundsWithHashCode(request);
-    } else {
-      request->set_lower_upper_bounds_are_dockeys(true);
     }
 
   } else {
