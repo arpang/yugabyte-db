@@ -1815,9 +1815,10 @@ bool ApplyPartitionBounds(LWPgsqlReadRequestPB& req,
                           const Slice& partition_upper_bound,
                           bool upper_bound_is_inclusive,
                           const Schema& schema) {
+  Slice lower_bound, upper_bound;
+  dockv::KeyBytes lower_key_bytes, upper_key_bytes;
+
   bool hash_partitioned = schema.num_hash_key_columns() > 0;
-  Slice lower_bound;
-  Slice upper_bound;
 
   // Calculate lower_bound.
   if (!partition_lower_bound.empty()) {
@@ -1825,7 +1826,8 @@ bool ApplyPartitionBounds(LWPgsqlReadRequestPB& req,
       uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_lower_bound);
       const auto& lower_bound_dockey =
           HashCodeToDocKeyBound(schema, hash, lower_bound_is_inclusive, true /* is_lower */);
-      lower_bound = lower_bound_dockey.Encode().AsSlice();
+      lower_key_bytes = lower_bound_dockey.Encode();
+      lower_bound = lower_key_bytes.AsSlice();
       lower_bound_is_inclusive = false;
     } else {
       lower_bound = partition_lower_bound;
@@ -1838,7 +1840,8 @@ bool ApplyPartitionBounds(LWPgsqlReadRequestPB& req,
       uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_upper_bound);
       const auto& upper_bound_dockey =
           HashCodeToDocKeyBound(schema, hash, upper_bound_is_inclusive, false /* is_lower */);
-      upper_bound = upper_bound_dockey.Encode().AsSlice();
+      upper_key_bytes = upper_bound_dockey.Encode();
+      upper_bound = upper_key_bytes.AsSlice();
       upper_bound_is_inclusive = false;
     } else {
       upper_bound = partition_upper_bound;
