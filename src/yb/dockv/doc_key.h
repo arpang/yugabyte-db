@@ -835,6 +835,6 @@ DocKey MakeDocKey(Args&&... args) {
   return DocKey(MakeKeyEntryValues(std::forward<Args>(args)...));
 }
 
-bool IsValidEncodedDocKey(const Slice& slice);
+bool IsValidEncodedDocKey(const Slice& slice, AllowSpecial allow_special = AllowSpecial::kFalse);
 
 }  // namespace yb::dockv
