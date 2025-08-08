@@ -682,7 +682,7 @@ Status PgDmlRead::AddRowUpperBound(
   }
 
   auto dockey = VERIFY_RESULT(EncodeRowKeyForBound(handle, n_col_values, col_values, false));
-  AddUpperBound(*read_req_, dockey.Encode().AsSlice(), is_inclusive);
+  ApplyUpperBound(*read_req_, dockey.Encode().AsSlice(), is_inclusive);
   return Status::OK();
 }
 
@@ -694,7 +694,7 @@ Status PgDmlRead::AddRowLowerBound(
   }
 
   auto dockey = VERIFY_RESULT(EncodeRowKeyForBound(handle, n_col_values, col_values, true));
-  AddLowerBound(*read_req_, dockey.Encode().AsSlice(), is_inclusive);
+  ApplyLowerBound(*read_req_, dockey.Encode().AsSlice(), is_inclusive);
   return Status::OK();
 }
 
@@ -806,13 +806,13 @@ void PgDmlRead::BindHashCode(const std::optional<Bound>& start, const std::optio
   if (start) {
     const auto& lower_bound = HashCodeToDocKeyBound(
         bind_->schema(), start->value, start->is_inclusive, true /* is_lower */);
-    AddLowerBound(*read_req_, lower_bound.Encode().AsSlice(), false /* is_inclusive */);
+    ApplyLowerBound(*read_req_, lower_bound.Encode().AsSlice(), false /* is_inclusive */);
   }
 
   if (end) {
     const auto& upper_bound = HashCodeToDocKeyBound(
         bind_->schema(), end->value, end->is_inclusive, false /* is_lower */);
-    AddUpperBound(*read_req_, upper_bound.Encode().AsSlice(), false /* is_inclusive */);
+    ApplyUpperBound(*read_req_, upper_bound.Encode().AsSlice(), false /* is_inclusive */);
   }
 }
 
@@ -834,13 +834,13 @@ Status PgDmlRead::BindRange(
   if (lower_bound.empty()) {
     read_req_->clear_lower_bound();
   } else {
-    AddLowerBound(*read_req_, lower_bound, lower_bound_inclusive);
+    ApplyLowerBound(*read_req_, lower_bound, lower_bound_inclusive);
   }
   // Set upper bound
   if (upper_bound.empty()) {
     read_req_->clear_upper_bound();
   } else {
-    AddUpperBound(*read_req_, upper_bound, upper_bound_inclusive);
+    ApplyUpperBound(*read_req_, upper_bound, upper_bound_inclusive);
   }
   return Status::OK();
 }
