@@ -1905,7 +1905,7 @@ Result<bool> SetScanBoundary(LWPgsqlReadRequestPB& req,
   return CheckScanBoundary(req);
 }
 
-Result<bool> CheckScanBoundary(LWPgsqlReadRequestPB& req) {
+bool CheckScanBoundary(LWPgsqlReadRequestPB& req) {
   if (req.has_lower_bound() && req.has_upper_bound() &&
       ((req.lower_bound().key() > req.upper_bound().key()) ||
        (req.lower_bound().key() == req.upper_bound().key() &&

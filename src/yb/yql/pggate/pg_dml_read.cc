@@ -810,8 +810,8 @@ void PgDmlRead::BindHashCode(const std::optional<Bound>& start, const std::optio
   }
 
   if (end) {
-    const auto& upper_bound =
-        HashCodeToDocKeyBound(bind_->schema(), end->value, end->is_inclusive, false /* is_lower */);
+    const auto& upper_bound = HashCodeToDocKeyBound(
+        bind_->schema(), end->value, end->is_inclusive, false /* is_lower */);
     AddUpperBound(*read_req_, upper_bound.Encode().AsSlice(), false /* is_inclusive */);
   }
 }

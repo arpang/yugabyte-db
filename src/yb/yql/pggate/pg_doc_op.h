@@ -880,7 +880,7 @@ dockv::DocKey HashCodeToDocKeyBound(
 void AddLowerBound(LWPgsqlReadRequestPB& req, const Slice& lower_bound, bool is_inclusive);
 void AddUpperBound(LWPgsqlReadRequestPB& req, const Slice& upper_bound, bool is_inclusive);
 // Check if boundaries set on request define valid (not empty) range
-Result<bool> CheckScanBoundary(LWPgsqlReadRequestPB& req);
+bool CheckScanBoundary(LWPgsqlReadRequestPB& req);
 // These values are set by  PgGate to optimize query to narrow the scanning range of a query.
 // Returns false if new boundary makes request range empty.
 Result<bool> SetScanBoundary(LWPgsqlReadRequestPB& req,
