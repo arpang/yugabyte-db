@@ -1812,7 +1812,13 @@ PgDocOp::SharedPtr MakeDocReadOpWithData(
 dockv::DocKey HashCodeToDocKeyBound(
     const Schema& schema, uint16_t hash, bool is_inclusive, bool is_lower) {
   if (!is_inclusive) {
-    is_lower ? ++hash : --hash;
+    if (is_lower) {
+      DCHECK(hash != UINT16_MAX) << Format("Invalid hash code bound '> $0'", UINT16_MAX);
+      ++hash;
+    } else {
+      DCHECK(hash != 0) << "Invalid hash code bound '< 0'";
+      --hash;
+    }
   }
   auto special_boundary_value = is_lower ? dockv::KeyEntryValue(dockv::KeyEntryType::kLowest)
                                          : dockv::KeyEntryValue(dockv::KeyEntryType::kHighest);
