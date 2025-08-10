@@ -51,10 +51,12 @@
 #include "yb/yql/pggate/pg_fk_reference_cache.h"
 #include "yb/yql/pggate/pg_function.h"
 #include "yb/yql/pggate/pg_gate_fwd.h"
+#include "yb/yql/pggate/pg_setup_perform_options_accessor_tag.h"
 #include "yb/yql/pggate/pg_statement.h"
 #include "yb/yql/pggate/pg_sys_table_prefetcher.h"
 #include "yb/yql/pggate/pg_tools.h"
 #include "yb/yql/pggate/pg_type.h"
+#include "yb/yql/pggate/pg_ybctid_reader_provider.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 #include "yb/yql/pggate/ybc_pggate.h"
 
@@ -874,7 +876,7 @@ class PgApiImpl {
   Status AcquireObjectLock(const YbcObjectLockId& lock_id, YbcObjectLockMode mode);
 
  private:
-  void ClearSessionState();
+  SetupPerformOptionsAccessorTag ClearSessionState();
 
   class Interrupter;
 
@@ -916,8 +918,8 @@ class PgApiImpl {
   // Local tablet-server shared memory data.
   tserver::TServerSharedData* tserver_shared_object_;
 
+  const bool enable_table_locking_;
   scoped_refptr<PgTxnManager> pg_txn_manager_;
-
   scoped_refptr<PgSession> pg_session_;
   std::optional<PgSysTablePrefetcher> pg_sys_table_prefetcher_;
   std::unordered_set<std::unique_ptr<PgMemctx>, PgMemctxHasher, PgMemctxComparator> mem_contexts_;
