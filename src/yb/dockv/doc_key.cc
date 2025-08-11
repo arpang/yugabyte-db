@@ -1409,10 +1409,4 @@ Result<boost::optional<DocKeyHash>> DecodeDocKeyHash(const Slice& encoded_key) {
   return key.has_hash() ? key.hash() : boost::optional<DocKeyHash>();
 }
 
-bool IsValidEncodedDocKey(const Slice& slice, AllowSpecial allow_special) {
-  dockv::DocKey key;
-  auto s = key.DecodeFrom(slice, DocKeyPart::kWholeDocKey, allow_special);
-  return s.ok();
-}
-
 }  // namespace yb::dockv
