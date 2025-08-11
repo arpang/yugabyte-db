@@ -341,9 +341,10 @@ Status InitHashPartitionKey(
       if (!VERIFY_RESULT(BoundsDerivedFromHashCode(request))) {
         return STATUS(
             NotSupported,
-            "Read request uses DocKey as upper_bound/lower_bound field, which isn't supported "
-            "unless the AutoFlag 'yb_lower_upper_bounds_are_dockeys' is enabled (typically during "
-            "upgrade to the version that introduces this flag)");
+            "This feature is not supported because the AutoFlag "
+            "'yb_lower_upper_bounds_are_dockeys' is false. This typically happends during an "
+            "upgrade to the version that introduced this flag. Please re-try after the upgrade is "
+            "complete and the AutoFlag is set to true.");
       }
 
       // Set these fields to encoded hash codes just as before.
