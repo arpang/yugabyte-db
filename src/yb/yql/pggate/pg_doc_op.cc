@@ -944,14 +944,14 @@ Status PgDocReadOp::DoPopulateByYbctidOps(const YbctidGenerator& generator, Keep
     // comparable with ybctids.
     if (read_req.has_lower_bound()) {
       const auto& lower_bound = read_req.lower_bound();
-      if (!dockv::PartitionSchema::IsValidHashPartitionKeyBound(lower_bound.key().ToBuffer()) &&
+      if (!dockv::PartitionSchema::IsValidHashPartitionKeyBound(lower_bound.key()) &&
           (lower_bound.is_inclusive() ? ybctid < lower_bound.key() : ybctid <= lower_bound.key())) {
         continue;
       }
     }
     if (read_req.has_upper_bound()) {
       const auto& upper_bound = read_req.upper_bound();
-      if (!dockv::PartitionSchema::IsValidHashPartitionKeyBound(upper_bound.key().ToBuffer()) &&
+      if (!dockv::PartitionSchema::IsValidHashPartitionKeyBound(upper_bound.key()) &&
           (upper_bound.is_inclusive() ? ybctid > upper_bound.key() : ybctid >= upper_bound.key())) {
         continue;
       }
@@ -1853,7 +1853,13 @@ void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice& lower_bound, bool i
     return;
   }
 
+  // With GHI#28219, bounds are expected to be dockeys.
+  DCHECK(!dockv::PartitionSchema::IsValidHashPartitionKeyBound(lower_bound));
+
   if (req.has_lower_bound()) {
+    // With GHI#28219, bounds are expected to be dockeys.
+    DCHECK(!dockv::PartitionSchema::IsValidHashPartitionKeyBound(req.lower_bound().key()));
+
     if (req.lower_bound().key() > lower_bound) {
       return;
     }
@@ -1875,7 +1881,13 @@ void ApplyUpperBound(LWPgsqlReadRequestPB& req, const Slice& upper_bound, bool i
     return;
   }
 
+  // With GHI#28219, bounds are expected to be dockeys.
+  DCHECK(!dockv::PartitionSchema::IsValidHashPartitionKeyBound(upper_bound));
+
   if (req.has_upper_bound()) {
+    // With GHI#28219, bounds are expected to be dockeys.
+    DCHECK(!dockv::PartitionSchema::IsValidHashPartitionKeyBound(req.upper_bound().key()));
+
     if (req.upper_bound().key() < upper_bound) {
       return;
     }
