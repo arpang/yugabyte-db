@@ -939,9 +939,8 @@ Status PgDocReadOp::DoPopulateByYbctidOps(const YbctidGenerator& generator, Keep
     auto& read_req = read_op.read_request();
 
     // Check bounds, if set.
-    // We also ensure that the bounds are valid ybctids. Hash partitioned relations use hash codes
-    // as partitioning keys, they are not comparable to ybctids. Other partitioning types use keys
-    // comparable with ybctids.
+    // We also ensure that the bounds are valid ybctid (before GHI#28219 hash partitioned relations
+    // used hash codes as bounds, which were not comparable to ybctids).
     if (read_req.has_lower_bound()) {
       const auto& lower_bound = read_req.lower_bound();
       if (!dockv::PartitionSchema::IsValidHashPartitionKeyBound(lower_bound.key()) &&
