@@ -704,7 +704,7 @@ Datum
 yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid			indexoid = PG_GETARG_OID(0);
-	int 		savedGUCLevel = NewGUCNestLevel();
+	int			savedGUCLevel = NewGUCNestLevel();
 
 	(void) set_config_option("yb_read_after_commit_visibility", "relaxed",
 							 PGC_USERSET, PGC_S_SESSION, GUC_ACTION_SAVE, true,
