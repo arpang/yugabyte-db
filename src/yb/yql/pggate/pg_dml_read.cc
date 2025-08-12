@@ -852,8 +852,7 @@ Status PgDmlRead::BindBounds(
     return secondary_index->BindBounds(
         lower_bound, lower_bound_inclusive, upper_bound, upper_bound_inclusive);
   }
-  ApplyLowerBound(*read_req_, lower_bound, lower_bound_inclusive);
-  ApplyUpperBound(*read_req_, upper_bound, upper_bound_inclusive);
+  ApplyBounds(*read_req_, lower_bound, lower_bound_inclusive, upper_bound, upper_bound_inclusive);
   return Status::OK();
 }
 
