@@ -704,7 +704,14 @@ Datum
 yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid			indexoid = PG_GETARG_OID(0);
+	int 		savedGUCLevel = NewGUCNestLevel();
+
+	(void) set_config_option("yb_read_after_commit_visibility", "relaxed",
+							 PGC_USERSET, PGC_S_SESSION, GUC_ACTION_SAVE, true,
+							 0, false);
 
 	yb_index_check_internal(indexoid);
+
+	AtEOXact_GUC(false, savedGUCLevel);
 	PG_RETURN_VOID();
 }
