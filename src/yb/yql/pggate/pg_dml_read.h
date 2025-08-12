@@ -92,6 +92,10 @@ class PgDmlRead : public PgDml {
   Status BindRange(
       Slice lower_bound, bool lower_bound_inclusive, Slice upper_bound, bool upper_bound_inclusive);
 
+  Status BindBounds(
+      const Slice& lower_bound, bool lower_bound_inclusive, const Slice& upper_bound,
+      bool upper_bound_inclusive);
+
   // Add a lower bound to the scan. If a lower bound has already been added
   // this call will set the lower bound to the stricter of the two bounds.
   Status AddRowLowerBound(

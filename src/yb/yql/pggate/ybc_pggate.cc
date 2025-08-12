@@ -1538,6 +1538,15 @@ YbcStatus YBCPgDmlBindHashCodes(
   return ToYBCStatus(pgapi->DmlBindHashCode(handle, start, end));
 }
 
+YbcStatus YBCPgDmlBindBounds(
+    YbcPgStatement handle, const char* lower_bound, size_t lower_bound_len,
+    bool lower_bound_inclusive, const char* upper_bound, size_t upper_bound_len,
+    bool upper_bound_inclusive) {
+  return ToYBCStatus(pgapi->DmlBindBounds(
+      handle, Slice(lower_bound, lower_bound_len), lower_bound_inclusive,
+      Slice(upper_bound, upper_bound_len), upper_bound_inclusive));
+}
+
 YbcStatus YBCPgDmlBindRange(YbcPgStatement handle,
                             const char *lower_bound, size_t lower_bound_len,
                             const char *upper_bound, size_t upper_bound_len) {
