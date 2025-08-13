@@ -67,7 +67,7 @@ typedef void (*YbIssueDetectionCheck) (TupleTableSlot *outslot,
 int			yb_test_index_check_num_batches_per_snapshot = -1;
 bool		yb_test_slowdown_index_check = false;
 
-static void yb_index_check_internal(Oid indexoid, bool multi_snapshot_mode);
+static void do_index_check(Oid indexoid, bool multi_snapshot_mode);
 static void partitioned_index_check(Oid parentindexId,
 									bool multi_snapshot_mode);
 
@@ -142,7 +142,7 @@ yb_index_check(PG_FUNCTION_ARGS)
 	uint64		original_read_point PG_USED_FOR_ASSERTS_ONLY =
 		YBCPgGetCurrentReadPoint();
 
-	yb_index_check_internal(indexoid, multi_snapshot_mode);
+	do_index_check(indexoid, multi_snapshot_mode);
 
 	/*
 	 * yb_index_check() uses multiple snapshots in multi_snapshot_mode. Verify
@@ -154,7 +154,7 @@ yb_index_check(PG_FUNCTION_ARGS)
 }
 
 static void
-yb_index_check_internal(Oid indexoid, bool multi_snapshot_mode)
+do_index_check(Oid indexoid, bool multi_snapshot_mode)
 {
 	Relation	indexrel = RelationIdGetRelation(indexoid);
 
@@ -217,7 +217,7 @@ partitioned_index_check(Oid parentindexId, bool multi_snapshot_mode)
 	{
 		Oid			childindexId = ObjectIdGetDatum(lfirst_oid(lc));
 
-		yb_index_check_internal(childindexId, multi_snapshot_mode);
+		do_index_check(childindexId, multi_snapshot_mode);
 	}
 }
 
@@ -904,6 +904,7 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 	if (SPI_finish() != SPI_OK_FINISH)
 		elog(ERROR, "SPI_finish failed");
 
+	pfree(querybuf.data);
 	return expected_rowcount;
 }
 
