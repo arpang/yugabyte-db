@@ -483,7 +483,7 @@ Result<std::unordered_set<int>> DockeyBoundsForHashPartitionedTablesHelper(
   // Execute select statement.
   YBCPgBeginTransaction(0);
 
-  // This is expected to fail when yb_lower_upper_bounds_are_dockeys is false.
+  // This can fail (expected) when yb_lower_upper_bounds_are_dockeys is false.
   RETURN_NOT_OK(Status(YBCPgExecSelect(pg_stmt, nullptr /* exec_params */), AddRef::kTrue));
 
   while (true) {
