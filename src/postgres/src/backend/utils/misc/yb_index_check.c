@@ -142,8 +142,9 @@ yb_index_check(PG_FUNCTION_ARGS)
 		multi_snapshot_mode = false;
 
 	if (yb_test_index_check_prevent_retry)
-		elog(INFO, "Starting yb_index_check, this log will prevent transparent "
-			 "retry and make 'Restart read required' more likely");
+		elog(INFO, "Starting yb_index_check(). This log will prevent "
+				   "transparent retries and make encountering 'Restart read "
+				   "required' error more likely");
 
 	uint64		original_read_point PG_USED_FOR_ASSERTS_ONLY =
 		YBCPgGetCurrentReadPoint();
