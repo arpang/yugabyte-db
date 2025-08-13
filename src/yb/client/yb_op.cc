@@ -340,7 +340,7 @@ Status InitHashPartitionKey(
       // Check if bounds are such that docdb may not be able to honor them. If so, throw an error.
       if (!VERIFY_RESULT(BoundsDerivedFromHashCode(request))) {
         return STATUS(
-            NotSupported,
+            RuntimeError,
             "This feature is not supported because the AutoFlag "
             "'yb_lower_upper_bounds_are_dockeys' is false. This typically happends during an "
             "upgrade to the version that introduced this flag. Please re-try after the upgrade is "

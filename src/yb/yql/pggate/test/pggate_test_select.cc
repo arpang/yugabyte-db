@@ -482,7 +482,9 @@ Result<std::unordered_set<int>> DockeyBoundsForHashPartitionedTablesHelper(
 
   // Execute select statement.
   YBCPgBeginTransaction(0);
-  CHECK_YBC_STATUS(YBCPgExecSelect(pg_stmt, nullptr /* exec_params */));
+
+  // This is expected to fail when yb_lower_upper_bounds_are_dockeys is false.
+  RETURN_NOT_OK(Status(YBCPgExecSelect(pg_stmt, nullptr /* exec_params */), AddRef::kTrue));
 
   while (true) {
     bool has_data = false;
@@ -651,6 +653,16 @@ TEST_F_EX(PggateTestSelect, DockeyBoundsForHashPartitionedTables, PggateTestSele
   actual_result = ASSERT_RESULT(DockeyBoundsForHashPartitionedTablesHelper(
       db_oid, table_oid, upper_bound, false /* is_inclusive */, false /* is_lower */));
   ASSERT_EQ(expected_result, actual_result);
+
+  // Test the case when PG AutoFalg yb_lower_upper_bounds_are_dockeys is false.
+  yb_lower_upper_bounds_are_dockeys = false;
+  auto result = DockeyBoundsForHashPartitionedTablesHelper(
+      db_oid, table_oid, upper_bound, false /* is_inclusive */, false /* is_lower */);
+  ASSERT_NOK(result);
+  ASSERT_TRUE(HasSubstring(
+      result.status().ToString(),
+      "This feature is not supported because the AutoFlag 'yb_lower_upper_bounds_are_dockeys' is "
+      "false"));
 }
 
 } // namespace pggate
