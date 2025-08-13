@@ -66,6 +66,7 @@ typedef void (*YbIssueDetectionCheck) (TupleTableSlot *outslot,
 
 int			yb_test_index_check_num_batches_per_snapshot = -1;
 bool		yb_test_slowdown_index_check = false;
+bool		yb_test_index_check_prevent_retry = false;
 
 static void do_index_check(Oid indexoid, bool multi_snapshot_mode);
 static void partitioned_index_check(Oid parentindexId,
@@ -139,6 +140,10 @@ yb_index_check(PG_FUNCTION_ARGS)
 
 	if (yb_test_index_check_num_batches_per_snapshot == 0)
 		multi_snapshot_mode = false;
+
+	if (yb_test_index_check_prevent_retry)
+		elog(INFO, "Starting yb_index_check, this log will prevent transparent "
+			 "retry and make 'Restart read required' more likely");
 
 	uint64		original_read_point PG_USED_FOR_ASSERTS_ONLY =
 		YBCPgGetCurrentReadPoint();
