@@ -663,6 +663,22 @@ TEST_F_EX(PggateTestSelect, DockeyBoundsForHashPartitionedTables, PggateTestSele
       result.status().ToString(),
       "This feature is not supported because the AutoFlag 'yb_lower_upper_bounds_are_dockeys' is "
       "false"));
+
+  // non-inclusive upper bound = {46756, {KeyEntryValue(kHighest)}, {KeyEntryValue(kHighest)}
+  // Note that yb_hash_code(63) == 46756
+  ASSERT_TRUE(strings::ByteStringFromAscii("47B6A47E217E21", &upper_bound));
+  actual_result = ASSERT_RESULT(DockeyBoundsForHashPartitionedTablesHelper(
+      db_oid, table_oid, upper_bound, false /* is_inclusive */, false /* is_lower */));
+  expected_result = {63, 1632, 1723};
+  ASSERT_EQ(expected_result, actual_result);
+
+  // non-inclusive lower bound = {46756, {KeyEntryValue(kLowest)}, {KeyEntryValue(kLowest)}
+  // Note that yb_hash_code(63) == 46756
+  ASSERT_TRUE(strings::ByteStringFromAscii("47B6A400210021", &lower_bound));
+  actual_result = ASSERT_RESULT(DockeyBoundsForHashPartitionedTablesHelper(
+      db_oid, table_oid, lower_bound, false /* is_inclusive */, true /* is_lower */));
+  expected_result = {63, 1632, 1723};
+  ASSERT_EQ(expected_result, actual_result);
 }
 
 } // namespace pggate
