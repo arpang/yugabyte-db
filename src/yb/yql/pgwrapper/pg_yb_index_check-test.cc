@@ -99,7 +99,6 @@ TEST_F(PgYbIndexCheckTest, YbIndexCheckRestartReadRequired) {
   });
 
   latch.Wait();
-  SleepFor(MonoDelta::FromSeconds(1));
   ASSERT_OK((conn.Fetch("SELECT yb_index_check('abcd_b_c_d_idx'::regclass)")));
 }
 
