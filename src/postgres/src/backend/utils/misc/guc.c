@@ -3534,18 +3534,6 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
-	{
-		{"yb_test_index_check_prevent_retry", PGC_SUSET, DEVELOPER_OPTIONS,
-			gettext_noop("Used in yb_index_check() tests to prevent transparent "
-						 "retries to make 'Restart read required' error more likely."),
-			NULL,
-			GUC_NOT_IN_SAMPLE
-		},
-		&yb_test_index_check_prevent_retry,
-		false,
-		NULL, NULL, NULL
-	},
-
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL

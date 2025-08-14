@@ -81,7 +81,7 @@ TEST_F(PgYbIndexCheckTest, YbIndexCheckSnapshotTooOld) {
 TEST_F(PgYbIndexCheckTest, YbIndexCheckRestartReadRequired) {
   auto conn = ASSERT_RESULT(Connect());
   int rowcount = 1000;
-  ASSERT_OK(conn.Execute("SET yb_test_index_check_prevent_retry=true"));
+  ASSERT_OK(conn.Execute("SET yb_max_query_layer_retries=0"));
   ASSERT_OK(conn.Execute(
       "CREATE TABLE abcd(a int primary key, b int, c int, d int) SPLIT INTO 1 TABLETS;"));
   ASSERT_OK(conn.Execute("CREATE INDEX abcd_b_c_d_idx ON abcd (b ASC) INCLUDE (c, d)"));
