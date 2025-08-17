@@ -146,8 +146,10 @@ yb_index_check(PG_FUNCTION_ARGS)
 	bool		is_txn_block = IsTransactionBlock();
 
 	if (is_txn_block)
-		elog(WARNING, "yb_index_check() is prone to 'Restart read required' "
-			 "erorrs when executed from within a transaction block.");
+		ereport(NOTICE,
+				(errmsg("yb_index_check() is prone to 'Restart read required' "
+						"erorrs when executed from within a transaction "
+						"block.")));
 
 	if (!is_txn_block)
 	{
