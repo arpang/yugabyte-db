@@ -79,7 +79,6 @@ TAG_FLAG(redis_allow_reads_from_followers, evolving);
 namespace yb {
 namespace client {
 
-using dockv::PartitionSchema;
 using std::shared_ptr;
 using std::string;
 using std::unique_ptr;
@@ -132,7 +131,7 @@ Result<bool> BoundsDerivedFromHashCode(Req* request) {
 }
 
 void OverrideBoundWithHashCode(uint16_t hash_code, bool is_lower, LWPgsqlReadRequestPB* request) {
-  auto bound = PartitionSchema::EncodeMultiColumnHashValue(hash_code);
+  auto bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(hash_code);
   if (is_lower) {
     request->mutable_lower_bound()->dup_key(bound);
   } else {
@@ -141,7 +140,7 @@ void OverrideBoundWithHashCode(uint16_t hash_code, bool is_lower, LWPgsqlReadReq
 }
 
 void OverrideBoundWithHashCode(uint16_t hash_code, bool is_lower, PgsqlReadRequestPB* request) {
-  auto bound = PartitionSchema::EncodeMultiColumnHashValue(hash_code);
+  auto bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(hash_code);
   if (is_lower) {
     request->mutable_lower_bound()->set_key(bound);
   } else {
@@ -165,9 +164,9 @@ void OverrideBoundsWithHashCode(Req* request) {
 template <typename Req>
 bool HasLowerUpperBoundsAsHashCodes(Req* request) {
   return (request->has_lower_bound() &&
-          PartitionSchema::IsValidHashPartitionKeyBound(request->lower_bound().key())) ||
+          dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->lower_bound().key())) ||
          (request->has_upper_bound() &&
-          PartitionSchema::IsValidHashPartitionKeyBound(request->upper_bound().key()));
+          dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->upper_bound().key()));
 }
 
 template <typename Req>
@@ -290,8 +289,8 @@ Status InitHashPartitionKey(
 
   } else if (HasLowerUpperBoundsAsHashCodes(request)) {
     // lower_bound / upper_bound are set (to hash codes).
-    DCHECK(PartitionSchema::IsValidHashPartitionKeyBound(request->lower_bound().key()));
-    DCHECK(PartitionSchema::IsValidHashPartitionKeyBound(request->upper_bound().key()));
+    DCHECK(dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->lower_bound().key()));
+    DCHECK(dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->upper_bound().key()));
 
     SetPartitionKey(request->lower_bound().key(), request);
 
@@ -325,7 +324,7 @@ Status InitHashPartitionKey(
       request->set_max_hash_code(upper_bound_hash_code);
     }
 
-    auto partition_key = PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
+    auto partition_key = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
     SetPartitionKey(std::move(partition_key), request);
 
     if (!yb_allow_dockey_bounds) {
