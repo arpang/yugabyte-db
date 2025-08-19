@@ -288,7 +288,10 @@ Status InitHashPartitionKey(
     }
 
   } else if (HasLowerUpperBoundsAsHashCodes(request)) {
-    // lower_bound / upper_bound are set (to hash codes).
+    // lower_bound / upper_bound are set (to hash codes). This is possible during upgrade when the
+    // AutoFlag yb_allow_dockey_bounds is false. In such a senario, InitHashPartitionKey overrides
+    // these fields with hash codes to maintain backward compatibility (see the following 'else if'
+    // block).
     DCHECK(dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->lower_bound().key()));
     DCHECK(dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->upper_bound().key()));
 
@@ -329,10 +332,11 @@ Status InitHashPartitionKey(
 
     if (!yb_allow_dockey_bounds) {
       // With GHI#28219, lower_bound and upper_bound fields are dockeys for hash partitioned tables.
-      // Since the auto flag is not true, it is possible that some tservers may not yet have this
-      // change.
+      // Since the AutoFlag is not true, it is possible that some tservers may not yet have this
+      // change yet.
 
-      // Check if bounds are such that docdb may not be able to honor them. If so, throw an error.
+      // First, check if bounds are such that docdb may not be able to honor them. If so, throw an
+      // error.
       if (!VERIFY_RESULT(BoundsDerivedFromHashCode(request))) {
         return STATUS(
             RuntimeError,
@@ -341,7 +345,7 @@ Status InitHashPartitionKey(
             "Please re-try after the upgrade is complete and the AutoFlag is set to true.");
       }
 
-      // Set these fields to encoded hash codes just as before.
+      // Now, override these fields to encoded hash codes to maintain backward compatibility.
       OverrideBoundsWithHashCode(request);
     }
 
