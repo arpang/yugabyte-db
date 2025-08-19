@@ -846,7 +846,7 @@ Status PgDmlRead::BindRange(
 }
 
 Status PgDmlRead::BindBounds(
-    const Slice& lower_bound, bool lower_bound_inclusive, const Slice& upper_bound,
+    const Slice lower_bound, bool lower_bound_inclusive, const Slice upper_bound,
     bool upper_bound_inclusive) {
   if (auto* secondary_index = SecondaryIndexQuery(); secondary_index) {
     return secondary_index->BindBounds(

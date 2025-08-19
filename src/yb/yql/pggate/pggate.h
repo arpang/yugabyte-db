@@ -489,9 +489,9 @@ class PgApiImpl {
                       bool upper_bound_inclusive);
 
   Status DmlBindBounds(PgStatement* handle,
-                       const Slice& lower_bound,
+                       const Slice lower_bound,
                        bool lower_bound_inclusive,
-                       const Slice& upper_bound,
+                       const Slice upper_bound,
                        bool upper_bound_inclusive);
 
   Status DmlAddRowUpperBound(YbcPgStatement handle,

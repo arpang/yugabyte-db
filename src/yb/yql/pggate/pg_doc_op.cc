@@ -1772,9 +1772,9 @@ PgDocOp::SharedPtr MakeDocReadOpWithData(
 }
 
 bool ApplyPartitionBounds(LWPgsqlReadRequestPB& req,
-                          const Slice& partition_lower_bound,
+                          const Slice partition_lower_bound,
                           bool lower_bound_is_inclusive,
-                          const Slice& partition_upper_bound,
+                          const Slice partition_upper_bound,
                           bool upper_bound_is_inclusive,
                           const Schema& schema) {
   Slice lower_bound, upper_bound;
@@ -1815,10 +1815,10 @@ bool ApplyPartitionBounds(LWPgsqlReadRequestPB& req,
 }
 
 bool ApplyBounds(LWPgsqlReadRequestPB& req,
-                 const Slice& lower_bound,
+                 const Slice lower_bound,
                  bool lower_bound_is_inclusive,
-                  const Slice& upper_bound,
-                  bool upper_bound_is_inclusive) {
+                 const Slice upper_bound,
+                 bool upper_bound_is_inclusive) {
   ApplyLowerBound(req, lower_bound, lower_bound_is_inclusive);
   ApplyUpperBound(req, upper_bound, upper_bound_is_inclusive);
   return CheckScanBoundary(req);
@@ -1847,7 +1847,7 @@ dockv::DocKey HashCodeToDocKeyBound(
   return dockv::DocKey(schema, hash, hash_range_components, hash_range_components);
 }
 
-void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice& lower_bound, bool is_inclusive) {
+void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice lower_bound, bool is_inclusive) {
   if (lower_bound.empty()) {
     return;
   }
@@ -1875,7 +1875,7 @@ void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice& lower_bound, bool i
   return;
 }
 
-void ApplyUpperBound(LWPgsqlReadRequestPB& req, const Slice& upper_bound, bool is_inclusive) {
+void ApplyUpperBound(LWPgsqlReadRequestPB& req, const Slice upper_bound, bool is_inclusive) {
   if (upper_bound.empty()) {
     return;
   }

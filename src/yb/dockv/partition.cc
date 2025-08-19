@@ -495,8 +495,8 @@ Result<std::string> PartitionSchema::GetEncodedPartitionKey(
   return GetEncodedHashPartitionKey(partition_key);
 }
 
-Status PartitionSchema::IsValidHashPartitionRange(const Slice& partition_key_start,
-                                                  const Slice& partition_key_end) {
+Status PartitionSchema::IsValidHashPartitionRange(const Slice partition_key_start,
+                                                  const Slice partition_key_end) {
   if (!IsValidHashPartitionKeyBound(partition_key_start) ||
       !IsValidHashPartitionKeyBound(partition_key_end)) {
     return STATUS(InvalidArgument, "Passed in partition keys are not hash partitions.");
@@ -511,7 +511,7 @@ Status PartitionSchema::IsValidHashPartitionRange(const Slice& partition_key_sta
   return Status::OK();
 }
 
-bool PartitionSchema::IsValidHashPartitionKeyBound(const Slice& partition_key) {
+bool PartitionSchema::IsValidHashPartitionKeyBound(const Slice partition_key) {
   return partition_key.empty() || partition_key.size() == kPartitionKeySize;
 }
 

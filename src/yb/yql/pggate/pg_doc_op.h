@@ -903,18 +903,18 @@ PgDocOp::SharedPtr MakeDocReadOpWithData(
 // These values are set by  PgGate to optimize query to narrow the scanning range of a query.
 // Returns false if new boundary makes request range empty.
 bool ApplyPartitionBounds(LWPgsqlReadRequestPB& req,
-                          const Slice& partition_lower_bound,
+                          const Slice partition_lower_bound,
                           bool lower_bound_is_inclusive,
-                          const Slice& partition_upper_bound,
+                          const Slice partition_upper_bound,
                           bool upper_bound_is_inclusive,
                           const Schema& schema);
 bool ApplyBounds(LWPgsqlReadRequestPB& req,
-                 const Slice& lower_bound,
+                 const Slice lower_bound,
                  bool lower_bound_is_inclusive,
-                 const Slice& upper_bound,
+                 const Slice upper_bound,
                  bool upper_bound_is_inclusive);
-void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice& lower_bound, bool is_inclusive);
-void ApplyUpperBound(LWPgsqlReadRequestPB& req, const Slice& upper_bound, bool is_inclusive);
+void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice lower_bound, bool is_inclusive);
+void ApplyUpperBound(LWPgsqlReadRequestPB& req, const Slice upper_bound, bool is_inclusive);
 // Check if boundaries set on request define valid (not empty) range
 bool CheckScanBoundary(LWPgsqlReadRequestPB& req);
 dockv::DocKey HashCodeToDocKeyBound(

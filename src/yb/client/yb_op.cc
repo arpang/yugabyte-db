@@ -103,7 +103,7 @@ void SetPartitionKey(const Slice& value, PgsqlWriteRequestPB* request) {
   request->set_partition_key(value.cdata(), value.size());
 }
 
-Result<bool> BoundDerivedFromHashCode(const Slice& bound, bool is_lower) {
+Result<bool> BoundDerivedFromHashCode(const Slice bound, bool is_lower) {
   dockv::DocKey dockey;
   RETURN_NOT_OK(
       dockey.DecodeFrom(bound, dockv::DocKeyPart::kWholeDocKey, dockv::AllowSpecial::kTrue));
