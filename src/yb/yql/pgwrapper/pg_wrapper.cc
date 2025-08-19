@@ -293,9 +293,9 @@ DEFINE_RUNTIME_AUTO_PG_FLAG(
     "Allow using separate requests for block-based sampling stages");
 
 DEFINE_RUNTIME_AUTO_PG_FLAG(
-    bool, yb_lower_upper_bounds_are_dockeys, kLocalVolatile, false, true,
-    "If true, lower_bound/upper_bound fields of PgsqlReadRequestPB are dockeys; encoded hash codes "
-    "otherwise. Applicable only for hash partitioned tables");
+    bool, yb_allow_dockey_bounds, kLocalVolatile, false, true,
+    "If true, allow lower_bound/upper_bound fields of PgsqlReadRequestPB to be DocKeys for "
+    "hash-sharded tables.");
 
 DEFINE_RUNTIME_PG_FLAG(
     string, yb_default_replica_identity, "CHANGE",

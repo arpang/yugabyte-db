@@ -328,7 +328,7 @@ Status InitHashPartitionKey(
     auto partition_key = PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
     SetPartitionKey(std::move(partition_key), request);
 
-    if (!yb_lower_upper_bounds_are_dockeys) {
+    if (!yb_allow_dockey_bounds) {
       // With GHI#28219, lower_bound and upper_bound fields are dockeys for hash partitioned tables.
       // Since the auto flag is not true, it is possible that some tservers may not yet have this
       // change.
@@ -337,10 +337,9 @@ Status InitHashPartitionKey(
       if (!VERIFY_RESULT(BoundsDerivedFromHashCode(request))) {
         return STATUS(
             RuntimeError,
-            "This feature is not supported because the AutoFlag "
-            "'yb_lower_upper_bounds_are_dockeys' is false. This typically happends during an "
-            "upgrade to the version that introduced this flag. Please re-try after the upgrade is "
-            "complete and the AutoFlag is set to true.");
+            "This feature is not supported because the AutoFlag 'yb_allow_dockey_bounds' is false. "
+            "This typically happends during an upgrade to the version that introduced this flag. "
+            "Please re-try after the upgrade is complete and the AutoFlag is set to true.");
       }
 
       // Set these fields to encoded hash codes just as before.

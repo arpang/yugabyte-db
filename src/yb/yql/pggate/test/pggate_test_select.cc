@@ -485,7 +485,7 @@ Result<std::unordered_set<int>> DockeyBoundsForHashPartitionedTablesHelper(
 
   auto status = Status(YBCPgExecSelect(pg_stmt, nullptr /* exec_params */), AddRef::kFalse);
 
-  // This can fail (expected) if the AutoFlag yb_lower_upper_bounds_are_dockeys is false.
+  // This can fail (expected) if the AutoFlag yb_allow_dockey_bounds is false.
   if (!status.ok()) {
     YBCPgAbortPlainTransaction();
     return status;
@@ -659,15 +659,14 @@ TEST_F_EX(PggateTestSelect, DockeyBoundsForHashPartitionedTables, PggateTestSele
       db_oid, table_oid, upper_bound, false /* is_inclusive */, false /* is_lower */));
   ASSERT_EQ(expected_result, actual_result);
 
-  // Test the case when PG AutoFalg yb_lower_upper_bounds_are_dockeys is false.
-  yb_lower_upper_bounds_are_dockeys = false;
+  // Test the case when PG AutoFalg yb_allow_dockey_bounds is false.
+  yb_allow_dockey_bounds = false;
   auto result = DockeyBoundsForHashPartitionedTablesHelper(
       db_oid, table_oid, upper_bound, false /* is_inclusive */, false /* is_lower */);
   ASSERT_NOK(result);
   ASSERT_TRUE(HasSubstring(
       result.status().ToString(),
-      "This feature is not supported because the AutoFlag 'yb_lower_upper_bounds_are_dockeys' is "
-      "false"));
+      "This feature is not supported because the AutoFlag 'yb_allow_dockey_bounds' is false"));
 
   // non-inclusive upper bound = {46756, {KeyEntryValue(kHighest)}, {KeyEntryValue(kHighest)}
   // Note that yb_hash_code(63) == 46756
