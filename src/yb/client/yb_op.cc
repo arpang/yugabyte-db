@@ -118,18 +118,14 @@ Result<bool> BoundDerivedFromHashCode(const Slice bound, bool is_lower) {
 
 template <typename Req>
 Result<bool> BoundsDerivedFromHashCode(Req* request) {
-  if (request->has_lower_bound()) {
-    if (!VERIFY_RESULT(
-            BoundDerivedFromHashCode(request->lower_bound().key(), true /* is_lower */))) {
-      return false;
-    }
+  if (request->has_lower_bound() && !VERIFY_RESULT(BoundDerivedFromHashCode(
+                                        request->lower_bound().key(), /* is_lower  = */ true))) {
+    return false;
   }
 
-  if (request->has_upper_bound()) {
-    if (!VERIFY_RESULT(
-            BoundDerivedFromHashCode(request->upper_bound().key(), false /* is_lower */))) {
-      return false;
-    }
+  if (request->has_upper_bound() && !VERIFY_RESULT(BoundDerivedFromHashCode(
+                                        request->upper_bound().key(), /* is_lower = */ false))) {
+    return false;
   }
 
   return true;
@@ -318,13 +314,13 @@ Status InitHashPartitionKey(
     // lower_bound / upper_bound are set (to dockeys).
 
     if (request->has_lower_bound()) {
-      uint16_t lower_bound_hash_code =
+      const auto lower_bound_hash_code =
           VERIFY_RESULT(dockv::DocKey::DecodeHash(request->lower_bound().key()));
       request->set_hash_code(lower_bound_hash_code);
     }
 
     if (request->has_upper_bound()) {
-      uint16_t upper_bound_hash_code =
+      const auto upper_bound_hash_code =
           VERIFY_RESULT(dockv::DocKey::DecodeHash(request->upper_bound().key()));
       request->set_max_hash_code(upper_bound_hash_code);
     }
