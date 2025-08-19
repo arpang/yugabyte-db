@@ -830,18 +830,14 @@ Status PgDmlRead::BindRange(
     return secondary_index->query().BindRange(
         lower_bound, lower_bound_inclusive, upper_bound, upper_bound_inclusive);
   }
-  // Set lower bound
-  if (lower_bound.empty()) {
-    read_req_->clear_lower_bound();
-  } else {
-    ApplyLowerBound(*read_req_, lower_bound, lower_bound_inclusive);
-  }
-  // Set upper bound
-  if (upper_bound.empty()) {
-    read_req_->clear_upper_bound();
-  } else {
-    ApplyUpperBound(*read_req_, upper_bound, upper_bound_inclusive);
-  }
+  // Override the lower bound
+  read_req_->clear_lower_bound();
+  ApplyLowerBound(*read_req_, lower_bound, lower_bound_inclusive);
+
+  // Override the upper bound
+  read_req_->clear_upper_bound();
+  ApplyUpperBound(*read_req_, upper_bound, upper_bound_inclusive);
+
   return Status::OK();
 }
 
