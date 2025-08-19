@@ -1513,6 +1513,7 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
  * Load previously initiated logical slot and prepare for sending data (via
  * WalSndLoop).
  */
+// entry point
 static void
 StartLogicalReplication(StartReplicationCmd *cmd)
 {
