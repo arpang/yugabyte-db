@@ -1958,7 +1958,6 @@ void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice lower_bound, bool is
   }
   req.mutable_lower_bound()->dup_key(lower_bound);
   req.mutable_lower_bound()->set_is_inclusive(is_inclusive);
-  return;
 }
 
 void ApplyUpperBound(LWPgsqlReadRequestPB& req, const Slice upper_bound, bool is_inclusive) {
@@ -1986,7 +1985,6 @@ void ApplyUpperBound(LWPgsqlReadRequestPB& req, const Slice upper_bound, bool is
   }
   req.mutable_upper_bound()->dup_key(upper_bound);
   req.mutable_upper_bound()->set_is_inclusive(is_inclusive);
-  return;
 }
 
 void OverrideBoundWithHashCode(LWPgsqlReadRequestPB& request, uint16_t hash_code, bool is_lower) {
