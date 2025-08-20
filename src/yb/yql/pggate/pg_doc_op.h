@@ -537,6 +537,8 @@ class PgDocOp : public std::enable_shared_from_this<PgDocOp> {
   // Populate Protobuf requests using the collected information for this DocDB operator.
   virtual Result<bool> DoCreateRequests() = 0;
 
+  virtual Status CompleteRequests();
+
   virtual Status DoPopulateByYbctidOps(const YbctidGenerator& generator, KeepOrder keep_order) = 0;
 
   // Only active operators are kept in the active range [0, active_op_count_)
@@ -609,8 +611,6 @@ class PgDocOp : public std::enable_shared_from_this<PgDocOp> {
   Status ProcessCallResponse(const rpc::CallResponse& response);
 
   virtual Status CompleteProcessResponse() = 0;
-
-  Status CompleteRequests();
 
   // Returns a reference to the in_txn_limit_ht to be used.
   //
@@ -694,6 +694,8 @@ class PgDocReadOp : public PgDocOp {
 
   // Create protobuf requests using template_op_.
   Result<bool> DoCreateRequests() override;
+
+  Status CompleteRequests() override;
 
   // Create operators by partition.
   // - Optimization for statement
@@ -798,6 +800,8 @@ class PgDocReadOp : public PgDocOp {
   // Re-format the request when connecting to older server during rolling upgrade.
   void FormulateRequestForRollingUpgrade(LWPgsqlReadRequestPB *read_req);
 
+  Status ConvertBoundsToHashCodes();
+
   //----------------------------------- Data Members -----------------------------------------------
 
   // Whether or not we are using hash permutation batching for this op.
@@ -900,14 +904,7 @@ class PgDocWriteOp : public PgDocOp {
 PgDocOp::SharedPtr MakeDocReadOpWithData(
     const PgSession::ScopedRefPtr& pg_session, PrefetchedDataHolder data);
 
-// These values are set by  PgGate to optimize query to narrow the scanning range of a query.
-// Returns false if new boundary makes request range empty.
-bool ApplyPartitionBounds(LWPgsqlReadRequestPB& req,
-                          const Slice partition_lower_bound,
-                          bool lower_bound_is_inclusive,
-                          const Slice partition_upper_bound,
-                          bool upper_bound_is_inclusive,
-                          const Schema& schema);
+
 bool ApplyBounds(LWPgsqlReadRequestPB& req,
                  const Slice lower_bound,
                  bool lower_bound_is_inclusive,
@@ -916,7 +913,6 @@ bool ApplyBounds(LWPgsqlReadRequestPB& req,
 void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice lower_bound, bool is_inclusive);
 void ApplyUpperBound(LWPgsqlReadRequestPB& req, const Slice upper_bound, bool is_inclusive);
 // Check if boundaries set on request define valid (not empty) range
-bool CheckScanBoundary(LWPgsqlReadRequestPB& req);
 dockv::DocKey HashCodeToDocKeyBound(
     const Schema& schema, uint16_t hash, bool is_inclusive, bool is_lower);
 

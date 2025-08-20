@@ -84,6 +84,14 @@ using std::unique_ptr;
 using std::vector;
 using std::string;
 
+template <typename Req>
+bool LowerUpperBoundsAreHashCodes(const Req& request) {
+  return (request.has_lower_bound() &&
+          dockv::PartitionSchema::IsValidHashPartitionKeyBound(request.lower_bound().key())) ||
+         (request.has_upper_bound() &&
+          dockv::PartitionSchema::IsValidHashPartitionKeyBound(request.upper_bound().key()));
+}
+
 namespace {
 
 void SetPartitionKey(const Slice& value, LWPgsqlReadRequestPB* request) {
@@ -100,73 +108,6 @@ void SetPartitionKey(const Slice& value, LWPgsqlWriteRequestPB* request) {
 
 void SetPartitionKey(const Slice& value, PgsqlWriteRequestPB* request) {
   request->set_partition_key(value.cdata(), value.size());
-}
-
-Result<bool> BoundDerivedFromHashCode(const Slice bound, bool is_lower) {
-  dockv::DocKey dockey;
-  RETURN_NOT_OK(
-      dockey.DecodeFrom(bound, dockv::DocKeyPart::kWholeDocKey, dockv::AllowSpecial::kTrue));
-  const auto& hashed_components = dockey.hashed_group();
-  const auto& range_components = dockey.range_group();
-
-  auto expected_type = is_lower ? dockv::KeyEntryType::kLowest : dockv::KeyEntryType::kHighest;
-
-  return hashed_components.size() == 1 && hashed_components[0].type() == expected_type &&
-         range_components.size() == 1 && range_components[0].type() == expected_type;
-}
-
-template <typename Req>
-Result<bool> BoundsDerivedFromHashCode(Req* request) {
-  if (request->has_lower_bound() && !VERIFY_RESULT(BoundDerivedFromHashCode(
-                                        request->lower_bound().key(), /* is_lower  = */ true))) {
-    return false;
-  }
-
-  if (request->has_upper_bound() && !VERIFY_RESULT(BoundDerivedFromHashCode(
-                                        request->upper_bound().key(), /* is_lower = */ false))) {
-    return false;
-  }
-
-  return true;
-}
-
-void OverrideBoundWithHashCode(uint16_t hash_code, bool is_lower, LWPgsqlReadRequestPB* request) {
-  auto bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(hash_code);
-  if (is_lower) {
-    request->mutable_lower_bound()->dup_key(bound);
-  } else {
-    request->mutable_upper_bound()->dup_key(bound);
-  }
-}
-
-void OverrideBoundWithHashCode(uint16_t hash_code, bool is_lower, PgsqlReadRequestPB* request) {
-  auto bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(hash_code);
-  if (is_lower) {
-    request->mutable_lower_bound()->set_key(bound);
-  } else {
-    request->mutable_upper_bound()->set_key(bound);
-  }
-}
-
-template <typename Req>
-void OverrideBoundsWithHashCode(Req* request) {
-  if (request->has_hash_code()) {
-    OverrideBoundWithHashCode(request->hash_code(), true /* is_lower */, request);
-    request->mutable_lower_bound()->set_is_inclusive(true);
-  }
-
-  if (request->has_max_hash_code()) {
-    OverrideBoundWithHashCode(request->max_hash_code(), false /* is_lower */, request);
-    request->mutable_upper_bound()->set_is_inclusive(true);
-  }
-}
-
-template <typename Req>
-bool HasLowerUpperBoundsAsHashCodes(Req* request) {
-  return (request->has_lower_bound() &&
-          dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->lower_bound().key())) ||
-         (request->has_upper_bound() &&
-          dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->upper_bound().key()));
 }
 
 template <typename Req>
@@ -287,11 +228,11 @@ Status InitHashPartitionKey(
       request->set_max_hash_code(hash_code);
     }
 
-  } else if (HasLowerUpperBoundsAsHashCodes(request)) {
+  } else if (LowerUpperBoundsAreHashCodes(*request)) {
     // lower_bound / upper_bound are set (to hash codes). This is possible during upgrade when the
-    // AutoFlag yb_allow_dockey_bounds is false. In such a senario, InitHashPartitionKey overrides
-    // these fields with hash codes to maintain backward compatibility (see the following 'else if'
-    // block).
+    // AutoFlag yb_allow_dockey_bounds is false. In such a senario,
+    // PgDocReadOp::ConvertBoundsToHashCodes() overrides these fields with hash codes to maintain
+    // backward compatibility.
     DCHECK(dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->lower_bound().key()));
     DCHECK(dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->upper_bound().key()));
 
@@ -329,26 +270,6 @@ Status InitHashPartitionKey(
 
     auto partition_key = dockv::PartitionSchema::EncodeMultiColumnHashValue(request->hash_code());
     SetPartitionKey(std::move(partition_key), request);
-
-    if (!yb_allow_dockey_bounds) {
-      // With GHI#28219, lower_bound and upper_bound fields are dockeys for hash partitioned tables.
-      // Since the AutoFlag is not true, it is possible that some tservers may not yet have this
-      // change yet.
-
-      // First, check if bounds are such that docdb may not be able to honor them. If so, throw an
-      // error.
-      if (!VERIFY_RESULT(BoundsDerivedFromHashCode(request))) {
-        return STATUS(
-            RuntimeError,
-            "This feature is not supported because the AutoFlag 'yb_allow_dockey_bounds' is false. "
-            "This typically happends during an upgrade to the version that introduced this flag. "
-            "Please re-try after the upgrade is complete and the AutoFlag is set to true.");
-      }
-
-      // Now, override these fields to encoded hash codes to maintain backward compatibility.
-      OverrideBoundsWithHashCode(request);
-    }
-
   } else {
     // Full scan. Default to empty key.
     request->clear_partition_key();
