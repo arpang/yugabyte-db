@@ -1748,7 +1748,7 @@ Status PgDocReadOp::CompleteRequests() {
   if (!yb_allow_dockey_bounds) {
     // With GHI#28219, lower_bound and upper_bound fields are dockeys for hash partitioned tables.
     // Since the AutoFlag is false, it is possible that some tservers may not yet have this
-    // change yet. So fallback to the older protocol where these fields are encoded hash codes to
+    // change yet. So fallback to the older protocol (where these fields are encoded hash codes) to
     // maintain backward compatibility.
     RETURN_NOT_OK(ConvertBoundsToHashCodes());
   }
@@ -1760,16 +1760,18 @@ Status PgDocReadOp::ConvertBoundsToHashCodes() {
 
   auto& request = read_op_->read_request();
 
+  // If the bounds are empty, there is nothing to do.
   if (!request.has_lower_bound() && !request.has_upper_bound()) {
     return Status::OK();
   }
 
+  // If the bounds are already hash codes, there is nothing to do.
   if (client::LowerUpperBoundsAreHashCodes(request)) {
     return Status::OK();
   }
 
   // We can only convert dockey bounds to hash codes if the bounds were derived from hash codes
-  // using HashCodeToDocKeyBound().
+  // using HashCodeToDocKeyBound(). If that's not the case, throw a feature not supported error.
   if (!VERIFY_RESULT(BoundsDerivedFromHashCode(request))) {
     return STATUS(
         RuntimeError,
