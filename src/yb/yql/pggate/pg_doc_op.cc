@@ -54,7 +54,7 @@ namespace yb::pggate {
 bool ApplyPartitionBounds(
     LWPgsqlReadRequestPB& req, const Slice partition_lower_bound, bool lower_bound_is_inclusive,
     const Slice partition_upper_bound, bool upper_bound_is_inclusive, const Schema& schema);
-bool CheckScanBoundary(LWPgsqlReadRequestPB& req);
+bool CheckScanBoundary(const LWPgsqlReadRequestPB& req);
 // Checks if the lower_bound/upper_bounds are derived from hash codes using HashCodeToDocKeyBound().
 Result<bool> BoundsDerivedFromHashCode(const LWPgsqlReadRequestPB& request);
 Result<bool> BoundDerivedFromHashCode(const Slice bound, bool is_lower);
@@ -1997,7 +1997,7 @@ void OverrideBoundWithHashCode(LWPgsqlReadRequestPB& request, uint16_t hash_code
   request.mutable_lower_bound()->set_is_inclusive(true);
 }
 
-bool CheckScanBoundary(LWPgsqlReadRequestPB& req) {
+bool CheckScanBoundary(const LWPgsqlReadRequestPB& req) {
   if (req.has_lower_bound() && req.has_upper_bound() &&
       ((req.lower_bound().key() > req.upper_bound().key()) ||
        (req.lower_bound().key() == req.upper_bound().key() &&
