@@ -67,7 +67,6 @@
 #include "yb/util/flags.h"
 #include "yb/util/result.h"
 #include "yb/util/status_format.h"
-#include "yb/yql/pggate/util/ybc_guc.h"
 
 using namespace std::literals;
 

@@ -955,12 +955,14 @@ Status PgDocReadOp::DoPopulateByYbctidOps(const YbctidGenerator& generator, Keep
     // Check bounds, if set.
     if (read_req.has_lower_bound()) {
       const auto& lower_bound = read_req.lower_bound();
+      DCHECK(!dockv::PartitionSchema::IsValidHashPartitionKeyBound(lower_bound.key()));
       if (lower_bound.is_inclusive() ? ybctid < lower_bound.key() : ybctid <= lower_bound.key()) {
         continue;
       }
     }
     if (read_req.has_upper_bound()) {
       const auto& upper_bound = read_req.upper_bound();
+      DCHECK(!dockv::PartitionSchema::IsValidHashPartitionKeyBound(upper_bound.key()));
       if (upper_bound.is_inclusive() ? ybctid > upper_bound.key() : ybctid >= upper_bound.key()) {
         continue;
       }
@@ -1722,9 +1724,9 @@ Result<bool> PgDocReadOp::SetLowerUpperBound(LWPgsqlReadRequestPB* request, size
       : default_upper_bound;
   return ApplyPartitionBounds(*request,
                               partition_keys[partition],
-                              /* lower_bound_is_inclusive */ true,
+                              /* lower_bound_is_inclusive =*/true,
                               upper_bound,
-                              /* upper_bound_is_inclusive */ false,
+                              /* upper_bound_is_inclusive =*/false,
                               table_->schema());
 }
 
@@ -1797,7 +1799,7 @@ bool ApplyPartitionBounds(LWPgsqlReadRequestPB& req,
     if (hash_partitioned) {
       uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_lower_bound);
       const auto& lower_bound_dockey =
-          HashCodeToDocKeyBound(schema, hash, lower_bound_is_inclusive, true /* is_lower */);
+          HashCodeToDocKeyBound(schema, hash, lower_bound_is_inclusive, /* is_lower =*/true);
       lower_key_bytes = lower_bound_dockey.Encode();
       lower_bound = lower_key_bytes.AsSlice();
       lower_bound_is_inclusive = false;
@@ -1811,7 +1813,7 @@ bool ApplyPartitionBounds(LWPgsqlReadRequestPB& req,
     if (hash_partitioned) {
       uint16_t hash = dockv::PartitionSchema::DecodeMultiColumnHashValue(partition_upper_bound);
       const auto& upper_bound_dockey =
-          HashCodeToDocKeyBound(schema, hash, upper_bound_is_inclusive, false /* is_lower */);
+          HashCodeToDocKeyBound(schema, hash, upper_bound_is_inclusive, /* is_lower =*/false);
       upper_key_bytes = upper_bound_dockey.Encode();
       upper_bound = upper_key_bytes.AsSlice();
       upper_bound_is_inclusive = false;

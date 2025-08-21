@@ -82,6 +82,7 @@ class PgsqlOp {
   std::string ToString() const;
 
   virtual Status InitPartitionKey(const PgTableDesc& table) = 0;
+
   virtual Status ConvertBoundsToHashCodes() = 0;
 
  private:
@@ -171,7 +172,7 @@ class PgsqlWriteOp : public PgsqlOp {
  private:
   Status InitPartitionKey(const PgTableDesc& table) override;
   Status ConvertBoundsToHashCodes() override {
-    LOG(FATAL) << "Not applicable to write ops";
+    LOG(DFATAL) << "Not applicable to write ops";
     return Status::OK();
   }
 

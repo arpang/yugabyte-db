@@ -797,6 +797,7 @@ class PgDocReadOp : public PgDocOp {
 
   // Re-format the request when connecting to older server during rolling upgrade.
   void FormulateRequestForRollingUpgrade(LWPgsqlReadRequestPB *read_req);
+
   //----------------------------------- Data Members -----------------------------------------------
 
   // Whether or not we are using hash permutation batching for this op.

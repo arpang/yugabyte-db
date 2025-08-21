@@ -237,7 +237,8 @@ Result<bool> BoundDerivedFromHashCode(const Slice bound, bool is_lower) {
   const auto& hashed_components = dockey.hashed_group();
   const auto& range_components = dockey.range_group();
 
-  auto expected_type = is_lower ? dockv::KeyEntryType::kLowest : dockv::KeyEntryType::kHighest;
+  const auto expected_type =
+      is_lower ? dockv::KeyEntryType::kLowest : dockv::KeyEntryType::kHighest;
 
   return hashed_components.size() == 1 && hashed_components[0].type() == expected_type &&
          range_components.size() == 1 && range_components[0].type() == expected_type;
