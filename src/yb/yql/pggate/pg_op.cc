@@ -199,13 +199,14 @@ Result<bool> PgsqlReadOp::BoundsDerivedFromHashCode() {
 }
 
 void PgsqlReadOp::OverrideBoundWithHashCode(uint16_t hash_code, bool is_lower) {
-  auto bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(hash_code);
+  const auto& bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(hash_code);
   if (is_lower) {
     read_request_.mutable_lower_bound()->dup_key(bound);
+    read_request_.mutable_lower_bound()->set_is_inclusive(true);
   } else {
     read_request_.mutable_upper_bound()->dup_key(bound);
+    read_request_.mutable_upper_bound()->set_is_inclusive(true);
   }
-  read_request_.mutable_lower_bound()->set_is_inclusive(true);
 }
 
 PgsqlWriteOp::PgsqlWriteOp(ThreadSafeArena* arena, bool need_transaction, bool is_region_local)
