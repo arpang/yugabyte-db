@@ -155,7 +155,7 @@ Status PgsqlReadOp::ConvertBoundsToHashCodes() {
   }
 
   // If the bounds are already hash codes, there is nothing to do.
-  if (client::LowerUpperBoundsAreHashCodes(read_request_)) {
+  if (client::AreBoundsHashCodes(read_request_)) {
     return Status::OK();
   }
 

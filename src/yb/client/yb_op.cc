@@ -91,6 +91,10 @@ bool LowerUpperBoundsAreHashCodes(const Req& request) {
           dockv::PartitionSchema::IsValidHashPartitionKeyBound(request.upper_bound().key()));
 }
 
+bool AreBoundsHashCodes(const LWPgsqlReadRequestPB& request) {
+  return LowerUpperBoundsAreHashCodes(request);
+}
+
 namespace {
 
 void SetPartitionKey(const Slice& value, LWPgsqlReadRequestPB* request) {
