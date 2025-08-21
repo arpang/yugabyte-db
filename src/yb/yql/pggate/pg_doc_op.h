@@ -908,7 +908,6 @@ bool ApplyBounds(LWPgsqlReadRequestPB& req,
                  bool upper_bound_is_inclusive);
 void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice lower_bound, bool is_inclusive);
 void ApplyUpperBound(LWPgsqlReadRequestPB& req, const Slice upper_bound, bool is_inclusive);
-// Check if boundaries set on request define valid (not empty) range
 dockv::DocKey HashCodeToDocKeyBound(
     const Schema& schema, uint16_t hash, bool is_inclusive, bool is_lower);
 

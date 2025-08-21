@@ -54,6 +54,7 @@ namespace yb::pggate {
 bool ApplyPartitionBounds(
     LWPgsqlReadRequestPB& req, const Slice partition_lower_bound, bool lower_bound_is_inclusive,
     const Slice partition_upper_bound, bool upper_bound_is_inclusive, const Schema& schema);
+// Check if boundaries set on request define valid (not empty) range.
 bool CheckScanBoundary(const LWPgsqlReadRequestPB& req);
 namespace {
 
@@ -778,7 +779,7 @@ Status PgDocOp::CompleteRequests() {
       // partitioned tables. Since the AutoFlag is false, it is possible that some tservers may not
       // yet have this change yet. So fallback to the older protocol (where these fields are encoded
       // hash codes) to maintain backward compatibility.
-      RETURN_NOT_OK(op->ConvertBoundsToHashCodes());
+      RETURN_NOT_OK(op->ConvertBoundsToHashCode());
     }
     RETURN_NOT_OK(op->InitPartitionKey(*table_));
   }
@@ -1502,9 +1503,9 @@ Result<bool> PgDocReadOp::SetScanPartitionBoundary() {
   }
   return ApplyPartitionBounds(read_op_->read_request(),
                               *partition_key,
-                              true /* lower_bound_is_inclusive */,
+                              /* lower_bound_is_inclusive =*/true,
                               upper_bound,
-                              false /* upper_bound_is_inclusive */,
+                              /* upper_bound_is_inclusive =*/false,
                               table_->schema());
 }
 
@@ -1848,7 +1849,7 @@ dockv::DocKey HashCodeToDocKeyBound(
     }
   }
 
-  // Use static vectors to avoid repeated construction
+  // Use static vectors to avoid repeated construction.
   static const dockv::KeyEntryValues kLowestVector{
       dockv::KeyEntryValue(dockv::KeyEntryType::kLowest)};
   static const dockv::KeyEntryValues kHighestVector{

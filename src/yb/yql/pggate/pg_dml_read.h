@@ -92,7 +92,7 @@ class PgDmlRead : public PgDml {
   Status BindRange(
       Slice lower_bound, bool lower_bound_inclusive, Slice upper_bound, bool upper_bound_inclusive);
 
-  Status BindBounds(
+  void BindBounds(
       const Slice lower_bound, bool lower_bound_inclusive, const Slice upper_bound,
       bool upper_bound_inclusive);
 

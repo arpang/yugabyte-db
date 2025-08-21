@@ -36,6 +36,7 @@
 namespace yb {
 namespace pggate {
 
+// Check if bound is derived from hash code using HashCodeToDocKeyBound().
 Result<bool> BoundDerivedFromHashCode(const Slice bound, bool is_lower);
 
 Result<bool> PrepareNextRequest(const PgTableDesc& table, PgsqlReadOp* read_op) {
@@ -146,7 +147,7 @@ std::string PgsqlReadOp::RequestToString() const {
   return read_request_.ShortDebugString();
 }
 
-Status PgsqlReadOp::ConvertBoundsToHashCodes() {
+Status PgsqlReadOp::ConvertBoundsToHashCode() {
   DCHECK(!yb_allow_dockey_bounds);
 
   // If the bounds are empty, there is nothing to do.

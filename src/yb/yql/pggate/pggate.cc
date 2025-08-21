@@ -1352,8 +1352,9 @@ Status PgApiImpl::DmlBindRange(
 Status PgApiImpl::DmlBindBounds(
     PgStatement* handle, const Slice lower_bound, bool lower_bound_inclusive,
     const Slice upper_bound, bool upper_bound_inclusive) {
-  return VERIFY_RESULT_REF(GetStatementAs<PgDmlRead>(handle)).BindBounds(
-      lower_bound, lower_bound_inclusive, upper_bound, upper_bound_inclusive);
+  VERIFY_RESULT_REF(GetStatementAs<PgDmlRead>(handle))
+      .BindBounds(lower_bound, lower_bound_inclusive, upper_bound, upper_bound_inclusive);
+  return Status::OK();
 }
 
 Status PgApiImpl::DmlBindTable(PgStatement* handle) {

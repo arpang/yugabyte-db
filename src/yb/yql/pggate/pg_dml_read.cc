@@ -841,7 +841,7 @@ Status PgDmlRead::BindRange(
   return Status::OK();
 }
 
-Status PgDmlRead::BindBounds(
+void PgDmlRead::BindBounds(
     const Slice lower_bound, bool lower_bound_inclusive, const Slice upper_bound,
     bool upper_bound_inclusive) {
   if (auto* secondary_index = SecondaryIndexQuery(); secondary_index) {
@@ -849,7 +849,6 @@ Status PgDmlRead::BindBounds(
         lower_bound, lower_bound_inclusive, upper_bound, upper_bound_inclusive);
   }
   ApplyBounds(*read_req_, lower_bound, lower_bound_inclusive, upper_bound, upper_bound_inclusive);
-  return Status::OK();
 }
 
 void PgDmlRead::UpgradeDocOp(PgDocOp::SharedPtr doc_op) {

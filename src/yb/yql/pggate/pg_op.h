@@ -83,7 +83,7 @@ class PgsqlOp {
 
   virtual Status InitPartitionKey(const PgTableDesc& table) = 0;
 
-  virtual Status ConvertBoundsToHashCodes() = 0;
+  virtual Status ConvertBoundsToHashCode() = 0;
 
  private:
   virtual std::string RequestToString() const = 0;
@@ -125,9 +125,8 @@ class PgsqlReadOp : public PgsqlOp {
 
  private:
   Status InitPartitionKey(const PgTableDesc& table) override;
-  Status ConvertBoundsToHashCodes() override;
-  // Checks if the lower_bound/upper_bounds are derived from hash codes using
-  // HashCodeToDocKeyBound().
+  Status ConvertBoundsToHashCode() override;
+  // Check if lower_bound/upper_bound are derived from hash code using HashCodeToDocKeyBound().
   Result<bool> BoundsDerivedFromHashCode();
   void OverrideBoundWithHashCode(uint16_t hash_code, bool is_lower);
 
@@ -171,7 +170,7 @@ class PgsqlWriteOp : public PgsqlOp {
 
  private:
   Status InitPartitionKey(const PgTableDesc& table) override;
-  Status ConvertBoundsToHashCodes() override {
+  Status ConvertBoundsToHashCode() override {
     LOG(DFATAL) << "Not applicable to write ops";
     return Status::OK();
   }
