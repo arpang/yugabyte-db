@@ -84,16 +84,14 @@ using std::vector;
 using std::string;
 
 template <typename Req>
-bool LowerUpperBoundsAreHashCodes(const Req& request) {
+bool AreBoundsHashCode(const Req& request) {
   return (request.has_lower_bound() &&
           dockv::PartitionSchema::IsValidHashPartitionKeyBound(request.lower_bound().key())) ||
          (request.has_upper_bound() &&
           dockv::PartitionSchema::IsValidHashPartitionKeyBound(request.upper_bound().key()));
 }
 
-bool AreBoundsHashCodes(const LWPgsqlReadRequestPB& request) {
-  return LowerUpperBoundsAreHashCodes(request);
-}
+template bool AreBoundsHashCode(const LWPgsqlReadRequestPB& request);
 
 namespace {
 
@@ -231,7 +229,7 @@ Status InitHashPartitionKey(
       request->set_max_hash_code(hash_code);
     }
 
-  } else if (LowerUpperBoundsAreHashCodes(*request)) {
+  } else if (AreBoundsHashCode(*request)) {
     // lower_bound / upper_bound are set to hash codes. This is possible during upgrade if the
     // AutoFlag yb_allow_dockey_bounds is false to maintain backward compatibility.
     DCHECK(dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->lower_bound().key()));

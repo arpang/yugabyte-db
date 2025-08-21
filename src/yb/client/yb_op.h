@@ -622,6 +622,6 @@ bool IsTolerantToPartitionsChange(const YBOperation& op);
 Result<const PartitionKey&> TEST_FindPartitionKeyByUpperBound(
     const TablePartitionList& partitions, const PgsqlReadRequestPB& request);
 
-bool AreBoundsHashCodes(const LWPgsqlReadRequestPB& request);
+bool AreBoundsHashCode(const LWPgsqlReadRequestPB& request);
 
 }  // namespace yb::client
