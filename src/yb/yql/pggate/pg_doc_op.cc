@@ -55,10 +55,6 @@ bool ApplyPartitionBounds(
     LWPgsqlReadRequestPB& req, const Slice partition_lower_bound, bool lower_bound_is_inclusive,
     const Slice partition_upper_bound, bool upper_bound_is_inclusive, const Schema& schema);
 bool CheckScanBoundary(const LWPgsqlReadRequestPB& req);
-// Checks if the lower_bound/upper_bounds are derived from hash codes using HashCodeToDocKeyBound().
-Result<bool> BoundsDerivedFromHashCode(const LWPgsqlReadRequestPB& request);
-Result<bool> BoundDerivedFromHashCode(const Slice bound, bool is_lower);
-void OverrideBoundWithHashCode(LWPgsqlReadRequestPB& request, uint16_t hash_code, bool is_lower);
 namespace {
 
 struct PgDocReadOpCachedHelper {
@@ -777,6 +773,13 @@ Result<bool> PgDocOp::PopulateByYbctidOps(const YbctidGenerator& generator, Keep
 
 Status PgDocOp::CompleteRequests() {
   for (const auto& op : pgsql_ops_) {
+    if (op->is_read() && table_->num_hash_key_columns() > 0 && !yb_allow_dockey_bounds) {
+      // With GHI#28219, lower_bound and upper_bound fields are dockeys in read requests of hash
+      // partitioned tables. Since the AutoFlag is false, it is possible that some tservers may not
+      // yet have this change yet. So fallback to the older protocol (where these fields are encoded
+      // hash codes) to maintain backward compatibility.
+      RETURN_NOT_OK(op->ConvertBoundsToHashCodes());
+    }
     RETURN_NOT_OK(op->InitPartitionKey(*table_));
   }
   return Status::OK();
@@ -1744,54 +1747,6 @@ void PgDocReadOp::ClonePgsqlOps(size_t op_count) {
   parallelism_level_ = pgsql_ops_.size();
 }
 
-Status PgDocReadOp::CompleteRequests() {
-  if (!yb_allow_dockey_bounds) {
-    // With GHI#28219, lower_bound and upper_bound fields are dockeys for hash partitioned tables.
-    // Since the AutoFlag is false, it is possible that some tservers may not yet have this
-    // change yet. So fallback to the older protocol (where these fields are encoded hash codes) to
-    // maintain backward compatibility.
-    RETURN_NOT_OK(ConvertBoundsToHashCodes());
-  }
-  return PgDocOp::CompleteRequests();
-}
-
-Status PgDocReadOp::ConvertBoundsToHashCodes() {
-  DCHECK(!yb_allow_dockey_bounds);
-
-  auto& request = read_op_->read_request();
-
-  // If the bounds are empty, there is nothing to do.
-  if (!request.has_lower_bound() && !request.has_upper_bound()) {
-    return Status::OK();
-  }
-
-  // If the bounds are already hash codes, there is nothing to do.
-  if (client::LowerUpperBoundsAreHashCodes(request)) {
-    return Status::OK();
-  }
-
-  // We can only convert dockey bounds to hash codes if the bounds were derived from hash codes
-  // using HashCodeToDocKeyBound(). If that's not the case, throw a feature not supported error.
-  if (!VERIFY_RESULT(BoundsDerivedFromHashCode(request))) {
-    return STATUS(
-        RuntimeError,
-        "This feature is not supported because the AutoFlag 'yb_allow_dockey_bounds' is false. "
-        "This typically happends during an upgrade to the version that introduced this flag. "
-        "Please re-try after the upgrade is complete and the AutoFlag is set to true.");
-  }
-
-  if (request.has_lower_bound()) {
-    const auto hash_code = VERIFY_RESULT(dockv::DocKey::DecodeHash(request.lower_bound().key()));
-    OverrideBoundWithHashCode(request, hash_code, /* is_lower = */ true);
-  }
-
-  if (request.has_upper_bound()) {
-    const auto hash_code = VERIFY_RESULT(dockv::DocKey::DecodeHash(request.upper_bound().key()));
-    OverrideBoundWithHashCode(request, hash_code, /* is_lower = */ false);
-  }
-  return Status::OK();
-}
-
 //--------------------------------------------------------------------------------------------------
 
 PgDocWriteOp::PgDocWriteOp(const PgSession::ScopedRefPtr& pg_session,
@@ -1906,33 +1861,6 @@ dockv::DocKey HashCodeToDocKeyBound(
   return dockv::DocKey(schema, hash, hash_range_components, hash_range_components);
 }
 
-Result<bool> BoundDerivedFromHashCode(const Slice bound, bool is_lower) {
-  dockv::DocKey dockey;
-  RETURN_NOT_OK(
-      dockey.DecodeFrom(bound, dockv::DocKeyPart::kWholeDocKey, dockv::AllowSpecial::kTrue));
-  const auto& hashed_components = dockey.hashed_group();
-  const auto& range_components = dockey.range_group();
-
-  auto expected_type = is_lower ? dockv::KeyEntryType::kLowest : dockv::KeyEntryType::kHighest;
-
-  return hashed_components.size() == 1 && hashed_components[0].type() == expected_type &&
-         range_components.size() == 1 && range_components[0].type() == expected_type;
-}
-
-Result<bool> BoundsDerivedFromHashCode(const LWPgsqlReadRequestPB& request) {
-  if (request.has_lower_bound() && !VERIFY_RESULT(BoundDerivedFromHashCode(
-                                       request.lower_bound().key(), /* is_lower  = */ true))) {
-    return false;
-  }
-
-  if (request.has_upper_bound() && !VERIFY_RESULT(BoundDerivedFromHashCode(
-                                       request.upper_bound().key(), /* is_lower = */ false))) {
-    return false;
-  }
-
-  return true;
-}
-
 void ApplyLowerBound(LWPgsqlReadRequestPB& req, const Slice lower_bound, bool is_inclusive) {
   if (lower_bound.empty()) {
     return;
@@ -1985,16 +1913,6 @@ void ApplyUpperBound(LWPgsqlReadRequestPB& req, const Slice upper_bound, bool is
   }
   req.mutable_upper_bound()->dup_key(upper_bound);
   req.mutable_upper_bound()->set_is_inclusive(is_inclusive);
-}
-
-void OverrideBoundWithHashCode(LWPgsqlReadRequestPB& request, uint16_t hash_code, bool is_lower) {
-  auto bound = dockv::PartitionSchema::EncodeMultiColumnHashValue(hash_code);
-  if (is_lower) {
-    request.mutable_lower_bound()->dup_key(bound);
-  } else {
-    request.mutable_upper_bound()->dup_key(bound);
-  }
-  request.mutable_lower_bound()->set_is_inclusive(true);
 }
 
 bool CheckScanBoundary(const LWPgsqlReadRequestPB& req) {

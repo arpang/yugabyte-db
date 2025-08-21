@@ -229,10 +229,8 @@ Status InitHashPartitionKey(
     }
 
   } else if (LowerUpperBoundsAreHashCodes(*request)) {
-    // lower_bound / upper_bound are set (to hash codes). This is possible during upgrade when the
-    // AutoFlag yb_allow_dockey_bounds is false. In such a senario,
-    // PgDocReadOp::ConvertBoundsToHashCodes() overrides these fields with hash codes to maintain
-    // backward compatibility.
+    // lower_bound / upper_bound are set to hash codes. This is possible during upgrade if the
+    // AutoFlag yb_allow_dockey_bounds is false to maintain backward compatibility.
     DCHECK(dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->lower_bound().key()));
     DCHECK(dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->upper_bound().key()));
 
@@ -254,8 +252,7 @@ Status InitHashPartitionKey(
       request->set_max_hash_code(hash);
     }
   } else if (request->has_lower_bound() || request->has_upper_bound()) {
-    // lower_bound / upper_bound are set (to dockeys).
-
+    // lower_bound / upper_bound are set to dockeys.
     if (request->has_lower_bound()) {
       const auto lower_bound_hash_code =
           VERIFY_RESULT(dockv::DocKey::DecodeHash(request->lower_bound().key()));
