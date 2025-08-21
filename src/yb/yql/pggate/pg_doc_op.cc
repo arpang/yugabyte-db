@@ -953,19 +953,15 @@ Status PgDocReadOp::DoPopulateByYbctidOps(const YbctidGenerator& generator, Keep
     auto& read_req = read_op.read_request();
 
     // Check bounds, if set.
-    // We also ensure that the bounds are valid ybctid (before GHI#28219 hash partitioned relations
-    // used hash codes as bounds, which were not comparable to ybctids).
     if (read_req.has_lower_bound()) {
       const auto& lower_bound = read_req.lower_bound();
-      if (!dockv::PartitionSchema::IsValidHashPartitionKeyBound(lower_bound.key()) &&
-          (lower_bound.is_inclusive() ? ybctid < lower_bound.key() : ybctid <= lower_bound.key())) {
+      if (lower_bound.is_inclusive() ? ybctid < lower_bound.key() : ybctid <= lower_bound.key()) {
         continue;
       }
     }
     if (read_req.has_upper_bound()) {
       const auto& upper_bound = read_req.upper_bound();
-      if (!dockv::PartitionSchema::IsValidHashPartitionKeyBound(upper_bound.key()) &&
-          (upper_bound.is_inclusive() ? ybctid > upper_bound.key() : ybctid >= upper_bound.key())) {
+      if (upper_bound.is_inclusive() ? ybctid > upper_bound.key() : ybctid >= upper_bound.key()) {
         continue;
       }
     }
