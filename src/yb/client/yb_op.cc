@@ -67,6 +67,7 @@
 #include "yb/util/flags.h"
 #include "yb/util/result.h"
 #include "yb/util/status_format.h"
+#include "yb/yql/pggate/util/ybc_guc.h"
 
 using namespace std::literals;
 
@@ -270,6 +271,12 @@ Status InitHashPartitionKey(
   } else {
     // Full scan. Default to empty key.
     request->clear_partition_key();
+  }
+
+  // Validate that the bounds are hash codes when the AutoFlag yb_allow_dockey_bounds is false and
+  // vice-versa.
+  if (request->has_lower_bound() || request->has_upper_bound()) {
+    DCHECK(AreBoundsHashCodeImpl(*request) ^ yb_allow_dockey_bounds);
   }
 
   return Status::OK();
