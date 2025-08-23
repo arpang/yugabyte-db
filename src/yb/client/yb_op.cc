@@ -86,14 +86,6 @@ using std::string;
 
 namespace {
 
-template <typename Req>
-bool AreBoundsHashCodeImpl(const Req& request) {
-  return (request.has_lower_bound() &&
-          dockv::PartitionSchema::IsValidHashPartitionKeyBound(request.lower_bound().key())) ||
-         (request.has_upper_bound() &&
-          dockv::PartitionSchema::IsValidHashPartitionKeyBound(request.upper_bound().key()));
-}
-
 void SetPartitionKey(const Slice& value, LWPgsqlReadRequestPB* request) {
   request->dup_partition_key(value);
 }
@@ -228,7 +220,7 @@ Status InitHashPartitionKey(
       request->set_max_hash_code(hash_code);
     }
 
-  } else if (AreBoundsHashCodeImpl(*request)) {
+  } else if (AreBoundsHashCode(*request)) {
     // lower_bound / upper_bound are set to hash codes. This is possible during upgrade if the
     // AutoFlag yb_allow_dockey_bounds is false to maintain backward compatibility.
     DCHECK(dockv::PartitionSchema::IsValidHashPartitionKeyBound(request->lower_bound().key()));
@@ -276,7 +268,7 @@ Status InitHashPartitionKey(
   // Validate that the bounds are hash codes when the AutoFlag yb_allow_dockey_bounds is false and
   // vice-versa.
   if (request->has_lower_bound() || request->has_upper_bound()) {
-    DCHECK(AreBoundsHashCodeImpl(*request) ^ yb_allow_dockey_bounds);
+    DCHECK(AreBoundsHashCode(*request) ^ yb_allow_dockey_bounds);
   }
 
   return Status::OK();
@@ -1195,10 +1187,6 @@ bool IsTolerantToPartitionsChange(const YBOperation& op) {
 Result<const PartitionKey&> TEST_FindPartitionKeyByUpperBound(
     const TablePartitionList& partitions, const PgsqlReadRequestPB& request) {
   return FindPartitionKeyByUpperBound(partitions, request);
-}
-
-bool AreBoundsHashCode(const LWPgsqlReadRequestPB& request) {
-  return AreBoundsHashCodeImpl(request);
 }
 
 }  // namespace client
