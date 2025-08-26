@@ -41,6 +41,9 @@
 #ifndef BGWORKER_H
 #define BGWORKER_H
 
+/* Yugabyte includes */
+#include "c.h"
+
 /*---------------------------------------------------------------------
  * External module API.
  *---------------------------------------------------------------------
@@ -111,7 +114,14 @@ typedef enum BgwHandleStatus
 	BGWH_POSTMASTER_DIED		/* postmaster died; worker status unclear */
 } BgwHandleStatus;
 
-struct BackgroundWorkerHandle;
+// TODO: Do I really need this change? How about keep the struct in .c and
+// expose its size?
+struct BackgroundWorkerHandle
+{
+	int slot;
+	uint64 generation;
+};
+
 typedef struct BackgroundWorkerHandle BackgroundWorkerHandle;
 
 /* Register a new bgworker during shared_preload_libraries */

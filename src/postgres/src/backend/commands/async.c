@@ -485,7 +485,10 @@ static void AddEventToPendingNotifies(Notification *n);
 static uint32 notification_hash(const void *key, Size keysize);
 static int	notification_match(const void *key1, const void *key2, Size keysize);
 static void ClearPendingActionsAndNotifies(void);
-static Oid YbGetNotificationsRelId(bool create_if_not_exits);
+
+static Oid YbNotificationsRelId(bool create_if_not_exits);
+static void YbRegisterNotificationsWalSender();
+static BackgroundWorkerHandle *YbShmemWalSenderBgWHandle(bool *found);
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -728,7 +731,7 @@ Async_Notify(const char *channel, const char *payload)
 
 	MemoryContextSwitchTo(oldcontext);
 
-	Oid relid = YbGetNotificationsRelId(true /* create_if_not_exits */);
+	Oid relid = YbNotificationsRelId(true /* create_if_not_exits */);
 	Assert(OidIsValid(relid));
 }
 
@@ -920,7 +923,7 @@ YbInsertNotifications(void)
 	if (!pendingNotifies)
 		return;
 
-	Oid relid = YbGetNotificationsRelId(false /* create_if_not_exits */);
+	Oid relid = YbNotificationsRelId(false /* create_if_not_exits */);
 	Relation rel = RelationIdGetRelation(relid);
 	TupleDesc desc = RelationGetDescr(rel);
 	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
@@ -1213,6 +1216,12 @@ Exec_ListenPreCommit(void)
 	head = QUEUE_HEAD;
 	max = QUEUE_TAIL;
 	prevListener = InvalidBackendId;
+
+	// Start the special walsender process if this is the first listener in the
+	// node.
+	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
+		YbRegisterNotificationsWalSender();
+
 	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
 	{
 		if (QUEUE_BACKEND_DBOID(i) == MyDatabaseId)
@@ -1382,6 +1391,18 @@ asyncQueueUnregister(void)
 		}
 	}
 	QUEUE_NEXT_LISTENER(MyBackendId) = InvalidBackendId;
+
+	// Terminate the special walsender process if this was the last listener in
+	// the node.
+	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
+	{
+		bool found;
+		BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
+		Assert(found);
+		TerminateBackgroundWorker(shm_handle);
+		// TODO: check that the worker is not restarted after this.
+	}
+
 	LWLockRelease(NotifyQueueLock);
 
 	/* mark ourselves as no longer listed in the global array */
@@ -2626,7 +2647,7 @@ YbCreateNotifySchemaIfNotExists()
 }
 
 static Oid
-YbGetNotificationsRelId(bool create_if_not_exits)
+YbNotificationsRelId(bool create_if_not_exits)
 {
 	if (!OidIsValid(YbCachedNotificationsRelId))
 	{
@@ -2639,4 +2660,39 @@ YbGetNotificationsRelId(bool create_if_not_exits)
 		YbCachedNotificationsRelId = reloid;
 	}
 	return YbCachedNotificationsRelId;
+}
+
+static BackgroundWorkerHandle *
+YbShmemWalSenderBgWHandle(bool *found)
+{
+	return ShmemInitStruct("NotificationsWalSenderBgWHandle",
+						   sizeof(BackgroundWorkerHandle), found);
+}
+
+static void
+YbRegisterNotificationsWalSender()
+{
+	BackgroundWorker worker;
+
+	memset(&worker, 0, sizeof(worker));
+	sprintf(worker.bgw_name, "notifications walsender");
+	sprintf(worker.bgw_type, "walsender");
+	// worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
+	// BGWORKER_BACKEND_DATABASE_CONNECTION;
+	worker.bgw_start_time = BgWorkerStart_ConsistentState;
+	worker.bgw_restart_time = 1; /* restart after a crash */
+	sprintf(worker.bgw_library_name, "postgres");
+	sprintf(worker.bgw_function_name, "YbNotificationsWalSenderMain");
+	worker.bgw_main_arg = (Datum) 0;
+	worker.bgw_notify_pid = 0;
+
+	BackgroundWorkerHandle *local_handle;
+	RegisterDynamicBackgroundWorker(&worker, &local_handle);
+
+	bool found;
+	BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
+	shm_handle->slot = local_handle->slot;
+	shm_handle->generation = local_handle->generation;
+
+	free(local_handle);
 }
