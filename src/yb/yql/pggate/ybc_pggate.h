@@ -35,6 +35,9 @@ typedef const void * YbcConstSliceVector;
 typedef void * YbcSliceSet;
 typedef const void * YbcConstSliceSet;
 
+typedef void (*YbcRecordTempRelationDDL_hook_type)();
+extern YbcRecordTempRelationDDL_hook_type YBCRecordTempRelationDDL_hook;
+
 typedef struct {
   YbcStatus ybc_status;
   YbcPgExplicitRowLockErrorInfo error_info;
@@ -554,6 +557,11 @@ YbcStatus YBCPgDmlBindHashCodes(
     YbcPgBoundType start_type, uint16_t start_value,
     YbcPgBoundType end_type, uint16_t end_value);
 
+YbcStatus YBCPgDmlBindBounds(
+    YbcPgStatement handle, const char* lower_bound, size_t lower_bound_len,
+    bool lower_bound_inclusive, const char* upper_bound, size_t upper_bound_len,
+    bool upper_bound_inclusive);
+
 // For parallel scan only, limit fetch to specified range of ybctids
 YbcStatus YBCPgDmlBindRange(YbcPgStatement handle,
                             const char *lower_bound, size_t lower_bound_len,
@@ -688,8 +696,6 @@ YbcStatus YBCPgSetForwardScan(YbcPgStatement handle, bool is_forward_scan);
 
 // Set prefix length for distinct index scans.
 YbcStatus YBCPgSetDistinctPrefixLength(YbcPgStatement handle, int distinct_prefix_length);
-
-YbcStatus YBCPgSetHashBounds(YbcPgStatement handle, uint16_t low_bound, uint16_t high_bound);
 
 YbcStatus YBCPgExecSelect(YbcPgStatement handle, const YbcPgExecParameters *exec_params);
 
@@ -844,8 +850,6 @@ bool YBCIsInitDbModeEnvVarSet();
 // This is called by initdb. Used to customize some behavior.
 void YBCInitFlags();
 
-const YbcPgGFlagsAccessor* YBCGetGFlags();
-
 bool YBCPgIsYugaByteEnabled();
 
 // Sets the specified timeout in the rpc service.
@@ -958,7 +962,8 @@ YbcStatus YBCPgExecDropReplicationSlot(YbcPgStatement handle);
 
 YbcStatus YBCPgInitVirtualWalForCDC(
     const char *stream_id, const YbcPgOid database_oid, YbcPgOid *relations, YbcPgOid *relfilenodes,
-    size_t num_relations, const YbcReplicationSlotHashRange *slot_hash_range, uint64_t active_pid);
+    size_t num_relations, const YbcReplicationSlotHashRange *slot_hash_range, uint64_t active_pid,
+    YbcPgOid *publications, size_t num_publications, bool yb_is_pub_all_tables);
 
 YbcStatus YBCPgGetLagMetrics(const char *stream_id, int64_t *lag_metric);
 
@@ -997,6 +1002,11 @@ YbcStatus YBCPgRestoreReadPoint(YbcReadPointHandle read_point);
 YbcStatus YBCPgRegisterSnapshotReadTime(
     uint64_t read_time, bool use_read_time, YbcReadPointHandle* handle);
 
+// Records the current statement as a temporary relation DDL statement.
+void YBCRecordTempRelationDDL();
+
+// Allow the DDL to modify the pg catalog even if it has been blocked for YSQL major upgrades. This
+// should only be used for DDLs that are safe to perform during a YSQL major upgrade.
 void YBCDdlEnableForceCatalogModification();
 
 uint64_t YBCGetCurrentHybridTimeLsn();

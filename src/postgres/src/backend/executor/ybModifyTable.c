@@ -66,7 +66,7 @@
 #include "utils/rel.h"
 #include "utils/relcache.h"
 #include "utils/syscache.h"
-#include "yb/yql/pggate/ybc_pggate.h"
+#include "yb/yql/pggate/ybc_gflags.h"
 
 bool		yb_disable_transactional_writes = false;
 bool		yb_enable_upsert_mode = false;
@@ -1113,7 +1113,7 @@ YBCExecuteUpdate(ResultRelInfo *resultRelInfo,
 			((TargetEntry *) lfirst(pushdown_lc))->resno == attnum)
 		{
 			TargetEntry *tle = (TargetEntry *) lfirst(pushdown_lc);
-			Expr	   *expr = YbExprInstantiateParams(tle->expr, estate);
+			Expr	   *expr = YbExprInstantiateExprs(tle->expr, estate);
 			MemoryContext oldContext = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
 			YbcPgExpr	ybc_expr = YBCNewEvalExprCall(update_stmt, expr);
 

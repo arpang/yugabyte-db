@@ -28,12 +28,12 @@ For more information, refer to [Replication slots](https://www.postgresql.org/do
 
 #### LSN type
 
-A Log Sequence Number (LSN) in YugabyteDB differs from what you may be accustomed to in PostgreSQL. In PostgreSQL, an LSN represents a specific 'location' in the WAL, and has significance that spans databases and replication slots. In YugabyteDB, an LSN uniquely identifies a change event, and the LSN is valid only within the context of a specific replication slot. Due to these differences, there are inherent limitations in how LSNs can be used.
+A Log Sequence Number (LSN) in YugabyteDB differs from what you may be accustomed to in PostgreSQL. In PostgreSQL, an LSN represents a specific 'location' in the WAL, and has significance that spans databases and replication slots. In YugabyteDB, an LSN uniquely identifies a change event, and the LSN is valid only in the context of a specific replication slot. Due to these differences, there are inherent limitations in how LSNs can be used.
 
 You can specify the type of LSN to use when you create a replication slot. YugabyteDB currently supports the following types:
 
-* SEQUENCE - (Default) PostgreSQL-style LSN that is valid in the context of a slot. It is a monotonic increasing number that determines the record in global order within the context of a slot. It can't be compared across two different slots.
-* HYBRID_TIME - A hybrid time value which can be used natively with YugabyteDB. HYBRID_TIME is denoted by the HybridTime of the transaction commit record. All the records of the transaction that is streamed will have the same LSN as that of the commit record. You need to ensure that the changes of a transaction are applied in totality and the acknowledgement is sent only if the commit record of a transaction is processed.
+- SEQUENCE - (Default) PostgreSQL-style LSN that is valid in the context of a slot. It is a monotonic increasing number that determines the record in global order in the context of a slot. It can't be compared across two different slots.
+- HYBRID_TIME - A hybrid time value which can be used natively with YugabyteDB. HYBRID_TIME is denoted by the HybridTime of the transaction commit record. All the records of the transaction that is streamed will have the same LSN as that of the commit record. You need to ensure that the changes of a transaction are applied in totality and the acknowledgement is sent only if the commit record of a transaction is processed.
 
 ### Publication
 
@@ -99,9 +99,9 @@ Replica identity is a table-level parameter that controls the amount of informat
 - FULL
 - NOTHING
 
-The replica identity `INDEX` is not supported in YugabyteDB.
+The PostgreSQL replica identity `INDEX` is not supported in YugabyteDB.
 
-Replica identity `CHANGE` is the best performant and the default replica identity. The replica identity of a table can be changed by performing an alter table. However, for a given slot, the alter tables performed to change the replica identity after the creation of the slot will have no effect. This means that the effective replica identity for any table for a slot, is the replica identity of the table that existed at the time of slot creation. A dynamically created table (a table created after slot creation) will have the default replica identity. For a replica identity modified after slot creation to take effect, a new slot will have to be created after performing the Alter table.
+Replica identity `CHANGE` is the best performant and the default replica identity. The replica identity of a table can be changed by performing an ALTER TABLE. However, for a given slot, any ALTER TABLE performed to change the replica identity after the creation of the slot will have no effect. This means that the effective replica identity for any table for a slot, is the replica identity of the table that existed at the time of slot creation. A dynamically created table (a table created after slot creation) will have the default replica identity. For a replica identity modified after slot creation to take effect, a new slot will have to be created after performing the ALTER TABLE.
 
 The [ysql_yb_default_replica_identity](../../../../reference/configuration/yb-tserver/#ysql-yb-default-replica-identity) flag determines the default replica identity for user tables at the time of table creation. The default value is `CHANGE`. The purpose of this flag is to set the replica identities for dynamically created tables. In order to create a dynamic table with desired replica identity, the flag must be set accordingly and then the table must be created.
 
@@ -109,7 +109,9 @@ The [ysql_yb_default_replica_identity](../../../../reference/configuration/yb-ts
 You should refrain from altering the replica identity of a dynamically created table for at least 5 minutes after its creation.
 {{< /note >}}
 
-For more information, refer to [Replica Identity](https://www.postgresql.org/docs/15/sql-altertable.html#SQL-CREATETABLE-REPLICA-IDENTITY) in the PostgreSQL documentation.
+For more information, refer to [Replica Identity](../yugabytedb-connector/#replica-identity).
+
+For information on replica identity in PostgreSQL, refer to [REPLICA IDENTITY](https://www.postgresql.org/docs/15/sql-altertable.html#SQL-ALTERTABLE-REPLICA-IDENTITY) in the PostgreSQL documentation.
 
 ### Replication protocols
 
