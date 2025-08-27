@@ -3532,7 +3532,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_allow_dockey_bounds,
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 
