@@ -188,12 +188,11 @@ do_index_check(Oid indexoid, bool multi_snapshot_mode)
 
 	Relation	baserel = RelationIdGetRelation(indexrel->rd_index->indrelid);
 
-	size_t		actual_index_rowcount = 0;
-
 	PG_TRY();
 	{
-		actual_index_rowcount =
+		size_t		actual_index_rowcount =
 			detect_inconsistent_rows(baserel, indexrel, multi_snapshot_mode);
+
 		detect_missing_rows(baserel, indexrel, actual_index_rowcount,
 							multi_snapshot_mode);
 	}
