@@ -259,9 +259,11 @@ YbBindColumnCondBetween(YbScanDesc ybScan,
 	/* Special handling of quals on ybctid column. */
 	if (attnum == YBTupleIdAttributeNumber)
 	{
-		HandleYBStatus(YBCPgDmlBindBounds(
-			ybScan->handle, start_valid ? value : 0, start_inclusive,
-			end_valid ? value_end : 0, end_inclusive));
+		HandleYBStatus(YBCPgDmlBindBounds(ybScan->handle,
+										  start_valid ? value : 0,
+										  start_inclusive,
+										  end_valid ? value_end : 0,
+										  end_inclusive));
 		return;
 	}
 
