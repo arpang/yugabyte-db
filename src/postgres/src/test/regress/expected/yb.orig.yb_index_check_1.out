@@ -8,12 +8,12 @@ EXPLAIN (ANALYZE, DIST, COSTS OFF, SUMMARY OFF) SELECT yb_index_check('abcd_b_c_
                QUERY PLAN                
 -----------------------------------------
  Result *RESULT* (actual rows=1 loops=1)
-   Storage Table Read Requests: 10
-   Storage Table Read Ops: 10
-   Storage Table Rows Scanned: 44
-   Storage Index Read Requests: 10
-   Storage Index Read Ops: 10
-   Storage Index Rows Scanned: 44
+   Storage Table Read Requests: 8
+   Storage Table Read Ops: 8
+   Storage Table Rows Scanned: 32
+   Storage Index Read Requests: 8
+   Storage Index Read Ops: 8
+   Storage Index Rows Scanned: 32
 (7 rows)
 
 SELECT yb_index_check('abcd_b_c_d_idx'::regclass::oid);

@@ -985,7 +985,7 @@ detect_index_issues(Relation baserel, Relation indexrel,
 			if (yb_test_slowdown_index_check)
 			{
 				ereport(NOTICE,
-						(errmsg("Artificially slowing down yb_index_check(). It should be only used during tests.")));
+						(errmsg("artificially slowing down yb_index_check(). It should be only used during tests.")));
 				sleep(1);
 			}
 
