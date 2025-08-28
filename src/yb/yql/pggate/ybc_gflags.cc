@@ -115,6 +115,7 @@ DECLARE_bool(TEST_ysql_yb_enable_implicit_dynamic_tables_logical_replication);
 DECLARE_bool(use_fast_backward_scan);
 DECLARE_uint32(ysql_max_invalidation_message_queue_size);
 DECLARE_uint32(max_replication_slots);
+DECLARE_int32(timestamp_history_retention_interval_sec);
 
 namespace {
 
@@ -205,6 +206,8 @@ const YbcPgGFlagsAccessor* YBCGetGFlags() {
           &FLAGS_ysql_enable_read_request_cache_for_connection_auth,
       .TEST_ysql_yb_enable_implicit_dynamic_tables_logical_replication =
           &FLAGS_TEST_ysql_yb_enable_implicit_dynamic_tables_logical_replication,
+      .timestamp_history_retention_interval_sec =
+          &FLAGS_timestamp_history_retention_interval_sec,
   };
   // clang-format on
   return &accessor;
