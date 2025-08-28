@@ -256,14 +256,12 @@ YbBindColumnCondBetween(YbScanDesc ybScan,
 						bool start_valid, bool start_inclusive, Datum value,
 						bool end_valid, bool end_inclusive, Datum value_end)
 {
-	if (attnum == YBTupleIdAttributeNumber && start_valid && !end_valid)
+	/* Special handling of quals on ybctid column. */
+	if (attnum == YBTupleIdAttributeNumber)
 	{
-		/*
-		 * Special handling of indexqual 'ybctid > lower_bound' that
-		 * yb_index_check() executes.
-		 */
-		Assert(!start_inclusive);
-		HandleYBStatus(YBCPgIndexCheckBindLowerBound(ybScan->handle, value));
+		HandleYBStatus(YBCPgDmlBindBounds(
+			ybScan->handle, start_valid ? value : 0, start_inclusive,
+			end_valid ? value_end : 0, end_inclusive));
 		return;
 	}
 

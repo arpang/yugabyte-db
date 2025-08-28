@@ -1428,12 +1428,12 @@ YbcStatus YBCPgDmlBindHashCodes(
 }
 
 YbcStatus YBCPgDmlBindBounds(
-    YbcPgStatement handle, const char* lower_bound, size_t lower_bound_len,
-    bool lower_bound_inclusive, const char* upper_bound, size_t upper_bound_len,
-    bool upper_bound_inclusive) {
+    YbcPgStatement handle, uint64_t lower_bound_ybctid, bool lower_bound_inclusive,
+    uint64_t upper_bound_ybctid, bool upper_bound_inclusive) {
   return ToYBCStatus(pgapi->DmlBindBounds(
-      handle, Slice(lower_bound, lower_bound_len), lower_bound_inclusive,
-      Slice(upper_bound, upper_bound_len), upper_bound_inclusive));
+      handle, lower_bound_ybctid ? YbctidAsSlice(lower_bound_ybctid) : Slice(),
+      lower_bound_inclusive, upper_bound_ybctid ? YbctidAsSlice(upper_bound_ybctid) : Slice(),
+      upper_bound_inclusive));
 }
 
 YbcStatus YBCPgDmlBindRange(YbcPgStatement handle,
@@ -3063,10 +3063,6 @@ bool YBCPgYsqlMajorVersionUpgradeInProgress() {
    * DevNote: Keep this in sync with IsYsqlMajorVersionUpgradeInProgress.
    */
   return yb_major_version_upgrade_compatibility > 0 || !yb_upgrade_to_pg15_completed;
-}
-
-YbcStatus YBCPgIndexCheckBindLowerBound(YbcPgStatement handle, uint64_t lower_bound) {
-  return ToYBCStatus(pgapi->IndexCheckBindLowerBound(handle, YbctidAsSlice(lower_bound)));
 }
 
 } // extern "C"

@@ -130,8 +130,6 @@ class PgDmlRead : public PgDml {
 
   [[nodiscard]] virtual bool IsPgSelectIndex() const { return false; }
 
-  Status IndexCheckBindLowerBound(Slice lower_bound);
-
  protected:
   explicit PgDmlRead(const PgSession::ScopedRefPtr& pg_session);
 

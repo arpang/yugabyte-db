@@ -447,7 +447,7 @@ Result<YQLRowwiseIteratorIf::UniPtr> CreateIterator(
       if (!data.is_explicit_request_read_time) {
         if (request.paging_state().has_read_time()) {
           actual_read_time = ReadHybridTime::FromPB(request.paging_state().read_time());
-        } else if (start_sub_doc_key.has_hybrid_time()) {
+        } else {
           actual_read_time.read = start_sub_doc_key.hybrid_time();
         }
       }

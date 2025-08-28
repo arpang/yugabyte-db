@@ -558,9 +558,8 @@ YbcStatus YBCPgDmlBindHashCodes(
     YbcPgBoundType end_type, uint16_t end_value);
 
 YbcStatus YBCPgDmlBindBounds(
-    YbcPgStatement handle, const char* lower_bound, size_t lower_bound_len,
-    bool lower_bound_inclusive, const char* upper_bound, size_t upper_bound_len,
-    bool upper_bound_inclusive);
+    YbcPgStatement handle, uint64_t lower_bound_ybctid, bool lower_bound_inclusive,
+    uint64_t upper_bound_ybctid, bool upper_bound_inclusive);
 
 // For parallel scan only, limit fetch to specified range of ybctids
 YbcStatus YBCPgDmlBindRange(YbcPgStatement handle,
@@ -1033,9 +1032,6 @@ YbcStatus YBCAcquireObjectLock(YbcObjectLockId lock_id, YbcObjectLockMode mode);
 // DevNote: Finalize is a multi-step process involving YsqlMajorCatalog Finalize, AutoFlag Finalize,
 // and YsqlUpgrade. This will return false after the AutoFlag Finalize step.
 bool YBCPgYsqlMajorVersionUpgradeInProgress();
-
-// Set lower bound for the scan, used by yb_index_check().
-YbcStatus YBCPgIndexCheckBindLowerBound(YbcPgStatement handle, uint64_t lower_bound);
 
 #ifdef __cplusplus
 }  // extern "C"

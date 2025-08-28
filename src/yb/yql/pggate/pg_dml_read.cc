@@ -841,35 +841,6 @@ Status PgDmlRead::BindRange(
   return Status::OK();
 }
 
-Status PgDmlRead::IndexCheckBindLowerBound(Slice lower_bound) {
-  if (read_req_->has_paging_state()) {
-    return STATUS_FORMAT(
-        InternalError, "Cannot set index check lower bound, paging state already set");
-  }
-
-  dockv::DocKey row_key(bind_->schema());
-  VERIFY_RESULT(row_key.DecodeFrom(lower_bound, dockv::DocKeyPart::kWholeDocKey,
-                                   dockv::AllowSpecial::kTrue));
-
-  auto encoded_row_key = row_key.Encode();
-
-  // Decoder expects hybrid time by default, append invalid hybrid time.
-  AppendDocHybridTime(DocHybridTime::kInvalid, &encoded_row_key);
-
-  // The following logic is taken from PgsqlReadOperation::SetPagingState().
-  auto* paging_state = read_req_->mutable_paging_state();
-  auto encoded_row_key_str = encoded_row_key.ToStringBuffer();
-
-  if (bind_->schema().num_hash_key_columns() > 0) {
-    paging_state->dup_next_partition_key(
-        dockv::PartitionSchema::EncodeMultiColumnHashValue(row_key.hash()));
-  } else {
-    paging_state->dup_next_partition_key(encoded_row_key_str);
-  }
-  paging_state->dup_next_row_key(std::move(encoded_row_key_str));
-  return Status::OK();
-}
-
 void PgDmlRead::BindBounds(
     const Slice lower_bound, bool lower_bound_inclusive, const Slice upper_bound,
     bool upper_bound_inclusive) {

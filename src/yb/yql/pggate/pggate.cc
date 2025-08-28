@@ -2423,11 +2423,4 @@ bool PgApiImpl::HasExportedSnapshots() const { return pg_txn_manager_->has_expor
 
 void PgApiImpl::ClearExportedTxnSnapshots() { pg_txn_manager_->ClearExportedTxnSnapshots(); }
 
-//------------------------------------------------------------------------------------------------
-// Index Consistency Checker.
-//------------------------------------------------------------------------------------------------
-Status PgApiImpl::IndexCheckBindLowerBound(PgStatement* handle, Slice lower_bound) {
-  return VERIFY_RESULT_REF(GetStatementAs<PgDmlRead>(handle)).IndexCheckBindLowerBound(lower_bound);
-}
-
 } // namespace yb::pggate
