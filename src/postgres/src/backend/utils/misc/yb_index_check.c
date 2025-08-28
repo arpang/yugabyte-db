@@ -46,6 +46,7 @@
 #include "utils/relcache.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
+#include "yb/yql/pggate/ybc_gflags.h"
 
 #define IndRelDetail(indexrel)	\
 	"index: '%s'", RelationGetRelationName(indexrel)
