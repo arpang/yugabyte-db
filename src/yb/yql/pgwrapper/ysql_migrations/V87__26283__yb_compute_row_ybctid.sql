@@ -10,7 +10,7 @@ BEGIN;
     prosrc, probin, proconfig, proacl
   ) VALUES
     -- implementation of yb_compute_row_ybctid
-    (8097, 'yb_compute_row_ybctid', 11, 10, 12,
+    (8098, 'yb_compute_row_ybctid', 11, 10, 12,
      1, 0, 0, '-', 'f',
      false, false, false, false, 'i',
      's', 3, 1, '17', '26 2249 17',
@@ -22,7 +22,7 @@ BEGIN;
   INSERT INTO pg_catalog.pg_description (
     objoid, classoid, objsubid, description
   ) VALUES (
-    8097, 1255, 0, 'returns the ybctid given a relation and its key attributes'
+    8098, 1255, 0, 'returns the ybctid given a relation and its key attributes'
   ) ON CONFLICT DO NOTHING;
 
   UPDATE pg_catalog.pg_proc SET provolatile='v', proargnames='{indexrelid,single_snapshot_mode}',
