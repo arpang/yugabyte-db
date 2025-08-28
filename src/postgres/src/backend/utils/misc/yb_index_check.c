@@ -72,6 +72,7 @@ static void do_index_check(Oid indexoid, bool multi_snapshot_mode);
 static void partitioned_index_check(Oid parentindexId,
 									bool multi_snapshot_mode);
 
+/* Detect inconsistent index rows. */
 static size_t detect_inconsistent_rows(Relation baserel, Relation indexrel,
 									   bool multi_snapshot_mode);
 static Plan *inconsistent_row_detection_plan(Relation baserel,
@@ -85,6 +86,7 @@ static void inconsistent_row_detection_check(TupleTableSlot *outslot,
 											 Relation indexrel,
 											 List *equality_opcodes);
 
+/* Detect missing index rows. */
 static void detect_missing_rows(Relation baserel, Relation indexrel,
 								size_t actual_index_rowcount,
 								bool multi_snapshot_mode);
@@ -105,6 +107,8 @@ static size_t detect_index_issues(Relation baserel, Relation indexrel,
 								  YbIssueDetectionCheck issue_detection_check,
 								  char *task_identifier,
 								  bool multi_snapshot_mode);
+
+/* Helper functions. */
 static List *get_equality_opcodes(Relation indexrel);
 static void init_estate(EState *estate, Relation baserel);
 static void cleanup_estate(EState *estate);
@@ -232,9 +236,10 @@ detect_inconsistent_rows(Relation baserel, Relation indexrel,
 }
 
 /*
- * To check for spurious/inconsistent rows in index, we LEFT join the
- * index relation (on left) with the base relation on indexrel.ybbasectid ==
- * baserel.ybctid using batched nested loop join.
+ * To check for spurious/inconsistent rows in the index, we perform a LEFT join
+ * on the index relation (outer subplan) and the base relation (inner subplan)
+ * on indexrel.ybbasectid == baserel.ybctid. Batched nested loop join is used
+ * for optimal performance.
  */
 static Plan *
 inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
@@ -244,7 +249,7 @@ inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
 	/*
 	 * Outer subplan: index relation scan
 	 * Targetlist: ybbasectid, index_attributes, ybuniqueidxkeysuffix (if
-	 * unique), ybctid.
+	 * unique), index row ybctid.
 	 */
 	Plan	   *indexrel_scan =
 		indexrel_scan_plan1(indexrel, lower_bound_ybctid, multi_snapshot_mode);
@@ -252,7 +257,7 @@ inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
 
 	/*
 	 * Inner subplan: base relation scan
-	 * Targetlist: ybctid, index_attributes (scanned/computed from baserel).
+	 * Targetlist: ybctid, index_attributes scanned/computed from baserel.
 	 */
 	Plan	   *baserel_scan = baserel_scan_plan1(baserel, indexrel);
 
@@ -316,14 +321,13 @@ inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
 /*
  * Generate plan corresponding to:
  *		SELECT ybbasectid, index attributes, ybuniqueidxkeysuffix if index is
- *		unique, ybctid from indexrel
+ *		unique, index row ybctid from indexrel
+ * In multi_snapshot_mode, also add the qual index row ybctid > lower_bound_ybctid.
  */
 static Plan *
 indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid,
 					bool multi_snapshot_mode)
 {
-	TupleDesc	indexdesc = RelationGetDescr(indexrel);
-
 	Expr	   *expr;
 	List	   *index_cols = NIL;
 	List	   *plan_targetlist = NIL;
@@ -340,6 +344,8 @@ indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid,
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
 	/* index attributes */
+	TupleDesc	indexdesc = RelationGetDescr(indexrel);
+
 	for (int i = 0; i < indexdesc->natts; i++)
 	{
 		attr = TupleDescAttr(indexdesc, i);
@@ -383,6 +389,7 @@ indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid,
 
 	if (lower_bound_ybctid)
 	{
+		Assert(multi_snapshot_mode);
 		OpExpr	   *indexqual =
 			lower_bound_ybctid_indexqual(ybctid_from_index, lower_bound_ybctid);
 
@@ -395,34 +402,33 @@ indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid,
  * Generate plan corresponding to:
  *		SELECT ybctid, index attributes from baserel where ybctid IN (....)
  *		AND <partial index predicate, if any>
- * This plan makes the inner subplan of BNL. So this must be an IndexScan, but
- * at the same time this should scan the base relation. To achive this, index
- * scan is done an a dummy index that's indexed on the ybctid column. Under the
- * hood, it works as an IndexOnlyScan on the base relation. This is similair
- * to how PK index scan works in YB.
+ * This makes the inner subplan of BNL. So this must be an IndexScan, but this
+ * scans the base relation. To achive this, index scan is done an a dummy index
+ * on the ybctid column. Under the hood, it works as an IndexOnlyScan on the
+ * base relation. This is similair to how PK index scan works in YB.
  */
 static Plan *
 baserel_scan_plan1(Relation baserel, Relation indexrel)
 {
 	const FormData_pg_attribute *attr;
-	TupleDesc	indexdesc = RelationGetDescr(indexrel);
-
-	/* Plan target list */
 	List	   *plan_targetlist = NIL;
 	int			resno = 1;
+
+	/* Plan target list */
 
 	/* ybctid */
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	Var		   *ybctid_expr = makeVar(1, YBTupleIdAttributeNumber, attr->atttypid,
 									  attr->atttypmod, attr->attcollation, 0);
-	TargetEntry *target_entry = makeTargetEntry((Expr *) ybctid_expr, resno++,
-												"", false);
+	TargetEntry *target_entry =
+		makeTargetEntry((Expr *) ybctid_expr, resno++, "", false);
 
 	plan_targetlist = lappend(plan_targetlist, target_entry);
 
 	/* index attributes */
 	List	   *indexprs = NIL;
 	ListCell   *next_expr = NULL;
+	TupleDesc	indexdesc = RelationGetDescr(indexrel);
 
 	for (int i = 0; i < indexdesc->natts; i++)
 	{
@@ -620,8 +626,9 @@ detect_missing_rows(Relation baserel, Relation indexrel,
 }
 
 /*
- * To check for missing rows in index, we perform a LEFT join on
- * the base relation (on left) and the index relation (on right) using BNL.
+ * To check for missing rows in the index, we perform a LEFT join on
+ * the base relation (outer subplan) and the index relation (inner subplan)
+ * using BNL.
  *
  * Join condition: baserel.computed_indexrow_ybctid == indexrel.ybctid.
  *
@@ -642,7 +649,7 @@ missing_row_detection_plan(Relation baserel, Relation indexrel,
 
 	/*
 	 * Inner subplan: index relation scan
-	 * Targetlist: ybctid (the index row's ybctid, not the ybbasectid)
+	 * Targetlist: index row ybctid (not to be confused with ybbasectid)
 	 */
 	Plan	   *indexrel_scan = indexrel_scan_plan2(indexrel);
 
@@ -687,17 +694,14 @@ missing_row_detection_plan(Relation baserel, Relation indexrel,
  *		SELECT yb_compute_row_ybctid(indexreloid, keyatts, ybctid) AS
  *      computed_index_row_ybctid, ybctid from baserel where <partial index
  *      predicate, if any>.
+ * In multi_snapshot_mode, also add the qual ybctid > lower_bound_ybctid.
  */
 static Plan *
 baserel_scan_plan2(Relation baserel, Relation indexrel,
 				   Datum lower_bound_ybctid, bool multi_snapshot_mode)
 {
 	List	   *plan_targetlist = NIL;
-
 	const FormData_pg_attribute *attr;
-	List	   *indexprs = NIL;
-	ListCell   *next_expr = NULL;
-	List	   *keyatts = NIL;
 	TargetEntry *target_entry;
 	int			resno = 1;
 
@@ -707,6 +711,10 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 	 * yb_compute_row_ybctid(indexreloid, keyatts, ybctid) AS
 	 * computed_index_row_ybctid.
 	 */
+	List	   *keyatts = NIL;
+	List	   *indexprs = NIL;
+	ListCell   *next_expr = NULL;
+
 	for (int i = 0; i < indexrel->rd_index->indnkeyatts; i++)
 	{
 		Expr	   *expr =
@@ -762,6 +770,7 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 
 	if (lower_bound_ybctid)
 	{
+		Assert(multi_snapshot_mode);
 		OpExpr	   *indexqual = lower_bound_ybctid_indexqual((Expr *) ybctid_from_index,
 															 lower_bound_ybctid);
 
@@ -772,9 +781,7 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
 
 /*
  * Generate plan corresponding to:
- *		SELECT ybctid from indexrel where index_row_ybctid IN (....)
- *
- * Note: ybctid refers to index row's ybctid, not the ybbasectid.
+ *		SELECT index row ybctid from indexrel where index row ybctid IN (....)
  */
 static Plan *
 indexrel_scan_plan2(Relation indexrel)
@@ -828,7 +835,7 @@ missing_row_detection_check(TupleTableSlot *outslot, Relation indexrel,
 
 	/*
 	 * outslot attributes: baserel.computed_indexrow_ybctid, indexrel.ybctid,
-	 * baserel.ybctid
+	 * baserel.ybctid.
 	 */
 	Datum		computed_indexrow_ybctid PG_USED_FOR_ASSERTS_ONLY =
 		slot_getattr(outslot, 1, &base_null);
@@ -909,14 +916,14 @@ get_expected_index_rowcount(Relation baserel, Relation indexrel)
 }
 
 /*
- * Fetches and executes the plan and runs the output through check function.
- * Returns the number of rows processed.
+ * Common driver function that fetches and executes the plan and runs the output
+ * through the check function. Returns the number of rows processed.
  */
 static size_t
 detect_index_issues(Relation baserel, Relation indexrel,
 					YbIssueDetectionPlan issue_detection_plan,
-					YbIssueDetectionCheck issue_detection_check,
-					char *task_identifier, bool multi_snapshot_mode)
+					YbIssueDetectionCheck issue_detection_check, char *task_id,
+					bool multi_snapshot_mode)
 {
 	Datum		lower_bound_ybctid = 0;
 	bool		execution_complete = false;
@@ -949,10 +956,11 @@ detect_index_issues(Relation baserel, Relation indexrel,
 		while (!batch_complete && (outslot = ExecProcNode(planstate)))
 		{
 			issue_detection_check(outslot, indexrel, equality_opcodes);
+
 			if (multi_snapshot_mode)
 			{
+				/* Update the  lower_bound_ybctid. */
 				bool		null;
-
 				Datum		ybctid = slot_getattr(outslot,
 												  outslot->tts_tupleDescriptor->natts,
 												  &null);
@@ -966,6 +974,8 @@ detect_index_issues(Relation baserel, Relation indexrel,
 				{
 					if (lower_bound_ybctid)
 						pfree(DatumGetPointer(lower_bound_ybctid));
+
+					/* lower_bound_ybctid needs to outlive the query context. */
 					MemoryContextSwitchTo(oldctxt);
 					COPY_YBCTID(ybctid, lower_bound_ybctid);
 					MemoryContextSwitchTo(estate->es_query_cxt);
@@ -973,7 +983,11 @@ detect_index_issues(Relation baserel, Relation indexrel,
 			}
 
 			if (yb_test_slowdown_index_check)
+			{
+				ereport(NOTICE,
+						(errmsg("Artificially slowing down yb_index_check(). It should be only used during tests.")));
 				sleep(1);
+			}
 
 			++rowcount;
 			if (multi_snapshot_mode)
@@ -997,7 +1011,7 @@ detect_index_issues(Relation baserel, Relation indexrel,
 	elog(DEBUG1,
 		 "%s processed %ld rows in %d batche(s) in "
 		 "%s-snapshot-mode",
-		 task_identifier, rowcount, batchcount,
+		 task_id, rowcount, batchcount,
 		 multi_snapshot_mode ? "multi" : "single");
 	return rowcount;
 }
@@ -1032,12 +1046,12 @@ init_estate(EState *estate, Relation baserel)
 {
 	estate->yb_exec_params.yb_index_check = true;
 
-	RangeTblEntry *rte1 = makeNode(RangeTblEntry);
+	RangeTblEntry *rte = makeNode(RangeTblEntry);
 
-	rte1->rtekind = RTE_RELATION;
-	rte1->relid = RelationGetRelid(baserel);
-	rte1->relkind = RELKIND_RELATION;
-	ExecInitRangeTable(estate, list_make1(rte1));
+	rte->rtekind = RTE_RELATION;
+	rte->relid = RelationGetRelid(baserel);
+	rte->relkind = RELKIND_RELATION;
+	ExecInitRangeTable(estate, list_make1(rte));
 
 	estate->es_param_exec_vals =
 		(ParamExecData *) palloc0(yb_bnl_batch_size * sizeof(ParamExecData));
@@ -1064,43 +1078,41 @@ end_of_batch(size_t rowcount, time_t batch_start_time)
 	 * To ensure all the rows are processed, index batch should not end in the
 	 * middle of a BNL batch.
 	 */
-	if (!(rowcount % yb_bnl_batch_size))
+	if (rowcount % yb_bnl_batch_size > 0)
+		return false;
+
+	/*
+	 * For testing purposes, if yb_test_index_check_num_batches_per_snapshot
+	 * > 0, use batch size = yb_bnl_batch_size *
+	 * yb_test_index_check_num_batches_per_snapshot.
+	 */
+	if (yb_test_index_check_num_batches_per_snapshot > 0)
 	{
-		/*
-		 * For testing purposes, if yb_test_index_check_num_batches_per_snapshot
-		 * is > 0, use batch size = yb_bnl_batch_size *
-		 * yb_test_index_check_num_batches_per_snapshot.
-		 */
-		if (yb_test_index_check_num_batches_per_snapshot > 0)
-		{
-			size_t		batch_size = yb_test_index_check_num_batches_per_snapshot *
-				yb_bnl_batch_size;
+		size_t		batch_size =
+			yb_test_index_check_num_batches_per_snapshot * yb_bnl_batch_size;
 
-			return rowcount % batch_size == 0;
-		}
-
-		time_t		current_time;
-
-		time(&current_time);
-		time_t		elapsed_time = difftime(current_time, batch_start_time);
-
-		/*
-		 * End the current batch if elapsed time > 70% of the
-		 * timestamp_history_retention_interval_sec. This threshold of 70% is
-		 * based on heuristic. The idea is to keep it closer to 100% so that as
-		 * many rows as possible are processed within a single batch - to avoid
-		 * the overhead of creating too many batches. At the same time, keeping
-		 * it too close to 100% risks running into Snapshot too old error in
-		 * scenarios when elapsed time is marginally less than the threshold,
-		 * and hence next set of rows are processed in the same batch but that
-		 * pushes the elapsed time beyond the
-		 * timestamp_history_retention_interval_sec.
-		 */
-		return elapsed_time >
-			(0.7 *
-			 *YBCGetGFlags()->timestamp_history_retention_interval_sec);
+		return rowcount % batch_size == 0;
 	}
-	return false;
+
+	time_t		current_time;
+
+	time(&current_time);
+	time_t		elapsed_time = difftime(current_time, batch_start_time);
+
+	/*
+	 * End the current batch if elapsed time > 70% of the
+	 * timestamp_history_retention_interval_sec. This threshold of 70% is
+	 * based on heuristic. The idea is to keep it closer to 100% so that as
+	 * many rows as possible are processed within a single batch -- to avoid
+	 * the overhead of creating too many batches. At the same time, keeping
+	 * it too close to 100% risks running into Snapshot too old error in
+	 * scenarios when elapsed time is marginally less than the threshold,
+	 * and hence next batch of rows are processed using the same snapshot but
+	 * that pushes the elapsed time beyond the
+	 * timestamp_history_retention_interval_sec.
+	 */
+	return elapsed_time >
+		(0.7 * *YBCGetGFlags()->timestamp_history_retention_interval_sec);
 }
 
 static IndexOnlyScan *
@@ -1134,7 +1146,7 @@ make_basescan_plan(Relation baserel, Relation indexrel, List *plan_targetlist,
 	/*
 	 * TODO: TidScan, once supported, can be used here instead. With that,
 	 * yb_dummy_baserel_index_open() and yb_free_dummy_baserel_index() will
-	 * not be be required.
+	 * not be required.
 	 */
 	IndexScan  *base_scan = makeNode(IndexScan);
 	Plan	   *plan = &base_scan->scan.plan;
