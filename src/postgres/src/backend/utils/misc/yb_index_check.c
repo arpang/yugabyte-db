@@ -1348,7 +1348,7 @@ yb_compute_row_ybctid(PG_FUNCTION_ARGS)
 		if (!indisunique)
 			slot->tts_ybidxbasectid = ybidxbasectid;
 		else if (!index->indnullsnotdistinct && has_null)
-			slot->ts_ybuniqueidxkeysuffix = ybidxbasectid;
+			slot->tts_ybuniqueidxkeysuffix = ybidxbasectid;
 	}
 
 	Datum		result = YBCComputeYBTupleIdFromSlot(rel, slot);
