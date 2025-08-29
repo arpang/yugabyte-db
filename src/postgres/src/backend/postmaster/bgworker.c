@@ -106,6 +106,11 @@ typedef struct BackgroundWorkerArray
 	BackgroundWorkerSlot slot[FLEXIBLE_ARRAY_MEMBER];
 } BackgroundWorkerArray;
 
+struct BackgroundWorkerHandle
+{
+	int			slot;
+	uint64		generation;
+};
 
 static BackgroundWorkerArray *BackgroundWorkerData;
 

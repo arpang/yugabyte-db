@@ -428,6 +428,14 @@ typedef struct NotificationHash
 	Notification *event;		/* => the actual Notification struct */
 } NotificationHash;
 
+// TODO: Do I really need this change? How about keep the struct in .c and
+// expose its size?
+struct BackgroundWorkerHandle
+{
+	int slot;
+	uint64 generation;
+};
+
 static NotificationList *pendingNotifies = NULL;
 
 /*

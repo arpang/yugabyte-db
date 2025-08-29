@@ -114,13 +114,7 @@ typedef enum BgwHandleStatus
 	BGWH_POSTMASTER_DIED		/* postmaster died; worker status unclear */
 } BgwHandleStatus;
 
-// TODO: Do I really need this change? How about keep the struct in .c and
-// expose its size?
-struct BackgroundWorkerHandle
-{
-	int slot;
-	uint64 generation;
-};
+struct BackgroundWorkerHandle;
 
 typedef struct BackgroundWorkerHandle BackgroundWorkerHandle;
 
