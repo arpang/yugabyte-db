@@ -771,7 +771,11 @@ YBIsDBCatalogVersionMode()
 		 * Mixing global and per-database catalog versions in a single RPC
 		 * triggers a tserver SCHECK failure.
 		 */
-		YBFlushBufferedOperations();
+		YBFlushBufferedOperations((YbcFlushDebugContext)
+			{
+				.reason = YB_SWITCH_TO_DB_CATALOG_VERSION_MODE,
+				.oidarg = MyDatabaseId
+			});
 		return true;
 	}
 
@@ -4192,13 +4196,15 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 			else
 			{
 				/*
-				 * Disallow DDL if there is an active savepoint except the
-				 * implicit ones created for READ COMMITTED isolation.
+				 * Disallow DDL if savepoint for DDL support is disabled and
+				 * there is an active savepoint except the implicit ones created
+				 * for READ COMMITTED isolation.
 				 *
-				 * TODO(#26734): Remove once savepoint for DDL is
-				 * supported.
+				 * TODO(#26734): Change the error message to suggest enabling
+				 * the savepoint feature once it is no longer a test flag.
 				 */
-				if (YBTransactionContainsNonReadCommittedSavepoint())
+				if (!*YBCGetGFlags()->TEST_ysql_yb_enable_ddl_savepoint_support &&
+					YBTransactionContainsNonReadCommittedSavepoint())
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("interleaving SAVEPOINT & DDL in transaction"
@@ -4341,9 +4347,9 @@ YBResetOperationsBuffering()
 }
 
 void
-YBFlushBufferedOperations()
+YBFlushBufferedOperations(YbcFlushDebugContext debug_context)
 {
-	HandleYBStatus(YBCPgFlushBufferedOperations());
+	HandleYBStatus(YBCPgFlushBufferedOperations(debug_context));
 }
 
 bool
@@ -7578,12 +7584,29 @@ YbCalculateTimeDifferenceInMicros(TimestampTz yb_start_time)
 	return secs * USECS_PER_SEC + microsecs;
 }
 
+static bool
+YbIsDDLOrInitDBMode()
+{
+	return YBCPgIsDdlMode() || YBCIsInitDbModeEnvVarSet();
+}
+
 bool
 YbIsReadCommittedTxn()
 {
-	return IsYBReadCommitted() &&
-		!((YBCPgIsDdlMode() && !YBIsDdlTransactionBlockEnabled()) ||
-		  YBCIsInitDbModeEnvVarSet());
+	return IsYBReadCommitted() && !YbIsDDLOrInitDBMode();
+}
+
+bool
+YbSkipPgSnapshotManagement()
+{
+	/*
+	 * YSQL doesn't use Pg's snapshot management in DDL or initdb mode. Also, for SERIALIZABLE
+	 * isolation level, YSQL doesn't use SSI. Instead it uses 2 phase locking and reads the latest
+	 * data on DocDB always.
+	 *
+	 * TODO: Integrate with Pg's snapshot management for DDLs.
+	 */
+	return YbIsDDLOrInitDBMode() || IsolationIsSerializable();
 }
 
 static YbOptionalReadPointHandle
@@ -7598,7 +7621,7 @@ YbMakeReadPointHandle(YbcReadPointHandle read_point)
 YbOptionalReadPointHandle
 YbBuildCurrentReadPointHandle()
 {
-	return YbIsReadCommittedTxn()
+	return !YbSkipPgSnapshotManagement()
 		? YbMakeReadPointHandle(YBCPgGetCurrentReadPoint())
 		: (YbOptionalReadPointHandle)
 	{
@@ -7622,6 +7645,32 @@ YbRegisterSnapshotReadTime(uint64_t read_time)
 												 false /* use_read_time */ ,
 												 &handle));
 	return YbMakeReadPointHandle(handle);
+}
+
+YbOptionalReadPointHandle
+YbResetTransactionReadPoint()
+{
+	if (YbSkipPgSnapshotManagement())
+		return (YbOptionalReadPointHandle) {};
+
+	/*
+	 * If this is a query layer retry for a kReadRestart error, avoid resetting the read point.
+	 */
+	if (!YBCIsRestartReadPointRequested())
+	{
+		YbcFlushDebugContext debug_context = {
+			.reason = YB_GET_TRANSACTION_SNAPSHOT,
+			.uintarg = YBCPgGetCurrentReadPoint(),
+		};
+
+		/*
+		 * Flush all earlier operations so that they complete on the previous snapshot.
+		 */
+		HandleYBStatus(YBCPgFlushBufferedOperations(debug_context));
+		HandleYBStatus(YBCPgResetTransactionReadPoint());
+	}
+
+  return YbMakeReadPointHandle(YBCPgGetCurrentReadPoint());
 }
 
 /*
@@ -7953,4 +8002,36 @@ YbCheckTserverResponseCacheForAuthGflags()
 		*YBCGetGFlags()->ysql_enable_read_request_caching &&
 		*YBCGetGFlags()->ysql_enable_read_request_cache_for_connection_auth &&
 		yb_enable_invalidation_messages;
+}
+
+bool
+YbUseTserverResponseCacheForAuth(uint64_t shared_catalog_version)
+{
+	if (!YbIsAuthBackend())
+		return false;
+	/* We should only see auth backend if connection manager is enabled. */
+	Assert(YbIsYsqlConnMgrEnabled());
+
+	if (!YbCheckTserverResponseCacheForAuthGflags())
+		return false;
+
+	/*
+	 * For now we do not allow using tserver response cache for auth processing
+	 * if login profile is enabled. This is because the login process itself
+	 * writes to pg_yb_role_profile table but this is not done under a DDL
+	 * statement context. As a result the catalog version isn't incremented
+	 * but the tserver response cache becomes stale. Newer login processing
+	 * will continue to use the stale cache which isn't right.
+	 */
+	if (*YBCGetGFlags()->ysql_enable_profile && YbLoginProfileCatalogsExist)
+		return false;
+
+	/*
+	 * Tserver response cache requires a valid catalog version. Use the shared
+	 * memory catalog version as an approximation of the latest master catalog
+	 * version.
+	 */
+	if (shared_catalog_version == YB_CATCACHE_VERSION_UNINITIALIZED)
+		return false;
+	return true;
 }

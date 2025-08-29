@@ -59,6 +59,7 @@ typedef struct {
   const bool*     ysql_enable_pg_export_snapshot;
   const bool*     ysql_enable_neghit_full_inheritscache;
   const bool*     enable_object_locking_for_table_locks;
+  const bool*     TEST_ysql_yb_enable_ddl_savepoint_support;
   const uint32_t* ysql_max_invalidation_message_queue_size;
   const uint32_t* ysql_max_replication_slots;
   const uint32_t* yb_max_recursion_depth;
@@ -68,6 +69,7 @@ typedef struct {
   // TODO(arpan): Currently, the following flag is marked UNKOWN. If it turns out to be runtime
   // updatable, we would need to move it out of here and perhaps declare a GUC instead.
   const int32_t*  timestamp_history_retention_interval_sec;
+  const bool*     ysql_enable_scram_channel_binding;
 } YbcPgGFlagsAccessor;
 
 const YbcPgGFlagsAccessor* YBCGetGFlags();
