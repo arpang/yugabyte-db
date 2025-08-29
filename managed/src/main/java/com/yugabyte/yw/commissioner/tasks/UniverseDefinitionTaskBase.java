@@ -5,6 +5,7 @@ package com.yugabyte.yw.commissioner.tasks;
 import static com.yugabyte.yw.commissioner.UpgradeTaskBase.SPLIT_FALLBACK;
 import static com.yugabyte.yw.commissioner.UpgradeTaskBase.isBatchRollEnabled;
 import static com.yugabyte.yw.commissioner.UserTaskDetails.SubTaskGroupType.RotatingCert;
+import static play.mvc.Http.Status.BAD_REQUEST;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
@@ -16,6 +17,7 @@ import com.yugabyte.yw.commissioner.BaseTaskDependencies;
 import com.yugabyte.yw.commissioner.Common.CloudType;
 import com.yugabyte.yw.commissioner.HookInserter;
 import com.yugabyte.yw.commissioner.ITask;
+import com.yugabyte.yw.commissioner.NodeAgentEnabler;
 import com.yugabyte.yw.commissioner.TaskExecutor;
 import com.yugabyte.yw.commissioner.TaskExecutor.SubTaskGroup;
 import com.yugabyte.yw.commissioner.UpgradeTaskBase;
@@ -55,6 +57,7 @@ import com.yugabyte.yw.common.KubernetesUtil;
 import com.yugabyte.yw.common.NodeManager;
 import com.yugabyte.yw.common.PlacementInfoUtil;
 import com.yugabyte.yw.common.PlacementInfoUtil.SelectMastersResult;
+import com.yugabyte.yw.common.PlatformServiceException;
 import com.yugabyte.yw.common.RedactingService;
 import com.yugabyte.yw.common.RedactingService.RedactionTarget;
 import com.yugabyte.yw.common.ShellProcessContext;
@@ -87,6 +90,7 @@ import com.yugabyte.yw.forms.VMImageUpgradeParams.VmUpgradeTaskType;
 import com.yugabyte.yw.models.CertificateInfo;
 import com.yugabyte.yw.models.Customer;
 import com.yugabyte.yw.models.HookScope.TriggerType;
+import com.yugabyte.yw.models.NodeAgent;
 import com.yugabyte.yw.models.NodeInstance;
 import com.yugabyte.yw.models.Provider;
 import com.yugabyte.yw.models.TaskInfo;
@@ -1065,6 +1069,11 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
       // Add audit log config from the primary cluster
       params.auditLogConfig =
           universe.getUniverseDetails().getPrimaryCluster().userIntent.auditLogConfig;
+      // Add query log config from the primary cluster
+      params.queryLogConfig =
+          universe.getUniverseDetails().getPrimaryCluster().userIntent.queryLogConfig;
+      params.metricsExportConfig =
+          universe.getUniverseDetails().getPrimaryCluster().userIntent.metricsExportConfig;
 
       // The software package to install for this cluster.
       params.ybSoftwareVersion = userIntent.ybSoftwareVersion;
@@ -1393,6 +1402,11 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
     Universe universe = Universe.getOrBadRequest(taskParams().getUniverseUUID());
     params.auditLogConfig =
         universe.getUniverseDetails().getPrimaryCluster().userIntent.auditLogConfig;
+    // Add query log config from the primary cluster
+    params.queryLogConfig =
+        universe.getUniverseDetails().getPrimaryCluster().userIntent.queryLogConfig;
+    params.metricsExportConfig =
+        universe.getUniverseDetails().getPrimaryCluster().userIntent.metricsExportConfig;
     // Which user the node exporter service will run as
     params.nodeExporterUser = taskParams().nodeExporterUser;
     // Development testing variable.
@@ -1526,6 +1540,10 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
       Universe universe = Universe.getOrBadRequest(taskParams().getUniverseUUID());
       params.auditLogConfig =
           universe.getUniverseDetails().getPrimaryCluster().userIntent.auditLogConfig;
+      params.queryLogConfig =
+          universe.getUniverseDetails().getPrimaryCluster().userIntent.queryLogConfig;
+      params.metricsExportConfig =
+          universe.getUniverseDetails().getPrimaryCluster().userIntent.metricsExportConfig;
       // Set if this node is a master in shell mode.
       // The software package to install for this cluster.
       params.ybSoftwareVersion = userIntent.ybSoftwareVersion;
@@ -2124,9 +2142,10 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
    * Create preflight node check tasks for on-prem nodes in the clusters if the nodes are in
    * ToBeAdded state.
    *
+   * @param universe the universe
    * @param clusters the clusters
    */
-  public void createPreflightNodeCheckTasks(Collection<Cluster> clusters) {
+  public void createPreflightNodeCheckTasks(Universe universe, Collection<Cluster> clusters) {
     Set<Cluster> onPremClusters =
         clusters.stream()
             .filter(cluster -> cluster.userIntent.providerType == CloudType.onprem)
@@ -2140,6 +2159,26 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
     if (CollectionUtils.isNotEmpty(nodesToProvision)) {
       createPreflightNodeCheckTasks(
           clusters, nodesToProvision, null /*rootCA*/, null /*clientRootCA*/);
+    }
+    Set<NodeDetails> nodesToBeRemoved =
+        PlacementInfoUtil.getNodesToBeRemoved(taskParams().nodeDetailsSet);
+    if (CollectionUtils.isNotEmpty(nodesToBeRemoved)) {
+      for (NodeDetails node : nodesToBeRemoved) {
+        NodeDetails universeNode = universe.getNode(node.nodeName);
+        if (universeNode == null) {
+          log.warn(
+              "Node {} is not found in the universe {}", node.nodeName, universe.getUniverseUUID());
+          continue;
+        }
+        NodeInstance.maybeGetByName(universeNode.nodeName, universeNode.nodeUuid)
+            .orElseThrow(
+                () ->
+                    new PlatformServiceException(
+                        BAD_REQUEST,
+                        String.format(
+                            "Node instance %s with UUID %s does not exist",
+                            node.nodeName, node.nodeUuid)));
+      }
     }
   }
 
@@ -3342,9 +3381,46 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
    * that there are no leaderless tablets
    */
   protected void addBasicPrecheckTasks() {
+    verifyNodeAgentInstallation();
     if (isFirstTry()) {
       checkLeaderlessTablets();
       verifyClustersConsistency();
+    }
+  }
+
+  /** Verify that node agents are installed. */
+  protected void verifyNodeAgentInstallation() {
+    Universe universe = getUniverse();
+    Provider provider =
+        Provider.getOrBadRequest(
+            UUID.fromString(universe.getUniverseDetails().getPrimaryCluster().userIntent.provider));
+    CloudType cloudType = provider.getCloudCode();
+    if (cloudType.isPublicCloud()
+        && cloudType == CloudType.onprem
+        && getInstanceOf(NodeAgentEnabler.class).isNodeAgentServerEnabled(provider, universe)) {
+      Set<String> nodeIps =
+          universe.getNodes().stream()
+              .filter(
+                  n ->
+                      n.state == NodeState.Live
+                          && n.cloudInfo != null
+                          && n.cloudInfo.private_ip != null)
+              .map(n -> n.cloudInfo.private_ip)
+              .collect(Collectors.toSet());
+      if (nodeIps.size() > 0) {
+        Map<String, NodeAgent> nodeAgents =
+            NodeAgent.getByIps(provider.getCustomerUUID(), nodeIps).stream()
+                .filter(NodeAgent::isActive)
+                .collect(Collectors.toMap(NodeAgent::getIp, Function.identity()));
+        Set<String> missingIps = new HashSet<>(Sets.difference(nodeIps, nodeAgents.keySet()));
+        if (missingIps.size() > 0) {
+          String errMsg =
+              String.format(
+                  "Node agents are not installed or in inactive states for IPs %s", missingIps);
+          log.error(errMsg);
+          throw new IllegalStateException(errMsg);
+        }
+      }
     }
   }
 

@@ -313,6 +313,7 @@ class UpdateAll {
   virtual CoarseTimePoint GetClientDeadline() const = 0;
   virtual bool TabletServerHasLiveLease(const std::string& uuid) = 0;
   virtual std::string LogPrefix() const = 0;
+  virtual const ash::WaitStateInfoPtr& wait_state() const = 0;
 };
 
 template <class Req>
@@ -346,6 +347,10 @@ class UpdateAllTServers : public std::enable_shared_from_this<UpdateAllTServers<
 
   Trace *trace() const {
     return trace_.get();
+  }
+
+  const ash::WaitStateInfoPtr& wait_state() const override {
+    return wait_state_;
   }
 
   bool IsReleaseRequest() const;
@@ -383,6 +388,7 @@ class UpdateAllTServers : public std::enable_shared_from_this<UpdateAllTServers<
   std::optional<uint64_t> requestor_latest_lease_epoch_;
   CoarseTimePoint deadline_;
   const TracePtr trace_;
+  const ash::WaitStateInfoPtr wait_state_;
   bool launched_ = false;
 };
 
@@ -812,6 +818,9 @@ void ObjectLockInfoManager::Impl::PopulateDbCatalogVersionCache(ReleaseObjectLoc
     return;
   }
   auto* db_catalog_version_data = req.mutable_db_catalog_version_data();
+  // The catalog version data may become out of date by the time these requests are
+  // retried and processed by the TServer.
+  db_catalog_version_data->set_ignore_catalog_version_staleness_check(true);
   for (const auto& it : versions) {
     auto* const catalog_version_pb = db_catalog_version_data->add_db_catalog_versions();
     catalog_version_pb->set_db_oid(it.first);
@@ -1200,7 +1209,8 @@ UpdateAllTServers<Req>::UpdateAllTServers(
       callback_(std::move(callback)),
       requestor_latest_lease_epoch_(requestor_latest_lease_epoch),
       deadline_(deadline),
-      trace_(Trace::CurrentTrace()) {
+      trace_(Trace::CurrentTrace()),
+      wait_state_(ash::WaitStateInfo::CurrentWaitState()) {
   VLOG(3) << __PRETTY_FUNCTION__;
 }
 
@@ -1216,7 +1226,8 @@ UpdateAllTServers<Req>::UpdateAllTServers(
       epoch_(std::move(leader_epoch)),
       callback_(std::move(callback)),
       deadline_(CoarseMonoClock::Now() + kTserverRpcsTimeoutDefaultSecs),
-      trace_(Trace::CurrentTrace()) {
+      trace_(Trace::CurrentTrace()),
+      wait_state_(ash::WaitStateInfo::CurrentWaitState()) {
   VLOG(3) << __PRETTY_FUNCTION__;
 }
 
@@ -1496,6 +1507,7 @@ template <>
 bool UpdateTServer<AcquireObjectLockRequestPB, AcquireObjectLockResponsePB>::SendRequest(
     int attempt) {
   VLOG_WITH_PREFIX(3) << __func__ << " attempt " << attempt;
+  ADOPT_WAIT_STATE(shared_all_tservers_->wait_state());
   ts_proxy_->AcquireObjectLocksAsync(request(), &resp_, &rpc_, BindRpcCallback());
   return true;
 }
@@ -1504,6 +1516,7 @@ template <>
 bool UpdateTServer<ReleaseObjectLockRequestPB, ReleaseObjectLockResponsePB>::SendRequest(
     int attempt) {
   VLOG_WITH_PREFIX(3) << __func__ << " attempt " << attempt;
+  ADOPT_WAIT_STATE(shared_all_tservers_->wait_state());
   ts_proxy_->ReleaseObjectLocksAsync(request(), &resp_, &rpc_, BindRpcCallback());
   return true;
 }
@@ -1514,7 +1527,12 @@ void UpdateTServer<Req, Resp>::HandleResponse(int attempt) {
   Status status;
   if (resp_.has_error()) {
     status = StatusFromPB(resp_.error().status());
-    TransitionToFailedState(server::MonitoredTaskState::kRunning, status);
+    // Upon ysql lease changes, the object lock manager fails outstanding lock requests with
+    // TryAgain. Can retry the request to prevent exclusive lock requests from failing
+    // due to ysql lease membership changes w.r.t master leader's view.
+    if (!status.IsTryAgain()) {
+      TransitionToFailedState(server::MonitoredTaskState::kRunning, status);
+    }
   } else {
     TransitionToCompleteState();
   }

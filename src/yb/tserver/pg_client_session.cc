@@ -22,6 +22,7 @@
 #include <optional>
 #include <queue>
 #include <set>
+#include <span>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -107,6 +108,11 @@ DEFINE_RUNTIME_bool(ysql_ddl_transaction_wait_for_ddl_verification, true,
 
 DEFINE_RUNTIME_uint64(big_shared_memory_segment_session_expiration_time_ms, 5000,
     "Time to release unused allocated big memory segment from session to pool.");
+
+DEFINE_test_flag(
+    bool, request_unknown_tables_during_perform, false,
+    "Add several unknown tables while processing perfrom request. "
+    "It is expected that opening of such tables will fail");
 
 DECLARE_bool(vector_index_dump_stats);
 DECLARE_bool(yb_enable_cdc_consistent_snapshot_streams);
@@ -588,7 +594,7 @@ class VectorIndexQuery {
         sidecar_offset = new_offset;
       }
       partitions_[op.partition_idx].number_of_vectors_fetched_from_tablet += distances.size();
-      if (make_unsigned(distances.size()) < prefetch_size_) {
+      if (!op_resp.vector_index_could_have_more_data()) {
         partitions_[op.partition_idx].whether_all_vectors_was_fetched = true;
       }
     }
@@ -870,24 +876,27 @@ using QueryDataPtr = std::shared_ptr<QueryData<Traits>>;
 using ObjectLockQueryDataPtr = QueryDataPtr<ObjectLockQueryTraits>;
 using PerformQueryDataPtr = QueryDataPtr<PerformQueryTraits>;
 
-class SharedMemoryPerformListener : public PgTablesQueryListener {
+class AsyncPgTablesQueryResultProvider : public PgTablesQueryListener {
  public:
-  SharedMemoryPerformListener() = default;
-
-  Status Wait(CoarseTimePoint deadline) {
-    if (latch_.WaitUntil(deadline)) {
-      return Status::OK();
-    }
-    return STATUS_FORMAT(TimedOut, "Timeout waiting for tables");
+  [[nodiscard]] std::future<PgTablesQueryResult> GetTables() {
+    return promise_.get_future();
   }
 
  private:
-  void Ready() override {
-    latch_.CountDown();
+  void Ready(const PgTablesQueryResult& result) override {
+    promise_.set_value(result);
   }
 
-  CountDownLatch latch_{1};
+  std::promise<PgTablesQueryResult> promise_;
 };
+
+[[nodiscard]] std::future<PgTablesQueryResult> GetTablesAsync(
+  PgTableCache& table_cache, std::span<const TableId> table_ids,
+  const PgTableCacheGetOptions& options = {}) {
+  auto provider = std::make_shared<AsyncPgTablesQueryResultProvider>();
+  table_cache.GetTables(table_ids, provider);
+  return provider->GetTables();
+}
 
 template <QueryTraitsType T>
 class SharedExchangeQuery : public std::enable_shared_from_this<SharedExchangeQuery<T>> {
@@ -1496,7 +1505,6 @@ class PgClientSession::Impl {
 
   void SetupSharedObjectLocking(PgSessionLockOwnerTagShared& object_lock_shared) {
     DCHECK(!object_lock_shared_);
-    DCHECK(lock_owner_registry());
     object_lock_shared_ = &object_lock_shared;
   }
 
@@ -2361,13 +2369,13 @@ class PgClientSession::Impl {
   Status DoHandleSharedExchangeQuery(PerformQueryDataPtr&& data, CoarseTimePoint deadline) {
     boost::container::small_vector<TableId, 4> table_ids;
     PreparePgTablesQuery(data->req, table_ids);
-    auto listener_and_result = std::make_shared<
-        std::pair<SharedMemoryPerformListener, PgTablesQueryResult>>();
-    auto listener = SharedField(listener_and_result, &listener_and_result->first);
-    auto result = SharedField(listener_and_result, &listener_and_result->second);
-    table_cache().GetTables(table_ids, {}, result, listener);
-    RETURN_NOT_OK(listener->Wait(deadline));
-    return DoPerform(*result, data, deadline);
+    if (PREDICT_FALSE(FLAGS_TEST_request_unknown_tables_during_perform)) {
+      table_ids.insert(
+          table_ids.end(), { GetPgsqlTableId(0, 0), GetPgsqlTableId(0, 1), GetPgsqlTableId(0, 2) });
+    }
+    auto tables_future = GetTablesAsync(table_cache(), table_ids);
+    RETURN_NOT_OK(Wait(tables_future, ToSteady(deadline)));
+    return DoPerform(tables_future.get(), data, deadline);
   }
 
   Status DoHandleSharedExchangeQuery(ObjectLockQueryDataPtr&& data, CoarseTimePoint deadline) {
@@ -2616,10 +2624,12 @@ class PgClientSession::Impl {
     }
   }
 
-  void StartShutdown() {
-    WARN_NOT_OK(CleanupObjectLocks(), "Error cleaning up object locks");
-    if (const auto& txn = Transaction(PgClientSessionKind::kPgSession); txn) {
-      txn->Abort();
+  void StartShutdown(bool pg_service_shutting_down) {
+    if (!pg_service_shutting_down) {
+      WARN_NOT_OK(CleanupObjectLocks(), "Error cleaning up object locks");
+      if (const auto& txn = Transaction(PgClientSessionKind::kPgSession); txn) {
+        txn->Abort();
+      }
     }
     big_shared_mem_expiration_task_.StartShutdown();
   }
@@ -2677,8 +2687,8 @@ class PgClientSession::Impl {
     return context_.instance_uuid;
   }
 
-  docdb::ObjectLockOwnerRegistry* lock_owner_registry() const {
-    return context_.lock_owner_registry;
+  docdb::ObjectLockOwnerRegistry& lock_owner_registry() const {
+    return *DCHECK_NOTNULL(context_.lock_owner_registry);
   }
 
   PrefixLogger LogPrefix() const { return PrefixLogger{id_}; }
@@ -2727,14 +2737,33 @@ class PgClientSession::Impl {
     return ReleaseObjectLocksIfNecessary(txn, used_session_kind, deadline);
   }
 
-  Status DoPerform(
-      const PgTablesQueryResult& tables, const PerformQueryDataPtr& data, CoarseTimePoint deadline,
-      rpc::RpcContext* context = nullptr) {
-    auto& options = *data->req.mutable_options();
-    VLOG(5) << "Perform request: " << data->req.ShortDebugString();
-    if (!(options.ddl_mode() || options.yb_non_ddl_txn_for_sys_tables_allowed()) &&
-        xcluster_context() &&
-        xcluster_context()->IsReadOnlyMode(options.namespace_id())) {
+  template <class DataPtr, class Options>
+  Status ValidateRequestForXCluster(const Options& options, const DataPtr& data) {
+    if (options.yb_non_ddl_txn_for_sys_tables_allowed() || !xcluster_context()) {
+      return Status::OK();
+    }
+
+    if (options.ddl_mode()) {
+      // In xCluster Automatic mode, DDLs are not allowed on the target database unless it is run
+      // via the target poller or in forced manual mode.
+      if (xcluster_context()->GetXClusterRole(options.namespace_id()) ==
+              XClusterNamespaceInfoPB::AUTOMATIC_TARGET &&
+          !options.xcluster_target_ddl_bypass()) {
+        // Force catalog modifications is set for temp table, and in-place materialized view
+        // refresh. These DDLs are safe to perform on xCluster target in automatic mode.
+        for (const auto& op : data->req.ops()) {
+          SCHECK(
+              !op.has_write(), IllegalState,
+              "DDL operations are forbidden on a database that is the target of automatic mode "
+              "xCluster replication");
+        }
+      }
+
+      return Status::OK();
+    }
+
+    // DMLs.
+    if (xcluster_context()->IsReadOnlyMode(options.namespace_id())) {
       for (const auto& op : data->req.ops()) {
         if (op.has_write() && !op.write().is_backfill()) {
           TEST_SYNC_POINT_CALLBACK("WriteDetectedOnXClusterReadOnlyModeTarget", nullptr);
@@ -2746,6 +2775,17 @@ class PgClientSession::Impl {
         }
       }
     }
+
+    return Status::OK();
+  }
+
+  Status DoPerform(
+      const PgTablesQueryResult& tables, const PerformQueryDataPtr& data, CoarseTimePoint deadline,
+      rpc::RpcContext* context = nullptr) {
+    auto& options = *data->req.mutable_options();
+    VLOG(5) << "Perform request: " << data->req.ShortDebugString();
+
+    RETURN_NOT_OK(ValidateRequestForXCluster(options, data));
 
     if (options.has_caching_info()) {
       VLOG_WITH_PREFIX(3)
@@ -3555,7 +3595,7 @@ class PgClientSession::Impl {
   void RegisterLockOwner(const TransactionId& txn_id, const TabletId& status_tablet) {
     if (object_lock_shared_ && (!object_lock_owner_ || object_lock_owner_->txn_id() != txn_id)) {
       object_lock_owner_.emplace(
-          *object_lock_shared_, *DCHECK_NOTNULL(lock_owner_registry()), txn_id, status_tablet);
+          *object_lock_shared_, lock_owner_registry(), txn_id, status_tablet);
     }
   }
 
@@ -3627,8 +3667,8 @@ std::pair<uint64_t, std::byte*> PgClientSession::ObtainBigSharedMemorySegment(si
   return impl_->ObtainBigSharedMemorySegment(size);
 }
 
-void PgClientSession::StartShutdown() {
-  return impl_->StartShutdown();
+void PgClientSession::StartShutdown(bool pg_service_shutting_down) {
+  return impl_->StartShutdown(pg_service_shutting_down);
 }
 
 bool PgClientSession::ReadyToShutdown() const {
@@ -3669,8 +3709,7 @@ BOOST_PP_SEQ_FOR_EACH(
 void PreparePgTablesQuery(
     const PgPerformRequestPB& req, boost::container::small_vector_base<TableId>& table_ids) {
   for (const auto& op : req.ops()) {
-    const auto& table_id = op.has_read() ? op.read().table_id() : op.write().table_id();
-    AddTableIdIfMissing(table_id, table_ids);
+    AddIfMissing(table_ids, op.has_read() ? op.read().table_id() : op.write().table_id());
   }
 }
 

@@ -492,6 +492,11 @@ public enum TaskType {
       CustomerTask.TaskType.ModifyQueryLoggingConfig,
       CustomerTask.TargetType.Universe),
 
+  ModifyMetricsExportConfig(
+      com.yugabyte.yw.commissioner.tasks.upgrade.ModifyMetricsExportConfig.class,
+      CustomerTask.TaskType.ModifyMetricsExportConfig,
+      CustomerTask.TargetType.Universe),
+
   InstallYbcSoftware(
       com.yugabyte.yw.commissioner.tasks.InstallYbcSoftware.class,
       CustomerTask.TaskType.InstallYbcSoftware,
@@ -1113,6 +1118,8 @@ public enum TaskType {
   FinalizeYsqlMajorCatalogUpgrade(
       com.yugabyte.yw.commissioner.tasks.subtasks.FinalizeYsqlMajorCatalogUpgrade.class),
 
+  ValidateGFlags(com.yugabyte.yw.commissioner.tasks.subtasks.ValidateGFlags.class),
+
   CheckSoftwareVersion(
       com.yugabyte.yw.commissioner.tasks.subtasks.check.CheckSoftwareVersion.class),
 
@@ -1126,6 +1133,12 @@ public enum TaskType {
 
   UpdateAndPersistAuditLoggingConfig(
       com.yugabyte.yw.commissioner.tasks.subtasks.UpdateAndPersistAuditLoggingConfig.class),
+
+  UpdateAndPersistQueryLoggingConfig(
+      com.yugabyte.yw.commissioner.tasks.subtasks.UpdateAndPersistQueryLoggingConfig.class),
+
+  UpdateAndPersistMetricsExportConfig(
+      com.yugabyte.yw.commissioner.tasks.subtasks.UpdateAndPersistMetricsExportConfig.class),
 
   MarkUniverseForHealthScriptReUpload(
       com.yugabyte.yw.commissioner.tasks.subtasks.MarkUniverseForHealthScriptReUpload.class),
@@ -1271,6 +1284,7 @@ public enum TaskType {
           .put(ModifyAuditLoggingConfig, 55)
           .put(ModifyKubernetesAuditLoggingConfig, 56)
           .put(ModifyQueryLoggingConfig, 57)
+          .put(ModifyMetricsExportConfig, 58)
           // Node operations (70-89):
           .put(AddNodeToUniverse, 70)
           .put(DeleteNodeFromUniverse, 71)
