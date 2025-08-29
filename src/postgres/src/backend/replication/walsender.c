@@ -1513,10 +1513,21 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 	ReplicationSlotDrop(cmd->slotname, !cmd->wait);
 }
 
+void
+YbNotificationsWalSenderMain()
+{
+	WalSndSignals();
+	// do i need to do InitWalSender? doesn't seem like.
+	StartReplicationCmd cmd;
+	// TODO: fill cmd
+	StartLogicalReplication(&cmd);
+}
+
 /*
  * Load previously initiated logical slot and prepare for sending data (via
  * WalSndLoop).
  */
+// entry point
 static void
 StartLogicalReplication(StartReplicationCmd *cmd)
 {
