@@ -140,7 +140,6 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 /*
  * YB version of the DecodeInsert function from decode.c
  */
-// Will need changes here.
 static void
 YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 {

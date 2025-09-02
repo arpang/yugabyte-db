@@ -972,8 +972,8 @@ YbInsertNotifications(void)
 		{
 			slot->tts_isnull[YB_NOTIFICATION_PAYLOAD_FIELD] = false;
 			char *payload = n->data + strlen(channel) + 1;
-			slot->tts_values[YB_NOTIFICATION_PAYLOAD_FIELD] = CStringGetDatum(
-				cstring_to_text_with_len(payload, n->payload_len));
+			slot->tts_values[YB_NOTIFICATION_PAYLOAD_FIELD] =
+				CStringGetDatum(cstring_to_text_with_len(payload, n->payload_len));
 		}
 
 		slot->tts_nvalid = 5;
@@ -984,8 +984,8 @@ YbInsertNotifications(void)
 		YBCExecuteInsertForDb(MyDatabaseId, rel, slot, ONCONFLICT_NONE, NULL,
 							  txn_setting);
 
-		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */,
-						 txn_setting, false /* changingPart */, estate);
+		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */ ,
+						 txn_setting, false /* changingPart */ , estate);
 		MemoryContextReset(GetPerTupleMemoryContext(estate));
 		nextNotify = lnext(pendingNotifies->events, nextNotify);
 	}
@@ -2720,8 +2720,10 @@ YbRegisterNotificationsWalSender()
 	memset(&worker, 0, sizeof(worker));
 	sprintf(worker.bgw_name, "notifications walsender");
 	sprintf(worker.bgw_type, "walsender");
-	/* worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
-	 * BGWORKER_BACKEND_DATABASE_CONNECTION; */
+	/*
+	 * worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
+	 * BGWORKER_BACKEND_DATABASE_CONNECTION;
+	 */
 	worker.bgw_start_time = BgWorkerStart_ConsistentState;
 	worker.bgw_restart_time = 1; /* restart after a crash */
 	sprintf(worker.bgw_library_name, "postgres");
@@ -2762,13 +2764,13 @@ YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe)
 
 	Assert(!isnull[YB_NOTIFICATION_CHANNEL_FIELD]);
 	int channellen = VARSIZE_ANY(DatumGetPointer(values[YB_NOTIFICATION_CHANNEL_FIELD]));
-	const text* channel = DatumGetTextP(values[YB_NOTIFICATION_CHANNEL_FIELD]);
+	const text *channel = DatumGetTextP(values[YB_NOTIFICATION_CHANNEL_FIELD]);
 	text_to_cstring_buffer(channel, qe->data, channellen + 1);
 
 	int payloadlen = isnull[YB_NOTIFICATION_PAYLOAD_FIELD] ? 0 : VARSIZE_ANY(DatumGetPointer(values[YB_NOTIFICATION_PAYLOAD_FIELD]));
 	if (!isnull[YB_NOTIFICATION_PAYLOAD_FIELD])
 	{
-		const text* payload = DatumGetTextP(values[YB_NOTIFICATION_PAYLOAD_FIELD]);
+		const text *payload = DatumGetTextP(values[YB_NOTIFICATION_PAYLOAD_FIELD]);
 		text_to_cstring_buffer(payload, qe->data + channellen + 1, payloadlen + 1);
 	}
 

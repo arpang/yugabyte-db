@@ -37,9 +37,9 @@
 #include "utils/timeout.h"
 
 /* YB includes */
+#include "replication/walsender.h"
 #include "yb_ash.h"
 #include "yb_query_diagnostics.h"
-#include "replication/walsender.h"
 
 /*
  * The postmaster's list of registered background workers, in private memory.
