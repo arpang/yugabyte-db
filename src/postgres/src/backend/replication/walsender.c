@@ -1519,7 +1519,9 @@ YbNotificationsWalSenderMain()
 	WalSndSignals();
 	// do i need to do InitWalSender? doesn't seem like.
 	StartReplicationCmd cmd;
-	// TODO: fill cmd
+	cmd.kind = REPLICATION_KIND_LOGICAL;
+	cmd.slotname = "yb_pg_notifications";
+	cmd.yb_pg_notifications = true;
 	StartLogicalReplication(&cmd);
 }
 
@@ -1589,6 +1591,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 										 .segment_close = wal_segment_close),
 							  WalSndPrepareWrite, WalSndWriteData,
 							  WalSndUpdateProgress);
+	logical_decoding_ctx->yb_pg_notifications = cmd->yb_pg_notifications;
 	xlogreader = logical_decoding_ctx->reader;
 
 	WalSndSetState(WALSNDSTATE_CATCHUP);

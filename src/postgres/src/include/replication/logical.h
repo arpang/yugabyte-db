@@ -124,6 +124,8 @@ typedef struct LogicalDecodingContext
 	 */
 	XLogRecPtr	yb_start_decoding_at;
 
+	bool		yb_pg_notifications;
+
 	/*
 	 * YB: A per table_oid to oid map.
 	 *

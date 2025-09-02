@@ -477,7 +477,6 @@ static void asyncQueueUnregister(void);
 static bool asyncQueueIsFull(void);
 static bool asyncQueueAdvance(volatile QueuePosition *position, int entryLength);
 static void asyncQueueNotificationToEntry(Notification *n, AsyncQueueEntry *qe);
-static ListCell *asyncQueueAddEntries(ListCell *nextNotify);
 static double asyncQueueUsage(void);
 static void asyncQueueFillWarning(void);
 static void SignalBackends(void);
@@ -497,6 +496,7 @@ static void ClearPendingActionsAndNotifies(void);
 static Oid YbNotificationsRelId(bool create_if_not_exits);
 static void YbRegisterNotificationsWalSender();
 static BackgroundWorkerHandle *YbShmemWalSenderBgWHandle(bool *found);
+static void YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe);
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -925,6 +925,12 @@ AtPrepare_Notify(void)
 				 errmsg("cannot PREPARE a transaction that has executed LISTEN, UNLISTEN, or NOTIFY")));
 }
 
+#define YB_NOTIFICATION_NODE_FIELD	  0
+#define YB_NOTIFICATION_PID_FIELD	  1
+#define YB_NOTIFICATION_DB_FIELD	  2
+#define YB_NOTIFICATION_CHANNEL_FIELD 3
+#define YB_NOTIFICATION_PAYLOAD_FIELD 4
+
 void
 YbInsertNotifications(void)
 {
@@ -941,21 +947,31 @@ YbInsertNotifications(void)
 	while (nextNotify)
 	{
 		Notification *n = (Notification *) lfirst(nextNotify);
-		slot->tts_values[0] = CStringGetDatum(YBCGetLocalTserverUuid());
-		slot->tts_values[1] = Int32GetDatum(MyProcPid);
-		slot->tts_values[2] = ObjectIdGetDatum(MyDatabaseId);
-		char *channel = n->data;
-		slot->tts_values[3] =
-			CStringGetDatum(cstring_to_text_with_len(channel, n->channel_len));
-		char *payload = n->data + strlen(channel) + 1;
-		slot->tts_values[4] =
-			CStringGetDatum(cstring_to_text_with_len(payload, n->payload_len));
+		slot->tts_isnull[YB_NOTIFICATION_NODE_FIELD] = false;
+		slot->tts_values[YB_NOTIFICATION_NODE_FIELD] =
+			CStringGetDatum(YBCGetLocalTserverUuid());
 
-		slot->tts_isnull[0] = false;
-		slot->tts_isnull[1] = false;
-		slot->tts_isnull[2] = false;
-		slot->tts_isnull[3] = false;
-		slot->tts_isnull[4] = false;
+		slot->tts_isnull[YB_NOTIFICATION_PID_FIELD] = false;
+		slot->tts_values[YB_NOTIFICATION_PID_FIELD] = Int32GetDatum(MyProcPid);
+
+		slot->tts_isnull[YB_NOTIFICATION_DB_FIELD] = false;
+		slot->tts_values[YB_NOTIFICATION_DB_FIELD] =
+			ObjectIdGetDatum(MyDatabaseId);
+
+		slot->tts_isnull[YB_NOTIFICATION_CHANNEL_FIELD] = false;
+		char *channel = n->data;
+		slot->tts_values[YB_NOTIFICATION_CHANNEL_FIELD] =
+			CStringGetDatum(cstring_to_text_with_len(channel, n->channel_len));
+
+		if (n->payload_len == 0)
+			slot->tts_isnull[YB_NOTIFICATION_PAYLOAD_FIELD] = true;
+		else
+		{
+			slot->tts_isnull[YB_NOTIFICATION_PAYLOAD_FIELD] = false;
+			char *payload = n->data + strlen(channel) + 1;
+			slot->tts_values[YB_NOTIFICATION_PAYLOAD_FIELD] = CStringGetDatum(
+				cstring_to_text_with_len(payload, n->payload_len));
+		}
 
 		slot->tts_nvalid = 5;
 
@@ -1524,7 +1540,7 @@ asyncQueueNotificationToEntry(Notification *n, AsyncQueueEntry *qe)
  * We are holding NotifyQueueLock already from the caller and grab
  * NotifySLRULock locally in this function.
  */
-static ListCell *
+ListCell *
 asyncQueueAddEntries(ListCell *nextNotify)
 {
 	AsyncQueueEntry qe;
@@ -1567,12 +1583,23 @@ asyncQueueAddEntries(ListCell *nextNotify)
 	/* Note we mark the page dirty before writing in it */
 	NotifyCtl->shared->page_dirty[slotno] = true;
 
+	bool is_yb = IsYugaByteEnabled();
 	while (nextNotify != NULL)
 	{
-		Notification *n = (Notification *) lfirst(nextNotify);
+		if (!is_yb)
+		{
+			Notification *n = (Notification *) lfirst(nextNotify);
 
-		/* Construct a valid queue entry in local variable qe */
-		asyncQueueNotificationToEntry(n, &qe);
+			/* Construct a valid queue entry in local variable qe */
+			asyncQueueNotificationToEntry(n, &qe);
+		}
+		else
+		{
+			HeapTuple tuple = (HeapTuple) lfirst(nextNotify);
+
+			/* Construct a valid queue entry in local variable qe */
+			YbTupleToAsyncQueueEntry(tuple, &qe);
+		}
 
 		offset = QUEUE_POS_OFFSET(queue_head);
 
@@ -2582,8 +2609,9 @@ YbCreateNotificationRel()
 	initStringInfo(&querybuf);
 
 	appendStringInfo(&querybuf,
-					 "CREATE TABLE %s.%s(node uuid, pid int, db oid, channel "
-					 "text, payload text,  primary key((node, pid) HASH))",
+					 "CREATE TABLE %s.%s(node uuid, pid int, db oid NOT NULL, "
+					 "channel text NOT NULL, payload text,  primary key((node, "
+					 "pid) HASH))",
 					 YB_NOTIFY_SCHEMA_NAME, YB_NOTIFICATIONS_RELNAME);
 
 	if (SPI_connect() != SPI_OK_CONNECT)
@@ -2703,4 +2731,42 @@ YbRegisterNotificationsWalSender()
 	shm_handle->generation = local_handle->generation;
 
 	free(local_handle);
+}
+
+static void
+YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe)
+{
+	Oid relid = YbNotificationsRelId(false /* create_if_not_exits */);
+	Relation rel = RelationIdGetRelation(relid);
+	TupleDesc desc = RelationGetDescr(rel);
+	int numberOfAttributes = desc->natts;
+	Datum *values = (Datum *) palloc(numberOfAttributes * sizeof(Datum));
+	bool *isnull = (bool *) palloc(numberOfAttributes * sizeof(bool));
+	heap_deform_tuple(tuple, desc, values, isnull);
+
+	Assert(!isnull[YB_NOTIFICATION_NODE_FIELD]);
+	memcpy(qe->yb_node_uuid.data, DatumGetUUIDP(values[YB_NOTIFICATION_NODE_FIELD]), UUID_LEN);
+
+	Assert(!isnull[YB_NOTIFICATION_PID_FIELD]);
+	qe->srcPid = DatumGetInt32(values[YB_NOTIFICATION_PID_FIELD]);
+
+	Assert(!isnull[YB_NOTIFICATION_DB_FIELD]);
+	qe->dboid = DatumGetObjectId(values[YB_NOTIFICATION_DB_FIELD]);
+
+	Assert(!isnull[YB_NOTIFICATION_CHANNEL_FIELD]);
+	int channellen = VARSIZE_ANY(DatumGetPointer(values[YB_NOTIFICATION_CHANNEL_FIELD]));
+	const text* channel = DatumGetTextP(values[YB_NOTIFICATION_CHANNEL_FIELD]);
+	text_to_cstring_buffer(channel, qe->data, channellen + 1);
+
+	int payloadlen = isnull[YB_NOTIFICATION_PAYLOAD_FIELD] ? 0 : VARSIZE_ANY(DatumGetPointer(values[YB_NOTIFICATION_PAYLOAD_FIELD]));
+	if (!isnull[YB_NOTIFICATION_PAYLOAD_FIELD])
+	{
+		const text* payload = DatumGetTextP(values[YB_NOTIFICATION_PAYLOAD_FIELD]);
+		text_to_cstring_buffer(payload, qe->data + channellen + 1, payloadlen + 1);
+	}
+
+	int entryLength = AsyncQueueEntryEmptySize + payloadlen + channellen;
+	entryLength = QUEUEALIGN(entryLength);
+	qe->length = entryLength;
+	RelationClose(rel);
 }
