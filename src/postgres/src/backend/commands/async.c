@@ -981,11 +981,13 @@ YbInsertNotifications(void)
 		YbcPgTransactionSetting txn_setting = IsTransactionBlock() ?
 												  YB_TRANSACTIONAL :
 												  YB_SINGLE_SHARD_TRANSACTION;
-		YBCExecuteInsertForDb(MyDatabaseId, rel, slot, ONCONFLICT_NONE, NULL,
+		// TODO: temp hack of using hardcoded db oid. CREATE TABLE notifications
+		// should not create tables for any db other than 'yugabyte'.
+		YBCExecuteInsertForDb(13515, rel, slot, ONCONFLICT_NONE, NULL,
 							  txn_setting);
 
-		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */ ,
-						 txn_setting, false /* changingPart */ , estate);
+		YBCExecuteDeleteForDB(13515, rel, slot, NIL, false /* target_tuple_fetched */ ,
+							  txn_setting, false /* changingPart */ , estate);
 		MemoryContextReset(GetPerTupleMemoryContext(estate));
 		nextNotify = lnext(pendingNotifies->events, nextNotify);
 	}

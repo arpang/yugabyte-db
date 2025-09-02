@@ -810,6 +810,22 @@ YBCExecuteDelete(Relation rel,
 				 bool changingPart,
 				 EState *estate)
 {
+	Oid			dboid = YBCGetDatabaseOid(rel);
+	return YBCExecuteDeleteForDB(dboid, rel, planSlot, returning_columns,
+								 target_tuple_fetched, transaction_setting,
+								 changingPart, estate);
+}
+
+bool
+YBCExecuteDeleteForDB(Oid dboid,
+					  Relation rel,
+					  TupleTableSlot *planSlot,
+					  List *returning_columns,
+					  bool target_tuple_fetched,
+					  YbcPgTransactionSetting transaction_setting,
+					  bool changingPart,
+					  EState *estate)
+{
 	TupleDesc	tupleDesc = RelationGetDescr(rel);
 	Oid			dboid = YBCGetDatabaseOid(rel);
 	Oid			relid = RelationGetRelid(rel);
