@@ -80,9 +80,10 @@ static Plan *inconsistent_row_detection_plan(Relation baserel,
 											 Relation indexrel,
 											 Datum lower_bound_ybctid,
 											 bool multi_snapshot_mode);
-static Plan *indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid,
-								 bool multi_snapshot_mode);
-static Plan *baserel_scan_plan1(Relation baserel, Relation indexrel);
+static Plan *outer_indexrel_scan_plan(Relation indexrel,
+									  Datum lower_bound_ybctid,
+									  bool multi_snapshot_mode);
+static Plan *inner_baserel_scan_plan(Relation baserel, Relation indexrel);
 static void inconsistent_row_detection_check(TupleTableSlot *outslot,
 											 Relation indexrel,
 											 List *equality_opcodes);
@@ -94,10 +95,10 @@ static void detect_missing_rows(Relation baserel, Relation indexrel,
 static Plan *missing_row_detection_plan(Relation baserel, Relation indexrel,
 										Datum lower_bound_ybctid,
 										bool multi_snapshot_mode);
-static Plan *baserel_scan_plan2(Relation baserel, Relation indexrel,
-								Datum lower_bound_ybctid,
-								bool multi_snapshot_mode);
-static Plan *indexrel_scan_plan2(Relation indexrel);
+static Plan *outer_baserel_scan_plan(Relation baserel, Relation indexrel,
+									 Datum lower_bound_ybctid,
+									 bool multi_snapshot_mode);
+static Plan *inner_indexrel_scan_plan(Relation indexrel);
 static void missing_row_detection_check(TupleTableSlot *outslot,
 										Relation indexrel,
 										List *unsed_equality_opcodes);
@@ -251,15 +252,15 @@ inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
 	 * Targetlist: ybbasectid, index_attributes, ybuniqueidxkeysuffix (if
 	 * unique), index row ybctid.
 	 */
-	Plan	   *indexrel_scan =
-		indexrel_scan_plan1(indexrel, lower_bound_ybctid, multi_snapshot_mode);
+	Plan	   *indexrel_scan = outer_indexrel_scan_plan(indexrel, lower_bound_ybctid,
+														 multi_snapshot_mode);
 	TupleDesc	indexrel_scan_desc = ExecTypeFromTL(indexrel_scan->targetlist);
 
 	/*
 	 * Inner subplan: base relation scan
 	 * Targetlist: ybctid, index_attributes scanned/computed from baserel.
 	 */
-	Plan	   *baserel_scan = baserel_scan_plan1(baserel, indexrel);
+	Plan	   *baserel_scan = inner_baserel_scan_plan(baserel, indexrel);
 
 	/*
 	 * Join plan targetlist:
@@ -325,8 +326,8 @@ inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
  * In multi_snapshot_mode, also add the qual index row ybctid > lower_bound_ybctid.
  */
 static Plan *
-indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid,
-					bool multi_snapshot_mode)
+outer_indexrel_scan_plan(Relation indexrel, Datum lower_bound_ybctid,
+						 bool multi_snapshot_mode)
 {
 	Expr	   *expr;
 	List	   *index_cols = NIL;
@@ -408,7 +409,7 @@ indexrel_scan_plan1(Relation indexrel, Datum lower_bound_ybctid,
  * base relation. This is similair to how PK index scan works in YB.
  */
 static Plan *
-baserel_scan_plan1(Relation baserel, Relation indexrel)
+inner_baserel_scan_plan(Relation baserel, Relation indexrel)
 {
 	const FormData_pg_attribute *attr;
 	List	   *plan_targetlist = NIL;
@@ -522,8 +523,7 @@ inconsistent_row_detection_check(TupleTableSlot *outslot, Relation indexrel,
 	/* Validate the index attributes */
 	for (int i = 0; i < indnatts; ++i)
 	{
-		ind_att =
-			TupleDescAttr(outslot->tts_tupleDescriptor, attnum);
+		ind_att = TupleDescAttr(outslot->tts_tupleDescriptor, attnum);
 
 		Datum		ind_datum = slot_getattr(outslot, ++attnum, &ind_null);
 		Datum		base_datum = slot_getattr(outslot, ++attnum, &base_null);
@@ -642,15 +642,15 @@ missing_row_detection_plan(Relation baserel, Relation indexrel,
 	 * Outer subplan: base relation scan
 	 * Targetlist: computed_indexrow_ybctid, ybctid
 	 */
-	Plan	   *baserel_scan = baserel_scan_plan2(baserel, indexrel,
-												  lower_bound_ybctid,
-												  multi_snapshot_mode);
+	Plan	   *baserel_scan = outer_baserel_scan_plan(baserel, indexrel,
+													   lower_bound_ybctid,
+													   multi_snapshot_mode);
 
 	/*
 	 * Inner subplan: index relation scan
 	 * Targetlist: index row ybctid (not to be confused with ybbasectid)
 	 */
-	Plan	   *indexrel_scan = indexrel_scan_plan2(indexrel);
+	Plan	   *indexrel_scan = inner_indexrel_scan_plan(indexrel);
 
 	/*
 	 * Join plan targetlist: baserel.computed_indexrow_ybctid, indexrel.ybctid,
@@ -696,8 +696,8 @@ missing_row_detection_plan(Relation baserel, Relation indexrel,
  * In multi_snapshot_mode, also add the qual ybctid > lower_bound_ybctid.
  */
 static Plan *
-baserel_scan_plan2(Relation baserel, Relation indexrel,
-				   Datum lower_bound_ybctid, bool multi_snapshot_mode)
+outer_baserel_scan_plan(Relation baserel, Relation indexrel,
+						Datum lower_bound_ybctid, bool multi_snapshot_mode)
 {
 	List	   *plan_targetlist = NIL;
 	const FormData_pg_attribute *attr;
@@ -783,7 +783,7 @@ baserel_scan_plan2(Relation baserel, Relation indexrel,
  *		SELECT index row ybctid from indexrel where index row ybctid IN (....)
  */
 static Plan *
-indexrel_scan_plan2(Relation indexrel)
+inner_indexrel_scan_plan(Relation indexrel)
 {
 	TupleDesc	indexdesc = RelationGetDescr(indexrel);
 	TargetEntry *target_entry;
