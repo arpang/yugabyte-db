@@ -134,12 +134,9 @@
 #include "access/slru.h"
 #include "access/transam.h"
 #include "access/xact.h"
-#include "catalog/namespace.h"
 #include "catalog/pg_database.h"
 #include "commands/async.h"
 #include "common/hashfn.h"
-#include "executor/spi.h"
-#include "executor/ybModifyTable.h"
 #include "funcapi.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
@@ -152,15 +149,19 @@
 #include "storage/sinval.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
-#include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
 
 /* YB includes */
+#include "catalog/namespace.h"
+#include "executor/spi.h"
+#include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
+#include "utils/lsyscache.h"
 #include "utils/uuid.h"
+
 
 /*
  * Maximum size of a NOTIFY payload, including terminating NULL.  This
@@ -428,8 +429,10 @@ typedef struct NotificationHash
 	Notification *event;		/* => the actual Notification struct */
 } NotificationHash;
 
-// TODO: Do I really need this change? How about keep the struct in .c and
-// expose its size?
+/*
+ * TODO: Do I really need this change? How about keep the struct in .c and
+ * expose its size?
+ */
 struct BackgroundWorkerHandle
 {
 	int slot;
@@ -739,7 +742,7 @@ Async_Notify(const char *channel, const char *payload)
 
 	MemoryContextSwitchTo(oldcontext);
 
-	Oid relid = YbNotificationsRelId(true /* create_if_not_exits */);
+	Oid relid = YbNotificationsRelId(true /* create_if_not_exits */ );
 	Assert(OidIsValid(relid));
 }
 
@@ -937,7 +940,7 @@ YbInsertNotifications(void)
 	if (!pendingNotifies)
 		return;
 
-	Oid relid = YbNotificationsRelId(false /* create_if_not_exits */);
+	Oid relid = YbNotificationsRelId(false /* create_if_not_exits */ );
 	Relation rel = RelationIdGetRelation(relid);
 	TupleDesc desc = RelationGetDescr(rel);
 	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
@@ -1241,8 +1244,10 @@ Exec_ListenPreCommit(void)
 	max = QUEUE_TAIL;
 	prevListener = InvalidBackendId;
 
-	// Start the special walsender process if this is the first listener in the
-	// node.
+	/*
+	 * Start the special walsender process if this is the first listener in the
+	 * node.
+	 */
 	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
 		YbRegisterNotificationsWalSender();
 
@@ -1416,15 +1421,17 @@ asyncQueueUnregister(void)
 	}
 	QUEUE_NEXT_LISTENER(MyBackendId) = InvalidBackendId;
 
-	// Terminate the special walsender process if this was the last listener in
-	// the node.
+	/*
+	 * Terminate the special walsender process if this was the last listener in
+	 * the node.
+	 */
 	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
 	{
 		bool found;
 		BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
 		Assert(found);
 		TerminateBackgroundWorker(shm_handle);
-		// TODO: check that the worker is not restarted after this.
+		/* TODO: check that the worker is not restarted after this. */
 	}
 
 	LWLockRelease(NotifyQueueLock);
@@ -2713,8 +2720,8 @@ YbRegisterNotificationsWalSender()
 	memset(&worker, 0, sizeof(worker));
 	sprintf(worker.bgw_name, "notifications walsender");
 	sprintf(worker.bgw_type, "walsender");
-	// worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
-	// BGWORKER_BACKEND_DATABASE_CONNECTION;
+	/* worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
+	 * BGWORKER_BACKEND_DATABASE_CONNECTION; */
 	worker.bgw_start_time = BgWorkerStart_ConsistentState;
 	worker.bgw_restart_time = 1; /* restart after a crash */
 	sprintf(worker.bgw_library_name, "postgres");
@@ -2736,7 +2743,7 @@ YbRegisterNotificationsWalSender()
 static void
 YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe)
 {
-	Oid relid = YbNotificationsRelId(false /* create_if_not_exits */);
+	Oid relid = YbNotificationsRelId(false /* create_if_not_exits */ );
 	Relation rel = RelationIdGetRelation(relid);
 	TupleDesc desc = RelationGetDescr(rel);
 	int numberOfAttributes = desc->natts;

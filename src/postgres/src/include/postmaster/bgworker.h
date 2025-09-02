@@ -41,7 +41,7 @@
 #ifndef BGWORKER_H
 #define BGWORKER_H
 
-/* Yugabyte includes */
+/* YB includes */
 #include "c.h"
 
 /*---------------------------------------------------------------------

@@ -1517,11 +1517,11 @@ void
 YbNotificationsWalSenderMain()
 {
 	WalSndSignals();
-	// do i need to do InitWalSender? doesn't seem like.
+	/* do i need to do InitWalSender? doesn't seem like. */
 	StartReplicationCmd cmd;
 	cmd.kind = REPLICATION_KIND_LOGICAL;
-	cmd.slotname = "yb_pg_notifications";
-	cmd.yb_pg_notifications = true;
+	cmd.slotname = "yb_notifications";
+	cmd.yb_notifications = true;
 	StartLogicalReplication(&cmd);
 }
 
@@ -1529,7 +1529,6 @@ YbNotificationsWalSenderMain()
  * Load previously initiated logical slot and prepare for sending data (via
  * WalSndLoop).
  */
-// entry point
 static void
 StartLogicalReplication(StartReplicationCmd *cmd)
 {
@@ -1591,7 +1590,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 										 .segment_close = wal_segment_close),
 							  WalSndPrepareWrite, WalSndWriteData,
 							  WalSndUpdateProgress);
-	logical_decoding_ctx->yb_pg_notifications = cmd->yb_pg_notifications;
+	logical_decoding_ctx->yb_notifications = cmd->yb_notifications;
 	xlogreader = logical_decoding_ctx->reader;
 
 	WalSndSetState(WALSNDSTATE_CATCHUP);

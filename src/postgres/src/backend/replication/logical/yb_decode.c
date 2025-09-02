@@ -164,21 +164,25 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 	 */
 	tuple = YBGetHeapTuplesForRecord(yb_record, REORDER_BUFFER_CHANGE_INSERT);
 
-	if (ctx->yb_pg_notifications)
+	if (ctx->yb_notifications)
 	{
-		// TODO:
-		// 1. Doing one tuple at a time may not be most efficient. Saurav
-		// suggested using reoder buffer. Logic can be: keep on adding to reoder
-		// buffer until a commit comes or 90% (or some other %) of the capacity
-		// is full.
-		// 2. Handle queue full case (asyncQueueIsFull()). There must be some
-		// rate limiting mechanism
+		/*
+		 * TODO:
+		 * 1. Doing one tuple at a time may not be most efficient. Saurav
+		 * suggested using reoder buffer. Logic can be: keep on adding to reoder
+		 * buffer until a commit comes or 90% (or some other %) of the capacity
+		 * is full.
+		 * 2. Handle queue full case (asyncQueueIsFull()). There must be some
+		 * rate limiting mechanism
+		 */
 		asyncQueueAddEntries(list_head(list_make1(tuple)));
 		return;
 	}
 
-	// There is no concrete reason in my understanding why YB uses reorder buffer.
-	// Notification walsender can use it to batch tuples.
+	/*
+	 * There is no concrete reason in my understanding why YB uses reorder buffer.
+	 * Notification walsender can use it to batch tuples.
+	 */
 	ReorderBufferChange *change = ReorderBufferGetChange(ctx->reorder);
 	change->action = REORDER_BUFFER_CHANGE_INSERT;
 	/*
@@ -458,7 +462,7 @@ YBDecodeCommit(LogicalDecodingContext *ctx, XLogReaderState *record)
 		 "end_lsn: %lu",
 		 yb_record->xid, commit_lsn, end_lsn);
 
-	// it sends data, I might need to make changes in it if I decide to use it.
+	/* it sends data, I might need to make changes in it if I decide to use it. */
 	ReorderBufferCommit(ctx->reorder, yb_record->xid, commit_lsn, end_lsn,
 						yb_record->commit_time, origin_id, origin_lsn);
 

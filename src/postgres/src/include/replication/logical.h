@@ -30,7 +30,6 @@ typedef void (*LogicalOutputPluginWriterUpdateProgress) (struct LogicalDecodingC
 														 bool skipped_xact
 );
 
-// TODO: Add bool field to see if it is listen notify walsender
 typedef struct LogicalDecodingContext
 {
 	/* memory context this is all allocated in */
@@ -124,7 +123,7 @@ typedef struct LogicalDecodingContext
 	 */
 	XLogRecPtr	yb_start_decoding_at;
 
-	bool		yb_pg_notifications;
+	bool		yb_notifications;
 
 	/*
 	 * YB: A per table_oid to oid map.
