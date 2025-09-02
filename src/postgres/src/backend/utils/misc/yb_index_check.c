@@ -31,6 +31,7 @@
 #include "catalog/pg_collation.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/pg_operator.h"
+#include "commands/defrem.h"
 #include "executor/executor.h"
 #include "executor/spi.h"
 #include "executor/tuptable.h"
@@ -138,8 +139,7 @@ Datum
 yb_index_check(PG_FUNCTION_ARGS)
 {
 	Oid			indexoid = PG_GETARG_OID(0);
-	bool		single_snapshot_mode = PG_GETARG_BOOL(1);
-	bool		multi_snapshot_mode = !single_snapshot_mode;
+	bool		multi_snapshot_mode = !PG_GETARG_BOOL(1);
 
 	if (yb_test_index_check_num_batches_per_snapshot == 0)
 		multi_snapshot_mode = false;
@@ -176,8 +176,8 @@ do_index_check(Oid indexoid, bool multi_snapshot_mode)
 
 	if (indexrel->rd_rel->relam != LSM_AM_OID)
 		elog(ERROR,
-			 "This operation is not supported for index with access method %d",
-			 indexrel->rd_rel->relam);
+			 "This operation is not supported for index with %s access method",
+			 get_am_name(indexrel->rd_rel->relam));
 
 	if (!indexrel->rd_index->indisvalid)
 		elog(ERROR, "Index '%s' is marked invalid",
@@ -278,15 +278,15 @@ inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
 	int			resno = 1;
 
 	/* outer.ybbasectid, inner.ybctid, index attributes */
-	for (i = 1; i <= RelationGetDescr(indexrel)->natts + 1; i++)
+	for (i = 0; i < RelationGetDescr(indexrel)->natts + 1; i++)
 	{
-		attr = TupleDescAttr(indexrel_scan_desc, i - 1);
-		expr = (Expr *) makeVar(OUTER_VAR, i, attr->atttypid, attr->atttypmod,
+		attr = TupleDescAttr(indexrel_scan_desc, i);
+		expr = (Expr *) makeVar(OUTER_VAR, i + 1, attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, resno++, "", false);
 		plan_tlist = lappend(plan_tlist, target_entry);
 
-		expr = (Expr *) makeVar(INNER_VAR, i, attr->atttypid, attr->atttypmod,
+		expr = (Expr *) makeVar(INNER_VAR, i + 1, attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, resno++, "", false);
 		plan_tlist = lappend(plan_tlist, target_entry);
@@ -296,14 +296,14 @@ inconsistent_row_detection_plan(Relation baserel, Relation indexrel,
 	attr = SystemAttributeDefinition(YBTupleIdAttributeNumber);
 	if (indexrel->rd_index->indisunique)
 	{
-		expr = (Expr *) makeVar(OUTER_VAR, i++, attr->atttypid, attr->atttypmod,
+		expr = (Expr *) makeVar(OUTER_VAR, ++i, attr->atttypid, attr->atttypmod,
 								attr->attcollation, 0);
 		target_entry = makeTargetEntry(expr, resno++, "", false);
 		plan_tlist = lappend(plan_tlist, target_entry);
 	}
 
 	/* outer.ybctid */
-	expr = (Expr *) makeVar(OUTER_VAR, i++, attr->atttypid, attr->atttypmod,
+	expr = (Expr *) makeVar(OUTER_VAR, ++i, attr->atttypid, attr->atttypmod,
 							attr->attcollation, 0);
 	target_entry = makeTargetEntry(expr, resno++, "", false);
 	plan_tlist = lappend(plan_tlist, target_entry);
@@ -622,7 +622,6 @@ detect_missing_rows(Relation baserel, Relation indexrel,
 							expected_index_rowcount, actual_index_rowcount),
 					 errdetail(IndRelDetail(indexrel))));
 	}
-	return;
 }
 
 /*
