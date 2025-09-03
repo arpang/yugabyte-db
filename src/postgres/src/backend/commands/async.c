@@ -136,6 +136,7 @@
 #include "access/xact.h"
 #include "catalog/pg_database.h"
 #include "commands/async.h"
+#include "commands/dbcommands.h"
 #include "common/hashfn.h"
 #include "funcapi.h"
 #include "libpq/libpq.h"
@@ -465,6 +466,8 @@ bool		Trace_notify = false;
 static Oid YbCachedNotificationsRelId = InvalidOid;
 static const char *YB_NOTIFY_SCHEMA_NAME = "yb_notify";
 static const char *YB_NOTIFICATIONS_RELNAME = "notifications";
+static const char *YB_NOTIFICATIONS_PUBLICATION = "yb_notifications_"
+												  "publication";
 
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
@@ -2617,18 +2620,31 @@ YbCreateNotificationRel()
 
 	initStringInfo(&querybuf);
 
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
 	appendStringInfo(&querybuf,
 					 "CREATE TABLE %s.%s(node uuid, pid int, db oid NOT NULL, "
 					 "channel text NOT NULL, payload text,  primary key((node, "
 					 "pid) HASH))",
 					 YB_NOTIFY_SCHEMA_NAME, YB_NOTIFICATIONS_RELNAME);
 
-	if (SPI_connect() != SPI_OK_CONNECT)
-		elog(ERROR, "SPI_connect failed");
-
 	elog(INFO, "Executing %s", querybuf.data);
+
 	if (SPI_execute(querybuf.data, false, 0) != SPI_OK_UTILITY)
 		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
+
+	if (MyDatabaseId == 13515)
+	{
+		resetStringInfo(&querybuf);
+		appendStringInfo(&querybuf, "CREATE PUBLICATION %s FOR TABLE %s.%s.%s",
+						 YB_NOTIFICATIONS_PUBLICATION,
+						 get_database_name(MyDatabaseId), YB_NOTIFY_SCHEMA_NAME,
+						 YB_NOTIFICATIONS_RELNAME);
+
+		if (SPI_execute(querybuf.data, false, 0) != SPI_OK_UTILITY)
+			elog(ERROR, "SPI_exec failed: %s", querybuf.data);
+	}
 
 	pfree(querybuf.data);
 
