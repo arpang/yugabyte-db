@@ -621,9 +621,6 @@ AsyncShmemInit(void)
 Datum
 pg_notify(PG_FUNCTION_ARGS)
 {
-	/* Note: Async_Notify is replaced by NOOP */
-	YBRaiseNotSupportedSignal("NOTIFY not supported yet and will be ignored", 1872 /* issue_no */ , WARNING);
-
 	const char *channel;
 	const char *payload;
 
@@ -808,12 +805,6 @@ queue_listen(ListenActionKind action, const char *channel)
 void
 Async_Listen(const char *channel)
 {
-	/*
-	 * (YB) Note: This function is replaced by NOOP, but we don't raise warning
-	 * here to avoid double warning message when using "LISTEN channel".
-	 */
-	return;
-
 	if (Trace_notify)
 		elog(DEBUG1, "Async_Listen(%s,%d)", channel, MyProcPid);
 
@@ -1203,7 +1194,7 @@ Exec_ListenPreCommit(void)
 	QueuePosition head;
 	QueuePosition max;
 	BackendId	prevListener;
-
+	elog(INFO, "Arpan Exec_ListenPreCommit");
 	/*
 	 * Nothing to do if we are already listening to something, nor if we
 	 * already ran this routine in this transaction.
@@ -1253,6 +1244,7 @@ Exec_ListenPreCommit(void)
 	 * Start the special walsender process if this is the first listener in the
 	 * node.
 	 */
+	elog(INFO, "Arpan QUEUE_FIRST_LISTENER == InvalidBackendId %d", QUEUE_FIRST_LISTENER == InvalidBackendId);
 	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
 		YbRegisterNotificationsWalSender();
 
@@ -2738,10 +2730,8 @@ YbRegisterNotificationsWalSender()
 	memset(&worker, 0, sizeof(worker));
 	sprintf(worker.bgw_name, "notifications walsender");
 	sprintf(worker.bgw_type, "walsender");
-	/*
-	 * worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
-	 * BGWORKER_BACKEND_DATABASE_CONNECTION;
-	 */
+	worker.bgw_flags = BGWORKER_SHMEM_ACCESS;
+	/* | BGWORKER_BACKEND_DATABASE_CONNECTION; */
 	worker.bgw_start_time = BgWorkerStart_ConsistentState;
 	worker.bgw_restart_time = 1; /* restart after a crash */
 	sprintf(worker.bgw_library_name, "postgres");
