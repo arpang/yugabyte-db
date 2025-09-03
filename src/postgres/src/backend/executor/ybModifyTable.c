@@ -827,7 +827,6 @@ YBCExecuteDeleteForDB(Oid dboid,
 					  EState *estate)
 {
 	TupleDesc	tupleDesc = RelationGetDescr(rel);
-	Oid			dboid = YBCGetDatabaseOid(rel);
 	Oid			relid = RelationGetRelid(rel);
 	YbcPgStatement delete_stmt = NULL;
 	Datum		ybctid;
