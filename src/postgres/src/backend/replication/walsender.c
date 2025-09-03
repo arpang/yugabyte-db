@@ -1520,6 +1520,18 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 	ReplicationSlotDrop(cmd->slotname, !cmd->wait);
 }
 
+void
+YbNotificationsWalSenderMain()
+{
+	WalSndSignals();
+	/* do i need to do InitWalSender? doesn't seem like. */
+	StartReplicationCmd cmd;
+	cmd.kind = REPLICATION_KIND_LOGICAL;
+	cmd.slotname = "yb_notifications";
+	cmd.yb_notifications = true;
+	StartLogicalReplication(&cmd);
+}
+
 /*
  * Load previously initiated logical slot and prepare for sending data (via
  * WalSndLoop).
@@ -1585,6 +1597,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 										 .segment_close = wal_segment_close),
 							  WalSndPrepareWrite, WalSndWriteData,
 							  WalSndUpdateProgress);
+	logical_decoding_ctx->yb_notifications = cmd->yb_notifications;
 	xlogreader = logical_decoding_ctx->reader;
 
 	WalSndSetState(WALSNDSTATE_CATCHUP);

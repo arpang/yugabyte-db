@@ -112,6 +112,7 @@ typedef enum BgwHandleStatus
 } BgwHandleStatus;
 
 struct BackgroundWorkerHandle;
+
 typedef struct BackgroundWorkerHandle BackgroundWorkerHandle;
 
 /* Register a new bgworker during shared_preload_libraries */
