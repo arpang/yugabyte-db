@@ -1234,6 +1234,9 @@ Exec_ListenPreCommit(void)
 	 *
 	 * We need exclusive lock here so we can look at other backends' entries
 	 * and manipulate the list links.
+	 *
+	 * YB TODO: The queue contains only committed notifications, so we can
+	 * advance the pos pointer to the end of the queue, right?
 	 */
 	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
 	head = QUEUE_HEAD;
