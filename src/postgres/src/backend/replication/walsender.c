@@ -68,6 +68,7 @@
 #include "miscadmin.h"
 #include "nodes/replnodes.h"
 #include "pgstat.h"
+#include "postmaster/bgworker.h"
 #include "postmaster/interrupt.h"
 #include "replication/decode.h"
 #include "replication/logical.h"
@@ -1517,6 +1518,8 @@ void
 YbNotificationsWalSenderMain()
 {
 	WalSndSignals();
+	/* TODO: fix the hard coding. */
+	BackgroundWorkerInitializeConnection("yugabyte", "yugabyte", 0);
 	/* do i need to do InitWalSender? doesn't seem like. */
 	StartReplicationCmd cmd;
 	cmd.kind = REPLICATION_KIND_LOGICAL;

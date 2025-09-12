@@ -1430,6 +1430,7 @@ asyncQueueUnregister(void)
 		bool found;
 		BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
 		Assert(found);
+		elog(INFO, "calling TerminateBackgroundWorker");
 		TerminateBackgroundWorker(shm_handle);
 		/* TODO: check that the worker is not restarted after this. */
 	}
@@ -2733,8 +2734,8 @@ YbRegisterNotificationsWalSender()
 	memset(&worker, 0, sizeof(worker));
 	sprintf(worker.bgw_name, "notifications walsender");
 	sprintf(worker.bgw_type, "walsender");
-	worker.bgw_flags = BGWORKER_SHMEM_ACCESS;
-	/* | BGWORKER_BACKEND_DATABASE_CONNECTION; */
+	worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
+					   BGWORKER_BACKEND_DATABASE_CONNECTION;
 	worker.bgw_start_time = BgWorkerStart_ConsistentState;
 	worker.bgw_restart_time = 1; /* restart after a crash */
 	sprintf(worker.bgw_library_name, "postgres");
@@ -2744,6 +2745,15 @@ YbRegisterNotificationsWalSender()
 
 	BackgroundWorkerHandle *local_handle;
 	RegisterDynamicBackgroundWorker(&worker, &local_handle);
+
+	BgwHandleStatus status;
+	pid_t pid;
+	status = WaitForBackgroundWorkerStartup(local_handle, &pid);
+	if (status != BGWH_STARTED)
+		ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+						errmsg("could not start background process"),
+						errhint("More details may be available in the server "
+								"log.")));
 
 	bool found;
 	BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
