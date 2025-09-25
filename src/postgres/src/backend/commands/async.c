@@ -820,12 +820,6 @@ Async_Listen(const char *channel)
 void
 Async_Unlisten(const char *channel)
 {
-	/*
-	 * (YB) Note: This function is replaced by NOOP, but we don't raise warning
-	 * here to avoid double warning message when using "UNLISTEN channel".
-	 */
-	return;
-
 	if (Trace_notify)
 		elog(DEBUG1, "Async_Unlisten(%s,%d)", channel, MyProcPid);
 
@@ -1195,7 +1189,7 @@ Exec_ListenPreCommit(void)
 	QueuePosition head;
 	QueuePosition max;
 	BackendId	prevListener;
-	elog(INFO, "Arpan Exec_ListenPreCommit");
+
 	/*
 	 * Nothing to do if we are already listening to something, nor if we
 	 * already ran this routine in this transaction.
@@ -1426,14 +1420,14 @@ asyncQueueUnregister(void)
 	 * Terminate the special walsender process if this was the last listener in
 	 * the node.
 	 */
+	elog(INFO, "QUEUE_FIRST_LISTENER == InvalidBackendId %d", QUEUE_FIRST_LISTENER == InvalidBackendId);
 	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
 	{
 		bool found;
 		BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
 		Assert(found);
-		elog(INFO, "calling TerminateBackgroundWorker");
+		elog(INFO, "Arpan calling TerminateBackgroundWorker slot %d, generation %ld",shm_handle->slot, shm_handle->generation );
 		TerminateBackgroundWorker(shm_handle);
-		/* TODO: check that the worker is not restarted after this. */
 	}
 
 	LWLockRelease(NotifyQueueLock);
@@ -1616,7 +1610,10 @@ asyncQueueAddEntries(ListCell *nextNotify)
 		if (offset + qe.length <= QUEUE_PAGESIZE)
 		{
 			/* OK, so advance nextNotify past this item */
-			nextNotify = lnext(pendingNotifies->events, nextNotify);
+			if (!is_yb)
+				nextNotify = lnext(pendingNotifies->events, nextNotify);
+			else
+				nextNotify = NULL;
 		}
 		else
 		{
@@ -2742,7 +2739,7 @@ YbRegisterNotificationsWalSender()
 	sprintf(worker.bgw_library_name, "postgres");
 	sprintf(worker.bgw_function_name, "YbNotificationsWalSenderMain");
 	worker.bgw_main_arg = (Datum) 0;
-	worker.bgw_notify_pid = 0;
+	worker.bgw_notify_pid = getpid();
 
 	BackgroundWorkerHandle *local_handle;
 	RegisterDynamicBackgroundWorker(&worker, &local_handle);
@@ -2760,7 +2757,7 @@ YbRegisterNotificationsWalSender()
 	BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
 	shm_handle->slot = local_handle->slot;
 	shm_handle->generation = local_handle->generation;
-
+	elog(INFO, "New bg worker registered slot %d generation %ld", shm_handle->slot, shm_handle->generation);
 	free(local_handle);
 }
 
