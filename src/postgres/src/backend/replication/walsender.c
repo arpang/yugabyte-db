@@ -125,6 +125,7 @@ bool		am_walsender = false;	/* Am I a walsender process? */
 bool		am_cascading_walsender = false; /* Am I cascading WAL to another
 											 * standby? */
 bool		am_db_walsender = false;	/* Connected to a database? */
+bool am_listen_walsender = false;		/* Walsender for LISTEN command? */
 
 /* User-settable parameters for walsender */
 int			max_wal_senders = 0;	/* the maximum number of concurrent
@@ -1517,14 +1518,25 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 void
 YbNotificationsWalSenderMain()
 {
+	am_walsender = true;
+	am_db_walsender = true;
+	am_listen_walsender = true;
 	WalSndSignals();
-	/* TODO: fix the hard coding. */
+	BackgroundWorkerUnblockSignals();
+	// TODO: remove hardcoding
 	BackgroundWorkerInitializeConnection("yugabyte", "yugabyte", 0);
-	/* do i need to do InitWalSender? doesn't seem like. */
+
+	// TODO: create slot here.
+	InitWalSender();
 	StartReplicationCmd cmd;
+	cmd.type = T_StartReplicationCmd;
 	cmd.kind = REPLICATION_KIND_LOGICAL;
-	cmd.slotname = "yb_notifications";
+	cmd.slotname = "yb_notifications"; // TODO: slot name should have tserver
+									   // uuid.
 	cmd.yb_notifications = true;
+	cmd.startpoint = InvalidXLogRecPtr;
+	cmd.options = NIL;
+	cmd.timeline = 0;
 	StartLogicalReplication(&cmd);
 }
 
@@ -1576,7 +1588,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 		got_STOPPING = true;
 	}
 
-	if (IsYugaByteEnabled())
+	if (IsYugaByteEnabled() && !am_listen_walsender)
 		YBCGetTableHashRange(&cmd->options);
 
 	/*
@@ -1595,15 +1607,17 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 							  WalSndUpdateProgress);
 	logical_decoding_ctx->yb_notifications = cmd->yb_notifications;
 	xlogreader = logical_decoding_ctx->reader;
-
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 
-	/* Send a CopyBothResponse message, and start streaming */
-	pq_beginmessage(&buf, 'W');
-	pq_sendbyte(&buf, 0);
-	pq_sendint16(&buf, 0);
-	pq_endmessage(&buf);
-	pq_flush();
+	if (!am_listen_walsender)
+	{
+		/* Send a CopyBothResponse message, and start streaming */
+		pq_beginmessage(&buf, 'W');
+		pq_sendbyte(&buf, 0);
+		pq_sendint16(&buf, 0);
+		pq_endmessage(&buf);
+		pq_flush();
+	}
 
 	/* Start reading WAL from the oldest required WAL. */
 	XLogBeginRead(logical_decoding_ctx->reader,
@@ -2796,7 +2810,8 @@ WalSndLoop(WalSndSendDataCallback send_data)
 		}
 
 		/* Check for input from the client */
-		ProcessRepliesIfAny();
+		if (!am_listen_walsender)
+			ProcessRepliesIfAny();
 
 		/*
 		 * If we have received CopyDone from the client, sent CopyDone

@@ -466,6 +466,7 @@ bool		Trace_notify = false;
 static Oid YbCachedNotificationsRelId = InvalidOid;
 static const char *YB_NOTIFY_SCHEMA_NAME = "yb_notify";
 static const char *YB_NOTIFICATIONS_RELNAME = "notifications";
+// TODO: is publication required?
 static const char *YB_NOTIFICATIONS_PUBLICATION = "yb_notifications_"
 												  "publication";
 
