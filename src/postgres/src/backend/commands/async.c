@@ -2767,7 +2767,7 @@ YbRegisterNotificationsWalSender()
 	shm_handle->slot = local_handle->slot;
 	shm_handle->generation = local_handle->generation;
 	elog(INFO, "New bg worker registered slot %d generation %ld", shm_handle->slot, shm_handle->generation);
-	free(local_handle);
+	pfree(local_handle);
 }
 
 static void
