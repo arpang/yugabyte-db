@@ -1528,6 +1528,7 @@ NotificationsSlotName()
 void
 CreateNotificationsSlot(char *slotname)
 {
+	MemoryContext cur_context = CurrentMemoryContext;
 	PG_TRY();
 	{
 		/* If a notification slot with the same name already exists, drop it.
@@ -1541,6 +1542,15 @@ CreateNotificationsSlot(char *slotname)
 		 */
 		elog(LOG, "Arpan Calling ReplicationSlotDrop for %s", slotname);
 		ReplicationSlotDrop(slotname, true);
+	}
+	PG_CATCH();
+	{
+		ErrorData *edata;
+		MemoryContextSwitchTo(cur_context);
+		edata = CopyErrorData();
+		elog(LOG, "Arpan ReplicationSlotDrop for %s threw error: %s", slotname, edata->message);
+		FreeErrorData(edata);
+		FlushErrorState();
 	}
 	PG_END_TRY();
 
