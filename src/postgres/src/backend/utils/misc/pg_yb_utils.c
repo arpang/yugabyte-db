@@ -7954,3 +7954,19 @@ YbCheckTserverResponseCacheForAuthGflags()
 		*YBCGetGFlags()->ysql_enable_read_request_cache_for_connection_auth &&
 		yb_enable_invalidation_messages;
 }
+
+char *
+YbConvertToHex(const unsigned char *src, size_t len, char *dest)
+{
+	static const char hex_chars[] = "0123456789abcdef";
+
+	for (size_t i = 0; i < len; ++i)
+	{
+		const int	high = src[i] >> 4;
+		const int	low = src[i] & 0x0F;
+
+		*(dest++) = hex_chars[high];
+		*(dest++) = hex_chars[low];
+	}
+	return dest;
+}

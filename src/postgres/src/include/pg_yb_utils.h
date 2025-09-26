@@ -1427,4 +1427,6 @@ extern bool YbIsAnyDependentGeneratedColPK(Relation rel, AttrNumber attnum);
 
 extern bool YbCheckTserverResponseCacheForAuthGflags();
 
+extern char *YbConvertToHex(const unsigned char *src, size_t len, char *dest);
+
 #endif							/* PG_YB_UTILS_H */

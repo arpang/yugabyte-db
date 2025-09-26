@@ -1515,6 +1515,49 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 	ReplicationSlotDrop(cmd->slotname, !cmd->wait);
 }
 
+char *
+NotificationsSlotName()
+{
+	size_t hex_uuid_len = 2 * UUID_LEN + 1;
+	char *uuid = palloc(hex_uuid_len);
+	YbConvertToHex(YBCGetLocalTserverUuid(), UUID_LEN, uuid);
+	uuid[2 * UUID_LEN] = '\0';
+	return psprintf("yb_notifications_%s", uuid);
+}
+
+void
+CreateNotificationsSlot(char *slotname)
+{
+	PG_TRY();
+	{
+		/* If a notification slot with the same name already exists, drop it.
+		 * Ideally, such a slot should not exists. But it can exist when created
+		 * by an old LISTENER on this node but was not dropped when no listeners
+		 * remained.  It is possible if the last listening backend crashed or
+		 * the tserver itself crashed.
+		 *
+		 * TODO: handle slot deletion when last listening backend crashes or the
+		 * tserver itself crashes.
+		 */
+		elog(LOG, "Arpan Calling ReplicationSlotDrop for %s", slotname);
+		ReplicationSlotDrop(slotname, true);
+	}
+	PG_END_TRY();
+
+	/*
+	 * TODO:
+	 * - Is RS_EPHEMERAL the right choice?
+	 * - is two_phase = false the right choice?
+	 * - what should be the plugin?
+	 * - is CRS_HYBRID_TIME the right choice?
+	 */
+	uint64_t yb_consistent_snapshot_time;
+	ReplicationSlotCreate(slotname, false, RS_EPHEMERAL,
+						  /* two_phase = */ false, "wal2json",
+						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
+						  CRS_HYBRID_TIME, YB_CRS_TRANSACTION);
+}
+
 void
 YbNotificationsWalSenderMain()
 {
@@ -1531,9 +1574,13 @@ YbNotificationsWalSenderMain()
 	StartReplicationCmd cmd;
 	cmd.type = T_StartReplicationCmd;
 	cmd.kind = REPLICATION_KIND_LOGICAL;
-	cmd.slotname = "yb_notifications"; // TODO: slot name should have tserver
-									   // uuid.
-	cmd.yb_notifications = true;
+	char *slotname = NotificationsSlotName();
+
+	CreateNotificationsSlot(slotname);
+
+	cmd.slotname = slotname;
+	cmd.yb_notifications = true; // TODO: this is not needed, just use
+								 // am_listen_walsender
 	cmd.startpoint = InvalidXLogRecPtr;
 	cmd.options = NIL;
 	cmd.timeline = 0;
@@ -2796,6 +2843,7 @@ WalSndLoop(WalSndSendDataCallback send_data)
 	 */
 	for (;;)
 	{
+		elog(LOG, "Arpan WalSndLoop");
 		/* Clear any already-pending wakeups */
 		ResetLatch(MyLatch);
 
@@ -3366,6 +3414,7 @@ retry:
 static void
 XLogSendLogical(void)
 {
+	elog(LOG, "Arpan XLogSendLogical");
 	XLogRecord *record;
 	char	   *errm;
 
@@ -3419,6 +3468,11 @@ XLogSendLogical(void)
 		LogicalDecodingProcessRecord(logical_decoding_ctx, logical_decoding_ctx->reader);
 
 		sentPtr = logical_decoding_ctx->reader->EndRecPtr;
+	}
+	else
+	{
+		elog(LOG, "Arpan not calling LogicalDecodingProcessRecord yb_record %p",
+			 yb_record);
 	}
 
 	/*
