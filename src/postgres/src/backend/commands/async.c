@@ -1428,6 +1428,8 @@ asyncQueueUnregister(void)
 		Assert(found);
 		elog(INFO, "Arpan calling TerminateBackgroundWorker slot %d, generation %ld",shm_handle->slot, shm_handle->generation );
 		TerminateBackgroundWorker(shm_handle);
+		shm_handle->generation = 0;
+		shm_handle->slot = 0;
 	}
 
 	LWLockRelease(NotifyQueueLock);
@@ -1663,6 +1665,13 @@ asyncQueueAddEntries(ListCell *nextNotify)
 	QUEUE_HEAD = queue_head;
 
 	LWLockRelease(NotifySLRULock);
+
+	/*
+	 * YB note: signal listening backends when notifications are produced in the
+	 * queue.
+	 */
+	if (is_yb)
+		SignalBackends();
 
 	return nextNotify;
 }
