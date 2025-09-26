@@ -1512,7 +1512,7 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 				 errmsg("waiting for a replication slot is not yet"
 						" supported")));
 
-	ReplicationSlotDrop(cmd->slotname, !cmd->wait);
+	ReplicationSlotDrop(cmd->slotname, !cmd->wait, /* yb_force = */ false);
 }
 
 char *
@@ -1541,7 +1541,7 @@ CreateNotificationsSlot(char *slotname)
 		 * tserver itself crashes.
 		 */
 		elog(LOG, "Arpan Calling ReplicationSlotDrop for %s", slotname);
-		ReplicationSlotDrop(slotname, true);
+		ReplicationSlotDrop(slotname, /* nowait = */ true, /* yb_force = */ true);
 	}
 	PG_CATCH();
 	{

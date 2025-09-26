@@ -846,7 +846,7 @@ restart:
  * Permanently drop replication slot identified by the passed in name.
  */
 void
-ReplicationSlotDrop(const char *name, bool nowait)
+ReplicationSlotDrop(const char *name, bool nowait, bool yb_force)
 {
 	Assert(MyReplicationSlot == NULL);
 
@@ -861,7 +861,7 @@ ReplicationSlotDrop(const char *name, bool nowait)
 
 		YBCGetReplicationSlot(name, &yb_replication_slot);
 
-		if (yb_replication_slot->active)
+		if (yb_replication_slot->active && !yb_force)
 			ereport(ERROR,
 					(errcode(ERRCODE_OBJECT_IN_USE),
 					 errmsg("replication slot \"%s\" is active", name)));
