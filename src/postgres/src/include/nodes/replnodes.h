@@ -84,7 +84,6 @@ typedef struct StartReplicationCmd
 	TimeLineID	timeline;
 	XLogRecPtr	startpoint;
 	List	   *options;
-	bool		yb_notifications;
 } StartReplicationCmd;
 
 

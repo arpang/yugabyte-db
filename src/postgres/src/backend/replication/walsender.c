@@ -1579,18 +1579,15 @@ YbNotificationsWalSenderMain()
 	// TODO: remove hardcoding
 	BackgroundWorkerInitializeConnection("yugabyte", "yugabyte", 0);
 
-	// TODO: create slot here.
 	InitWalSender();
-	StartReplicationCmd cmd;
-	cmd.type = T_StartReplicationCmd;
-	cmd.kind = REPLICATION_KIND_LOGICAL;
 	char *slotname = NotificationsSlotName();
 
 	CreateNotificationsSlot(slotname);
 
+	StartReplicationCmd cmd;
+	cmd.type = T_StartReplicationCmd;
+	cmd.kind = REPLICATION_KIND_LOGICAL;
 	cmd.slotname = slotname;
-	cmd.yb_notifications = true; // TODO: this is not needed, just use
-								 // am_listen_walsender
 	cmd.startpoint = InvalidXLogRecPtr;
 	cmd.options = NIL;
 	cmd.timeline = 0;
@@ -1662,7 +1659,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 										 .segment_close = wal_segment_close),
 							  WalSndPrepareWrite, WalSndWriteData,
 							  WalSndUpdateProgress);
-	logical_decoding_ctx->yb_notifications = cmd->yb_notifications;
+	logical_decoding_ctx->yb_notifications = am_listen_walsender;
 	xlogreader = logical_decoding_ctx->reader;
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 
@@ -2853,7 +2850,6 @@ WalSndLoop(WalSndSendDataCallback send_data)
 	 */
 	for (;;)
 	{
-		elog(LOG, "Arpan WalSndLoop");
 		/* Clear any already-pending wakeups */
 		ResetLatch(MyLatch);
 
@@ -3424,7 +3420,6 @@ retry:
 static void
 XLogSendLogical(void)
 {
-	elog(LOG, "Arpan XLogSendLogical");
 	XLogRecord *record;
 	char	   *errm;
 
@@ -3478,11 +3473,6 @@ XLogSendLogical(void)
 		LogicalDecodingProcessRecord(logical_decoding_ctx, logical_decoding_ctx->reader);
 
 		sentPtr = logical_decoding_ctx->reader->EndRecPtr;
-	}
-	else
-	{
-		elog(LOG, "Arpan not calling LogicalDecodingProcessRecord yb_record %p",
-			 yb_record);
 	}
 
 	/*
