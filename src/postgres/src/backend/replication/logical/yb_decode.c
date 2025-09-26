@@ -67,16 +67,22 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 {
 	TimestampTz start_time = GetCurrentTimestamp();
 
+	YbcPgRowMessageAction action = record->yb_virtual_wal_record->action;
+	if (ctx->yb_notifications && (action != YB_PG_ROW_MESSAGE_ACTION_INSERT &&
+								  action != YB_PG_ROW_MESSAGE_ACTION_BEGIN &&
+								  action != YB_PG_ROW_MESSAGE_ACTION_COMMIT))
+		return;
+
 	elog(DEBUG4,
 		 "YBLogicalDecodingProcessRecord: Decoding record with action = %d. "
 		 "yb_read_time is set to %d",
-		 record->yb_virtual_wal_record->action, yb_is_read_time_ht);
+		 action, yb_is_read_time_ht);
 
 	/* Check if we need a relcache refresh. */
 	YBHandleRelcacheRefresh(ctx, record);
 
 	/* Now delegate to specific handlers depending on the action type. */
-	switch (record->yb_virtual_wal_record->action)
+	switch (action)
 	{
 			/* Nothing to handle here. */
 		case YB_PG_ROW_MESSAGE_ACTION_DDL:
@@ -89,6 +95,7 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
+			elog(LOG, "Arpan BEGIN");
 			/*
 			 * Start a transaction so that we can get the relation by oid in
 			 * case of change operations. This transaction must be aborted
@@ -99,6 +106,7 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 
 		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
 			{
+				elog(LOG, "Arpan INSERT");
 				YBDecodeInsert(ctx, record);
 				break;
 			}
@@ -117,7 +125,9 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 
 		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
 			{
-				YBDecodeCommit(ctx, record);
+				elog(LOG, "Arpan COMMIT");
+				if (!ctx->yb_notifications)
+					YBDecodeCommit(ctx, record);
 
 				/*
 				 * Abort the transaction that we started upon receiving the BEGIN
@@ -174,6 +184,7 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 		 * 2. Handle queue full case (asyncQueueIsFull()). There must be some
 		 * rate limiting mechanism
 		 */
+		elog(LOG, "Adding asyncQueueAddEntries");
 		asyncQueueAddEntries(list_head(list_make1(tuple)));
 		return;
 	}
@@ -530,6 +541,8 @@ YBGetHeapTuplesForRecord(const YbVirtualWalRecord *yb_record,
 		pfree((char *) tuple_string);
 	}
 
+	elog(LOG, "Arpan notification tuple %s",
+		 YbHeapTupleToString(tuple, tupdesc));
 	RelationClose(relation);
 	return tuple;
 }
