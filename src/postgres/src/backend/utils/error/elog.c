@@ -134,6 +134,7 @@
 #include "utils/ps_status.h"
 
 /* YB includes */
+#include <sys/stat.h>
 #include "common/pg_yb_common.h"
 #include "pg_yb_utils.h"
 #include "ybgate/ybgate_status.h"
@@ -2607,6 +2608,16 @@ DebugFileOpen(void)
 		 *
 		 * Make sure we can write the file, and find out if it's a tty.
 		 */
+
+		/*
+		 * YB note: Keep the permissions of debug file same as the log files.
+		 *
+		 * Note we do not let Log_file_mode disable IWUSR, since we certainly
+		 * want to be able to write the files ourselves.
+		 */
+		mode_t yb_oumask;
+		yb_oumask = umask((mode_t) ((~(Log_file_mode | S_IWUSR)) & (S_IRWXU | S_IRWXG | S_IRWXO)));
+
 		if ((fd = open(OutputFileName, O_CREAT | O_APPEND | O_WRONLY,
 					   0666)) < 0)
 			ereport(FATAL,
@@ -2614,6 +2625,7 @@ DebugFileOpen(void)
 					 errmsg("could not open file \"%s\": %m", OutputFileName)));
 		istty = isatty(fd);
 		close(fd);
+		umask(yb_oumask);
 
 		/*
 		 * Redirect our stderr to the debug output file.
