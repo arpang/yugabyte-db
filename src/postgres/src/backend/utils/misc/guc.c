@@ -3954,7 +3954,7 @@ static struct config_int ConfigureNamesInt[] =
 						 "start with a 0 (zero).)")
 		},
 		&Log_file_mode,
-		0660, 0000, 0777,
+		0600, 0000, 0777,
 		NULL, NULL, show_log_file_mode
 	},
 

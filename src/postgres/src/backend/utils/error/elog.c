@@ -2609,22 +2609,25 @@ DebugFileOpen(void)
 		 * Make sure we can write the file, and find out if it's a tty.
 		 */
 
-		/*
-		 * YB note: Keep the permissions of debug file same as the log files.
-		 *
-		 * Note we do not let Log_file_mode disable IWUSR, since we certainly
-		 * want to be able to write the files ourselves.
-		 */
+		/* YB note: Ensure the group can read the file. */
 		mode_t yb_oumask;
-		yb_oumask = umask((mode_t) ((~(Log_file_mode | S_IWUSR)) & (S_IRWXU | S_IRWXG | S_IRWXO)));
+		yb_oumask = umask(0);
+		umask(yb_oumask & ~S_IRGRP);
 
 		if ((fd = open(OutputFileName, O_CREAT | O_APPEND | O_WRONLY,
 					   0666)) < 0)
+		{
+			/* YB note: Restore the original umask. */
+			umask(yb_oumask);
+
 			ereport(FATAL,
 					(errcode_for_file_access(),
 					 errmsg("could not open file \"%s\": %m", OutputFileName)));
+		}
 		istty = isatty(fd);
 		close(fd);
+
+		/* YB note: Restore the original umask. */
 		umask(yb_oumask);
 
 		/*
