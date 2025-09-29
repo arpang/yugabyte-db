@@ -134,10 +134,10 @@
 #include "utils/ps_status.h"
 
 /* YB includes */
-#include <sys/stat.h>
 #include "common/pg_yb_common.h"
 #include "pg_yb_utils.h"
 #include "ybgate/ybgate_status.h"
+#include <sys/stat.h>
 
 
 /* In this module, access gettext() via err_gettext() */
