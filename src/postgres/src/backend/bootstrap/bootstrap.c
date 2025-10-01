@@ -14,7 +14,6 @@
  */
 #include "postgres.h"
 
-#include <sys/stat.h>
 #include <unistd.h>
 #include <signal.h>
 
@@ -53,6 +52,7 @@
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
 #include "storage/pg_shmem.h"
+#include <sys/stat.h>
 
 uint32		bootstrap_data_checksum_version = 0;	/* No checksum */
 

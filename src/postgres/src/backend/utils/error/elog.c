@@ -2614,6 +2614,7 @@ DebugFileOpen(void)
 					 errmsg("could not open file \"%s\": %m", OutputFileName)));
 		istty = isatty(fd);
 		close(fd);
+
 		/*
 		 * Redirect our stderr to the debug output file.
 		 */
