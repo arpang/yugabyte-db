@@ -14,6 +14,7 @@
  */
 #include "postgres.h"
 
+#include <sys/stat.h>
 #include <unistd.h>
 #include <signal.h>
 
@@ -351,7 +352,15 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 	 */
 	InitProcess();
 
+	/* YB note: Ensure the group/others can read the file. */
+	mode_t yb_oumask;
+	yb_oumask = umask(0);
+	umask(yb_oumask & ~S_IRGRP & ~S_IROTH);
+
 	BaseInit();
+
+	/* YB note: Restore the original umask. */
+	umask(yb_oumask);
 
 	bootstrap_signals();
 	BootStrapXLOG();

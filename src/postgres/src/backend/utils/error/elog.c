@@ -137,7 +137,6 @@
 #include "common/pg_yb_common.h"
 #include "pg_yb_utils.h"
 #include "ybgate/ybgate_status.h"
-#include <sys/stat.h>
 
 
 /* In this module, access gettext() via err_gettext() */
@@ -2608,28 +2607,13 @@ DebugFileOpen(void)
 		 *
 		 * Make sure we can write the file, and find out if it's a tty.
 		 */
-
-		/* YB note: Ensure the group can read the file. */
-		mode_t yb_oumask;
-		yb_oumask = umask(0);
-		umask(yb_oumask & ~S_IRGRP);
-
 		if ((fd = open(OutputFileName, O_CREAT | O_APPEND | O_WRONLY,
 					   0666)) < 0)
-		{
-			/* YB note: Restore the original umask. */
-			umask(yb_oumask);
-
 			ereport(FATAL,
 					(errcode_for_file_access(),
 					 errmsg("could not open file \"%s\": %m", OutputFileName)));
-		}
 		istty = isatty(fd);
 		close(fd);
-
-		/* YB note: Restore the original umask. */
-		umask(yb_oumask);
-
 		/*
 		 * Redirect our stderr to the debug output file.
 		 */
