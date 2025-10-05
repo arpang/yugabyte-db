@@ -2802,16 +2802,17 @@ YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe)
 	Assert(!isnull[YB_NOTIFICATION_CHANNEL_FIELD]);
 	int channellen = VARSIZE_ANY(DatumGetPointer(values[YB_NOTIFICATION_CHANNEL_FIELD]));
 	const text *channel = DatumGetTextP(values[YB_NOTIFICATION_CHANNEL_FIELD]);
-	text_to_cstring_buffer(channel, qe->data, channellen + 1);
+	text_to_cstring_buffer(channel, qe->data, channellen);
 
 	int payloadlen = isnull[YB_NOTIFICATION_PAYLOAD_FIELD] ? 0 : VARSIZE_ANY(DatumGetPointer(values[YB_NOTIFICATION_PAYLOAD_FIELD]));
+
 	if (!isnull[YB_NOTIFICATION_PAYLOAD_FIELD])
 	{
 		const text *payload = DatumGetTextP(values[YB_NOTIFICATION_PAYLOAD_FIELD]);
-		text_to_cstring_buffer(payload, qe->data + channellen + 1, payloadlen + 1);
+		text_to_cstring_buffer(payload, qe->data + channellen, payloadlen);
 	}
 
-	int entryLength = AsyncQueueEntryEmptySize + payloadlen + channellen;
+	int entryLength = AsyncQueueEntryEmptySize + payloadlen + channellen - 2;
 	entryLength = QUEUEALIGN(entryLength);
 	qe->length = entryLength;
 	RelationClose(rel);
