@@ -55,4 +55,6 @@ extern void ProcessNotifyInterrupt(bool flush);
 
 extern ListCell *asyncQueueAddEntries(ListCell *nextNotify);
 
+extern char *YbNotificationsSlotName();
+
 #endif							/* ASYNC_H */

@@ -65,7 +65,7 @@ extern void WalSndInitStopping(void);
 extern void WalSndWaitStopping(void);
 extern void HandleWalSndInitStopping(void);
 extern void WalSndRqstFileReload(void);
-extern void YbNotificationsWalSenderMain();
+extern void YbNotificationsWalSenderMain(Datum main_arg);
 
 /*
  * Remember that we want to wakeup walsenders later

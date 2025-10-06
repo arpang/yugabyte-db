@@ -97,6 +97,7 @@
 #include "utils/timestamp.h"
 
 /* YB includes */
+#include "commands/async.h"
 #include "commands/yb_cmds.h"
 #include "pg_yb_utils.h"
 #include "replication/yb_virtual_wal_client.h"
@@ -1515,61 +1516,8 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 	ReplicationSlotDrop(cmd->slotname, !cmd->wait, /* yb_force = */ false);
 }
 
-char *
-NotificationsSlotName()
-{
-	size_t hex_uuid_len = 2 * UUID_LEN + 1;
-	char *uuid = palloc(hex_uuid_len);
-	YbConvertToHex(YBCGetLocalTserverUuid(), UUID_LEN, uuid);
-	uuid[2 * UUID_LEN] = '\0';
-	return psprintf("yb_notifications_%s", uuid);
-}
-
 void
-CreateNotificationsSlot(char *slotname)
-{
-	MemoryContext cur_context = CurrentMemoryContext;
-	PG_TRY();
-	{
-		/* If a notification slot with the same name already exists, drop it.
-		 * Ideally, such a slot should not exists. But it can exist when created
-		 * by an old LISTENER on this node but was not dropped when no listeners
-		 * remained.  It is possible if the last listening backend crashed or
-		 * the tserver itself crashed.
-		 *
-		 * TODO: handle slot deletion when last listening backend crashes or the
-		 * tserver itself crashes.
-		 */
-		elog(LOG, "Arpan Calling ReplicationSlotDrop for %s", slotname);
-		ReplicationSlotDrop(slotname, /* nowait = */ true, /* yb_force = */ true);
-	}
-	PG_CATCH();
-	{
-		ErrorData *edata;
-		MemoryContextSwitchTo(cur_context);
-		edata = CopyErrorData();
-		elog(LOG, "Arpan ReplicationSlotDrop for %s threw error: %s", slotname, edata->message);
-		FreeErrorData(edata);
-		FlushErrorState();
-	}
-	PG_END_TRY();
-
-	/*
-	 * TODO:
-	 * - Is RS_EPHEMERAL the right choice?
-	 * - is two_phase = false the right choice?
-	 * - what should be the plugin?
-	 * - is CRS_HYBRID_TIME the right choice?
-	 */
-	uint64_t yb_consistent_snapshot_time;
-	ReplicationSlotCreate(slotname, false, RS_EPHEMERAL,
-						  /* two_phase = */ false, "wal2json",
-						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
-						  CRS_HYBRID_TIME, YB_CRS_TRANSACTION);
-}
-
-void
-YbNotificationsWalSenderMain()
+YbNotificationsWalSenderMain(Datum main_arg)
 {
 	am_walsender = true;
 	am_db_walsender = true;
@@ -1580,14 +1528,13 @@ YbNotificationsWalSenderMain()
 	BackgroundWorkerInitializeConnection("yugabyte", "yugabyte", 0);
 
 	InitWalSender();
-	char *slotname = NotificationsSlotName();
-
-	CreateNotificationsSlot(slotname);
+	// char *slotname = NotificationsSlotName();
 
 	StartReplicationCmd cmd;
 	cmd.type = T_StartReplicationCmd;
 	cmd.kind = REPLICATION_KIND_LOGICAL;
-	cmd.slotname = slotname;
+	cmd.slotname = YbNotificationsSlotName();
+	elog(LOG, "Arpan slotname %s", cmd.slotname);
 	cmd.startpoint = InvalidXLogRecPtr;
 	cmd.options = NIL;
 	cmd.timeline = 0;

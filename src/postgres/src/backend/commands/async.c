@@ -160,6 +160,7 @@
 #include "executor/spi.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
+#include "replication/slot.h"
 #include "utils/lsyscache.h"
 #include "utils/uuid.h"
 
@@ -504,6 +505,8 @@ static Oid YbNotificationsRelId(bool create_if_not_exits);
 static void YbRegisterNotificationsWalSender();
 static BackgroundWorkerHandle *YbShmemWalSenderBgWHandle(bool *found);
 static void YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe);
+static void CreateNotificationsSlot();
+static void DropNotificationsSlot();
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -1243,8 +1246,7 @@ Exec_ListenPreCommit(void)
 	 * node.
 	 */
 	elog(INFO, "Arpan QUEUE_FIRST_LISTENER == InvalidBackendId %d", QUEUE_FIRST_LISTENER == InvalidBackendId);
-	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
-		YbRegisterNotificationsWalSender();
+	bool ybFirstListener = QUEUE_FIRST_LISTENER == InvalidBackendId;
 
 	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
 	{
@@ -1269,6 +1271,12 @@ Exec_ListenPreCommit(void)
 		QUEUE_FIRST_LISTENER = MyBackendId;
 	}
 	LWLockRelease(NotifyQueueLock);
+
+	if (ybFirstListener)
+	{
+		CreateNotificationsSlot();
+		YbRegisterNotificationsWalSender();
+	}
 
 	/* Now we are listed in the global array, so remember we're listening */
 	amRegisteredListener = true;
@@ -1428,6 +1436,7 @@ asyncQueueUnregister(void)
 		Assert(found);
 		elog(INFO, "Arpan calling TerminateBackgroundWorker slot %d, generation %ld",shm_handle->slot, shm_handle->generation );
 		TerminateBackgroundWorker(shm_handle);
+		DropNotificationsSlot();
 		shm_handle->generation = 0;
 		shm_handle->slot = 0;
 	}
@@ -2816,4 +2825,65 @@ YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe)
 	entryLength = QUEUEALIGN(entryLength);
 	qe->length = entryLength;
 	RelationClose(rel);
+}
+
+char *
+YbNotificationsSlotName()
+{
+	size_t hex_uuid_len = 2 * UUID_LEN + 1;
+	char *uuid = palloc(hex_uuid_len);
+	YbConvertToHex(YBCGetLocalTserverUuid(), UUID_LEN, uuid);
+	uuid[2 * UUID_LEN] = '\0';
+	return psprintf("yb_notifications_%s", uuid);
+}
+
+static void
+CreateNotificationsSlot()
+{
+	MemoryContext cur_context = CurrentMemoryContext;
+	char* slotname = YbNotificationsSlotName();
+	PG_TRY();
+	{
+		/* If a notification slot with the same name already exists, drop it.
+		 * Ideally, such a slot should not exists. But it can exist when created
+		 * by an old LISTENER on this node but was not dropped when no listeners
+		 * remained.  It is possible if the last listening backend crashed or
+		 * the tserver itself crashed.
+		 *
+		 * TODO: handle slot deletion when last listening backend crashes or the
+		 * tserver itself crashes.
+		 */
+		elog(LOG, "Arpan Calling ReplicationSlotDrop for %s", slotname);
+		ReplicationSlotDrop(slotname, /* nowait = */ true, /* yb_force = */ true);
+	}
+	PG_CATCH();
+	{
+		ErrorData *edata;
+		MemoryContextSwitchTo(cur_context);
+		edata = CopyErrorData();
+		elog(LOG, "Arpan ReplicationSlotDrop for %s threw error: %s", slotname, edata->message);
+		FreeErrorData(edata);
+		FlushErrorState();
+	}
+	PG_END_TRY();
+
+	/*
+	 * TODO:
+	 * - Is RS_EPHEMERAL the right choice?
+	 * - is two_phase = false the right choice?
+	 * - what should be the plugin?
+	 * - is CRS_HYBRID_TIME the right choice?
+	 */
+	uint64_t yb_consistent_snapshot_time;
+	ReplicationSlotCreate(slotname, false, RS_EPHEMERAL,
+						  /* two_phase = */ false, "wal2json",
+						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
+						  CRS_HYBRID_TIME, YB_CRS_TRANSACTION);
+}
+
+static void
+DropNotificationsSlot()
+{
+	char* slotname = YbNotificationsSlotName();
+	ReplicationSlotDrop(slotname, /* nowait = */ true, /* yb_force = */ true);
 }
