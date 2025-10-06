@@ -4,9 +4,9 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
-// The following only applies to changes made to this file as part of YugaByte development.
+// The following only applies to changes made to this file as part of YugabyteDB development.
 //
-// Portions Copyright (c) YugaByte, Inc.
+// Portions Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -1718,7 +1718,6 @@ Status GetFromString(DBOptions* source, DBOptions* destination) {
       "write_thread_slow_yield_usec=5;"
       "write_thread_max_yield_usec=1000;"
       "access_hint_on_compaction_start=NONE;"
-      "max_file_size_for_compaction=123;"
       "initial_seqno=432;"
       "num_reserved_small_compaction_threads=-1;"
       "compaction_size_threshold_bytes=18446744073709551615;"
@@ -1958,7 +1957,7 @@ TEST_F(OptionsParserTest, DBOptionsAllFieldsSettable) {
       BLACKLIST_ENTRY(DBOptions, wal_filter),
       BLACKLIST_ENTRY(DBOptions, boundary_extractor),
       BLACKLIST_ENTRY(DBOptions, compaction_context_factory),
-      BLACKLIST_ENTRY(DBOptions, max_file_size_for_compaction),
+      BLACKLIST_ENTRY(DBOptions, exclude_from_compaction),
       BLACKLIST_ENTRY(DBOptions, mem_table_flush_filter_factory),
       BLACKLIST_ENTRY(DBOptions, log_prefix),
       BLACKLIST_ENTRY(DBOptions, tablet_id),

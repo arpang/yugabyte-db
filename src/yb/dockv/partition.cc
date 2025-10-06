@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// The following only applies to changes made to this file as part of YugaByte development.
+// The following only applies to changes made to this file as part of YugabyteDB development.
 //
-// Portions Copyright (c) YugaByte, Inc.
+// Portions Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -620,12 +620,12 @@ Status PartitionSchema::CreateRangePartitions(std::vector<Partition>* partitions
   return Status::OK();
 }
 
-boost::optional<std::pair<Partition, Partition>> PartitionSchema::SplitHashPartitionForStatusTablet(
+std::optional<std::pair<Partition, Partition>> PartitionSchema::SplitHashPartitionForStatusTablet(
     const Partition& partition) {
   auto start = DecodeMultiColumnHashLeftBound(partition.partition_key_start_);
   auto end = DecodeMultiColumnHashRightBound(partition.partition_key_end_);
   if (start >= end) {
-    return boost::none;
+    return std::nullopt;
   }
 
   // Not using (start + end) / 2 + 1, in order to avoid overflow.
@@ -1392,7 +1392,7 @@ Status PartitionSchema::BucketForRow(const ConstContiguousRow& row,
 void PartitionSchema::Clear() {
   hash_bucket_schemas_.clear();
   range_schema_.column_ids.clear();
-  hash_schema_ = boost::none;
+  hash_schema_ = std::nullopt;
 }
 
 Status PartitionSchema::Validate(const Schema& schema) const {
@@ -1436,9 +1436,7 @@ Status PartitionSchema::Validate(const Schema& schema) const {
   return Status::OK();
 }
 
-bool PartitionSchema::IsHashPartitioning() const {
-  return hash_schema_ != boost::none;
-}
+bool PartitionSchema::IsHashPartitioning() const { return hash_schema_ != std::nullopt; }
 
 YBHashSchema PartitionSchema::hash_schema() const {
   CHECK(hash_schema_);

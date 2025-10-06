@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 
 package com.yugabyte.yw.common.backuprestore.ybc;
 
@@ -117,7 +117,6 @@ public class YbcBackupUtil {
   public static final String YBC_SUCCESS_MARKER_FILE_NAME = "success";
   public static final String YBDB_AUTOFLAG_BACKUP_SUPPORT_VERSION = "2.19.3.0-b1";
   // YBDB Version that implements https://github.com/yugabyte/yugabyte-db/issues/25877
-  // TODO: Update the version once the change is landed
   public static final String YBDB_STABLE_GRANT_SAFETY_VERSION = "2025.1.0.0-b1";
   public static final String YBDB_PREVIEW_GRANT_SAFETY_VERSION = "2.25.2.0-b275";
 
@@ -1110,7 +1109,7 @@ public class YbcBackupUtil {
               YBDB_STABLE_GRANT_SAFETY_VERSION,
               YBDB_PREVIEW_GRANT_SAFETY_VERSION,
               true)
-          <= 0) {
+          >= 0) {
         extendedArgsBuilder.setDumpRoleChecks(tableParams.getDumpRoleChecks());
       } else {
         log.debug("database version {} does not support --dump-role-checks", ybdbSoftwareVersion);
@@ -1223,10 +1222,10 @@ public class YbcBackupUtil {
       // Set the rest of the extended args directly from api params.
       extendedArgsBuilder.setRevertToPreRolesBehaviour(
           backupStorageInfo.getRevertToPreRolesBehaviour());
-      /* Removing backup of roles temporarily. There are some issues we need to work out before
-      fully implementing this.
       extendedArgsBuilder.setErrorIfTablespacesExists(
           backupStorageInfo.getErrorIfTablespacesExists());
+      /* Removing backup of roles temporarily. There are some issues we need to work out before
+      fully implementing this.
       extendedArgsBuilder.setErrorIfRolesExists(backupStorageInfo.getErrorIfRolesExists());
       */
     }

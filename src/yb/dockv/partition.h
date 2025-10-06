@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// The following only applies to changes made to this file as part of YugaByte development.
+// The following only applies to changes made to this file as part of YugabyteDB development.
 //
-// Portions Copyright (c) YugaByte, Inc.
+// Portions Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -35,8 +35,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include <boost/optional/optional.hpp>
 
 #include <google/protobuf/repeated_field.h>
 
@@ -390,7 +388,7 @@ class PartitionSchema {
   // std::nullopt if the passed in partition covers only one value.
   // This does not attempt to split partition evenly based on tablet data, and is only suitable
   // for tablets of the transaction status table, which have no data.
-  static boost::optional<std::pair<Partition, Partition>> SplitHashPartitionForStatusTablet(
+  static std::optional<std::pair<Partition, Partition>> SplitHashPartitionForStatusTablet(
       const Partition& partition);
 
   size_t DynamicMemoryUsage() const {
@@ -505,7 +503,7 @@ class PartitionSchema {
 
   std::vector<HashBucketSchema> hash_bucket_schemas_;
   RangeSchema range_schema_;
-  boost::optional<YBHashSchema> hash_schema_; // Defined only for table that is hash-partitioned.
+  std::optional<YBHashSchema> hash_schema_;  // Defined only for table that is hash-partitioned.
 };
 
 }  // namespace yb::dockv

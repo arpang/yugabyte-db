@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 
 package com.yugabyte.yw.commissioner.tasks.local;
 
@@ -60,7 +60,6 @@ import com.yugabyte.yw.forms.RunQueryFormData;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.Cluster;
 import com.yugabyte.yw.forms.UniverseResp;
-import com.yugabyte.yw.forms.UniverseTaskParams;
 import com.yugabyte.yw.forms.UpgradeTaskParams;
 import com.yugabyte.yw.models.AccessKey;
 import com.yugabyte.yw.models.AvailabilityZone;
@@ -162,7 +161,7 @@ public abstract class LocalProviderUniverseTestBase extends CommissionerBaseTest
 
   private static final String YBC_BASE_S3_URL = "https://downloads.yugabyte.com/ybc/";
   private static final String YBC_BIN_ENV_KEY = "YBC_PATH";
-  private static boolean KEEP_FAILED_UNIVERSE = true;
+  private static final boolean KEEP_FAILED_UNIVERSE = true;
   private static final boolean KEEP_ALWAYS = false;
 
   public static Map<String, String> GFLAGS = new HashMap<>();
@@ -414,10 +413,6 @@ public abstract class LocalProviderUniverseTestBase extends CommissionerBaseTest
     }
   }
 
-  private static String extractVersionFromFolder(String folder) {
-    return folder.substring(9); // yugabyte-2.18.3.0 for example
-  }
-
   private static String extractVersionFromBuild(String build) {
     return build.substring(0, build.indexOf("-"));
   }
@@ -443,7 +438,8 @@ public abstract class LocalProviderUniverseTestBase extends CommissionerBaseTest
   }
 
   @Before
-  public void setUp() {
+  @Override
+  public void setUpBase() {
     injectDependencies();
 
     settableRuntimeConfigFactory.globalRuntimeConf().setValue("yb.releases.use_redesign", "false");
@@ -1052,19 +1048,8 @@ public abstract class LocalProviderUniverseTestBase extends CommissionerBaseTest
 
   protected Map<String, String> getVarz(
       NodeDetails nodeDetails, Universe universe, UniverseTaskBase.ServerType serverType) {
-    UniverseTaskParams.CommunicationPorts ports = universe.getUniverseDetails().communicationPorts;
-    int port =
-        serverType == UniverseTaskBase.ServerType.MASTER
-            ? ports.masterHttpPort
-            : ports.tserverHttpPort;
-    JsonNode varz =
-        nodeUIApiHelper.getRequest(
-            "http://" + nodeDetails.cloudInfo.private_ip + ":" + port + "/api/v1/varz");
-    Map<String, String> result = new HashMap<>();
-    for (JsonNode flag : varz.get("flags")) {
-      result.put(flag.get("name").asText(), flag.get("value").asText());
-    }
-    return result;
+    return GFlagsUtil.getActualGFlags(
+        nodeDetails, serverType, universe, true, null, nodeUIApiHelper, false);
   }
 
   public Map<String, String> getDiskFlags(

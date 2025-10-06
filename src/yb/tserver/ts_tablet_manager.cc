@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// The following only applies to changes made to this file as part of YugaByte development.
+// The following only applies to changes made to this file as part of YugabyteDB development.
 //
-// Portions Copyright (c) YugaByte, Inc.
+// Portions Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -41,7 +41,6 @@
 
 #include <boost/container/static_vector.hpp>
 #include <boost/none.hpp>
-#include <boost/optional/optional.hpp>
 
 #include "yb/ash/wait_state.h"
 
@@ -266,7 +265,7 @@ DEPRECATE_FLAG(int32, post_split_trigger_compaction_pool_max_queue_size, "02_202
 
 DEFINE_NON_RUNTIME_int32(full_compaction_pool_max_threads, 1,
              "The maximum number of threads allowed for full_compaction_pool_. This "
-             "pool is used to run full compactions on tablets, either on a shceduled basis "
+             "pool is used to run full compactions on tablets, either on a scheduled basis "
               "or after they have been split and still contain irrelevant data from the tablet "
               "they were sourced from.");
 
@@ -342,15 +341,15 @@ METRIC_DEFINE_event_stats(server, op_apply_queue_length, "Operation Apply Queue 
                         "High queue lengths indicate that the server is unable to process "
                         "operations as fast as they are being written to the WAL.");
 
-METRIC_DEFINE_event_stats(server, op_apply_queue_time, "Operation Apply Queue Time",
-                        MetricUnit::kMicroseconds,
-                        "Time that operations spent waiting in the apply queue before being "
-                        "processed. High queue times indicate that the server is unable to "
-                        "process operations as fast as they are being written to the WAL.");
+METRIC_DEFINE_event_stats(server, op_apply_queue_time,
+    "Operation Apply Queue Time", MetricUnit::kMicroseconds,
+    "Time (microseconds) that operations spent waiting in the apply queue before being "
+    "processed. High queue times indicate that the server is unable to "
+    "process operations as fast as they are being written to the WAL.");
 
 METRIC_DEFINE_event_stats(server, op_apply_run_time, "Operation Apply Run Time",
                         MetricUnit::kMicroseconds,
-                        "Time that operations spent being applied to the tablet. "
+                        "Time (microseconds) that operations spent being applied to the tablet. "
                         "High values may indicate that the server is under-provisioned or "
                         "that operations consist of very large batches.");
 
@@ -360,25 +359,25 @@ METRIC_DEFINE_event_stats(server, op_read_queue_length, "Operation Read op Queue
                             "High queue lengths indicate that the server is unable to process "
                             "operations as fast as they are being written to the WAL.");
 
-METRIC_DEFINE_event_stats(server, op_read_queue_time, "Operation Read op Queue Time",
-                        MetricUnit::kMicroseconds,
-                        "Time that operations spent waiting in the read queue before being "
-                            "processed. High queue times indicate that the server is unable to "
-                            "process operations as fast as they are being written to the WAL.");
+METRIC_DEFINE_event_stats(server, op_read_queue_time,
+    "Operation Read op Queue Time", MetricUnit::kMicroseconds,
+    "Time (microseconds) that operations spent waiting in the read queue before being "
+    "processed. High queue times indicate that the server is unable to "
+    "process operations as fast as they are being written to the WAL.");
 
-METRIC_DEFINE_event_stats(server, op_read_run_time, "Operation Read op Run Time",
-                        MetricUnit::kMicroseconds,
-                        "Time that operations spent being applied to the tablet. "
-                            "High values may indicate that the server is under-provisioned or "
-                            "that operations consist of very large batches.");
+METRIC_DEFINE_event_stats(server, op_read_run_time,
+    "Operation Read op Run Time", MetricUnit::kMicroseconds,
+    "Time (microseconds) that operations spent being applied to the tablet. "
+    "High values may indicate that the server is under-provisioned or "
+    "that operations consist of very large batches.");
 
-METRIC_DEFINE_event_stats(server, ts_bootstrap_time, "TServer Bootstrap Time",
-                        MetricUnit::kMicroseconds,
-                        "Time that the tablet server takes to bootstrap all of its tablets.");
+METRIC_DEFINE_event_stats(server, ts_bootstrap_time,
+    "TServer Bootstrap Time", MetricUnit::kMicroseconds,
+    "Time (microseconds) that the tablet server takes to bootstrap all of its tablets.");
 
 METRIC_DEFINE_gauge_uint64(server, ts_open_metadata_time_us, "TServer Open Meta Time",
-                        MetricUnit::kMicroseconds,
-                        "Time that the tablet server takes to open all of its tablets' metadata.");
+    MetricUnit::kMicroseconds,
+    "Time (microseconds) that the tablet server takes to open all of its tablets' metadata.");
 
 METRIC_DEFINE_gauge_uint64(server, ts_split_op_apply, "Split Apply",
                         MetricUnit::kOperations,
@@ -1142,7 +1141,7 @@ void TSTabletManager::CreatePeerAndOpenTablet(
 
 Status TSTabletManager::ApplyTabletSplit(
     tablet::SplitOperation* operation, log::Log* raft_log,
-    boost::optional<RaftConfigPB> committed_raft_config) {
+    std::optional<RaftConfigPB> committed_raft_config) {
   if (PREDICT_FALSE(FLAGS_TEST_crash_before_apply_tablet_split_op)) {
     LOG(FATAL) << "Crashing due to FLAGS_TEST_crash_before_apply_tablet_split_op";
   }
@@ -1819,20 +1818,18 @@ Result<TabletPeerPtr> TSTabletManager::CreateAndRegisterTabletPeer(
 }
 
 Status TSTabletManager::DeleteTablet(
-    const string& tablet_id,
-    TabletDataState delete_type,
+    const string& tablet_id, TabletDataState delete_type,
     tablet::ShouldAbortActiveTransactions should_abort_active_txns,
-    const boost::optional<int64_t>& cas_config_opid_index_less_or_equal,
-    bool hide_only,
-    bool keep_data,
-    boost::optional<TabletServerErrorPB::Code>* error_code) {
+    const std::optional<int64_t>& cas_config_opid_index_less_or_equal, bool hide_only,
+    bool keep_data, std::optional<TabletServerErrorPB::Code>* error_code) {
   TEST_PAUSE_IF_FLAG(TEST_pause_delete_tablet);
 
   if (delete_type != TABLET_DATA_DELETED && delete_type != TABLET_DATA_TOMBSTONED) {
-    return STATUS(InvalidArgument, "DeleteTablet() requires an argument that is one of "
-                                   "TABLET_DATA_DELETED or TABLET_DATA_TOMBSTONED",
-                                   Substitute("Given: $0 ($1)",
-                                              TabletDataState_Name(delete_type), delete_type));
+    return STATUS(
+        InvalidArgument,
+        "DeleteTablet() requires an argument that is one of "
+        "TABLET_DATA_DELETED or TABLET_DATA_TOMBSTONED",
+        Substitute("Given: $0 ($1)", TabletDataState_Name(delete_type), delete_type));
   }
 
   TRACE("Deleting tablet $0", tablet_id);
@@ -1938,13 +1935,14 @@ Status TSTabletManager::DeleteTablet(
 }
 
 Status TSTabletManager::CheckRunningUnlocked(
-    boost::optional<TabletServerErrorPB::Code>* error_code) const {
+    std::optional<TabletServerErrorPB::Code>* error_code) const {
   if (state_ == MANAGER_RUNNING) {
     return Status::OK();
   }
   *error_code = TabletServerErrorPB::TABLET_NOT_RUNNING;
-  return STATUS(ServiceUnavailable, Substitute("Tablet Manager is not running: $0",
-                                               TSTabletManagerStatePB_Name(state_)));
+  return STATUS(
+      ServiceUnavailable,
+      Substitute("Tablet Manager is not running: $0", TSTabletManagerStatePB_Name(state_)));
 }
 
 // NO_THREAD_SAFETY_ANALYSIS because this analysis does not work with unique_lock.
@@ -2075,6 +2073,7 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
         .clock = scoped_refptr<server::Clock>(server_->clock()),
         .parent_mem_tracker = mem_manager_->tablets_overhead_mem_tracker(),
         .block_based_table_mem_tracker = mem_manager_->block_based_table_mem_tracker(),
+        .read_wal_mem_tracker = mem_manager_->read_wal_mem_tracker(),
         .metric_registry = metric_registry_,
         .log_anchor_registry = tablet_peer->log_anchor_registry(),
         .tablet_options = tablet_options_,
@@ -2225,7 +2224,7 @@ Status TSTabletManager::TriggerAdminCompaction(
   auto start_time = CoarseMonoClock::Now();
   uint64_t total_size = 0U;
 
-  tablet::AdminCompactionOptions tablet_compaction_options{
+  tablet::AdminCompactionOptions tablet_compaction_options {
       .compaction_completion_callback =
           options.should_wait ? [&latch, &first_compaction_error,
                                  &first_compaction_error_mutex](const Status& status) {
@@ -2238,7 +2237,9 @@ Status TSTabletManager::TriggerAdminCompaction(
             latch.CountDown();
           } : StdStatusCallback{},
       .vector_index_ids = options.vector_index_ids,
-      .skip_corrupt_data_blocks_unsafe = options.skip_corrupt_data_blocks_unsafe};
+      .vector_index_only = options.vector_index_only,
+      .skip_corrupt_data_blocks_unsafe = options.skip_corrupt_data_blocks_unsafe
+  };
 
   for (auto tablet : tablets) {
     RETURN_NOT_OK(tablet->TriggerAdminFullCompactionIfNeeded(tablet_compaction_options));
@@ -2246,7 +2247,7 @@ Status TSTabletManager::TriggerAdminCompaction(
     total_size += tablet->GetCurrentVersionSstFilesSize();
   }
 
-  VLOG(1) << yb::Format(
+  VLOG(1) << Format(
       "Beginning batch admin compaction for tablets $0, $1 bytes", tablet_ids, total_size);
 
   if (options.should_wait) {
@@ -2257,9 +2258,9 @@ Status TSTabletManager::TriggerAdminCompaction(
         first_compaction_error.ok() ? "finished" : "failed", tablet_ids, total_size,
         ToSeconds(CoarseMonoClock::Now() - start_time));
     if (first_compaction_error.ok()) {
-      LOG(INFO) << log_message;
+      LOG_WITH_PREFIX(INFO) << log_message;
     } else {
-      LOG(WARNING) << log_message << ": " << first_compaction_error;
+      LOG_WITH_PREFIX(WARNING) << log_message << ": " << first_compaction_error;
       return first_compaction_error;
     }
   }

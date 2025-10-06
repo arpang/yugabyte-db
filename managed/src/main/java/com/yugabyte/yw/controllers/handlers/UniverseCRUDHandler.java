@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 YugaByte, Inc. and Contributors
+ * Copyright 2021 YugabyteDB, Inc. and Contributors
  *
  * Licensed under the Polyform Free Trial License 1.0.0 (the "License"); you
  * may not use this file except in compliance with the License. You
@@ -763,6 +763,14 @@ public class UniverseCRUDHandler {
         taskParams.setYbcSoftwareVersion(null);
       }
 
+      if (userIntent.isUseYbdbInbuiltYbc()
+          && !KubernetesUtil.isUseYbdbInbuiltYbcSupported(userIntent.ybSoftwareVersion)) {
+        throw new PlatformServiceException(
+            BAD_REQUEST,
+            "YBDB inbuilt YBC cannot be used with software version: "
+                + userIntent.ybSoftwareVersion);
+      }
+
       if (taskParams.isEnableYbc()) {
         if (userIntent.providerType.equals(Common.CloudType.kubernetes)) {
           ReleaseManager.ReleaseMetadata releaseMetadata =
@@ -923,6 +931,7 @@ public class UniverseCRUDHandler {
         }
       }
       if (!Util.isOnPremManualProvisioning(taskParams)
+          && !Util.isKubernetesBasedUniverse(taskParams)
           && taskParams.additionalServicesStateData == null) {
         boolean enableEarlyoomFeature =
             confGetter.getConfForScope(customer, CustomerConfKeys.enableEarlyoomFeature);
@@ -2530,6 +2539,16 @@ public class UniverseCRUDHandler {
                 String.format(
                     "Cannot change proxy config for existing node %s" + " through EditUniverse",
                     nodeDetails.nodeName));
+          }
+          if (!Objects.equals(curIntent.isUseYbdbInbuiltYbc(), newIntent.isUseYbdbInbuiltYbc())) {
+            throw new PlatformServiceException(
+                BAD_REQUEST,
+                String.format(
+                    "Cannot change YBC's deployment setting for existing node %s"
+                        + " through EditUniverse: from %s to %s",
+                    nodeDetails.nodeName,
+                    curIntent.isUseYbdbInbuiltYbc(),
+                    newIntent.isUseYbdbInbuiltYbc()));
           }
         }
       }

@@ -1,4 +1,4 @@
-// Copyright (c) Yugabyte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 
 package com.yugabyte.yw.common;
 
@@ -935,6 +935,13 @@ public class NodeUniverseManager extends DevopsBase {
       FileUtils.deleteQuietly(new File(localTempFilePath));
     }
     return nodeFilePathSizeMap;
+  }
+
+  public void postProcessInMemoryGFlags(
+      Map<String, String> gflags, Universe universe, NodeDetails nodeDetails) {
+    if (universe.getCluster(nodeDetails.placementUuid).userIntent.providerType == CloudType.local) {
+      localNodeUniverseManager.postProcessGFlagsMap(gflags, universe, nodeDetails);
+    }
   }
 
   public enum UniverseNodeAction {

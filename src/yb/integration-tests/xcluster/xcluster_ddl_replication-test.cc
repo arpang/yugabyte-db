@@ -43,7 +43,10 @@
 DECLARE_int32(cdc_state_checkpoint_update_interval_ms);
 DECLARE_bool(enable_pg_cron);
 DECLARE_int32(timestamp_history_retention_interval_sec);
+DECLARE_int32(xcluster_cleanup_tables_frequency_secs);
+DECLARE_uint32(xcluster_ddl_tables_retention_secs);
 DECLARE_int32(xcluster_ddl_queue_max_retries_per_ddl);
+DECLARE_int64(xcluster_ddl_queue_advisory_lock_key);
 DECLARE_uint32(xcluster_consistent_wal_safe_time_frequency_ms);
 DECLARE_uint32(xcluster_max_old_schema_versions);
 DECLARE_string(ysql_cron_database_name);
@@ -53,7 +56,9 @@ DECLARE_string(ysql_pg_conf_csv);
 DECLARE_int32(ysql_sequence_cache_minval);
 
 DECLARE_bool(TEST_force_get_checkpoint_from_cdc_state);
+DECLARE_string(TEST_skip_async_insert_packed_schema_for_tablet_id);
 DECLARE_bool(TEST_skip_oid_advance_on_restore);
+DECLARE_bool(TEST_xcluster_ddl_queue_handler_cache_connection);
 DECLARE_bool(TEST_xcluster_ddl_queue_handler_fail_at_end);
 DECLARE_bool(TEST_xcluster_ddl_queue_handler_fail_at_start);
 DECLARE_bool(TEST_xcluster_ddl_queue_handler_fail_before_incremental_safe_time_bump);
@@ -156,6 +161,39 @@ TEST_F(XClusterDDLReplicationTest, BasicSetupAlterTeardown) {
   // Extension should no longer exist on either side.
   ASSERT_OK(VerifyDDLExtensionTablesDeletion(namespace_name));
   ASSERT_OK(VerifyDDLExtensionTablesDeletion(namespace_name2));
+}
+
+TEST_F(XClusterDDLReplicationTest, BasicTestWithMultipleDatabases) {
+  ASSERT_OK(SetUpClustersAndReplication());
+
+  // Create a new empty database and add it to replication.
+  const auto namespace_name2 = namespace_name + "2";
+  auto [source_db2_id, target_db2_id] =
+      ASSERT_RESULT(CreateDatabaseOnBothClusters(namespace_name2));
+  ASSERT_OK(AddDatabaseToReplication(source_db2_id, target_db2_id));
+  ASSERT_OK(VerifyDDLExtensionTablesCreation(namespace_name2));
+
+  // Create a table in each database and insert some data.
+  for (auto db_name : {namespace_name, namespace_name2}) {
+    auto pconn = ASSERT_RESULT(producer_cluster_.ConnectToDB(db_name));
+    ASSERT_OK(pconn.Execute("CREATE TABLE tbl(key int)"));
+    ASSERT_OK(pconn.Execute("INSERT INTO tbl SELECT i FROM generate_series(1, 100) as i"));
+  }
+  ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+  for (auto db_name : {namespace_name, namespace_name2}) {
+    ASSERT_OK(VerifyWrittenRecords({"tbl"}, db_name));
+  }
+
+  // Simple alter on the table.
+  for (auto db_name : {namespace_name, namespace_name2}) {
+    auto pconn = ASSERT_RESULT(producer_cluster_.ConnectToDB(db_name));
+    ASSERT_OK(pconn.Execute("ALTER TABLE tbl ADD COLUMN a int"));
+    ASSERT_OK(pconn.Execute("INSERT INTO tbl SELECT i FROM generate_series(101, 200) as i"));
+  }
+  ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+  for (auto db_name : {namespace_name, namespace_name2}) {
+    ASSERT_OK(VerifyWrittenRecords({"tbl"}, db_name));
+  }
 }
 
 // We have a temporary fix for this test that we are applying only in non-debug builds.  We do this
@@ -787,6 +825,61 @@ TEST_F(XClusterDDLReplicationTest, DDLsWithinTransaction) {
       GetYsqlTable(&producer_cluster_, namespace_name, /*schema_name*/ "", "test_table_2"))));
 
   InsertRowsIntoProducerTableAndVerifyConsumer(producer_table->name());
+}
+
+TEST_F(XClusterDDLReplicationTest, FailAsyncInsertPackedSchema) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_enable_packed_row) = true;
+  ASSERT_OK(SetUpClustersAndReplication());
+
+  ASSERT_OK(producer_conn_->Execute(
+      "CREATE TABLE test_table_1 (key int PRIMARY KEY) SPLIT INTO 2 TABLETS;"));
+
+  ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+
+  // Get the target tablet ids.
+  auto target_table = ASSERT_RESULT(
+      GetYsqlTable(&consumer_cluster_, namespace_name, /*schema_name*/ "", "test_table_1"));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> target_tablet_locations;
+  ASSERT_OK(consumer_cluster_.client_->GetTabletsFromTableId(
+      target_table.table_id(), 0, &target_tablet_locations));
+  ASSERT_EQ(target_tablet_locations.size(), 2);
+  std::vector<TabletId> target_tablet_ids{
+      target_tablet_locations[0].tablet_id(), target_tablet_locations[1].tablet_id()};
+
+  // Fail InsertPackedSchemaForXClusterTarget requests for the first tablet. This will cause the
+  // first tablet to miss schema versions that the second tablet has.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_skip_async_insert_packed_schema_for_tablet_id) =
+      target_tablet_ids[0];
+
+  // Run many ALTER TABLEs to cause many InsertPackedSchemaForXClusterTarget requests.
+  ASSERT_OK(producer_conn_->Execute("ALTER TABLE test_table_1 ADD COLUMN a int;"));
+  ASSERT_OK(producer_conn_->Execute(
+      "INSERT INTO test_table_1 SELECT i, i FROM generate_series(0, 10) as i"));
+
+  // Small delay.
+  SleepFor(3s);
+
+  // Allow the first tablet to make progress now.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_skip_async_insert_packed_schema_for_tablet_id) = "";
+
+  // Perform some leader stepdowns on the target. This will cause new heartbeats to be sent to the
+  // master, which will notice the incorrect schema versions and force an update.
+  for (const auto& tablet_id : target_tablet_ids) {
+    ASSERT_OK(
+        WaitUntilTabletHasLeader(consumer_cluster(), tablet_id, CoarseMonoClock::Now() + kTimeout));
+    const auto leader_peer = ASSERT_RESULT(GetLeaderPeerForTablet(consumer_cluster(), tablet_id));
+    ASSERT_OK(StepDown(leader_peer, /*new_leader_uuid=*/"", ForceStepDown::kTrue));
+  }
+  // After the stepdown, the first tablet should try to rerun InsertPackedSchemaForXClusterTarget.
+
+  // Ensure that we don't get a FATAL.
+  ASSERT_NOK(WaitForSafeTimeToAdvanceToNow());
+  LOG(INFO) << "SELECT result: "
+            << ASSERT_RESULT(consumer_conn_->FetchAllAsString("SELECT * FROM test_table_1"));
+
+  // TODO(#28326): replace this with VerifyWrittenRecords.
+  // ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+  // ASSERT_OK(VerifyWrittenRecords({"test_table_1"}));
 }
 
 TEST_F(XClusterDDLReplicationTest, PauseTargetOnRepeatedFailures) {
@@ -1455,6 +1548,69 @@ TEST_F(XClusterDDLReplicationTest, IncrementalSafeTimeBumpDropColumn) {
   // Fully resume replication and check that the data is correct.
   SyncPoint::GetInstance()->DisableProcessing();
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_xcluster_ddl_queue_handler_fail_at_end) = false;
+  ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+  ASSERT_OK(VerifyWrittenRecords(std::vector<TableName>{kTableName}));
+}
+
+TEST_F(XClusterDDLReplicationTest, SingleDDLQueueHandler) {
+  // Test that the advisory lock prevents multiple DDL queue handlers from processing DDLs
+  // concurrently, even when the ddl_queue tablet steps down and creates new handlers.
+  const auto kTableName = "test_table";
+
+  // Using rf3 to test ddl_queue stepdowns. Can't run any DDLs that use xcluster_context however.
+  auto params = XClusterDDLReplicationTestBase::kDefaultParams;
+  params.replication_factor = 3;
+  ASSERT_OK(SetUpClusters(params));
+
+  // Create initial tables.
+  ASSERT_OK(producer_conn_->ExecuteFormat("CREATE TABLE $0 (key int primary key)", kTableName));
+  ASSERT_OK(consumer_conn_->ExecuteFormat("CREATE TABLE $0 (key int primary key)", kTableName));
+
+  // Don't cache the connection until after we finish setting up replication.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_xcluster_ddl_queue_handler_cache_connection) = false;
+
+  // Setup replication.
+  ASSERT_OK(CheckpointReplicationGroup(kReplicationGroupId, /*require_no_bootstrap_needed=*/false));
+  ASSERT_OK(CreateReplicationFromCheckpoint());
+  ASSERT_OK(WaitForSafeTimeToAdvanceToNowWithoutDDLQueue());
+
+  // Use a syncpoint to block the first DDL queue handler.
+  int sync_point_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "XClusterDDLQueueHandler::AdvisoryLockAcquired",
+      [&sync_point_count](void*) { sync_point_count++; });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{.predecessor = "XClusterDDLReplicationTest::ResumeDDLQueueHandler",
+        .successor = "XClusterDDLQueueHandler::AdvisoryLockAcquired"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  // Now that we've set up replication, we can cache the connection and hold the advisory lock.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_xcluster_ddl_queue_handler_cache_connection) = true;
+
+  // Run some DDLs on the producer (don't run anything that uses xcluster_context as this is rf3).
+  ASSERT_OK(producer_conn_->ExecuteFormat("ALTER TABLE $0 ADD COLUMN a text", kTableName));
+  ASSERT_OK(producer_conn_->ExecuteFormat("ALTER TABLE $0 ADD COLUMN b text", kTableName));
+  ASSERT_OK(producer_conn_->ExecuteFormat("ALTER TABLE $0 DROP COLUMN a", kTableName));
+  ASSERT_OK(producer_conn_->ExecuteFormat("INSERT INTO $0 VALUES (1, 'test')", kTableName));
+
+  // Regular replication should make progress, but ddl_queue should be stuck.
+  ASSERT_OK(WaitForSafeTimeToAdvanceToNowWithoutDDLQueue());
+  auto original_propagation_timeout = propagation_timeout_;
+  propagation_timeout_ = 10s;
+  ASSERT_NOK(WaitForSafeTimeToAdvanceToNow());
+  ASSERT_EQ(sync_point_count, 1);
+
+  // Step down the ddl_queue tablet.
+  ASSERT_OK(StepDownDdlQueueTablet(consumer_cluster_));
+
+  // Replication should still be stuck, even with a new queue handler.
+  ASSERT_NOK(WaitForSafeTimeToAdvanceToNow());
+  ASSERT_EQ(sync_point_count, 1);  // The new poller should not have tried to process the queue.
+
+  // Resume the ddl_queue handler.
+  TEST_SYNC_POINT("XClusterDDLReplicationTest::ResumeDDLQueueHandler");
+
+  // Replication should resume.
+  propagation_timeout_ = original_propagation_timeout;
   ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
   ASSERT_OK(VerifyWrittenRecords(std::vector<TableName>{kTableName}));
 }
@@ -3269,6 +3425,181 @@ TEST_F(XClusterDDLReplicationTest, Analyze) {
   auto consumer_data = ASSERT_RESULT(perform_analyze(*consumer_conn_));
 
   ASSERT_EQ(consumer_data, producer_data);
+}
+
+TEST_F(XClusterDDLReplicationTest, BasicDdlTableCleanup) {
+  google::SetVLOGLevel("xcluster*", 2);  // Enable VLOGs we are going to wait for.
+  auto wait_for_new_cleanup_to_start = [](bool is_source) -> Status {
+    return RegexWaiterLogSink(Format(
+                                  ".*Attempting to clean up DDL replication tables for namespace "
+                                  ".*; is_source: $0 is_target: $1.*",
+                                  is_source, !is_source))
+        .WaitFor(kTimeout);
+  };
+
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_xcluster_cleanup_tables_frequency_secs) = 5 * kTimeMultiplier;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_xcluster_ddl_tables_retention_secs) = 10000;
+
+  ASSERT_OK(SetUpClustersAndReplication());
+  ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+
+  ASSERT_OK(producer_conn_->Execute("CREATE TABLE test_table_1 (key int PRIMARY KEY);"));
+  ASSERT_OK(producer_conn_->Execute("CREATE TABLE test_table_2 (key int PRIMARY KEY);"));
+  const int kNumOfDdls = 2;
+  ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+  // At this point, ddl_queue should have kNumOfDdls rows, one for each of the DDLs above.
+  // replicated_ddls should likewise have kNumOfDdls on the producer and kNumOfDdls + 1 on the
+  // consumer (there is an extra special row created on the consumer).
+
+  ASSERT_OK(consumer_conn_->Execute("SET yb_xcluster_consistency_level = tablet"));
+  auto measure_ddl_queue_size = [&](pgwrapper::PGConn& conn) -> Result<int64_t> {
+    return conn.FetchRow<int64_t>("SELECT count(*) FROM yb_xcluster_ddl_replication.ddl_queue");
+  };
+  auto measure_replicated_ddls_size = [&](pgwrapper::PGConn& conn) -> Result<int64_t> {
+    return conn.FetchRow<int64_t>(
+        "SELECT count(*) FROM yb_xcluster_ddl_replication.replicated_ddls");
+  };
+
+  // Have the cleanup task run on both sides then see if it has incorrectly removed recent records.
+  // We wait for two runs to start to make sure (assuming no overlap) a run started after this point
+  // finishes.
+  ASSERT_OK(wait_for_new_cleanup_to_start(false));
+  ASSERT_OK(wait_for_new_cleanup_to_start(false));
+  ASSERT_OK(wait_for_new_cleanup_to_start(true));
+  ASSERT_OK(wait_for_new_cleanup_to_start(true));
+  EXPECT_EQ(ASSERT_RESULT(measure_ddl_queue_size(*producer_conn_)), kNumOfDdls);
+  EXPECT_EQ(ASSERT_RESULT(measure_ddl_queue_size(*consumer_conn_)), kNumOfDdls);
+  EXPECT_EQ(ASSERT_RESULT(measure_replicated_ddls_size(*producer_conn_)), kNumOfDdls);
+  EXPECT_EQ(ASSERT_RESULT(measure_replicated_ddls_size(*consumer_conn_)), kNumOfDdls + 1);
+
+  // Repeat but with very low "old" definition so it should remove our recent records.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_xcluster_ddl_tables_retention_secs) = 1;
+  ASSERT_OK(wait_for_new_cleanup_to_start(false));
+  ASSERT_OK(wait_for_new_cleanup_to_start(false));
+  ASSERT_OK(wait_for_new_cleanup_to_start(true));
+  ASSERT_OK(wait_for_new_cleanup_to_start(true));
+  EXPECT_EQ(ASSERT_RESULT(measure_ddl_queue_size(*producer_conn_)), 0);
+  EXPECT_EQ(ASSERT_RESULT(measure_ddl_queue_size(*consumer_conn_)), 0);
+  EXPECT_EQ(ASSERT_RESULT(measure_replicated_ddls_size(*producer_conn_)), 0);
+  EXPECT_EQ(ASSERT_RESULT(measure_replicated_ddls_size(*consumer_conn_)), 1);
+}
+
+TEST_F(XClusterDDLReplicationTest, DdlTableCleaningDuringPause) {
+  google::SetVLOGLevel("xcluster*", 2);  // Enable VLOGs we are going to wait for.
+  auto wait_for_new_cleanup_to_start = [](bool is_source) -> Status {
+    return RegexWaiterLogSink(Format(
+                                  ".*Attempting to clean up DDL replication tables for namespace "
+                                  ".*; is_source: $0 is_target: $1.*",
+                                  is_source, !is_source))
+        .WaitFor(kTimeout);
+  };
+
+  ASSERT_OK(SetUpClustersAndReplication());
+  ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+
+  // Pause replication.
+  ASSERT_OK(ToggleUniverseReplication(
+      consumer_cluster(), consumer_client(), kReplicationGroupId, false /* is_enabled */));
+
+  ASSERT_OK(producer_conn_->Execute("CREATE TABLE test_table_1 (key int PRIMARY KEY);"));
+  ASSERT_OK(producer_conn_->Execute("CREATE TABLE test_table_2 (key int PRIMARY KEY);"));
+
+  // Let the cleaner remove the DDLs we just created from the ddl_queue table.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_xcluster_cleanup_tables_frequency_secs) = 5 * kTimeMultiplier;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_xcluster_ddl_tables_retention_secs) = 0;
+  ASSERT_OK(wait_for_new_cleanup_to_start(true));
+  ASSERT_OK(wait_for_new_cleanup_to_start(true));
+  // Stop the cleaner from cleaning more.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_xcluster_ddl_tables_retention_secs) = 10000;
+  ASSERT_OK(wait_for_new_cleanup_to_start(true));
+  ASSERT_OK(wait_for_new_cleanup_to_start(true));
+  ASSERT_OK(wait_for_new_cleanup_to_start(false));
+  ASSERT_OK(wait_for_new_cleanup_to_start(false));
+
+  // Resume replication.
+  ASSERT_OK(ToggleUniverseReplication(
+      consumer_cluster(), consumer_client(), kReplicationGroupId, true /* is_enabled */));
+  ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+
+  // Verify the DDLs were replicated on the consumer in spite of the cleaning.
+  ASSERT_OK(consumer_conn_->FetchRow<int64_t>("SELECT count(*) FROM test_table_1;"));
+  ASSERT_OK(consumer_conn_->FetchRow<int64_t>("SELECT count(*) FROM test_table_2;"));
+}
+
+TEST_F(XClusterDDLReplicationTest, CreateTableAs) {
+  ASSERT_OK(SetUpClustersAndReplication());
+
+  const std::string kSourceTable = "source_table_for_ctas";
+  ASSERT_OK(producer_conn_->ExecuteFormat(
+      "CREATE TABLE $0(key int PRIMARY KEY, value text)", kSourceTable));
+  ASSERT_OK(producer_conn_->ExecuteFormat(
+      "INSERT INTO $0 SELECT i, 'value_' || i FROM generate_series(1, 50) as i;", kSourceTable));
+
+  auto VerifyRowCount = [&](const std::string& table_name, int64_t expected_row_count) {
+    ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+    auto producer_row_count = ASSERT_RESULT(producer_conn_->FetchRow<int64_t>(
+        Format("SELECT COUNT(*) FROM $0", table_name)));
+    ASSERT_EQ(producer_row_count, expected_row_count);
+    auto consumer_row_count = ASSERT_RESULT(consumer_conn_->FetchRow<int64_t>(
+        Format("SELECT COUNT(*) FROM $0", table_name)));
+    ASSERT_EQ(consumer_row_count, expected_row_count);
+  };
+
+  auto InsertAndVerify = [&](const std::string& table_name, int64_t initial_row_count) {
+    ASSERT_OK(producer_conn_->ExecuteFormat(
+        "INSERT INTO $0 (key, value) SELECT i, 'value_' || i FROM generate_series(51, 55) as i;",
+        table_name));
+    ASSERT_OK(WaitForSafeTimeToAdvanceToNow());
+
+    VerifyRowCount(table_name, initial_row_count + 5);
+    ASSERT_OK(VerifyWrittenRecords({table_name}));
+  };
+
+  // Basic CTAS.
+  const std::string kNewTableCase1 = "new_table_from_ctas";
+  ASSERT_OK(producer_conn_->ExecuteFormat(
+      "CREATE TABLE $0 AS SELECT * FROM $1 WHERE key > 30", kNewTableCase1, kSourceTable));
+  VerifyRowCount(kNewTableCase1, 20);
+  ASSERT_OK(VerifyWrittenRecords({kNewTableCase1}));
+  InsertAndVerify(kNewTableCase1, /*initial_row_count=*/20);
+
+  // CTAS with WITH NO DATA.
+  const std::string kNewTableCase2 = "new_table_no_data";
+  ASSERT_OK(producer_conn_->ExecuteFormat(
+      "CREATE TABLE $0 AS SELECT * FROM $1 WITH NO DATA", kNewTableCase2, kSourceTable));
+  VerifyRowCount(kNewTableCase2, 0);
+  InsertAndVerify(kNewTableCase2, /*initial_row_count=*/0);
+
+  // CTAS from JOIN.
+  const std::string kSourceJoinTable = "source_join_table";
+  const std::string kNewTableCase3 = "new_table_from_join";
+  ASSERT_OK(producer_conn_->ExecuteFormat(
+      "CREATE TABLE $0(fkey int PRIMARY KEY)", kSourceJoinTable));
+  ASSERT_OK(producer_conn_->ExecuteFormat(
+      "INSERT INTO $0 SELECT * FROM generate_series(1, 10);", kSourceJoinTable));
+  ASSERT_OK(producer_conn_->ExecuteFormat(
+      "CREATE TABLE $0 AS SELECT s1.key, s1.value FROM $1 s1 JOIN $2 s2 ON s1.key = s2.fkey",
+      kNewTableCase3, kSourceTable, kSourceJoinTable));
+  VerifyRowCount(kNewTableCase3, 10);
+  ASSERT_OK(VerifyWrittenRecords({kNewTableCase3}));
+  InsertAndVerify(kNewTableCase3, /*initial_row_count=*/10);
+
+  // Basic SELECT INTO.
+  const std::string kIntoTableCase1 = "new_table_from_select_into";
+  ASSERT_OK(producer_conn_->ExecuteFormat(
+      "SELECT * INTO $0 FROM $1 WHERE key > 30", kIntoTableCase1, kSourceTable));
+  VerifyRowCount(kIntoTableCase1, 20);
+  ASSERT_OK(VerifyWrittenRecords({kIntoTableCase1}));
+  InsertAndVerify(kIntoTableCase1, /*initial_row_count=*/20);
+
+  // SELECT INTO from JOIN.
+  const std::string kIntoTableCase3 = "new_table_from_select_into_join";
+  ASSERT_OK(producer_conn_->ExecuteFormat(
+      "SELECT s1.key, s1.value INTO $0 FROM $1 s1 JOIN $2 s2 ON s1.key = s2.fkey",
+      kIntoTableCase3, kSourceTable, kSourceJoinTable));
+  VerifyRowCount(kIntoTableCase3, 10);
+  ASSERT_OK(VerifyWrittenRecords({kIntoTableCase3}));
+  InsertAndVerify(kIntoTableCase3, /*initial_row_count=*/10);
 }
 
 }  // namespace yb

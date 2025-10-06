@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <future>
 #include <memory>
 #include <optional>
@@ -164,7 +165,9 @@ using WaitEventWatcher = std::function<PgWaitEventWatcher(ash::WaitStateCode, as
 
 class PgClient {
  public:
-  explicit PgClient(std::reference_wrapper<const WaitEventWatcher> wait_event_watcher);
+  PgClient(
+      std::reference_wrapper<const WaitEventWatcher> wait_event_watcher,
+      std::atomic<uint64_t>& next_perform_op_serial_no);
   ~PgClient();
 
   Status Start(rpc::ProxyCache* proxy_cache,
@@ -320,7 +323,7 @@ class PgClient {
   Result<cdc::UpdateAndPersistLSNResponsePB> UpdateAndPersistLSN(
       const std::string& stream_id, YbcPgXLogRecPtr restart_lsn, YbcPgXLogRecPtr confirmed_flush);
 
-  Result<tserver::PgTabletsMetadataResponsePB> TabletsMetadata();
+  Result<tserver::PgTabletsMetadataResponsePB> TabletsMetadata(bool local_only);
 
   Result<tserver::PgServersMetricsResponsePB> ServersMetrics();
 

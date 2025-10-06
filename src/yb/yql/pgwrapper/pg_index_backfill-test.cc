@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -87,18 +87,23 @@ class PgIndexBackfillTest : public LibPqTestBase, public ::testing::WithParamInt
     options->extra_tserver_flags.push_back(
         Format("--ysql_num_shards_per_tserver=$0", kTabletsPerServer));
 
-    if (EnableTableLocks()) {
+    const bool enable_table_locks = EnableTableLocks();
+    options->extra_tserver_flags.push_back(
+        Format("--allowed_preview_flags_csv=$0,$1",
+                "enable_object_locking_for_table_locks", "ysql_yb_ddl_transaction_block_enabled"));
+    options->extra_tserver_flags.push_back(
+        Format("--enable_object_locking_for_table_locks=$0", enable_table_locks));
+    options->extra_tserver_flags.push_back(
+        Format("--ysql_yb_ddl_transaction_block_enabled=$0", enable_table_locks));
+    if (enable_table_locks) {
       options->extra_master_flags.push_back("--enable_ysql_operation_lease=true");
 
-      options->extra_tserver_flags.push_back(
-          Format("--allowed_preview_flags_csv=$0,$1",
-                 "enable_object_locking_for_table_locks", "ysql_yb_ddl_transaction_block_enabled"));
-      options->extra_tserver_flags.push_back("--enable_object_locking_for_table_locks=true");
-      options->extra_tserver_flags.push_back("--ysql_yb_ddl_transaction_block_enabled=true");
       options->extra_tserver_flags.push_back("--enable_ysql_operation_lease=true");
       options->extra_tserver_flags.push_back("--TEST_tserver_enable_ysql_lease_refresh=true");
     }
-  }
+    // Disable auto analyze in this test suite because it introduces flakiness of metrics.
+    options->extra_tserver_flags.push_back("--ysql_enable_auto_analyze=false");
+}
 
  protected:
   Result<bool> IsAtTargetIndexStateFlags(
@@ -374,11 +379,7 @@ TEST_P(PgIndexBackfillTest, WaitForSplitsToComplete) {
   // Flush the data to generate SST files that can be split.
   const std::string table_id = ASSERT_RESULT(GetTableIdByTableName(
       client.get(), kDatabaseName, kTableName));
-  ASSERT_OK(client->FlushTables(
-      {table_id},
-      false /* add_indexes */,
-      kTimeoutSec,
-      false /* is_compaction */));
+  ASSERT_OK(client->FlushTables({table_id}, MonoDelta::FromSeconds(kTimeoutSec)));
 
   // Create a split that will not complete until we set the test flag to true.
   ASSERT_OK(cluster_->SetFlagOnTServers("TEST_pause_tserver_get_split_key", "true"));
@@ -1326,16 +1327,8 @@ TEST_P(PgIndexBackfillSnapshotTooOld, SnapshotTooOld) {
     SleepFor(kHistoryRetentionInterval);
 
     LOG(INFO) << "Flush and compact indexed table...";
-    ASSERT_OK(client->FlushTables(
-        {table_id},
-        false /* add_indexes */,
-        kTimeoutSec,
-        false /* is_compaction */));
-    ASSERT_OK(client->FlushTables(
-        {table_id},
-        false /* add_indexes */,
-        kTimeoutSec,
-        true /* is_compaction */));
+    ASSERT_OK(client->FlushTables({table_id}, MonoDelta::FromSeconds(kTimeoutSec)));
+    ASSERT_OK(client->CompactTables({table_id}, MonoDelta::FromSeconds(kTimeoutSec)));
 
     LOG(INFO) << "Unblock backfill...";
     ASSERT_OK(cluster_->SetFlagOnMasters("TEST_block_do_backfill", "false"));

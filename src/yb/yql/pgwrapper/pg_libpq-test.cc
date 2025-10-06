@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -1073,6 +1073,8 @@ class PgLibPqReadFromSysCatalogTest : public PgLibPqTest {
     PgLibPqTest::UpdateMiniClusterOptions(options);
     options->extra_master_flags.push_back(
         "--TEST_get_ysql_catalog_version_from_sys_catalog=true");
+    // Disable auto analyze for catalog version tests.
+    options->extra_tserver_flags.push_back("--ysql_enable_auto_analyze=false");
   }
 
   Status ReadLatestCatalogVersion() {
@@ -1761,11 +1763,7 @@ void PgLibPqTest::FlushTablesAndCreateData(
 
   // Flush tablets; requests from here on will be replayed from the WAL during bootstrap.
   auto table_id = ASSERT_RESULT(GetTableIdByTableName(client.get(), database_name, "foo"));
-  ASSERT_OK(client->FlushTables(
-      {table_id},
-      false /* add_indexes */,
-      timeout_secs,
-      false /* is_compaction */));
+  ASSERT_OK(client->FlushTables({table_id}, MonoDelta::FromSeconds(timeout_secs)));
 
   // ALTER requires foo's table id to be in the TS raft metadata
   ASSERT_OK(conn_new.Execute("ALTER TABLE foo ADD c char"));
@@ -4950,6 +4948,21 @@ TEST_F(PgLibPqTest, InconsistentIndexRead) {
   thread_holder.WaitAndStop(std::chrono::seconds(30));
 }
 
+class PgLibPqTestTableLocksDisabled : public PgLibPqTest {
+ protected:
+  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
+    // TODO(#28742): Fix interaction with ysql_yb_ddl_transaction_block_enabled here.
+    // Enabling table locks+concurrent DDLs causes the ConcurrentAnalyzeWithDDL fail.
+    AppendFlagToAllowedPreviewFlagsCsv(
+        options->extra_tserver_flags, "enable_object_locking_for_table_locks");
+    options->extra_tserver_flags.push_back("--enable_object_locking_for_table_locks=false");
+    AppendFlagToAllowedPreviewFlagsCsv(
+        options->extra_tserver_flags, "ysql_yb_ddl_transaction_block_enabled");
+    options->extra_tserver_flags.push_back("--ysql_yb_ddl_transaction_block_enabled=false");
+    PgLibPqTest::UpdateMiniClusterOptions(options);
+  }
+};
+
 // Test aborting concurrent ANALYZEs doesn't cause the connection to FATAL.
 // During execution of ANALYZE, when analyzing each table, CurrentUserId is switched to the table
 // owner's userid and SecurityRestrictionContext is set to indicate security-restricted operations.
@@ -4959,7 +4972,7 @@ TEST_F(PgLibPqTest, InconsistentIndexRead) {
 // In read committed isolation, we retry aborted DDL queries. An unclean retry of ANALYZE having
 // set SecurityRestrictionContext causes assertion failure in StartTransactionCommand, making
 // its connection FATAL.
-TEST_F(PgLibPqTest, ConcurrentAnalyzeWithDDL) {
+TEST_F_EX(PgLibPqTest, ConcurrentAnalyzeWithDDL, PgLibPqTestTableLocksDisabled) {
   auto conn = ASSERT_RESULT(Connect());
   auto conn2 = ASSERT_RESULT(Connect());
 

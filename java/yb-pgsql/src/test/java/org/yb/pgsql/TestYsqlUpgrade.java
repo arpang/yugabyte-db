@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -2023,6 +2023,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
         // PG15: {postgres=arwdDxt/postgres,=r/postgres}
         // So we cannot simply compare the as strings.
         // Similar changes happen for initprivs column of table pg_init_privs.
+        // Also, pg_proc.prosqlbody can contain oids which can change on view creation.
         if (tableName.equals("pg_class")) {
           assertRow("Table '" + tableName + "': ",
                     excluded(reinitdbRow, "relacl"),
@@ -2033,6 +2034,18 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
                     excluded(reinitdbRow, "initprivs"),
                     excluded(migratedRow, "initprivs"));
           assertSameAcl(retained(reinitdbRow, "initprivs"), retained(migratedRow, "initprivs"));
+        } else if (tableName.equals("pg_proc")) {
+          assertRow("Table '" + tableName + "': ",
+                    excluded(reinitdbRow, "prosqlbody"),
+                    excluded(migratedRow, "prosqlbody"));
+        } else if (tableName.equals("pg_authid")) {
+          // Handle password format differences between fresh initdb (SCRAM-SHA-256)
+          // and migrated clusters (MD5). This is expected because migrations don't
+          // automatically convert existing passwords.
+          assertRow("Table '" + tableName + "': ",
+                    excluded(reinitdbRow, "rolpassword"),
+                    excluded(migratedRow, "rolpassword"));
+          // For now, skip password comparison since format conversion isn't automatic
         } else {
           assertRow("Table '" + tableName + "': ", reinitdbRow, migratedRow);
         }

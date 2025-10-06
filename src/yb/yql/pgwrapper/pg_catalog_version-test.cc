@@ -1,4 +1,4 @@
-// Copyright (c) Yugabyte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -28,6 +28,9 @@ using std::string;
 using namespace std::literals;
 
 DECLARE_string(vmodule);
+DECLARE_bool(enable_object_locking_for_table_locks);
+DECLARE_bool(ysql_enable_auto_analyze);
+DECLARE_bool(ysql_yb_ddl_transaction_block_enabled);
 METRIC_DECLARE_counter(handler_latency_yb_tserver_PgClientService_OpenTable);
 METRIC_DECLARE_counter(handler_latency_yb_master_MasterDdl_GetTableSchema);
 
@@ -57,6 +60,14 @@ class PgCatalogVersionTest : public LibPqTestBase {
 
   using MasterCatalogVersionMap = std::unordered_map<Oid, CatalogVersion>;
   using ShmCatalogVersionMap = std::unordered_map<Oid, Version>;
+
+  bool IsObjectLockingEnabled() const {
+    return ANNOTATE_UNPROTECTED_READ(FLAGS_enable_object_locking_for_table_locks);
+  }
+
+  bool IsTransactionalDdlEnabled() const {
+    return ANNOTATE_UNPROTECTED_READ(FLAGS_ysql_yb_ddl_transaction_block_enabled);
+  }
 
   Result<int64_t> GetCatalogVersion(PGConn* conn) {
     const auto db_oid = VERIFY_RESULT(conn->FetchRow<PGOid>(Format(
@@ -93,6 +104,12 @@ class PgCatalogVersionTest : public LibPqTestBase {
       Format("--ysql_enable_db_catalog_version_mode=$0", enabled ? "true" : "false");
     for (size_t i = 0; i != cluster_->num_masters(); ++i) {
       cluster_->master(i)->mutable_flags()->push_back(db_catalog_version_gflag);
+      if (!enabled) {
+        cluster_->master(i)->mutable_flags()->push_back(
+            "--allowed_preview_flags_csv=enable_object_locking_for_table_locks");
+        cluster_->master(i)->mutable_flags()->push_back(
+            "--enable_object_locking_for_table_locks=false");
+      }
     }
     for (size_t i = 0; i != cluster_->num_tablet_servers(); ++i) {
       cluster_->tablet_server(i)->mutable_flags()->push_back(db_catalog_version_gflag);
@@ -472,7 +489,7 @@ class PgCatalogVersionTest : public LibPqTestBase {
     // Create a number of databases.
     auto conn_yugabyte = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
     const auto yugabyte_db_oid = ASSERT_RESULT(GetDatabaseOid(&conn_yugabyte, kYugabyteDatabase));
-    const int num_databases = 10;
+    const int num_databases = IsTsan() ? 5 : 10;
     for (int i = 0; i < num_databases; ++i) {
       ASSERT_OK(conn_yugabyte.ExecuteFormat("CREATE DATABASE test_db$0", i));
     }
@@ -516,7 +533,11 @@ class PgCatalogVersionTest : public LibPqTestBase {
                               "yb_pg_stat_get_backend_local_catalog_version(NULL) "
                               "WHERE datid != 1 ORDER BY datid ASC, local_catalog_version ASC";
     auto result = ASSERT_RESULT((conn_yugabyte.FetchAllAsString(query)));
-    const string expected =
+    const string expected = IsTsan() ?
+        Format("$0, 16; "
+               "16384, 1; 16385, 2; 16385, 3; 16386, 4; 16386, 5; 16386, 6; "
+               "16387, 7; 16387, 8; 16387, 9; 16387, 10; "
+               "16388, 11; 16388, 12; 16388, 13; 16388, 14; 16388, 15", yugabyte_db_oid) :
         Format("$0, 56; "
                "16384, 1; 16385, 2; 16385, 3; 16386, 4; 16386, 5; 16386, 6; "
                "16387, 7; 16387, 8; 16387, 9; 16387, 10; "
@@ -600,6 +621,27 @@ class PgCatalogVersionTest : public LibPqTestBase {
       }
     }
     ASSERT_EQ(count, 2);
+  }
+
+  int64_t GetInt64MetricsHelper(const string& metric_name) {
+    auto json_metrics = GetJsonMetrics();
+
+    for (const auto& metric : json_metrics) {
+      if (metric.name.find(metric_name) != std::string::npos) {
+        LOG(INFO) << metric_name << ":" << metric.value;
+        return metric.value;
+      }
+    }
+    LOG(INFO) << metric_name << " not found";
+    return -1;
+  }
+
+  int64_t GetNumRelCachePreloads() {
+    return GetInt64MetricsHelper("RelCachePreload");
+  }
+
+  int64_t GetNumAuthorizedConnections() {
+    return GetInt64MetricsHelper("AuthorizedConnection");
   }
 
   // This function is extracted and adapted from ysql_upgrade.cc.
@@ -1658,11 +1700,17 @@ TEST_F(PgCatalogVersionTest, NonBreakingDDLMode) {
   ASSERT_OK(conn2.Execute("REVOKE ALL ON t2 FROM public"));
   // Wait for the new catalog version to propagate to TServers.
   std::this_thread::sleep_for(2s);
-  // REVOKE is a breaking catalog change, the running transaction on conn1 is aborted.
   auto status = ResultToStatus(conn1.Fetch("SELECT * FROM t1"));
-  ASSERT_TRUE(status.IsNetworkError()) << status;
   const string msg = "catalog snapshot used for this transaction has been invalidated";
-  ASSERT_STR_CONTAINS(status.ToString(), msg);
+  if (IsObjectLockingEnabled()) {
+    // When object locking is enabled, the connect accepts invalidation messages and refreshes
+    // its catalog cache in function 'AcceptInvalidationMessages'.
+    ASSERT_OK(status);
+  } else {
+    // REVOKE is a breaking catalog change, the running transaction on conn1 is aborted.
+    ASSERT_TRUE(status.IsNetworkError()) << status;
+    ASSERT_STR_CONTAINS(status.ToString(), msg);
+  }
   ASSERT_OK(conn1.Execute("ABORT"));
 
   // Let's start over, but this time use yb_make_next_ddl_statement_nonbreaking to suppress the
@@ -1687,12 +1735,27 @@ TEST_F(PgCatalogVersionTest, NonBreakingDDLMode) {
   // Wait for the new catalog version to propagate to TServers.
   std::this_thread::sleep_for(2s);
   status = ResultToStatus(conn1.Fetch("SELECT * FROM t1"));
-  ASSERT_TRUE(status.IsNetworkError()) << status;
-  ASSERT_STR_CONTAINS(status.ToString(), msg);
+  if (IsObjectLockingEnabled()) {
+    ASSERT_OK(status);
+  } else {
+    ASSERT_TRUE(status.IsNetworkError()) << status;
+    ASSERT_STR_CONTAINS(status.ToString(), msg);
+  }
   ASSERT_OK(conn1.Execute("ABORT"));
 }
 
-TEST_F(PgCatalogVersionTest, NonIncrementingDDLMode) {
+class PgCatalogVersionNonIncrementingDDLModeTest
+    : public PgCatalogVersionTest,
+      public ::testing::WithParamInterface<bool> {
+};
+
+INSTANTIATE_TEST_CASE_P(, PgCatalogVersionNonIncrementingDDLModeTest,
+                        ::testing::Values(false, true));
+
+TEST_P(PgCatalogVersionNonIncrementingDDLModeTest, NonIncrementingDDLMode) {
+  const bool enable_inval_messages = GetParam();
+  enable_inval_messages ? RestartClusterWithInvalMessageEnabled()
+                        : RestartClusterWithInvalMessageDisabled();
   const string kDatabaseName = "yugabyte";
 
   auto conn = ASSERT_RESULT(ConnectToDB(kDatabaseName));
@@ -1728,36 +1791,56 @@ TEST_F(PgCatalogVersionTest, NonIncrementingDDLMode) {
 
   // Let's start over, but this time use yb_make_next_ddl_statement_nonincrementing to suppress
   // incrementing catalog version.
+  // If invalidation messages are enabled, then yb_make_next_ddl_statement_nonincrementing
+  // should not have any effect at all.
   ASSERT_OK(conn.Execute("SET yb_make_next_ddl_statement_nonincrementing TO TRUE"));
   ASSERT_OK(conn.Execute("REVOKE SELECT ON t1 FROM public"));
   new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
-  ASSERT_EQ(new_version, version);
+  if (enable_inval_messages) {
+    ASSERT_EQ(new_version, version + 1);
+  } else {
+    ASSERT_EQ(new_version, version);
+  }
 
   ASSERT_OK(conn.Execute("SET yb_make_next_ddl_statement_nonincrementing TO TRUE"));
   ASSERT_OK(conn.Execute("GRANT SELECT ON t1 TO public"));
   new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
-  ASSERT_EQ(new_version, version);
+  if (enable_inval_messages) {
+    ASSERT_EQ(new_version, version + 2);
+  } else {
+    ASSERT_EQ(new_version, version);
+  }
 
   ASSERT_OK(conn.Execute("SET yb_make_next_ddl_statement_nonincrementing TO TRUE"));
   ASSERT_OK(conn.Execute("CREATE INDEX idx3 ON t1(a)"));
   new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
   // By default CREATE INDEX runs concurrently and its algorithm requires to bump up catalog
   // version 3 times, only the first bump is suppressed.
-  ASSERT_EQ(new_version, version + 2);
+  if (enable_inval_messages) {
+    ASSERT_EQ(new_version, version + 5);
+  } else {
+    ASSERT_EQ(new_version, version + 2);
+  }
   version = new_version;
 
   ASSERT_OK(conn.Execute("SET yb_make_next_ddl_statement_nonincrementing TO TRUE"));
   ASSERT_OK(conn.Execute("CREATE INDEX NONCONCURRENTLY idx4 ON t1(a)"));
   new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
-  ASSERT_EQ(new_version, version);
+  if (enable_inval_messages) {
+    ASSERT_EQ(new_version, version + 1);
+  } else {
+    ASSERT_EQ(new_version, version);
+  }
 
-  // Verify that the session variable yb_make_next_ddl_statement_nonbreaking auto-resets to false.
+  // Verify that the session variable yb_make_next_ddl_statement_nonincrementing auto-resets
+  // to false.
+  version = new_version;
   ASSERT_OK(conn.Execute("REVOKE SELECT ON t1 FROM public"));
   new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
   ASSERT_EQ(new_version, version + 1);
   version = new_version;
 
-  // Since yb_make_next_ddl_statement_nonbreaking auto-resets to false, we should see catalog
+  // Since yb_make_next_ddl_statement_nonincrementing auto-resets to false, we should see catalog
   // version gets bumped up as before.
   ASSERT_OK(conn.Execute("GRANT SELECT ON t1 TO public"));
   new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
@@ -1775,7 +1858,7 @@ TEST_F(PgCatalogVersionTest, NonIncrementingDDLMode) {
   version = new_version;
 
   // Now test the scenario where we create a new table, followed by create index nonconcurrently
-  // on the new table. Use yb_make_next_ddl_statement_nonbreaking to suppress catalog version
+  // on the new table. Use yb_make_next_ddl_statement_nonincrementing to suppress catalog version
   // increment on the create index statement.
   // First create a second connection conn2.
   auto conn2 = ASSERT_RESULT(ConnectToDB(kDatabaseName));
@@ -1784,7 +1867,11 @@ TEST_F(PgCatalogVersionTest, NonIncrementingDDLMode) {
   ASSERT_OK(conn.Execute("SET yb_make_next_ddl_statement_nonincrementing TO TRUE"));
   ASSERT_OK(conn.Execute("CREATE INDEX NONCONCURRENTLY a_idx ON demo (a)"));
   new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
-  ASSERT_EQ(new_version, version);
+  if (enable_inval_messages) {
+    ASSERT_EQ(new_version, version + 1);
+  } else {
+    ASSERT_EQ(new_version, version);
+  }
 
   // Sanity test on conn2 write, count, select and delete on the new table created on conn.
   ASSERT_OK(conn2.Execute("INSERT INTO demo SELECT n, n FROM generate_series(1,100) n"));
@@ -1802,8 +1889,10 @@ TEST_F(PgCatalogVersionTest, NonIncrementingDDLMode) {
   ASSERT_OK(conn.Execute("CREATE TEMP TABLE temp_demo (a INT, b INT)"));
   ASSERT_OK(conn.Execute("ALTER TABLE temp_demo ADD COLUMN c INT"));
   ASSERT_OK(conn.Execute("CREATE INDEX temp_idx ON temp_demo(c)"));
-  ASSERT_OK(conn.Execute("DROP INDEX temp_idx"));
-  ASSERT_OK(conn.Execute("DROP TABLE temp_demo"));
+  ASSERT_OK(conn.Execute("ALTER TABLE temp_demo RENAME TO temp_demo_new"));
+  ASSERT_OK(conn.Execute("ALTER INDEX temp_idx RENAME TO temp_idx_new"));
+  ASSERT_OK(conn.Execute("DROP INDEX temp_idx_new"));
+  ASSERT_OK(conn.Execute("DROP TABLE temp_demo_new"));
   new_version = ASSERT_RESULT(GetCatalogVersion(&conn));
   ASSERT_EQ(new_version, version);
 }
@@ -2111,47 +2200,59 @@ TEST_F(PgCatalogVersionTest, InvalMessageSanityTest) {
     ASSERT_OK(conn.Execute("CREATE TABLE foo(id TEXT)"));
   }
   ASSERT_OK(conn.Execute("DROP TABLE foo"));
+
+  auto yugabyte_db_oid = ASSERT_RESULT(GetDatabaseOid(&conn, kYugabyteDatabase));
+  // Get the little endian formatted string of yugabyte db oid.
+  auto byte_swapped_yugabyte_db_oid = std::byteswap(yugabyte_db_oid);
+  char buffer[9]; // 8 characters for the hex string + 1 for the null terminator
+  snprintf(buffer, sizeof(buffer), "%08x", byte_swapped_yugabyte_db_oid);
+  auto yugabyte_db_oid_str = std::string(buffer);
+
   auto query = "SELECT current_version, encode(messages, 'hex') "
                "FROM pg_yb_invalidation_messages"s;
   auto expected_result0 =
-      "2, 5000000000000000cb34000040c1eb0a00000000000000004f00000000000000cb340"
-      "0005ac4b85300000000000000005000000000000000cb34000047a2537b0000000000000"
-      "0004f00000000000000cb34000021e2d2ca00000000000000000700000000000000cb340"
-      "0004a34179b00000000000000000600000000000000cb3400003239589f0000000000000"
-      "0000700000000000000cb340000849f9c1300000000000000000600000000000000cb340"
-      "00002517d2400000000000000000700000000000000cb340000d519492c0000000000000"
-      "0000600000000000000cb340000532bd64f00000000000000000700000000000000cb340"
-      "0000ce84cf300000000000000000600000000000000cb340000f1f7a7e80000000000000"
-      "0000700000000000000cb340000ecbba96500000000000000000600000000000000cb340"
-      "00084a01e3000000000000000000700000000000000cb3400003f53cbc60000000000000"
-      "0000600000000000000cb3400001310debc00000000000000000700000000000000cb340"
-      "000c76e67a200000000000000000600000000000000cb340000f3cf9e8c0000000000000"
-      "0000700000000000000cb34000017e0201d00000000000000000600000000000000cb340"
-      "0004ba32d1e00000000000000003700000000000000cb340000465708530000000000000"
-      "0003600000000000000cb34000021e2d2ca0000000000000000fb00000000000000cb340"
-      "000300a00000000000000000000fb00000000000000cb340000300a00000000000000000"
-      "000fe00000000000000cb340000004000000000000000000000fb00000000000000cb340"
-      "000300a00000000000000000000";
+      "2, 5000000000000000d034000040c1eb0a00000000000000004f00000000000000d0340"
+      "0005ac4b85300000000000000005000000000000000d034000047a2537b0000000000000"
+      "0004f00000000000000d034000021e2d2ca00000000000000000700000000000000d0340"
+      "0004a34179b00000000000000000600000000000000d03400003239589f0000000000000"
+      "0000700000000000000d0340000849f9c1300000000000000000600000000000000d0340"
+      "00002517d2400000000000000000700000000000000d0340000d519492c0000000000000"
+      "0000600000000000000d0340000532bd64f00000000000000000700000000000000d0340"
+      "0000ce84cf300000000000000000600000000000000d0340000f1f7a7e80000000000000"
+      "0000700000000000000d0340000ecbba96500000000000000000600000000000000d0340"
+      "00084a01e3000000000000000000700000000000000d03400003f53cbc60000000000000"
+      "0000600000000000000d03400001310debc00000000000000000700000000000000d0340"
+      "000c76e67a200000000000000000600000000000000d0340000f3cf9e8c0000000000000"
+      "0000700000000000000d034000017e0201d00000000000000000600000000000000d0340"
+      "0004ba32d1e00000000000000003700000000000000d0340000465708530000000000000"
+      "0003600000000000000d034000021e2d2ca0000000000000000fb00000000000000d0340"
+      "000300a00000000000000000000fb00000000000000d0340000300a00000000000000000"
+      "000fe00000000000000d0340000004000000000000000000000fb00000000000000d0340"
+      "000300a00000000000000000000"s;
   auto expected_result1 =
-      "2, 5000000000000000cb34000040c1eb0a00000000000000004f00000000000000cb340"
-      "0005ac4b85300000000000000005000000000000000cb34000047a2537b0000000000000"
-      "0004f00000000000000cb34000021e2d2ca00000000000000000700000000000000cb340"
-      "0004a34179b00000000000000000600000000000000cb3400003239589f0000000000000"
-      "0000700000000000000cb340000849f9c1300000000000000000600000000000000cb340"
-      "00002517d2400000000000000000700000000000000cb340000d519492c0000000000000"
-      "0000600000000000000cb340000532bd64f00000000000000000700000000000000cb340"
-      "0000ce84cf300000000000000000600000000000000cb340000f1f7a7e80000000000000"
-      "0000700000000000000cb340000ecbba96500000000000000000600000000000000cb340"
-      "00084a01e3000000000000000000700000000000000cb3400003f53cbc60000000000000"
-      "0000600000000000000cb3400001310debc00000000000000000700000000000000cb340"
-      "000c76e67a200000000000000000600000000000000cb340000f3cf9e8c0000000000000"
-      "0000700000000000000cb34000017e0201d00000000000000000600000000000000cb340"
-      "00006e6784000000000000000000700000000000000cb3400007651cba70000000000000"
-      "0000600000000000000cb340000bdf7d7b600000000000000003700000000000000cb340"
-      "0004657085300000000000000003600000000000000cb34000021e2d2ca0000000000000"
-      "000fb00000000000000cb340000300a00000000000000000000fb00000000000000cb340"
-      "000300a00000000000000000000fe00000000000000cb340000004000000000000000000"
-      "000fb00000000000000cb340000300a00000000000000000000";
+      "2, 5000000000000000d034000040c1eb0a00000000000000004f00000000000000d0340"
+      "0005ac4b85300000000000000005000000000000000d034000047a2537b0000000000000"
+      "0004f00000000000000d034000021e2d2ca00000000000000000700000000000000d0340"
+      "0004a34179b00000000000000000600000000000000d03400003239589f0000000000000"
+      "0000700000000000000d0340000849f9c1300000000000000000600000000000000d0340"
+      "00002517d2400000000000000000700000000000000d0340000d519492c0000000000000"
+      "0000600000000000000d0340000532bd64f00000000000000000700000000000000d0340"
+      "0000ce84cf300000000000000000600000000000000d0340000f1f7a7e80000000000000"
+      "0000700000000000000d0340000ecbba96500000000000000000600000000000000d0340"
+      "00084a01e3000000000000000000700000000000000d03400003f53cbc60000000000000"
+      "0000600000000000000d03400001310debc00000000000000000700000000000000d0340"
+      "000c76e67a200000000000000000600000000000000d0340000f3cf9e8c0000000000000"
+      "0000700000000000000d034000017e0201d00000000000000000600000000000000d0340"
+      "00006e6784000000000000000000700000000000000d03400007651cba70000000000000"
+      "0000600000000000000d0340000bdf7d7b600000000000000003700000000000000d0340"
+      "0004657085300000000000000003600000000000000d034000021e2d2ca0000000000000"
+      "000fb00000000000000d0340000300a00000000000000000000fb00000000000000d0340"
+      "000300a00000000000000000000fe00000000000000d0340000004000000000000000000"
+      "000fb00000000000000d0340000300a00000000000000000000"s;
+  // The hard-coded litten-endian yugabyte db oid text.
+  auto hard_coded_yugabyte_db_oid_str = "d0340000";
+  ReplaceAll(&expected_result0, hard_coded_yugabyte_db_oid_str , yugabyte_db_oid_str);
+  ReplaceAll(&expected_result1, hard_coded_yugabyte_db_oid_str, yugabyte_db_oid_str);
   auto result = ASSERT_RESULT(conn.FetchAllAsString(query));
   if (choice) {
     ASSERT_EQ(result, expected_result1);
@@ -2177,7 +2278,10 @@ TEST_F(PgCatalogVersionTest, InvalMessageMultiDDLTest) {
       Format("SELECT current_version, length(messages) FROM pg_yb_invalidation_messages "
              "WHERE db_oid = $0", yugabyte_db_oid)));
   LOG(INFO) << "result: " << result;
-  ASSERT_EQ(result, "2, 120; 3, 144; 4, 144; 5, 144; 6, 144");
+  const string expected = IsTransactionalDdlEnabled()
+      ? "2, 600"
+      : "2, 120; 3, 144; 4, 144; 5, 144; 6, 144";
+  ASSERT_EQ(result, expected);
 }
 
 TEST_F(PgCatalogVersionTest, InvalMessageCatCacheRefreshTest) {
@@ -2303,7 +2407,9 @@ TEST_F(PgCatalogVersionTest, AnalyzeTwoTables) {
   auto result = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(
       "SELECT db_oid, current_version, length(messages) FROM pg_yb_invalidation_messages"));
   LOG(INFO) << "result:\n" << result;
-  const string expected = Format("$0, 2, 1416", yugabyte_db_oid);
+  const string expected = IsTransactionalDdlEnabled()
+      ? Format("$0, 2, 792; $0, 3, 624", yugabyte_db_oid)
+      : Format("$0, 2, 1416", yugabyte_db_oid);
   ASSERT_EQ(result, expected);
 }
 
@@ -2315,7 +2421,20 @@ TEST_F(PgCatalogVersionTest, AnalyzeAllTables) {
   auto result = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(
       "SELECT db_oid, current_version, length(messages) FROM pg_yb_invalidation_messages"));
   LOG(INFO) << "result:\n" << result;
-  const string expected = Format("$0, 2, 10776", yugabyte_db_oid);
+  string expected = IsTransactionalDdlEnabled()
+      ? "13515, 2, 120; 13515, 3, 768; 13515, 4, 624; 13515, 5, 720; "
+        "13515, 6, 792; 13515, 7, 504; 13515, 8, 96; 13515, 9, 600; 13515, 10, 216; "
+        "13515, 11, 528; 13515, 12, 96; 13515, 13, 216; 13515, 14, 144; 13515, 15, 144; "
+        "13515, 16, 624; 13515, 17, 192; 13515, 18, 168; 13515, 19, 96; 13515, 20, 504; "
+        "13515, 21, 216; 13515, 22, 96; 13515, 23, 216; 13515, 24, 360; 13515, 25, 192; "
+        "13515, 26, 120; 13515, 27, 192; 13515, 28, 120; 13515, 29, 264; 13515, 30, 168; "
+        "13515, 31, 144; 13515, 32, 192; 13515, 33, 120; 13515, 34, 96; 13515, 35, 120; "
+        "13515, 36, 216; 13515, 37, 96; 13515, 38, 192; 13515, 39, 240; 13515, 40, 168; "
+        "13515, 41, 120; 13515, 42, 120; 13515, 43, 96"
+      : "13515, 2, 10776";
+  const string yugabyte_db_oid_str = Format("$0, ", yugabyte_db_oid);
+  // Replace 13515 with the real yugabyte_db_oid.
+  GlobalReplaceSubstring("13515, ", yugabyte_db_oid_str, &expected);
   ASSERT_EQ(result, expected);
 }
 
@@ -2349,8 +2468,9 @@ ALTER TABLE testtable ADD COLUMN value INT;
   ASSERT_OK(conn_yugabyte.Execute(query));
   auto result = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(
       "SELECT db_oid, current_version, length(messages) FROM pg_yb_invalidation_messages"));
-  const string expected = Format("$0, 2, 72; $0, 3, 96; $0, 4, 2520; $0, 5, 1776",
-                                 yugabyte_db_oid);
+  const string expected = IsTransactionalDdlEnabled()
+      ? Format("$0, 2, 4392", yugabyte_db_oid)
+      : Format("$0, 2, 72; $0, 3, 96; $0, 4, 2520; $0, 5, 1776", yugabyte_db_oid);
   LOG(INFO) << "result:\n" << result;
   ASSERT_EQ(result, expected);
 }
@@ -2549,7 +2669,7 @@ DROP TABLE tempTable2;
   LOG(INFO) << "result.size(): " << result.size();
   LOG(INFO) << "fingerprint: " << fingerprint;
   ASSERT_EQ(result.size(), 54564U);
-  ASSERT_EQ(fingerprint, 11398401310271930677UL);
+  ASSERT_EQ(fingerprint, 11276843017411745442UL);
 }
 
 TEST_F(PgCatalogVersionTest, InvalMessageAlterTableRefreshTest) {
@@ -2573,14 +2693,15 @@ TEST_F(PgCatalogVersionTest, InvalMessageAlterTableRefreshTest) {
 }
 
 TEST_F(PgCatalogVersionTest, InvalMessageLocalCatalogVersion) {
-  RestartClusterWithInvalMessageEnabled();
+  RestartClusterWithInvalMessageEnabled({ "--ysql_enable_auto_analyze=false" });
   InvalMessageLocalCatalogVersionHelper();
 }
 
 TEST_F(PgCatalogVersionTest, InvalMessageGarbageCollection) {
   RestartClusterWithInvalMessageEnabled(
       { "--check_lagging_catalog_versions_interval_secs=5",
-        "--min_invalidation_message_retention_time_secs=1" });
+        "--min_invalidation_message_retention_time_secs=1",
+        "--ysql_enable_auto_analyze=false" });
   InvalMessageLocalCatalogVersionHelper();
 }
 
@@ -2637,7 +2758,8 @@ EXECUTE PROCEDURE log_ddl();
   ASSERT_OK(conn_yugabyte.Execute(
       "GRANT SELECT (rolname, rolsuper) ON pg_authid TO CURRENT_USER"));
   auto v = ASSERT_RESULT(GetCatalogVersion(&conn_yugabyte));
-  ASSERT_EQ(v, 4);
+  const uint64_t expected_catalog_version = IsTransactionalDdlEnabled() ? 3 : 4;
+  ASSERT_EQ(v, expected_catalog_version);
   // The next GRANT statement is a no-op because it is identical to the first GRANT.
   // However we used to increment the catalog version because of the INSERT inside
   // function log_ddl() which is executed as part of the GRANT statement so the GRANT
@@ -2648,7 +2770,7 @@ EXECUTE PROCEDURE log_ddl();
   ASSERT_OK(conn_yugabyte.Execute(
       "GRANT SELECT (rolname, rolsuper) ON pg_authid TO CURRENT_USER"));
   v = ASSERT_RESULT(GetCatalogVersion(&conn_yugabyte));
-  ASSERT_EQ(v, 4);
+  ASSERT_EQ(v, expected_catalog_version);
 }
 
 // We have made a special case to allow expression pushdown for table pg_yb_catalog_version
@@ -2795,7 +2917,7 @@ COMMIT;
       "SELECT COUNT(*) FROM pg_yb_invalidation_messages"));
   ASSERT_EQ(count, 4);
   auto query = "SELECT encode(messages, 'hex') FROM pg_yb_invalidation_messages "
-               "WHERE current_version=$0"s;
+              "WHERE current_version=$0"s;
 
   // version 2 messages.
   auto result2 = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(Format(query, 2)));
@@ -2831,7 +2953,12 @@ TEST_F(PgCatalogVersionTest, InvalMessageYsqlUpgradeCommit3) {
   // The migrate sql is run under YSQL upgrade mode. Therefore its COMMIT is
   // considered as a DDL. There are two COMMIT statements. The first COMMIT
   // has got invalidation messages so it causes catalog version to increment
-  // from 1 to 2. Then the DROP VIEW statement causes catalog version to
+  // from 1 to 2.
+  //
+  // For the second transaction block:
+  // If Transactional DDL is enabled: the COMMIT is counted as a DDL and causes
+  // catalog version to increment from 2 to 3.
+  // Otherwise, the DROP VIEW statement causes catalog version to
   // increment from 2 to 3, the next CREATE OR REPLACE VIEW statement causes
   // catalog version to increment from 3 to 4. The last COMMIT statement got
   // 1 invalidation messages because even though there is no catalog table
@@ -2840,10 +2967,10 @@ TEST_F(PgCatalogVersionTest, InvalMessageYsqlUpgradeCommit3) {
   // captured by the call itself. Therefore the last COMMIT still causes
   // catalog version to increment.
   v = ASSERT_RESULT(GetCatalogVersion(&conn_yugabyte));
-  ASSERT_EQ(v, 5);
+  ASSERT_EQ(v, IsTransactionalDdlEnabled() ? 3 : 5);
   const auto count = ASSERT_RESULT(conn_yugabyte.FetchRow<PGUint64>(
       "SELECT COUNT(*) FROM pg_yb_invalidation_messages"));
-  ASSERT_EQ(count, 4);
+  ASSERT_EQ(count, IsTransactionalDdlEnabled() ? 2 : 4);
   auto query = "SELECT encode(messages, 'hex') FROM pg_yb_invalidation_messages "
                "WHERE current_version=$0"s;
 
@@ -2853,15 +2980,17 @@ TEST_F(PgCatalogVersionTest, InvalMessageYsqlUpgradeCommit3) {
 
   // version 3 messages.
   auto result3 = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(Format(query, 3)));
-  ASSERT_EQ(result3.size(), 1248U);
+  ASSERT_EQ(result3.size(), IsTransactionalDdlEnabled() ? 2544U : 1248U);
 
-  // version 4 messages.
-  auto result4 = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(Format(query, 4)));
-  ASSERT_EQ(result4.size(), 1344U);
+  if (!IsTransactionalDdlEnabled()) {
+    // version 4 messages.
+    auto result4 = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(Format(query, 4)));
+    ASSERT_EQ(result4.size(), 1344U);
 
-  // version 5 messages.
-  auto result5 = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(Format(query, 5)));
-  ASSERT_EQ(result5.size(), 48U);
+    // version 5 messages.
+    auto result5 = ASSERT_RESULT(conn_yugabyte.FetchAllAsString(Format(query, 5)));
+    ASSERT_EQ(result5.size(), 48U);
+  }
 }
 
 TEST_F(PgCatalogVersionTest, InvalMessageYsqlUpgradeCommit4) {
@@ -3059,9 +3188,11 @@ TEST_F(PgCatalogVersionTest, InvalMessageMinimalRetention) {
 
 // https://github.com/yugabyte/yugabyte-db/issues/27822
 TEST_F(PgCatalogVersionTest, InvalMessageWaitOnVersionGap) {
+  // Disable auto analyze in this test because it introduce flakiness of metrics.
   RestartClusterWithInvalMessageEnabled(
       { "--heartbeat_interval_ms=10000",
-        "--ysql_pg_conf_csv=log_statement=all" });
+        "--ysql_pg_conf_csv=log_statement=all",
+        "--ysql_enable_auto_analyze=false" });
   // Create a test table.
   auto conn = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
   ASSERT_OK(conn.Execute("CREATE TABLE test_table(id int)"));
@@ -3076,8 +3207,7 @@ TEST_F(PgCatalogVersionTest, InvalMessageWaitOnVersionGap) {
   // conn1 connects to node 1
   auto conn1 = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
   auto v = ASSERT_RESULT(GetCatalogVersion(&conn1));
-  ASSERT_EQ(v, 3);
-  // At this time, conn1's local catalog version should be 3.
+  ASSERT_EQ(v, IsTransactionalDdlEnabled() ? 87 : 3);
   auto result = ASSERT_RESULT(conn1.FetchAllAsString("SELECT id FROM test_table"));
   ASSERT_EQ(result, "1");
 
@@ -3185,11 +3315,13 @@ TEST_F(PgCatalogVersionTest, TestAlterRoleSetGUCHasGlobalImpact) {
 
 TEST_F(PgCatalogVersionTest, InvalMessageDeltaTableLoad) {
   for (int i = 0; i < 2; i++) {
+    // Disable auto analyze in this test because it introduce flakiness of metrics.
     if (i == 0) {
-      RestartClusterWithInvalMessageEnabled();
+      RestartClusterWithInvalMessageEnabled({ "--ysql_enable_auto_analyze=false" });
     } else {
       RestartClusterWithInvalMessageEnabled(
-          { "--ysql_yb_enable_invalidate_table_cache_entry=false" });
+          { "--ysql_yb_enable_invalidate_table_cache_entry=false",
+            "--ysql_enable_auto_analyze=false" });
     }
     auto conn = CHECK_RESULT(Connect());
     ASSERT_OK(conn.ExecuteFormat("create table test_table$0(id int)", i));
@@ -3297,8 +3429,47 @@ TEST_P(PgCatalogVersionConnManagerTest,
   auto master_read_count_after = ASSERT_RESULT(GetMasterReadRPCCount());
   LOG(INFO) << ", master_read_count_before: " << master_read_count_before
             << ", master_read_count_after: " << master_read_count_after;
-  auto expected_count = (enable_ysql_conn_mgr ? 2 : 3) * num_logical_connections + 1;
+  auto expected_count = (enable_ysql_conn_mgr ? 1 : 3) * num_logical_connections + 1;
   ASSERT_EQ(master_read_count_after - master_read_count_before, expected_count);
+}
+
+TEST_P(PgCatalogVersionConnManagerTest,
+       YB_DISABLE_TEST_IN_SANITIZERS_OR_MAC(TestConnectionManagerRelCacheInitRpcCount)) {
+  const bool enable_ysql_conn_mgr = GetParam();
+  RestartClusterWithInvalMessageEnabled({ "--ysql_use_relcache_file=false" });
+  // Create the first logical connection to warm up the tserver cache
+  // for later auth backends to use.
+  auto conn = ASSERT_RESULT(Connect());
+
+  auto master_read_count_before = ASSERT_RESULT(GetMasterReadRPCCount());
+
+  // This triggers a pg auth backend to create a second logical connection.
+  auto conn2 = ASSERT_RESULT(Connect());
+  auto master_read_count_after = ASSERT_RESULT(GetMasterReadRPCCount());
+  LOG(INFO) << ", master_read_count_before: " << master_read_count_before
+            << ", master_read_count_after: " << master_read_count_after;
+  auto expected_count = (enable_ysql_conn_mgr ? 1 : 2) + 1;
+  ASSERT_EQ(master_read_count_after - master_read_count_before, expected_count);
+
+  ASSERT_OK(conn.Execute("CREATE TABLE test_table(id int)"));
+  // Increase the catalog version to invalidate relcache init file.
+  // Increment more 200 times so that a backend see heartbeat propagated a newer
+  // shared catalog version like 131, when the master catalog version is already 201.
+  for (int i = 1; i <= 200; i++) {
+    ASSERT_OK(IncrementAllDBCatalogVersions(conn, IsBreakingCatalogVersionChange::kFalse));
+  }
+
+  // This triggers a new pg auth backend, it needs to rebuild relcache init file.
+  pg_ts = cluster_->tablet_server(1);
+  master_read_count_before = ASSERT_RESULT(GetMasterReadRPCCount());
+  auto conn3 = ASSERT_RESULT(Connect());
+  master_read_count_after = ASSERT_RESULT(GetMasterReadRPCCount());
+  LOG(INFO) << ", master_read_count_before: " << master_read_count_before
+            << ", master_read_count_after: " << master_read_count_after;
+  // Because latest master catalog version is used to do prefetch when rebuilding
+  // relcache init file, we see the same number of master RPCs regardless of
+  // whether connection manager is used or not.
+  ASSERT_EQ(master_read_count_after - master_read_count_before, 7);
 }
 
 TEST_P(PgCatalogVersionConnManagerTest,
@@ -3393,6 +3564,7 @@ TEST_P(PgCatalogVersionConnManagerTest,
       ASSERT_RESULT(ConnectToDBAsUser("yugabyte", "test_user"));
     };
 
+    // First verify.
     verify();
     auto master_read_count_before = ASSERT_RESULT(GetMasterReadRPCCount());
     ASSERT_OK(cluster_->SetFlagOnTServers(
@@ -3407,12 +3579,21 @@ TEST_P(PgCatalogVersionConnManagerTest,
     LOG(INFO) << ", master_read_count_before: " << master_read_count_before
               << ", master_read_count_after: " << master_read_count_after;
 
-    // Rebuilding the expired tserver cache entry costs 1 master RPCs.
-    const int num_rebuild_rpcs = 1;
-    // Each pg auth backend still costs 2 master RPCs due to:
-    // (1) logical catalog version read
-    // (2) master catalog version read for prefetching.
-    ASSERT_EQ(master_read_count_before + num_rebuild_rpcs + 2 * verify_count,
+    // Rebuilding the expired tserver cache entry costs 1 master RPCs. But because
+    // we now use shared memory catalog version for both auth phase and
+    // RelationCacheInitializePhase3() prefetching, after we reset
+    // --TEST_tserver_disable_catalog_refresh_on_heartbeat=false which causes a new
+    // shared memory catalog version, we will have two expired tserver cache entries
+    // to rebuild:
+    // (1) expired entry for the auth phase
+    // (2) expired entry for the RelationCacheInitializePhase3() phase
+    // Earlier we were using master catalog version for RelationCacheInitializePhase3(),
+    // in that case we would have rebuilt (2) in the verify() that has "First verify"
+    // comment above.
+    const int num_rebuild_rpcs = 2;
+
+    // Each pg auth backend still costs 1 master RPC due to logical catalog version read.
+    ASSERT_EQ(master_read_count_before + num_rebuild_rpcs + 1 * verify_count,
               master_read_count_after);
   } else {
     // Bounded staleness only applies when connection manager is used.
@@ -3426,6 +3607,111 @@ TEST_P(PgCatalogVersionConnManagerTest,
     setenv("PGPASSWORD", "new_password", /*overwrite=*/true);
     ASSERT_RESULT(ConnectToDBAsUser("yugabyte", "test_user"));
   }
+}
+
+TEST_P(PgCatalogVersionConnManagerTest,
+       YB_DISABLE_TEST_IN_SANITIZERS_OR_MAC(TestConnectionManagerBoundedStalenessPostAuth)) {
+  const bool enable_ysql_conn_mgr = GetParam();
+  // Create a test database and a test user
+  auto conn = ASSERT_RESULT(ConnectToDBAsUser("yugabyte", "yugabyte"));
+  ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE test_db"));
+  ASSERT_OK(conn.ExecuteFormat("CREATE USER test_user"));
+
+  const int stale_cache_bound_ms = 15000; /* 15 seconds */
+  RestartClusterWithInvalMessageEnabled(
+      { Format("--pg_cache_response_trust_auth_lifetime_limit_ms=$0", stale_cache_bound_ms) });
+
+  // Connect as test_user this will create tserver cache entry used for both auth and post auth
+  // in node at index 0.
+  pg_ts = cluster_->tablet_server(0);
+  ASSERT_RESULT(ConnectToDBAsUser("test_db", "test_user"));
+
+  ASSERT_OK(cluster_->SetFlagOnTServers(
+      "TEST_tserver_disable_catalog_refresh_on_heartbeat", "true"));
+
+  // Connect as yugabyte and disallow connection to test_db from node at index 1.
+  pg_ts = cluster_->tablet_server(1);
+  conn = ASSERT_RESULT(ConnectToDBAsUser("yugabyte", "yugabyte"));
+  ASSERT_OK(conn.ExecuteFormat("ALTER DATABASE test_db ALLOW_CONNECTIONS false"));
+
+  pg_ts = cluster_->tablet_server(0);
+  auto expected_error = "database \"test_db\" is not currently accepting connections";
+  if (enable_ysql_conn_mgr) {
+    // Verify we can still connect to test_db as test_user from node at index 0.
+    // The stale tserver cache entries continue to go undetected because we have set the
+    // gflag --TEST_tserver_disable_catalog_refresh_on_heartbeat=true.
+    ASSERT_RESULT(ConnectToDBAsUser("test_db", "test_user"));
+
+    LOG(INFO) << "successfully connected with stale post-auth cache entry";
+
+    // Wait for the stale cache in tserver expires.
+    SleepFor(1ms * stale_cache_bound_ms);
+
+    // Verify the connection to test_db no longer works after the threshold specified by
+    // --pg_cache_response_trust_auth_lifetime_limit_ms has passed.
+    ASSERT_NOK_STR_CONTAINS(ConnectToDBAsUser("test_db", "test_user"), expected_error);
+  } else {
+    // Bounded staleness only applies when connection manager is used.
+    // When connection manager is not used, we use tserver cache but with
+    // latest master catalog version to determine that the current post-auth
+    // tserver cache entry is obsolete and we build a new one, so we should
+    // see the expected error immediately.
+    ASSERT_NOK_STR_CONTAINS(ConnectToDBAsUser("test_db", "test_user"), expected_error);
+  }
+}
+
+TEST_F(PgCatalogVersionTest, NewConnectionRelCachePreloadTest) {
+  // Disable auto analyze because it makes the number of the metric: RelCachePreload flaky.
+  RestartClusterWithInvalMessageEnabled({ "--ysql_enable_auto_analyze=false" });
+  // Wait a bit for the webserver background process to get ready to serve curl request.
+  SleepFor(2s);
+  auto conn_yugabyte = ASSERT_RESULT(Connect());
+  auto initialCount = GetNumRelCachePreloads();
+  LOG(INFO) << "initialCount: " << initialCount;
+  ASSERT_GT(initialCount, 0);
+  ASSERT_OK(conn_yugabyte.Execute("CREATE TABLE foo(id int)"));
+  // We should see the same number of relcache preloads.
+  ASSERT_EQ(GetNumRelCachePreloads(), initialCount);
+  const int loop_count = 10;
+  auto version = ASSERT_RESULT(GetCatalogVersion(&conn_yugabyte));
+  for (int i = 1; i <= loop_count; i++) {
+    ASSERT_OK(BumpCatalogVersion(1, &conn_yugabyte, i % 2 ? "NOSUPERUSER" : "SUPERUSER"));
+    auto new_version = ASSERT_RESULT(GetCatalogVersion(&conn_yugabyte));
+    ASSERT_EQ(new_version, version + i);
+    // Next connection is a new connection after a DDL, it needs to rebuild relcache.
+    auto conn = ASSERT_RESULT(Connect());
+    // Therefore the relcache rebuild counter should increment.
+    ASSERT_EQ(GetNumRelCachePreloads(), initialCount + i) << i;
+    // Next connection is a subsequent connection after a DDL, it does not rebuild relcache.
+    conn = ASSERT_RESULT(Connect());
+    // Therefore the relcache rebuild counter does not change.
+    ASSERT_EQ(GetNumRelCachePreloads(), initialCount + i);
+  }
+
+  // At this point, we have seen initialCount + loop_count relcache preloads.
+  ASSERT_EQ(GetNumRelCachePreloads(), initialCount + loop_count);
+  // Execute another DDL that increments the catalog version.
+  ASSERT_OK(BumpCatalogVersion(1, &conn_yugabyte, "NOSUPERUSER"));
+
+  // Concurrently creates a number of connections.
+  TestThreadHolder thread_holder;
+  for (int i = 0; i < loop_count; i++) {
+    thread_holder.AddThreadFunctor([this] {
+      auto conn = ASSERT_RESULT(Connect());
+    });
+  }
+  thread_holder.Stop();
+
+  // Some of them (we assert more than half) will all trying to do relcache preloads. Others will
+  // find relcache init file already rebuilt by other concurrent connections and is now valid so
+  // they will not do relcache preloads.
+  auto relcache_preloads = GetNumRelCachePreloads();
+  ASSERT_GE(relcache_preloads, initialCount + loop_count + loop_count / 2);
+  auto authorized_connections = GetNumAuthorizedConnections();
+  LOG(INFO) << "authorized_connections: " << authorized_connections;
+  // Total authorized connections should also include those "subsequent" connections that did
+  // not trigger relcache preload, so the number should be more than relcache_preloads.
+  ASSERT_GT(authorized_connections, relcache_preloads);
 }
 
 } // namespace pgwrapper

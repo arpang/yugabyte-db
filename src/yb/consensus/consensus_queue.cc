@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// The following only applies to changes made to this file as part of YugaByte development.
+// The following only applies to changes made to this file as part of YugabyteDB development.
 //
-// Portions Copyright (c) YugaByte, Inc.
+// Portions Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -702,12 +702,12 @@ Result<ReadOpsResult> PeerMessageQueue::ReadFromLogCache(
     if (PREDICT_TRUE(s.IsNotFound())) {
       return s;
     } else if (s.IsIncomplete()) {
-      // IsIncomplete() means that we tried to read beyond the head of the log (in the future).
-      // KUDU-1078 points to a fix of this log spew issue that we've ported. This should not
-      // happen under normal circumstances.
-      LOG_WITH_PREFIX(DFATAL)
-          << "Error trying to read ahead of the log while preparing peer request: "
-          << s << ". Destination peer: " << peer_uuid;
+      // IsIncomplete() means that we tried to read beyond the head of the log (in the future). This
+      // is usually a sign that this peer is under load and is about to step down as leader. See
+      // KUDU-1078.
+      LOG_WITH_PREFIX(INFO)
+          << "Error trying to read ahead of the log while preparing peer request: " << s
+          << ". Destination peer: " << peer_uuid;
       return s;
     } else {
       LOG_WITH_PREFIX(FATAL) << "Error reading the log while preparing peer request: "

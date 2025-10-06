@@ -1,5 +1,5 @@
 //
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -42,6 +42,14 @@ struct ObjectLockContext {
       lock_type);
 
   auto operator<=>(const ObjectLockContext&) const = default;
+
+  std::string ToString() const {
+    return yb::Format(
+        "$0 $1",
+        YB_STRUCT_TO_STRING(
+            txn_id, subtxn_id, database_oid, relation_oid, object_oid, object_sub_oid),
+        TableLockType_Name(lock_type));
+  }
 
   TransactionId txn_id;
   SubTransactionId subtxn_id;

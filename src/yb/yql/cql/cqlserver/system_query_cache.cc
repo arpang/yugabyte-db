@@ -1,5 +1,5 @@
 //--------------------------------------------------------------------------------------------------
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -23,8 +23,6 @@
 #include <condition_variable>
 #include <mutex>
 #include <unordered_map>
-
-#include <boost/optional.hpp>
 
 #include "yb/qlexpr/ql_rowblock.h"
 
@@ -182,19 +180,18 @@ void SystemQueryCache::InitializeQueries() {
       queries_.push_back(yb::Format(format, pair.keyspace, pair.table));
     }
   }
-
 }
 
-boost::optional<RowsResult::SharedPtr> SystemQueryCache::Lookup(const std::string& query) {
+std::optional<RowsResult::SharedPtr> SystemQueryCache::Lookup(const std::string& query) {
   if (FLAGS_cql_system_query_cache_stale_msecs > 0 &&
       GetStaleness() > MonoDelta::FromMilliseconds(FLAGS_cql_system_query_cache_stale_msecs)) {
-    return boost::none;
+    return std::nullopt;
   }
   const std::lock_guard l(cache_mutex_);
 
   const auto it = cache_->find(query);
   if (it == cache_->end()) {
-    return boost::none;
+    return std::nullopt;
   } else {
     return it->second;
   }
@@ -206,8 +203,7 @@ MonoDelta SystemQueryCache::GetStaleness() {
 }
 
 void SystemQueryCache::Shutdown() {
-  bool expected = false;
-  if (!shutting_down_.compare_exchange_strong(expected, true)) {
+  if (!shutting_down_.Set()) {
     return;
   }
   if (pool_) {

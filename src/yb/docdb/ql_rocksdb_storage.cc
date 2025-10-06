@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -14,8 +14,6 @@
 #include "yb/docdb/ql_rocksdb_storage.h"
 
 #include <utility>
-
-#include <boost/optional/optional.hpp>
 
 #include "yb/common/pgsql_protocol.pb.h"
 #include "yb/common/ql_protocol.pb.h"
@@ -65,17 +63,15 @@ Status QLRocksDBStorage::GetIterator(
 }
 
 Status QLRocksDBStorage::BuildYQLScanSpec(
-    const QLReadRequestPB& request,
-    const ReadHybridTime& read_time,
-    const Schema& schema,
-    const bool include_static_columns,
-    std::unique_ptr<qlexpr::QLScanSpec>* spec,
+    const QLReadRequestPB& request, const ReadHybridTime& read_time, const Schema& schema,
+    const bool include_static_columns, std::unique_ptr<qlexpr::QLScanSpec>* spec,
     std::unique_ptr<qlexpr::QLScanSpec>* static_row_spec) const {
   // Populate dockey from QL key columns.
-  auto hash_code = request.has_hash_code() ?
-      boost::make_optional<int32_t>(request.hash_code()) : boost::none;
-  auto max_hash_code = request.has_max_hash_code() ?
-      boost::make_optional<int32_t>(request.max_hash_code()) : boost::none;
+  auto hash_code =
+      request.has_hash_code() ? std::make_optional<int32_t>(request.hash_code()) : std::nullopt;
+  auto max_hash_code = request.has_max_hash_code()
+                           ? std::make_optional<int32_t>(request.max_hash_code())
+                           : std::nullopt;
 
   dockv::KeyEntryValues hashed_components;
   RETURN_NOT_OK(QLKeyColumnValuesToPrimitiveValues(

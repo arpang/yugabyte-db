@@ -256,6 +256,17 @@ YbBindColumnCondBetween(YbScanDesc ybScan,
 						bool start_valid, bool start_inclusive, Datum value,
 						bool end_valid, bool end_inclusive, Datum value_end)
 {
+	/* Special handling of quals on ybctid column. */
+	if (attnum == YBTupleIdAttributeNumber)
+	{
+		HandleYBStatus(YBCPgDmlBindBounds(ybScan->handle,
+										  start_valid ? value : 0,
+										  start_inclusive,
+										  end_valid ? value_end : 0,
+										  end_inclusive));
+		return;
+	}
+
 	Oid			atttypid = ybc_get_atttypid(bind_desc, attnum);
 	Oid			attcollation = YBEncodingCollation(ybScan->handle, attnum,
 												   ybc_get_attcollation(bind_desc,
@@ -730,8 +741,8 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, ScanDirection dir)
 				tuple = index_form_tuple(RelationGetDescr(index), ivalues, inulls);
 				if (syscols.ybctid != NULL)
 				{
-					INDEXTUPLE_YBCTID(tuple) = PointerGetDatum(syscols.ybctid);
-					ybcUpdateFKCache(ybScan, INDEXTUPLE_YBCTID(tuple));
+					INDEXTUPLE_BASECTID(tuple) = PointerGetDatum(syscols.ybctid);
+					ybcUpdateFKCache(ybScan, INDEXTUPLE_BASECTID(tuple));
 				}
 			}
 			else
@@ -739,12 +750,16 @@ ybcFetchNextIndexTuple(YbScanDesc ybScan, ScanDirection dir)
 				tuple = index_form_tuple(tupdesc, values, nulls);
 				if (syscols.ybbasectid != NULL)
 				{
-					INDEXTUPLE_YBCTID(tuple) = PointerGetDatum(syscols.ybbasectid);
-					ybcUpdateFKCache(ybScan, INDEXTUPLE_YBCTID(tuple));
+					INDEXTUPLE_BASECTID(tuple) = PointerGetDatum(syscols.ybbasectid);
+					ybcUpdateFKCache(ybScan, INDEXTUPLE_BASECTID(tuple));
 				}
+
+				/* Fields used by yb_index_check() */
 				if (syscols.ybuniqueidxkeysuffix != NULL)
 					tuple->t_ybuniqueidxkeysuffix =
 						PointerGetDatum(syscols.ybuniqueidxkeysuffix);
+				if (syscols.ybctid != NULL)
+					tuple->t_ybindexrowybctid = PointerGetDatum(syscols.ybctid);
 			}
 			break;
 		}
@@ -1423,10 +1438,10 @@ YbShouldRecheckEquality(Oid column_typid, Oid value_typid)
 
 static bool
 YbNeedTupleRangeCheck(Datum value, TupleDesc bind_desc,
-					  int key_length, ScanKey keys[])
+					  int key_length, AttrNumber bind_key_attnums[])
 {
 	/* Move past header key. */
-	++keys;
+	++bind_key_attnums;
 	--key_length;
 
 	Oid			tupType = HeapTupleHeaderGetTypeId(DatumGetHeapTupleHeader(value));
@@ -1437,7 +1452,8 @@ YbNeedTupleRangeCheck(Datum value, TupleDesc bind_desc,
 	for (int i = 0; i < key_length; i++)
 	{
 		Oid			val_type = ybc_get_atttypid(val_tupdesc, i + 1);
-		Oid			column_type = ybc_get_atttypid(bind_desc, keys[i]->sk_attno);
+		Oid			column_type = ybc_get_atttypid(bind_desc,
+												   bind_key_attnums[i]);
 
 		if (YbShouldRecheckEquality(column_type, val_type))
 		{
@@ -1451,11 +1467,9 @@ YbNeedTupleRangeCheck(Datum value, TupleDesc bind_desc,
 
 static bool
 YbIsTupleInRange(Datum value, TupleDesc bind_desc,
-				 int key_length, ScanKey keys[],
-				 AttrNumber bind_key_attnums[])
+				 int key_length, AttrNumber bind_key_attnums[])
 {
 	/* Move past header key. */
-	++keys;
 	++bind_key_attnums;
 	--key_length;
 
@@ -1481,7 +1495,8 @@ YbIsTupleInRange(Datum value, TupleDesc bind_desc,
 	{
 		Datum		val = datum_values[i];
 		Oid			val_type = ybc_get_atttypid(val_tupdesc, i + 1);
-		Oid			column_type = ybc_get_atttypid(bind_desc, bind_key_attnums[i]);
+		Oid			column_type = ybc_get_atttypid(bind_desc,
+												   bind_key_attnums[i]);
 
 		if (!YbShouldRecheckEquality(column_type, val_type))
 			continue;
@@ -1825,7 +1840,7 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 										  YbNeedTupleRangeCheck(elem_values[0],
 																scan_plan->bind_desc,
 																length_of_key,
-																&ybScan->keys[i]));
+																&scan_plan->bind_key_attnums[i]));
 
 	bool		retain_nulls = YbSearchArrayRetainNulls(key);
 	bool		bind_to_null = false;
@@ -1868,7 +1883,6 @@ YbBindSearchArray(YbScanDesc ybScan, YbScanPlan scan_plan,
 				if (!YbIsTupleInRange(elem_values[j],
 									  scan_plan->bind_desc,
 									  length_of_key,
-									  &ybScan->keys[i],
 									  &scan_plan->bind_key_attnums[i]))
 					continue;
 			}
@@ -3168,6 +3182,7 @@ ybcBeginScan(Relation relation,
 	if (!(is_internal_scan && IsSystemRelation(relation)))
 		YbSetCatalogCacheVersion(ybScan->handle,
 								 YbGetCatalogCacheVersion());
+	YbMaybeSetNonSystemTablespaceOid(ybScan->handle, relation);
 
 	/* Set distinct prefix length. */
 	if (distinct_prefixlen > 0)

@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// The following only applies to changes made to this file as part of YugaByte development.
+// The following only applies to changes made to this file as part of YugabyteDB development.
 //
-// Portions Copyright (c) YugaByte, Inc.
+// Portions Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -34,8 +34,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-
-#include <boost/optional.hpp>
 
 #include "yb/client/client_fwd.h"
 
@@ -161,13 +159,11 @@ class YBOperation {
     partition_list_version_ = partition_list_version;
   }
 
-  boost::optional<PartitionListVersion> partition_list_version() const {
+  std::optional<PartitionListVersion> partition_list_version() const {
     return partition_list_version_;
   }
 
-  int64_t GetQueryId() const {
-    return reinterpret_cast<int64_t>(this);
-  }
+  int64_t GetQueryId() const { return reinterpret_cast<int64_t>(this); }
 
  protected:
   explicit YBOperation(const std::shared_ptr<YBTable>& table);
@@ -177,7 +173,7 @@ class YBOperation {
  private:
   scoped_refptr<internal::RemoteTablet> tablet_;
 
-  boost::optional<PartitionListVersion> partition_list_version_;
+  std::optional<PartitionListVersion> partition_list_version_;
 
   // Persist retryable request ID across internal retries within the same YBSession
   // to prevent duplicate writes due to internal retries.

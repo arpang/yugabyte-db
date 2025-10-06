@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -199,8 +199,7 @@ Result<bool> PermissionsCache::can_login(const RoleName& role_name) {
 }
 
 void PermissionsCache::Shutdown() {
-  bool expected = false;
-  if (!shutting_down_.compare_exchange_strong(expected, true)) {
+  if (!shutting_down_.Set()) {
     return;
   }
   if (pool_) {

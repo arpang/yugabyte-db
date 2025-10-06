@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License.  You may obtain a copy
@@ -123,6 +123,8 @@ bool yb_mixed_mode_expression_pushdown = true;
 
 bool yb_debug_log_catcache_events = false;
 
+bool yb_debug_log_snapshot_mgmt = false;
+
 bool yb_mixed_mode_saop_pushdown = false;
 
 // Internal GUC to help a backend identify that the connection is from the Auto-Analyze service.
@@ -137,3 +139,5 @@ int yb_fk_references_cache_limit = 65535;
 bool yb_allow_dockey_bounds = true;
 
 bool yb_xcluster_target_ddl_bypass = false;
+
+bool yb_ignore_read_time_in_walsender = false;

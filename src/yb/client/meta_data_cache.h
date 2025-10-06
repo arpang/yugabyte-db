@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -26,8 +26,11 @@
 
 #include "yb/common/common_fwd.h"
 #include "yb/common/common_types.pb.h"
+
 #include "yb/gutil/thread_annotations.h"
+
 #include "yb/util/mem_tracker.h"
+#include "yb/util/one_time_bool.h"
 
 #include "yb/yql/cql/ql/ptree/pt_option.h"
 
@@ -175,7 +178,7 @@ class YBMetaDataCache {
   YBTypeMap cached_types_ GUARDED_BY(cached_types_mutex_);
 
   MemTrackerPtr mem_tracker_;
-  std::atomic_bool shutting_down_{false};
+  OneTimeBool shutting_down_;
 };
 
 } // namespace client

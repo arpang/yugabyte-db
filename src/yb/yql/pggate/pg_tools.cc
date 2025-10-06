@@ -1,5 +1,5 @@
 //--------------------------------------------------------------------------------------------------
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -122,6 +122,16 @@ Slice YbctidAsSlice(const PgTypeInfo& pg_types, uint64_t ybctid) {
   int64_t bytes = 0;
   pg_types.GetYbctid().datum_to_yb(ybctid, &value, &bytes);
   return Slice(value, bytes);
+}
+
+const std::string ToString(const YbcObjectLockId& lock_id) {
+  return Format("object { db_oid: $0, table_oid: $1, object_id: $2, object_sub_oid: $3 }",
+                lock_id.db_oid, lock_id.relation_oid, lock_id.object_oid, lock_id.object_sub_oid);
+}
+
+const std::string ToString(const YbcAdvisoryLockId& lock_id) {
+  return Format("advisory lock { db_oid: $0, classid: $1, object_oid: $2, object_sub_oid: $3 } ",
+                lock_id.database_id, lock_id.classid, lock_id.objid, lock_id.objsubid);
 }
 
 } // namespace yb::pggate

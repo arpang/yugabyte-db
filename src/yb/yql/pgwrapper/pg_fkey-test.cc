@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -38,6 +38,7 @@ DECLARE_uint64(ysql_session_max_batch_size);
 DECLARE_bool(enable_automatic_tablet_splitting);
 DECLARE_bool(enable_wait_queues);
 DECLARE_bool(pg_client_use_shared_memory);
+DECLARE_bool(ysql_enable_auto_analyze);
 DECLARE_string(ysql_pg_conf_csv);
 
 namespace yb::pgwrapper {
@@ -83,6 +84,8 @@ class PgFKeyTest : public PgMiniTestBase {
     FLAGS_enable_automatic_tablet_splitting = false;
     // This test counts number of performed RPC calls, so turn off pg client shared memory.
     FLAGS_pg_client_use_shared_memory = false;
+    // Disable auto analyze in this test suite because it introduce flakiness of metrics.
+    FLAGS_ysql_enable_auto_analyze = false;
     AppendPgConfOption(MaxQueryLayerRetriesConf(0));
     PgMiniTestBase::SetUp();
     rpc_count_.emplace(*cluster_->mini_tablet_server(0)->server()->metric_entity());
@@ -444,7 +447,7 @@ TEST_F(PgFKeyTest, YB_DISABLE_TEST_IN_TSAN(InsertBatching)) {
   }));
   ASSERT_EQ(rpc_count.read, NumBatches(kPKItemCount));
   ASSERT_EQ(rpc_count.write, NumBatches(kFKItemCount));
-  ASSERT_EQ(rpc_count.perform, rpc_count.read + rpc_count.write - 1);
+  ASSERT_LT(rpc_count.perform, rpc_count.read + rpc_count.write);
 }
 
 // Test checks number of read/write/perform rpcs in case of inserts into table
@@ -492,8 +495,8 @@ TEST_F(PgFKeyTest, YB_DISABLE_TEST_IN_TSAN(UpdateBatching)) {
       [&conn, &query_template] { return conn.ExecuteFormat(query_template, kItemCount - 1); }));
   const auto num_batches = NumBatches(kItemCount - 1);
   ASSERT_EQ(rpc_count.read, num_batches + 1);
-  ASSERT_EQ(rpc_count.write, num_batches);
-  ASSERT_EQ(rpc_count.perform, rpc_count.read + rpc_count.write - 1);
+  ASSERT_EQ(rpc_count.write, num_batches + 1);
+  ASSERT_LT(rpc_count.perform, rpc_count.read + rpc_count.write);
 }
 
 // Test checks rows written by buffered write operations are read successfully while
@@ -517,6 +520,29 @@ TEST_F_EX(PgFKeyTest, BufferedWriteOfReferencedRows, PgFKeyTestNoFKCache) {
   }
 }
 
+Status TestFKeyConstraint(PGConn* conn, int value, const std::string& cmd = "") {
+  EXPECT_OK(conn->StartTransaction(IsolationLevel::SNAPSHOT_ISOLATION));
+  Status res = Status::OK();
+
+  if (!cmd.empty()) {
+    res = conn->Execute(cmd);
+  }
+
+  if (res.ok()) {
+    res = conn->ExecuteFormat("INSERT INTO fk_t VALUES($0, 1, $0)", value);
+  }
+  if (res.ok()) {
+    res = conn->ExecuteFormat("INSERT INTO pk_t VALUES($0)", value);
+  }
+  if (res.ok()) {
+    EXPECT_OK(conn->CommitTransaction());
+    return Status::OK();
+  }
+
+  EXPECT_OK(conn->RollbackTransaction());
+  return res;
+}
+
 // Test checks that reads for deferred fk constraint are performed at the end of transaction.
 TEST_F_EX(PgFKeyTest, DeferredConstraintReadAtTxnEnd, PgFKeyTestNoFKCache) {
   auto conn = ASSERT_RESULT(Connect());
@@ -525,10 +551,47 @@ TEST_F_EX(PgFKeyTest, DeferredConstraintReadAtTxnEnd, PgFKeyTestNoFKCache) {
       "CREATE TABLE fk_t(k INT, pk_1 INT REFERENCES pk_t(k), "
       "pk_2 INT REFERENCES pk_t(k) DEFERRABLE INITIALLY DEFERRED, PRIMARY KEY (k ASC))"));
   ASSERT_OK(conn.Execute("INSERT INTO pk_t VALUES (1)"));
-  ASSERT_OK(conn.StartTransaction(IsolationLevel::SNAPSHOT_ISOLATION));
-  ASSERT_OK(conn.Execute("INSERT INTO fk_t VALUES(1, 1, 2)"));
-  ASSERT_OK(conn.Execute("INSERT INTO pk_t VALUES(2)"));
-  ASSERT_OK(conn.CommitTransaction());
+  ASSERT_OK(TestFKeyConstraint(&conn, 2));
+}
+
+// Test checks that reads for altered deferred fk constraint are performed
+// at the end of transaction.
+TEST_F_EX(PgFKeyTest, AlteredDeferredConstraintReadAtTxnEnd, PgFKeyTestNoFKCache) {
+  auto conn = ASSERT_RESULT(Connect());
+  ASSERT_OK(conn.Execute("CREATE TABLE pk_t(k INT, PRIMARY KEY (k ASC))"));
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE fk_t(k INT, pk_1 INT REFERENCES pk_t(k), "
+      "pk_2 INT REFERENCES pk_t(k) NOT DEFERRABLE, PRIMARY KEY (k ASC))"));
+  ASSERT_OK(conn.Execute("INSERT INTO pk_t VALUES (1)"));
+
+  // Not deferrable constraint should fail.
+  ASSERT_NOK(TestFKeyConstraint(&conn, 2));
+  // Try to defer not deferrable constraint should fail.
+  ASSERT_NOK(TestFKeyConstraint(&conn, 3, "SET CONSTRAINTS fk_t_pk_2_fkey DEFERRED"));
+  ASSERT_NOK(TestFKeyConstraint(&conn, 4, "SET CONSTRAINTS ALL DEFERRED"));
+
+  // Test deferrable constraint.
+  ASSERT_OK(conn.Execute(
+      "ALTER TABLE fk_t ALTER CONSTRAINT fk_t_pk_2_fkey DEFERRABLE INITIALLY IMMEDIATE"));
+
+  // Initially not deferred constraint should fail.
+  ASSERT_NOK(TestFKeyConstraint(&conn, 5));
+  // Temporary defer this constraint.
+  ASSERT_OK(TestFKeyConstraint(&conn, 6, "SET CONSTRAINTS fk_t_pk_2_fkey DEFERRED"));
+  // Temporary defer all constraints.
+  ASSERT_OK(TestFKeyConstraint(&conn, 7, "SET CONSTRAINTS ALL DEFERRED"));
+
+  // Permanently defer the constraint.
+  ASSERT_OK(conn.Execute(
+      "ALTER TABLE fk_t ALTER CONSTRAINT fk_t_pk_2_fkey DEFERRABLE INITIALLY DEFERRED"));
+
+  ASSERT_OK(TestFKeyConstraint(&conn, 8));
+  // Defer already deferred constraint (no-op).
+  ASSERT_OK(TestFKeyConstraint(&conn, 9, "SET CONSTRAINTS fk_t_pk_2_fkey DEFERRED"));
+  ASSERT_OK(TestFKeyConstraint(&conn, 10, "SET CONSTRAINTS ALL DEFERRED"));
+  // Make the deffered constraint immediate.
+  ASSERT_NOK(TestFKeyConstraint(&conn, 11, "SET CONSTRAINTS fk_t_pk_2_fkey IMMEDIATE"));
+  ASSERT_NOK(TestFKeyConstraint(&conn, 12, "SET CONSTRAINTS ALL IMMEDIATE"));
 }
 
 // Test checks that batching of FK check doesn't break transaction conflict detection

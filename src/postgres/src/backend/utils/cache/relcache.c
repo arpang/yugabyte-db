@@ -110,6 +110,7 @@
 #include "commands/dbcommands.h"
 #include "commands/yb_cmds.h"
 #include "partitioning/partdesc.h"
+#include "postmaster/postmaster.h"
 #include "utils/catcache.h"
 #include "utils/partcache.h"
 #include "utils/relcache.h"
@@ -182,6 +183,14 @@ bool		criticalSharedRelcachesBuilt = false;
  * might already be obsolete.
  */
 static long relcacheInvalsReceived = 0L;
+
+static long YbNumRelCachePreloads = 0L;
+
+/*
+ * Set only when this is a pg auth backend that needs to rebuild the relcache
+ * init file.
+ */
+static bool YbNeedNewCacheFileForPgAuthBackend = false;
 
 /*
  * in_progress_list is a stack of ongoing RelationBuildDesc() calls.  CREATE
@@ -256,6 +265,9 @@ do { \
 	} \
 	else \
 		hentry->reldesc = (RELATION); \
+	if (IsYugaByteEnabled() && OidIsValid(MyDatabaseId) && \
+		RELATION->rd_rel->reltablespace >= FirstNormalObjectId) \
+		YBCRecordTablespaceOid(MyDatabaseId, RELATION->rd_id, RELATION->rd_rel->reltablespace); \
 } while(0)
 
 #define RelationIdCacheLookup(ID, RELATION) \
@@ -279,6 +291,9 @@ do { \
 	if (hentry == NULL) \
 		elog(WARNING, "failed to delete relcache entry for OID %u", \
 			 (RELATION)->rd_id); \
+	if (IsYugaByteEnabled() && OidIsValid(MyDatabaseId) && \
+		RELATION->rd_rel->reltablespace >= FirstNormalObjectId) \
+		YBCClearTablespaceOid(MyDatabaseId, RELATION->rd_id); \
 } while(0)
 
 /*
@@ -399,6 +414,7 @@ do { \
 	} \
 	else \
 		hentry->reldesc = (RELATION); \
+		/* No need to call YBCRecordTablespaceOid on a shared relation */ \
 } while(0)
 
 /*
@@ -2600,8 +2616,22 @@ YbRunWithPrefetcher(YbcStatus (*func) (YbRunWithPrefetcherContext *),
 					bool keep_prefetcher)
 {
 	YbcPgLastKnownCatalogVersionInfo catalog_version = {};
-	YbPrefetcherStarterWithCache trust_cache = MakeStarterWithCache(YB_YQL_PREFETCHER_TRUST_CACHE,
-																	&catalog_version);
+	uint64_t	shared_catalog_version;
+
+	HandleYBStatus(YBCGetSharedCatalogVersion(&shared_catalog_version));
+	/*
+	 * If YbNeedNewCacheFileForPgAuthBackend is set then this is a pg auth
+	 * backend that needs to preload rel cache in order to rebuild relcache
+	 * init file. Because relcache init file is also used by regular backends,
+	 * we want to rebuild it using the freshest catalog data based upon the
+	 * latest master catalog version instead of the shared catalog version.
+	 */
+	const bool	use_tserver_cache_for_auth =
+		YbUseTserverResponseCacheForAuth(shared_catalog_version) && !YbNeedNewCacheFileForPgAuthBackend;
+	YbcPgSysTablePrefetcherCacheMode trust_mode =
+		use_tserver_cache_for_auth ? YB_YQL_PREFETCHER_TRUST_CACHE_AUTH
+		: YB_YQL_PREFETCHER_TRUST_CACHE;
+	YbPrefetcherStarterWithCache trust_cache = MakeStarterWithCache(trust_mode, &catalog_version);
 	YbPrefetcherStarterWithCache renew_soft = MakeStarterWithCache(YB_YQL_PREFETCHER_RENEW_CACHE_SOFT,
 																   &catalog_version);
 	YbPrefetcherStarterWithCache renew_hard = MakeStarterWithCache(YB_YQL_PREFETCHER_RENEW_CACHE_HARD,
@@ -2636,7 +2666,21 @@ YbRunWithPrefetcher(YbcStatus (*func) (YbRunWithPrefetcherContext *),
 		*YBCGetGFlags()->ysql_enable_read_request_caching)
 	{
 		starter_idx = 0;
-		catalog_version = YbGetCatalogCacheVersionForTablePrefetching();
+		if (use_tserver_cache_for_auth)
+		{
+			/*
+			 * yb_pgindent does not like struct assigned to struct, so assign
+			 * fields one-by-one.
+			 */
+			catalog_version.version = shared_catalog_version;
+			memset(&catalog_version.version_read_time,
+				   0,
+				   sizeof(catalog_version.version_read_time));
+			catalog_version.is_db_catalog_version_mode =
+				YBIsDBCatalogVersionMode();
+		}
+		else
+			catalog_version = YbGetCatalogCacheVersionForTablePrefetching();
 	}
 	for (;;)
 	{
@@ -2892,9 +2936,19 @@ YbRegisterAdditionalCatalogs(YbTablePrefetcherState *prefetcher)
 		pfree(additional_tables);
 }
 
+long
+YbGetRelCachePreloads()
+{
+	return YbNumRelCachePreloads;
+}
+
 static YbcStatus
 YbPreloadRelCacheImpl(YbRunWithPrefetcherContext *ctx)
 {
+	YbNumRelCachePreloads++;
+	if (Log_connections)
+		elog(LOG, "Preloading relcache");
+
 	/*
 	 * During relcache loading postgres reads the data from multiple sys tables.
 	 * It is reasonable to prefetch all these tables in one shot.
@@ -6345,6 +6399,27 @@ RelationCacheInitializePhase3(void)
 										 YbNeedAdditionalCatalogTables() ||
 										 !*YBCGetGFlags()->ysql_use_relcache_file);
 
+		if (preload_rel_cache)
+		{
+			uint64_t	shared_catalog_version;
+
+			HandleYBStatus(YBCGetSharedCatalogVersion(&shared_catalog_version));
+			if (YbUseTserverResponseCacheForAuth(shared_catalog_version))
+			{
+				if (needNewCacheFile)
+					YbNeedNewCacheFileForPgAuthBackend = true;
+				else
+					/*
+					 * The relcache init file does not need to be rebuilt.
+					 * In this case we know the current backend is a pg auth
+					 * backend. We do not need to preload relcache (which
+					 * causes memory spike) for a pg auth backend to complete
+					 * the rest of its connection authentication work.
+					 */
+					preload_rel_cache = false;
+			}
+		}
+
 		YbPrefetchRequiredData(preload_rel_cache);
 
 		Assert(YBCIsSysTablePrefetchingStarted());
@@ -9216,7 +9291,8 @@ YbSharedRelationIdNeedsGlobalImpact(Oid relationId)
 Relation
 YbRelationIdCacheLookup(Oid relid)
 {
-	Relation rel;
+	Relation	rel;
+
 	RelationIdCacheLookup(relid, rel);
 	return rel;
 }

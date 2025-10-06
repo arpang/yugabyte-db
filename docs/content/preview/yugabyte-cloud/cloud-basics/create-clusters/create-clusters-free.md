@@ -44,7 +44,7 @@ To create a Sandbox cluster:
     - **Provider**: Choose a cloud provider - AWS or GCP.
     - **Region**: Choose the region in which to deploy the cluster.
     - **Database Version**: Choose the release track.
-    - **Enhanced Postgres Compatibility**: Select this option to enable [Enhanced PostgreSQL Compatibility Mode](../../../../develop/postgresql-compatibility/).
+    - **Enhanced Postgres Compatibility**: Select this option to enable [Enhanced PostgreSQL Compatibility Mode](../../../../reference/configuration/postgresql-compatibility/).
 
     Connection Pooling is always enabled for Sandbox clusters.
 
@@ -108,5 +108,5 @@ YugabyteDB is a distributed database optimized for deployment across multiple no
 
 - [Connect to your cluster](../../../cloud-connect/)
 - [Add database users](../../../cloud-secure-clusters/add-users/)
-- [Build an application](/preview/tutorials/build-apps/)
+- [Build an application](/preview/develop/tutorials/build-apps/)
 - [Database authorization in YugabyteDB Aeon clusters](../../../cloud-secure-clusters/cloud-users/)

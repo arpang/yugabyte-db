@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// The following only applies to changes made to this file as part of YugaByte development.
+// The following only applies to changes made to this file as part of YugabyteDB development.
 //
-// Portions Copyright (c) YugaByte, Inc.
+// Portions Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -185,7 +185,7 @@ MonoDelta InboundCall::GetTimeInQueue() const {
 
 ThreadPoolTask* InboundCall::BindTask(InboundCallHandler* handler, int64_t rpc_queue_limit) {
   auto shared_this = shared_from(this);
-  boost::optional<int64_t> rpc_queue_position = handler->CallQueued(rpc_queue_limit);
+  std::optional<int64_t> rpc_queue_position = handler->CallQueued(rpc_queue_limit);
   if (!rpc_queue_position) {
     return nullptr;
   }

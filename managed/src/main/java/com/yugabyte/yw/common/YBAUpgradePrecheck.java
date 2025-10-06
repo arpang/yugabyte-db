@@ -1,4 +1,4 @@
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 
 package com.yugabyte.yw.common;
 
@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.google.common.collect.ImmutableSet;
 import com.typesafe.config.Config;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -32,6 +33,8 @@ public class YBAUpgradePrecheck {
   private static final String DATABASE_CONNECT_URL_PARAM = "db.default.url";
   private static final String DATABASE_USERNAME_PARAM = "db.default.username";
   private static final String DATABASE_PASSWORD_PARAM = "db.default.password";
+  private static final Set<String> ELIGIBLE_PROVIDERS =
+      ImmutableSet.of("onprem", "aws", "gcp", "azu");
 
   private final Config config;
 
@@ -43,9 +46,15 @@ public class YBAUpgradePrecheck {
   // This is the output to be serialized and dumped to a file.
   static class PrecheckOutput {
     @JsonProperty public boolean passed = true;
-    @JsonProperty Set<String> disabledNodeAgentClients = new HashSet<>();
-    @JsonProperty Set<String> nodeInstanceIps = new HashSet<>();
+    @JsonProperty boolean nodeAgentClientDisabled = false;
+    @JsonProperty Map<String, NodeInstanceConfig> nodeInstanceConfigs = new HashMap<>();
     @JsonProperty Map<String, UniverseConfig> universeConfigs = new HashMap<>();
+  }
+
+  static class NodeInstanceConfig {
+    @JsonProperty String ip;
+    @JsonProperty String instanceName;
+    @JsonProperty String provider;
   }
 
   static class UniverseConfig {
@@ -64,11 +73,11 @@ public class YBAUpgradePrecheck {
     try (ResultSet resultSet =
         conn.createStatement()
             .executeQuery(
-                "SELECT path, value AS value FROM runtime_config_entry WHERE"
+                "SELECT scope_uuid, value AS value FROM runtime_config_entry WHERE"
                     + " path = 'yb.node_agent.client.enabled'")) {
       while (resultSet.next()) {
         runtimeValues.put(
-            resultSet.getString("path"),
+            resultSet.getString("scope_uuid"),
             new String(resultSet.getBytes("value"), StandardCharsets.UTF_8));
       }
     }
@@ -88,30 +97,45 @@ public class YBAUpgradePrecheck {
           continue;
         }
         JsonNode clusters = univDetails.get("clusters");
-        if (clusters != null && clusters.isArray()) {
-          Iterator<JsonNode> iter = clusters.iterator();
-          while (iter.hasNext()) {
-            JsonNode cluster = iter.next();
-            JsonNode userIntent = cluster.get("userIntent");
-            if (userIntent == null || userIntent.isNull()) {
-              continue;
-            }
-            JsonNode useSystemd = userIntent.get("useSystemd");
-            if (useSystemd == null || useSystemd.isNull()) {
-              continue;
-            }
-            univConfigs.computeIfAbsent(
-                univUuid,
-                k -> {
-                  UniverseConfig univConfig = new UniverseConfig();
-                  univConfig.systemdEnabled = useSystemd.asBoolean();
-                  return univConfig;
-                });
-          }
+        if (clusters == null || !clusters.isArray()) {
+          continue;
         }
-        Iterator<JsonNode> iter = nodeDetailsSet.iterator();
-        while (iter.hasNext()) {
-          JsonNode nodeDetails = iter.next();
+        boolean skipUniverse = true;
+        Iterator<JsonNode> clusterIter = clusters.iterator();
+        while (clusterIter.hasNext()) {
+          JsonNode cluster = clusterIter.next();
+          JsonNode userIntent = cluster.get("userIntent");
+          if (userIntent == null || userIntent.isNull()) {
+            break;
+          }
+          JsonNode providerType = userIntent.get("providerType");
+          if (providerType == null || providerType.isNull()) {
+            break;
+          }
+          if (!ELIGIBLE_PROVIDERS.contains(providerType.asText())) {
+            break;
+          }
+          skipUniverse = false;
+          JsonNode useSystemd = userIntent.get("useSystemd");
+          boolean systemdEnabled =
+              useSystemd != null && !useSystemd.isNull() && useSystemd.asBoolean();
+          univConfigs.computeIfAbsent(univUuid, k -> new UniverseConfig()).systemdEnabled =
+              systemdEnabled;
+        }
+        if (skipUniverse) {
+          log.debug("Skipping universe: {}", univUuid);
+          continue;
+        }
+        Iterator<JsonNode> nodeIter = nodeDetailsSet.iterator();
+        while (nodeIter.hasNext()) {
+          JsonNode nodeDetails = nodeIter.next();
+          JsonNode state = nodeDetails.get("state");
+          if (state == null || !state.isTextual()) {
+            continue;
+          }
+          if (!"Live".equalsIgnoreCase(state.asText())) {
+            continue;
+          }
           JsonNode cloudInfo = nodeDetails.get("cloudInfo");
           if (cloudInfo == null || !cloudInfo.isObject()) {
             continue;
@@ -129,19 +153,38 @@ public class YBAUpgradePrecheck {
     return univConfigs;
   }
 
-  private Set<String> getNodeInstanceIps(Connection conn) throws SQLException {
-    Set<String> ips = new HashSet<>();
+  private Map<String, NodeInstanceConfig> getNodeInstanceConfigs(Connection conn)
+      throws SQLException {
+    Map<String, NodeInstanceConfig> nodeInstanceConfigs = new HashMap<>();
     try (ResultSet resultSet =
         conn.createStatement()
-            .executeQuery("SELECT node_details_json::jsonb->>'ip' as ip FROM node_instance")) {
+            .executeQuery(
+                "SELECT node_instance.node_uuid as node_uuid, node_instance.instance_name as"
+                    + " instance_name, node_details_json::jsonb->>'ip' as ip, provider.uuid as"
+                    + " provider, pgp_sym_decrypt(provider.details,"
+                    + " 'provider::details')::json->>'skipProvisioning' as manual from"
+                    + " node_instance LEFT JOIN (availability_zone  INNER JOIN (region INNER JOIN"
+                    + " provider ON region.provider_uuid = provider.uuid) ON"
+                    + " availability_zone.region_uuid = region.uuid) ON node_instance.zone_uuid ="
+                    + " availability_zone.uuid")) {
       while (resultSet.next()) {
+        String instanceUuid = resultSet.getString("node_uuid");
+        String instanceName = resultSet.getString("instance_name");
         String ip = resultSet.getString("ip");
-        if (StringUtils.isNotBlank(ip)) {
-          ips.add(ip);
+        String provider = resultSet.getString("provider");
+        String manual = resultSet.getString("manual");
+        // Process only the on-prem manual nodes. Non-manual nodes are picked for node-agent
+        // installation later in the tasks.
+        if (StringUtils.isNotBlank(ip) && "true".equalsIgnoreCase(manual)) {
+          NodeInstanceConfig nodeInstanceConfig = new NodeInstanceConfig();
+          nodeInstanceConfig.instanceName = instanceName;
+          nodeInstanceConfig.ip = ip;
+          nodeInstanceConfig.provider = provider;
+          nodeInstanceConfigs.put(instanceUuid, nodeInstanceConfig);
         }
       }
     }
-    return ips;
+    return nodeInstanceConfigs;
   }
 
   private Map<String, String> getNodeAgentStates(Connection conn) throws SQLException {
@@ -166,12 +209,12 @@ public class YBAUpgradePrecheck {
     }
     Map<String, String> nodeAgentClientRuntimeConfigs = null;
     Map<String, UniverseConfig> univConfigs = null;
-    Set<String> nodeInstanceIps = null;
+    Map<String, NodeInstanceConfig> nodeInstanceConfigs = null;
     Map<String, String> nodeAgentStates = null;
     try (Connection conn = DriverManager.getConnection(dbUrl, dbUsername, dbPassword)) {
       nodeAgentClientRuntimeConfigs = getNodeAgentClientRuntimeConfigs(conn);
       univConfigs = getUniverseConfigs(conn);
-      nodeInstanceIps = getNodeInstanceIps(conn);
+      nodeInstanceConfigs = getNodeInstanceConfigs(conn);
       nodeAgentStates = getNodeAgentStates(conn);
     } catch (SQLException e) {
       throw new RuntimeException(e);
@@ -181,15 +224,15 @@ public class YBAUpgradePrecheck {
     // Check for any disabled runtime config override.
     for (Map.Entry<String, String> entry : nodeAgentClientRuntimeConfigs.entrySet()) {
       if ("false".equalsIgnoreCase(StringUtils.trim(entry.getValue()))) {
-        precheckOutput.disabledNodeAgentClients.add(entry.getValue());
+        precheckOutput.nodeAgentClientDisabled = true;
         precheckOutput.passed = false;
       }
     }
     // Check for node instances without node agents.
-    for (String nodeInstanceIp : nodeInstanceIps) {
-      String state = nodeAgentStates.get(nodeInstanceIp);
+    for (Map.Entry<String, NodeInstanceConfig> entry : nodeInstanceConfigs.entrySet()) {
+      String state = nodeAgentStates.get(entry.getValue().ip);
       if (state == null || !state.equalsIgnoreCase("READY")) {
-        precheckOutput.nodeInstanceIps.add(nodeInstanceIp);
+        precheckOutput.nodeInstanceConfigs.put(entry.getKey(), entry.getValue());
         precheckOutput.passed = false;
       }
     }
@@ -197,13 +240,9 @@ public class YBAUpgradePrecheck {
     for (Map.Entry<String, UniverseConfig> entry : univConfigs.entrySet()) {
       UniverseConfig univConfig = entry.getValue();
       if (!univConfig.systemdEnabled) {
-        precheckOutput.universeConfigs.computeIfAbsent(
-            entry.getKey(),
-            k -> {
-              UniverseConfig failedUnivConfig = new UniverseConfig();
-              failedUnivConfig.systemdEnabled = univConfig.systemdEnabled;
-              return failedUnivConfig;
-            });
+        precheckOutput.universeConfigs.computeIfAbsent(entry.getKey(), k -> new UniverseConfig())
+                .systemdEnabled =
+            univConfig.systemdEnabled;
         precheckOutput.passed = false;
       }
       for (String nodeIp : univConfig.nodeIps) {
@@ -211,7 +250,13 @@ public class YBAUpgradePrecheck {
         if (state == null || !state.equalsIgnoreCase("READY")) {
           precheckOutput
               .universeConfigs
-              .computeIfAbsent(entry.getKey(), k -> new UniverseConfig())
+              .computeIfAbsent(
+                  entry.getKey(),
+                  k -> {
+                    UniverseConfig config = new UniverseConfig();
+                    config.systemdEnabled = univConfig.systemdEnabled;
+                    return config;
+                  })
               .nodeIps
               .add(nodeIp);
           precheckOutput.passed = false;
@@ -229,8 +274,8 @@ public class YBAUpgradePrecheck {
               nodeAgentClientRuntimeConfigs,
               "universeConfigs",
               univConfigs,
-              "nodeInstanceIps",
-              nodeInstanceIps,
+              "nodeInstanceConfigs",
+              nodeInstanceConfigs,
               "nodeAgentStates",
               nodeAgentStates);
       Path dumpFilepath = outputDir.resolve("precheck_dumps.json");

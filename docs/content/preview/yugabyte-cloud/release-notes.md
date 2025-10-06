@@ -91,7 +91,7 @@ rightNav:
 
 - YugabyteDB v2.25.0.0 featuring support for PostgreSQL 15 is now available for testing on the Preview database track. To test it out, [create a Sandbox](../cloud-basics/create-clusters/create-clusters-free/) cluster with the Database version set to the Preview track.
   - [YugabyteDB v2.25.0.0 Release Notes](/preview/releases/ybdb-releases/v2.25/)
-  - [PostgreSQL 15 features](/preview/develop/pg15-features/)
+  - [PostgreSQL 15 features](/preview/api/ysql/pg15-features/)
   - [YugabyteDB Levels Up with PG15 Features](https://www.yugabyte.com/blog/postgresql-compatibility-new-yugabytedb-pg15-features/)
 - Support for configuring custom identity providers for [federated authentication](../managed-security/managed-authentication/federated-custom/), to provide single sign-on access for your account users.
 
@@ -622,7 +622,7 @@ rightNav:
 ##### New features
 
 - Self service [Virtual Private Cloud (VPC) networking](../cloud-basics/cloud-vpcs/). Use VPC networks to lower network latencies and make your application and database infrastructure more secure. Create VPCs in AWS or GCP and peer them with application VPCs in the same cloud provider. VPC networking is managed on the **VPC Network** tab of the **Networking** page.
-- Ability to [enable pre-bundled extensions](../cloud-clusters/add-extensions/) using the `CREATE EXTENSION` command. YugabyteDB includes [pre-bundled PostgreSQL extensions](../../explore/ysql-language-features/pg-extensions/) that are tested to work with YSQL. Admin users now have additional permissions to allow them to enable these extensions in databases. (If you need to install a database extension that is not pre-bundled, contact {{% support-cloud %}}
+- Ability to [enable pre-bundled extensions](../cloud-clusters/add-extensions/) using the `CREATE EXTENSION` command. YugabyteDB includes [pre-bundled PostgreSQL extensions](../../additional-features/pg-extensions/) that are tested to work with YSQL. Admin users now have additional permissions to allow them to enable these extensions in databases. (If you need to install a database extension that is not pre-bundled, contact {{% support-cloud %}}
 .)
 
 #### December 2, 2021

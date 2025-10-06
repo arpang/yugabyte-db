@@ -1,5 +1,5 @@
 //--------------------------------------------------------------------------------------------------
-// Copyright (c) YugaByte, Inc.
+// Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -494,6 +494,7 @@ class PgDocOp : public std::enable_shared_from_this<PgDocOp> {
   // - This op will not send request to tablet server.
   // - This op will return empty result-set when being requested for data.
   void AbandonExecution() {
+    DCHECK_EQ(active_op_count_, 0);
     end_of_data_ = true;
   }
 
@@ -801,7 +802,7 @@ class PgDocReadOp : public PgDocOp {
   //----------------------------------- Data Members -----------------------------------------------
 
   // Whether or not we are using hash permutation batching for this op.
-  boost::optional<bool> is_hash_batched_;
+  std::optional<bool> is_hash_batched_;
 
   // Pointer to the per tablet hash component condition expression. For each hash key
   // combination, once we identify the partition at which it should be executed, we enqueue

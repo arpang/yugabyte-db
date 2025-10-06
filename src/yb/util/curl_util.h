@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// The following only applies to changes made to this file as part of YugaByte development.
+// The following only applies to changes made to this file as part of YugabyteDB development.
 //
-// Portions Copyright (c) YugaByte, Inc.
+// Portions Copyright (c) YugabyteDB, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.  You may obtain a copy of the License at
@@ -33,10 +33,9 @@
 
 #include <curl/curl.h>
 
+#include <optional>
 #include <string>
 #include <vector>
-
-#include <boost/optional.hpp>
 
 #include "yb/gutil/macros.h"
 
@@ -116,11 +115,8 @@ class EasyCurl {
   // Do a request. If 'post_data' is non-NULL, does a POST.
   // Otherwise, does a GET.
   Status DoRequest(
-      const std::string& url,
-      const boost::optional<const std::string>& post_data,
-      const boost::optional<const std::string>& content_type,
-      int64_t timeout_sec,
-      faststring* dst,
+      const std::string& url, const std::optional<const std::string>& post_data,
+      const std::optional<const std::string>& content_type, int64_t timeout_sec, faststring* dst,
       const std::vector<std::string>& headers = {});
 
   CURL* curl_;
