@@ -15,6 +15,9 @@
 
 #include <signal.h>
 
+/* YB includes */
+#include "nodes/pg_list.h"
+
 /*
  * The number of SLRU page buffers we use for the notification queue.
  */
@@ -49,5 +52,9 @@ extern void HandleNotifyInterrupt(void);
 
 /* process interrupts */
 extern void ProcessNotifyInterrupt(bool flush);
+
+extern void YbAsyncQueueAddEntry(ListCell *tuples);
+
+extern char *YbNotificationsSlotName();
 
 #endif							/* ASYNC_H */
