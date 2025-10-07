@@ -185,9 +185,7 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 		 * rate limiting mechanism
 		 */
 		elog(LOG, "Adding asyncQueueAddEntries");
-		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
-		asyncQueueAddEntries(list_head(list_make1(tuple)));
-		LWLockRelease(NotifyQueueLock);
+		YbAsyncQueueAddEntry(list_head(list_make1(tuple)));
 		return;
 	}
 

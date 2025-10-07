@@ -53,7 +53,7 @@ extern void HandleNotifyInterrupt(void);
 /* process interrupts */
 extern void ProcessNotifyInterrupt(bool flush);
 
-extern ListCell *asyncQueueAddEntries(ListCell *nextNotify);
+extern void YbAsyncQueueAddEntry(ListCell *tuples);
 
 extern char *YbNotificationsSlotName();
 

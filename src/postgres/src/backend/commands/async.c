@@ -485,6 +485,7 @@ static void asyncQueueUnregister(void);
 static bool asyncQueueIsFull(void);
 static bool asyncQueueAdvance(volatile QueuePosition *position, int entryLength);
 static void asyncQueueNotificationToEntry(Notification *n, AsyncQueueEntry *qe);
+static ListCell *asyncQueueAddEntries(ListCell *nextNotify);
 static double asyncQueueUsage(void);
 static void asyncQueueFillWarning(void);
 static void SignalBackends(void);
@@ -1538,6 +1539,32 @@ asyncQueueNotificationToEntry(Notification *n, AsyncQueueEntry *qe)
 	memcpy(qe->data, n->data, channellen + payloadlen + 2);
 }
 
+void
+YbAsyncQueueAddEntry(ListCell *tuples)
+{
+	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+	// while(asyncQueueIsFull())
+	// {
+	// 	LWLockRelease(NotifyQueueLock);
+	// 	/* TODO: What's a reasonable sleep time? */
+	// 	pg_usleep(2 * 1000L); /* 2ms */
+	// 	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+	// }
+	asyncQueueAddEntries(tuples);
+
+	/*
+	 * Signal listening backends and advance tail if applicable.
+	 */
+	SignalBackends();
+
+	if (tryAdvanceTail)
+	{
+		tryAdvanceTail = false;
+		asyncQueueAdvanceTail();
+	}
+	LWLockRelease(NotifyQueueLock);
+}
+
 /*
  * Add pending notifications to the queue.
  *
@@ -1674,13 +1701,6 @@ asyncQueueAddEntries(ListCell *nextNotify)
 	QUEUE_HEAD = queue_head;
 
 	LWLockRelease(NotifySLRULock);
-
-	/*
-	 * YB note: signal listening backends when notifications are produced in the
-	 * queue.
-	 */
-	if (is_yb)
-		SignalBackends();
 
 	return nextNotify;
 }
