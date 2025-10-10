@@ -103,7 +103,7 @@ static int num_columns_read = 0;
 %type <ielem> boot_index_param
 %type <istmt> Boot_YBIndex
 %type <str>   boot_ident
-%type <ival>  optbootstrap optsharedrelation boot_column_nullness
+%type <ival>  optbootstrap optsharedrelation boot_column_nullness yb_opttserverhosted
 %type <oidval> oidspec optrowtypeoid
 
 %token <str> ID
@@ -113,7 +113,7 @@ static int num_columns_read = 0;
 /* All the rest are unreserved, and should be handled in boot_ident! */
 %token <kw> OPEN XCLOSE XCREATE INSERT_TUPLE
 %token <kw> XDECLARE INDEX ON USING XBUILD INDICES UNIQUE XTOAST
-%token <kw> OBJ_ID XBOOTSTRAP XSHARED_RELATION XROWTYPE_OID
+%token <kw> OBJ_ID XBOOTSTRAP XSHARED_RELATION XROWTYPE_OID YB_XTSERVER_HOSTED
 %token <kw> XFORCE XNOT XNULL
 %token <kw> PRIMARY YBCHECKINITDBDONE YBDECLARE
 
@@ -197,13 +197,14 @@ Boot_YBIndex:
 		;
 
 Boot_CreateStmt:
-		  XCREATE boot_ident oidspec optbootstrap optsharedrelation optrowtypeoid LPAREN
+		  XCREATE boot_ident oidspec optbootstrap optsharedrelation optrowtypeoid yb_opttserverhosted LPAREN
 				{
 					do_start();
 					numattr = 0;
-					elog(DEBUG4, "creating%s%s relation %s %u",
+					elog(DEBUG4, "creating%s%s hosted in %s relation %s %u",
 						 $4 ? " bootstrap" : "",
 						 $5 ? " shared" : "",
+						 $7 ? " tserver" : "master",
 						 $2,
 						 $3);
 				}
@@ -216,12 +217,15 @@ Boot_CreateStmt:
 					TupleDesc	tupdesc;
 					bool		shared_relation;
 					bool		mapped_relation;
+					bool		yb_tserver_hosted;
 
 					do_start();
 
 					tupdesc = CreateTupleDesc(numattr, attrtypes);
 
 					shared_relation = $5;
+
+					yb_tserver_hosted = $7;
 
 					/*
 					 * The catalogs that use the relation mapper are the
@@ -293,9 +297,9 @@ Boot_CreateStmt:
 						elog(DEBUG4, "relation created with OID %u", id);
 					}
 
-					if (IsYugaByteEnabled())
+					if (IsYugaByteEnabled() && !yb_tserver_hosted)
 					{
-						YBCCreateSysCatalogTable($2, $3, tupdesc, shared_relation, $12);
+						YBCCreateSysCatalogTable($2, $3, tupdesc, shared_relation, $13);
 					}
 
 					do_end();
@@ -529,6 +533,11 @@ optrowtypeoid:
 		|							{ $$ = InvalidOid; }
 		;
 
+yb_opttserverhosted:
+			YB_XTSERVER_HOSTED	{ $$ = 1; }
+		|						{ $$ = 0; }
+		;
+
 boot_column_list:
 		  boot_column_def
 		| boot_column_list COMMA boot_column_def
@@ -601,6 +610,7 @@ boot_ident:
 		| XNOT			{ $$ = pstrdup($1); }
 		| XNULL			{ $$ = pstrdup($1); }
 		| YBCHECKINITDBDONE { $$ = pstrdup($1); }
+		| YB_XTSERVER_HOSTED { $$ = pstrdup($1); }
 		;
 %%
 

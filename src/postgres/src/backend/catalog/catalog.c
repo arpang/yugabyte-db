@@ -58,6 +58,7 @@
 #include "catalog/pg_yb_profile.h"
 #include "catalog/pg_yb_role_profile.h"
 #include "catalog/pg_yb_tablegroup.h"
+#include "catalog/yb_notifications_d.h"
 #include "commands/defrem.h"
 #include "executor/spi.h"
 #include "utils/lsyscache.h"
@@ -322,7 +323,8 @@ IsSharedRelation(Oid relationId)
 		relationId == YbInvalidationMessagesRelationId ||
 		relationId == YbProfileRelationId ||
 		relationId == YbRoleProfileRelationId ||
-		relationId == YBLogicalClientVersionRelationId)
+		relationId == YBLogicalClientVersionRelationId ||
+		relationId == YbNotificationsRelationId)
 		return true;
 	/* These are their indexes */
 	if (relationId == AuthIdOidIndexId ||
@@ -349,7 +351,8 @@ IsSharedRelation(Oid relationId)
 		relationId == YbProfileOidIndexId ||
 		relationId == YbProfileRolnameIndexId ||
 		relationId == YbRoleProfileOidIndexId ||
-		relationId == YBLogicalClientVersionDbOidIndexId)
+		relationId == YBLogicalClientVersionDbOidIndexId ||
+		relationId == YbNotificationsPKeyIndexId)
 		return true;
 	/* These are their toast tables and toast indexes */
 	if (relationId == PgAuthidToastTable ||

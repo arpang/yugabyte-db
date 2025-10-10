@@ -62,6 +62,7 @@
 
 /* YB includes */
 #include "access/sysattr.h"
+#include "catalog/yb_notifications_d.h"
 #include "pg_yb_utils.h"
 
 
@@ -935,6 +936,13 @@ get_all_vacuum_rels(int options)
 		Form_pg_class classForm = (Form_pg_class) GETSTRUCT(tuple);
 		MemoryContext oldcontext;
 		Oid			relid = classForm->oid;
+
+		/*
+		 * TODO: Make is this more generic: during initdb, don't run analyze on
+		 * tserver hosted tables.
+		 */
+		if (classForm->oid == YbNotificationsRelationId)
+			continue;
 
 		/* check permissions of relation */
 		if (!vacuum_is_relation_owner(relid, classForm, options))
