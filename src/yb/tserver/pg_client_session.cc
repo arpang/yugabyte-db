@@ -2447,23 +2447,17 @@ class PgClientSession::Impl {
 
   template <QueryTraitsType T, class... Args>
   void HandleSharedExchangeQuery(
-      std::shared_ptr<PgClientSession>&& session, SharedExchange& exchange, uint8_t* input,
-      size_t size, Args&&... args) {
+      SharedExchange& exchange, uint8_t* input, size_t size, Args&&... args) {
     auto query = SharedExchangeQuery<T>::MakeShared(
-        std::move(session), exchange, stats_exchange_response_size());
-    const auto status = DoHandleSharedExchangeQuery(
-        *query, input, size, session->id(), std::forward<Args>(args)...);
+        SharedSessionFromThis(), exchange, stats_exchange_response_size());
+    const auto status =
+        DoHandleSharedExchangeQuery(*query, input, size, id(), std::forward<Args>(args)...);
     if (!status.ok()) {
       query->SendErrorResponse(status);
     }
   }
 
   void ProcessSharedRequest(size_t size, SharedExchange* exchange) {
-    auto shared_this = shared_this_.lock();
-    if (!shared_this) {
-      LOG_WITH_FUNC(DFATAL) << "Shared this is null in ProcessSharedRequest";
-      return;
-    }
     auto input = to_uchar_ptr(exchange->Obtain(size));
     const auto req_type_id = *reinterpret_cast<const uint8_t *>(input);
     input += sizeof(req_type_id);
@@ -2471,12 +2465,10 @@ class PgClientSession::Impl {
     auto req_type = static_cast<tserver::PgSharedExchangeReqType>(req_type_id);
     switch (req_type) {
       case tserver::PgSharedExchangeReqType::PERFORM: {
-        return HandleSharedExchangeQuery<PerformQueryTraits>(
-            std::move(shared_this), *exchange, input, size, table_cache());
+        return HandleSharedExchangeQuery<PerformQueryTraits>(*exchange, input, size, table_cache());
       }
       case tserver::PgSharedExchangeReqType::ACQUIRE_OBJECT_LOCK: {
-        return HandleSharedExchangeQuery<ObjectLockQueryTraits>(
-            std::move(shared_this), *exchange, input, size);
+        return HandleSharedExchangeQuery<ObjectLockQueryTraits>(*exchange, input, size);
       }
       case tserver::PgSharedExchangeReqType_INT_MIN_SENTINEL_DO_NOT_USE_: [[fallthrough]];
       case tserver::PgSharedExchangeReqType_INT_MAX_SENTINEL_DO_NOT_USE_: break;
@@ -2677,9 +2669,20 @@ class PgClientSession::Impl {
   }
 
   void StartShutdown(bool pg_service_shutting_down) {
+    VLOG(2) << "StartShutdown for session id: " << id();
     if (!pg_service_shutting_down) {
       WARN_NOT_OK(CleanupObjectLocks(), "Error cleaning up object locks");
-      if (const auto& txn = Transaction(PgClientSessionKind::kPgSession); txn) {
+
+      // Abort txns attached to this session
+      for (const auto kind :
+           {PgClientSessionKind::kPlain, PgClientSessionKind::kDdl,
+            PgClientSessionKind::kPgSession}) {
+        const auto& txn = Transaction(kind);
+        if (!txn) {
+          continue;
+        }
+        LOG(INFO) << "Aborting txn of kind " << yb::ToString(kind) << " with id " << txn->id()
+                  << " belonging to expired PG session ID: " << id();
         txn->Abort();
       }
     }
@@ -3021,10 +3024,12 @@ class PgClientSession::Impl {
       txn = transaction_provider_.Take<kSessionKind>(deadline);
       txn->SetLogPrefixTag(kTxnLogPrefixTag, id_);
       txn->InitPgSessionRequestVersion();
+      // Set the start time before initializing the transaction to allow start time to be
+      // propagated to txn coordinator.
+      RETURN_NOT_OK(txn->SetPgTxnStart(MonoTime::Now().ToUint64()));
       // Isolation level doesn't matter but we need to set it for conflict resolution to not treat
       // it as a single shard/fast-path transaction.
       RETURN_NOT_OK(txn->Init(IsolationLevel::READ_COMMITTED));
-      RETURN_NOT_OK(txn->SetPgTxnStart(MonoTime::Now().ToUint64()));
       session_data.session->SetTransaction(txn);
     }
     return session_data;
@@ -3639,8 +3644,7 @@ class PgClientSession::Impl {
     plain_session_used_read_time_.pending_update = true;
     auto& used_read_time = plain_session_used_read_time_.value;
     return BuildUsedReadTimeApplier(
-        std::shared_ptr<UsedReadTime>{shared_this_.lock(), &used_read_time},
-        RenewSignature(used_read_time));
+        SharedField(SharedSessionFromThis(), &used_read_time), RenewSignature(used_read_time));
   }
 
   [[nodiscard]] bool IsObjectLockingEnabled() const { return ts_lock_manager() != nullptr; }
@@ -3661,9 +3665,14 @@ class PgClientSession::Impl {
   }
 
   TransactionFullLocality GetTargetTransactionLocality(const PgPerformRequestPB& request) const {
-    if (!FLAGS_use_tablespace_based_transaction_placement) {
+    if (!FLAGS_use_tablespace_based_transaction_placement &&
+        !request.options().force_tablespace_locality()) {
       return request.options().is_all_region_local()
           ? TransactionFullLocality::RegionLocal() : TransactionFullLocality::Global();
+    }
+
+    if (auto oid = request.options().force_tablespace_locality_oid()) {
+      return TransactionFullLocality::TablespaceLocal(oid);
     }
 
     PgTablespaceOid tablespace_oid = kInvalidOid;
@@ -3679,6 +3688,10 @@ class PgClientSession::Impl {
     return tablespace_oid == kInvalidOid
         ? TransactionFullLocality::Global()
         : TransactionFullLocality::TablespaceLocal(tablespace_oid);
+  }
+
+  std::shared_ptr<PgClientSession> SharedSessionFromThis() const {
+    return shared_this_.lock();
   }
 
   client::YBClient& client_;

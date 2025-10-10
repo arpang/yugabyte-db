@@ -106,6 +106,7 @@
 | "Task Garbage Collector Check Interval" | "yb.taskGC.gc_check_interval" | "GLOBAL" | "How frequently do we check for completed tasks in database" | "Duration" |
 | "API support for backward compatible date fields" | "yb.api.backward_compatible_date" | "GLOBAL" | "Enable when a client to the YBAnywhere API wants to continue using the older date  fields in non-ISO format. Default behaviour is to not populate such deprecated API fields and only return newer date fields." | "Boolean" |
 | "Allow universes to be detached/attached" | "yb.attach_detach.enabled" | "GLOBAL" | "Allow universes to be detached from a source platform and attached to dest platform" | "Boolean" |
+| "Allow auto-provider K8s universes to attach to K8s-based YBA" | "yb.attach_detach.allow_auto_provider_to_k8s_platform" | "GLOBAL" | "Allow Kubernetes auto-provider universes to be attached to Kubernetes-based YBA. Note that you must only attach auto-provider universe to Kubernetes-based YBA if the destination and source YBA exist on the same Kubernetes cluster" | "Boolean" |
 | "Whether YBA supports transactional xCluster configs" | "yb.xcluster.transactional.enabled" | "GLOBAL" | "It indicates whether YBA should support transactional xCluster configs" | "Boolean" |
 | "Enable disaster recovery" | "yb.xcluster.dr.enabled" | "GLOBAL" | "It indicates whether creating disaster recovery configs are enabled" | "Boolean" |
 | "Enable xcluster/DR auto flag validation" | "yb.xcluster.enable_auto_flag_validation" | "GLOBAL" | "Enables checks for xcluster/disaster recovery validations for autoflags for xcluster/DR operations" | "Boolean" |
@@ -134,6 +135,7 @@
 | "Enable strict mode to ignore deprecated YBA APIs" | "yb.api.mode.strict" | "GLOBAL" | "Will ignore deprecated APIs" | "Boolean" |
 | "Enable safe mode to ignore preview YBA APIs" | "yb.api.mode.safe" | "GLOBAL" | "Will ignore preview APIs" | "Boolean" |
 | "Enable publishing thread dumps to GCS" | "yb.diag.thread_dumps.gcs.enabled" | "GLOBAL" | "Enable publishing thread dumps to GCS" | "Boolean" |
+| "Enable publishing support bundles to GCS" | "yb.diag.support_bundles.gcs.enabled" | "GLOBAL" | "Enable publishing support bundles to GCS" | "Boolean" |
 | "Operator owned resources api block" | "yb.kubernetes.operator.block_api_operator_owned_resources" | "GLOBAL" | "A resource controlled by the kubernetes operator cannot be updated using the REST API" | "Boolean" |
 | "Granular level metrics" | "yb.ui.feature_flags.granular_metrics" | "GLOBAL" | "View granular level metrics when user selects specific time period in a chart" | "Boolean" |
 | "Enable multiline option for GFlag conf." | "yb.ui.feature_flags.gflag_multiline_conf" | "GLOBAL" | "Allows user to enter postgres hba rules and ident map rules in multiple rows" | "Boolean" |

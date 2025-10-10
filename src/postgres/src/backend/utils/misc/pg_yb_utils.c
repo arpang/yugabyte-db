@@ -63,6 +63,7 @@
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_db_role_setting.h"
+#include "catalog/pg_enum.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_opclass.h"
@@ -2711,6 +2712,16 @@ YBAddDdlTxnState(YbDdlMode mode)
 }
 
 void
+YBMergeDdlTxnState()
+{
+	Assert(yb_ddl_transaction_block_enabled);
+
+	const bool	has_change = YbHasDdlMadeChanges();
+	MergeCatalogModificationAspects(&ddl_transaction_state.catalog_modification_aspects,
+									has_change);
+}
+
+void
 YBAddModificationAspects(YbDdlMode mode)
 {
 	ddl_transaction_state.catalog_modification_aspects.pending |= mode;
@@ -4343,6 +4354,8 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 
 			if (use_separate_ddl_transaction)
 				YBDecrementDdlNestingLevel();
+			else
+				YBMergeDdlTxnState();
 
 			/*
 			 * Reset the is_top_level_ddl_active for this statement as it is
@@ -6533,6 +6546,10 @@ YbRegisterSysTableForPrefetching(int sys_table_id)
 		case ConstraintRelationId:	/* pg_constraint */
 			sys_table_index_id = ConstraintRelidTypidNameIndexId;
 			sys_only_filter_attr = Anum_pg_constraint_oid;
+			break;
+		case EnumRelationId:	/* pg_enum */
+			sys_table_index_id = EnumTypIdLabelIndexId;
+			sys_only_filter_attr = Anum_pg_enum_oid;
 			break;
 		case IndexRelationId:	/* pg_index */
 			sys_table_index_id = IndexIndrelidIndexId;

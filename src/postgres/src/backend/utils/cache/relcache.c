@@ -97,6 +97,7 @@
 #include "catalog/pg_cast.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_db_role_setting.h"
+#include "catalog/pg_enum.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_partitioned_table.h"
@@ -382,7 +383,7 @@ do { \
  * faked nailed shared relation entries from the previous attempt that failed,
  * so they need to be replaced by the real entries read from the init file.
  */
-#define YbSharedRelationCacheReinsert(RELATION)	\
+#define YbRelationCacheReinsert(RELATION, shared)	\
 do { \
 	Assert(!IsBootstrapProcessingMode()); \
 	RelIdCacheEnt *hentry; bool found; \
@@ -395,7 +396,10 @@ do { \
 		hentry->reldesc = (RELATION); \
 		/* We should only find fake nailed shared relation cache entries. */ \
 		Assert(_old_rel->rd_isnailed); \
-		Assert(_old_rel->rd_rel->relisshared); \
+		if (shared) \
+			Assert(_old_rel->rd_rel->relisshared); \
+		else \
+			Assert(!_old_rel->rd_rel->relisshared); \
 		Assert(_old_rel->rd_refcnt == 1); \
 		Assert(!OidIsValid(_old_rel->rd_rel->relowner)); \
 		/*
@@ -406,15 +410,19 @@ do { \
 		 */ \
 		_old_rel->rd_refcnt = 0; \
 		RelationDestroyRelation(_old_rel, false); \
-		/* The new relation must be valid nailed shared relation */ \
+		/* The new relation must be valid nailed relation */ \
 		Assert(RELATION->rd_isnailed); \
-		Assert(RELATION->rd_rel->relisshared); \
+		if (shared) \
+			Assert(RELATION->rd_rel->relisshared); \
+		else \
+			Assert(!RELATION->rd_rel->relisshared); \
 		Assert(RELATION->rd_refcnt == 1); \
 		Assert(OidIsValid(RELATION->rd_rel->relowner)); \
 	} \
 	else \
 		hentry->reldesc = (RELATION); \
-		/* No need to call YBCRecordTablespaceOid on a shared relation */ \
+		/* No need to call YBCRecordTablespaceOid on a system relation */ \
+	Assert(RELATION->rd_id < FirstNormalObjectId); \
 } while(0)
 
 /*
@@ -1362,6 +1370,13 @@ YbIsNonAlterableRelation(Relation rel)
 	return IsSystemRelation(rel) && rel->rd_rel->relkind != RELKIND_VIEW;
 }
 
+static bool
+YbSessionUserIsPostgres()
+{
+	const char *username = GetUserNameFromId(GetSessionUserId(), true);
+	return username && strcmp(username, "postgres") == 0;
+}
+
 typedef struct YbUpdateRelationCacheState
 {
 	bool		sys_relations_update_required;
@@ -2230,6 +2245,7 @@ typedef enum YbPFetchTable
 	YB_PFETCH_TABLE_PG_CONSTRAINT,
 	YB_PFETCH_TABLE_PG_DATABASE,
 	YB_PFETCH_TABLE_PG_DB_ROLE_SETTINGS,
+	YB_PFETCH_TABLE_PG_ENUM,
 	YB_PFETCH_TABLE_PG_INDEX,
 	YB_PFETCH_TABLE_PG_INHERITS,
 	YB_PFETCH_TABLE_PG_NAMESPACE,
@@ -2294,6 +2310,7 @@ static const YbCatNamePfId YbCatalogNamesPfIds[] = {
 	{"pg_constraint", YB_PFETCH_TABLE_PG_CONSTRAINT},
 	{"pg_database", YB_PFETCH_TABLE_PG_DATABASE},
 	{"pg_db_role_setting", YB_PFETCH_TABLE_PG_DB_ROLE_SETTINGS},
+	{"pg_enum", YB_PFETCH_TABLE_PG_ENUM},
 	{"pg_index", YB_PFETCH_TABLE_PG_INDEX},
 	{"pg_inherits", YB_PFETCH_TABLE_PG_INHERITS},
 	{"pg_namespace", YB_PFETCH_TABLE_PG_NAMESPACE},
@@ -2390,6 +2407,8 @@ YbGetPrefetchableTableInfo(YbPFetchTable table)
 		(YbPFetchTableInfo) {DatabaseRelationId, {YB_TABLE_CACHE_TYPE_CAT_CACHE_NO_INDEX,.cat_cache = {DATABASEOID}}},
 		[YB_PFETCH_TABLE_PG_DB_ROLE_SETTINGS] =
 		(YbPFetchTableInfo) {DbRoleSettingRelationId},
+		[YB_PFETCH_TABLE_PG_ENUM] =
+		(YbPFetchTableInfo) {EnumRelationId, {YB_TABLE_CACHE_TYPE_CAT_CACHE_WITH_INDEX,.cat_cache = {ENUMOID, ENUMTYPOIDNAME}}},
 		[YB_PFETCH_TABLE_PG_INDEX] =
 		(YbPFetchTableInfo) {IndexRelationId, {YB_TABLE_CACHE_TYPE_CAT_CACHE_NO_INDEX,.cat_cache = {INDEXRELID}}},
 		[YB_PFETCH_TABLE_PG_INHERITS] =
@@ -2947,7 +2966,8 @@ YbPreloadRelCacheImpl(YbRunWithPrefetcherContext *ctx)
 {
 	YbNumRelCachePreloads++;
 	if (Log_connections)
-		elog(LOG, "Preloading relcache");
+		elog(LOG, "Preloading relcache for database %u, session user id: %u",
+			 MyDatabaseId, GetSessionUserId());
 
 	/*
 	 * During relcache loading postgres reads the data from multiple sys tables.
@@ -6394,10 +6414,10 @@ RelationCacheInitializePhase3(void)
 	{
 		Assert(!YBCIsSysTablePrefetchingStarted());
 
-		bool		preload_rel_cache = (needNewCacheFile ||
-										 YBCIsInitDbModeEnvVarSet() ||
-										 YbNeedAdditionalCatalogTables() ||
-										 !*YBCGetGFlags()->ysql_use_relcache_file);
+		bool		catalog_preload_required = (YBCIsInitDbModeEnvVarSet() ||
+										  YbNeedAdditionalCatalogTables() ||
+										  !*YBCGetGFlags()->ysql_use_relcache_file);
+		bool		preload_rel_cache = needNewCacheFile || catalog_preload_required;
 
 		if (preload_rel_cache)
 		{
@@ -6420,7 +6440,51 @@ RelationCacheInitializePhase3(void)
 			}
 		}
 
-		YbPrefetchRequiredData(preload_rel_cache);
+		const bool enable_relcache_init_optimization =
+			*(YBCGetGFlags()->ysql_enable_relcache_init_optimization);
+		/*
+		 * If catalog_preload_required is true, this connection will incur a memory spike
+		 * on purpose anyway, no need to trigger an internal connection.
+		 * IsBinaryUpgrade=true indicates we are doing catalog restore during a
+		 * major version update. In this case local tserver is actually yb-master
+		 * which has not implemented YBCTriggerRelcacheInitConnection.
+		 * We allow superuser postgres connections to rebuild relcache init file
+		 * because there is not an easy way to tell whether a connection is internally
+		 * generated or not.
+		 */
+		if (enable_relcache_init_optimization &&
+			YBIsDBCatalogVersionMode() &&
+			needNewCacheFile &&
+			!catalog_preload_required &&
+			!YbSessionUserIsPostgres() &&
+			!IsBinaryUpgrade)
+		{
+			const char *dbname = YBCGetDatabaseName(MyDatabaseId);
+
+			/* Trigger an internal connection to rebuild the relcache file. */
+			HandleYBStatus(YBCTriggerRelcacheInitConnection(dbname));
+
+			/*
+			 * Reload the relcache init files that are newly generated by the
+			 * internal connection.
+			 */
+			oldcxt = MemoryContextSwitchTo(CacheMemoryContext);
+			if (!load_relcache_init_file(true) || !load_relcache_init_file(false))
+				elog(ERROR, "failed to load relcache init file for database %u",
+					 MyDatabaseId);
+			MemoryContextSwitchTo(oldcxt);
+
+			/* Resume preloading of the core catalog tables only. */
+			YbPrefetchRequiredData(false);
+
+			/*
+			 * Do not overwrite the relcache init file which is newly generated
+			 * by the internal connection.
+			 */
+			needNewCacheFile = false;
+		}
+		else
+			YbPrefetchRequiredData(preload_rel_cache);
 
 		Assert(YBCIsSysTablePrefetchingStarted());
 		Assert(YbCheckCatalogCacheIndexNameTable());
@@ -8971,8 +9035,8 @@ load_relcache_init_file(bool shared)
 	 */
 	for (relno = 0; relno < num_rels; relno++)
 	{
-		if (shared && YBIsDBCatalogVersionMode())
-			YbSharedRelationCacheReinsert(rels[relno]);
+		if (YBIsDBCatalogVersionMode())
+			YbRelationCacheReinsert(rels[relno], shared);
 		else
 			RelationCacheInsert(rels[relno], false);
 	}
