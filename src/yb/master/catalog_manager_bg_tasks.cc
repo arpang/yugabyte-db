@@ -225,6 +225,7 @@ void CatalogManagerBgTasks::RunOnceAsLeader(const LeaderEpoch& epoch) {
         LOG(INFO) << "Processing pending assignments for table: " << table_id;
         Status s = catalog_manager_->ProcessPendingAssignmentsPerTable(
             table_id, tablets, epoch, &global_load_state);
+        // This just throws a warning, so I don't care.
         WARN_NOT_OK(s, "Assignment failed");
         // Set processed_tablets as true if the call succeeds for at least one table.
         processed_tablets = processed_tablets || s.ok();

@@ -3917,7 +3917,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
   RETURN_NOT_OK(CreateGlobalTransactionStatusTableIfNeededForNewTable(*orig_req, rpc, epoch));
   RETURN_NOT_OK(MaybeCreateLocalTransactionTable(*orig_req, rpc, epoch));
 
-  if (is_pg_catalog_table) {
+  if (is_pg_catalog_table && orig_req->name() != "yb_notifications") {
     // No batching for migration.
     auto ns = VERIFY_RESULT(FindNamespace(orig_req->namespace_()));
     CreateYsqlSysTableData data;
@@ -4041,6 +4041,9 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
       req.mutable_partition_schema()->set_hash_schema(PartitionSchemaPB::REDIS_HASH_SCHEMA);
     } else if (schema.num_hash_key_columns() > 0) {
       req.mutable_partition_schema()->set_hash_schema(PartitionSchemaPB::MULTI_COLUMN_HASH_SCHEMA);
+    } else if (req.name() == "yb_notifications") {
+      // This is not the right fix. Ensure partition schema is set from pggate (just like for other tserver hosted tables).
+      req.mutable_partition_schema()->set_hash_schema(PartitionSchemaPB::PGSQL_HASH_SCHEMA);
     } else {
       Status s = STATUS(InvalidArgument, "Unknown table type or partitioning method");
       return SetupError(resp->mutable_error(), MasterErrorPB::INVALID_SCHEMA, s);
@@ -4077,7 +4080,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
   const auto [partition_schema, partitions] =
       VERIFY_RESULT(CreatePartitions(schema, num_tablets, colocated, &req, resp));
 
-  if (!FLAGS_TEST_skip_placement_validation_createtable_api) {
+  if (!FLAGS_TEST_skip_placement_validation_createtable_api && orig_req->name() != "yb_notifications") {
     ValidateReplicationInfoRequestPB validate_req;
     validate_req.mutable_replication_info()->CopyFrom(replication_info);
     ValidateReplicationInfoResponsePB validate_resp;
@@ -5300,6 +5303,10 @@ TableIdentifierPB GetMetricsSnapshotsTableId() {
 Result<IsOperationDoneResult> CatalogManager::IsCreateTableDone(const TableInfoPtr& table) {
   bool is_transactional;
   TableId indexed_table_id;
+
+  // there is no tserver during initdb, so just return true for IsCreateTableDone.
+  if (table->name() == "yb_notifications")
+    return IsOperationDoneResult::Done(Status::OK());
   {
     TRACE("Locking table");
     auto l = table->LockForRead();
