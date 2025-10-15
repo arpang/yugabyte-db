@@ -297,7 +297,6 @@ Boot_CreateStmt:
 						elog(DEBUG4, "relation created with OID %u", id);
 					}
 
-					// todo: use yb_tserver_hosted
 					if (IsYugaByteEnabled())
 					{
 						YBCCreateSysCatalogTable($2, $3, tupdesc, shared_relation, $13, yb_tserver_hosted);

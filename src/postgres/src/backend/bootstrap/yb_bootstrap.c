@@ -84,7 +84,7 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 												 attname,
 												 attnum,
 												 col_type,
-												 is_hash /* is_hash */ ,
+												 is_hash,
 												 is_key,
 												 false /* is_desc */ ,
 												 false /* is_nulls_first */ ));
