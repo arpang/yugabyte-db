@@ -4041,9 +4041,6 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
       req.mutable_partition_schema()->set_hash_schema(PartitionSchemaPB::REDIS_HASH_SCHEMA);
     } else if (schema.num_hash_key_columns() > 0) {
       req.mutable_partition_schema()->set_hash_schema(PartitionSchemaPB::MULTI_COLUMN_HASH_SCHEMA);
-    } else if (req.name() == "yb_notifications") {
-      // This is not the right fix. Ensure partition schema is set from pggate (just like for other tserver hosted tables).
-      req.mutable_partition_schema()->set_hash_schema(PartitionSchemaPB::PGSQL_HASH_SCHEMA);
     } else {
       Status s = STATUS(InvalidArgument, "Unknown table type or partitioning method");
       return SetupError(resp->mutable_error(), MasterErrorPB::INVALID_SCHEMA, s);
