@@ -76,6 +76,7 @@ bootstrap		{ yylval.kw = "bootstrap"; return XBOOTSTRAP; }
 shared_relation	{ yylval.kw = "shared_relation"; return XSHARED_RELATION; }
 rowtype_oid		{ yylval.kw = "rowtype_oid"; return XROWTYPE_OID; }
 tserver_hosted	{ yylval.kw = "tserver_hosted"; return YB_XTSERVER_HOSTED; }
+HASH	{ yylval.kw = "HASH"; return YB_XHASH; }
 
 
 insert			{ yylval.kw = "insert"; return INSERT_TUPLE; }

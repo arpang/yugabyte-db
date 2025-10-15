@@ -52,6 +52,6 @@ CATALOG(yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION BKI
  */
 typedef FormData_yb_notifications *Form_yb_notifications;
 
-DECLARE_UNIQUE_INDEX_PKEY(yb_notifications_pkey, 8102, YbNotificationsPKeyIndexId, on yb_notifications using btree(node uuid_ops, pid int4_ops));
+DECLARE_UNIQUE_INDEX_PKEY(yb_notifications_pkey, 8102, YbNotificationsPKeyIndexId, on yb_notifications using btree(node uuid_ops HASH, pid int4_ops HASH));
 
 #endif							/* YB_NOTIFICATIONS_H */

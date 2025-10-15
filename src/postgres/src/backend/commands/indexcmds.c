@@ -2443,6 +2443,12 @@ ComputeIndexAttrs(IndexInfo *indexInfo,
 		}
 		RelationClose(rel);
 	}
+	else if (IsBootstrapProcessingMode())
+	{
+		Relation	rel = RelationIdGetRelation(relId);
+		use_yb_ordering = strcmp(RelationGetRelationName(rel), "yb_notifications") == 0;
+		RelationClose(rel);
+	}
 
 	/*
 	 * process attributeList

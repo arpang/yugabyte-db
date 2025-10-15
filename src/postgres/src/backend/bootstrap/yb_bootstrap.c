@@ -49,12 +49,15 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 					   int attnum,
 					   Oid type_id,
 					   int32 typmod,
-					   bool key)
+					   bool key,
+					   bool tserver_hosted)
 {
 
 	ListCell   *lc;
 	bool		is_key = false;
 	const YbcPgTypeEntity *col_type = YbDataTypeFromOidMod(attnum, type_id);
+
+	bool is_hash = false;
 
 	if (pkey_idx)
 	{
@@ -65,6 +68,7 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 			if (strcmp(elem->name, attname) == 0)
 			{
 				is_key = true;
+				is_hash = tserver_hosted && (elem->ordering == SORTBY_HASH);
 			}
 		}
 	}
@@ -80,7 +84,7 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 												 attname,
 												 attnum,
 												 col_type,
-												 false /* is_hash */ ,
+												 is_hash /* is_hash */ ,
 												 is_key,
 												 false /* is_desc */ ,
 												 false /* is_nulls_first */ ));
@@ -91,7 +95,8 @@ static void
 YBCAddSysCatalogColumns(YbcPgStatement yb_stmt,
 						TupleDesc tupdesc,
 						IndexStmt *pkey_idx,
-						const bool key)
+						const bool key,
+						bool tserver_hosted)
 {
 	for (int attno = 0; attno < tupdesc->natts; attno++)
 	{
@@ -103,7 +108,8 @@ YBCAddSysCatalogColumns(YbcPgStatement yb_stmt,
 							   attr->attnum,
 							   attr->atttypid,
 							   attr->atttypmod,
-							   key);
+							   key,
+							   tserver_hosted);
 	}
 }
 
@@ -112,7 +118,8 @@ YBCCreateSysCatalogTable(const char *table_name,
 						 Oid table_oid,
 						 TupleDesc tupdesc,
 						 bool is_shared_relation,
-						 IndexStmt *pkey_idx)
+						 IndexStmt *pkey_idx,
+						 bool tserver_hosted)
 {
 	/* Database and schema are fixed when running inidb. */
 	Assert(IsBootstrapProcessingMode());
@@ -132,7 +139,7 @@ YBCCreateSysCatalogTable(const char *table_name,
 									   true /* is_sys_catalog_table */ ,
 									   false,	/* if_not_exists */
 									   ybrowid_mode,
-									   true,	/* is_colocated_via_database */
+									   !tserver_hosted,	/* is_colocated_via_database */
 									   InvalidOid /* tablegroup_oid */ ,
 									   InvalidOid /* colocation_id */ ,
 									   InvalidOid /* tablespace_oid */ ,
@@ -145,9 +152,9 @@ YBCCreateSysCatalogTable(const char *table_name,
 	/* Add all key columns first, then the regular columns */
 	if (pkey_idx != NULL)
 	{
-		YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ true);
+		YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ true, tserver_hosted);
 	}
-	YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ false);
+	YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ false, tserver_hosted);
 
 	HandleYBStatus(YBCPgExecCreateTable(yb_stmt));
 }

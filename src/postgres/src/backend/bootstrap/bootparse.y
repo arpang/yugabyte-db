@@ -103,7 +103,7 @@ static int num_columns_read = 0;
 %type <ielem> boot_index_param
 %type <istmt> Boot_YBIndex
 %type <str>   boot_ident
-%type <ival>  optbootstrap optsharedrelation boot_column_nullness yb_opttserverhosted
+%type <ival>  optbootstrap optsharedrelation boot_column_nullness yb_opttserverhosted yb_opt_hash
 %type <oidval> oidspec optrowtypeoid
 
 %token <str> ID
@@ -113,7 +113,7 @@ static int num_columns_read = 0;
 /* All the rest are unreserved, and should be handled in boot_ident! */
 %token <kw> OPEN XCLOSE XCREATE INSERT_TUPLE
 %token <kw> XDECLARE INDEX ON USING XBUILD INDICES UNIQUE XTOAST
-%token <kw> OBJ_ID XBOOTSTRAP XSHARED_RELATION XROWTYPE_OID YB_XTSERVER_HOSTED
+%token <kw> OBJ_ID XBOOTSTRAP XSHARED_RELATION XROWTYPE_OID YB_XTSERVER_HOSTED YB_XHASH
 %token <kw> XFORCE XNOT XNULL
 %token <kw> PRIMARY YBCHECKINITDBDONE YBDECLARE
 
@@ -300,7 +300,7 @@ Boot_CreateStmt:
 					// todo: use yb_tserver_hosted
 					if (IsYugaByteEnabled())
 					{
-						YBCCreateSysCatalogTable($2, $3, tupdesc, shared_relation, $13);
+						YBCCreateSysCatalogTable($2, $3, tupdesc, shared_relation, $13, yb_tserver_hosted);
 					}
 
 					do_end();
@@ -504,7 +504,7 @@ boot_index_params:
 		;
 
 boot_index_param:
-		boot_ident boot_ident
+		boot_ident boot_ident yb_opt_hash
 				{
 					IndexElem  *n = makeNode(IndexElem);
 
@@ -513,7 +513,7 @@ boot_index_param:
 					n->indexcolname = NULL;
 					n->collation = NIL;
 					n->opclass = list_make1(makeString($2));
-					n->ordering = SORTBY_DEFAULT;
+					n->ordering = $3;
 					n->nulls_ordering = SORTBY_NULLS_DEFAULT;
 					$$ = n;
 				}
@@ -537,6 +537,10 @@ optrowtypeoid:
 yb_opttserverhosted:
 			YB_XTSERVER_HOSTED	{ $$ = 1; }
 		|						{ $$ = 0; }
+		;
+
+yb_opt_hash: YB_XHASH		{ $$ = SORTBY_HASH; }
+			 | /* EMPTY */	{ $$ = SORTBY_DEFAULT; }
 		;
 
 boot_column_list:
@@ -612,6 +616,7 @@ boot_ident:
 		| XNULL			{ $$ = pstrdup($1); }
 		| YBCHECKINITDBDONE { $$ = pstrdup($1); }
 		| YB_XTSERVER_HOSTED { $$ = pstrdup($1); }
+		| YB_XHASH { $$ = pstrdup($1); }
 		;
 %%
 
