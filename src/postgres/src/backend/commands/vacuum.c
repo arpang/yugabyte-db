@@ -62,6 +62,7 @@
 
 /* YB includes */
 #include "access/sysattr.h"
+#include "catalog/catalog.h"
 #include "catalog/yb_notifications_d.h"
 #include "pg_yb_utils.h"
 
@@ -938,10 +939,11 @@ get_all_vacuum_rels(int options)
 		Oid			relid = classForm->oid;
 
 		/*
-		 * TODO: Make is this more generic: during initdb, don't run analyze on
-		 * tserver hosted tables.
+		 * Skip tserver hosted catalog relation during initdb as the tablets do
+		 * not even exist at that time.
 		 */
-		if (classForm->oid == YbNotificationsRelationId)
+		if (YBCIsInitDbModeEnvVarSet() &&
+			YbIsTserverHostedCatalogRel(classForm->oid))
 			continue;
 
 		/* check permissions of relation */

@@ -66,5 +66,6 @@ extern bool YbGetUseInitdbAclFromRelOptions(List *options);
 extern bool YbIsSysCatalogTabletRelation(Relation rel);
 extern bool YbIsSysCatalogTabletRelationByIds(Oid relationId, Oid namespaceId,
 											  char *namespace_name);
+extern bool YbIsTserverHostedCatalogRel(Oid relationId);
 
 #endif							/* CATALOG_H */

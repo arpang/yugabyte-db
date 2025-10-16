@@ -403,6 +403,14 @@ IsSharedRelation(Oid relationId)
 	return false;
 }
 
+bool
+YbIsTserverHostedCatalogRel(Oid relationId)
+{
+	if (relationId == YbNotificationsRelationId)
+		return true;
+	return false;
+}
+
 /*
  * IsPinnedObject
  *		Given the class + OID identity of a database object, report whether
