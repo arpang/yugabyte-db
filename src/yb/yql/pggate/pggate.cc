@@ -1025,14 +1025,15 @@ Status PgApiImpl::NewCreateTable(const char* database_name,
                                  const PgObjectId& pg_table_oid,
                                  const PgObjectId& old_relfilenode_oid,
                                  bool is_truncate,
-                                 PgStatement** handle) {
+                                 PgStatement** handle,
+                                 bool is_tserver_hosted_catalog_table) {
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateTable>(
           pg_session_, database_name, schema_name, table_name, table_id, is_shared_table,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
           old_relfilenode_oid, is_truncate, pg_txn_manager_->IsDdlMode(),
-          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
+          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock(), is_tserver_hosted_catalog_table),
       handle);
 }
 

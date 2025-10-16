@@ -147,7 +147,8 @@ YBCCreateSysCatalogTable(const char *table_name,
 									   InvalidOid /* pg_table_oid */ ,
 									   InvalidOid /* old_relfilenode_oid */ ,
 									   false /* is_truncate */ ,
-									   &yb_stmt));
+									   &yb_stmt,
+									   tserver_hosted));
 
 	/* Add all key columns first, then the regular columns */
 	if (pkey_idx != NULL)

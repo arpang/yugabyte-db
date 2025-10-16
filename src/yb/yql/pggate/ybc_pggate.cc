@@ -1098,7 +1098,8 @@ YbcStatus YBCPgNewCreateTable(const char *database_name,
                               YbcPgOid pg_table_oid,
                               YbcPgOid old_relfilenode_oid,
                               bool is_truncate,
-                              YbcPgStatement *handle) {
+                              YbcPgStatement *handle,
+                              bool is_tserver_hosted_catalog_table) {
   const PgObjectId table_id(database_oid, table_relfilenode_oid);
   const PgObjectId tablegroup_id(database_oid, tablegroup_oid);
   const PgObjectId tablespace_id(database_oid, tablespace_oid);
@@ -1108,7 +1109,8 @@ YbcStatus YBCPgNewCreateTable(const char *database_name,
   return ToYBCStatus(pgapi->NewCreateTable(
       database_name, schema_name, table_name, table_id, is_shared_table, is_sys_catalog_table,
       if_not_exist, ybrowid_mode, is_colocated_via_database, tablegroup_id, colocation_id,
-      tablespace_id, is_matview, pg_table_id, old_relfilenode_id, is_truncate, handle));
+      tablespace_id, is_matview, pg_table_id, old_relfilenode_id, is_truncate, handle,
+      is_tserver_hosted_catalog_table));
 }
 
 YbcStatus YBCPgCreateTableAddColumn(YbcPgStatement handle, const char *attr_name, int attr_num,

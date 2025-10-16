@@ -54,7 +54,8 @@ TEST_F(PggateTestUpdate, TestUpdate) {
                                        kInvalidOid /* pg_table_oid */,
                                        kInvalidOid /* old_relfilenode_oid */,
                                        false /* is_truncate */,
-                                       &pg_stmt));
+                                       &pg_stmt,
+                                       false /* is_tserver_hosted_catalog_table */));
   CHECK_YBC_STATUS(YBCTestCreateTableAddColumn(pg_stmt, "hash_key", ++col_count,
                                                DataType::INT64, true, true));
   CHECK_YBC_STATUS(YBCTestCreateTableAddColumn(pg_stmt, "id", ++col_count,

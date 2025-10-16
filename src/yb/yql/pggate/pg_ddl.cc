@@ -169,7 +169,8 @@ PgCreateTableBase::PgCreateTableBase(
     const PgObjectId& old_relfilenode_oid,
     bool is_truncate,
     bool use_transaction,
-    bool use_regular_transaction_block)
+    bool use_regular_transaction_block,
+    bool is_tserver_hosted_catalog_table)
     : PgDdl(pg_session) {
   table_id.ToPB(req_.mutable_table_id());
   req_.set_database_name(database_name);
@@ -191,6 +192,9 @@ PgCreateTableBase::PgCreateTableBase(
   req_.set_is_truncate(is_truncate);
   req_.set_use_transaction(use_transaction);
   req_.set_use_regular_transaction_block(use_regular_transaction_block);
+
+  DCHECK(!is_tserver_hosted_catalog_table || is_sys_catalog_table);
+  req_.set_is_tserver_hosted_catalog_table(is_tserver_hosted_catalog_table);
 
   // Add internal primary key column to a Postgres table without a user-specified primary key.
   switch (ybrowid_mode) {
@@ -299,12 +303,14 @@ PgCreateTable::PgCreateTable(
     const PgObjectId& old_relfilenode_oid,
     bool is_truncate,
     bool use_transaction,
-    bool use_regular_transaction_block)
+    bool use_regular_transaction_block,
+    bool is_tserver_hosted_catalog_table)
     : BaseType(
           pg_session, database_name, schema_name, table_name, table_id, is_shared_table,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
-          old_relfilenode_oid, is_truncate, use_transaction, use_regular_transaction_block) {}
+          old_relfilenode_oid, is_truncate, use_transaction, use_regular_transaction_block,
+          is_tserver_hosted_catalog_table) {}
 
 PgCreateIndex::PgCreateIndex(
     const PgSession::ScopedRefPtr& pg_session,
@@ -333,7 +339,8 @@ PgCreateIndex::PgCreateIndex(
           pg_session, database_name, schema_name, table_name, table_id, is_shared_table,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
-          old_relfilenode_oid, is_truncate, use_transaction, use_regular_transaction_block) {
+          old_relfilenode_oid, is_truncate, use_transaction, use_regular_transaction_block,
+          false /* is_tserver_hosted_catalog_table */) {
   base_table_id.ToPB(req_.mutable_base_table_id());
   req_.set_is_unique_index(is_unique_index);
   req_.set_skip_index_backfill(skip_index_backfill);

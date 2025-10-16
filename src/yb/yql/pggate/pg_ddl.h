@@ -141,7 +141,8 @@ class PgCreateTableBase : public PgDdl {
                     const PgObjectId& old_relfilenode_oid,
                     bool is_truncate,
                     bool use_transaction,
-                    bool use_regular_transaction_block);
+                    bool use_regular_transaction_block,
+                    bool is_tserver_hosted_catalog_table);
 
   tserver::PgCreateTableRequestPB req_;
 
@@ -172,7 +173,8 @@ class PgCreateTable final : public PgStatementLeafBase<PgCreateTableBase, StmtOp
       const PgObjectId& old_relfilenode_oid,
       bool is_truncate,
       bool use_transaction,
-      bool use_regular_transaction_block);
+      bool use_regular_transaction_block,
+      bool is_tserver_hosted_catalog_table);
 };
 
 class PgCreateIndex final : public PgStatementLeafBase<PgCreateTableBase, StmtOp::kCreateIndex> {

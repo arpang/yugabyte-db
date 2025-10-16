@@ -412,6 +412,8 @@ message PgCreateTableRequestPB {
   // Used to setup the session in case the table is being created in a
   // transaction block with transactional ddl enabled i.e. use_regular_transaction_block is true.
   PgPerformOptionsPB options = 27;
+
+  bool is_tserver_hosted_catalog_table = 28;
 }
 
 message PgCreateTableResponsePB {
