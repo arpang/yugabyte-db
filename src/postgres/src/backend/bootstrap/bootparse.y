@@ -538,8 +538,9 @@ yb_opttserverhosted:
 		|									{ $$ = 0; }
 		;
 
-yb_opt_hash: YB_XHASH		{ $$ = SORTBY_HASH; }
-			 | /* EMPTY */	{ $$ = SORTBY_DEFAULT; }
+yb_opt_hash:
+			YB_XHASH		{ $$ = SORTBY_HASH; }
+		| /* EMPTY */	{ $$ = SORTBY_DEFAULT; }
 		;
 
 boot_column_list:

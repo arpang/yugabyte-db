@@ -903,7 +903,7 @@ YBCCreateTable(CreateStmt *stmt, char *tableName, char relkind, TupleDesc desc,
 									   relationId,
 									   oldRelfileNodeId,
 									   isTruncate,
-									   false /* is_tserver_hosted_catalog_table */,
+									   false /* is_tserver_hosted_catalog_table */ ,
 									   &handle));
 
 	CreateTableAddColumns(handle, desc, primary_key, is_colocated_via_database,
