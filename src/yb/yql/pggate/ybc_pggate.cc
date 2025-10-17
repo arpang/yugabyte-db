@@ -1098,8 +1098,8 @@ YbcStatus YBCPgNewCreateTable(const char *database_name,
                               YbcPgOid pg_table_oid,
                               YbcPgOid old_relfilenode_oid,
                               bool is_truncate,
-                              YbcPgStatement *handle,
-                              bool is_tserver_hosted_catalog_table) {
+                              bool is_tserver_hosted_catalog_table,
+                              YbcPgStatement *handle) {
   const PgObjectId table_id(database_oid, table_relfilenode_oid);
   const PgObjectId tablegroup_id(database_oid, tablegroup_oid);
   const PgObjectId tablespace_id(database_oid, tablespace_oid);

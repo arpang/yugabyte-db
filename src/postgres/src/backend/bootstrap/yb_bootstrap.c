@@ -148,8 +148,8 @@ YBCCreateSysCatalogTable(const char *table_name,
 									   InvalidOid /* pg_table_oid */ ,
 									   InvalidOid /* old_relfilenode_oid */ ,
 									   false /* is_truncate */ ,
-									   &yb_stmt,
-									   tserver_hosted));
+									   tserver_hosted,
+									   &yb_stmt));
 
 	if (tserver_hosted)
 		YBCPgCreateTableSetNumTablets(yb_stmt, tserver_num_tablets);

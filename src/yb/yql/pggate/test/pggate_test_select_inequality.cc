@@ -53,8 +53,8 @@ TEST_F(PggateTestSelectInequality, TestSelectInequality) {
                                        kInvalidOid /* pg_table_oid */,
                                        kInvalidOid /* old_relfilenode_oid */,
                                        false /* is_truncate */,
-                                       &pg_stmt,
-                                       false /* is_tserver_hosted_catalog_table */));
+                                       false /* is_tserver_hosted_catalog_table */,
+                                       &pg_stmt));
   CHECK_YBC_STATUS(YBCTestCreateTableAddColumn(pg_stmt, "h", ++col_count,
                                                DataType::STRING, true, false));
   CHECK_YBC_STATUS(YBCTestCreateTableAddColumn(pg_stmt, "r1", ++col_count,
