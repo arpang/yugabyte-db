@@ -217,7 +217,7 @@ Boot_CreateStmt:
 					TupleDesc	tupdesc;
 					bool		shared_relation;
 					bool		mapped_relation;
-					bool		yb_tserver_hosted;
+					int			yb_tserver_num_tablets;
 
 					do_start();
 
@@ -225,7 +225,7 @@ Boot_CreateStmt:
 
 					shared_relation = $5;
 
-					yb_tserver_hosted = $7;
+					yb_tserver_num_tablets = $7;
 
 					/*
 					 * The catalogs that use the relation mapper are the
@@ -299,7 +299,7 @@ Boot_CreateStmt:
 
 					if (IsYugaByteEnabled())
 					{
-						YBCCreateSysCatalogTable($2, $3, tupdesc, shared_relation, $13, yb_tserver_hosted);
+						YBCCreateSysCatalogTable($2, $3, tupdesc, shared_relation, $13, yb_tserver_num_tablets);
 					}
 
 					do_end();
@@ -534,8 +534,8 @@ optrowtypeoid:
 		;
 
 yb_opttserverhosted:
-			YB_XTSERVER_HOSTED	{ $$ = 1; }
-		|						{ $$ = 0; }
+			YB_XTSERVER_HOSTED boot_ident	{ $$ = atooid($2); }
+		|									{ $$ = 0; }
 		;
 
 yb_opt_hash: YB_XHASH		{ $$ = SORTBY_HASH; }

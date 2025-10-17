@@ -385,8 +385,6 @@ Status YBTableCreator::Create() {
                         "be set when calculating number of tablets.");
         num_tablets_ = VERIFY_RESULT(client_->NumTabletsForUserTable(
             table_type_, &tablespace_id_, replication_info_.get()));
-      } else if (req.name() == "yb_notifications") {
-        num_tablets_ = 3;
       } else {
         num_tablets_ = VERIFY_RESULT(client_->NumTabletsForUserTable(
             table_type_));
