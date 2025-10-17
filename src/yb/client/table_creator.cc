@@ -81,6 +81,11 @@ YBTableCreator& YBTableCreator::is_pg_catalog_table() {
   return *this;
 }
 
+YBTableCreator& YBTableCreator::is_tserver_hosted_pg_catalog_table() {
+  is_tserver_hosted_pg_catalog_table_ = true;
+  return *this;
+}
+
 YBTableCreator& YBTableCreator::is_pg_shared_table() {
   is_pg_shared_table_ = true;
   return *this;
@@ -305,6 +310,10 @@ Status YBTableCreator::Create() {
   }
   if (is_pg_catalog_table_) {
     req.set_is_pg_catalog_table(*is_pg_catalog_table_);
+  }
+  if (is_tserver_hosted_pg_catalog_table_) {
+    DCHECK(!*is_tserver_hosted_pg_catalog_table_ || (is_pg_catalog_table_ && *is_pg_catalog_table_));
+    req.set_is_tserver_hosted_pg_catalog_table(*is_tserver_hosted_pg_catalog_table_);
   }
   if (is_pg_shared_table_) {
     req.set_is_pg_shared_table(*is_pg_shared_table_);

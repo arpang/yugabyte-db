@@ -156,6 +156,9 @@ Status PgCreateTable::Exec(
                 .is_truncate(req_.is_truncate());
   if (req_.is_pg_catalog_table()) {
     table_creator->is_pg_catalog_table();
+    if (req_.is_tserver_hosted_catalog_table()) {
+      table_creator->is_tserver_hosted_pg_catalog_table();
+    }
   }
   if (req_.is_shared_table()) {
     table_creator->is_pg_shared_table();
