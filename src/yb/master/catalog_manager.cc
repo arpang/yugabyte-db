@@ -3878,6 +3878,8 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
 
   const bool is_pg_table = orig_req->table_type() == PGSQL_TABLE_TYPE;
   const bool is_pg_catalog_table = is_pg_table && orig_req->is_pg_catalog_table();
+  const bool is_tserver_hosted_pg_catalog_table = is_pg_catalog_table && orig_req->is_tserver_hosted_pg_catalog_table();
+
   if (!is_pg_catalog_table || !FLAGS_hide_pg_catalog_table_creation_logs) {
     LOG(INFO) << "CreateTable from " << RequestorString(rpc)
                 << ":\n" << orig_req->DebugString();
@@ -3917,7 +3919,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
   RETURN_NOT_OK(CreateGlobalTransactionStatusTableIfNeededForNewTable(*orig_req, rpc, epoch));
   RETURN_NOT_OK(MaybeCreateLocalTransactionTable(*orig_req, rpc, epoch));
 
-  if (is_pg_catalog_table && orig_req->name() != "yb_notifications") {
+  if (is_pg_catalog_table && !is_tserver_hosted_pg_catalog_table) {
     // No batching for migration.
     auto ns = VERIFY_RESULT(FindNamespace(orig_req->namespace_()));
     CreateYsqlSysTableData data;
@@ -4077,7 +4079,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
   const auto [partition_schema, partitions] =
       VERIFY_RESULT(CreatePartitions(schema, num_tablets, colocated, &req, resp));
 
-  if (!FLAGS_TEST_skip_placement_validation_createtable_api && orig_req->name() != "yb_notifications") {
+  if (!FLAGS_TEST_skip_placement_validation_createtable_api && !is_tserver_hosted_pg_catalog_table) {
     ValidateReplicationInfoRequestPB validate_req;
     validate_req.mutable_replication_info()->CopyFrom(replication_info);
     ValidateReplicationInfoResponsePB validate_resp;
