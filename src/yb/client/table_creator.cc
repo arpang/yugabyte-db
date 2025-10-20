@@ -312,7 +312,8 @@ Status YBTableCreator::Create() {
     req.set_is_pg_catalog_table(*is_pg_catalog_table_);
   }
   if (is_tserver_hosted_pg_catalog_table_) {
-    DCHECK(!*is_tserver_hosted_pg_catalog_table_ || (is_pg_catalog_table_ && *is_pg_catalog_table_));
+    DCHECK(
+        !*is_tserver_hosted_pg_catalog_table_ || (is_pg_catalog_table_ && *is_pg_catalog_table_));
     req.set_is_tserver_hosted_pg_catalog_table(*is_tserver_hosted_pg_catalog_table_);
 
     // For the tserver hosted tables, the tablets will be created only when tserver comes up. Do not
