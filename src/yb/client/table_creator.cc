@@ -314,6 +314,13 @@ Status YBTableCreator::Create() {
   if (is_tserver_hosted_pg_catalog_table_) {
     DCHECK(!*is_tserver_hosted_pg_catalog_table_ || (is_pg_catalog_table_ && *is_pg_catalog_table_));
     req.set_is_tserver_hosted_pg_catalog_table(*is_tserver_hosted_pg_catalog_table_);
+
+    // For the tserver hosted tables, the tablets will be created only when tserver comes up. Do not
+    // wait for table creation to complete for such tables.
+    // TODO: How about ysql upgrade?
+    if (*is_tserver_hosted_pg_catalog_table_) {
+      wait_ = false;
+    }
   }
   if (is_pg_shared_table_) {
     req.set_is_pg_shared_table(*is_pg_shared_table_);

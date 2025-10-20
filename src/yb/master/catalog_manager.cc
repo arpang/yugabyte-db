@@ -5303,9 +5303,6 @@ Result<IsOperationDoneResult> CatalogManager::IsCreateTableDone(const TableInfoP
   bool is_transactional;
   TableId indexed_table_id;
 
-  // there is no tserver during initdb, so just return true for IsCreateTableDone.
-  if (table->name() == "yb_notifications")
-    return IsOperationDoneResult::Done(Status::OK());
   {
     TRACE("Locking table");
     auto l = table->LockForRead();
