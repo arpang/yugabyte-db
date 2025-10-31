@@ -2443,7 +2443,7 @@ ComputeIndexAttrs(IndexInfo *indexInfo,
 		}
 		RelationClose(rel);
 	}
-	else if (IsBootstrapProcessingMode())
+	else if (IsBootstrapProcessingMode() || IsYsqlUpgrade)
 		use_yb_ordering = YbIsTserverHostedCatalogRel(relId);
 
 	/*
