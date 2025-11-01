@@ -3,8 +3,8 @@ BEGIN;
     node uuid NOT NULL,
     pid int NOT NULL,
     db oid NOT NULL,
-    channel text NOT NULL,
-    payload text,
+    channel text COLLATE "C" NOT NULL,
+    payload text COLLATE "C",
     CONSTRAINT yb_notifications_pkey PRIMARY KEY ((node, pid) HASH)
       WITH (table_oid = 8102)
   ) WITH (

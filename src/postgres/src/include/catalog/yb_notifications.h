@@ -35,7 +35,7 @@ CATALOG(yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION BKI
 	Oid			db;
 
 #ifdef CATALOG_VARLEN			/* variable-length fields start here */
-	text		channel;
+	text		channel BKI_FORCE_NOT_NULL;
 
 	text		payload;
 #endif
