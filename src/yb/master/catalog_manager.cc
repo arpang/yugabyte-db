@@ -4231,8 +4231,8 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
 
     RETURN_NOT_OK(CreateTableInMemory(
         req, schema, partition_schema, namespace_id, namespace_name, partitions, colocated,
-        IsSystemObject::kFalse, &index_info, joining_colocation_group ? nullptr : &tablets, resp,
-        &table, &indexed_table));
+        is_pg_catalog_table ? IsSystemObject::kTrue : IsSystemObject::kFalse, &index_info,
+        joining_colocation_group ? nullptr : &tablets, resp, &table, &indexed_table, is_tserver_hosted_pg_catalog_table));
 
     // Section is executed when a table is either the parent table or a user table in a colocation
     // group.
@@ -4735,11 +4735,12 @@ Status CatalogManager::CreateTableInMemory(const CreateTableRequestPB& req,
                                            TabletInfos* tablets,
                                            CreateTableResponsePB* resp,
                                            TableInfoPtr* table,
-                                           TableInfoWithWriteLock* indexed_table) {
+                                           TableInfoWithWriteLock* indexed_table,
+                                           bool is_tserver_hosted_pg_catalog_table) {
   // Add the new table in "preparing" state.
   *table = CreateTableInfo(
       req, schema, partition_schema, namespace_id, namespace_name, colocated, index_info,
-      indexed_table);
+      indexed_table, is_tserver_hosted_pg_catalog_table);
   const TableId& table_id = (*table)->id();
 
   VLOG_WITH_PREFIX_AND_FUNC(2)
@@ -5556,7 +5557,8 @@ scoped_refptr<TableInfo> CatalogManager::CreateTableInfo(const CreateTableReques
                                                          const NamespaceName& namespace_name,
                                                          bool colocated,
                                                          IndexInfoPB* index_info,
-                                                         TableInfoWithWriteLock* indexed_table) {
+                                                         TableInfoWithWriteLock* indexed_table,
+                                                         bool is_tserver_hosted_pg_catalog_table) {
   DCHECK(schema.has_column_ids());
   TableId table_id
       = !req.table_id().empty() ? req.table_id() : GenerateIdUnlocked(SysRowEntryType::TABLE);
@@ -5645,6 +5647,8 @@ scoped_refptr<TableInfo> CatalogManager::CreateTableInfo(const CreateTableReques
   if (colocated) {
     metadata->set_colocated(true);
   }
+
+  metadata->set_is_tserver_hosted_pg_catalog_table(is_tserver_hosted_pg_catalog_table);
 
   return table;
 }

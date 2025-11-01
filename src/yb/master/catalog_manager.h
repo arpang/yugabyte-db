@@ -1882,7 +1882,8 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
                              TabletInfos* tablets,
                              CreateTableResponsePB* resp,
                              TableInfoPtr* table,
-                             TableInfoWithWriteLock* indexed_table) REQUIRES(mutex_);
+                             TableInfoWithWriteLock* indexed_table,
+                             bool is_tserver_hosted_pg_catalog_table = false) REQUIRES(mutex_);
 
   Result<TabletInfos> CreateTabletsFromTable(
       const std::vector<dockv::Partition>& partitions,
@@ -1913,7 +1914,8 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
                                            const NamespaceName& namespace_name,
                                            bool colocated,
                                            IndexInfoPB* index_info,
-                                           TableInfoWithWriteLock* indexed_table) REQUIRES(mutex_);
+                                           TableInfoWithWriteLock* indexed_table,
+                                           bool is_tserver_hosted_pg_catalog_table) REQUIRES(mutex_);
 
   // Remove the specified entries from the protobuf field table_ids of a TabletInfo.
   Status RemoveTableIdsFromTabletInfo(

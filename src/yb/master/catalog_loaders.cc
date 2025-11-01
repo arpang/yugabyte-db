@@ -180,6 +180,9 @@ Status TableLoader::Visit(const TableId& table_id, const SysTablesEntryPB& metad
     }
   }
 
+  if (metadata.is_tserver_hosted_pg_catalog_table())
+    table->set_is_system();
+
   LOG(INFO) << "Loaded metadata for table " << table->ToString() << ", state: "
             << SysTablesEntryPB::State_Name(metadata.state());
   VLOG(1) << "Metadata for table " << table->ToString() << ": " << metadata.ShortDebugString();

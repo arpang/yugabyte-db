@@ -221,6 +221,8 @@ message SysTablesEntryPB {
   }
 
   optional XClusterTableInfo xcluster_table_info = 42;
+
+  optional bool is_tserver_hosted_pg_catalog_table = 43;
 }
 
 // The on-disk entry in the sys.catalog table ("metadata" column) for
