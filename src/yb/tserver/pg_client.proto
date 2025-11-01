@@ -636,7 +636,7 @@ message PgGetIndexBackfillProgressResponsePB {
   AppStatusPB status = 1;
   // The ordering of the indexes' results here is expected to be the same as the ordering in the
   // corresponding request PB (PgGetIndexBackfillProgressRequestPB).
-  repeated uint64 rows_processed_entries = 2;
+  repeated uint64 num_rows_read_from_table_for_backfill = 2;
 }
 
 message PgListLiveTabletServersResponsePB {
@@ -1305,6 +1305,7 @@ message PgAcquireObjectLockRequestPB {
     uint64 relation_oid = 2;
     uint64 object_oid = 3;
     uint64 object_sub_oid = 4;
+    uint32 tablespace_oid = 5;
   }
   LockOId lock_oid = 3;
 

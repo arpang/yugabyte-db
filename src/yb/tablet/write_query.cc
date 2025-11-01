@@ -64,11 +64,16 @@ DEFINE_RUNTIME_bool(disable_alter_vs_write_mutual_exclusion, false,
     "operation take an exclusive lock making all write operations wait for it.");
 TAG_FLAG(disable_alter_vs_write_mutual_exclusion, advanced);
 
-DEFINE_RUNTIME_bool(skip_prefix_locks, false,
+DEFINE_RUNTIME_bool(skip_prefix_locks, true,
     "Enable to skip writing weak intent locks on intermediate prefixes of the actual PK being "
     "written. This reduces the number of key-value pairs written to the intents db, resulting in "
     "better performance. However, it may lead to high contention when serializable isolation "
     "transactions are present in the workload.");
+
+DEFINE_RUNTIME_AUTO_bool(skip_prefix_locks_for_upgrade, kLocalPersisted, false, true,
+    "The gflag is for upgrade and should not be changed. skip prefix lock is enabled only if "
+    "both skip_prefix_locks and skip_prefix_locks_for_upgrade are true. To disable the feature, "
+    "just set skip_prefix_locks to false.");
 
 DEFINE_RUNTIME_bool(skip_prefix_locks_suppress_warning_for_serializable_op, false,
     "If false, logs a warning when a serializable transaction runs with skip prefix locks enabled."
@@ -298,15 +303,19 @@ void WriteQuery::DoStartSynchronization(const Status& status) {
   if (client_request_ && client_request_->use_async_write()) {
     VLOG(2) << "Performing Async write: " << client_request_->ShortDebugString();
     operation_->SetAsyncWrite(
-        [query = this](OpId opid) -> void {
+        [query = this](Result<OpId> opid) -> void {
           // TODO: Add metrics for async writes.
           // Query is still pending, but we are ready to invoke the callback.
 
-          query->context_->RegisterAsyncWrite(opid);
-          opid.ToPB(query->response_->mutable_async_write_op_id());
+          Status status;
+          if (opid.ok()) {
+            query->context_->RegisterAsyncWrite(*opid);
+            opid->ToPB(query->response_->mutable_async_write_op_id());
+          } else {
+            status = std::move(opid.status());
+          }
 
           TEST_SYNC_POINT("WriteQuery::BeforeCallbackInvoke");
-          Status status;
           TEST_SYNC_POINT_CALLBACK("WriteQuery::SetCallbackStatus", &status);
           query->InvokeCallback(status);
           TEST_SYNC_POINT("WriteQuery::AfterCallbackInvoke");
@@ -830,10 +839,14 @@ Status WriteQuery::DoExecute() {
     auto transaction_id = VERIFY_RESULT(FullyDecodeTransactionId(
       write_batch.transaction().transaction_id()));
 
-    const bool should_skip_prefix_locks = FLAGS_skip_prefix_locks && FLAGS_ysql_enable_packed_row;
+    bool should_skip_prefix_locks = FLAGS_skip_prefix_locks &&
+        FLAGS_skip_prefix_locks_for_upgrade && FLAGS_ysql_enable_packed_row;
+    fast_mode_txn_scope_ = VERIFY_RESULT(transaction_participant->ShouldUseFastMode(
+        isolation_level_, should_skip_prefix_locks, transaction_id));
+    should_skip_prefix_locks = SkipPrefixLocks(fast_mode_txn_scope_.active(), isolation_level_);
+    write_batch.mutable_transaction()->set_skip_prefix_locks(should_skip_prefix_locks);
     skip_prefix_locks = should_skip_prefix_locks ?
         dockv::SkipPrefixLocks::kTrue : dockv::SkipPrefixLocks::kFalse;
-    write_batch.mutable_transaction()->set_skip_prefix_locks(should_skip_prefix_locks);
     VLOG_WITH_FUNC(4) << "Choose skip_prefix_locks:" << skip_prefix_locks << ", isolation_level:"
         << isolation_level_ << ", transaction id:" << transaction_id;
     if (skip_prefix_locks && isolation_level_ == IsolationLevel::SERIALIZABLE_ISOLATION &&

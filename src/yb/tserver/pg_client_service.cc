@@ -76,6 +76,7 @@
 #include "yb/tserver/ts_local_lock_manager.h"
 #include "yb/tserver/ysql_advisory_lock_table.h"
 
+#include "yb/util/debug-util.h"
 #include "yb/util/flags/flag_tags.h"
 #include "yb/util/logging.h"
 #include "yb/util/net/net_util.h"
@@ -97,10 +98,19 @@ DEFINE_UNKNOWN_uint64(pg_client_session_expiration_ms, 60000,
 
 DECLARE_bool(pg_client_use_shared_memory);
 
-DEFINE_RUNTIME_int32(get_locks_status_max_retry_attempts, 2,
+DEFINE_RUNTIME_int32(get_locks_status_max_retry_attempts, 5,
                      "Maximum number of retries that will be performed for GetLockStatus "
                      "requests that fail in the validation phase due to unseen responses from "
                      "some of the involved tablets.");
+
+DEFINE_RUNTIME_int32(pg_locks_max_tablet_lookup_retries, 5,
+                     "Maximum number of retries when fetching tablet locations during "
+                     "pg_locks queries. Retries occur when tablets have no elected leader "
+                     "or when handling tablet splits.");
+
+DEFINE_RUNTIME_int32(pg_locks_retry_delay_ms, 200,
+                     "Delay in milliseconds between retries during pg_locks operations. "
+                     "Applied when  retrying tablet location lookups and GetLockStatus requests");
 
 DEFINE_test_flag(uint64, delay_before_get_old_transactions_heartbeat_intervals, 0,
                  "When non-zero, we sleep for set transaction heartbeat interval periods before "
@@ -143,6 +153,9 @@ DEFINE_NON_RUNTIME_int64(shmem_exchange_idle_timeout_ms, 2000 * yb::kTimeMultipl
 DEFINE_test_flag(bool, enable_ysql_operation_lease_expiry_check, true,
                  "Whether tservers should monitor their ysql op lease and kill their hosted pg "
                  "sessions when it expires. Only available as a flag for tests.");
+
+DEFINE_test_flag(bool, pause_get_lock_status, false,
+    "Whether tservers should pause before sending GetLockStatus requests.");
 
 DECLARE_uint64(cdc_intent_retention_ms);
 DECLARE_uint64(transaction_heartbeat_usec);
@@ -217,7 +230,7 @@ class LockablePgClientSession {
         lifetime_(lifetime), expiration_(NewExpiration()) {
   }
 
-  Status StartExchange(const std::string& instance_id, ThreadPool& thread_pool) {
+  Status StartExchange(const std::string& instance_id, YBThreadPool& thread_pool) {
     shared_mem_manager_ = VERIFY_RESULT(PgSessionSharedMemoryManager::Make(
         instance_id, id(), Create::kTrue));
     session_.SetupSharedObjectLocking(shared_mem_manager_.object_locking_data());
@@ -540,7 +553,9 @@ class PgClientServiceImpl::Impl : public SessionProvider {
   explicit Impl(
       std::reference_wrapper<const TabletServerIf> tablet_server,
       const std::shared_future<client::YBClient*>& client_future,
-      const scoped_refptr<ClockBase>& clock, TransactionPoolProvider transaction_pool_provider,
+      const scoped_refptr<ClockBase>& clock,
+      TransactionManagerProvider transaction_manager_provider,
+      TransactionPoolProvider transaction_pool_provider,
       rpc::Messenger* messenger, const TserverXClusterContextIf* xcluster_context,
       PgMutationCounter* pg_node_level_mutation_counter, MetricEntity* metric_entity,
       const MemTrackerPtr& parent_mem_tracker, const std::string& permanent_uuid,
@@ -548,6 +563,7 @@ class PgClientServiceImpl::Impl : public SessionProvider {
       : tablet_server_(tablet_server.get()),
         client_future_(client_future),
         clock_(clock),
+        transaction_manager_provider_(std::move(transaction_manager_provider)),
         transaction_pool_provider_(std::move(transaction_pool_provider)),
         messenger_(*messenger),
         table_cache_(client_future_),
@@ -577,7 +593,8 @@ class PgClientServiceImpl::Impl : public SessionProvider {
             .lock_owner_registry =
                 tablet_server_.ObjectLockSharedStateManager()
                     ? &tablet_server_.ObjectLockSharedStateManager()->registry()
-                    : nullptr},
+                    : nullptr,
+            .transaction_manager_provider = transaction_manager_provider_},
         cdc_state_table_(client_future_),
         txn_snapshot_manager_(
             instance_id_,
@@ -663,12 +680,12 @@ class PgClientServiceImpl::Impl : public SessionProvider {
     resp->set_session_id(session_id);
     if (FLAGS_pg_client_use_shared_memory) {
       std::call_once(exchange_thread_pool_once_flag_, [this] {
-        CHECK_OK(ThreadPoolBuilder("shmem_exchange")
-                     .set_min_threads(1)
-                     .unlimited_threads()
-                     .set_idle_timeout(FLAGS_shmem_exchange_idle_timeout_ms * 1ms)
-                     .set_max_queue_size(0)
-                     .Build(&exchange_thread_pool_));
+        exchange_thread_pool_ = std::make_unique<YBThreadPool>(ThreadPoolOptions {
+          .name = "shmem_exchange",
+          .max_workers = ThreadPoolOptions::kUnlimitedWorkersWithoutQueue,
+          .min_workers = 1,
+          .idle_timeout = MonoDelta::FromMilliseconds(FLAGS_shmem_exchange_idle_timeout_ms),
+        });
       });
       auto status = session_info->session().StartExchange(instance_id_, *exchange_thread_pool_);
       if (status.ok()) {
@@ -905,7 +922,7 @@ class PgClientServiceImpl::Impl : public SessionProvider {
       PgGetCatalogMasterVersionResponsePB* resp,
       rpc::RpcContext* context) {
     uint64_t version;
-    RETURN_NOT_OK(client().GetYsqlCatalogMasterVersion(&version));
+    RETURN_NOT_OK(client().DEPRECATED_GetYsqlCatalogMasterVersion(&version));
     resp->set_version(version);
     return Status::OK();
   }
@@ -1018,7 +1035,7 @@ class PgClientServiceImpl::Impl : public SessionProvider {
   // retries the operation with split child tablet ids. On encountering further tablet split
   // errors, returns a bad status.
   Result<std::vector<RemoteTabletServerPtr>> ReplaceSplitTabletsAndGetLocations(
-      GetLockStatusRequestPB* req, bool is_within_retry = false) {
+      GetLockStatusRequestPB* req, int retry_attempt = 0) {
     std::vector<TabletId> tablet_ids;
     tablet_ids.reserve(req->transactions_by_tablet().size());
     for (const auto& [tablet_id, _] : req->transactions_by_tablet()) {
@@ -1050,15 +1067,35 @@ class PgClientServiceImpl::Impl : public SessionProvider {
     }
     if (!resp.errors().empty()) {
       // Re-request location info of updated tablet set if not already in the retry context.
-      return is_within_retry ? combined_status : ReplaceSplitTabletsAndGetLocations(req, true);
+      if (retry_attempt > FLAGS_pg_locks_max_tablet_lookup_retries) {
+        return combined_status;
+      }
+      VLOG(1) << "Retrying tablet location lookup after handling splits "
+              << "(attempt " << retry_attempt + 1 << ")";
+      AtomicFlagSleepMs(&FLAGS_pg_locks_retry_delay_ms);
+      return ReplaceSplitTabletsAndGetLocations(req, ++retry_attempt);
     }
 
     std::unordered_set<std::string> tserver_uuids;
     for (const auto& tablet_location_pb : resp.tablet_locations()) {
+      bool has_leader = false;
       for (const auto& replica : tablet_location_pb.replicas()) {
         if (replica.role() == PeerRole::LEADER) {
           tserver_uuids.insert(replica.ts_info().permanent_uuid());
+          has_leader = true;
+          break;
         }
+      }
+      if (!has_leader) {
+        if (retry_attempt > FLAGS_pg_locks_max_tablet_lookup_retries) {
+          return STATUS(IllegalState, Format(
+                        "No leader found for tablet $0 after $1 attempts",
+                        tablet_location_pb.tablet_id(), retry_attempt));
+        }
+        LOG_WITH_FUNC(INFO) << "Tablet " << tablet_location_pb.tablet_id()
+                            << " have no leader, retrying (attempt " << retry_attempt + 1 << ")";
+        AtomicFlagSleepMs(&FLAGS_pg_locks_retry_delay_ms);
+        return ReplaceSplitTabletsAndGetLocations(req, ++retry_attempt);
       }
     }
     return tablet_server_.GetRemoteTabletServers(tserver_uuids);
@@ -1248,6 +1285,7 @@ class PgClientServiceImpl::Impl : public SessionProvider {
     if (include_single_shard_waiters) {
       lock_status_req.set_max_single_shard_waiter_start_time_us(max_single_shard_waiter_start_time);
     }
+    TEST_PAUSE_IF_FLAG(TEST_pause_get_lock_status);
     auto remote_tservers_with_locks = VERIFY_RESULT(
         ReplaceSplitTabletsAndGetLocations(&lock_status_req));
     return DoGetLockStatus(&lock_status_req, resp, context, remote_tservers_with_locks);
@@ -1470,6 +1508,10 @@ class PgClientServiceImpl::Impl : public SessionProvider {
             IllegalState, "Expected to see involved tablet(s) $0 in PgGetLockStatusResponsePB",
             req->ShortDebugString());
       }
+      LOG_WITH_FUNC(INFO) << "Retrying DoGetLockStatus for remaining tablets "
+                          << "(attempt " << retry_attempt + 1 << "). Due to missing tablets: "
+                          << req->ShortDebugString();
+      AtomicFlagSleepMs(&FLAGS_pg_locks_retry_delay_ms);
       PgGetLockStatusResponsePB sub_resp;
       for (const auto& node_txn_pair : resp->transactions_by_node()) {
         sub_resp.mutable_transactions_by_node()->insert(node_txn_pair);
@@ -1877,7 +1919,8 @@ class PgClientServiceImpl::Impl : public SessionProvider {
     for (const auto& index_id : req.index_ids()) {
       index_ids.emplace_back(PgObjectId::GetYbTableIdFromPB(index_id));
     }
-    return client().GetIndexBackfillProgress(index_ids, resp->mutable_rows_processed_entries());
+    return client().GetIndexBackfillProgress(index_ids,
+                                             resp->mutable_num_rows_read_from_table_for_backfill());
   }
 
   Status ValidatePlacement(
@@ -2566,7 +2609,7 @@ class PgClientServiceImpl::Impl : public SessionProvider {
   }
 
   Result<SessionInfoPtr> GetSessionInfo(uint64_t session_id) {
-    DCHECK_NE(session_id, 0);
+    RSTATUS_DCHECK_NE(session_id, static_cast<uint64_t>(0), InvalidArgument, "Bad session id");
     SharedLock lock(mutex_);
     auto it = sessions_.find(session_id);
     if (PREDICT_FALSE(it == sessions_.end())) {
@@ -2715,6 +2758,7 @@ class PgClientServiceImpl::Impl : public SessionProvider {
   const TabletServerIf& tablet_server_;
   std::shared_future<client::YBClient*> client_future_;
   const scoped_refptr<ClockBase> clock_;
+  TransactionManagerProvider transaction_manager_provider_;
   TransactionPoolProvider transaction_pool_provider_;
   rpc::Messenger& messenger_;
   PgTableCache table_cache_;
@@ -2756,7 +2800,7 @@ class PgClientServiceImpl::Impl : public SessionProvider {
 
   const std::string instance_id_;
   std::once_flag exchange_thread_pool_once_flag_;
-  std::unique_ptr<ThreadPool> exchange_thread_pool_;
+  std::unique_ptr<YBThreadPool> exchange_thread_pool_;
 
   PgSharedMemoryPool shared_mem_pool_;
 
@@ -2791,7 +2835,8 @@ class PgClientServiceImpl::Impl : public SessionProvider {
 PgClientServiceImpl::PgClientServiceImpl(
     std::reference_wrapper<const TabletServerIf> tablet_server,
     const std::shared_future<client::YBClient*>& client_future,
-    const scoped_refptr<ClockBase>& clock, TransactionPoolProvider transaction_pool_provider,
+    const scoped_refptr<ClockBase>& clock, TransactionManagerProvider transaction_manager_provider,
+    TransactionPoolProvider transaction_pool_provider,
     const std::shared_ptr<MemTracker>& parent_mem_tracker,
     const scoped_refptr<MetricEntity>& entity, rpc::Messenger* messenger,
     const std::string& permanent_uuid, const server::ServerBaseOptions& tablet_server_opts,
@@ -2799,7 +2844,8 @@ PgClientServiceImpl::PgClientServiceImpl(
     PgMutationCounter* pg_node_level_mutation_counter)
     : PgClientServiceIf(entity),
       impl_(new Impl(
-          tablet_server, client_future, clock, std::move(transaction_pool_provider), messenger,
+          tablet_server, client_future, clock, std::move(transaction_manager_provider),
+          std::move(transaction_pool_provider), messenger,
           xcluster_context, pg_node_level_mutation_counter, entity.get(), parent_mem_tracker,
           permanent_uuid, tablet_server_opts)) {}
 

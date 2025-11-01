@@ -2331,6 +2331,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -2825,7 +2826,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -3691,6 +3693,10 @@
           "description" : "Use local timezone for Cron Expression, otherwise use UTC",
           "type" : "boolean"
         },
+        "useRoles" : {
+          "description" : "Backup global ysql roles",
+          "type" : "boolean"
+        },
         "useTablespaces" : {
           "description" : "Is tablespaces information included",
           "type" : "boolean"
@@ -3827,6 +3833,10 @@
           "format" : "uuid",
           "type" : "string"
         },
+        "useRoles" : {
+          "description" : "WARNING: This is a preview API that could change. Indicates if role objects were backed up",
+          "type" : "boolean"
+        },
         "useTablespaces" : {
           "type" : "boolean"
         }
@@ -3945,6 +3955,10 @@
           ],
           "type" : "string"
         },
+        "errorIfRolesExists" : {
+          "description" : "WARNING: This is a preview API that could change. Fail if roles exist with same names.Only applicable with new roles behavior.",
+          "type" : "boolean"
+        },
         "errorIfTablespacesExists" : {
           "description" : "WARNING: This is a preview API that could change. Fail if tablespaces exist with same names. Only applicable with new roles behavior.",
           "type" : "boolean"
@@ -3983,6 +3997,10 @@
             "type" : "string"
           },
           "type" : "array"
+        },
+        "useRoles" : {
+          "description" : "Restore global ysql roles",
+          "type" : "boolean"
         },
         "useTablespaces" : {
           "description" : "Use tablespaces during restore",
@@ -4325,6 +4343,10 @@
           "format" : "uuid",
           "type" : "string"
         },
+        "useRoles" : {
+          "description" : "Backup global ysql roles",
+          "type" : "boolean"
+        },
         "useTablespaces" : {
           "description" : "Is tablespaces information included",
           "type" : "boolean"
@@ -4385,6 +4407,18 @@
       "required" : [
         "password",
         "username"
+      ],
+      "type" : "object"
+    },
+    "BearerToken" : {
+      "properties" : {
+        "token" : {
+          "description" : "Bearer Token",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "token"
       ],
       "type" : "object"
     },
@@ -5027,6 +5061,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -5527,7 +5562,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -5852,6 +5888,13 @@
             "ADDON"
           ],
           "type" : "string"
+        },
+        "geoPartitions" : {
+          "description" : "WARNING: This is a preview API that could change. Geo partitions for cluster",
+          "items" : {
+            "$ref" : "#/definitions/GeoPartitionInfo"
+          },
+          "type" : "array"
         },
         "index" : {
           "format" : "int32",
@@ -8092,6 +8135,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -8586,7 +8630,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -8887,6 +8932,7 @@
           "type" : "object"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -9387,7 +9433,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -9480,6 +9527,28 @@
         "TSERVER" : {
           "$ref" : "#/definitions/GFlagValidationDetails",
           "description" : "WARNING: This is a preview API that could change. Validation details for tserver"
+        }
+      },
+      "type" : "object"
+    },
+    "GeoPartitionInfo" : {
+      "description" : "WARNING: This is a preview API that could change. Information about Geo partition",
+      "properties" : {
+        "defaultPartition" : {
+          "type" : "boolean"
+        },
+        "name" : {
+          "type" : "string"
+        },
+        "placement" : {
+          "$ref" : "#/definitions/PlacementInfo"
+        },
+        "tableSpaceInfo" : {
+          "$ref" : "#/definitions/TableSpaceInfo"
+        },
+        "uuid" : {
+          "format" : "uuid",
+          "type" : "string"
         }
       },
       "type" : "object"
@@ -10309,6 +10378,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -10806,7 +10876,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -11042,6 +11113,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -11536,7 +11608,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -11784,7 +11857,8 @@
               "description" : "Auth Type",
               "enum" : [
                 "BasicAuth",
-                "NoAuth"
+                "NoAuth",
+                "BearerToken"
               ],
               "type" : "string"
             },
@@ -12552,6 +12626,10 @@
           "description" : "Associated universe UUID",
           "format" : "uuid",
           "type" : "string"
+        },
+        "useRoles" : {
+          "description" : "Backup global ysql roles",
+          "type" : "boolean"
         },
         "useTablespaces" : {
           "description" : "Is tablespaces information included",
@@ -13823,6 +13901,78 @@
         "numUpdate"
       ],
       "type" : "object"
+    },
+    "OTLPConfig" : {
+      "allOf" : [
+        {
+          "$ref" : "#/definitions/TelemetryProviderConfig"
+        },
+        {
+          "description" : "OTLP Config",
+          "properties" : {
+            "authType" : {
+              "description" : "Auth Type",
+              "enum" : [
+                "BasicAuth",
+                "NoAuth",
+                "BearerToken"
+              ],
+              "type" : "string"
+            },
+            "basicAuth" : {
+              "$ref" : "#/definitions/BasicAuthCredentials",
+              "description" : "Basic Auth Credentials"
+            },
+            "bearerToken" : {
+              "$ref" : "#/definitions/BearerToken",
+              "description" : "Bearer Token"
+            },
+            "compression" : {
+              "description" : "Compression",
+              "enum" : [
+                "gzip",
+                "none",
+                "snappy",
+                "zstd"
+              ],
+              "type" : "string"
+            },
+            "endpoint" : {
+              "description" : "End Point. For HTTP protcol logs export \"/v1/logs\" will be appended.",
+              "type" : "string"
+            },
+            "headers" : {
+              "additionalProperties" : {
+                "type" : "string"
+              },
+              "description" : "Headers",
+              "type" : "object"
+            },
+            "logsEndpoint" : {
+              "description" : "Logs endpoint. The target URL to send log data to (e.g.: https://example.com:4318/v1/logs). If this setting is present the endpoint setting is ignored logs. Allowed only for HTTP protocol",
+              "type" : "string"
+            },
+            "protocol" : {
+              "description" : "Protocol",
+              "enum" : [
+                "gRPC",
+                "HTTP"
+              ],
+              "type" : "string"
+            },
+            "timeoutSeconds" : {
+              "description" : "Timeout in seconds",
+              "format" : "int32",
+              "type" : "integer"
+            }
+          },
+          "required" : [
+            "authType",
+            "endpoint"
+          ],
+          "type" : "object"
+        }
+      ]
     },
     "OidcGroupToYbaRolesData" : {
       "properties" : {
@@ -15280,6 +15430,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -15774,7 +15925,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -16315,6 +16467,7 @@
           "type" : "object"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -16815,7 +16968,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -17149,6 +17303,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -17643,7 +17798,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -18666,6 +18822,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -19160,7 +19317,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -19250,6 +19408,89 @@
         }
       },
       "type" : "object"
+    },
+    "S3Config" : {
+      "allOf" : [
+        {
+          "$ref" : "#/definitions/TelemetryProviderConfig"
+        },
+        {
+          "description" : "S3 Config",
+          "properties" : {
+            "accessKey" : {
+              "description" : "Access Key",
+              "maxLength" : 2147483647,
+              "minLength" : 1,
+              "type" : "string"
+            },
+            "bucket" : {
+              "description" : "S3 bucket",
+              "maxLength" : 2147483647,
+              "minLength" : 1,
+              "type" : "string"
+            },
+            "directoryPrefix" : {
+              "description" : "S3 Prefix Key (root directory inside bucket)",
+              "type" : "string"
+            },
+            "disableSSL" : {
+              "description" : "Disable SSL",
+              "type" : "boolean"
+            },
+            "endpoint" : {
+              "description" : "Endpoint. Overrides the endpoint used by the exporter instead of constructing it from region and bucket",
+              "type" : "string"
+            },
+            "filePrefix" : {
+              "description" : "File prefix",
+              "type" : "string"
+            },
+            "forcePathStyle" : {
+              "description" : "Force Path Style. Set this to true to force the request to use path-style addressing",
+              "type" : "boolean"
+            },
+            "marshaler" : {
+              "description" : "Marshaler",
+              "enum" : [
+                "OTLP_JSON",
+                "SUMO_IC"
+              ],
+              "type" : "string"
+            },
+            "partition" : {
+              "description" : "S3 Partition",
+              "enum" : [
+                "hour",
+                "minute"
+              ],
+              "type" : "string"
+            },
+            "region" : {
+              "description" : "Region",
+              "maxLength" : 2147483647,
+              "minLength" : 1,
+              "type" : "string"
+            },
+            "roleArn" : {
+              "description" : "Role ARN",
+              "type" : "string"
+            },
+            "secretKey" : {
+              "description" : "Secret Key",
+              "maxLength" : 2147483647,
+              "minLength" : 1,
+              "type" : "string"
+            }
+          },
+          "required" : [
+            "accessKey",
+            "bucket",
+            "region",
+            "secretKey"
+          ],
+          "type" : "object"
+        }
+      ]
     },
     "S3Location" : {
       "properties" : {
@@ -19717,7 +19958,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -20116,7 +20358,8 @@
               "DeleteCapacityReservation",
               "DisablePitrConfig",
               "EnablePitrConfig",
-              "UpdateAndPersistKubernetesImmutableYbc"
+              "UpdateAndPersistKubernetesImmutableYbc",
+              "TablespaceValidationOnRemove"
             ],
             "type" : "string"
           },
@@ -20445,6 +20688,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -20939,7 +21183,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -21538,6 +21783,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -22032,7 +22278,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -22855,6 +23102,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -23349,7 +23597,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -23526,6 +23775,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -24020,7 +24270,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -24449,6 +24700,7 @@
           "type" : "string"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -24946,7 +25198,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -25087,6 +25340,7 @@
           "type" : "string"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -25581,7 +25835,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -25722,6 +25977,7 @@
           "type" : "string"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -26216,7 +26472,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -26867,6 +27124,7 @@
           "type" : "boolean"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -27361,7 +27619,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -28056,6 +28315,7 @@
           "type" : "object"
         },
         "mastersInDefaultRegion" : {
+          "description" : "<b style=\"color:#ff0000\">Deprecated since YBA version 2025.2.</b> With geo partitioning support, default region is replaced with default partition",
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -28558,7 +28818,8 @@
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
