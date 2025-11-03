@@ -45,8 +45,10 @@ void SetUpPackedRowTestFlags() {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_history_cutoff_propagation_interval_ms) = 1;
 }
 
-void CheckNumRecords(MiniCluster* cluster, size_t expected_num_records) {
-  auto peers = ListTabletPeers(cluster, ListPeersFilter::kLeaders);
+void CheckNumRecords(
+    MiniCluster* cluster, const std::string& table_name, size_t expected_num_records) {
+  auto peers =
+      ASSERT_RESULT(ListTabletPeersForTableName(cluster, table_name, ListPeersFilter::kLeaders));
 
   for (const auto& peer : peers) {
     auto tablet = peer->shared_tablet_maybe_null();

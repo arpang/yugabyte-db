@@ -14,6 +14,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <string>
 
 namespace yb {
 
@@ -30,6 +31,7 @@ class PackedRowTestBase : public Base {
 
 class MiniCluster;
 
-void CheckNumRecords(MiniCluster* cluster, size_t expected_num_records);
+void CheckNumRecords(
+    MiniCluster* cluster, const std::string& table_name, size_t expected_num_records);
 
 } // namespace yb
