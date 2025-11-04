@@ -128,7 +128,7 @@ TEST_P(PgPackedRowTest, Update) {
   auto row = ASSERT_RESULT((conn.FetchRow<std::string, std::string>(
       "SELECT v1, v2 FROM t WHERE key = 1")));
   ASSERT_EQ(row, (decltype(row){"one", "two"}));
-  CheckNumRecords(cluster_.get(), "t", /* expected_num_records = */ 1);
+  CheckNumRecords(cluster_.get(), /* expected_num_records = */ 1);
 
   // Update the row with column size exceeds limit size for paced row,
   // will insert two new entries to docdb.
@@ -139,14 +139,14 @@ TEST_P(PgPackedRowTest, Update) {
   row = ASSERT_RESULT((conn.FetchRow<std::string, std::string>(
       "SELECT v1, v2 FROM t WHERE key = 1")));
   ASSERT_EQ(row, (decltype(row){kBigValue, kBigValue}));
-  CheckNumRecords(cluster_.get(), "t", /* expected_num_records = */ 3);
+  CheckNumRecords(cluster_.get(), /* expected_num_records = */ 3);
 
   // Update the row with two small strings, updated row will be packed.
   ASSERT_OK(conn.Execute("UPDATE t SET v1 = 'four', v2 = 'three' where key = 1"));
   row = ASSERT_RESULT((conn.FetchRow<std::string, std::string>(
       "SELECT v1, v2 FROM t WHERE key = 1")));
   ASSERT_EQ(row, (decltype(row){"four", "three"}));
-  CheckNumRecords(cluster_.get(), "t", /* expected_num_records = */ 4);
+  CheckNumRecords(cluster_.get(), /* expected_num_records = */ 4);
 
   // Disable packed row, and after update, should have two entries inserted to docdb.
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_enable_packed_row) = false;
@@ -155,7 +155,7 @@ TEST_P(PgPackedRowTest, Update) {
   row = ASSERT_RESULT((conn.FetchRow<std::string, std::string>(
       "SELECT v1, v2 FROM t WHERE key = 1")));
   ASSERT_EQ(row, (decltype(row){"six", "five"}));
-  CheckNumRecords(cluster_.get(), "t", /* expected_num_records = */ 6);
+  CheckNumRecords(cluster_.get(), /* expected_num_records = */ 6);
 }
 
 // Alter 2 tables and performs compactions concurrently. See #13846 for details.
@@ -238,13 +238,13 @@ TEST_P(PgPackedRowTest, UpdateReturning) {
   auto row = ASSERT_RESULT((conn.FetchRow<std::string, std::string>(
       "SELECT v1, v2 FROM t WHERE key = 1")));
   ASSERT_EQ(row, (decltype(row){"one", "two"}));
-  CheckNumRecords(cluster_.get(), "t", /* expected_num_records = */ 1);
+  CheckNumRecords(cluster_.get(), /* expected_num_records = */ 1);
 
   // Update the row and return it.
   row = ASSERT_RESULT((conn.FetchRow<std::string, std::string>(
       "UPDATE t SET v1 = 'three', v2 = 'four' where key = 1 RETURNING v1, v2")));
   ASSERT_EQ(row, (decltype(row){"three", "four"}));
-  CheckNumRecords(cluster_.get(), "t", /* expected_num_records = */ 2);
+  CheckNumRecords(cluster_.get(), /* expected_num_records = */ 2);
 }
 
 TEST_P(PgPackedRowTest, Random) {
@@ -486,7 +486,7 @@ void PgPackedRowTest::TestColocated(size_t num_keys, int num_expected_records) {
   auto conn = ASSERT_RESULT(Connect());
   ASSERT_OK(conn.Execute("CREATE DATABASE test WITH colocated = true"));
   TestCompaction(num_keys, "WITH (colocated = true)");
-  CheckNumRecords(cluster_.get(), "t1", num_expected_records);
+  CheckNumRecords(cluster_.get(), num_expected_records);
 }
 
 TEST_P(PgPackedRowTest, TableGroup) {
@@ -516,16 +516,16 @@ TEST_P(PgPackedRowTest, ColocatedPackRowDisabled) {
       "CREATE TABLE t1 (key INT PRIMARY KEY, value TEXT, payload TEXT) WITH (colocated = true)"));
   ASSERT_OK(conn.Execute("INSERT INTO t1 (key, value, payload) VALUES (1, '', '')"));
   // The only row should not be packed.
-  CheckNumRecords(cluster_.get(), "t1", 3);
+  CheckNumRecords(cluster_.get(), 3);
   // Trigger full row update.
   ASSERT_OK(conn.Execute("UPDATE t1 SET value = '1', payload = '1' WHERE key = 1"));
   // The updated row should not be packed.
-  CheckNumRecords(cluster_.get(), "t1", 5);
+  CheckNumRecords(cluster_.get(), 5);
 
   // Enable pack row for colocated table and trigger compaction.
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_enable_packed_row_for_colocated_table) = true;
   ASSERT_OK(cluster_->CompactTablets());
-  CheckNumRecords(cluster_.get(), "t1", 1);
+  CheckNumRecords(cluster_.get(), 1);
 }
 
 // Concurrent CREATE TABLE + INSERT + COMPACTION.
@@ -616,7 +616,7 @@ TEST_P(PgPackedRowTest, PackDuringCompaction) {
 
   ASSERT_OK(cluster_->CompactTablets());
 
-  ASSERT_NO_FATALS(CheckNumRecords(cluster_.get(), "t", kNumKeys));
+  ASSERT_NO_FATALS(CheckNumRecords(cluster_.get(), kNumKeys));
 
   auto rows = ASSERT_RESULT((conn.FetchRows<int32_t, std::string, int32_t>(
       "SELECT * FROM t ORDER BY key")));
@@ -640,7 +640,7 @@ TEST_P(PgPackedRowTest, BigValue) {
     auto row = VERIFY_RESULT((conn.FetchRow<std::string, std::string>(
         "SELECT v1, v2 FROM t")));
     SCHECK_EQ(row, std::tuple_cat(values), IllegalState, "Wrong DB content");
-    CheckNumRecords(cluster_.get(), "t", expected_num_records);
+    CheckNumRecords(cluster_.get(), expected_num_records);
     return Status::OK();
   };
 
