@@ -2574,8 +2574,9 @@ void TSTabletManager::GetTabletPeersUnlocked(
     }
     if (user_tablets_only) {
       auto tablet_ptr = peer->shared_tablet_maybe_null();
+      const auto& namespace_name = tablet_ptr->metadata()->namespace_name();
       if (tablet_ptr &&
-          tablet_ptr->metadata()->namespace_name() == master::kSystemNamespaceName) {
+          (namespace_name == master::kSystemNamespaceName || namespace_name == "template1")) {
         continue;
       }
     }
