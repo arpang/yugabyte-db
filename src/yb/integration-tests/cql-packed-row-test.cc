@@ -69,7 +69,7 @@ TEST_F(CqlPackedRowTest, Simple) {
   ASSERT_OK(session.ExecuteQuery("INSERT INTO t (key, v2, v1) VALUES (1, 'four', 'five')"));
   ASSERT_OK(CheckTableContent(&session, "1,five,four", "key = 1"));
 
-  ASSERT_NO_FATALS(CheckNumRecords(cluster_.get(), 4));
+  ASSERT_NO_FATALS(CheckNumRecords(cluster_.get(), "t", 4));
 }
 
 TEST_F(CqlPackedRowTest, Collections) {
@@ -106,7 +106,7 @@ TEST_F(CqlPackedRowTest, Collections) {
   value = ASSERT_RESULT(session.ExecuteAndRenderToString("SELECT v1, v2, v3 FROM t WHERE key = 1"));
   ASSERT_EQ(value, "nine,[seven, eight],six");
 
-  ASSERT_NO_FATALS(CheckNumRecords(cluster_.get(), 4));
+  ASSERT_NO_FATALS(CheckNumRecords(cluster_.get(), "t", 4));
 }
 
 TEST_F(CqlPackedRowTest, TTL) {
