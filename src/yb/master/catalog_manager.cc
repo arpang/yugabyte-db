@@ -4791,6 +4791,9 @@ Status CatalogManager::CreateTableInMemory(const CreateTableRequestPB& req,
 
   if (system_table) {
     (*table)->set_is_system();
+    if (is_tserver_hosted_pg_catalog_table) {
+      (*table)->set_is_tserver_hosted_pg_catalog_table();
+    }
   }
 
   if (tablets) {
@@ -9590,6 +9593,7 @@ Status CatalogManager::DeleteYsqlDBTables(
   TabletInfoPtr sys_tablet_info;
   vector<pair<scoped_refptr<TableInfo>, TableInfo::WriteLock>> tables_and_locks;
   std::unordered_set<TableId> sys_table_ids;
+  int tserver_hosted_catalog_table_count = 0;
   {
     // Lock the catalog to iterate over table_ids_map_.
     SharedLock lock(mutex_);
@@ -9616,7 +9620,11 @@ Status CatalogManager::DeleteYsqlDBTables(
       }
 
       if (table->is_system()) {
-        sys_table_ids.insert(table->id());
+        if (!table->is_tserver_hosted_pg_catalog_table()) {
+          sys_table_ids.insert(table->id());
+        } else {
+          tserver_hosted_catalog_table_count++;
+        }
       }
 
       // For regular (indexed) table, insert table info and lock in the front of the list. Else for
@@ -9647,8 +9655,8 @@ Status CatalogManager::DeleteYsqlDBTables(
 
   if (is_ysql_major_upgrade || delete_type == DeleteYsqlDBTablesType::kMajorUpgradeCleanup) {
     RSTATUS_DCHECK(
-        tables_and_locks.size() == sys_table_ids.size(), IllegalState,
-        "Unexpected non sytem tables found during ysql major upgrade or cleanup");
+        tables_and_locks.size() == (sys_table_ids.size() + tserver_hosted_catalog_table_count),
+        IllegalState, "Unexpected non sytem tables found during ysql major upgrade or cleanup");
   }
 
   if (is_ysql_major_upgrade) {
@@ -10858,7 +10866,15 @@ void CatalogManager::DeleteTabletReplicas(
 Status CatalogManager::CheckIfForbiddenToDeleteTabletOf(const TableInfo& table) {
   // Do not delete the system catalog tablet.
   if (table.is_system()) {
-    return STATUS(InvalidArgument, "It is not allowed to delete the system table tablet");
+    if (!table.is_tserver_hosted_pg_catalog_table()) {
+      return STATUS(InvalidArgument, "It is not allowed to delete the system table tablet");
+    }
+    if (!ysql_manager_->IsMajorUpgradeInProgress()) {
+      return STATUS(
+          InvalidArgument,
+          "Tablets of tserver hosted system tables are only allowed to be deleted during rollback "
+          "of YSQL major version upgrade.");
+    }
   }
   // Do not delete the tablet of a colocated table.
   if (table.IsSecondaryTable()) {
