@@ -949,7 +949,7 @@ Status PersistCleanUpOfDeletedTables(
   }
   std::unordered_set<TableId> sys_table_ids;
   for (const auto& table : tables) {
-    if (table->is_system()) {
+    if (table->is_system() && !table->is_tserver_hosted_pg_catalog_table()) {
       sys_table_ids.emplace(table->id());
     }
   }
@@ -6705,7 +6705,8 @@ Status CatalogManager::DeleteTableInternal(
   std::unordered_set<TableId> deleted_table_ids;
   for (auto& deleting_table : tables) {
     deleted_table_ids.insert(deleting_table.table_info_with_write_lock->id());
-    if (deleting_table.table_info_with_write_lock->is_system()) {
+    if (deleting_table.table_info_with_write_lock->is_system() &&
+        !deleting_table.table_info_with_write_lock->is_tserver_hosted_pg_catalog_table()) {
       sys_table_ids.insert(deleting_table.table_info_with_write_lock->id());
     }
     deleting_table.table_info_with_write_lock.Commit();
