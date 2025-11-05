@@ -720,6 +720,8 @@ class TableInfo : public RefCountedThreadSafe<TableInfo>,
   bool is_unique_index() const;
   bool is_vector_index() const;
 
+  // "system table" here refers to the tables that reside in master in kSysCatalogTabletId tablet.
+  // TODO: Rename the functions to reflect this.
   void set_is_system() { is_system_ = true; }
   bool is_system() const { return is_system_; }
 

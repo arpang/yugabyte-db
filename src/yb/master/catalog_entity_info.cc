@@ -1204,7 +1204,7 @@ bool TableInfo::IsUserCreated(const ReadLock& lock) const {
   }
   return !is_system() && !IsSequencesSystemTable(lock) &&
          lock->namespace_id() != kSystemNamespaceId &&
-         !IsColocationParentTable();
+         !IsColocationParentTable() && !is_tserver_hosted_pg_catalog_table();
 }
 
 bool TableInfo::IsUserTable(const ReadLock& lock) const {

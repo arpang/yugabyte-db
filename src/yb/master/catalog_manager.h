@@ -1915,7 +1915,8 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
                                            bool colocated,
                                            IndexInfoPB* index_info,
                                            TableInfoWithWriteLock* indexed_table,
-                                           bool is_tserver_hosted_pg_catalog_table) REQUIRES(mutex_);
+                                           bool is_tserver_hosted_pg_catalog_table)
+                                           REQUIRES(mutex_);
 
   // Remove the specified entries from the protobuf field table_ids of a TabletInfo.
   Status RemoveTableIdsFromTabletInfo(

@@ -953,7 +953,7 @@ Status PersistCleanUpOfDeletedTables(
   }
   std::unordered_set<TableId> sys_table_ids;
   for (const auto& table : tables) {
-    if (table->is_system() && !table->is_tserver_hosted_pg_catalog_table()) {
+    if (table->is_system()) {
       sys_table_ids.emplace(table->id());
     }
   }
@@ -4267,8 +4267,8 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
 
     RETURN_NOT_OK(CreateTableInMemory(
         req, schema, partition_schema, namespace_id, namespace_name, partitions, colocated,
-        is_pg_catalog_table ? IsSystemObject::kTrue : IsSystemObject::kFalse, &index_info,
-        joining_colocation_group ? nullptr : &tablets, resp, &table, &indexed_table, is_tserver_hosted_pg_catalog_table));
+        IsSystemObject::kFalse, &index_info, joining_colocation_group ? nullptr : &tablets, resp,
+        &table, &indexed_table, is_tserver_hosted_pg_catalog_table));
 
     // Section is executed when a table is either the parent table or a user table in a colocation
     // group.
@@ -4793,11 +4793,13 @@ Status CatalogManager::CreateTableInMemory(const CreateTableRequestPB& req,
     transaction_table_ids_set_.insert(table_id);
   }
 
+  // Check that atleast one of system_table and is_tserver_hosted_pg_catalog_table is false.
+  DCHECK(!(system_table && is_tserver_hosted_pg_catalog_table));
+
   if (system_table) {
     (*table)->set_is_system();
-    if (is_tserver_hosted_pg_catalog_table) {
-      (*table)->set_is_tserver_hosted_pg_catalog_table();
-    }
+  } else if (is_tserver_hosted_pg_catalog_table) {
+    (*table)->set_is_tserver_hosted_pg_catalog_table();
   }
 
   if (tablets) {
@@ -6709,8 +6711,7 @@ Status CatalogManager::DeleteTableInternal(
   std::unordered_set<TableId> deleted_table_ids;
   for (auto& deleting_table : tables) {
     deleted_table_ids.insert(deleting_table.table_info_with_write_lock->id());
-    if (deleting_table.table_info_with_write_lock->is_system() &&
-        !deleting_table.table_info_with_write_lock->is_tserver_hosted_pg_catalog_table()) {
+    if (deleting_table.table_info_with_write_lock->is_system()) {
       sys_table_ids.insert(deleting_table.table_info_with_write_lock->id());
     }
     deleting_table.table_info_with_write_lock.Commit();
@@ -9630,11 +9631,9 @@ Status CatalogManager::DeleteYsqlDBTables(
       }
 
       if (table->is_system()) {
-        if (!table->is_tserver_hosted_pg_catalog_table()) {
-          sys_table_ids.insert(table->id());
-        } else {
-          tserver_hosted_catalog_table_count++;
-        }
+        sys_table_ids.insert(table->id());
+      } else if (table->is_tserver_hosted_pg_catalog_table()) {
+        tserver_hosted_catalog_table_count++;
       }
 
       // For regular (indexed) table, insert table info and lock in the front of the list. Else for
@@ -10876,16 +10875,16 @@ void CatalogManager::DeleteTabletReplicas(
 Status CatalogManager::CheckIfForbiddenToDeleteTabletOf(const TableInfo& table) {
   // Do not delete the system catalog tablet.
   if (table.is_system()) {
-    if (!table.is_tserver_hosted_pg_catalog_table()) {
-      return STATUS(InvalidArgument, "It is not allowed to delete the system table tablet");
-    }
-    if (!ysql_manager_->IsMajorUpgradeInProgress()) {
-      return STATUS(
-          InvalidArgument,
-          "Tablets of tserver hosted system tables are only allowed to be deleted during rollback "
-          "of YSQL major version upgrade.");
-    }
+    return STATUS(InvalidArgument, "It is not allowed to delete the system table tablet");
   }
+
+  if (table.is_tserver_hosted_pg_catalog_table() && !ysql_manager_->IsMajorUpgradeInProgress()) {
+    return STATUS(
+        InvalidArgument,
+        "Tablets of tserver hosted system tables are only allowed to be deleted during rollback "
+        "of YSQL major version upgrade.");
+  }
+
   // Do not delete the tablet of a colocated table.
   if (table.IsSecondaryTable()) {
     return STATUS(InvalidArgument, "It is not allowed to delete tablets of the colocated tables.");
