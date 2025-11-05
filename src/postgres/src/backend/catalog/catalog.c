@@ -58,7 +58,7 @@
 #include "catalog/pg_yb_profile.h"
 #include "catalog/pg_yb_role_profile.h"
 #include "catalog/pg_yb_tablegroup.h"
-#include "catalog/yb_notifications_d.h"
+#include "catalog/pg_yb_notifications_d.h"
 #include "commands/defrem.h"
 #include "executor/spi.h"
 #include "utils/lsyscache.h"

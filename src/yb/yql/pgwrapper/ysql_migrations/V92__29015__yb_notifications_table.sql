@@ -1,11 +1,11 @@
 BEGIN;
-  CREATE TABLE IF NOT EXISTS pg_catalog.yb_notifications (
+  CREATE TABLE IF NOT EXISTS pg_catalog.pg_yb_notifications (
     node uuid NOT NULL,
     pid int NOT NULL,
     db oid NOT NULL,
     channel text COLLATE "C" NOT NULL,
     payload text COLLATE "C",
-    CONSTRAINT yb_notifications_pkey PRIMARY KEY ((node, pid) HASH)
+    CONSTRAINT pg_yb_notifications_pkey PRIMARY KEY ((node, pid) HASH)
       WITH (table_oid = 8102)
   ) WITH (
     oids = false,

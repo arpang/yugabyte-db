@@ -63,7 +63,7 @@
 /* YB includes */
 #include "access/sysattr.h"
 #include "catalog/catalog.h"
-#include "catalog/yb_notifications_d.h"
+#include "catalog/pg_yb_notifications_d.h"
 #include "pg_yb_utils.h"
 
 
