@@ -1780,7 +1780,7 @@ bool ClusterLoadBalancer::SkipLoadBalancing(const TableInfo& table) const {
   // * deleted/deleting tables: as they are no longer in effect. For tables that are being deleted
   // currently as well, load distribution wouldn't matter as eventually they would get deleted.
   auto l = table.LockForRead();
-  if (table.is_system()) {
+  if (table.is_system() && !table.is_tserver_hosted_pg_catalog_table()) {
     VLOG(3) << "Skipping system table " << table.id() << " for load balancing";
     return true;
   }
