@@ -494,6 +494,22 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Allow the usage of S3 Exporter in Telemetry Provider.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.INTERNAL));
+  public static final ConfKeyInfo<Boolean> telemetryAllowOTLP =
+      new ConfKeyInfo<>(
+          "yb.telemetry.allow_otlp",
+          ScopeType.GLOBAL,
+          "Allow OTLP Exporter in Telemetry Provider",
+          "Allow the usage of OTLP Exporter in Telemetry Provider.",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
+  public static final ConfKeyInfo<Boolean> telemetrySkipConnectivityValidations =
+      new ConfKeyInfo<>(
+          "yb.telemetry.skip_connectivity_validations",
+          ScopeType.GLOBAL,
+          "Skip connectivity validations while creating Telemetry Provider",
+          "Skip connectivity and permission validations while creating Telemetry Provider.",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Integer> hcvTokenRenewPercent =
       new ConfKeyInfo<>(
           "yb.kms.hcv_token_renew_percent",
@@ -809,6 +825,16 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           ScopeType.GLOBAL,
           "Allow universes to be detached/attached",
           "Allow universes to be detached from a source platform and attached to dest platform",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> allowAutoProviderToK8sPlatform =
+      new ConfKeyInfo<>(
+          "yb.attach_detach.allow_auto_provider_to_k8s_platform",
+          ScopeType.GLOBAL,
+          "Allow auto-provider K8s universes to attach to K8s-based YBA",
+          "Allow Kubernetes auto-provider universes to be attached to Kubernetes-based YBA. "
+              + "Note that you must only attach auto-provider universe to Kubernetes-based YBA "
+              + "if the destination and source YBA exist on the same Kubernetes cluster",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Boolean> transactionalXClusterEnabled =
@@ -1204,6 +1230,14 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Enable publishing thread dumps to GCS",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> ybcDiagSupportBundlesGCSEnabled =
+      new ConfKeyInfo<>(
+          "yb.diag.support_bundles.gcs.enabled",
+          ScopeType.GLOBAL,
+          "Enable publishing support bundles to GCS",
+          "Enable publishing support bundles to GCS",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Boolean> blockOperatorApiResources =
       new ConfKeyInfo<>(
           "yb.kubernetes.operator.block_api_operator_owned_resources",
@@ -1305,6 +1339,22 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           ScopeType.GLOBAL,
           "Kubernetes provider validation",
           "Enable the Kubernetes provider quick validation",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> enableAwsProviderValidation =
+      new ConfKeyInfo<>(
+          "yb.provider.aws_provider_validation",
+          ScopeType.GLOBAL,
+          "AWS provider validation",
+          "Enable AWS Provider quick validation",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> enableOnPremProviderValidation =
+      new ConfKeyInfo<>(
+          "yb.provider.onprem_provider_validation",
+          ScopeType.GLOBAL,
+          "OnPrem provider validation",
+          "Enable OnPrem Provider quick validation",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Integer> maxYbcUpgradePollResultTries =
@@ -1423,7 +1473,7 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "If this flag is enabled, user will be able to create telemetry providers and"
               + " enable/disable metrics export on universes.",
           ConfDataType.BooleanType,
-          ImmutableList.of(ConfKeyTags.INTERNAL));
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Boolean> allowConnectionPooling =
       new ConfKeyInfo<>(
           "yb.universe.allow_connection_pooling",
@@ -1694,14 +1744,6 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           ScopeType.GLOBAL,
           "Enable Node Agent Message Compression",
           "Enable compression for message sent over node agent channel.",
-          ConfDataType.BooleanType,
-          ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Boolean> nodeAgentDisableBgInstallPostMigration =
-      new ConfKeyInfo<>(
-          "yb.node_agent.disable_bg_install_post_migration",
-          ScopeType.GLOBAL,
-          "Disable Node Agent Background Installation After Migration",
-          "Install node agent synchronously during a task instead after migration if it is true.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Boolean> enableTaskRuntimeInfoOnRetry =

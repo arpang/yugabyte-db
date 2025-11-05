@@ -39,6 +39,19 @@ class CDCSDKVirtualWAL {
 
   using TabletRecordInfoPair = std::pair<TabletId, RecordInfo>;
 
+  using RetryableErrorPattern = std::pair<Status::Code, std::string>;
+  // Pairs of error code and error msg pattern used to identify errors that will be retried.
+  // Everytime a new error is made retriable for virtual WAL by adding it to
+  // kRetryableErrorPatterns, it should also be added to the test
+  // CDCSDKConsumptionConsistentChangesTest.TestRetryableErrorsNotSentToWalsender
+  inline static const std::vector<RetryableErrorPattern> kRetryableErrorPatterns = {
+      {Status::Code::kIllegalState, "is not started yet"},
+      {Status::Code::kIllegalState, "Tablet not running"},
+      {Status::Code::kNotFound, "Not leader for"},
+      {Status::Code::kLeaderNotReadyToServe, "Not ready to serve"},
+      {Status::Code::kNotFound, "Footer for segment"},
+      {Status::Code::kNotFound, "Log index cache entry for op index"}};
+
   Status InitVirtualWALInternal(
       std::unordered_set<TableId> table_list, const HostPort hostport,
       const CoarseTimePoint deadline, std::unique_ptr<ReplicationSlotHashRange> slot_hash_range,
@@ -61,11 +74,9 @@ class CDCSDKVirtualWAL {
 
   std::vector<TabletId> GetTabletIdsFromVirtualWAL();
 
-  bool ShouldPopulateExplicitCheckpoint(const TabletId& tablet_id);
-
  private:
   struct GetChangesRequestInfo {
-    uint64_t safe_hybrid_time;
+    int64_t safe_hybrid_time;
     int32_t wal_segment_index;
 
     // The following fields will be used to populate from_cdc_sdk_checkpoint object of the next
@@ -200,6 +211,8 @@ class CDCSDKVirtualWAL {
   Status UpdateRestartTimeIfRequired();
 
   bool DeterminePubRefreshFromMasterRecord(const RecordInfo& record_info);
+
+  bool ShouldPopulateExplicitCheckpoint();
 
   CDCServiceImpl* cdc_service_;
 
@@ -338,8 +351,11 @@ class CDCSDKVirtualWAL {
   // Indicates whether any of the publications being polled is an "ALL TABLES" publication.
   bool pub_all_tables_ = false;
 
+  // The commit time of the last (latest) DDL record encountered by the virtual WAL.
+  HybridTime last_seen_ddl_commit_time_ = HybridTime::kInvalid;
+
   // The last slot restart time which was updated in the cdc_state table.
-  uint64_t last_persisted_record_id_commit_time_;
+  HybridTime last_persisted_record_id_commit_time_;
 };
 
 }  // namespace cdc

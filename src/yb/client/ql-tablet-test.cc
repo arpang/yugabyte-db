@@ -110,7 +110,7 @@ DECLARE_int32(timestamp_history_retention_interval_sec);
 DECLARE_int32(raft_heartbeat_interval_ms);
 DECLARE_int32(history_cutoff_propagation_interval_ms);
 DECLARE_double(leader_failure_max_missed_heartbeat_periods);
-DECLARE_string(regular_tablets_data_block_key_value_encoding);
+DECLARE_string(ycql_regular_tablets_data_block_key_value_encoding);
 DECLARE_bool(ycql_enable_packed_row);
 DECLARE_bool(ysql_enable_packed_row);
 
@@ -1254,7 +1254,7 @@ TEST_F(QLTabletTest, OperationMemTracking) {
     // We have overhead in both log cache and tablets.
     // So if value is double tracked then sum consumption will be higher than double value size.
     ASSERT_LE(operation_tracker_consumption + log_cache_consumption, kValueSize * 2)
-        << DumpMemoryUsage();
+        << [] { DumpMemoryUsage(); return ""; }();
     if (std::chrono::steady_clock::time_point() == deadline) { // operation did not finish yet
       if (future.wait_for(kWaitInterval) == std::future_status::ready) {
         LOG(INFO) << "Value written";
@@ -1782,7 +1782,7 @@ TEST_F_EX(QLTabletTest, DataBlockKeyValueEncoding, QLTabletRf1Test) {
       rocksdb::KeyValueEncodingFormat::kKeyDeltaEncodingThreeSharedParts;
 
   for (auto encoding : {kEncodingSharedPrefix, kEncodingThreeSharedParts}) {
-    ANNOTATE_UNPROTECTED_WRITE(FLAGS_regular_tablets_data_block_key_value_encoding) =
+    ANNOTATE_UNPROTECTED_WRITE(FLAGS_ycql_regular_tablets_data_block_key_value_encoding) =
         KeyValueEncodingFormatToString(encoding);
     const YBTableName table_name(
         YQL_DATABASE_CQL, "my_keyspace", Format("ql_client_test_table_$0", encoding));

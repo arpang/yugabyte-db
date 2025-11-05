@@ -49,6 +49,17 @@ extern bool yb_non_ddl_txn_for_sys_tables_allowed;
 extern bool yb_force_global_transaction;
 
 /*
+ * Toggles whether to force use of tablespace-local locality instead of region locality.
+ */
+extern bool yb_force_tablespace_locality;
+
+/*
+ * Specify oid for tablespace to use for tablespace-local locality. Automatic selection is used
+ * if 0 (default value).
+ */
+extern uint32_t yb_force_tablespace_locality_oid;
+
+/*
  * Guc that toggles whether strict inequalities are pushed down.
  */
 extern bool yb_pushdown_strict_inequality;
@@ -164,6 +175,7 @@ extern char* yb_default_replica_identity;
  */
 extern bool yb_enable_consistent_replication_from_hash_range;
 
+extern bool enable_object_locking_infra;
 /*
  * xcluster consistency level
  */
@@ -281,6 +293,12 @@ extern bool yb_mixed_mode_saop_pushdown;
 
 extern bool yb_use_internal_auto_analyze_service_conn;
 
+// Keep in sync with the same definition in common_flags.cc
+#ifdef NDEBUG
+#define kEnableDdlTransactionBlocks true
+#else
+#define kEnableDdlTransactionBlocks false
+#endif
 extern bool yb_ddl_transaction_block_enabled;
 
 extern bool yb_disable_ddl_transaction_block_for_read_committed;

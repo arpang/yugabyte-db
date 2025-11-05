@@ -405,9 +405,9 @@ TEST_F_EX(
 // 3. backup
 // 4. restore, which will initially create [sic] 4 pre-split tablets then realize the partition
 //    boundaries differ
-TEST_F_EX(YBBackupTest,
-          YB_DISABLE_TEST_IN_SANITIZERS(TestYSQLManualTabletSplit),
-          YBBackupTestNumTablets) {
+TEST_F_EX(
+    YBBackupTest, YB_DISABLE_TEST_IN_SANITIZERS(TestYSQLManualTabletSplit),
+    YBBackupTestNumTablets) {
   const string table_name = "mytbl";
 
   // Create table.
@@ -984,9 +984,9 @@ TEST_F_EX(YBBackupTest,
 // 3. split the index on its hidden column into 3 tablets
 // 4. backup
 // 5. restore
-TEST_F_EX(YBBackupTest,
-          YB_DISABLE_TEST_IN_SANITIZERS(TestYSQLTabletSplitRangeIndexOnHiddenColumn),
-          YBBackupTestNumTablets) {
+TEST_F_EX(
+    YBBackupTest, YB_DISABLE_TEST_IN_SANITIZERS(TestYSQLTabletSplitRangeIndexOnHiddenColumn),
+    YBBackupTestNumTablets) {
   const string table_name = "mytbl";
   const string index_name = "myidx";
 
@@ -2550,6 +2550,7 @@ INSTANTIATE_TEST_CASE_P(
 
 class YBBackupCrossColocation : public YBBackupTestWithPackedRowsAndColocation {};
 
+// TODO(Yamen): Enable test in sasnitizers tracked by GH-29039.
 TEST_P(YBBackupCrossColocation, YB_DISABLE_TEST_IN_SANITIZERS(TestYSQLRestoreWithInvalidIndex)) {
   ASSERT_NO_FATALS(CreateTable("CREATE TABLE t1 (id INT NOT NULL, c1 INT, PRIMARY KEY (id))"));
   for (int i = 0; i < 3; ++i) {
@@ -2770,10 +2771,14 @@ Status YBDdlAtomicityBackupTest::RunDdlAtomicityTest(pgwrapper::DdlErrorInjectio
 }
 
 TEST_F(YBDdlAtomicityBackupTest, YB_DISABLE_TEST_IN_SANITIZERS(SuccessfulDdlAtomicityTest)) {
+  // TODO(Yamen): Remove this skip once GH-28766 is fixed.
+  GTEST_SKIP() << "Temporarily disabled until GH-28766 is fixed";
   ASSERT_OK(RunDdlAtomicityTest(pgwrapper::DdlErrorInjection::kFalse));
 }
 
 TEST_F(YBDdlAtomicityBackupTest, YB_DISABLE_TEST_IN_SANITIZERS(DdlRollbackAtomicityTest)) {
+  // TODO(Yamen): Remove this skip once GH-28766 is fixed.
+  GTEST_SKIP() << "Temporarily disabled until GH-28766 is fixed";
   ASSERT_OK(RunDdlAtomicityTest(pgwrapper::DdlErrorInjection::kTrue));
 }
 
@@ -3023,9 +3028,11 @@ TEST_P(YBBackupTestWithTableRewrite,
   ));
 }
 
+// TODO(Yamen): Enable test in sasnitizers tracked by GH-29039.
 // Test that backup and restore succeed after unsuccessful rewrite operations are executed
 // on tables, indexes and materialized views.
-TEST_P(YBBackupTestWithTableRewrite,
+TEST_P(
+    YBBackupTestWithTableRewrite,
     YB_DISABLE_TEST_IN_SANITIZERS(TestYSQLBackupAndRestoreAfterFailedRewrite)) {
   ASSERT_OK(cluster_->SetFlagOnMasters("enable_transactional_ddl_gc", "false"));
   ASSERT_OK(cluster_->SetFlagOnTServers("ysql_yb_ddl_rollback_enabled", "false"));

@@ -1436,10 +1436,7 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 	double		partial_rows = -1;
 
 	/* If appropriate, consider parallel append */
-	if (IsYugaByteEnabled() && !yb_enable_parallel_append)
-		pa_subpaths_valid = false;
-	else
-		pa_subpaths_valid = enable_parallel_append && rel->consider_parallel;
+	pa_subpaths_valid = enable_parallel_append && rel->consider_parallel;
 
 	/*
 	 * For every non-dummy child, remember the cheapest path.  Also, identify
@@ -4575,12 +4572,15 @@ yb_compute_parallel_worker(RelOptInfo *rel,
 	else
 	{
 		/*
-		 * Due to a number of known issues with various distribution types
-		 * for the time being we focus on the colocated case only.
-		 * Later on we will enable other distribution types, with GUC controls.
+		 * Parallel query may be enabled or disabled for specific distribution types
 		 */
-		if (yb_dist == YB_COLOCATED)
+		if ((yb_dist == YB_COLOCATED && yb_enable_parallel_scan_colocated) ||
+			(yb_dist == YB_HASH_SHARDED && yb_enable_parallel_scan_hash_sharded) ||
+			(yb_dist == YB_RANGE_SHARDED && yb_enable_parallel_scan_range_sharded) ||
+			(yb_dist == YB_SYSTEM && yb_enable_parallel_scan_system))
+		{
 			parallel_workers = ybParallelWorkers(rel->tuples);
+		}
 	}
 
 	/* In no case use more than caller supplied maximum number of workers */

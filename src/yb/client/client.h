@@ -350,7 +350,8 @@ class YBClient {
 
   Status GetIndexBackfillProgress(
       const TableIds& index_ids,
-      google::protobuf::RepeatedField<google::protobuf::uint64>* rows_processed_entries);
+      google::protobuf::RepeatedField<google::protobuf::uint64>*
+          num_rows_read_from_table_for_backfill);
 
   Result<google::protobuf::RepeatedPtrField<tablet::TabletStatusPB>> GetTabletsMetadata();
 
@@ -532,7 +533,11 @@ class YBClient {
       bool use_secondary_space, uint32_t* begin_oid, uint32_t* end_oid,
       uint32_t* oid_cache_invalidations_count = nullptr);
 
-  Status GetYsqlCatalogMasterVersion(uint64_t *ysql_catalog_version);
+  // Deprecated. Use instead per-db version below.
+  Status DEPRECATED_GetYsqlCatalogMasterVersion(uint64_t *ysql_catalog_version);
+
+  Status GetYsqlDBCatalogMasterVersion(
+      const std::string& database_name, uint64_t *ysql_catalog_version);
 
   // Grant permission with given arguments.
   Status GrantRevokePermission(
@@ -739,7 +744,7 @@ class YBClient {
   // Update consumer pollers after a producer side tablet split.
   Status UpdateConsumerOnProducerSplit(
       const xcluster::ReplicationGroupId& replication_group_id, const xrepl::StreamId& stream_id,
-      const master::ProducerSplitTabletInfoPB& split_info);
+      const master::ProducerSplitTabletInfoPB& split_info, const TableId& consumer_table_id);
 
   // Update after a producer DDL change. Returns if caller should wait for a similar Consumer DDL.
   Status UpdateConsumerOnProducerMetadata(

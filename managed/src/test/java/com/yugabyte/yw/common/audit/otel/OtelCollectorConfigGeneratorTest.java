@@ -36,6 +36,7 @@ import com.yugabyte.yw.models.helpers.exporters.query.QueryLogConfig;
 import com.yugabyte.yw.models.helpers.exporters.query.UniverseQueryLogsExporterConfig;
 import com.yugabyte.yw.models.helpers.exporters.query.YSQLQueryLogConfig;
 import com.yugabyte.yw.models.helpers.telemetry.*;
+import com.yugabyte.yw.models.helpers.telemetry.AuthCredentials.AuthType;
 import com.yugabyte.yw.models.helpers.telemetry.TelemetryProviderConfig;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -251,7 +252,7 @@ public class OtelCollectorConfigGeneratorTest extends FakeDBApplication {
     LokiConfig config = new LokiConfig();
     config.setType(ProviderType.LOKI);
     config.setEndpoint("http://loki:3100");
-    config.setAuthType(LokiConfig.LokiAuthType.NoAuth);
+    config.setAuthType(AuthType.NoAuth);
 
     TelemetryProvider telemetryProvider =
         createTelemetryProvider(new UUID(0, 0), "Loki", ImmutableMap.of("tag", "value"), config);
@@ -268,7 +269,7 @@ public class OtelCollectorConfigGeneratorTest extends FakeDBApplication {
     LokiConfig config = new LokiConfig();
     config.setType(ProviderType.LOKI);
     config.setEndpoint("http://loki:3100");
-    config.setAuthType(LokiConfig.LokiAuthType.NoAuth);
+    config.setAuthType(AuthType.NoAuth);
 
     TelemetryProvider telemetryProvider =
         createTelemetryProvider(new UUID(0, 0), "Loki", ImmutableMap.of("tag", "value"), config);
@@ -341,6 +342,41 @@ public class OtelCollectorConfigGeneratorTest extends FakeDBApplication {
 
     generateAndAssertConfig(
         auditLogConfig, queryLogConfig, null, "audit/aws_audit_and_query_log_config.yml");
+  }
+
+  @Test
+  public void generateOtelColConfigAuditAndQueryLogPlusS3() {
+    S3Config s3Config = new S3Config();
+    s3Config.setType(ProviderType.S3);
+    s3Config.setBucket("bucket");
+    s3Config.setAccessKey("access_key");
+    s3Config.setSecretKey("secret_key");
+    s3Config.setRegion("us-west2");
+
+    TelemetryProvider s3TelemetryProvider =
+        createTelemetryProvider(new UUID(0, 0), "S3", ImmutableMap.of("tag", "value"), s3Config);
+
+    // Create audit log config
+    AuditLogConfig auditLogConfig =
+        createAuditLogConfigWithYSQL(
+            s3TelemetryProvider.getUuid(), ImmutableMap.of("additionalTag", "auditValue"));
+
+    // Create query log config
+    QueryLogConfig queryLogConfig =
+        createQueryLogConfig(
+            s3TelemetryProvider.getUuid(),
+            ImmutableMap.of("additionalTag", "queryValue"),
+            YSQLQueryLogConfig.YSQLLogStatement.MOD,
+            YSQLQueryLogConfig.YSQlLogMinErrorStatement.ERROR,
+            YSQLQueryLogConfig.YSQLLogErrorVerbosity.TERSE,
+            true,
+            false,
+            true,
+            false,
+            500);
+
+    generateAndAssertConfig(
+        auditLogConfig, queryLogConfig, null, "audit/s3_audit_and_query_log_config.yml");
   }
 
   @Test

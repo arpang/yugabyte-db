@@ -1368,17 +1368,6 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
-		{"yb_enable_parallel_append", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enables the planner's use of parallel append plans "
-						 "if YB is enabled."),
-			NULL,
-			GUC_EXPLAIN
-		},
-		&yb_enable_parallel_append,
-		false,
-		NULL, NULL, NULL
-	},
-	{
 		{"yb_enable_bitmapscan", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of YB bitmap-scan plans."),
 			gettext_noop("To use YB Bitmap Scans, both yb_enable_bitmapscan "
@@ -2613,6 +2602,17 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"enable_object_locking_infra", PGC_SIGHUP, LOCK_MANAGEMENT,
+			gettext_noop("Allow enabling object-level locking for table locks."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&enable_object_locking_infra,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_allow_replication_slot_lsn_types", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Allow specifying LSN type while creating replication slot"),
 			NULL,
@@ -2856,6 +2856,16 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&yb_force_global_transaction,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_force_tablespace_locality", PGC_USERSET, UNGROUPED,
+			gettext_noop("Forces use of tablespace-based locality over region locality."),
+			NULL
+		},
+		&yb_force_tablespace_locality,
 		false,
 		NULL, NULL, NULL
 	},
@@ -3120,7 +3130,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_ddl_transaction_block_enabled,
-		false,
+		kEnableDdlTransactionBlocks,
 		NULL, NULL, NULL
 	},
 
@@ -3592,6 +3602,49 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_enable_parallel_scan_colocated", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("When set, allows parallel scan of the colocated relations"),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&yb_enable_parallel_scan_colocated,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_enable_parallel_scan_hash_sharded", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("When set, allows parallel scan of the hash sharded relations"),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&yb_enable_parallel_scan_hash_sharded,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_enable_parallel_scan_range_sharded", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("When set, allows parallel scan of the range sharded relations"),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&yb_enable_parallel_scan_range_sharded,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_enable_parallel_scan_system", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("When set, allows parallel scan of the system relations"),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&yb_enable_parallel_scan_system,
+		false,
+		NULL, NULL, NULL
+	},
 
 
 	{
@@ -5588,6 +5641,17 @@ static struct config_int ConfigureNamesInt[] =
 
 static struct yb_config_oid ConfigureNamesOid[] =
 {
+	{
+		{"yb_force_tablespace_locality_oid", PGC_USERSET, UNGROUPED,
+			gettext_noop("Tablespace used for tablespace-based locality. Picked automatically "
+						 "if InvalidOid (default)."),
+			NULL
+		},
+		&yb_force_tablespace_locality_oid,
+		InvalidOid, 0, OID_MAX,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, 0, 0, NULL, NULL, NULL
@@ -5659,7 +5723,7 @@ static struct config_real ConfigureNamesReal[] =
 			GUC_EXPLAIN
 		},
 		&parallel_tuple_cost,
-		DEFAULT_PARALLEL_TUPLE_COST, 0, DBL_MAX,
+		YB_DEFAULT_PARALLEL_TUPLE_COST, 0, DBL_MAX,	/* YB: change default */
 		NULL, NULL, NULL
 	},
 	{
@@ -5670,7 +5734,7 @@ static struct config_real ConfigureNamesReal[] =
 			GUC_EXPLAIN
 		},
 		&parallel_setup_cost,
-		DEFAULT_PARALLEL_SETUP_COST, 0, DBL_MAX,
+		YB_DEFAULT_PARALLEL_SETUP_COST, 0, DBL_MAX,	/* YB: change default */
 		NULL, NULL, NULL
 	},
 	{
@@ -7365,6 +7429,7 @@ static struct config_enum ConfigureNamesEnum[] =
 static const char *const map_old_guc_names[] = {
 	"sort_mem", "work_mem",
 	"vacuum_mem", "maintenance_work_mem",
+	"yb_enable_parallel_append", "enable_parallel_append",
 	NULL
 };
 

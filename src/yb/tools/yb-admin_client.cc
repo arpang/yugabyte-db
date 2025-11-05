@@ -1535,10 +1535,8 @@ Status ClusterAdminClient::ListTablets(
   RETURN_NOT_OK(yb_client_->GetTablets(
       table_name, max_tablets, &tablet_uuids, &ranges, &locations));
 
-  // Get table schema to access partition schema
-  client::YBSchema schema;
-  dockv::PartitionSchema partition_schema;
-  RETURN_NOT_OK(yb_client_->GetTableSchema(table_name, &schema, &partition_schema));
+  // Get table info (works for both regular tables and indexes) to access partition schema
+  const auto table_info = VERIFY_RESULT(yb_client_->GetYBTableInfo(table_name));
 
   rapidjson::Document document(rapidjson::kObjectType);
   rapidjson::Value json_tablets(rapidjson::kArrayType);
@@ -1554,12 +1552,12 @@ Status ClusterAdminClient::ListTablets(
     std::cout << std::endl;
   }
 
-  const auto common_schema = client::internal::GetSchema(schema);
-  auto getPartitionDebugString = [&partition_schema,
-                                  &common_schema](const PartitionPB& partition) -> std::string {
+  const auto table_schema = client::internal::GetSchema(table_info.schema);
+  auto getPartitionDebugString = [&table_info, &table_schema](const PartitionPB& partition)
+      -> std::string {
     dockv::Partition dockv_partition;
     dockv::Partition::FromPB(partition, &dockv_partition);
-    return partition_schema.PartitionDebugString(dockv_partition, common_schema);
+    return table_info.partition_schema.PartitionDebugString(dockv_partition, table_schema);
   };
 
   for (size_t i = 0; i < tablet_uuids.size(); i++) {
@@ -2334,9 +2332,17 @@ Status ClusterAdminClient::GetXClusterConfig() {
   return Status::OK();
 }
 
-Status ClusterAdminClient::GetYsqlCatalogVersion() {
+Status ClusterAdminClient::GetYsqlCatalogVersion(const TypedNamespaceName& ns) {
   uint64_t version = 0;
-  RETURN_NOT_OK(yb_client_->GetYsqlCatalogMasterVersion(&version));
+  if (ns.name.empty()) {
+    RETURN_NOT_OK(yb_client_->DEPRECATED_GetYsqlCatalogMasterVersion(&version));
+  } else {
+    SCHECK_EQ(
+        ns.db_type, YQL_DATABASE_PGSQL, InvalidArgument,
+        Format("Wrong database type: $0", YQLDatabase_Name(ns.db_type)));
+    RETURN_NOT_OK(yb_client_->GetYsqlDBCatalogMasterVersion(ns.name, &version));
+  }
+
   cout << "Version: "  << version << endl;
   return Status::OK();
 }

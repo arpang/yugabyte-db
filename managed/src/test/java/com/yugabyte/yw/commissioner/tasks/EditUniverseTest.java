@@ -368,10 +368,11 @@ public class EditUniverseTest extends UniverseModifyBaseTest {
 
     verifyCapacityReservationAZU(
         universe.getUniverseUUID(),
-        region,
-        Map.of(
-            universe.getUniverseDetails().getPrimaryCluster().userIntent.instanceType,
-            Map.of("1", Arrays.asList("host-n4", "host-n5"))));
+        AzureReservationGroup.of(
+            region,
+            Map.of(
+                universe.getUniverseDetails().getPrimaryCluster().userIntent.instanceType,
+                Map.of("1", Arrays.asList("host-n4", "host-n5")))));
 
     verifyNodeInteractionsCapacityReservation(
         37,
@@ -614,7 +615,7 @@ public class EditUniverseTest extends UniverseModifyBaseTest {
     universe = Universe.getOrBadRequest(universe.getUniverseUUID());
     assertEquals(nodes, universe.getUniverseDetails().nodeDetailsSet.size());
     assertTrue(universe.getUniverseDetails().autoRollbackPerformed);
-    assertNull(universe.getUniverseDetails().updatingTaskUUID);
+    assertNotNull(universe.getUniverseDetails().updatingTaskUUID);
     assertNull(universe.getUniverseDetails().placementModificationTaskUuid);
   }
 
@@ -646,7 +647,7 @@ public class EditUniverseTest extends UniverseModifyBaseTest {
     universe = Universe.getOrBadRequest(universe.getUniverseUUID());
     assertEquals(nodes, universe.getUniverseDetails().nodeDetailsSet.size());
     assertTrue(universe.getUniverseDetails().autoRollbackPerformed);
-    assertNull(universe.getUniverseDetails().updatingTaskUUID);
+    assertNotNull(universe.getUniverseDetails().updatingTaskUUID);
     assertNull(universe.getUniverseDetails().placementModificationTaskUuid);
   }
 

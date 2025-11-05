@@ -33,6 +33,7 @@
 #include "executor/instrument.h"
 #include "nodes/parsenodes.h"
 #include "nodes/plannodes.h"
+#include "nodes/primnodes.h"
 #include "tcop/utility.h"
 #include "utils/guc.h"
 #include "utils/relcache.h"
@@ -783,6 +784,14 @@ extern int	yb_invalidation_message_expiration_secs;
 extern int	yb_max_num_invalidation_messages;
 
 /*
+ * Enable parallel query for different relation sharding types
+ */
+extern bool	yb_enable_parallel_scan_colocated;
+extern bool	yb_enable_parallel_scan_hash_sharded;
+extern bool	yb_enable_parallel_scan_range_sharded;
+extern bool	yb_enable_parallel_scan_system;
+
+/*
  * If set to true, all DDL statements will cause the catalog version to increment.
  */
 extern bool yb_make_all_ddl_statements_incrementing;
@@ -906,6 +915,7 @@ void		YBIncrementDdlNestingLevel(YbDdlMode mode);
 void		YBDecrementDdlNestingLevel();
 
 extern void YBAddDdlTxnState(YbDdlMode mode);
+extern void YBMergeDdlTxnState();
 extern void YBCommitTransactionContainingDDL();
 
 typedef struct YbDdlModeOptional
@@ -1066,12 +1076,19 @@ extern const uint32 yb_funcs_safe_for_mixed_mode_pushdown[];
 extern const uint32 yb_pushdown_funcs_to_constify[];
 
 /*
+ * List of SQL standard time/date functions that are evaluated once per
+ * statement and pushed down as constants.
+ */
+extern const SQLValueFunctionOp yb_pushdown_sqlvaluefunctions[];
+
+/*
  * Number of functions in the lists above.
  */
 extern const int yb_funcs_safe_for_pushdown_count;
 extern const int yb_funcs_unsafe_for_pushdown_count;
 extern const int yb_funcs_safe_for_mixed_mode_pushdown_count;
 extern const int yb_pushdown_funcs_to_constify_count;
+extern const int yb_pushdown_sqlvaluefunctions_count;
 
 /**
  * Use the YB_PG_PDEATHSIG environment variable to set the signal to be sent to
@@ -1485,5 +1502,10 @@ extern void YbIncrementRetryCount(YbTxnError kind);
 extern uint64_t YbGetRetryCount(YbTxnError kind);
 extern uint64_t YbGetTotalRetryCount();
 extern YbTxnError YbSqlErrorCodeToTransactionError(int sqlerrcode);
+
+extern bool yb_is_internal_connection;
+
+extern bool YbCatalogPreloadRequired();
+extern bool YbUseMinimalCatalogCachesPreload();
 
 #endif							/* PG_YB_UTILS_H */
