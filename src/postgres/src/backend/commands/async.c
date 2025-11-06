@@ -976,10 +976,10 @@ YbInsertNotifications(void)
 												  YB_SINGLE_SHARD_TRANSACTION;
 		// TODO: temp hack of using hardcoded db oid. CREATE TABLE notifications
 		// should not create tables for any db other than 'yugabyte'.
-		YBCExecuteInsertForDb(13515, rel, slot, ONCONFLICT_NONE, NULL,
+		YBCExecuteInsertForDb(13524, rel, slot, ONCONFLICT_NONE, NULL,
 							  txn_setting);
 
-		YBCExecuteDeleteForDB(13515, rel, slot, NIL, false /* target_tuple_fetched */ ,
+		YBCExecuteDeleteForDB(13524, rel, slot, NIL, false /* target_tuple_fetched */ ,
 							  txn_setting, false /* changingPart */ , estate);
 		MemoryContextReset(GetPerTupleMemoryContext(estate));
 		nextNotify = lnext(pendingNotifies->events, nextNotify);
@@ -2675,7 +2675,7 @@ YbCreateNotificationRel()
 	if (SPI_execute(querybuf.data, false, 0) != SPI_OK_UTILITY)
 		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
 
-	if (MyDatabaseId == 13515)
+	if (MyDatabaseId == 13524)
 	{
 		resetStringInfo(&querybuf);
 		appendStringInfo(&querybuf, "CREATE PUBLICATION %s FOR TABLE %s.%s.%s",
