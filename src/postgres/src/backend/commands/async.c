@@ -1551,6 +1551,7 @@ YbAsyncQueueAddEntry(ListCell *tuples)
 	// 	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
 	// }
 	asyncQueueAddEntries(tuples);
+	LWLockRelease(NotifyQueueLock);
 
 	/*
 	 * Signal listening backends and advance tail if applicable.
@@ -1562,7 +1563,6 @@ YbAsyncQueueAddEntry(ListCell *tuples)
 		tryAdvanceTail = false;
 		asyncQueueAdvanceTail();
 	}
-	LWLockRelease(NotifyQueueLock);
 }
 
 /*
