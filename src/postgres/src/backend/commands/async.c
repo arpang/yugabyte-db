@@ -924,8 +924,7 @@ AtPrepare_Notify(void)
 #define YB_NOTIFICATION_NODE_FIELD	  0
 #define YB_NOTIFICATION_PID_FIELD	  1
 #define YB_NOTIFICATION_DB_FIELD	  2
-#define YB_NOTIFICATION_CHANNEL_FIELD 3
-#define YB_NOTIFICATION_PAYLOAD_FIELD 4
+#define YB_NOTIFICATION_DATA_FIELD	  3
 
 void
 YbInsertNotifications(void)
@@ -954,22 +953,11 @@ YbInsertNotifications(void)
 		slot->tts_values[YB_NOTIFICATION_DB_FIELD] =
 			ObjectIdGetDatum(MyDatabaseId);
 
-		slot->tts_isnull[YB_NOTIFICATION_CHANNEL_FIELD] = false;
-		char *channel = n->data;
-		slot->tts_values[YB_NOTIFICATION_CHANNEL_FIELD] =
-			CStringGetDatum(cstring_to_text_with_len(channel, n->channel_len));
+		slot->tts_isnull[YB_NOTIFICATION_DATA_FIELD] = false;
+		slot->tts_values[YB_NOTIFICATION_DATA_FIELD] =
+			CStringGetDatum(cstring_to_text_with_len(n->data, n->channel_len + n->payload_len + 2));
 
-		if (n->payload_len == 0)
-			slot->tts_isnull[YB_NOTIFICATION_PAYLOAD_FIELD] = true;
-		else
-		{
-			slot->tts_isnull[YB_NOTIFICATION_PAYLOAD_FIELD] = false;
-			char *payload = n->data + strlen(channel) + 1;
-			slot->tts_values[YB_NOTIFICATION_PAYLOAD_FIELD] =
-				CStringGetDatum(cstring_to_text_with_len(payload, n->payload_len));
-		}
-
-		slot->tts_nvalid = 5;
+		slot->tts_nvalid = 4;
 
 		YbcPgTransactionSetting txn_setting = IsTransactionBlock() ?
 												  YB_TRANSACTIONAL :
@@ -2666,7 +2654,7 @@ YbCreateNotificationRel()
 
 	appendStringInfo(&querybuf,
 					 "CREATE TABLE %s.%s(node uuid, pid int, db oid NOT NULL, "
-					 "channel text NOT NULL, payload text,  primary key((node, "
+					 "data text NOT NULL, primary key((node, "
 					 "pid) HASH))",
 					 YB_NOTIFY_SCHEMA_NAME, YB_NOTIFICATIONS_RELNAME);
 
@@ -2828,20 +2816,12 @@ YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe)
 	Assert(!isnull[YB_NOTIFICATION_DB_FIELD]);
 	qe->dboid = DatumGetObjectId(values[YB_NOTIFICATION_DB_FIELD]);
 
-	Assert(!isnull[YB_NOTIFICATION_CHANNEL_FIELD]);
-	int channellen = VARSIZE_ANY(DatumGetPointer(values[YB_NOTIFICATION_CHANNEL_FIELD]));
-	const text *channel = DatumGetTextP(values[YB_NOTIFICATION_CHANNEL_FIELD]);
-	text_to_cstring_buffer(channel, qe->data, channellen);
+	Assert(!isnull[YB_NOTIFICATION_DATA_FIELD]);
+	const void *data = DatumGetPointer(values[YB_NOTIFICATION_DATA_FIELD]);
+	size_t datalen = VARSIZE_ANY(data);
+	memcpy(qe->data, VARDATA_ANY(data), datalen);
 
-	int payloadlen = isnull[YB_NOTIFICATION_PAYLOAD_FIELD] ? 0 : VARSIZE_ANY(DatumGetPointer(values[YB_NOTIFICATION_PAYLOAD_FIELD]));
-
-	if (!isnull[YB_NOTIFICATION_PAYLOAD_FIELD])
-	{
-		const text *payload = DatumGetTextP(values[YB_NOTIFICATION_PAYLOAD_FIELD]);
-		text_to_cstring_buffer(payload, qe->data + channellen, payloadlen);
-	}
-
-	int entryLength = AsyncQueueEntryEmptySize + payloadlen + channellen - 2;
+	int entryLength = AsyncQueueEntryEmptySize + datalen - 2;
 	entryLength = QUEUEALIGN(entryLength);
 	qe->length = entryLength;
 	RelationClose(rel);
