@@ -1786,7 +1786,7 @@ PlannedStmtRequiresSnapshot(PlannedStmt *pstmt)
 	/* efficiency hacks from here down */
 		IsA(utilityStmt, FetchStmt) ||
 		IsA(utilityStmt, ListenStmt) ||
-		IsA(utilityStmt, NotifyStmt) ||
+		/* IsA(utilityStmt, NotifyStmt) || */
 		IsA(utilityStmt, UnlistenStmt) ||
 		IsA(utilityStmt, CheckPointStmt))
 		return false;

@@ -68,6 +68,7 @@
 #include "miscadmin.h"
 #include "nodes/replnodes.h"
 #include "pgstat.h"
+#include "postmaster/bgworker.h"
 #include "postmaster/interrupt.h"
 #include "replication/decode.h"
 #include "replication/logical.h"
@@ -96,6 +97,7 @@
 #include "utils/timestamp.h"
 
 /* YB includes */
+#include "commands/async.h"
 #include "commands/yb_cmds.h"
 #include "pg_yb_utils.h"
 #include "replication/yb_virtual_wal_client.h"
@@ -124,6 +126,7 @@ bool		am_walsender = false;	/* Am I a walsender process? */
 bool		am_cascading_walsender = false; /* Am I cascading WAL to another
 											 * standby? */
 bool		am_db_walsender = false;	/* Connected to a database? */
+bool am_listen_walsender = false;		/* Walsender for LISTEN command? */
 
 /* User-settable parameters for walsender */
 int			max_wal_senders = 0;	/* the maximum number of concurrent
@@ -1517,7 +1520,32 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 				 errmsg("waiting for a replication slot is not yet"
 						" supported")));
 
-	ReplicationSlotDrop(cmd->slotname, !cmd->wait);
+	ReplicationSlotDrop(cmd->slotname, !cmd->wait, /* yb_force = */ false);
+}
+
+void
+YbNotificationsWalSenderMain(Datum main_arg)
+{
+	am_walsender = true;
+	am_db_walsender = true;
+	am_listen_walsender = true;
+	WalSndSignals();
+	BackgroundWorkerUnblockSignals();
+	// TODO: remove hardcoding
+	BackgroundWorkerInitializeConnection("yugabyte", "yugabyte", 0);
+
+	InitWalSender();
+	// char *slotname = NotificationsSlotName();
+
+	StartReplicationCmd cmd;
+	cmd.type = T_StartReplicationCmd;
+	cmd.kind = REPLICATION_KIND_LOGICAL;
+	cmd.slotname = YbNotificationsSlotName();
+	elog(LOG, "Arpan slotname %s", cmd.slotname);
+	cmd.startpoint = InvalidXLogRecPtr;
+	cmd.options = NIL;
+	cmd.timeline = 0;
+	StartLogicalReplication(&cmd);
 }
 
 /*
@@ -1568,7 +1596,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 		got_STOPPING = true;
 	}
 
-	if (IsYugaByteEnabled())
+	if (IsYugaByteEnabled() && !am_listen_walsender)
 		YBCGetTableHashRange(&cmd->options);
 
 	/*
@@ -1585,16 +1613,19 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 										 .segment_close = wal_segment_close),
 							  WalSndPrepareWrite, WalSndWriteData,
 							  WalSndUpdateProgress);
+	logical_decoding_ctx->yb_notifications = am_listen_walsender;
 	xlogreader = logical_decoding_ctx->reader;
-
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 
-	/* Send a CopyBothResponse message, and start streaming */
-	pq_beginmessage(&buf, 'W');
-	pq_sendbyte(&buf, 0);
-	pq_sendint16(&buf, 0);
-	pq_endmessage(&buf);
-	pq_flush();
+	if (!am_listen_walsender)
+	{
+		/* Send a CopyBothResponse message, and start streaming */
+		pq_beginmessage(&buf, 'W');
+		pq_sendbyte(&buf, 0);
+		pq_sendint16(&buf, 0);
+		pq_endmessage(&buf);
+		pq_flush();
+	}
 
 	/* Start reading WAL from the oldest required WAL. */
 	XLogBeginRead(logical_decoding_ctx->reader,
@@ -2787,7 +2818,8 @@ WalSndLoop(WalSndSendDataCallback send_data)
 		}
 
 		/* Check for input from the client */
-		ProcessRepliesIfAny();
+		if (!am_listen_walsender)
+			ProcessRepliesIfAny();
 
 		/*
 		 * If we have received CopyDone from the client, sent CopyDone

@@ -37,6 +37,7 @@
 #include "utils/timeout.h"
 
 /* YB includes */
+#include "replication/walsender.h"
 #include "yb_ash.h"
 #include "yb_query_diagnostics.h"
 
@@ -141,6 +142,9 @@ static const struct
 	},
 	{
 		"YbQueryDiagnosticsDatabaseConnectionWorkerMain", YbQueryDiagnosticsDatabaseConnectionWorkerMain
+	},
+	{
+		"YbNotificationsWalSenderMain", YbNotificationsWalSenderMain
 	}
 };
 

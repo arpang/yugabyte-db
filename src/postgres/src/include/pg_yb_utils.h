@@ -1482,6 +1482,8 @@ extern bool YbIsAnyDependentGeneratedColPK(Relation rel, AttrNumber attnum);
 
 extern bool YbCheckTserverResponseCacheForAuthGflags();
 
+extern char *YbConvertToHex(const unsigned char *src, size_t len, char *dest);
+
 extern bool YbUseTserverResponseCacheForAuth(uint64_t shared_catalog_version);
 
 typedef enum YbTxnError
