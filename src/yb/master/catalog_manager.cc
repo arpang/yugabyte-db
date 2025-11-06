@@ -10878,6 +10878,7 @@ Status CatalogManager::CheckIfForbiddenToDeleteTabletOf(const TableInfo& table) 
     return STATUS(InvalidArgument, "It is not allowed to delete the system table tablet");
   }
 
+  // TODO: Do I really need this check? Why does pg_advisory_lock doesn't?
   if (table.is_tserver_hosted_pg_catalog_table() && !ysql_manager_->IsMajorUpgradeInProgress()) {
     return STATUS(
         InvalidArgument,
