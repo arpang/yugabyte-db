@@ -1044,7 +1044,8 @@ bool TableInfo::UsesTablespacesForPlacement() const {
       l->pb.table_type() == PGSQL_TABLE_TYPE &&
       l->namespace_id() != kPgSequencesDataNamespaceId &&
       !IsSecondaryTable() &&
-      !IsColocationParentTable();
+      !IsColocationParentTable() &&
+      !is_tserver_hosted_pg_catalog_table();
   return is_transaction_table_using_tablespaces ||
          is_regular_ysql_table ||
          IsTablegroupParentTable();
