@@ -3914,8 +3914,9 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
 
   const bool is_pg_table = orig_req->table_type() == PGSQL_TABLE_TYPE;
   const bool is_pg_catalog_table = is_pg_table && orig_req->is_pg_catalog_table();
-  const bool is_tserver_hosted_pg_catalog_table =
-      is_pg_catalog_table && orig_req->is_tserver_hosted_pg_catalog_table();
+  const bool is_tserver_hosted_pg_catalog_table = orig_req->is_tserver_hosted_pg_catalog_table();
+
+  DCHECK(!is_tserver_hosted_pg_catalog_table || is_pg_catalog_table);
 
   if (!is_pg_catalog_table || !FLAGS_hide_pg_catalog_table_creation_logs) {
     LOG(INFO) << "CreateTable from " << RequestorString(rpc)
