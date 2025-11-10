@@ -316,9 +316,9 @@ Status YBTableCreator::Create() {
         !*is_tserver_hosted_pg_catalog_table_ || (is_pg_catalog_table_ && *is_pg_catalog_table_));
     req.set_is_tserver_hosted_pg_catalog_table(*is_tserver_hosted_pg_catalog_table_);
 
-    // For the tserver hosted tables, the tablets will be created only when tserver comes up. Do not
-    // wait for table creation to complete for such tables.
-    // TODO: How about ysql upgrade?
+    // For the tserver hosted catalog tables, the tablets will be created only when tserver comes
+    // up. Do not wait for table creation to complete for them.
+    // TODO: We should we waiting during the YSQL upgrade.
     if (*is_tserver_hosted_pg_catalog_table_) {
       wait_ = false;
     }
