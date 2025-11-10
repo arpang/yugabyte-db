@@ -612,8 +612,6 @@ boot_ident:
 		| XNOT			{ $$ = pstrdup($1); }
 		| XNULL			{ $$ = pstrdup($1); }
 		| YBCHECKINITDBDONE { $$ = pstrdup($1); }
-		| YB_XTSERVER_HOSTED { $$ = pstrdup($1); }
-		| YB_XHASH { $$ = pstrdup($1); }
 		;
 %%
 
