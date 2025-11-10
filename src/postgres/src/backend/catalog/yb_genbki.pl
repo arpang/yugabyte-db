@@ -444,7 +444,7 @@ foreach my $catname (@catnames)
 	  . $catalog->{shared_relation}
 	  . $catalog->{bootstrap}
 	  . $catalog->{rowtype_oid_clause}
-	  . $catalog->{tserver_hosted};
+	  . $catalog->{yb_tserver_hosted};
 
 	my $first = 1;
 

@@ -75,9 +75,6 @@ OID				{ yylval.kw = "OID"; return OBJ_ID; }
 bootstrap		{ yylval.kw = "bootstrap"; return XBOOTSTRAP; }
 shared_relation	{ yylval.kw = "shared_relation"; return XSHARED_RELATION; }
 rowtype_oid		{ yylval.kw = "rowtype_oid"; return XROWTYPE_OID; }
-tserver_hosted	{ yylval.kw = "tserver_hosted"; return YB_XTSERVER_HOSTED; }
-HASH	{ yylval.kw = "HASH"; return YB_XHASH; }
-
 
 insert			{ yylval.kw = "insert"; return INSERT_TUPLE; }
 
@@ -108,6 +105,9 @@ NOT				{ yylval.kw = "NOT"; return XNOT; }
 NULL			{ yylval.kw = "NULL"; return XNULL; }
 
 yb_check_if_initdb_is_already_done { yylval.kw = "yb_check_if_initdb_is_already_done"; return YBCHECKINITDBDONE; }
+
+yb_tserver_hosted	{ yylval.kw = "yb_tserver_hosted"; return YB_XTSERVER_HOSTED; }
+HASH				{ yylval.kw = "HASH"; return YB_XHASH; }
 
 {id}			{
 					yylval.str = pstrdup(yytext);
