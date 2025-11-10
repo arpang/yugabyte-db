@@ -2427,24 +2427,23 @@ ComputeIndexAttrs(IndexInfo *indexInfo,
 	 */
 	Oid			tablegroupId = InvalidOid;
 
-	if (IsYugaByteEnabled() &&
-		!IsBootstrapProcessingMode() &&
-		!YbIsConnectedToTemplateDb())
+	if (YBCIsInitDbModeEnvVarSet() || IsYsqlUpgrade)
+		use_yb_ordering = YbIsTserverHostedCatalogRel(relId);
+	else if (IsYugaByteEnabled())
 	{
 		Relation	rel = RelationIdGetRelation(relId);
-
 		if (IsYBRelation(rel))
 		{
-			YbcTableProperties yb_props = YbGetTableProperties(rel);
+			Assert(!YbIsConnectedToTemplateDb());
+			Assert(!IsSystemRelation(rel));
 
+			YbcTableProperties yb_props = YbGetTableProperties(rel);
 			is_colocated = yb_props->is_colocated;
 			tablegroupId = yb_props->tablegroup_oid;
-			use_yb_ordering = !IsSystemRelation(rel);
+			use_yb_ordering = true;
 		}
 		RelationClose(rel);
 	}
-	else if (IsBootstrapProcessingMode() || IsYsqlUpgrade)
-		use_yb_ordering = YbIsTserverHostedCatalogRel(relId);
 
 	/*
 	 * process attributeList
