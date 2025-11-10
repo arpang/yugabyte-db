@@ -103,7 +103,7 @@ static int num_columns_read = 0;
 %type <ielem> boot_index_param
 %type <istmt> Boot_YBIndex
 %type <str>   boot_ident
-%type <ival>  optbootstrap optsharedrelation boot_column_nullness yb_opttserverhosted yb_opt_hash
+%type <ival>  optbootstrap optsharedrelation boot_column_nullness yb_opt_tserverhosted yb_opt_hash
 %type <oidval> oidspec optrowtypeoid
 
 %token <str> ID
@@ -197,14 +197,14 @@ Boot_YBIndex:
 		;
 
 Boot_CreateStmt:
-		  XCREATE boot_ident oidspec optbootstrap optsharedrelation optrowtypeoid yb_opttserverhosted LPAREN
+		  XCREATE boot_ident oidspec optbootstrap optsharedrelation optrowtypeoid yb_opt_tserverhosted LPAREN
 				{
 					do_start();
 					numattr = 0;
-					elog(DEBUG4, "creating%s%s hosted in %s relation %s %u",
+					elog(DEBUG4, "creating%s%s %s hosted relation %s %u",
 						 $4 ? " bootstrap" : "",
 						 $5 ? " shared" : "",
-						 $7 ? " tserver" : "master",
+						 $7 ? "tserver" : "master",
 						 $2,
 						 $3);
 				}
@@ -217,15 +217,12 @@ Boot_CreateStmt:
 					TupleDesc	tupdesc;
 					bool		shared_relation;
 					bool		mapped_relation;
-					int			yb_tserver_num_tablets;
 
 					do_start();
 
 					tupdesc = CreateTupleDesc(numattr, attrtypes);
 
 					shared_relation = $5;
-
-					yb_tserver_num_tablets = $7;
 
 					/*
 					 * The catalogs that use the relation mapper are the
@@ -299,7 +296,7 @@ Boot_CreateStmt:
 
 					if (IsYugaByteEnabled())
 					{
-						YBCCreateSysCatalogTable($2, $3, tupdesc, shared_relation, $13, yb_tserver_num_tablets);
+						YBCCreateSysCatalogTable($2, $3, tupdesc, shared_relation, $13, $7);
 					}
 
 					do_end();
@@ -533,7 +530,7 @@ optrowtypeoid:
 		|							{ $$ = InvalidOid; }
 		;
 
-yb_opttserverhosted:
+yb_opt_tserverhosted:
 			YB_XTSERVER_HOSTED boot_ident	{ $$ = atooid($2); }
 		|									{ $$ = 0; }
 		;
