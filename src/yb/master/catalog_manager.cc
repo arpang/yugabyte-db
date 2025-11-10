@@ -4795,7 +4795,7 @@ Status CatalogManager::CreateTableInMemory(const CreateTableRequestPB& req,
   }
 
   // Check that atleast one of system_table and is_tserver_hosted_pg_catalog_table is false.
-  DCHECK(!(system_table && is_tserver_hosted_pg_catalog_table));
+  DCHECK(!system_table || !is_tserver_hosted_pg_catalog_table);
 
   if (system_table) {
     (*table)->set_is_system();
@@ -9605,7 +9605,7 @@ Status CatalogManager::DeleteYsqlDBTables(
   TabletInfoPtr sys_tablet_info;
   vector<pair<scoped_refptr<TableInfo>, TableInfo::WriteLock>> tables_and_locks;
   std::unordered_set<TableId> sys_table_ids;
-  int tserver_hosted_catalog_table_count = 0;
+  int num_tserver_hosted_pg_catalog_tables = 0;
   {
     // Lock the catalog to iterate over table_ids_map_.
     SharedLock lock(mutex_);
@@ -9634,7 +9634,7 @@ Status CatalogManager::DeleteYsqlDBTables(
       if (table->is_system()) {
         sys_table_ids.insert(table->id());
       } else if (table->is_tserver_hosted_pg_catalog_table()) {
-        tserver_hosted_catalog_table_count++;
+        num_tserver_hosted_pg_catalog_tables++;
       }
 
       // For regular (indexed) table, insert table info and lock in the front of the list. Else for
@@ -9665,7 +9665,7 @@ Status CatalogManager::DeleteYsqlDBTables(
 
   if (is_ysql_major_upgrade || delete_type == DeleteYsqlDBTablesType::kMajorUpgradeCleanup) {
     RSTATUS_DCHECK(
-        tables_and_locks.size() == (sys_table_ids.size() + tserver_hosted_catalog_table_count),
+        tables_and_locks.size() == (sys_table_ids.size() + num_tserver_hosted_pg_catalog_tables),
         IllegalState, "Unexpected non sytem tables found during ysql major upgrade or cleanup");
   }
 
