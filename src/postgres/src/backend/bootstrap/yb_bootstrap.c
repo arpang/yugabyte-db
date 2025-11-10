@@ -68,6 +68,17 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 			if (strcmp(elem->name, attname) == 0)
 			{
 				is_key = true;
+
+				/*
+				 * Check that hash ordering is not used for master hosted
+				 * catalog relations.
+				 */
+				if (elem->ordering == SORTBY_HASH && !tserver_hosted)
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("HASH ordering is not supported for "
+									"master hosted catalog tables")));
+
 				is_hash = tserver_hosted && (elem->ordering == SORTBY_HASH);
 			}
 		}
