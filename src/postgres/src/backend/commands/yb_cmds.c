@@ -930,6 +930,12 @@ YBCCreateTable(CreateStmt *stmt, char *tableName, char relkind, TupleDesc desc,
 									  is_colocated_via_database, is_tablegroup,
 									  ybrowid_mode);
 	}
+	else if (is_tserver_hosted_catalog_table)
+	{
+		/* Tserver hosted catalog tables have 1 tablet by default. */
+		HandleYBStatus(YBCPgCreateTableSetNumTablets(handle, 1));
+	}
+
 	/* Create the table. */
 	HandleYBStatus(YBCPgExecCreateTable(handle));
 }

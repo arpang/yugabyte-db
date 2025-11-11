@@ -162,7 +162,10 @@ YBCCreateSysCatalogTable(const char *table_name,
 									   &yb_stmt));
 
 	if (tserver_hosted)
+	{
+		/* Tserver hosted catalog tables have 1 tablet by default. */
 		YBCPgCreateTableSetNumTablets(yb_stmt, 1);
+	}
 
 	/* Add all key columns first, then the regular columns */
 	if (pkey_idx != NULL)
