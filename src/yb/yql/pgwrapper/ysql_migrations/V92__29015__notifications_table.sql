@@ -11,5 +11,5 @@ BEGIN;
     table_oid = 8100,
     row_type_oid = 8101,
     tserver_hosted = true
-  ) TABLESPACE pg_global;
+  ) TABLESPACE pg_global SPLIT INTO 3 TABLETS;
 COMMIT;

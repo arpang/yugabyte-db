@@ -97,6 +97,7 @@ static int num_columns_read = 0;
 	const char	*kw;
 	int			ival;
 	Oid			oidval;
+	YbOptSplit *splitopt;
 }
 
 %type <list>  boot_index_params
@@ -105,6 +106,7 @@ static int num_columns_read = 0;
 %type <str>   boot_ident
 %type <ival>  optbootstrap optsharedrelation boot_column_nullness yb_opt_tserverhosted yb_opt_hash
 %type <oidval> oidspec optrowtypeoid
+%type<splitopt> yb_opt_split
 
 %token <str> ID
 %token COMMA EQUALS LPAREN RPAREN
@@ -113,7 +115,7 @@ static int num_columns_read = 0;
 /* All the rest are unreserved, and should be handled in boot_ident! */
 %token <kw> OPEN XCLOSE XCREATE INSERT_TUPLE
 %token <kw> XDECLARE INDEX ON USING XBUILD INDICES UNIQUE XTOAST
-%token <kw> OBJ_ID XBOOTSTRAP XSHARED_RELATION XROWTYPE_OID YB_XTSERVER_HOSTED YB_XHASH
+%token <kw> OBJ_ID XBOOTSTRAP XSHARED_RELATION XROWTYPE_OID YB_XTSERVER_HOSTED YB_XHASH YB_XNUM_TABLETS
 %token <kw> XFORCE XNOT XNULL
 %token <kw> PRIMARY YBCHECKINITDBDONE YBDECLARE
 
@@ -164,7 +166,7 @@ Boot_CloseStmt:
 Boot_YBIndex:
           /* EMPTY */ { $$ = NULL; }
           | YBDECLARE PRIMARY INDEX boot_ident oidspec ON boot_ident USING boot_ident
-            LPAREN boot_index_params RPAREN
+			LPAREN boot_index_params RPAREN yb_opt_split
 				{
 					IndexStmt *stmt = makeNode(IndexStmt);
 
@@ -189,6 +191,7 @@ Boot_YBIndex:
 					stmt->transformed = false;
 					stmt->concurrent = false;
 					stmt->if_not_exists = false;
+					stmt->split_options = $13;
 
 					do_end();
 
@@ -427,7 +430,7 @@ Boot_DeclareUniqueIndexStmt:
 		;
 
 Boot_DeclarePrimaryIndexStmt:
-		  XDECLARE PRIMARY INDEX boot_ident oidspec ON boot_ident USING boot_ident LPAREN boot_index_params RPAREN
+		  XDECLARE PRIMARY INDEX boot_ident oidspec ON boot_ident USING boot_ident LPAREN boot_index_params RPAREN yb_opt_split
 				{
 					IndexStmt *stmt = makeNode(IndexStmt);
 					Oid		relationId;
@@ -537,7 +540,18 @@ yb_opt_tserverhosted:
 
 yb_opt_hash:
 			YB_XHASH		{ $$ = SORTBY_HASH; }
-		| /* EMPTY */		{ $$ = SORTBY_DEFAULT; }
+		|					{ $$ = SORTBY_DEFAULT; }
+		;
+
+yb_opt_split:
+			YB_XNUM_TABLETS boot_ident
+			{
+				$$ = makeNode(YbOptSplit);
+				$$->split_type = NUM_TABLETS;
+				$$->num_tablets = atoi($2);
+				$$->split_points = NULL;
+			}
+		|	{ $$ = (YbOptSplit*) NULL; }
 		;
 
 boot_column_list:

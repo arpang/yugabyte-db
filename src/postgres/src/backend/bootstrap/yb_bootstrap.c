@@ -164,7 +164,18 @@ YBCCreateSysCatalogTable(const char *table_name,
 	if (tserver_hosted)
 	{
 		/* Tserver hosted catalog tables have 1 tablet by default. */
-		YBCPgCreateTableSetNumTablets(yb_stmt, 1);
+		int num_tablets = 1;
+
+		if (pkey_idx->split_options)
+		{
+			Assert(pkey_idx->split_options->split_type == NUM_TABLETS);
+			if (pkey_idx->split_options->num_tablets <= 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("num_tablets must be > 0")));
+			num_tablets = pkey_idx->split_options->num_tablets;
+		}
+		YBCPgCreateTableSetNumTablets(yb_stmt, num_tablets);
 	}
 
 	/* Add all key columns first, then the regular columns */
