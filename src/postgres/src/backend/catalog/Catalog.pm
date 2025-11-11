@@ -166,7 +166,7 @@ sub ParseHeader
 				$catalog{rowtype_oid_macro}  = '';
 			}
 			$catalog{yb_tserver_hosted} =
-			  /YB_BKI_TSERVER_HOSTED\((\d+)\)/ ? " yb_tserver_hosted $1" : '';
+			  /YB_BKI_TSERVER_HOSTED/ ? " yb_tserver_hosted" : '';
 			$catalog{schema_macro} = /BKI_SCHEMA_MACRO/ ? 1 : 0;
 			$declaring_attributes = 1;
 		}

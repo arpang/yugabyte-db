@@ -130,7 +130,7 @@ YBCCreateSysCatalogTable(const char *table_name,
 						 TupleDesc tupdesc,
 						 bool is_shared_relation,
 						 IndexStmt *pkey_idx,
-						 int tserver_num_tablets)
+						 int tserver_hosted)
 {
 	/* Database and schema are fixed when running inidb. */
 	Assert(IsBootstrapProcessingMode());
@@ -140,7 +140,6 @@ YBCCreateSysCatalogTable(const char *table_name,
 	YbcPgYbrowidMode ybrowid_mode = (pkey_idx == NULL
 									 ? PG_YBROWID_MODE_RANGE
 									 : PG_YBROWID_MODE_NONE);
-	bool tserver_hosted = tserver_num_tablets > 0;
 
 	HandleYBStatus(YBCPgNewCreateTable(db_name,
 									   schema_name,
@@ -163,7 +162,7 @@ YBCCreateSysCatalogTable(const char *table_name,
 									   &yb_stmt));
 
 	if (tserver_hosted)
-		YBCPgCreateTableSetNumTablets(yb_stmt, tserver_num_tablets);
+		YBCPgCreateTableSetNumTablets(yb_stmt, 1);
 
 	/* Add all key columns first, then the regular columns */
 	if (pkey_idx != NULL)

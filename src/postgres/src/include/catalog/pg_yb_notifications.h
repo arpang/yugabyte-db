@@ -25,7 +25,7 @@
  *		typedef struct FormData_pg_yb_notifications
  * ----------------
  */
-CATALOG(pg_yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(8101,YbNotificationsRelation_Rowtype_Id) YB_BKI_TSERVER_HOSTED(3) BKI_SCHEMA_MACRO
+CATALOG(pg_yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(8101,YbNotificationsRelation_Rowtype_Id) YB_BKI_TSERVER_HOSTED BKI_SCHEMA_MACRO
 {
 	uuid		sender_node;	/* uuid of node hosting the sender backend */
 

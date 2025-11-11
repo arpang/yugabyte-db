@@ -531,13 +531,13 @@ optrowtypeoid:
 		;
 
 yb_opt_tserverhosted:
-			YB_XTSERVER_HOSTED boot_ident	{ $$ = atooid($2); }
-		|									{ $$ = 0; }
+			YB_XTSERVER_HOSTED	{ $$ = 1; }
+		|						{ $$ = 0; }
 		;
 
 yb_opt_hash:
 			YB_XHASH		{ $$ = SORTBY_HASH; }
-		| /* EMPTY */	{ $$ = SORTBY_DEFAULT; }
+		| /* EMPTY */		{ $$ = SORTBY_DEFAULT; }
 		;
 
 boot_column_list:

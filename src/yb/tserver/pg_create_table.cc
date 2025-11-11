@@ -169,7 +169,7 @@ Status PgCreateTable::Exec(
 
   if (hash_schema_) {
     table_creator->hash_schema(*hash_schema_);
-  } else if (!req_.is_pg_catalog_table()) {
+  } else if (!req_.is_pg_catalog_table() || req_.is_tserver_hosted_catalog_table()) {
     table_creator->set_range_partition_columns(range_columns_, split_rows);
   }
 
