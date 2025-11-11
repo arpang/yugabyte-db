@@ -10878,7 +10878,6 @@ Status CatalogManager::CheckIfForbiddenToDeleteTabletOf(const TableInfo& table) 
   if (table.is_system()) {
     return STATUS(InvalidArgument, "It is not allowed to delete the system table tablet");
   }
-
   // Do not delete the tablet of a colocated table.
   if (table.IsSecondaryTable()) {
     return STATUS(InvalidArgument, "It is not allowed to delete tablets of the colocated tables.");
