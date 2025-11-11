@@ -886,10 +886,9 @@ YBCCreateTable(CreateStmt *stmt, char *tableName, char relkind, TupleDesc desc,
 	else
 		ybrowid_mode = PG_YBROWID_MODE_HASH;
 
-	bool is_tserver_hosted_catalog_table =
-		is_sys_catalog_table && split_options &&
-		split_options->split_type == NUM_TABLETS &&
-		split_options->num_tablets > 0;
+	bool is_tserver_hosted_catalog_table = YbGetIsTserverHostedFromRelOptions(stmt->options);
+
+	Assert(!is_tserver_hosted_catalog_table || is_sys_catalog_table);
 
 	HandleYBStatus(YBCPgNewCreateTable(db_name,
 									   schema_name,

@@ -1180,7 +1180,21 @@ YbGetUseInitdbAclFromRelOptions(List *options)
 			return defGetBoolean(def);
 	}
 
-	return InvalidOid;
+	return false;
+}
+
+bool
+YbGetIsTserverHostedFromRelOptions(List *options)
+{
+	ListCell   *opt_cell;
+	foreach(opt_cell, options)
+	{
+		DefElem    *def = lfirst_node(DefElem, opt_cell);
+
+		if (strcmp(def->defname, "tserver_hosted") == 0)
+			return defGetBoolean(def);
+	}
+	return false;
 }
 
 /*

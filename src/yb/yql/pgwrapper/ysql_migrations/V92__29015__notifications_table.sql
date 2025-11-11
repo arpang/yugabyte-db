@@ -9,6 +9,7 @@ BEGIN;
   ) WITH (
     oids = false,
     table_oid = 8100,
-    row_type_oid = 8101
-  ) TABLESPACE pg_global SPLIT INTO 3 TABLETS;
+    row_type_oid = 8101,
+    tserver_hosted = true
+  ) TABLESPACE pg_global;
 COMMIT;

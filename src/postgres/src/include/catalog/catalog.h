@@ -63,6 +63,7 @@ extern Oid	GetTableOidFromRelOptions(List *relOptions, Oid reltablespace,
 extern Oid	GetRowTypeOidFromRelOptions(List *relOptions);
 extern Oid	YbGetColocationIdFromRelOptions(List *relOptions);
 extern bool YbGetUseInitdbAclFromRelOptions(List *options);
+extern bool YbGetIsTserverHostedFromRelOptions(List *options);
 extern bool YbIsSysCatalogTabletRelation(Relation rel);
 extern bool YbIsSysCatalogTabletRelationByIds(Oid relationId, Oid namespaceId,
 											  char *namespace_name);
