@@ -201,7 +201,8 @@ class PgCreateIndex final : public PgStatementLeafBase<PgCreateTableBase, StmtOp
       bool use_regular_transaction_block,
       const PgObjectId& base_table_id,
       bool is_unique_index,
-      bool skip_index_backfill);
+      bool skip_index_backfill,
+      bool is_tserver_hosted_catalog_table);
 };
 
 class PgDropTable final : public PgStatementLeafBase<PgDdl, StmtOp::kDropTable> {

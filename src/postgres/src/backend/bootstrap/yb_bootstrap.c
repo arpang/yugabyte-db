@@ -131,38 +131,26 @@ YBCAddSysCatalogColumns(YbcPgStatement yb_stmt,
 }
 
 static void
-YBCAddNumTabletsForTserverHostedTable(IndexStmt *pkey_idx,
-									  bool is_hash_sharded,
-									  YbcPgStatement yb_stmt,
-									  bool tserver_hosted)
+YBCAddSplitOptionsForCatalogTable(YbOptSplit *split_options,
+								  bool is_hash_sharded,
+								  YbcPgStatement yb_stmt)
 {
-	int num_tablets;
+	Assert(split_options);
 
-	if (pkey_idx && pkey_idx->split_options)
-	{
-		if (!is_hash_sharded)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("Split options is only supported for hash shareded "
-							"tserver-hosted catalog tables")));
+	if (!is_hash_sharded)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Split options is only supported for hash shareded "
+						"tserver-hosted catalog tables")));
 
-		Assert(pkey_idx->split_options->split_type == NUM_TABLETS);
+	Assert(split_options->split_type == NUM_TABLETS);
 
-		if (pkey_idx->split_options->num_tablets <= 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("num_tablets must be > 0")));
+	if (split_options->num_tablets <= 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("num_tablets must be > 0")));
 
-		num_tablets = pkey_idx->split_options->num_tablets;
-	}
-	else
-	{
-		/* Tserver hosted catalog tables have 1 tablet by default. */
-		num_tablets = 1;
-	}
-
-	if (tserver_hosted)
-		YBCPgCreateTableSetNumTablets(yb_stmt, num_tablets);
+	YBCPgCreateTableSetNumTablets(yb_stmt, split_options->num_tablets);
 }
 
 void
@@ -217,7 +205,8 @@ YBCCreateSysCatalogTable(const char *table_name,
 	}
 	YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ false, tserver_hosted, /* is_hash_shareded */ NULL);
 
-	YBCAddNumTabletsForTserverHostedTable(pkey_idx, is_hash_sharded, yb_stmt, tserver_hosted);
+	if (pkey_idx && pkey_idx->split_options)
+		YBCAddSplitOptionsForCatalogTable(pkey_idx->split_options, is_hash_sharded, yb_stmt);
 
 	HandleYBStatus(YBCPgExecCreateTable(yb_stmt));
 }

@@ -1030,8 +1030,8 @@ Status PgApiImpl::NewCreateTable(const char* database_name,
                                  const PgObjectId& pg_table_oid,
                                  const PgObjectId& old_relfilenode_oid,
                                  bool is_truncate,
-                                 PgStatement** handle,
-                                 bool is_tserver_hosted_catalog_table) {
+                                 bool is_tserver_hosted_catalog_table,
+                                 PgStatement** handle) {
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateTable>(
           pg_session_, database_name, schema_name, table_name, table_id, is_shared_table,
@@ -1254,6 +1254,7 @@ Status PgApiImpl::NewCreateIndex(const char* database_name,
                                  const PgObjectId& tablespace_oid,
                                  const PgObjectId& pg_table_id,
                                  const PgObjectId& old_relfilenode_id,
+                                 bool is_tserver_hosted_catalog_table,
                                  PgStatement** handle) {
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateIndex>(
@@ -1262,7 +1263,7 @@ Status PgApiImpl::NewCreateIndex(const char* database_name,
           tablegroup_oid, colocation_id, tablespace_oid, false /* is_matview */, pg_table_id,
           old_relfilenode_id, false /* is_truncate */, pg_txn_manager_->IsDdlMode(),
           pg_txn_manager_->IsDdlModeWithRegularTransactionBlock(), base_table_id,
-          is_unique_index, skip_index_backfill),
+          is_unique_index, skip_index_backfill, is_tserver_hosted_catalog_table),
       handle);
 }
 
