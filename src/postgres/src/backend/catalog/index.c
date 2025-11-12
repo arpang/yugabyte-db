@@ -3233,9 +3233,21 @@ index_build(Relation heapRelation,
 
 	/*
 	 * Call the access method's build procedure
+	 *
+	 * YB note: in bootstrap processing node, skip building indexes for tserver
+	 * 	hosted catalog tables as the tablets do not even exist at that point.
 	 */
-	stats = indexRelation->rd_indam->ambuild(heapRelation, indexRelation,
-											 indexInfo);
+	IndexBuildResult empty_stats;
+	if (IsBootstrapProcessingMode() &&
+		  YbIsTserverHostedCatalogRel(RelationGetRelid(heapRelation)))
+	{
+		empty_stats.heap_tuples = 0;
+		empty_stats.index_tuples = 0;
+		stats = &empty_stats;
+	}
+	else
+		stats = indexRelation->rd_indam->ambuild(heapRelation, indexRelation,
+												 indexInfo);
 	Assert(PointerIsValid(stats));
 
 	/*
