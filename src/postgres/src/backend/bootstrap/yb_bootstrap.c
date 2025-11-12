@@ -50,7 +50,8 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 					   Oid type_id,
 					   int32 typmod,
 					   bool key,
-					   bool tserver_hosted)
+					   bool tserver_hosted,
+					   bool* is_hash_shareded)
 {
 
 	ListCell   *lc;
@@ -70,14 +71,14 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 				is_key = true;
 
 				/*
-				 * Check that hash ordering is not used for master hosted
+				 * Check that hash sharding is not used for master hosted
 				 * catalog relations.
 				 */
 				if (elem->ordering == SORTBY_HASH && !tserver_hosted)
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("HASH ordering is not supported for "
-									"master hosted catalog tables")));
+							 errmsg("HASH sharding is only supported for "
+									"tserver hosted catalog tables.")));
 
 				is_hash = tserver_hosted && (elem->ordering == SORTBY_HASH);
 			}
@@ -100,6 +101,9 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 												 false /* is_desc */ ,
 												 false /* is_nulls_first */ ));
 	}
+
+	if (is_hash_shareded)
+		*is_hash_shareded = *is_hash_shareded || is_hash;
 }
 
 static void
@@ -107,7 +111,8 @@ YBCAddSysCatalogColumns(YbcPgStatement yb_stmt,
 						TupleDesc tupdesc,
 						IndexStmt *pkey_idx,
 						const bool key,
-						bool tserver_hosted)
+						bool tserver_hosted,
+						bool* is_hash_shareded)
 {
 	for (int attno = 0; attno < tupdesc->natts; attno++)
 	{
@@ -120,8 +125,44 @@ YBCAddSysCatalogColumns(YbcPgStatement yb_stmt,
 							   attr->atttypid,
 							   attr->atttypmod,
 							   key,
-							   tserver_hosted);
+							   tserver_hosted,
+							   is_hash_shareded);
 	}
+}
+
+static void
+YBCAddNumTabletsForTserverHostedTable(IndexStmt *pkey_idx,
+									  bool is_hash_sharded,
+									  YbcPgStatement yb_stmt,
+									  bool tserver_hosted)
+{
+	int num_tablets;
+
+	if (pkey_idx && pkey_idx->split_options)
+	{
+		if (!is_hash_sharded)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Split options is only supported for hash shareded "
+							"tserver-hosted catalog tables")));
+
+		Assert(pkey_idx->split_options->split_type == NUM_TABLETS);
+
+		if (pkey_idx->split_options->num_tablets <= 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("num_tablets must be > 0")));
+
+		num_tablets = pkey_idx->split_options->num_tablets;
+	}
+	else
+	{
+		/* Tserver hosted catalog tables have 1 tablet by default. */
+		num_tablets = 1;
+	}
+
+	if (tserver_hosted)
+		YBCPgCreateTableSetNumTablets(yb_stmt, num_tablets);
 }
 
 void
@@ -130,7 +171,7 @@ YBCCreateSysCatalogTable(const char *table_name,
 						 TupleDesc tupdesc,
 						 bool is_shared_relation,
 						 IndexStmt *pkey_idx,
-						 int tserver_hosted)
+						 bool tserver_hosted)
 {
 	/* Database and schema are fixed when running inidb. */
 	Assert(IsBootstrapProcessingMode());
@@ -161,29 +202,16 @@ YBCCreateSysCatalogTable(const char *table_name,
 									   tserver_hosted,
 									   &yb_stmt));
 
-	if (tserver_hosted)
-	{
-		/* Tserver hosted catalog tables have 1 tablet by default. */
-		int num_tablets = 1;
-
-		if (pkey_idx->split_options)
-		{
-			Assert(pkey_idx->split_options->split_type == NUM_TABLETS);
-			if (pkey_idx->split_options->num_tablets <= 0)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("num_tablets must be > 0")));
-			num_tablets = pkey_idx->split_options->num_tablets;
-		}
-		YBCPgCreateTableSetNumTablets(yb_stmt, num_tablets);
-	}
+	bool is_hash_sharded = false;
 
 	/* Add all key columns first, then the regular columns */
 	if (pkey_idx != NULL)
 	{
-		YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ true, tserver_hosted);
+		YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ true, tserver_hosted, &is_hash_sharded);
 	}
-	YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ false, tserver_hosted);
+	YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ false, tserver_hosted, /* is_hash_shareded */ NULL);
+
+	YBCAddNumTabletsForTserverHostedTable(pkey_idx, is_hash_sharded, yb_stmt, tserver_hosted);
 
 	HandleYBStatus(YBCPgExecCreateTable(yb_stmt));
 }
