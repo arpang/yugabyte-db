@@ -182,6 +182,12 @@ YBCCreateSysCatalogTable(const char *table_name,
 									 ? PG_YBROWID_MODE_RANGE
 									 : PG_YBROWID_MODE_NONE);
 
+	if (tserver_hosted != YbIsTserverHostedCatalogRel(table_oid))
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("tserver_hosted param does not match "
+							"YbIsTserverHostedCatalogRel for %s", table_name)));
+
 	HandleYBStatus(YBCPgNewCreateTable(db_name,
 									   schema_name,
 									   table_name,
