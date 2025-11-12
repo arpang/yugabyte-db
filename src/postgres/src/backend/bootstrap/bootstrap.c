@@ -47,6 +47,7 @@
 
 /* YB includes */
 #include "bootstrap/yb_bootstrap.h"
+#include "catalog/catalog.h"
 #include "catalog/pg_database.h"
 #include "commands/yb_cmds.h"
 #include "executor/ybModifyTable.h"
@@ -1023,6 +1024,9 @@ build_indices(void)
 		/* need not bother with locks during bootstrap */
 		heap = table_open(ILHead->il_heap, NoLock);
 		ind = index_open(ILHead->il_ind, NoLock);
+
+		if (YbIsTserverHostedCatalogRel(RelationGetRelid(heap)))
+			continue;
 
 		index_build(heap, ind, ILHead->il_info, false, false);
 
