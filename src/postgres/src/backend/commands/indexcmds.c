@@ -2427,20 +2427,19 @@ ComputeIndexAttrs(IndexInfo *indexInfo,
 	 */
 	Oid			tablegroupId = InvalidOid;
 
-	if (YBCIsInitDbModeEnvVarSet() || IsYsqlUpgrade)
-		use_yb_ordering = YbIsTserverHostedCatalogRel(relId);
-	else if (IsYugaByteEnabled())
+	if (IsYugaByteEnabled() &&
+		!IsBootstrapProcessingMode() &&
+		!YbIsConnectedToTemplateDb())
 	{
 		Relation	rel = RelationIdGetRelation(relId);
+
 		if (IsYBRelation(rel))
 		{
-			Assert(!YbIsConnectedToTemplateDb());
-			Assert(!IsSystemRelation(rel));
-
 			YbcTableProperties yb_props = YbGetTableProperties(rel);
+
 			is_colocated = yb_props->is_colocated;
 			tablegroupId = yb_props->tablegroup_oid;
-			use_yb_ordering = true;
+			use_yb_ordering = !IsSystemRelation(rel);
 		}
 		RelationClose(rel);
 	}
@@ -2478,7 +2477,7 @@ ComputeIndexAttrs(IndexInfo *indexInfo,
 							 errmsg("hash column not allowed after an ASC/DESC column")));
 			}
 		}
-		else if (attribute->ordering == SORTBY_HASH)
+		else if (attribute->ordering == SORTBY_HASH && !YbIsTserverHostedCatalogRel(relId))
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),

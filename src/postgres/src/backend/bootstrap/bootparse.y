@@ -378,7 +378,7 @@ Boot_DeclareIndexStmt:
 		;
 
 Boot_DeclareUniqueIndexStmt:
-		  XDECLARE UNIQUE INDEX boot_ident oidspec ON boot_ident USING boot_ident LPAREN boot_index_params RPAREN
+		  XDECLARE UNIQUE INDEX boot_ident oidspec ON boot_ident USING boot_ident LPAREN boot_index_params RPAREN yb_opt_split
 				{
 					IndexStmt  *stmt = makeNode(IndexStmt);
 					Oid			relationId;
@@ -410,6 +410,7 @@ Boot_DeclareUniqueIndexStmt:
 					stmt->concurrent = false;
 					stmt->if_not_exists = false;
 					stmt->reset_default_tblspc = false;
+					stmt->split_options = $13;
 
 					/* locks and races need not concern us in bootstrap mode */
 					relationId = RangeVarGetRelid(stmt->relation, NoLock,
