@@ -1582,7 +1582,7 @@ index_concurrently_create_copy(Relation heapRelation, Oid oldIndexId,
 							  InvalidOid,	/* colocationId, TODO: fill this
 											 * appropriately when adding
 											 * support for reindex */
-							  NIL, /* yb_stmt_options */
+							  NIL,	/* yb_stmt_options */
 							  NULL /* yb_stmt_relation */ );
 
 	/* Close the relations used and clean up */
@@ -3249,8 +3249,9 @@ index_build(Relation heapRelation,
 	 * 	hosted catalog tables as the tablets do not even exist at that point.
 	 */
 	IndexBuildResult empty_stats;
+
 	if (IsBootstrapProcessingMode() &&
-		  YbIsTserverHostedCatalogRel(RelationGetRelid(heapRelation)))
+		YbIsTserverHostedCatalogRel(RelationGetRelid(heapRelation)))
 	{
 		empty_stats.heap_tuples = 0;
 		empty_stats.index_tuples = 0;

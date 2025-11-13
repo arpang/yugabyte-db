@@ -58,7 +58,7 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 	bool		is_key = false;
 	const YbcPgTypeEntity *col_type = YbDataTypeFromOidMod(attnum, type_id);
 
-	bool is_hash = false;
+	bool		is_hash = false;
 
 	if (pkey_idx)
 	{
@@ -171,10 +171,10 @@ YBCCreateSysCatalogTable(const char *table_name,
 									 : PG_YBROWID_MODE_NONE);
 
 	if (tserver_hosted != YbIsTserverHostedCatalogRel(table_oid))
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("tserver_hosted param does not match "
-							"YbIsTserverHostedCatalogRel for %s", table_name)));
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("tserver_hosted param does not match "
+						"YbIsTserverHostedCatalogRel for %s", table_name)));
 
 	HandleYBStatus(YBCPgNewCreateTable(db_name,
 									   schema_name,
@@ -185,7 +185,7 @@ YBCCreateSysCatalogTable(const char *table_name,
 									   true /* is_sys_catalog_table */ ,
 									   false,	/* if_not_exists */
 									   ybrowid_mode,
-									   !tserver_hosted,	/* is_colocated_via_database */
+									   !tserver_hosted, /* is_colocated_via_database */
 									   InvalidOid /* tablegroup_oid */ ,
 									   InvalidOid /* colocation_id */ ,
 									   InvalidOid /* tablespace_oid */ ,
@@ -196,7 +196,7 @@ YBCCreateSysCatalogTable(const char *table_name,
 									   tserver_hosted,
 									   &yb_stmt));
 
-	bool is_hash_sharded = false;
+	bool		is_hash_sharded = false;
 
 	/* Add all key columns first, then the regular columns */
 	if (pkey_idx != NULL)

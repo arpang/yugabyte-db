@@ -43,7 +43,7 @@ CATALOG(pg_yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION 
  *		the format of pg_yb_notifications relation.
  * ----------------
  */
-typedef FormData_pg_yb_notifications *Form_pg_yb_notifications;
+typedef FormData_pg_yb_notifications * Form_pg_yb_notifications;
 
 DECLARE_UNIQUE_INDEX_PKEY(pg_yb_notifications_pkey, 8102, YbNotificationsPKeyIndexId, on pg_yb_notifications using btree(sender_node uuid_ops HASH, sender_pid int4_ops HASH) num_tablets 3);
 
