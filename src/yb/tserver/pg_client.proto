@@ -414,6 +414,9 @@ message PgCreateTableRequestPB {
   PgPerformOptionsPB options = 27;
 
   bool is_tserver_hosted_catalog_table = 28;
+
+  // True if the request is created during initdb.
+  bool is_initdb_mode = 29;
 }
 
 message PgCreateTableResponsePB {

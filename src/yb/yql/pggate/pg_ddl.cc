@@ -195,6 +195,7 @@ PgCreateTableBase::PgCreateTableBase(
 
   DCHECK(!is_tserver_hosted_catalog_table || is_sys_catalog_table);
   req_.set_is_tserver_hosted_catalog_table(is_tserver_hosted_catalog_table);
+  req_.set_is_initdb_mode(YBCIsInitDbModeEnvVarSet());
 
   // Add internal primary key column to a Postgres table without a user-specified primary key.
   switch (ybrowid_mode) {
