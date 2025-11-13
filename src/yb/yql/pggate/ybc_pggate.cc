@@ -1327,7 +1327,8 @@ YbcStatus YBCPgNewCreateIndex(const char *database_name,
                                            is_unique_index, skip_index_backfill, if_not_exist,
                                            is_colocated_via_database, tablegroup_id,
                                            colocation_id, tablespace_id, pg_table_id,
-                                           old_relfilenode_id, is_tserver_hosted_catalog_table, handle));
+                                           old_relfilenode_id, is_tserver_hosted_catalog_table,
+                                           handle));
 }
 
 YbcStatus YBCPgCreateIndexAddColumn(YbcPgStatement handle, const char *attr_name, int attr_num,

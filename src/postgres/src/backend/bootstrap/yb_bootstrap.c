@@ -51,7 +51,7 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 					   int32 typmod,
 					   bool key,
 					   bool tserver_hosted,
-					   bool* is_hash_shareded)
+					   bool *is_hash_shareded)
 {
 
 	ListCell   *lc;
@@ -112,7 +112,7 @@ YBCAddSysCatalogColumns(YbcPgStatement yb_stmt,
 						IndexStmt *pkey_idx,
 						const bool key,
 						bool tserver_hosted,
-						bool* is_hash_shareded)
+						bool *is_hash_shareded)
 {
 	for (int attno = 0; attno < tupdesc->natts; attno++)
 	{
@@ -140,7 +140,7 @@ YBCAddSplitOptionsForCatalogTable(YbOptSplit *split_options,
 	if (!is_hash_sharded)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Split options is only supported for hash shareded "
+				 errmsg("split options is only supported for hash shareded "
 						"tserver-hosted catalog tables")));
 
 	Assert(split_options->split_type == NUM_TABLETS);

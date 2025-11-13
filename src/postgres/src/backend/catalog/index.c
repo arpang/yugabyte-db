@@ -1583,7 +1583,7 @@ index_concurrently_create_copy(Relation heapRelation, Oid oldIndexId,
 											 * appropriately when adding
 											 * support for reindex */
 							  NIL, /* yb_stmt_options */
-							  NULL /* yb_stmt_relation */);
+							  NULL /* yb_stmt_relation */ );
 
 	/* Close the relations used and clean up */
 	index_close(indexRelation, NoLock);
