@@ -94,7 +94,9 @@ extern Oid	index_create(Relation heapRelation,
 						 const bool skip_index_backfill,
 						 bool is_colocated,
 						 Oid tablegroupId,
-						 Oid colocationId);
+						 Oid colocationId,
+						 List *yb_stmt_options,
+						 RangeVar *yb_stmt_relation);
 
 #define	INDEX_CONSTR_CREATE_MARK_AS_PRIMARY	(1 << 0)
 #define	INDEX_CONSTR_CREATE_DEFERRABLE		(1 << 1)
