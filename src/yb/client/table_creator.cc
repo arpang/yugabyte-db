@@ -322,7 +322,7 @@ Status YBTableCreator::Create() {
     req.set_is_tserver_hosted_pg_catalog_table(is_tserver_hosted_pg_catalog_table_);
 
     // During initdb, do not wait for table creation to complete for tserver-hosted catalog tables.
-    // This is because its tablets will be created only when tservers comes up.
+    // This is because its tablets will be created only when tservers come up.
     if (is_initdb_mode_ && is_tserver_hosted_pg_catalog_table_) {
       wait_ = false;
     }

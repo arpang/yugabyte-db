@@ -51,7 +51,7 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 					   int32 typmod,
 					   bool key,
 					   bool tserver_hosted,
-					   bool *is_hash_shareded)
+					   bool *is_hash_sharded)
 {
 
 	ListCell   *lc;
@@ -102,8 +102,8 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 												 false /* is_nulls_first */ ));
 	}
 
-	if (is_hash_shareded)
-		*is_hash_shareded = *is_hash_shareded || is_hash;
+	if (is_hash_sharded)
+		*is_hash_sharded = *is_hash_sharded || is_hash;
 }
 
 static void
@@ -112,7 +112,7 @@ YBCAddSysCatalogColumns(YbcPgStatement yb_stmt,
 						IndexStmt *pkey_idx,
 						const bool key,
 						bool tserver_hosted,
-						bool *is_hash_shareded)
+						bool *is_hash_sharded)
 {
 	for (int attno = 0; attno < tupdesc->natts; attno++)
 	{
@@ -126,7 +126,7 @@ YBCAddSysCatalogColumns(YbcPgStatement yb_stmt,
 							   attr->atttypmod,
 							   key,
 							   tserver_hosted,
-							   is_hash_shareded);
+							   is_hash_sharded);
 	}
 }
 
@@ -140,7 +140,7 @@ YBCAddSplitOptionsForCatalogTable(YbOptSplit *split_options,
 	if (!is_hash_sharded)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("split options is only supported for hash shareded "
+				 errmsg("split options is only supported for hash sharded "
 						"tserver-hosted catalog tables")));
 
 	Assert(split_options->split_type == NUM_TABLETS);
@@ -203,7 +203,7 @@ YBCCreateSysCatalogTable(const char *table_name,
 	{
 		YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ true, tserver_hosted, &is_hash_sharded);
 	}
-	YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ false, tserver_hosted, /* is_hash_shareded */ NULL);
+	YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ false, tserver_hosted, /* is_hash_sharded */ NULL);
 
 	if (pkey_idx && pkey_idx->split_options)
 		YBCAddSplitOptionsForCatalogTable(pkey_idx->split_options, is_hash_sharded, yb_stmt);

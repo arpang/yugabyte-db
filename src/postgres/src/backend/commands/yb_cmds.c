@@ -930,7 +930,6 @@ YBCCreateTable(CreateStmt *stmt, char *tableName, char relkind, TupleDesc desc,
 									  is_colocated_via_database, is_tablegroup,
 									  ybrowid_mode);
 	}
-
 	/* Create the table. */
 	HandleYBStatus(YBCPgExecCreateTable(handle));
 }
