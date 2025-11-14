@@ -173,8 +173,8 @@ YBCCreateSysCatalogTable(const char *table_name,
 	if (tserver_hosted != YbIsTserverHostedCatalogRel(table_oid))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("tserver_hosted param does not match "
-						"YbIsTserverHostedCatalogRel for %s", table_name)));
+				 errmsg("tserver_hosted flag for \"%s\" does not match "
+						"YbIsTserverHostedCatalogRel(%u)", table_name, table_oid)));
 
 	HandleYBStatus(YBCPgNewCreateTable(db_name,
 									   schema_name,
