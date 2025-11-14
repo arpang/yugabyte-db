@@ -329,6 +329,7 @@ YbcStatus YBCPgNewCreateTable(const char *database_name,
                               YbcPgOid pg_table_oid,
                               YbcPgOid old_relfilenode_oid,
                               bool is_truncate,
+                              bool is_tserver_hosted_catalog_table,
                               YbcPgStatement *handle);
 
 YbcStatus YBCPgCreateTableAddColumn(YbcPgStatement handle, const char *attr_name, int attr_num,
@@ -444,6 +445,7 @@ YbcStatus YBCPgNewCreateIndex(const char *database_name,
                               YbcPgOid tablespace_oid,
                               YbcPgOid pg_table_oid,
                               YbcPgOid old_relfilenode_oid,
+                              bool is_tserver_hosted_catalog_table,
                               YbcPgStatement *handle);
 
 YbcStatus YBCPgCreateIndexAddColumn(YbcPgStatement handle, const char *attr_name, int attr_num,

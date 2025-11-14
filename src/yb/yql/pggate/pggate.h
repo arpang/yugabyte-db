@@ -317,6 +317,7 @@ class PgApiImpl {
                         const PgObjectId& pg_table_oid,
                         const PgObjectId& old_relfilenode_oid,
                         bool is_truncate,
+                        bool is_tserver_hosted_catalog_table,
                         PgStatement **handle);
 
   Status CreateTableAddColumn(PgStatement *handle, const char *attr_name, int attr_num,
@@ -401,6 +402,7 @@ class PgApiImpl {
                         const PgObjectId& tablespace_oid,
                         const PgObjectId& pg_table_oid,
                         const PgObjectId& old_relfilenode_oid,
+                        bool is_tserver_hosted_catalog_table,
                         PgStatement **handle);
 
   Status CreateIndexAddColumn(PgStatement *handle, const char *attr_name, int attr_num,

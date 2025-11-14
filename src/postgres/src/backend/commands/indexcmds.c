@@ -1617,13 +1617,6 @@ DefineIndex(Oid relationId,
 	if (stmt->initdeferred)
 		constr_flags |= INDEX_CONSTR_CREATE_INIT_DEFERRED;
 
-	/* Check for WITH (table_oid = x). */
-	if (!OidIsValid(indexRelationId) && stmt->relation)
-	{
-		indexRelationId = GetTableOidFromRelOptions(stmt->options, tablespaceId,
-													stmt->relation->relpersistence);
-	}
-
 	if (IsYugaByteEnabled() &&
 		rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP)
 		YBCRecordTempRelationDDL();
@@ -1638,7 +1631,8 @@ DefineIndex(Oid relationId,
 					 flags, constr_flags,
 					 allowSystemTableMods, !check_rights,
 					 &createdConstraintId, stmt->split_options,
-					 !concurrent, is_colocated, tablegroupId, colocation_id);
+					 !concurrent, is_colocated, tablegroupId, colocation_id,
+					 stmt->options, stmt->relation);
 
 	ObjectAddressSet(address, RelationRelationId, indexRelationId);
 
@@ -2511,7 +2505,7 @@ ComputeIndexAttrs(IndexInfo *indexInfo,
 							 errmsg("hash column not allowed after an ASC/DESC column")));
 			}
 		}
-		else if (attribute->ordering == SORTBY_HASH)
+		else if (attribute->ordering == SORTBY_HASH && !YbIsTserverHostedCatalogRel(relId))
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),

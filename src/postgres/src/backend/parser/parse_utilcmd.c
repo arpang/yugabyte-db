@@ -446,6 +446,13 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 						 errmsg("only system tables may have row_type_oid set")));
 			specifies_type_oid = true;
 		}
+		else if (strcmp(def->defname, "tserver_hosted") == 0)
+		{
+			if (!cxt.isSystem)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("only system tables may have tserver_hosted set")));
+		}
 		else
 			ereport(WARNING,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
