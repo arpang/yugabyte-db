@@ -71,7 +71,7 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 				is_key = true;
 
 				/*
-				 * Check that hash sharding is not used for master hosted
+				 * Check that hash sharding is only used for tserver-hosted
 				 * catalog relations.
 				 */
 				if (elem->ordering == SORTBY_HASH && !tserver_hosted)
