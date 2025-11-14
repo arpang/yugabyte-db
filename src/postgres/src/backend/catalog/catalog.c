@@ -404,11 +404,24 @@ IsSharedRelation(Oid relationId)
 }
 
 bool
-YbIsTserverHostedCatalogRel(Oid relationId)
+YbDoIsTserverHostedCatalogRel(Oid relationId)
 {
 	if (relationId == YbNotificationsRelationId)
 		return true;
 	return false;
+}
+
+bool
+YbIsTserverHostedCatalogRel(Oid relationId)
+{
+	bool		is_tserver_hosted = YbDoIsTserverHostedCatalogRel(relationId);
+
+	if (is_tserver_hosted && !IsSharedRelation(relationId))
+		elog(ERROR,
+			 "tserver-hosted catalog relations must be shared, relation %u "
+			 "is marked tserver-server hosted but not shared",
+			 relationId);
+	return is_tserver_hosted;
 }
 
 /*
