@@ -1752,4 +1752,28 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
               + " upgrade operations",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Long> upgradeMasterStagePauseDurationMs =
+      new ConfKeyInfo<>(
+          "yb.upgrade.upgrade_master_stage_pause_duration_ms",
+          ScopeType.UNIVERSE,
+          "Upgrade Master Sleep Time Per AZ",
+          "Time to sleep after upgrading masters in each AZ",
+          ConfDataType.LongType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Long> upgradeTServerStagePauseDurationMs =
+      new ConfKeyInfo<>(
+          "yb.upgrade.upgrade_tserver_stage_pause_duration_ms",
+          ScopeType.UNIVERSE,
+          "Upgrade TServer Sleep Time Per AZ",
+          "Time to sleep after upgrading tservers in each AZ",
+          ConfDataType.LongType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> checkTablespacesBeforeEdit =
+      new ConfKeyInfo<>(
+          "yb.checks.tablespaces_before_edit.enabled",
+          ScopeType.UNIVERSE,
+          "Check if edit operation will affect existing tablespaces",
+          "Check if edit operation will affect existing tablespaces",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
 }

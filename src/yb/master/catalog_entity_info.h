@@ -460,7 +460,8 @@ struct PersistentTableInfo : public Persistent<SysTablesEntryPB> {
 
   bool is_running() const {
     // Historically, we have always treated PREPARING (tablets not yet ready) and RUNNING as the
-    // same. Changing it now will require all callers of this function to be aware of the new state.
+    // same, so preparing is also considered running even though the tablets are not all running.
+    // ALTERING tables are running.
     return pb.state() == SysTablesEntryPB::PREPARING || pb.state() == SysTablesEntryPB::RUNNING ||
            pb.state() == SysTablesEntryPB::ALTERING;
   }
@@ -719,8 +720,13 @@ class TableInfo : public RefCountedThreadSafe<TableInfo>,
   bool is_unique_index() const;
   bool is_vector_index() const;
 
+  // "system table" here refers to the tables that reside in master in kSysCatalogTabletId tablet.
+  // TODO: Rename the functions to reflect this.
   void set_is_system() { is_system_ = true; }
   bool is_system() const { return is_system_; }
+
+  void set_is_tserver_hosted_pg_catalog_table() { is_tserver_hosted_pg_catalog_table_ = true; }
+  bool is_tserver_hosted_pg_catalog_table() const { return is_tserver_hosted_pg_catalog_table_; }
 
   // True if the table is colocated (including tablegroups, excluding YSQL system tables). This is
   // cached in memory separately from the underlying proto with the expectation it will never
@@ -968,6 +974,8 @@ class TableInfo : public RefCountedThreadSafe<TableInfo>,
   bool is_backfilling_ = false;
 
   std::atomic<bool> is_system_{false};
+
+  std::atomic<bool> is_tserver_hosted_pg_catalog_table_{false};
 
   const bool colocated_;
 

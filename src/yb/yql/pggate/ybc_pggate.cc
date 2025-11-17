@@ -336,6 +336,7 @@ void AshCopyTServerSample(
   cb_metadata->pid = tserver_metadata.pid() ? tserver_metadata.pid()
                                             : pgapi->GetLocalTServerPid();
   cb_metadata->database_id = tserver_metadata.database_id();
+  cb_metadata->user_id = tserver_metadata.user_id();
   cb_sample->rpc_request_id = tserver_metadata.rpc_request_id();
   cb_sample->encoded_wait_event_code =
       ash::WaitStateInfo::AshEncodeWaitStateCodeWithComponent(
@@ -1097,6 +1098,7 @@ YbcStatus YBCPgNewCreateTable(const char *database_name,
                               YbcPgOid pg_table_oid,
                               YbcPgOid old_relfilenode_oid,
                               bool is_truncate,
+                              bool is_tserver_hosted_catalog_table,
                               YbcPgStatement *handle) {
   const PgObjectId table_id(database_oid, table_relfilenode_oid);
   const PgObjectId tablegroup_id(database_oid, tablegroup_oid);
@@ -1107,7 +1109,8 @@ YbcStatus YBCPgNewCreateTable(const char *database_name,
   return ToYBCStatus(pgapi->NewCreateTable(
       database_name, schema_name, table_name, table_id, is_shared_table, is_sys_catalog_table,
       if_not_exist, ybrowid_mode, is_colocated_via_database, tablegroup_id, colocation_id,
-      tablespace_id, is_matview, pg_table_id, old_relfilenode_id, is_truncate, handle));
+      tablespace_id, is_matview, pg_table_id, old_relfilenode_id, is_truncate,
+      is_tserver_hosted_catalog_table, handle));
 }
 
 YbcStatus YBCPgCreateTableAddColumn(YbcPgStatement handle, const char *attr_name, int attr_num,
@@ -1310,6 +1313,7 @@ YbcStatus YBCPgNewCreateIndex(const char *database_name,
                               const YbcPgOid tablespace_oid,
                               const YbcPgOid pg_table_oid,
                               const YbcPgOid old_relfilenode_oid,
+                              bool is_tserver_hosted_catalog_table,
                               YbcPgStatement *handle) {
   const PgObjectId index_id(database_oid, index_oid);
   const PgObjectId table_id(database_oid, table_relfilenode_oid);
@@ -1323,7 +1327,8 @@ YbcStatus YBCPgNewCreateIndex(const char *database_name,
                                            is_unique_index, skip_index_backfill, if_not_exist,
                                            is_colocated_via_database, tablegroup_id,
                                            colocation_id, tablespace_id, pg_table_id,
-                                           old_relfilenode_id, handle));
+                                           old_relfilenode_id, is_tserver_hosted_catalog_table,
+                                           handle));
 }
 
 YbcStatus YBCPgCreateIndexAddColumn(YbcPgStatement handle, const char *attr_name, int attr_num,
@@ -1399,8 +1404,11 @@ YbcStatus YBCPgDmlAppendTarget(YbcPgStatement handle, YbcPgExpr target) {
   return ToYBCStatus(pgapi->DmlAppendTarget(handle, target));
 }
 
-YbcStatus YbPgDmlAppendQual(YbcPgStatement handle, YbcPgExpr qual, bool is_for_secondary_index) {
-  return ToYBCStatus(pgapi->DmlAppendQual(handle, qual, is_for_secondary_index));
+YbcStatus YbPgDmlAppendQual(
+    YbcPgStatement handle, YbcPgExpr qual, uint32_t serialization_version,
+    bool is_for_secondary_index) {
+  return ToYBCStatus(pgapi->DmlAppendQual(
+      handle, qual, serialization_version, is_for_secondary_index));
 }
 
 YbcStatus YbPgDmlAppendColumnRef(
@@ -1999,6 +2007,10 @@ bool YBCPgIsDdlMode() {
   return pgapi->IsDdlMode();
 }
 
+bool YBCPgIsDdlModeWithRegularTransactionBlock() {
+  return pgapi->IsDdlModeWithRegularTransactionBlock();
+}
+
 bool YBCCurrentTransactionUsesFastPath() {
   auto result = pgapi->CurrentTransactionUsesFastPath();
   if (!result.ok()) {
@@ -2031,9 +2043,13 @@ void YBCPgAddIntoForeignKeyReferenceCache(YbcPgOid table_relfilenode_oid, uint64
   pgapi->AddForeignKeyReference(table_relfilenode_oid, YbctidAsSlice(ybctid));
 }
 
-YbcStatus YBCForeignKeyReferenceExists(const YbcPgYBTupleIdDescriptor *source, bool* res) {
-  return ProcessYbctid(*source, [res, source](auto table_id, const auto& ybctid) -> Status {
-    *res = VERIFY_RESULT(pgapi->ForeignKeyReferenceExists(table_id, ybctid, source->database_oid));
+YbcStatus YBCForeignKeyReferenceExists(
+  const YbcPgYBTupleIdDescriptor *source, bool relation_is_region_local, bool* res) {
+  return ProcessYbctid(
+    *source,
+    [res, source, relation_is_region_local](auto table_id, const auto& ybctid) -> Status {
+    *res = VERIFY_RESULT(pgapi->ForeignKeyReferenceExists(
+        table_id, ybctid, relation_is_region_local, source->database_oid));
     return Status::OK();
   });
 }
@@ -3149,6 +3165,10 @@ YbcStatus YBCInitTransaction(const YbcPgInitTransactionData *data) {
 
 YbcStatus YBCCommitTransactionIntermediate(const YbcPgInitTransactionData *data) {
   return ToYBCStatus(YBCCommitTransactionIntermediateImpl(*data));
+}
+
+YbcStatus YBCTriggerRelcacheInitConnection(const char* dbname) {
+  return ToYBCStatus(pgapi->TriggerRelcacheInitConnection(dbname));
 }
 
 } // extern "C"

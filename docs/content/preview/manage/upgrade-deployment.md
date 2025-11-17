@@ -15,7 +15,7 @@ type: docs
 {{< page-finder/head text="Upgrade YugabyteDB" subtle="across different products">}}
   {{< page-finder/list icon="/icons/database-hover.svg" text="YugabyteDB" current="" >}}
   {{< page-finder/list icon="/icons/server-hover.svg" text="YugabyteDB Anywhere" url="../../yugabyte-platform/manage-deployments/upgrade-software/" >}}
-  {{< page-finder/list icon="/icons/cloud-hover.svg" text="YugabyteDB Aeon" url="/preview/yugabyte-cloud/cloud-clusters/cloud-maintenance/" >}}
+  {{< page-finder/list icon="/icons/cloud-hover.svg" text="YugabyteDB Aeon" url="/preview/yugabyte-cloud/cloud-clusters/database-upgrade/" >}}
 {{< /page-finder/head >}}
 
 {{< tip title="Tip" >}}
@@ -61,6 +61,8 @@ To upgrade YugabyteDB to a version based on a different version of PostgreSQL (f
 
   - If you have PITR enabled, you must disable it before performing an upgrade. Re-enable it only after the upgrade is either finalized or rolled back.
   - After the upgrade, PITR cannot be done to a time before the upgrade.
+
+- For more information, refer to [Upgrade FAQ](/preview/faq/operations-faq/#upgrade).
 
 ## Upgrade YugabyteDB cluster
 

@@ -54,6 +54,8 @@ class YBTableCreator {
   YBTableCreator& table_id(const std::string& table_id);
   YBTableCreator& is_pg_catalog_table();
   YBTableCreator& is_pg_shared_table();
+  YBTableCreator& is_tserver_hosted_pg_catalog_table();
+  YBTableCreator& is_initdb_mode();
 
   // Sets the partition hash schema.
   YBTableCreator& hash_schema(dockv::YBHashSchema hash_schema);
@@ -206,6 +208,8 @@ class YBTableCreator {
   std::string table_id_;
   std::optional<bool> is_pg_catalog_table_;
   std::optional<bool> is_pg_shared_table_;
+  bool is_tserver_hosted_pg_catalog_table_ = false;
+  bool is_initdb_mode_ = false;
 
   int32_t num_tablets_ = 0;
 

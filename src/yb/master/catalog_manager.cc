@@ -78,6 +78,7 @@
 #include "yb/common/colocated_util.h"
 #include "yb/common/common.pb.h"
 #include "yb/common/common_flags.h"
+#include "yb/common/common_net.h"
 #include "yb/common/common_types.pb.h"
 #include "yb/common/common_util.h"
 #include "yb/common/constants.h"
@@ -294,6 +295,10 @@ DEFINE_test_flag(bool, catalog_manager_simulate_system_table_create_failure, fal
 DEFINE_test_flag(bool, fail_table_creation_at_preparing_state, false,
                  "This is only used in tests to simulate a failure that occurs when a table in "
                  "process of creation is still in PREPARING state.");
+
+DEFINE_test_flag(bool, fail_alter_table_after_commit, false,
+    "If true, return an error after in-memory commit of the ALTER TABLE operation."
+    "Used to force ALTER to fail at a deterministic spot.");
 
 DEFINE_test_flag(bool, pause_before_send_hinted_election, false,
                  "Inside StartElectionIfReady, pause before sending request for hinted election");
@@ -601,12 +606,15 @@ DEFINE_RUNTIME_AUTO_bool(enable_tablespace_based_transaction_placement, kLocalPe
                          false, true,
                          "Enable support for tablespace-based transaction locality.");
 
+DEFINE_test_flag(bool, fail_yugabyte_namespace_creation_on_second_attempt, false,
+    "Fail CopyPgsqlSysTables for yugabyte database on the second creation attempt "
+    "to simulate failure during pg_restore phase of YSQL major upgrade");
+
 DECLARE_bool(enable_pg_cron);
 DECLARE_bool(enable_truncate_cdcsdk_table);
 DECLARE_bool(ysql_yb_enable_replica_identity);
 DECLARE_bool(ysql_yb_enable_implicit_dynamic_tables_logical_replication);
 DECLARE_bool(TEST_ysql_yb_enable_ddl_savepoint_support);
-
 namespace yb::master {
 
 using std::shared_ptr;
@@ -3630,14 +3638,32 @@ Status CatalogManager::GetYsqlCatalogConfig(const GetYsqlCatalogConfigRequestPB*
                                             rpc::RpcContext* rpc) {
   VLOG(1) << "GetYsqlCatalogConfig request: " << req->ShortDebugString();
   if (PREDICT_FALSE(FLAGS_TEST_get_ysql_catalog_version_from_sys_catalog)) {
-    uint64_t catalog_version;
-    uint64_t last_breaking_version;
-    RETURN_NOT_OK(GetYsqlCatalogVersion(&catalog_version, &last_breaking_version));
+    uint64_t catalog_version = 0;
+    RETURN_NOT_OK(GetYsqlCatalogVersion(&catalog_version, nullptr /* last_breaking_version */));
     resp->set_version(catalog_version);
     return Status::OK();
   }
 
-  resp->set_version(ysql_manager_->GetYsqlCatalogVersion());
+  // Use new API with YSQL DB Name only with ysql_enable_db_catalog_version_mode = true.
+  // Use old API without YSQL DB Name only with ysql_enable_db_catalog_version_mode = false.
+  SCHECK_EQ(
+      FLAGS_ysql_enable_db_catalog_version_mode, req->has_namespace_(), IllegalState,
+      Format("Invalid per-database catalog version mode = $0",
+             FLAGS_ysql_enable_db_catalog_version_mode));
+
+  if (!req->has_namespace_()) {
+    LOG(WARNING) << "Called deprecated version of " << __func__
+                 << " without DB. Use per-db version. Request PB: " << req->ShortDebugString();
+    resp->set_version(ysql_manager_->GetYsqlCatalogVersion());
+    return Status::OK();
+  }
+
+  auto ns = VERIFY_RESULT(FindNamespace(req->namespace_()));
+  const uint32_t db_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(ns->id()));
+  uint64_t catalog_version = 0;
+  RETURN_NOT_OK(GetYsqlDBCatalogVersion(
+      db_oid, &catalog_version, nullptr /* last_breaking_version */));
+  resp->set_version(catalog_version);
   return Status::OK();
 }
 
@@ -3646,6 +3672,16 @@ Status CatalogManager::CopyPgsqlSysTables(const NamespaceInfo& ns,
                                           const LeaderEpoch& epoch) {
   if (tables.empty()) {
     return Status::OK();
+  }
+  if (FLAGS_TEST_fail_yugabyte_namespace_creation_on_second_attempt && ns.name() == "yugabyte") {
+    static int32_t attempt = 0;
+    attempt++;
+    LOG(INFO) << "TEST: yugabyte namespace creation attempt #" << attempt;
+
+    if (attempt == 2) {
+      LOG(INFO) << "TEST: Injecting failure on yugabyte creation attempt 2";
+      return STATUS(InternalError, "TEST: Injected CopyPgsqlSysTables failure for yugabyte");
+    }
   }
   const uint32_t database_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(ns.id()));
   vector<TableId> source_table_ids;
@@ -3878,6 +3914,10 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
 
   const bool is_pg_table = orig_req->table_type() == PGSQL_TABLE_TYPE;
   const bool is_pg_catalog_table = is_pg_table && orig_req->is_pg_catalog_table();
+  const bool is_tserver_hosted_pg_catalog_table = orig_req->is_tserver_hosted_pg_catalog_table();
+
+  DCHECK(!is_tserver_hosted_pg_catalog_table || is_pg_catalog_table);
+
   if (!is_pg_catalog_table || !FLAGS_hide_pg_catalog_table_creation_logs) {
     LOG(INFO) << "CreateTable from " << RequestorString(rpc)
                 << ":\n" << orig_req->DebugString();
@@ -3917,7 +3957,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
   RETURN_NOT_OK(CreateGlobalTransactionStatusTableIfNeededForNewTable(*orig_req, rpc, epoch));
   RETURN_NOT_OK(MaybeCreateLocalTransactionTable(*orig_req, rpc, epoch));
 
-  if (is_pg_catalog_table) {
+  if (is_pg_catalog_table && !is_tserver_hosted_pg_catalog_table) {
     // No batching for migration.
     auto ns = VERIFY_RESULT(FindNamespace(orig_req->namespace_()));
     CreateYsqlSysTableData data;
@@ -4077,7 +4117,8 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
   const auto [partition_schema, partitions] =
       VERIFY_RESULT(CreatePartitions(schema, num_tablets, colocated, &req, resp));
 
-  if (!FLAGS_TEST_skip_placement_validation_createtable_api) {
+  if (!FLAGS_TEST_skip_placement_validation_createtable_api &&
+      !is_tserver_hosted_pg_catalog_table) {
     ValidateReplicationInfoRequestPB validate_req;
     validate_req.mutable_replication_info()->CopyFrom(replication_info);
     ValidateReplicationInfoResponsePB validate_resp;
@@ -4228,7 +4269,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
     RETURN_NOT_OK(CreateTableInMemory(
         req, schema, partition_schema, namespace_id, namespace_name, partitions, colocated,
         IsSystemObject::kFalse, &index_info, joining_colocation_group ? nullptr : &tablets, resp,
-        &table, &indexed_table));
+        &table, &indexed_table, is_tserver_hosted_pg_catalog_table));
 
     // Section is executed when a table is either the parent table or a user table in a colocation
     // group.
@@ -4731,11 +4772,12 @@ Status CatalogManager::CreateTableInMemory(const CreateTableRequestPB& req,
                                            TabletInfos* tablets,
                                            CreateTableResponsePB* resp,
                                            TableInfoPtr* table,
-                                           TableInfoWithWriteLock* indexed_table) {
+                                           TableInfoWithWriteLock* indexed_table,
+                                           bool is_tserver_hosted_pg_catalog_table) {
   // Add the new table in "preparing" state.
   *table = CreateTableInfo(
       req, schema, partition_schema, namespace_id, namespace_name, colocated, index_info,
-      indexed_table);
+      indexed_table, is_tserver_hosted_pg_catalog_table);
   const TableId& table_id = (*table)->id();
 
   VLOG_WITH_PREFIX_AND_FUNC(2)
@@ -4752,8 +4794,13 @@ Status CatalogManager::CreateTableInMemory(const CreateTableRequestPB& req,
     transaction_table_ids_set_.insert(table_id);
   }
 
+  // Check that atleast one of system_table and is_tserver_hosted_pg_catalog_table is false.
+  DCHECK(!system_table || !is_tserver_hosted_pg_catalog_table);
+
   if (system_table) {
     (*table)->set_is_system();
+  } else if (is_tserver_hosted_pg_catalog_table) {
+    (*table)->set_is_tserver_hosted_pg_catalog_table();
   }
 
   if (tablets) {
@@ -5059,9 +5106,8 @@ CatalogManager::GetPlacementLocalTransactionStatusTables(const CloudInfoPB& plac
 
     if ((FLAGS_TEST_consider_all_local_transaction_tables_local &&
          !txn_table_placement->placement_blocks().empty()) ||
-        CatalogManagerUtil::DoesPlacementInfoContainCloudInfo(*txn_table_placement, placement)) {
-      bool is_region_local =
-          !CatalogManagerUtil::DoesPlacementInfoSpanMultipleRegions(*txn_table_placement);
+        PlacementInfoContainsCloudInfo(*txn_table_placement, placement)) {
+      bool is_region_local = !PlacementInfoSpansMultipleRegions(*txn_table_placement);
       out_tables->push_back({table, is_region_local});
     }
   }
@@ -5552,7 +5598,8 @@ scoped_refptr<TableInfo> CatalogManager::CreateTableInfo(const CreateTableReques
                                                          const NamespaceName& namespace_name,
                                                          bool colocated,
                                                          IndexInfoPB* index_info,
-                                                         TableInfoWithWriteLock* indexed_table) {
+                                                         TableInfoWithWriteLock* indexed_table,
+                                                         bool is_tserver_hosted_pg_catalog_table) {
   DCHECK(schema.has_column_ids());
   TableId table_id
       = !req.table_id().empty() ? req.table_id() : GenerateIdUnlocked(SysRowEntryType::TABLE);
@@ -5641,6 +5688,8 @@ scoped_refptr<TableInfo> CatalogManager::CreateTableInfo(const CreateTableReques
   if (colocated) {
     metadata->set_colocated(true);
   }
+
+  metadata->set_is_tserver_hosted_pg_catalog_table(is_tserver_hosted_pg_catalog_table);
 
   return table;
 }
@@ -6399,27 +6448,29 @@ Status CatalogManager::GetIndexBackfillProgress(const GetIndexBackfillProgressRe
   // same as that in the request PB.
   for (const auto& index_id : req->index_ids()) {
     // Retrieve the number of rows processed by the backfill job.
-    // When the backfill job is live, the num_rows_processed field in the indexed table's
-    // BackfillJobPB would give us the desired information. For backfill jobs that haven't been
-    // created or have completed/failed (and been cleared) the num_rows_processed field in the
-    // IndexInfoPB would give us the desired information.
+    // When the backfill job is live, the num_rows_read_from_table_for_backfill field in the indexed
+    // table's BackfillJobPB would give us the desired information. For backfill jobs that haven't
+    // been created or have completed/failed (and been cleared) the
+    // num_rows_read_from_table_for_backfill field in the IndexInfoPB would give us the desired
+    // information.
     // The following cases are possible:
     // 1) The index or the indexed table is not found: the information can't be determined so
-    //    we set the num_rows_processed to 0.
-    // 2) The backfill job hasn't been created: we use IndexInfoPB's num_rows_processed (in this
-    //    case the value of this field is the default value 0).
-    // 3) The backfill job is live: we use BackfillJobPB's num_rows_processed.
+    //    we set the num_rows_read_from_table_for_backfill to 0.
+    // 2) The backfill job hasn't been created: we use IndexInfoPB's
+    //    num_rows_read_from_table_for_backfill (in this case the value of this field is the default
+    //    value 0).
+    // 3) The backfill job is live: we use BackfillJobPB's num_rows_read_from_table_for_backfill.
     // 4) The backfill job was successful/unsuccessful and cleared after completion:
-    //    we use IndexInfoPB's num_rows_processed.
+    //    we use IndexInfoPB's num_rows_read_from_table_for_backfill.
     // Notes:
     // a) We are safe from concurrency issues when reading the backfill state and
-    // the index info's num_rows_processed because the updation for these two fields happens
-    // within the same LockForWrite in BackfillTable::MarkIndexesAsDesired.
+    //    the index info's num_rows_read_from_table_for_backfill because the updation for these two
+    //    fields happenswithin the same LockForWrite in BackfillTable::MarkIndexesAsDesired.
     auto index_table = GetTableInfo(index_id);
     if (index_table == nullptr) {
       LOG_WITH_FUNC(INFO) << "Requested Index " << index_id << " not found";
       // No backfill job can be found for this index - set the rows processed to 0.
-      resp->add_rows_processed_entries(0);
+      resp->add_num_rows_read_from_table_for_backfill(0);
       continue;
     }
 
@@ -6428,7 +6479,7 @@ Status CatalogManager::GetIndexBackfillProgress(const GetIndexBackfillProgressRe
     if (indexed_table == nullptr) {
       LOG_WITH_FUNC(INFO) << "Indexed table for requested index " << index_id << " not found";
       // No backfill job can be found for this index - set the rows processed to 0.
-      resp->add_rows_processed_entries(0);
+      resp->add_num_rows_read_from_table_for_backfill(0);
       continue;
     }
 
@@ -6442,14 +6493,16 @@ Status CatalogManager::GetIndexBackfillProgress(const GetIndexBackfillProgressRe
       // Check if the desired index is being backfilled by the live backfill job.
       const auto& backfill_job = l->pb.backfill_jobs(0);
       if (backfill_job.backfill_state().find(index_id) != backfill_job.backfill_state().end()) {
-        resp->add_rows_processed_entries(backfill_job.num_rows_processed());
+        resp->add_num_rows_read_from_table_for_backfill(
+            backfill_job.num_rows_read_from_table_for_backfill());
         continue;
       }
     }
     // Find the desired index's IndexInfoPB from the indexed table's TableInfo.
     for (const auto& index_info_pb : l->pb.indexes()) {
       if (index_info_pb.table_id() == index_id) {
-        resp->add_rows_processed_entries(index_info_pb.num_rows_processed_by_backfill_job());
+        resp->add_num_rows_read_from_table_for_backfill(
+            index_info_pb.num_rows_read_from_table_for_backfill());
         break;
       }
     }
@@ -7629,9 +7682,6 @@ Status CatalogManager::AlterTable(const AlterTableRequestPB* req,
         Substitute("Alter table version=$0 ts=$1", table_pb.version(), LocalTimeAsString()));
   }
 
-  RETURN_NOT_OK(UpdateSysCatalogWithNewSchema(
-      table, ddl_log_entries, namespace_id, new_table_name, epoch, resp));
-
   // Remove the old name. Not present if PGSQL.
   if (table->GetTableType() != PGSQL_TABLE_TYPE && req->has_new_table_name()) {
     TRACE("Removing (namespace, table) combination ($0, $1) from by-name map",
@@ -7688,12 +7738,20 @@ Status CatalogManager::AlterTable(const AlterTableRequestPB* req,
           ->set_contains_alter_table_op(true);
     }
   }
+
+  RETURN_NOT_OK(UpdateSysCatalogWithNewSchema(
+    table, ddl_log_entries, namespace_id, new_table_name, epoch, resp));
   // Update the in-memory state.
   TRACE("Committing in-memory state");
   VLOG_WITH_FUNC(3) << "SysTablesEntryPB for " << table->id()
                     << " after the after table operation is: " << table_pb.DebugString();
   l.Commit();
   lock.unlock();
+
+  TEST_SYNC_POINT("YBBackupTestWithColocationParam::AlterTableDocDBTableCommitted");
+  if (PREDICT_FALSE(FLAGS_TEST_fail_alter_table_after_commit)) {
+    return STATUS(IllegalState, "Injected failure after in-memory commit");
+  }
 
   if (need_remove_ddl_state) {
     RemoveDdlTransactionState(table->id(), {txn_id});
@@ -8981,9 +9039,12 @@ void CatalogManager::ProcessPendingNamespace(
     // Do not set on-disk state here. The loader treats the PREPARING state as FAILED.
     if (ysql_manager_->IsMajorUpgradeInProgress()) {
       metadata.set_ysql_next_major_version_state(SysNamespaceEntryPB::NEXT_VER_FAILED);
-    } else {
-      metadata.set_state(SysNamespaceEntryPB::FAILED);
+      ns_write_lock.Commit();
+      // During a major version upgrade, we must not remove the namespace from the in-memory maps,
+      // so return early.
+      return;
     }
+    metadata.set_state(SysNamespaceEntryPB::FAILED);
     ns_write_lock.Commit();
     LOG(WARNING) << status.ToString();
     LockGuard lock(mutex_);
@@ -9544,6 +9605,7 @@ Status CatalogManager::DeleteYsqlDBTables(
   TabletInfoPtr sys_tablet_info;
   vector<pair<scoped_refptr<TableInfo>, TableInfo::WriteLock>> tables_and_locks;
   std::unordered_set<TableId> sys_table_ids;
+  int num_tserver_hosted_pg_catalog_tables = 0;
   {
     // Lock the catalog to iterate over table_ids_map_.
     SharedLock lock(mutex_);
@@ -9571,6 +9633,8 @@ Status CatalogManager::DeleteYsqlDBTables(
 
       if (table->is_system()) {
         sys_table_ids.insert(table->id());
+      } else if (table->is_tserver_hosted_pg_catalog_table()) {
+        num_tserver_hosted_pg_catalog_tables++;
       }
 
       // For regular (indexed) table, insert table info and lock in the front of the list. Else for
@@ -9601,8 +9665,8 @@ Status CatalogManager::DeleteYsqlDBTables(
 
   if (is_ysql_major_upgrade || delete_type == DeleteYsqlDBTablesType::kMajorUpgradeCleanup) {
     RSTATUS_DCHECK(
-        tables_and_locks.size() == sys_table_ids.size(), IllegalState,
-        "Unexpected non sytem tables found during ysql major upgrade or cleanup");
+        tables_and_locks.size() == (sys_table_ids.size() + num_tserver_hosted_pg_catalog_tables),
+        IllegalState, "Unexpected non sytem tables found during ysql major upgrade or cleanup");
   }
 
   if (is_ysql_major_upgrade) {

@@ -157,6 +157,9 @@ service PgClientService {
 
   rpc SetTserverCatalogMessageList(PgSetTserverCatalogMessageListRequestPB)
       returns (PgSetTserverCatalogMessageListResponsePB);
+
+  rpc TriggerRelcacheInitConnection(PgTriggerRelcacheInitConnectionRequestPB)
+      returns (PgTriggerRelcacheInitConnectionResponsePB);
 }
 
 // TODO: Remove the OptionalUint32PB helper message after updating protobuf generator to allow
@@ -409,6 +412,11 @@ message PgCreateTableRequestPB {
   // Used to setup the session in case the table is being created in a
   // transaction block with transactional ddl enabled i.e. use_regular_transaction_block is true.
   PgPerformOptionsPB options = 27;
+
+  bool is_tserver_hosted_catalog_table = 28;
+
+  // True if the request is created during initdb.
+  bool is_initdb_mode = 29;
 }
 
 message PgCreateTableResponsePB {
@@ -631,7 +639,7 @@ message PgGetIndexBackfillProgressResponsePB {
   AppStatusPB status = 1;
   // The ordering of the indexes' results here is expected to be the same as the ordering in the
   // corresponding request PB (PgGetIndexBackfillProgressRequestPB).
-  repeated uint64 rows_processed_entries = 2;
+  repeated uint64 num_rows_read_from_table_for_backfill = 2;
 }
 
 message PgListLiveTabletServersResponsePB {
@@ -767,6 +775,8 @@ message PgPerformOptionsPB {
   reserved 23; // ASH metadata is now passed in RequestHeader PB
 
   bool force_global_transaction = 13;
+  bool force_tablespace_locality = 29;
+  uint32 force_tablespace_locality_oid = 30;
   bool is_all_region_local = 28;
 
   // When set,
@@ -1298,6 +1308,7 @@ message PgAcquireObjectLockRequestPB {
     uint64 relation_oid = 2;
     uint64 object_oid = 3;
     uint64 object_sub_oid = 4;
+    uint32 tablespace_oid = 5;
   }
   LockOId lock_oid = 3;
 
@@ -1341,3 +1352,9 @@ message PgClearExportedTxnSnapshotsRequestPB {
 }
 
 message PgClearExportedTxnSnapshotsResponsePB { AppStatusPB status = 1; }
+
+message PgTriggerRelcacheInitConnectionRequestPB {
+  string database_name = 1;
+}
+
+message PgTriggerRelcacheInitConnectionResponsePB { AppStatusPB status = 1; }

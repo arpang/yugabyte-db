@@ -49,12 +49,16 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 					   int attnum,
 					   Oid type_id,
 					   int32 typmod,
-					   bool key)
+					   bool key,
+					   bool tserver_hosted,
+					   bool *is_hash_sharded)
 {
 
 	ListCell   *lc;
 	bool		is_key = false;
 	const YbcPgTypeEntity *col_type = YbDataTypeFromOidMod(attnum, type_id);
+
+	bool		is_hash = false;
 
 	if (pkey_idx)
 	{
@@ -65,6 +69,18 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 			if (strcmp(elem->name, attname) == 0)
 			{
 				is_key = true;
+
+				/*
+				 * Check that hash sharding is only used for tserver-hosted
+				 * catalog relations.
+				 */
+				if (elem->ordering == SORTBY_HASH && !tserver_hosted)
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("HASH sharding is only supported for "
+									"tserver hosted catalog tables.")));
+
+				is_hash = tserver_hosted && (elem->ordering == SORTBY_HASH);
 			}
 		}
 	}
@@ -80,18 +96,23 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 												 attname,
 												 attnum,
 												 col_type,
-												 false /* is_hash */ ,
+												 is_hash,
 												 is_key,
 												 false /* is_desc */ ,
 												 false /* is_nulls_first */ ));
 	}
+
+	if (is_hash_sharded)
+		*is_hash_sharded = *is_hash_sharded || is_hash;
 }
 
 static void
 YBCAddSysCatalogColumns(YbcPgStatement yb_stmt,
 						TupleDesc tupdesc,
 						IndexStmt *pkey_idx,
-						const bool key)
+						const bool key,
+						bool tserver_hosted,
+						bool *is_hash_sharded)
 {
 	for (int attno = 0; attno < tupdesc->natts; attno++)
 	{
@@ -103,8 +124,33 @@ YBCAddSysCatalogColumns(YbcPgStatement yb_stmt,
 							   attr->attnum,
 							   attr->atttypid,
 							   attr->atttypmod,
-							   key);
+							   key,
+							   tserver_hosted,
+							   is_hash_sharded);
 	}
+}
+
+static void
+YBCAddSplitOptionsForCatalogTable(YbOptSplit *split_options,
+								  bool is_hash_sharded,
+								  YbcPgStatement yb_stmt)
+{
+	Assert(split_options);
+
+	if (!is_hash_sharded)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("split options is only supported for hash sharded "
+						"tserver-hosted catalog tables")));
+
+	Assert(split_options->split_type == NUM_TABLETS);
+
+	if (split_options->num_tablets <= 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("num_tablets must be > 0")));
+
+	YBCPgCreateTableSetNumTablets(yb_stmt, split_options->num_tablets);
 }
 
 void
@@ -112,7 +158,8 @@ YBCCreateSysCatalogTable(const char *table_name,
 						 Oid table_oid,
 						 TupleDesc tupdesc,
 						 bool is_shared_relation,
-						 IndexStmt *pkey_idx)
+						 IndexStmt *pkey_idx,
+						 bool tserver_hosted)
 {
 	/* Database and schema are fixed when running inidb. */
 	Assert(IsBootstrapProcessingMode());
@@ -123,6 +170,12 @@ YBCCreateSysCatalogTable(const char *table_name,
 									 ? PG_YBROWID_MODE_RANGE
 									 : PG_YBROWID_MODE_NONE);
 
+	if (tserver_hosted != YbIsTserverHostedCatalogRel(table_oid))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("tserver_hosted flag for \"%s\" does not match "
+						"YbIsTserverHostedCatalogRel(%u)", table_name, table_oid)));
+
 	HandleYBStatus(YBCPgNewCreateTable(db_name,
 									   schema_name,
 									   table_name,
@@ -132,7 +185,7 @@ YBCCreateSysCatalogTable(const char *table_name,
 									   true /* is_sys_catalog_table */ ,
 									   false,	/* if_not_exists */
 									   ybrowid_mode,
-									   true,	/* is_colocated_via_database */
+									   !tserver_hosted, /* is_colocated_via_database */
 									   InvalidOid /* tablegroup_oid */ ,
 									   InvalidOid /* colocation_id */ ,
 									   InvalidOid /* tablespace_oid */ ,
@@ -140,14 +193,20 @@ YBCCreateSysCatalogTable(const char *table_name,
 									   InvalidOid /* pg_table_oid */ ,
 									   InvalidOid /* old_relfilenode_oid */ ,
 									   false /* is_truncate */ ,
+									   tserver_hosted,
 									   &yb_stmt));
+
+	bool		is_hash_sharded = false;
 
 	/* Add all key columns first, then the regular columns */
 	if (pkey_idx != NULL)
 	{
-		YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ true);
+		YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ true, tserver_hosted, &is_hash_sharded);
 	}
-	YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ false);
+	YBCAddSysCatalogColumns(yb_stmt, tupdesc, pkey_idx, /* key */ false, tserver_hosted, /* is_hash_sharded */ NULL);
+
+	if (pkey_idx && pkey_idx->split_options)
+		YBCAddSplitOptionsForCatalogTable(pkey_idx->split_options, is_hash_sharded, yb_stmt);
 
 	HandleYBStatus(YBCPgExecCreateTable(yb_stmt));
 }

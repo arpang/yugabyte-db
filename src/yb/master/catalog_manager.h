@@ -1882,7 +1882,8 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
                              TabletInfos* tablets,
                              CreateTableResponsePB* resp,
                              TableInfoPtr* table,
-                             TableInfoWithWriteLock* indexed_table) REQUIRES(mutex_);
+                             TableInfoWithWriteLock* indexed_table,
+                             bool is_tserver_hosted_pg_catalog_table = false) REQUIRES(mutex_);
 
   Result<TabletInfos> CreateTabletsFromTable(
       const std::vector<dockv::Partition>& partitions,
@@ -1913,7 +1914,9 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
                                            const NamespaceName& namespace_name,
                                            bool colocated,
                                            IndexInfoPB* index_info,
-                                           TableInfoWithWriteLock* indexed_table) REQUIRES(mutex_);
+                                           TableInfoWithWriteLock* indexed_table,
+                                           bool is_tserver_hosted_pg_catalog_table)
+                                           REQUIRES(mutex_);
 
   // Remove the specified entries from the protobuf field table_ids of a TabletInfo.
   Status RemoveTableIdsFromTabletInfo(
@@ -2450,8 +2453,6 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
   scoped_refptr<Counter> metric_create_table_too_many_tablets_;
 
   scoped_refptr<AtomicGauge<uint64_t>> metric_max_follower_heartbeat_delay_;
-
-  friend class ClusterLoadBalancer;
 
   // Policy for load balancing tablets on tablet servers.
   std::unique_ptr<ClusterLoadBalancer> load_balance_policy_;

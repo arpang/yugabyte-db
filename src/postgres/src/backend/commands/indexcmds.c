@@ -1617,13 +1617,6 @@ DefineIndex(Oid relationId,
 	if (stmt->initdeferred)
 		constr_flags |= INDEX_CONSTR_CREATE_INIT_DEFERRED;
 
-	/* Check for WITH (table_oid = x). */
-	if (!OidIsValid(indexRelationId) && stmt->relation)
-	{
-		indexRelationId = GetTableOidFromRelOptions(stmt->options, tablespaceId,
-													stmt->relation->relpersistence);
-	}
-
 	if (IsYugaByteEnabled() &&
 		rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP)
 		YBCRecordTempRelationDDL();
@@ -1638,7 +1631,8 @@ DefineIndex(Oid relationId,
 					 flags, constr_flags,
 					 allowSystemTableMods, !check_rights,
 					 &createdConstraintId, stmt->split_options,
-					 !concurrent, is_colocated, tablegroupId, colocation_id);
+					 !concurrent, is_colocated, tablegroupId, colocation_id,
+					 stmt->options, stmt->relation);
 
 	ObjectAddressSet(address, RelationRelationId, indexRelationId);
 
@@ -2477,7 +2471,7 @@ ComputeIndexAttrs(IndexInfo *indexInfo,
 							 errmsg("hash column not allowed after an ASC/DESC column")));
 			}
 		}
-		else if (attribute->ordering == SORTBY_HASH)
+		else if (attribute->ordering == SORTBY_HASH && !YbIsTserverHostedCatalogRel(relId))
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
@@ -3902,8 +3896,16 @@ ReindexMultipleInternal(List *relids, ReindexParams *params)
 {
 	ListCell   *l;
 
-	PopActiveSnapshot();
-	CommitTransactionCommand();
+	/*
+	 * YB: Handle the commit later while starting the new transaction. See the
+	 * call to YbCommitTransactionCommandIntermediate at the start of the loop
+	 * below.
+	 */
+	if (!IsYugaByteEnabled())
+	{
+		PopActiveSnapshot();
+		CommitTransactionCommand();
+	}
 
 	foreach(l, relids)
 	{
@@ -3911,7 +3913,14 @@ ReindexMultipleInternal(List *relids, ReindexParams *params)
 		char		relkind;
 		char		relpersistence;
 
-		StartTransactionCommand();
+		/*
+		 * YB: Commit the earlier transaction remembering the ddl state, start a
+		 * new one and set the stored ddl state.
+		 */
+		if (IsYugaByteEnabled())
+			YbCommitTransactionCommandIntermediate();
+		else
+			StartTransactionCommand();
 
 		/* functions in indexes may want a snapshot set */
 		PushActiveSnapshot(GetTransactionSnapshot());
@@ -3919,8 +3928,15 @@ ReindexMultipleInternal(List *relids, ReindexParams *params)
 		/* check if the relation still exists */
 		if (!SearchSysCacheExists1(RELOID, ObjectIdGetDatum(relid)))
 		{
-			PopActiveSnapshot();
-			CommitTransactionCommand();
+			/*
+			 * YbCommitTransactionCommandIntermediate call in the next iteration
+			 * or after the loop will take care of the pop & commit.
+			 */
+			if (!IsYugaByteEnabled())
+			{
+				PopActiveSnapshot();
+				CommitTransactionCommand();
+			}
 			continue;
 		}
 
@@ -3969,7 +3985,13 @@ ReindexMultipleInternal(List *relids, ReindexParams *params)
 			reindex_index(relid, false, relpersistence, &newparams,
 						  false /* is_yb_table_rewrite */ ,
 						  true /* yb_copy_split_options */ );
-			PopActiveSnapshot();
+
+			/*
+			 * YbCommitTransactionCommandIntermediate call in the next iteration
+			 * or after the loop will take care of the pop.
+			 */
+			if (!IsYugaByteEnabled())
+				PopActiveSnapshot();
 			/* reindex_index() does the verbose output */
 		}
 		else
@@ -3992,13 +4014,26 @@ ReindexMultipleInternal(List *relids, ReindexParams *params)
 								get_namespace_name(get_rel_namespace(relid)),
 								get_rel_name(relid))));
 
-			PopActiveSnapshot();
+			/*
+			 * YbCommitTransactionCommandIntermediate call in the next iteration
+			 * or after the loop will take care of the pop.
+			 */
+			if (!IsYugaByteEnabled())
+				PopActiveSnapshot();
 		}
 
-		CommitTransactionCommand();
+		/*
+		 * YbCommitTransactionCommandIntermediate call in the next iteration or
+		 * after the loop will take care of the commit.
+		 */
+		if (!IsYugaByteEnabled())
+			CommitTransactionCommand();
 	}
 
-	StartTransactionCommand();
+	if (IsYugaByteEnabled())
+		YbCommitTransactionCommandIntermediate();
+	else
+		StartTransactionCommand();
 }
 
 

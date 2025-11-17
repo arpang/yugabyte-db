@@ -2315,9 +2315,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -2585,6 +2582,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -2805,12 +2803,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -3672,6 +3670,10 @@
           "description" : "Use local timezone for Cron Expression, otherwise use UTC",
           "type" : "boolean"
         },
+        "useRoles" : {
+          "description" : "Backup global ysql roles",
+          "type" : "boolean"
+        },
         "useTablespaces" : {
           "description" : "Is tablespaces information included",
           "type" : "boolean"
@@ -3808,6 +3810,10 @@
           "format" : "uuid",
           "type" : "string"
         },
+        "useRoles" : {
+          "description" : "WARNING: This is a preview API that could change. Indicates if role objects were backed up",
+          "type" : "boolean"
+        },
         "useTablespaces" : {
           "type" : "boolean"
         }
@@ -3926,6 +3932,10 @@
           ],
           "type" : "string"
         },
+        "errorIfRolesExists" : {
+          "description" : "WARNING: This is a preview API that could change. Fail if roles exist with same names.Only applicable with new roles behavior.",
+          "type" : "boolean"
+        },
         "errorIfTablespacesExists" : {
           "description" : "WARNING: This is a preview API that could change. Fail if tablespaces exist with same names. Only applicable with new roles behavior.",
           "type" : "boolean"
@@ -3964,6 +3974,10 @@
             "type" : "string"
           },
           "type" : "array"
+        },
+        "useRoles" : {
+          "description" : "Restore global ysql roles",
+          "type" : "boolean"
         },
         "useTablespaces" : {
           "description" : "Use tablespaces during restore",
@@ -4306,6 +4320,10 @@
           "format" : "uuid",
           "type" : "string"
         },
+        "useRoles" : {
+          "description" : "Backup global ysql roles",
+          "type" : "boolean"
+        },
         "useTablespaces" : {
           "description" : "Is tablespaces information included",
           "type" : "boolean"
@@ -4366,6 +4384,18 @@
       "required" : [
         "password",
         "username"
+      ],
+      "type" : "object"
+    },
+    "BearerToken" : {
+      "properties" : {
+        "token" : {
+          "description" : "Bearer Token",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "token"
       ],
       "type" : "object"
     },
@@ -4988,9 +5018,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -5264,6 +5291,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -5484,12 +5512,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -5818,6 +5846,13 @@
         "index" : {
           "format" : "int32",
           "type" : "integer"
+        },
+        "partitions" : {
+          "description" : "WARNING: This is a preview API that could change. Geo partitions for cluster",
+          "items" : {
+            "$ref" : "#/definitions/PartitionInfo"
+          },
+          "type" : "array"
         },
         "placementInfo" : {
           "$ref" : "#/definitions/PlacementInfo"
@@ -8053,9 +8088,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -8323,6 +8355,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -8543,12 +8576,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -8844,9 +8877,6 @@
           },
           "type" : "object"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -9120,6 +9150,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -9340,12 +9371,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -10262,9 +10293,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -10535,6 +10563,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -10755,12 +10784,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -10981,9 +11010,6 @@
           "type" : "string"
         },
         "kubernetesUpgradeSupported" : {
-          "type" : "boolean"
-        },
-        "mastersInDefaultRegion" : {
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -11253,6 +11279,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -11473,12 +11500,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -11726,7 +11753,8 @@
               "description" : "Auth Type",
               "enum" : [
                 "BasicAuth",
-                "NoAuth"
+                "NoAuth",
+                "BearerToken"
               ],
               "type" : "string"
             },
@@ -12494,6 +12522,10 @@
           "description" : "Associated universe UUID",
           "format" : "uuid",
           "type" : "string"
+        },
+        "useRoles" : {
+          "description" : "Backup global ysql roles",
+          "type" : "boolean"
         },
         "useTablespaces" : {
           "description" : "Is tablespaces information included",
@@ -13762,6 +13794,78 @@
       ],
       "type" : "object"
     },
+    "OTLPConfig" : {
+      "allOf" : [
+        {
+          "$ref" : "#/definitions/TelemetryProviderConfig"
+        },
+        {
+          "description" : "OTLP Config",
+          "properties" : {
+            "authType" : {
+              "description" : "Auth Type",
+              "enum" : [
+                "BasicAuth",
+                "NoAuth",
+                "BearerToken"
+              ],
+              "type" : "string"
+            },
+            "basicAuth" : {
+              "$ref" : "#/definitions/BasicAuthCredentials",
+              "description" : "Basic Auth Credentials"
+            },
+            "bearerToken" : {
+              "$ref" : "#/definitions/BearerToken",
+              "description" : "Bearer Token"
+            },
+            "compression" : {
+              "description" : "Compression",
+              "enum" : [
+                "gzip",
+                "none",
+                "snappy",
+                "zstd"
+              ],
+              "type" : "string"
+            },
+            "endpoint" : {
+              "description" : "End Point. For HTTP protcol logs export \"/v1/logs\" will be appended.",
+              "type" : "string"
+            },
+            "headers" : {
+              "additionalProperties" : {
+                "type" : "string"
+              },
+              "description" : "Headers",
+              "type" : "object"
+            },
+            "logsEndpoint" : {
+              "description" : "Logs endpoint. The target URL to send log data to (e.g.: https://example.com:4318/v1/logs). If this setting is present the endpoint setting is ignored logs. Allowed only for HTTP protocol",
+              "type" : "string"
+            },
+            "protocol" : {
+              "description" : "Protocol",
+              "enum" : [
+                "gRPC",
+                "HTTP"
+              ],
+              "type" : "string"
+            },
+            "timeoutSeconds" : {
+              "description" : "Timeout in seconds",
+              "format" : "int32",
+              "type" : "integer"
+            }
+          },
+          "required" : [
+            "authType",
+            "endpoint"
+          ],
+          "type" : "object"
+        }
+      ]
+    },
     "OidcGroupToYbaRolesData" : {
       "properties" : {
         "oidcGroupToYbaRolesPairs" : {
@@ -13968,6 +14072,29 @@
       "required" : [
         "backupUUID"
       ],
+      "type" : "object"
+    },
+    "PartitionInfo" : {
+      "description" : "WARNING: This is a preview API that could change. Information about Geo partition",
+      "properties" : {
+        "defaultPartition" : {
+          "type" : "boolean"
+        },
+        "name" : {
+          "type" : "string"
+        },
+        "placement" : {
+          "$ref" : "#/definitions/PlacementInfo"
+        },
+        "replicationFactor" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "uuid" : {
+          "format" : "uuid",
+          "type" : "string"
+        }
+      },
       "type" : "object"
     },
     "PerBackupLocationKeyspaceTables" : {
@@ -15172,9 +15299,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -15442,6 +15566,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -15662,12 +15787,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -16194,9 +16319,6 @@
           },
           "type" : "object"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -16470,6 +16592,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -16690,12 +16813,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -17028,9 +17151,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -17298,6 +17418,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -17518,12 +17639,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -18537,9 +18658,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -18807,6 +18925,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -19027,12 +19146,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -19122,6 +19241,89 @@
         }
       },
       "type" : "object"
+    },
+    "S3Config" : {
+      "allOf" : [
+        {
+          "$ref" : "#/definitions/TelemetryProviderConfig"
+        },
+        {
+          "description" : "S3 Config",
+          "properties" : {
+            "accessKey" : {
+              "description" : "Access Key",
+              "maxLength" : 2147483647,
+              "minLength" : 1,
+              "type" : "string"
+            },
+            "bucket" : {
+              "description" : "S3 bucket",
+              "maxLength" : 2147483647,
+              "minLength" : 1,
+              "type" : "string"
+            },
+            "directoryPrefix" : {
+              "description" : "S3 Prefix Key (root directory inside bucket)",
+              "type" : "string"
+            },
+            "disableSSL" : {
+              "description" : "Disable SSL",
+              "type" : "boolean"
+            },
+            "endpoint" : {
+              "description" : "Endpoint. Overrides the endpoint used by the exporter instead of constructing it from region and bucket",
+              "type" : "string"
+            },
+            "filePrefix" : {
+              "description" : "File prefix",
+              "type" : "string"
+            },
+            "forcePathStyle" : {
+              "description" : "Force Path Style. Set this to true to force the request to use path-style addressing",
+              "type" : "boolean"
+            },
+            "marshaler" : {
+              "description" : "Marshaler",
+              "enum" : [
+                "OTLP_JSON",
+                "SUMO_IC"
+              ],
+              "type" : "string"
+            },
+            "partition" : {
+              "description" : "S3 Partition",
+              "enum" : [
+                "hour",
+                "minute"
+              ],
+              "type" : "string"
+            },
+            "region" : {
+              "description" : "Region",
+              "maxLength" : 2147483647,
+              "minLength" : 1,
+              "type" : "string"
+            },
+            "roleArn" : {
+              "description" : "Role ARN",
+              "type" : "string"
+            },
+            "secretKey" : {
+              "description" : "Secret Key",
+              "maxLength" : 2147483647,
+              "minLength" : 1,
+              "type" : "string"
+            }
+          },
+          "required" : [
+            "accessKey",
+            "bucket",
+            "region",
+            "secretKey"
+          ],
+          "type" : "object"
+        }
+      ]
     },
     "S3Location" : {
       "properties" : {
@@ -19364,6 +19566,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -19584,12 +19787,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -19763,6 +19966,7 @@
               "ImportUniverse",
               "MigrateUniverse",
               "KubernetesToggleImmutableYbc",
+              "OperatorImportUniverse",
               "KubernetesCheckVolumeExpansion",
               "KubernetesPostExpansionCheckVolume",
               "NodeCertReloadTask",
@@ -19983,12 +20187,12 @@
               "ConfigureOOMServiceOnNode",
               "CheckSshConnection",
               "FetchServerConf",
-              "OperatorImportUniverse",
               "DoCapacityReservation",
               "DeleteCapacityReservation",
               "DisablePitrConfig",
               "EnablePitrConfig",
-              "UpdateAndPersistKubernetesImmutableYbc"
+              "UpdateAndPersistKubernetesImmutableYbc",
+              "TablespaceValidationOnRemove"
             ],
             "type" : "string"
           },
@@ -20316,9 +20520,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -20586,6 +20787,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -20806,12 +21008,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -21409,9 +21611,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -21679,6 +21878,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -21899,12 +22099,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -22452,7 +22652,8 @@
               "SendUserNotification",
               "ImportUniverse",
               "MigrateUniverse",
-              "KubernetesToggleImmutableYbc"
+              "KubernetesToggleImmutableYbc",
+              "OperatorImportUniverse"
             ],
             "type" : "string"
           },
@@ -22610,7 +22811,8 @@
             "GCP_CLOUD_MONITORING",
             "LOKI",
             "DYNATRACE",
-            "S3"
+            "S3",
+            "OTLP"
           ],
           "type" : "string"
         }
@@ -22722,9 +22924,6 @@
           "type" : "string"
         },
         "kubernetesUpgradeSupported" : {
-          "type" : "boolean"
-        },
-        "mastersInDefaultRegion" : {
           "type" : "boolean"
         },
         "nextClusterIndex" : {
@@ -22994,6 +23193,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -23214,12 +23414,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -23395,9 +23595,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -23665,6 +23862,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -23885,12 +24083,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -24318,9 +24516,6 @@
         "itestS3PackagePath" : {
           "type" : "string"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -24591,6 +24786,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -24811,12 +25007,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -24955,9 +25151,6 @@
         },
         "itestS3PackagePath" : {
           "type" : "string"
-        },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
         },
         "nextClusterIndex" : {
           "format" : "int32",
@@ -25226,6 +25419,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -25446,12 +25640,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -25590,9 +25784,6 @@
         },
         "itestS3PackagePath" : {
           "type" : "string"
-        },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
         },
         "nextClusterIndex" : {
           "format" : "int32",
@@ -25861,6 +26052,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -26081,12 +26273,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -26736,9 +26928,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -27006,6 +27195,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -27226,12 +27416,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -27858,9 +28048,6 @@
         "kubernetesUpgradeSupported" : {
           "type" : "boolean"
         },
-        "mastersInDefaultRegion" : {
-          "type" : "boolean"
-        },
         "nextClusterIndex" : {
           "format" : "int32",
           "type" : "integer"
@@ -28128,6 +28315,7 @@
             "ImportUniverse",
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
+            "OperatorImportUniverse",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -28348,12 +28536,12 @@
             "ConfigureOOMServiceOnNode",
             "CheckSshConnection",
             "FetchServerConf",
-            "OperatorImportUniverse",
             "DoCapacityReservation",
             "DeleteCapacityReservation",
             "DisablePitrConfig",
             "EnablePitrConfig",
-            "UpdateAndPersistKubernetesImmutableYbc"
+            "UpdateAndPersistKubernetesImmutableYbc",
+            "TablespaceValidationOnRemove"
           ],
           "type" : "string"
         },
@@ -39406,6 +39594,200 @@
         ]
       }
     },
+    "/api/v1/customers/{cUUID}/telemetry_provider" : {
+      "get" : {
+        "description" : "WARNING: This is a preview API that could change. List All Telemetry Providers",
+        "operationId" : "listAllTelemetryProviders",
+        "parameters" : [
+          {
+            "format" : "uuid",
+            "in" : "path",
+            "name" : "cUUID",
+            "required" : true,
+            "type" : "string"
+          }
+        ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "items" : {
+                "$ref" : "#/definitions/TelemetryProvider"
+              },
+              "type" : "array"
+            }
+          }
+        },
+        "responsesObject" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "items" : {
+                "$ref" : "#/definitions/TelemetryProvider"
+              },
+              "type" : "array"
+            }
+          }
+        },
+        "security" : [
+          {
+            "apiKeyAuth" : [ ]
+          }
+        ],
+        "summary" : "List All Telemetry Providers",
+        "tags" : [
+          "Telemetry Provider"
+        ]
+      },
+      "post" : {
+        "description" : "WARNING: This is a preview API that could change. Create Telemetry Provider",
+        "operationId" : "createTelemetry",
+        "parameters" : [
+          {
+            "format" : "uuid",
+            "in" : "path",
+            "name" : "cUUID",
+            "required" : true,
+            "type" : "string"
+          },
+          {
+            "in" : "query",
+            "name" : "request",
+            "required" : false
+          },
+          {
+            "in" : "body",
+            "name" : "providerData",
+            "required" : true,
+            "schema" : {
+              "$ref" : "#/definitions/TelemetryProvider"
+            }
+          }
+        ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/TelemetryProvider"
+            }
+          }
+        },
+        "responsesObject" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/TelemetryProvider"
+            }
+          }
+        },
+        "security" : [
+          {
+            "apiKeyAuth" : [ ]
+          }
+        ],
+        "summary" : "Create Telemetry Provider",
+        "tags" : [
+          "Telemetry Provider"
+        ]
+      }
+    },
+    "/api/v1/customers/{cUUID}/telemetry_provider/{intUUID}" : {
+      "delete" : {
+        "description" : "WARNING: This is a preview API that could change. Delete a Telemetry Provider",
+        "operationId" : "deleteTelemetryProvider",
+        "parameters" : [
+          {
+            "format" : "uuid",
+            "in" : "path",
+            "name" : "cUUID",
+            "required" : true,
+            "type" : "string"
+          },
+          {
+            "format" : "uuid",
+            "in" : "path",
+            "name" : "intUUID",
+            "required" : true,
+            "type" : "string"
+          },
+          {
+            "in" : "query",
+            "name" : "request",
+            "required" : false
+          }
+        ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/YBPSuccess"
+            }
+          }
+        },
+        "responsesObject" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/YBPSuccess"
+            }
+          }
+        },
+        "security" : [
+          {
+            "apiKeyAuth" : [ ]
+          }
+        ],
+        "summary" : "Delete a telemetry provider",
+        "tags" : [
+          "Telemetry Provider"
+        ]
+      },
+      "get" : {
+        "description" : "WARNING: This is a preview API that could change. Get Telemetry Provider",
+        "operationId" : "getTelemetryProvider",
+        "parameters" : [
+          {
+            "format" : "uuid",
+            "in" : "path",
+            "name" : "cUUID",
+            "required" : true,
+            "type" : "string"
+          },
+          {
+            "format" : "uuid",
+            "in" : "path",
+            "name" : "intUUID",
+            "required" : true,
+            "type" : "string"
+          }
+        ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/TelemetryProvider"
+            }
+          }
+        },
+        "responsesObject" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/TelemetryProvider"
+            }
+          }
+        },
+        "security" : [
+          {
+            "apiKeyAuth" : [ ]
+          }
+        ],
+        "summary" : "Get Telemetry Provider",
+        "tags" : [
+          "Telemetry Provider"
+        ]
+      }
+    },
     "/api/v1/customers/{cUUID}/universes" : {
       "get" : {
         "description" : "Available since YBA version 2.2.0.0.",
@@ -39674,6 +40056,67 @@
         "summary" : "Get a universe",
         "tags" : [
           "Universe management"
+        ]
+      }
+    },
+    "/api/v1/customers/{cUUID}/universes/{uniUUID}/audit_log_config" : {
+      "post" : {
+        "description" : "WARNING: This is a preview API that could change. Modifies the audit logging configuration for a universe.",
+        "operationId" : "modifyAuditLogging",
+        "parameters" : [
+          {
+            "format" : "uuid",
+            "in" : "path",
+            "name" : "cUUID",
+            "required" : true,
+            "type" : "string"
+          },
+          {
+            "format" : "uuid",
+            "in" : "path",
+            "name" : "uniUUID",
+            "required" : true,
+            "type" : "string"
+          },
+          {
+            "in" : "query",
+            "name" : "request",
+            "required" : false
+          },
+          {
+            "description" : "Audit Logging Configuration",
+            "in" : "body",
+            "name" : "auditLoggingConfig",
+            "required" : true,
+            "schema" : {
+              "$ref" : "#/definitions/AuditLogConfigParams"
+            }
+          }
+        ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/YBPTask"
+            }
+          }
+        },
+        "responsesObject" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/YBPTask"
+            }
+          }
+        },
+        "security" : [
+          {
+            "apiKeyAuth" : [ ]
+          }
+        ],
+        "summary" : "Modify Audit Logging Configuration",
+        "tags" : [
+          "Universe Upgrades Management"
         ]
       }
     },
@@ -46377,6 +46820,9 @@
     },
     {
       "name" : "Table management"
+    },
+    {
+      "name" : "Telemetry Provider"
     },
     {
       "name" : "Universe CDC Management"

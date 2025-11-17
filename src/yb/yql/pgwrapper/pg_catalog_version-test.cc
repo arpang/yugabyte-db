@@ -1952,7 +1952,7 @@ TEST_F(PgCatalogVersionTest, DisableNopAlterRoleOptimization) {
 }
 
 TEST_F(PgCatalogVersionTest, SimulateDelayedHeartbeatResponse) {
-  RestartClusterWithDBCatalogVersionMode({"--TEST_delay_set_catalog_version_table_mode_count=30"});
+  RestartClusterWithDBCatalogVersionMode({"--TEST_delay_set_catalog_version_table_mode_count=40"});
   auto status = ResultToStatus(Connect());
   ASSERT_TRUE(status.IsNetworkError()) << status;
   ASSERT_STR_CONTAINS(status.ToString(),
@@ -2429,9 +2429,9 @@ TEST_F(PgCatalogVersionTest, AnalyzeAllTables) {
         "13515, 21, 216; 13515, 22, 96; 13515, 23, 216; 13515, 24, 360; 13515, 25, 192; "
         "13515, 26, 120; 13515, 27, 192; 13515, 28, 120; 13515, 29, 264; 13515, 30, 168; "
         "13515, 31, 144; 13515, 32, 192; 13515, 33, 120; 13515, 34, 96; 13515, 35, 120; "
-        "13515, 36, 216; 13515, 37, 96; 13515, 38, 192; 13515, 39, 240; 13515, 40, 168; "
-        "13515, 41, 120; 13515, 42, 120; 13515, 43, 96"
-      : "13515, 2, 10776";
+        "13515, 36, 216; 13515, 37, 96; 13515, 38, 192; 13515, 39, 240; 13524, 40, 72; "
+        "13515, 41, 168; 13515, 42, 120; 13515, 43, 120; 13515, 44, 96"
+      : "13515, 2, 10848";
   const string yugabyte_db_oid_str = Format("$0, ", yugabyte_db_oid);
   // Replace 13515 with the real yugabyte_db_oid.
   GlobalReplaceSubstring("13515, ", yugabyte_db_oid_str, &expected);
@@ -3207,7 +3207,7 @@ TEST_F(PgCatalogVersionTest, InvalMessageWaitOnVersionGap) {
   // conn1 connects to node 1
   auto conn1 = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
   auto v = ASSERT_RESULT(GetCatalogVersion(&conn1));
-  ASSERT_EQ(v, IsTransactionalDdlEnabled() ? 87 : 3);
+  ASSERT_EQ(v, IsTransactionalDdlEnabled() ? 88 : 3);
   auto result = ASSERT_RESULT(conn1.FetchAllAsString("SELECT id FROM test_table"));
   ASSERT_EQ(result, "1");
 
@@ -3363,10 +3363,10 @@ TEST_F(PgCatalogVersionTest, InvalMessageDeltaTableLoad) {
               << ", get_schema_count_after: " << get_schema_count_after;
     if (i == 0) {
       ASSERT_EQ(open_table_count_after - open_table_count_before, 143);
-      ASSERT_EQ(get_schema_count_after - get_schema_count_before, 681);
+      ASSERT_EQ(get_schema_count_after - get_schema_count_before, 656);
     } else {
       ASSERT_EQ(open_table_count_after - open_table_count_before, 638);
-      ASSERT_EQ(get_schema_count_after - get_schema_count_before, 781);
+      ASSERT_EQ(get_schema_count_after - get_schema_count_before, 756);
     }
   }
 }
@@ -3429,7 +3429,7 @@ TEST_P(PgCatalogVersionConnManagerTest,
   auto master_read_count_after = ASSERT_RESULT(GetMasterReadRPCCount());
   LOG(INFO) << ", master_read_count_before: " << master_read_count_before
             << ", master_read_count_after: " << master_read_count_after;
-  auto expected_count = (enable_ysql_conn_mgr ? 1 : 3) * num_logical_connections + 1;
+  auto expected_count = (enable_ysql_conn_mgr ? 1 : 3) * num_logical_connections;
   ASSERT_EQ(master_read_count_after - master_read_count_before, expected_count);
 }
 
@@ -3662,7 +3662,11 @@ TEST_P(PgCatalogVersionConnManagerTest,
 
 TEST_F(PgCatalogVersionTest, NewConnectionRelCachePreloadTest) {
   // Disable auto analyze because it makes the number of the metric: RelCachePreload flaky.
-  RestartClusterWithInvalMessageEnabled({ "--ysql_enable_auto_analyze=false" });
+  // Also set ysql_enable_relcache_init_optimization=false to show concurrent new connections
+  // all trying to rebuild the relcache init file.
+  RestartClusterWithInvalMessageEnabled(
+    { "--ysql_enable_auto_analyze=false",
+      "--ysql_enable_relcache_init_optimization=false" });
   // Wait a bit for the webserver background process to get ready to serve curl request.
   SleepFor(2s);
   auto conn_yugabyte = ASSERT_RESULT(Connect());
@@ -3711,6 +3715,57 @@ TEST_F(PgCatalogVersionTest, NewConnectionRelCachePreloadTest) {
   LOG(INFO) << "authorized_connections: " << authorized_connections;
   // Total authorized connections should also include those "subsequent" connections that did
   // not trigger relcache preload, so the number should be more than relcache_preloads.
+  ASSERT_GT(authorized_connections, relcache_preloads);
+}
+
+TEST_F(PgCatalogVersionTest, ConcurrentNonSuperuserNewConnectionsTest) {
+  const int num_databases = ReleaseVsDebugVsAsanVsTsanVsApple(10, 10, 10, 4, 3);
+  const int connections_perdb = 10;
+  // TSAN build needs more max allowed connections.
+  RestartClusterWithInvalMessageEnabled(
+      { Format("--ysql_max_connections=$0", connections_perdb * 2),
+        "--ysql_enable_relcache_init_optimization=true",
+        "--ysql_enable_auto_analyze=false",
+        "--ysql_pg_conf_csv=log_connections=1,log_disconnections=1",
+        "--vmodule=tablet_server=1" });
+  // Wait a bit for the webserver background process to get ready to serve curl request.
+  SleepFor(2s);
+  auto conn_yugabyte = ASSERT_RESULT(Connect());
+  constexpr auto* kTestUser = "test_user";
+  std::vector<string> dbnames;
+  for (int i = 0; i < num_databases; i++) {
+    dbnames.push_back(Format("$0_$1", kTestDatabase, i));
+  }
+  ASSERT_OK(conn_yugabyte.ExecuteFormat("CREATE USER $0", kTestUser));
+  for (int i = 0; i < num_databases; i++) {
+    ASSERT_OK(conn_yugabyte.ExecuteFormat("CREATE DATABASE $0", dbnames[i]));
+  }
+
+  auto initialCount = GetNumRelCachePreloads();
+  LOG(INFO) << "initialCount: " << initialCount;
+  ASSERT_GT(initialCount, 0);
+
+  // Increments the catalog version.
+  ASSERT_OK(IncrementAllDBCatalogVersions(conn_yugabyte, IsBreakingCatalogVersionChange::kFalse));
+
+  // Concurrently creates a number of connections.
+  TestThreadHolder thread_holder;
+  for (int i = 0; i < num_databases; i++) {
+    for (int j = 0; j < connections_perdb; j++) {
+      thread_holder.AddThreadFunctor([this, dbname = dbnames[i]] {
+        // It appears that the libpq connection library automatically retries
+        // until a timeout of 60s. That's why we can have a max connections only
+        // 10 but serving these 100 connections.
+        auto conn_test = ASSERT_RESULT(ConnectToDBAsUser(dbname, kTestUser));
+      });
+    }
+  }
+  thread_holder.Stop();
+
+  auto relcache_preloads = GetNumRelCachePreloads();
+  ASSERT_EQ(relcache_preloads, initialCount + num_databases);
+  auto authorized_connections = GetNumAuthorizedConnections();
+  LOG(INFO) << "authorized_connections: " << authorized_connections;
   ASSERT_GT(authorized_connections, relcache_preloads);
 }
 

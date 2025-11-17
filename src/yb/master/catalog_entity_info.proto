@@ -41,7 +41,7 @@ message BackfillJobPB {
   map<string, State> backfill_state = 2;
 
   // Number of rows processed for this backfill task (the same for all indexes)
-  optional uint64 num_rows_processed = 4 [ default = 0 ];
+  optional uint64 num_rows_read_from_table_for_backfill = 4 [ default = 0 ];
 
   optional uint64 backfilling_timestamp = 3;
 }
@@ -221,6 +221,8 @@ message SysTablesEntryPB {
   }
 
   optional XClusterTableInfo xcluster_table_info = 42;
+
+  optional bool is_tserver_hosted_pg_catalog_table = 43;
 }
 
 // The on-disk entry in the sys.catalog table ("metadata" column) for

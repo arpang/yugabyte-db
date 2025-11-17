@@ -112,6 +112,7 @@
 #include "yb/util/debug-util.h"
 #include "yb/util/debug/trace_event.h"
 #include "yb/util/file_util.h"
+#include "yb/util/flag_validators.h"
 #include "yb/util/flags.h"
 #include "yb/util/format.h"
 #include "yb/util/logging.h"
@@ -266,6 +267,29 @@ DEFINE_RUNTIME_bool(tablet_exclusive_full_compaction, false,
 DEFINE_RUNTIME_uint32(cdcsdk_retention_barrier_no_revision_interval_secs, 120,
                      "Duration for which CDCSDK retention barriers cannot be revised from the "
                      "cdcsdk_block_barrier_revision_start_time");
+
+DEFINE_RUNTIME_bool(ycql_rocksdb_use_delta_encoding, true,
+    "Whether to use delta encoding to compress keys inside data blocks for YCQL.");
+TAG_FLAG(ycql_rocksdb_use_delta_encoding, hidden);
+
+DEFINE_RUNTIME_bool(ysql_rocksdb_use_delta_encoding, true,
+    "Whether to use delta encoding to compress keys inside data blocks for YSQL.");
+TAG_FLAG(ysql_rocksdb_use_delta_encoding, hidden);
+
+DEFINE_RUNTIME_string(ycql_regular_tablets_data_block_key_value_encoding, "three_shared_parts",
+    "YCQL: Key-value encoding to use for regular data blocks in RocksDB. Possible options: "
+    "shared_prefix, three_shared_parts");
+TAG_FLAG(ycql_regular_tablets_data_block_key_value_encoding, hidden);
+DEFINE_validator(ycql_regular_tablets_data_block_key_value_encoding,
+    FLAG_OK_VALIDATOR(yb::docdb::GetConfiguredKeyValueEncodingFormat(_value)));
+
+DEFINE_RUNTIME_string(ysql_regular_tablets_data_block_key_value_encoding, "shared_prefix",
+    "YSQL: Key-value encoding to use for regular data blocks in RocksDB. Possible options: "
+    "shared_prefix, three_shared_parts");
+TAG_FLAG(ysql_regular_tablets_data_block_key_value_encoding, hidden);
+DEFINE_validator(ysql_regular_tablets_data_block_key_value_encoding,
+    FLAG_OK_VALIDATOR(yb::docdb::GetConfiguredKeyValueEncodingFormat(_value)));
+
 
 // FLAGS_TEST_disable_getting_user_frontier_from_mem_table is used in conjunction with
 // FLAGS_TEST_disable_adding_user_frontier_to_sst.  Two flags are needed for the case in which
@@ -753,8 +777,9 @@ Tablet::Tablet(const TabletInitData& data)
   vector_indexes_ = std::make_unique<TabletVectorIndexes>(
       this,
       data.vector_index_thread_pool_provider,
-      data.vector_index_priority_thread_pool_provider,
-      data.vector_index_block_cache);
+      data.vector_index_compaction_token_provider,
+      data.vector_index_block_cache,
+      data.metric_registry);
 
   snapshot_coordinator_ = data.snapshot_coordinator;
 
@@ -858,8 +883,7 @@ auto MakeMemTableFlushFilterFactory(const F& f) {
 
 template <class F>
 auto MakeExcludeFromCompactionFunction(const F& f) {
-  using ExcludeFromCompaction = decltype(std::declval<rocksdb::Options>().exclude_from_compaction);
-  return std::make_shared<typename ExcludeFromCompaction::element_type>(f);
+  return std::make_shared<rocksdb::CompactionFileExcluder>(f);
 }
 
 struct Tablet::IntentsDbFlushFilterState {
@@ -1009,6 +1033,38 @@ std::string MakeTabletLogPrefix(
       tablet_id, Format("$0 [$1]", log_prefix_suffix, LogDbTypePrefix(db_type)));
 }
 
+bool UseDeltaEncoding(TableType table_type) {
+  const bool kDefault = true;
+  switch (table_type) {
+    case TableType::YQL_TABLE_TYPE:
+      return FLAGS_ycql_rocksdb_use_delta_encoding;
+    case TableType::PGSQL_TABLE_TYPE:
+      return FLAGS_ysql_rocksdb_use_delta_encoding;
+    case TableType::REDIS_TABLE_TYPE:
+      return kDefault;
+    case TableType::TRANSACTION_STATUS_TABLE_TYPE:
+      return kDefault;
+  }
+  FATAL_INVALID_ENUM_VALUE(TableType, table_type);
+}
+
+Result<rocksdb::KeyValueEncodingFormat> GetConfiguredKeyValueEncodingFormat(TableType table_type) {
+  const auto kDefault = rocksdb::KeyValueEncodingFormat::kKeyDeltaEncodingSharedPrefix;
+  switch (table_type) {
+    case TableType::YQL_TABLE_TYPE:
+      return docdb::GetConfiguredKeyValueEncodingFormat(
+          FLAGS_ycql_regular_tablets_data_block_key_value_encoding);
+    case TableType::PGSQL_TABLE_TYPE:
+      return docdb::GetConfiguredKeyValueEncodingFormat(
+          FLAGS_ysql_regular_tablets_data_block_key_value_encoding);
+    case TableType::REDIS_TABLE_TYPE:
+      return kDefault;
+    case TableType::TRANSACTION_STATUS_TABLE_TYPE:
+      return kDefault;
+  }
+  FATAL_INVALID_ENUM_VALUE(TableType, table_type);
+}
+
 } // namespace
 
 std::string Tablet::LogPrefix(docdb::StorageDbType db_type) const {
@@ -1017,6 +1073,9 @@ std::string Tablet::LogPrefix(docdb::StorageDbType db_type) const {
 
 Status Tablet::OpenKeyValueTablet() {
   auto common_options = VERIFY_RESULT(CommonRocksDBOptions());
+
+  key_bounds_ = metadata()->MakeKeyBounds();
+  encoded_partition_bounds_ = VERIFY_RESULT(metadata()->MakeEncodedPartitionBounds());
 
   RETURN_NOT_OK(snapshots_->Open());
   RETURN_NOT_OK(OpenRegularDB(common_options));
@@ -1051,38 +1110,9 @@ Status Tablet::OpenKeyValueTablet() {
 }
 
 Result<rocksdb::Options> Tablet::CommonRocksDBOptions() {
-  rocksdb::BlockBasedTableOptions table_options;
-  if (!metadata()->primary_table_info()->index_info || metadata()->colocated()) {
-    // This tablet is not dedicated to the index table, so it should be effective to use
-    // advanced key-value encoding algorithm optimized for docdb keys structure.
-    table_options.use_delta_encoding = true;
-    table_options.data_block_key_value_encoding_format =
-        VERIFY_RESULT(docdb::GetConfiguredKeyValueEncodingFormat(
-            FLAGS_regular_tablets_data_block_key_value_encoding));
-  }
   rocksdb::Options rocksdb_options;
-  InitRocksDBOptions(
-      &rocksdb_options, LogPrefix(docdb::StorageDbType::kRegular), std::move(table_options));
+  InitRocksDBBaseOptions(&rocksdb_options);
 
-  key_bounds_ = metadata()->MakeKeyBounds();
-  encoded_partition_bounds_ = VERIFY_RESULT(metadata()->MakeEncodedPartitionBounds());
-
-  // Install the history cleanup handler. Note that TabletRetentionPolicy is going to hold a raw ptr
-  // to this tablet. So, we ensure that rocksdb_ is reset before this tablet gets destroyed.
-  rocksdb_options.compaction_context_factory = docdb::CreateCompactionContextFactory(
-      retention_policy_, &key_bounds_,
-      std::bind(&Tablet::DeleteMarkerRetentionTime, this, _1),
-      metadata_.get());
-
-  rocksdb_options.mem_table_flush_filter_factory = MakeMemTableFlushFilterFactory([this] {
-    {
-      std::lock_guard lock(flush_filter_mutex_);
-      if (mem_table_flush_filter_factory_) {
-        return mem_table_flush_filter_factory_();
-      }
-    }
-    return rocksdb::MemTableFilter();
-  });
   if (FLAGS_tablet_enable_ttl_file_filter) {
     rocksdb_options.compaction_file_filter_factory =
         std::make_shared<docdb::DocDBCompactionFileFilterFactory>(retention_policy_, clock());
@@ -1125,6 +1155,39 @@ Status Tablet::OpenRegularDB(const rocksdb::Options& common_options) {
   static const std::string kRegularDB = "RegularDB"s;
 
   rocksdb::Options regular_rocksdb_options(common_options);
+  docdb::SetLogPrefix(&regular_rocksdb_options, LogPrefix(docdb::StorageDbType::kRegular));
+  regular_rocksdb_options.statistics = regulardb_statistics_;
+
+  {
+    rocksdb::BlockBasedTableOptions table_options;
+    if (!metadata()->primary_table_info()->index_info || metadata()->colocated()) {
+      // This tablet is not dedicated to the index table, so it should be effective to use
+      // advanced key-value encoding algorithm optimized for docdb keys structure.
+      table_options.data_block_key_value_encoding_format =
+          VERIFY_RESULT(GetConfiguredKeyValueEncodingFormat(table_type_));
+    }
+    table_options.use_delta_encoding = UseDeltaEncoding(table_type_);
+    docdb::InitRocksDBOptionsTableFactory(
+        &regular_rocksdb_options, tablet_options_, std::move(table_options));
+  }
+
+  // Install the history cleanup handler. Note that TabletRetentionPolicy is going to hold a raw ptr
+  // to this tablet. So, we ensure that rocksdb_ is reset before this tablet gets destroyed.
+  regular_rocksdb_options.compaction_context_factory = docdb::CreateCompactionContextFactory(
+      retention_policy_, &key_bounds_,
+      std::bind(&Tablet::DeleteMarkerRetentionTime, this, _1),
+      metadata_.get());
+
+  regular_rocksdb_options.mem_table_flush_filter_factory = MakeMemTableFlushFilterFactory([this] {
+    {
+      std::lock_guard lock(flush_filter_mutex_);
+      if (mem_table_flush_filter_factory_) {
+        return mem_table_flush_filter_factory_();
+      }
+    }
+    return rocksdb::MemTableFilter();
+  });
+
   regular_rocksdb_options.listeners.push_back(
       std::make_shared<RegularRocksDbListener>(*this, regular_rocksdb_options.log_prefix));
   regular_rocksdb_options.mem_tracker = MemTracker::FindOrCreateTracker(kRegularDB, mem_tracker_);
@@ -1169,8 +1232,17 @@ Status Tablet::OpenIntentsDB(const rocksdb::Options& common_options) {
   auto intents_dir = docdb::GetStorageDir(db_dir, docdb::kIntentsDirName);
   LOG_WITH_PREFIX(INFO) << "Opening intents DB at: " << intents_dir;
   rocksdb::Options intents_rocksdb_options(common_options);
-  intents_rocksdb_options.compaction_context_factory = {};
   docdb::SetLogPrefix(&intents_rocksdb_options, LogPrefix(docdb::StorageDbType::kIntents));
+  intents_rocksdb_options.statistics = intentsdb_statistics_;
+
+  {
+    rocksdb::BlockBasedTableOptions table_options;
+    table_options.use_delta_encoding = UseDeltaEncoding(table_type_);
+    docdb::InitRocksDBOptionsTableFactory(
+        &intents_rocksdb_options, tablet_options_, std::move(table_options));
+  }
+
+  intents_rocksdb_options.compaction_context_factory = {};
   intents_rocksdb_options.tablet_id = tablet_id();
 
   intents_rocksdb_options.mem_table_flush_filter_factory = MakeMemTableFlushFilterFactory([this] {
@@ -1193,7 +1265,6 @@ Status Tablet::OpenIntentsDB(const rocksdb::Options& common_options) {
     intents_rocksdb_options.block_based_table_mem_tracker->SetMetricEntity(
         tablet_metrics_entity_);
   }
-  intents_rocksdb_options.statistics = intentsdb_statistics_;
 
   intents_rocksdb_options.listeners.push_back(
       std::make_shared<RocksDbListener>(*this, intents_rocksdb_options.log_prefix));
@@ -1692,7 +1763,7 @@ Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::NewRowIterator(
     docdb::SkipSeek skip_seek) const {
   auto iter = VERIFY_RESULT(NewUninitializedDocRowIterator(
       projection, read_hybrid_time, table_id, deadline, AllowBootstrappingState::kFalse));
-  iter->InitForTableType(table_type_, Slice(), skip_seek);
+  RETURN_NOT_OK(iter->InitForTableType(table_type_, Slice(), skip_seek));
   return std::move(iter);
 }
 
@@ -2244,7 +2315,7 @@ void SetBackfillSpecForYsqlBackfill(
   auto limit = in_spec.limit();
   PgsqlBackfillSpecPB out_spec;
   out_spec.set_limit(limit);
-  out_spec.set_count(in_spec.count() + row_count);
+  out_spec.set_count(in_spec.count() + static_cast<uint64_t>(row_count));
   response->set_is_backfill_batch_done(!response->has_paging_state());
   if (limit >= 0 && out_spec.count() >= limit) {
     // Hint postgres to stop scanning now. And set up the
@@ -2560,7 +2631,8 @@ Status Tablet::WritePostApplyMetadata(std::span<const PostApplyTransactionMetada
 
 // We batch this as some tx could be very large and may not fit in one batch
 Status Tablet::GetIntentsForCDC(
-    const TransactionId& id, std::vector<docdb::IntentKeyValueForCDC>* key_value_intents,
+    const TransactionId& id, const SubtxnSet& aborted,
+    std::vector<docdb::IntentKeyValueForCDC>* key_value_intents,
     docdb::ApplyTransactionState* stream_state) {
   auto scoped_read_operation = CreateScopedRWOperationNotBlockingRocksDbShutdownStart();
   RETURN_NOT_OK(scoped_read_operation);
@@ -2568,7 +2640,7 @@ Status Tablet::GetIntentsForCDC(
   docdb::ApplyTransactionState new_stream_state;
 
   new_stream_state = VERIFY_RESULT(docdb::GetIntentsBatchForCDC(
-      id, &key_bounds_, stream_state, intents_db_.get(), key_value_intents));
+      id, &key_bounds_, stream_state, aborted, intents_db_.get(), key_value_intents));
   stream_state->key = new_stream_state.key;
   stream_state->write_id = new_stream_state.write_id;
 
@@ -2595,7 +2667,7 @@ Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::CreateCDCSnapshotIt
   }
   auto iter = VERIFY_RESULT(NewUninitializedDocRowIterator(
       projection, time, table_id, CoarseTimePoint::max(), AllowBootstrappingState::kFalse));
-  iter->InitForTableType(table_type_, encoded_next_key);
+  RETURN_NOT_OK(iter->InitForTableType(table_type_, encoded_next_key));
   return std::move(iter);
 }
 
@@ -2959,7 +3031,7 @@ Status Tablet::AlterWalRetentionSecs(ChangeMetadataOperation* operation) {
 
 namespace {
 
-string GenerateSerializedBackfillSpec(size_t batch_size, const string& next_row_to_backfill) {
+string GenerateSerializedBackfillSpec(uint64_t batch_size, const string& next_row_to_backfill) {
   PgsqlBackfillSpecPB backfill_spec;
   std::string serialized_backfill_spec;
   // Note that although we set the desired batch_size as the limit, postgres
@@ -3028,14 +3100,14 @@ struct BackfillParams {
   CoarseTimePoint start_time;
   CoarseTimePoint deadline;
   size_t rate_per_sec;
-  size_t batch_size;
+  uint64_t batch_size;
   CoarseTimePoint modified_deadline;
 };
 
 // Slow down before the next batch to throttle the rate of processing.
 void MaybeSleepToThrottleBackfill(
     const CoarseTimePoint& start_time,
-    size_t number_of_rows_processed) {
+    uint64_t number_of_rows_processed) {
   if (FLAGS_backfill_index_rate_rows_per_sec <= 0) {
     return;
   }
@@ -3054,7 +3126,7 @@ void MaybeSleepToThrottleBackfill(
 
 bool CanProceedToBackfillMoreRows(
     const BackfillParams& backfill_params,
-    size_t number_of_rows_processed) {
+    uint64_t number_of_rows_processed) {
   auto now = CoarseMonoClock::Now();
   if (now > backfill_params.modified_deadline ||
       (FLAGS_TEST_backfill_paging_size > 0 &&
@@ -3069,7 +3141,7 @@ bool CanProceedToBackfillMoreRows(
 bool CanProceedToBackfillMoreRows(
     const BackfillParams& backfill_params,
     const string& backfilled_until,
-    size_t number_of_rows_processed) {
+    uint64_t number_of_rows_processed) {
   if (backfilled_until.empty()) {
     // The backfill is done for this tablet. No need to do another batch.
     return false;
@@ -3097,7 +3169,7 @@ Status Tablet::BackfillIndexesForYsql(
     const std::string& database_name,
     const uint64_t postgres_auth_key,
     bool is_xcluster_target,
-    size_t* number_of_rows_processed,
+    uint64_t* number_of_rows_processed,
     std::string* backfilled_until) {
   LOG(INFO) << "Begin " << __func__ << " of tablet " << tablet_id() << " at " << read_time
             << " from row \"" << strings::b2a_hex(backfill_from)
@@ -3240,7 +3312,7 @@ Status Tablet::BackfillIndexes(
     const std::string& backfill_from,
     const CoarseTimePoint deadline,
     const HybridTime read_time,
-    size_t* number_of_rows_processed,
+    uint64_t* number_of_rows_processed,
     std::string* backfilled_until,
     std::unordered_set<TableId>* failed_indexes) {
   TRACE(__func__);
@@ -3266,7 +3338,8 @@ Status Tablet::BackfillIndexes(
   if (!backfill_from.empty()) {
     VLOG(1) << "Resuming backfill from " << b2a_hex(backfill_from);
     *backfilled_until = backfill_from;
-    iter->SeekTuple(Slice(backfill_from));
+    // For backfill we just position to current position, so filter key is not used.
+    iter->SeekTuple(Slice(backfill_from), docdb::UpdateFilterKey::kFalse);
   }
 
   string resume_backfill_from;
@@ -3538,7 +3611,7 @@ Status Tablet::VerifyTableConsistencyForCQL(
 
   if (!start_key.empty()) {
     VLOG(2) << "Starting verify index from " << b2a_hex(start_key);
-    iter->SeekTuple(Slice(start_key));
+    iter->SeekTuple(Slice(start_key), docdb::UpdateFilterKey::kFalse);
   }
 
   constexpr int kProgressInterval = 1000;
@@ -3804,7 +3877,7 @@ Status Tablet::ModifyFlushedFrontier(
     });
     rocksdb::Options rocksdb_options;
     docdb::InitRocksDBOptions(
-        &rocksdb_options, LogPrefix(), tablet_id(), /* statistics */ nullptr, tablet_options_,
+        &rocksdb_options, LogPrefix(), tablet_id(), /* statistics = */ nullptr, tablet_options_,
         rocksdb::BlockBasedTableOptions(), hash_for_data_root_dir(metadata_->data_root_dir()));
     rocksdb_options.create_if_missing = false;
     LOG_WITH_PREFIX(INFO) << "Opening the test RocksDB at " << checkpoint_dir_for_test
@@ -4460,7 +4533,7 @@ Result<RaftGroupMetadataPtr> Tablet::CreateSubtablet(
     rocksdb::Options rocksdb_options;
     docdb::InitRocksDBOptions(
         &rocksdb_options, MakeTabletLogPrefix(tablet_id, log_prefix_suffix_, db_info.db_type),
-        tablet_id, /* statistics */ nullptr, tablet_options_, rocksdb::BlockBasedTableOptions(),
+        tablet_id, /* statistics = */ nullptr, tablet_options_, rocksdb::BlockBasedTableOptions(),
         hash_for_data_root_dir(metadata->data_root_dir()));
     rocksdb_options.create_if_missing = false;
     // Disable background compactions, we only need to update flushed frontier.
@@ -4533,12 +4606,16 @@ void Tablet::ListenNumSSTFilesChanged(std::function<void()> listener) {
   num_sst_files_changed_listener_ = std::move(listener);
 }
 
-void Tablet::InitRocksDBOptions(
-    rocksdb::Options* options, const std::string& log_prefix,
-    rocksdb::BlockBasedTableOptions table_options) {
+void Tablet::InitRocksDBBaseOptions(rocksdb::Options* options) {
+  docdb::InitRocksDBBaseOptions(
+      options, LogPrefix(), tablet_id(), tablet_options_,
+      hash_for_data_root_dir(metadata_->data_root_dir()));
+}
+
+void Tablet::InitRocksDBOptions(rocksdb::Options* options, const std::string& log_prefix) {
   docdb::InitRocksDBOptions(
-      options, log_prefix, tablet_id(), regulardb_statistics_, tablet_options_,
-      std::move(table_options), hash_for_data_root_dir(metadata_->data_root_dir()));
+      options, log_prefix, tablet_id(), /* statistics = */ nullptr, tablet_options_,
+      rocksdb::BlockBasedTableOptions(), hash_for_data_root_dir(metadata_->data_root_dir()));
 }
 
 rocksdb::Env& Tablet::rocksdb_env() const {
@@ -4567,7 +4644,7 @@ Result<std::string> Tablet::GetEncodedMiddleSplitKey(std::string *partition_spli
   // to have two child tablets with alive user records after the splitting, but the split
   // by the internal record will lead to a case when one tablet will consist of internal records
   // only and these records will be compacted out at some point making an empty tablet.
-  if (PREDICT_FALSE(dockv::IsInternalRecordKeyType(dockv::DecodeKeyEntryType(middle_key[0])))) {
+  if (PREDICT_FALSE(dockv::IsMetaKeyType(dockv::DecodeKeyEntryType(middle_key[0])))) {
     return STATUS_FORMAT(
         IllegalState, "$0: got internal record \"$1\"",
         error_prefix(), Slice(middle_key).ToDebugHexString());
