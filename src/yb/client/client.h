@@ -653,7 +653,8 @@ class YBClient {
           CDCSDKDynamicTablesOption::DYNAMIC_TABLES_ENABLED,
       uint64_t* consistent_snapshot_time_out = nullptr,
       const std::optional<ReplicationSlotLsnType>& lsn_type = std::nullopt,
-      const std::optional<ReplicationSlotOrderingMode>& ordering_mode = std::nullopt);
+      const std::optional<ReplicationSlotOrderingMode>& ordering_mode = std::nullopt,
+      bool is_for_notifications = false);
 
   // Delete multiple CDC streams.
   Status DeleteCDCStream(

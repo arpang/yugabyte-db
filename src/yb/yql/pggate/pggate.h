@@ -825,6 +825,7 @@ class PgApiImpl {
                                   YbcPgReplicationSlotSnapshotAction snapshot_action,
                                   YbcLsnType lsn_type,
                                   YbcOrderingMode ordering_mode,
+                                  bool is_for_notifications,
                                   PgStatement **handle);
   Result<tserver::PgCreateReplicationSlotResponsePB> ExecCreateReplicationSlot(
       PgStatement *handle);

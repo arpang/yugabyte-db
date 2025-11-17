@@ -91,6 +91,8 @@ message CreateCDCStreamRequestPB {
   // cdcsdk_stream_create_options field should be used for adding more stream creation options
   // related to CDCSDK in future.
   optional CDCSDKStreamCreateOptionsPB cdcsdk_stream_create_options = 11;
+
+  optional bool is_for_notifications = 12;
 }
 
 message CreateCDCStreamResponsePB {

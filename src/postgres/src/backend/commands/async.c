@@ -1249,6 +1249,11 @@ Exec_ListenPreCommit(void)
 
 	if (ybFirstListener)
 	{
+		/*
+		 * TODO: Why is the replication slot being created here and not by the
+		 * walsender process? yb_is_for_notifications arg may nt be required if
+		 * we do the latter.
+		 */
 		CreateNotificationsSlot();
 		YbRegisterNotificationsWalSender();
 	}
@@ -2753,7 +2758,8 @@ CreateNotificationsSlot()
 	ReplicationSlotCreate(slotname, false, RS_EPHEMERAL,
 						  /* two_phase = */ false, "wal2json",
 						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
-						  CRS_HYBRID_TIME, YB_CRS_TRANSACTION);
+						  CRS_HYBRID_TIME, YB_CRS_TRANSACTION,
+						  /* yb_is_for_notifications = */ true);
 }
 
 static void

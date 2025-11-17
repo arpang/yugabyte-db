@@ -127,7 +127,8 @@ extern void YBCCreateReplicationSlot(const char *slot_name,
 									 CRSSnapshotAction snapshot_action,
 									 uint64_t *consistent_snapshot_time,
 									 YbCRSLsnType lsn_type,
-									 YbCRSOrderingMode yb_ordering_mode);
+									 YbCRSOrderingMode yb_ordering_mode,
+									 bool is_for_notifications);
 
 extern void YBCListReplicationSlots(YbcReplicationSlotDescriptor **replication_slots,
 									size_t *numreplicationslots);

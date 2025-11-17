@@ -952,6 +952,7 @@ YbcStatus YBCPgNewCreateReplicationSlot(const char *slot_name,
                                         YbcPgReplicationSlotSnapshotAction snapshot_action,
                                         YbcLsnType lsn_type,
                                         YbcOrderingMode ordering_mode,
+                                        bool is_for_notifications,
                                         YbcPgStatement *handle);
 YbcStatus YBCPgExecCreateReplicationSlot(YbcPgStatement handle,
                                          uint64_t *consistent_snapshot_time);

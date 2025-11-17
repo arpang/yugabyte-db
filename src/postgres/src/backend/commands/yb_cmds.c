@@ -2217,7 +2217,8 @@ YBCCreateReplicationSlot(const char *slot_name,
 						 CRSSnapshotAction snapshot_action,
 						 uint64_t *consistent_snapshot_time,
 						 YbCRSLsnType lsn_type,
-						 YbCRSOrderingMode yb_ordering_mode)
+						 YbCRSOrderingMode yb_ordering_mode,
+						 bool is_for_notifications)
 {
 	YbcPgStatement handle;
 
@@ -2257,6 +2258,7 @@ YBCCreateReplicationSlot(const char *slot_name,
 												 repl_slot_snapshot_action,
 												 repl_slot_lsn_type,
 												 repl_slot_ordering_mode,
+												 is_for_notifications,
 												 &handle));
 
 	YbcStatus	status = YBCPgExecCreateReplicationSlot(handle, consistent_snapshot_time);

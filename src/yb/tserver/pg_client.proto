@@ -336,6 +336,8 @@ message PgCreateReplicationSlotRequestPB {
   reserved 6; // ASH metadata is now passed in RequestHeader PB
   PGReplicationSlotLsnType lsn_type = 7;
   PGReplicationSlotOrderingMode ordering_mode = 8;
+
+  bool is_for_notifications = 9;
 }
 
 message PgCreateReplicationSlotResponsePB {

@@ -531,7 +531,7 @@ Status PgDropDBSequences::Exec() {
 PgCreateReplicationSlot::PgCreateReplicationSlot(
     const PgSession::ScopedRefPtr& pg_session, const char* slot_name, const char* plugin_name,
     PgOid database_oid, YbcPgReplicationSlotSnapshotAction snapshot_action, YbcLsnType lsn_type,
-    YbcOrderingMode yb_ordering_mode)
+    YbcOrderingMode yb_ordering_mode, bool is_for_notifications)
     : BaseType(pg_session) {
   req_.set_database_oid(database_oid);
   req_.set_replication_slot_name(slot_name);
@@ -582,6 +582,8 @@ PgCreateReplicationSlot::PgCreateReplicationSlot(
             tserver::PGReplicationSlotOrderingMode::ReplicationSlotOrderingModePg_TRANSACTION);
     }
   }
+
+  req_.set_is_for_notifications(is_for_notifications);
 }
 
 Result<tserver::PgCreateReplicationSlotResponsePB> PgCreateReplicationSlot::Exec() {

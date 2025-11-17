@@ -22,7 +22,10 @@
 
 /* ----------------
  *		pg_yb_notifications definition.  cpp turns this into
- *		typedef struct FormData_pg_yb_notifications
+ *		typedef struct FormData_pg_yb_notifications.
+ *		The YbNotificationsRelationId value (8100) is also used in docdb
+ *		(kPgYbNotificationsTableOid in entity_ids.h) so this value here
+ *		should match kPgYbNotificationsTableOid.
  * ----------------
  */
 CATALOG(pg_yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(8101,YbNotificationsRelation_Rowtype_Id) YB_BKI_TSERVER_HOSTED BKI_SCHEMA_MACRO
