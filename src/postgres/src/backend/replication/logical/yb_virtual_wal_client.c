@@ -26,6 +26,7 @@
 #include <inttypes.h>
 
 #include "access/xact.h"
+#include "catalog/pg_yb_notifications_d.h"
 #include "catalog/yb_type.h"
 #include "commands/yb_cmds.h"
 #include "pg_yb_utils.h"
@@ -95,10 +96,11 @@ static List *unacked_transactions = NIL;
  */
 static YbcReplicationSlotHashRange *slot_hash_range = NULL;
 
-static List *YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables);
+static List *YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables, Oid* dboid);
 static List *YBCGetTablesWithRetryIfNeeded(List *publication_names,
 										   bool *yb_is_pub_all_tables,
-										   bool *skip_setting_yb_read_time);
+										   bool *skip_setting_yb_read_time,
+										   Oid* dboid);
 static void InitVirtualWal(List *publication_names,
 						   const YbcReplicationSlotHashRange *slot_hash_range);
 
@@ -183,20 +185,29 @@ YBCDestroyVirtualWal()
 	needs_publication_table_list_refresh = false;
 }
 
+
 static List *
-YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables)
+YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables, Oid* dboid)
 {
 	List	   *yb_publications;
 	List	   *tables;
+	Oid			db_oid;
 
 	Assert(IsTransactionState());
 
-	if (publication_names != NIL)
+	if (am_listen_walsender)
+	{
+		Assert(publication_names == NIL);
+		tables = list_make1_oid(YbNotificationsRelationId);
+		db_oid = Template1DbOid;
+	}
+	else if (publication_names != NIL)
 	{
 		yb_publications =
 			YBGetPublicationsByNames(publication_names, false /* missing_ok */ );
 
 		tables = yb_pg_get_publications_tables(yb_publications, yb_is_pub_all_tables);
+		db_oid = MyDatabaseId;
 		list_free(yb_publications);
 	}
 	else
@@ -207,23 +218,26 @@ YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables)
 		 * publish_via_partition_root = false (default).
 		 */
 		tables = GetAllTablesPublicationRelations(false /* pubviaroot */ );
+		db_oid = MyDatabaseId;
 		*yb_is_pub_all_tables = true;
 	}
 
+	if (dboid)
+		*dboid = db_oid;
 
 	return tables;
 }
 
 static List *
 YBCGetTablesWithRetryIfNeeded(List *publication_names, bool *yb_is_pub_all_tables,
-							  bool *skip_setting_yb_read_time)
+							  bool *skip_setting_yb_read_time, Oid* dboid)
 {
 	List	   *tables;
 	MemoryContext caller_context = CurrentMemoryContext;
 
 	PG_TRY();
 	{
-		tables = YBCGetTables(publication_names, yb_is_pub_all_tables);
+		tables = YBCGetTables(publication_names, yb_is_pub_all_tables, dboid);
 	}
 	PG_CATCH();
 	{
@@ -246,7 +260,7 @@ YBCGetTablesWithRetryIfNeeded(List *publication_names, bool *yb_is_pub_all_table
 		if (skip_setting_yb_read_time)
 			*skip_setting_yb_read_time = true;
 
-		tables = YBCGetTables(publication_names, yb_is_pub_all_tables);
+		tables = YBCGetTables(publication_names, yb_is_pub_all_tables, dboid);
 	}
 	PG_END_TRY();
 
@@ -295,8 +309,9 @@ InitVirtualWal(List *publication_names,
 	 * the tables in the publication as of now. So, yb_ignore_read_time_in_walsender
 	 * should be set and we will fetch the tables in publication as of now.
 	 */
+	Oid dboid = InvalidOid;
 	tables = YBCGetTablesWithRetryIfNeeded(publication_names, &yb_is_pub_all_tables,
-										   &skip_setting_yb_read_time);
+										   &skip_setting_yb_read_time, &dboid);
 
 	yb_publication_oids = YBGetPublicationOidsByNames(publication_names);
 	if (yb_enable_consistent_replication_from_hash_range &&
@@ -322,7 +337,7 @@ InitVirtualWal(List *publication_names,
 	YBCInitVirtualWalForCDC(MyReplicationSlot->data.yb_stream_id, table_oids,
 							list_length(tables), slot_hash_range, MyProcPid,
 							yb_publication_oids, list_length(publication_names),
-							yb_is_pub_all_tables);
+							yb_is_pub_all_tables, dboid);
 
 	if (!*YBCGetGFlags()->ysql_yb_enable_implicit_dynamic_tables_logical_replication &&
 		!skip_setting_yb_read_time)
@@ -404,7 +419,8 @@ YBCReadRecord(XLogReaderState *state, List *publication_names, char **errormsg)
 			 * in publication as of now upon retry.
 			 */
 			tables = YBCGetTablesWithRetryIfNeeded(publication_names,
-												   &yb_is_pub_all_tables, NULL);
+												   &yb_is_pub_all_tables, NULL,
+												   /* db_oid = */ NULL);
 
 			table_oids = YBCGetTableOids(tables);
 			YBCUpdatePublicationTableList(MyReplicationSlot->data.yb_stream_id,

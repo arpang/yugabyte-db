@@ -143,7 +143,8 @@ extern void
 									size_t numrelations,
 									const YbcReplicationSlotHashRange *slot_hash_range,
 									uint64_t active_pid, Oid *publications,
-									size_t numpublications, bool yb_is_pub_all_tables);
+									size_t numpublications, bool yb_is_pub_all_tables,
+									Oid dboid);
 
 extern void YBCUpdatePublicationTableList(const char *stream_id,
 										  Oid *relations,

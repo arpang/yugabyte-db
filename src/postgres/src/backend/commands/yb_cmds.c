@@ -2338,16 +2338,16 @@ YBCInitVirtualWalForCDC(const char *stream_id, Oid *relations,
 						const YbcReplicationSlotHashRange *slot_hash_range,
 						uint64_t active_pid,
 						Oid *publications, size_t numpublications,
-						bool yb_is_pub_all_tables)
+						bool yb_is_pub_all_tables, Oid dboid)
 {
-	Assert(MyDatabaseId);
+	Assert(dboid);
 
 	Oid		   *relfilenodes;
 
 	relfilenodes = palloc(sizeof(Oid) * numrelations);
 	YBCGetRelfileNodes(relations, numrelations, relfilenodes);
 
-	HandleYBStatus(YBCPgInitVirtualWalForCDC(stream_id, MyDatabaseId, relations,
+	HandleYBStatus(YBCPgInitVirtualWalForCDC(stream_id, dboid, relations,
 											 relfilenodes, numrelations,
 											 slot_hash_range, active_pid, publications,
 											 numpublications, yb_is_pub_all_tables));
