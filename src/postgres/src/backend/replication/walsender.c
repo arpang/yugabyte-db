@@ -68,7 +68,6 @@
 #include "miscadmin.h"
 #include "nodes/replnodes.h"
 #include "pgstat.h"
-#include "postmaster/bgworker.h"
 #include "postmaster/interrupt.h"
 #include "replication/decode.h"
 #include "replication/logical.h"
@@ -100,6 +99,7 @@
 #include "commands/async.h"
 #include "commands/yb_cmds.h"
 #include "pg_yb_utils.h"
+#include "postmaster/bgworker.h"
 #include "replication/yb_virtual_wal_client.h"
 #include "yb/yql/pggate/util/ybc_guc.h"
 #include "yb/yql/pggate/ybc_gflags.h"
@@ -1534,11 +1534,10 @@ YbNotificationsWalSenderMain(Datum main_arg)
 	am_listen_walsender = true;
 	WalSndSignals();
 	BackgroundWorkerUnblockSignals();
-	// TODO: remove hardcoding
+	/* TODO: remove hardcoding */
 	BackgroundWorkerInitializeConnection("yugabyte", "yugabyte", 0);
 
 	InitWalSender();
-	// char *slotname = NotificationsSlotName();
 
 	StartReplicationCmd cmd;
 	cmd.type = T_StartReplicationCmd;

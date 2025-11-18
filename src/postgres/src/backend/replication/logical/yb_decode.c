@@ -27,13 +27,13 @@
 
 #include <inttypes.h>
 
-#include "yb/yql/pggate/ybc_pg_typedefs.h"
 #include "access/xact.h"
 #include "commands/async.h"
 #include "pg_yb_utils.h"
 #include "replication/walsender_private.h"
 #include "replication/yb_decode.h"
 #include "utils/rel.h"
+#include "yb/yql/pggate/ybc_pg_typedefs.h"
 
 static void YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record);
 static void YBDecodeUpdate(LogicalDecodingContext *ctx, XLogReaderState *record);

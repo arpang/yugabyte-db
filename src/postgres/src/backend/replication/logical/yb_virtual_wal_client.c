@@ -96,11 +96,11 @@ static List *unacked_transactions = NIL;
  */
 static YbcReplicationSlotHashRange *slot_hash_range = NULL;
 
-static List *YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables, Oid* dboid);
+static List *YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables, Oid *dboid);
 static List *YBCGetTablesWithRetryIfNeeded(List *publication_names,
 										   bool *yb_is_pub_all_tables,
 										   bool *skip_setting_yb_read_time,
-										   Oid* dboid);
+										   Oid *dboid);
 static void InitVirtualWal(List *publication_names,
 						   const YbcReplicationSlotHashRange *slot_hash_range);
 
@@ -187,7 +187,7 @@ YBCDestroyVirtualWal()
 
 
 static List *
-YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables, Oid* dboid)
+YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables, Oid *dboid)
 {
 	List	   *yb_publications;
 	List	   *tables;
@@ -230,7 +230,7 @@ YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables, Oid* dboid)
 
 static List *
 YBCGetTablesWithRetryIfNeeded(List *publication_names, bool *yb_is_pub_all_tables,
-							  bool *skip_setting_yb_read_time, Oid* dboid)
+							  bool *skip_setting_yb_read_time, Oid *dboid)
 {
 	List	   *tables;
 	MemoryContext caller_context = CurrentMemoryContext;

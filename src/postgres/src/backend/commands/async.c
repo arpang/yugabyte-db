@@ -136,7 +136,6 @@
 #include "access/xact.h"
 #include "catalog/pg_database.h"
 #include "commands/async.h"
-#include "commands/dbcommands.h"
 #include "common/hashfn.h"
 #include "funcapi.h"
 #include "libpq/libpq.h"
@@ -156,14 +155,12 @@
 #include "utils/timestamp.h"
 
 /* YB includes */
-#include "catalog/namespace.h"
 #include "catalog/pg_yb_notifications_d.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
 #include "replication/slot.h"
 #include "utils/lsyscache.h"
 #include "utils/uuid.h"
-
 
 /*
  * Maximum size of a NOTIFY payload, including terminating NULL.  This
@@ -953,8 +950,8 @@ YbInsertNotifications(void)
 		YBCExecuteInsertForDb(YBCGetDatabaseOid(rel), rel, slot,
 							  ONCONFLICT_NONE, NULL, txn_setting);
 
-		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */,
-						 txn_setting, false /* changingPart */, estate);
+		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */ ,
+						 txn_setting, false /* changingPart */ , estate);
 		MemoryContextReset(GetPerTupleMemoryContext(estate));
 		nextNotify = lnext(pendingNotifies->events, nextNotify);
 	}
@@ -2664,10 +2661,10 @@ YbRegisterNotificationsWalSender()
 	pid_t pid;
 	status = WaitForBackgroundWorkerStartup(local_handle, &pid);
 	if (status != BGWH_STARTED)
-		ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-						errmsg("could not start background process"),
-						errhint("More details may be available in the server "
-								"log.")));
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+				 errmsg("could not start background process"),
+				 errhint("More details may be available in the server log.")));
 
 	bool found;
 	BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
@@ -2721,7 +2718,7 @@ static void
 CreateNotificationsSlot()
 {
 	MemoryContext cur_context = CurrentMemoryContext;
-	char* slotname = YbNotificationsSlotName();
+	char *slotname = YbNotificationsSlotName();
 	PG_TRY();
 	{
 		/* If a notification slot with the same name already exists, drop it.
@@ -2765,6 +2762,6 @@ CreateNotificationsSlot()
 static void
 DropNotificationsSlot()
 {
-	char* slotname = YbNotificationsSlotName();
+	char *slotname = YbNotificationsSlotName();
 	ReplicationSlotDrop(slotname, /* nowait = */ true, /* yb_force = */ true);
 }
