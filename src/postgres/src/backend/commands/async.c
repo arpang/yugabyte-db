@@ -2660,21 +2660,23 @@ YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe)
 {
 	Relation rel = RelationIdGetRelation(YbNotificationsRelationId);
 	TupleDesc desc = RelationGetDescr(rel);
-	Datum *values = (Datum *) palloc(Natts_pg_yb_notifications * sizeof(Datum));
-	bool *isnull = (bool *) palloc(Natts_pg_yb_notifications * sizeof(bool));
-	heap_deform_tuple(tuple, desc, values, isnull);
 
-	Assert(!isnull[Anum_pg_yb_notifications_sender_node - 1]);
-	memcpy(qe->yb_node_uuid.data, DatumGetUUIDP(values[Anum_pg_yb_notifications_sender_node - 1]), UUID_LEN);
+	bool isnull;
+	Datum sender_node = heap_getattr(tuple, Anum_pg_yb_notifications_sender_node, desc, &isnull);
+	Assert(!isnull);
+	memcpy(qe->yb_node_uuid.data, DatumGetUUIDP(sender_node), UUID_LEN);
 
-	Assert(!isnull[Anum_pg_yb_notifications_sender_pid - 1]);
-	qe->srcPid = DatumGetInt32(values[Anum_pg_yb_notifications_sender_pid - 1]);
+	Datum sender_id = heap_getattr(tuple, Anum_pg_yb_notifications_sender_pid, desc, &isnull);
+	Assert(!isnull);
+	qe->srcPid = DatumGetInt32(sender_id);
 
-	Assert(!isnull[Anum_pg_yb_notifications_dbid - 1]);
-	qe->dboid = DatumGetObjectId(values[Anum_pg_yb_notifications_dbid - 1]);
+	Datum dbid = heap_getattr(tuple, Anum_pg_yb_notifications_dbid, desc, &isnull);
+	Assert(!isnull);
+	qe->dboid = DatumGetObjectId(dbid);
 
-	Assert(!isnull[Anum_pg_yb_notifications_data - 1]);
-	const void *data = DatumGetPointer(values[Anum_pg_yb_notifications_data - 1]);
+	Datum data_datum = heap_getattr(tuple, Anum_pg_yb_notifications_data, desc, &isnull);
+	Assert(!isnull);
+	const void *data = DatumGetPointer(data_datum);
 	size_t datalen = VARSIZE_ANY(data);
 	memcpy(qe->data, VARDATA_ANY(data), datalen);
 
