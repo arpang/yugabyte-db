@@ -159,8 +159,6 @@
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
 #include "replication/slot.h"
-#include "utils/lsyscache.h"
-#include "utils/uuid.h"
 
 /*
  * Maximum size of a NOTIFY payload, including terminating NULL.  This
@@ -188,10 +186,9 @@ typedef struct AsyncQueueEntry
 {
 	int			length;			/* total allocated length of entry */
 	Oid			dboid;			/* sender's database OID */
-	/* TODO: What is the use of xid? Is it applicable to YB? */
 	TransactionId xid;			/* sender's XID */
 	int32		srcPid;			/* sender's PID */
-	pg_uuid_t yb_node_uuid;		/* TODO: populate */
+	pg_uuid_t	yb_node_uuid;	/* sender node uuid. */
 	char		data[NAMEDATALEN + NOTIFY_PAYLOAD_MAX_LENGTH];
 } AsyncQueueEntry;
 
@@ -427,16 +424,6 @@ typedef struct NotificationHash
 {
 	Notification *event;		/* => the actual Notification struct */
 } NotificationHash;
-
-/*
- * TODO: Do I really need this change? How about keep the struct in .c and
- * expose its size?
- */
-struct BackgroundWorkerHandle
-{
-	int slot;
-	uint64 generation;
-};
 
 static NotificationList *pendingNotifies = NULL;
 
@@ -1411,11 +1398,10 @@ asyncQueueUnregister(void)
 		bool found;
 		BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
 		Assert(found);
-		elog(INFO, "Arpan calling TerminateBackgroundWorker slot %d, generation %ld",shm_handle->slot, shm_handle->generation );
+		// elog(INFO, "Arpan calling TerminateBackgroundWorker slot %d, generation %ld",shm_handle->slot, shm_handle->generation );
 		TerminateBackgroundWorker(shm_handle);
 		DropNotificationsSlot();
-		shm_handle->generation = 0;
-		shm_handle->slot = 0;
+		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
 	}
 
 	LWLockRelease(NotifyQueueLock);
@@ -2634,7 +2620,7 @@ static BackgroundWorkerHandle *
 YbShmemWalSenderBgWHandle(bool *found)
 {
 	return ShmemInitStruct("NotificationsWalSenderBgWHandle",
-						   sizeof(BackgroundWorkerHandle), found);
+						   YbBackgroundWorkerHandleSize(), found);
 }
 
 static void
@@ -2668,9 +2654,7 @@ YbRegisterNotificationsWalSender()
 
 	bool found;
 	BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
-	shm_handle->slot = local_handle->slot;
-	shm_handle->generation = local_handle->generation;
-	elog(INFO, "New bg worker registered slot %d generation %ld", shm_handle->slot, shm_handle->generation);
+	memcpy(shm_handle, local_handle, YbBackgroundWorkerHandleSize());
 	pfree(local_handle);
 }
 

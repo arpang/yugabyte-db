@@ -1325,3 +1325,9 @@ GetBackgroundWorkerTypeByPid(pid_t pid)
 
 	return result;
 }
+
+size_t
+YbBackgroundWorkerHandleSize()
+{
+	return sizeof(BackgroundWorkerHandle);
+}
