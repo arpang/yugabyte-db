@@ -894,11 +894,6 @@ AtPrepare_Notify(void)
 				 errmsg("cannot PREPARE a transaction that has executed LISTEN, UNLISTEN, or NOTIFY")));
 }
 
-#define YB_NOTIFICATION_NODE_FIELD	  0
-#define YB_NOTIFICATION_PID_FIELD	  1
-#define YB_NOTIFICATION_DB_FIELD	  2
-#define YB_NOTIFICATION_DATA_FIELD	  3
-
 void
 YbInsertNotifications(void)
 {
@@ -914,20 +909,22 @@ YbInsertNotifications(void)
 	while (nextNotify)
 	{
 		Notification *n = (Notification *) lfirst(nextNotify);
-		slot->tts_isnull[YB_NOTIFICATION_NODE_FIELD] = false;
-		slot->tts_values[YB_NOTIFICATION_NODE_FIELD] =
+		slot->tts_isnull[Anum_pg_yb_notifications_sender_node - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_sender_node - 1] =
 			CStringGetDatum(YBCGetLocalTserverUuid());
 
-		slot->tts_isnull[YB_NOTIFICATION_PID_FIELD] = false;
-		slot->tts_values[YB_NOTIFICATION_PID_FIELD] = Int32GetDatum(MyProcPid);
+		slot->tts_isnull[Anum_pg_yb_notifications_sender_pid - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_sender_pid - 1] =
+			Int32GetDatum(MyProcPid);
 
-		slot->tts_isnull[YB_NOTIFICATION_DB_FIELD] = false;
-		slot->tts_values[YB_NOTIFICATION_DB_FIELD] =
+		slot->tts_isnull[Anum_pg_yb_notifications_dbid - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_dbid - 1] =
 			ObjectIdGetDatum(MyDatabaseId);
 
-		slot->tts_isnull[YB_NOTIFICATION_DATA_FIELD] = false;
-		slot->tts_values[YB_NOTIFICATION_DATA_FIELD] =
-			CStringGetDatum(cstring_to_text_with_len(n->data, n->channel_len + n->payload_len + 2));
+		slot->tts_isnull[Anum_pg_yb_notifications_data - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_data - 1] = CStringGetDatum(
+			cstring_to_text_with_len(n->data,
+									 n->channel_len + n->payload_len + 2));
 
 		ExecStoreVirtualTuple(slot);
 
@@ -2663,22 +2660,21 @@ YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe)
 {
 	Relation rel = RelationIdGetRelation(YbNotificationsRelationId);
 	TupleDesc desc = RelationGetDescr(rel);
-	int numberOfAttributes = desc->natts;
-	Datum *values = (Datum *) palloc(numberOfAttributes * sizeof(Datum));
-	bool *isnull = (bool *) palloc(numberOfAttributes * sizeof(bool));
+	Datum *values = (Datum *) palloc(Natts_pg_yb_notifications * sizeof(Datum));
+	bool *isnull = (bool *) palloc(Natts_pg_yb_notifications * sizeof(bool));
 	heap_deform_tuple(tuple, desc, values, isnull);
 
-	Assert(!isnull[YB_NOTIFICATION_NODE_FIELD]);
-	memcpy(qe->yb_node_uuid.data, DatumGetUUIDP(values[YB_NOTIFICATION_NODE_FIELD]), UUID_LEN);
+	Assert(!isnull[Anum_pg_yb_notifications_sender_node - 1]);
+	memcpy(qe->yb_node_uuid.data, DatumGetUUIDP(values[Anum_pg_yb_notifications_sender_node - 1]), UUID_LEN);
 
-	Assert(!isnull[YB_NOTIFICATION_PID_FIELD]);
-	qe->srcPid = DatumGetInt32(values[YB_NOTIFICATION_PID_FIELD]);
+	Assert(!isnull[Anum_pg_yb_notifications_sender_pid - 1]);
+	qe->srcPid = DatumGetInt32(values[Anum_pg_yb_notifications_sender_pid - 1]);
 
-	Assert(!isnull[YB_NOTIFICATION_DB_FIELD]);
-	qe->dboid = DatumGetObjectId(values[YB_NOTIFICATION_DB_FIELD]);
+	Assert(!isnull[Anum_pg_yb_notifications_dbid - 1]);
+	qe->dboid = DatumGetObjectId(values[Anum_pg_yb_notifications_dbid - 1]);
 
-	Assert(!isnull[YB_NOTIFICATION_DATA_FIELD]);
-	const void *data = DatumGetPointer(values[YB_NOTIFICATION_DATA_FIELD]);
+	Assert(!isnull[Anum_pg_yb_notifications_data - 1]);
+	const void *data = DatumGetPointer(values[Anum_pg_yb_notifications_data - 1]);
 	size_t datalen = VARSIZE_ANY(data);
 	memcpy(qe->data, VARDATA_ANY(data), datalen);
 
