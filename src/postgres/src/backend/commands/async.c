@@ -158,8 +158,8 @@
 #include "catalog/pg_yb_notifications_d.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
-#include "replication/yb_decode.h"
 #include "replication/slot.h"
+#include "replication/yb_decode.h"
 
 /*
  * Maximum size of a NOTIFY payload, including terminating NULL.  This
@@ -924,9 +924,9 @@ YbInsertNotifications(void)
 			ObjectIdGetDatum(MyDatabaseId);
 
 		slot->tts_isnull[Anum_pg_yb_notifications_data - 1] = false;
-		slot->tts_values[Anum_pg_yb_notifications_data - 1] = CStringGetDatum(
-			cstring_to_text_with_len(n->data,
-									 n->channel_len + n->payload_len + 2));
+		slot->tts_values[Anum_pg_yb_notifications_data - 1] =
+			CStringGetDatum(cstring_to_text_with_len(n->data,
+							n->channel_len + n->payload_len + 2));
 
 		ExecStoreVirtualTuple(slot);
 
@@ -1397,7 +1397,6 @@ asyncQueueUnregister(void)
 		bool found;
 		BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
 		Assert(found);
-		// elog(INFO, "Arpan calling TerminateBackgroundWorker slot %d, generation %ld",shm_handle->slot, shm_handle->generation );
 		TerminateBackgroundWorker(shm_handle);
 		DropNotificationsSlot();
 		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());

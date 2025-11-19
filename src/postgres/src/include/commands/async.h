@@ -53,7 +53,7 @@ extern void HandleNotifyInterrupt(void);
 /* process interrupts */
 extern void ProcessNotifyInterrupt(bool flush);
 
-extern int YbAsyncQueueAddEntries(YbcPgRowMessage* rows, int row_count, int start_index);
+extern int YbAsyncQueueAddEntries(YbcPgRowMessage *rows, int row_count, int start_index);
 
 extern char *YbNotificationsSlotName();
 

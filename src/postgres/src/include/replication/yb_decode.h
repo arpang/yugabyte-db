@@ -28,6 +28,6 @@
 void		YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 										   XLogReaderState *record);
 
-HeapTuple YBGetHeapTuplesForRecord(const YbVirtualWalRecord *yb_record);
+extern HeapTuple YBGetHeapTuplesForRecord(const YbVirtualWalRecord *yb_record);
 
 #endif

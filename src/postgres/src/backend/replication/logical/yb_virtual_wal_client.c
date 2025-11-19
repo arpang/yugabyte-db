@@ -475,9 +475,9 @@ YBCReadRecord(XLogReaderState *state, List *publication_names, char **errormsg)
 	last_getconsistentchanges_response_empty = false;
 
 	if (am_listen_walsender)
-		cached_records_last_sent_row_idx = YbAsyncQueueAddEntries(
-			cached_records->rows, cached_records->row_count,
-			cached_records_last_sent_row_idx);
+		cached_records_last_sent_row_idx = YbAsyncQueueAddEntries(cached_records->rows,
+																  cached_records->row_count,
+																  cached_records_last_sent_row_idx);
 	else
 	{
 		record = &cached_records->rows[cached_records_last_sent_row_idx++];
