@@ -1615,7 +1615,6 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 										 .segment_close = wal_segment_close),
 							  WalSndPrepareWrite, WalSndWriteData,
 							  WalSndUpdateProgress);
-	logical_decoding_ctx->yb_notifications = am_listen_walsender;
 	xlogreader = logical_decoding_ctx->reader;
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 

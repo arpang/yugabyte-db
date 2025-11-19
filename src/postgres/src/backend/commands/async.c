@@ -158,6 +158,7 @@
 #include "catalog/pg_yb_notifications_d.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
+#include "replication/yb_decode.h"
 #include "replication/slot.h"
 
 /*
@@ -189,6 +190,7 @@ typedef struct AsyncQueueEntry
 	TransactionId xid;			/* sender's XID */
 	int32		srcPid;			/* sender's PID */
 	pg_uuid_t	yb_node_uuid;	/* sender node uuid. */
+	uint64_t	yb_commit_time_ht;	/* hybrid commit time of notification */
 	char		data[NAMEDATALEN + NOTIFY_PAYLOAD_MAX_LENGTH];
 } AsyncQueueEntry;
 
@@ -462,7 +464,7 @@ static void asyncQueueUnregister(void);
 static bool asyncQueueIsFull(void);
 static bool asyncQueueAdvance(volatile QueuePosition *position, int entryLength);
 static void asyncQueueNotificationToEntry(Notification *n, AsyncQueueEntry *qe);
-static ListCell *asyncQueueAddEntries(ListCell *nextNotify);
+static ListCell *asyncQueueAddEntries(ListCell *nextNotify, List *yb_notifications);
 static double asyncQueueUsage(void);
 static void asyncQueueFillWarning(void);
 static void SignalBackends(void);
@@ -481,7 +483,7 @@ static void ClearPendingActionsAndNotifies(void);
 
 static void YbRegisterNotificationsWalSender();
 static BackgroundWorkerHandle *YbShmemWalSenderBgWHandle(bool *found);
-static void YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe);
+static void YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
 static void CreateNotificationsSlot();
 static void DropNotificationsSlot();
 
@@ -1049,7 +1051,7 @@ PreCommit_Notify(void)
 				ereport(ERROR,
 						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 						 errmsg("too many notifications in the NOTIFY queue")));
-			nextNotify = asyncQueueAddEntries(nextNotify);
+			nextNotify = asyncQueueAddEntries(nextNotify, pendingNotifies->events);
 			LWLockRelease(NotifyQueueLock);
 		}
 
@@ -1498,30 +1500,55 @@ asyncQueueNotificationToEntry(Notification *n, AsyncQueueEntry *qe)
 	memcpy(qe->data, n->data, channellen + payloadlen + 2);
 }
 
-void
-YbAsyncQueueAddEntry(ListCell *tuples)
+int
+YbAsyncQueueAddEntries(YbcPgRowMessage *rows, int row_count, int start_index)
 {
-	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
-	// while(asyncQueueIsFull())
-	// {
-	// 	LWLockRelease(NotifyQueueLock);
-	// 	/* TODO: What's a reasonable sleep time? */
-	// 	pg_usleep(2 * 1000L); /* 2ms */
-	// 	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
-	// }
-	asyncQueueAddEntries(tuples);
+	List *notifications = NIL;
+	int index = start_index;
+	bool queue_full = false;
+
+	LWLockAcquire(NotifyQueueLock, LW_SHARED);
+	queue_full = asyncQueueIsFull();
 	LWLockRelease(NotifyQueueLock);
+	if (queue_full)
+		return start_index;
+
+	while (index < row_count)
+	{
+		notifications = lappend(notifications, rows + index);
+		index++;
+	}
+
+	StartTransactionCommand();
+	ListCell *nextNotify = list_head(notifications);
+	while (nextNotify != NULL)
+	{
+		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+		if (asyncQueueIsFull())
+		{
+			LWLockRelease(NotifyQueueLock);
+			break;
+		}
+		nextNotify = asyncQueueAddEntries(nextNotify, notifications);
+		LWLockRelease(NotifyQueueLock);
+	}
+	AbortCurrentTransaction();
 
 	/*
 	 * Signal listening backends and advance tail if applicable.
 	 */
-	SignalBackends();
+	if (list_head(notifications) != nextNotify)
+		SignalBackends();
 
 	if (tryAdvanceTail)
 	{
 		tryAdvanceTail = false;
 		asyncQueueAdvanceTail();
 	}
+
+	return nextNotify ?
+			   list_cell_number(notifications, nextNotify) + start_index :
+			   row_count;
 }
 
 /*
@@ -1541,7 +1568,7 @@ YbAsyncQueueAddEntry(ListCell *tuples)
  * NotifySLRULock locally in this function.
  */
 ListCell *
-asyncQueueAddEntries(ListCell *nextNotify)
+asyncQueueAddEntries(ListCell *nextNotify, List *yb_notifications)
 {
 	AsyncQueueEntry qe;
 	QueuePosition queue_head;
@@ -1583,10 +1610,9 @@ asyncQueueAddEntries(ListCell *nextNotify)
 	/* Note we mark the page dirty before writing in it */
 	NotifyCtl->shared->page_dirty[slotno] = true;
 
-	bool is_yb = IsYugaByteEnabled();
 	while (nextNotify != NULL)
 	{
-		if (!is_yb)
+		if (!IsYugaByteEnabled())
 		{
 			Notification *n = (Notification *) lfirst(nextNotify);
 
@@ -1595,10 +1621,14 @@ asyncQueueAddEntries(ListCell *nextNotify)
 		}
 		else
 		{
-			HeapTuple tuple = (HeapTuple) lfirst(nextNotify);
-
+			YbcPgRowMessage *msg = (YbcPgRowMessage *) lfirst(nextNotify);
+			if (msg->action != YB_PG_ROW_MESSAGE_ACTION_INSERT)
+			{
+				nextNotify = lnext(yb_notifications, nextNotify);
+				continue;
+			}
 			/* Construct a valid queue entry in local variable qe */
-			YbTupleToAsyncQueueEntry(tuple, &qe);
+			YbRowMessageToAsyncQueueEntry(msg, &qe);
 		}
 
 		offset = QUEUE_POS_OFFSET(queue_head);
@@ -1607,10 +1637,7 @@ asyncQueueAddEntries(ListCell *nextNotify)
 		if (offset + qe.length <= QUEUE_PAGESIZE)
 		{
 			/* OK, so advance nextNotify past this item */
-			if (!is_yb)
-				nextNotify = lnext(pendingNotifies->events, nextNotify);
-			else
-				nextNotify = NULL;
+			nextNotify = lnext(yb_notifications, nextNotify);
 		}
 		else
 		{
@@ -2656,8 +2683,11 @@ YbRegisterNotificationsWalSender()
 }
 
 static void
-YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe)
+YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 {
+	Assert(row_message->table_oid == YbNotificationsRelationId);
+	HeapTuple tuple = YBGetHeapTuplesForRecord(row_message);
+
 	Relation rel = RelationIdGetRelation(YbNotificationsRelationId);
 	TupleDesc desc = RelationGetDescr(rel);
 
@@ -2679,6 +2709,8 @@ YbTupleToAsyncQueueEntry(HeapTuple tuple, AsyncQueueEntry *qe)
 	const void *data = DatumGetPointer(data_datum);
 	size_t datalen = VARSIZE_ANY(data);
 	memcpy(qe->data, VARDATA_ANY(data), datalen);
+
+	qe->yb_commit_time_ht = row_message->commit_time_ht;
 
 	int entryLength = AsyncQueueEntryEmptySize + datalen - 2;
 	entryLength = QUEUEALIGN(entryLength);
@@ -2712,7 +2744,6 @@ CreateNotificationsSlot()
 		 * TODO: handle slot deletion when last listening backend crashes or the
 		 * tserver itself crashes.
 		 */
-		elog(LOG, "Arpan Calling ReplicationSlotDrop for %s", slotname);
 		ReplicationSlotDrop(slotname, /* nowait = */ true, /* yb_force = */ true);
 	}
 	PG_CATCH();
@@ -2720,7 +2751,6 @@ CreateNotificationsSlot()
 		ErrorData *edata;
 		MemoryContextSwitchTo(cur_context);
 		edata = CopyErrorData();
-		elog(LOG, "Arpan ReplicationSlotDrop for %s threw error: %s", slotname, edata->message);
 		FreeErrorData(edata);
 		FlushErrorState();
 	}

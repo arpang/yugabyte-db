@@ -28,6 +28,7 @@
 #include "access/xact.h"
 #include "catalog/pg_yb_notifications_d.h"
 #include "catalog/yb_type.h"
+#include "commands/async.h"
 #include "commands/yb_cmds.h"
 #include "pg_yb_utils.h"
 #include "replication/slot.h"
@@ -472,11 +473,19 @@ YBCReadRecord(XLogReaderState *state, List *publication_names, char **errormsg)
 	}
 
 	last_getconsistentchanges_response_empty = false;
-	record = &cached_records->rows[cached_records_last_sent_row_idx++];
-	state->ReadRecPtr = record->lsn;
-	state->yb_virtual_wal_record = record;
 
-	TrackUnackedTransaction(record);
+	if (am_listen_walsender)
+		cached_records_last_sent_row_idx = YbAsyncQueueAddEntries(
+			cached_records->rows, cached_records->row_count,
+			cached_records_last_sent_row_idx);
+	else
+	{
+		record = &cached_records->rows[cached_records_last_sent_row_idx++];
+		state->ReadRecPtr = record->lsn;
+		state->yb_virtual_wal_record = record;
+
+		TrackUnackedTransaction(record);
+	}
 
 	MemoryContextSwitchTo(caller_context);
 	return record;
