@@ -39,6 +39,7 @@ extern YbVirtualWalRecord *YBCReadRecord(XLogReaderState *state,
 										 char **errormsg);
 extern XLogRecPtr YBCGetFlushRecPtr(void);
 
+// TODO: Send acknowledgement
 extern XLogRecPtr YBCCalculatePersistAndGetRestartLSN(XLogRecPtr confirmed_flush);
 
 #endif
