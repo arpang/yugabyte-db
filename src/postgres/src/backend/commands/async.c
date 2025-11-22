@@ -2273,7 +2273,7 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 		/* Ignore messages destined for other databases */
 		if (qe->dboid == MyDatabaseId)
 		{
-			if (XidInMVCCSnapshot(qe->xid, snapshot) && !IsYugaByteEnabled())
+			if (!IsYugaByteEnabled() && XidInMVCCSnapshot(qe->xid, snapshot))
 			{
 				/*
 				 * The source transaction is still in progress, so we can't
