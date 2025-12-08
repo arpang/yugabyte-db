@@ -33,6 +33,8 @@ CATALOG(pg_yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION 
 
 	Oid			dbid;			/* notification's db oid */
 
+	bool		is_listen;		/* whether the record corresponds to LISTEN */
+
 #ifdef CATALOG_VARLEN			/* variable-length fields start here */
 	text		data BKI_FORCE_NOT_NULL;
 #endif
