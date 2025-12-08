@@ -886,7 +886,7 @@ YBCCreateTable(CreateStmt *stmt, char *tableName, char relkind, TupleDesc desc,
 	else
 		ybrowid_mode = PG_YBROWID_MODE_HASH;
 
-	bool		is_tserver_hosted_catalog_table = YbGetIsTserverHostedFromRelOptions(stmt->options);
+	bool		is_tserver_hosted_catalog_table = YbIsTserverHostedCatalogRel(relationId);
 
 	Assert(!is_tserver_hosted_catalog_table || is_sys_catalog_table);
 

@@ -344,7 +344,6 @@ typedef struct StdRdOptions
 	Oid			colocation_id;
 	Oid			table_oid;
 	Oid			row_type_oid;
-	bool		tserver_hosted;
 } StdRdOptions;
 
 #define HEAP_MIN_FILLFACTOR			10
