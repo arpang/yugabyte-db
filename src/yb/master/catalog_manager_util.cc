@@ -97,7 +97,7 @@ ReplicationInfoPB CatalogManagerUtil::GetTableReplicationInfo(
   }
 
   // For system catalog tables, return cluster config replication info.
-  if (!table->is_system() && tablespace_manager) {
+  if (!table->is_system() && !table->is_tserver_hosted_pg_catalog_table() && tablespace_manager) {
     auto result = tablespace_manager->GetTableReplicationInfo(table);
     if (!result.ok()) {
       LOG(WARNING) << result.status();

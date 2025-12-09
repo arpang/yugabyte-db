@@ -748,6 +748,8 @@ index_create(Relation heapRelation,
 			 bool is_colocated,
 			 Oid tablegroupId,
 			 Oid colocationId,
+			 List *yb_stmt_options,
+			 RangeVar *yb_stmt_relation,
 			 bool yb_skip_index_creation)
 {
 	Oid			heapRelationId = RelationGetRelid(heapRelation);
@@ -941,6 +943,13 @@ index_create(Relation heapRelation,
 											accessMethodObjectId,
 											collationObjectId,
 											classObjectId);
+
+	/* Check for WITH (table_oid = x). */
+	if (!OidIsValid(indexRelationId) && yb_stmt_relation)
+	{
+		indexRelationId = GetTableOidFromRelOptions(yb_stmt_options, tableSpaceId,
+													yb_stmt_relation->relpersistence);
+	}
 
 	/*
 	 * Allocate an OID for the index, unless we were told what to use.
@@ -1574,6 +1583,8 @@ index_concurrently_create_copy(Relation heapRelation, Oid oldIndexId,
 							  InvalidOid,	/* colocationId, TODO: fill this
 											 * appropriately when adding
 											 * support for reindex */
+							  NIL,	/* yb_stmt_options */
+							  NULL, /* yb_stmt_relation */
 							  false /* yb_skip_index_creation */ );
 
 	/* Close the relations used and clean up */
@@ -3235,9 +3246,22 @@ index_build(Relation heapRelation,
 
 	/*
 	 * Call the access method's build procedure
+	 *
+	 * YB note: in bootstrap processing node, skip building indexes for tserver
+	 * 	hosted catalog tables as the tablets do not even exist at that point.
 	 */
-	stats = indexRelation->rd_indam->ambuild(heapRelation, indexRelation,
-											 indexInfo);
+	IndexBuildResult empty_stats;
+
+	if (IsBootstrapProcessingMode() &&
+		YbIsTserverHostedCatalogRel(RelationGetRelid(heapRelation)))
+	{
+		empty_stats.heap_tuples = 0;
+		empty_stats.index_tuples = 0;
+		stats = &empty_stats;
+	}
+	else
+		stats = indexRelation->rd_indam->ambuild(heapRelation, indexRelation,
+												 indexInfo);
 	Assert(PointerIsValid(stats));
 
 	/*
