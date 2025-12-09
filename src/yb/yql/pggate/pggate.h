@@ -62,8 +62,10 @@
 #include "yb/yql/pggate/ybc_pggate.h"
 
 namespace yb::pggate {
-class PgSession;
+
 class PgDmlRead;
+class PgFlushDebugContext;
+class PgSession;
 
 struct PgMemctxComparator {
   using is_transparent = void;
@@ -129,6 +131,8 @@ class PgApiImpl {
 
   void ResetCatalogReadTime();
   [[nodiscard]] ReadHybridTime GetCatalogReadTime() const;
+
+  Status StartPgApi(const YbcPgInitPostgresInfo& init_postgres_info);
 
   // Initialize a session to process statements that come from the same client connection.
   void InitSession(YbcPgExecStatsState& session_stats, bool is_binary_upgrade);
@@ -381,9 +385,6 @@ class PgApiImpl {
       PgStatement *handle, uint64_t version, std::optional<PgOid> db_oid = std::nullopt);
 
   Status SetTablespaceOid(PgStatement *handle, uint32_t tablespace_oid);
-#ifndef NDEBUG
-  void CheckTablespaceOid(uint32_t db_oid, uint32_t table_oid, uint32_t tablespace_oid);
-#endif
 
   Result<client::TableSizeInfo> GetTableDiskSize(const PgObjectId& table_oid);
 
@@ -551,18 +552,18 @@ class PgApiImpl {
   Status StartOperationsBuffering();
   Status StopOperationsBuffering();
   void ResetOperationsBuffering();
-  Status FlushBufferedOperations(const YbcFlushDebugContext& debug_context);
+  Status FlushBufferedOperations(const PgFlushDebugContext& dbg_ctx);
   Status AdjustOperationsBuffering(int multiple = 1);
 
   //------------------------------------------------------------------------------------------------
   // Insert.
   Result<PgStatement*> NewInsertBlock(
       const PgObjectId& table_id,
-      bool is_region_local,
+      const YbcPgTableLocalityInfo& locality_info,
       YbcPgTransactionSetting transaction_setting);
 
   Status NewInsert(const PgObjectId& table_id,
-                   bool is_region_local,
+                   const YbcPgTableLocalityInfo& locality_info,
                    PgStatement **handle,
                    YbcPgTransactionSetting transaction_setting =
                        YbcPgTransactionSetting::YB_TRANSACTIONAL);
@@ -578,7 +579,7 @@ class PgApiImpl {
   //------------------------------------------------------------------------------------------------
   // Update.
   Status NewUpdate(const PgObjectId& table_id,
-                   bool is_region_local,
+                   const YbcPgTableLocalityInfo& locality_info,
                    PgStatement **handle,
                    YbcPgTransactionSetting transaction_setting =
                        YbcPgTransactionSetting::YB_TRANSACTIONAL);
@@ -588,7 +589,7 @@ class PgApiImpl {
   //------------------------------------------------------------------------------------------------
   // Delete.
   Status NewDelete(const PgObjectId& table_id,
-                   bool is_region_local,
+                   const YbcPgTableLocalityInfo& locality_info,
                    PgStatement **handle,
                    YbcPgTransactionSetting transaction_setting =
                        YbcPgTransactionSetting::YB_TRANSACTIONAL);
@@ -600,7 +601,7 @@ class PgApiImpl {
   //------------------------------------------------------------------------------------------------
   // Colocated Truncate.
   Status NewTruncateColocated(const PgObjectId& table_id,
-                              bool is_region_local,
+                              const YbcPgTableLocalityInfo& locality_info,
                               PgStatement **handle,
                               YbcPgTransactionSetting transaction_setting =
                                   YbcPgTransactionSetting::YB_TRANSACTIONAL);
@@ -611,7 +612,8 @@ class PgApiImpl {
   // Select.
   Status NewSelect(
       const PgObjectId& table_id, const PgObjectId& index_id,
-      const YbcPgPrepareParameters* prepare_params, bool is_region_local, PgStatement** handle);
+      const YbcPgPrepareParameters* prepare_params, const YbcPgTableLocalityInfo& locality_info,
+      PgStatement** handle);
 
   Status SetForwardScan(PgStatement *handle, bool is_forward_scan);
 
@@ -658,7 +660,7 @@ class PgApiImpl {
   //------------------------------------------------------------------------------------------------
   // Analyze.
   Status NewSample(
-      const PgObjectId& table_id, bool is_region_local, int targrows,
+      const PgObjectId& table_id, const YbcPgTableLocalityInfo& locality_info, int targrows,
       const SampleRandomState& rand_state, PgStatement **handle);
 
   Result<bool> SampleNextBlock(PgStatement* handle);
@@ -744,15 +746,15 @@ class PgApiImpl {
   void DeleteForeignKeyReference(PgOid table_id, const Slice& ybctid);
   void AddForeignKeyReference(PgOid table_id, const Slice& ybctid);
   Result<bool> ForeignKeyReferenceExists(
-      PgOid table_id, const Slice& ybctid, bool is_region_local, PgOid database_id);
+      const PgObjectId& table_id, const Slice& ybctid, YbcPgTableLocalityInfo locality_info);
   Status AddForeignKeyReferenceIntent(
-    PgOid table_id, const Slice& ybctid, const PgFKReferenceCache::IntentOptions& options,
-    PgOid database_id);
+    const PgObjectId& table_id, const Slice& ybctid,
+    const PgFKReferenceCache::IntentOptions& options);
   void NotifyDeferredTriggersProcessingStarted();
 
   Status AddExplicitRowLockIntent(
       const PgObjectId& table_id, const Slice& ybctid,
-      const YbcPgExplicitRowLockParams& params, bool is_region_local,
+      const YbcPgExplicitRowLockParams& params, const YbcPgTableLocalityInfo& locality_info,
       YbcPgExplicitRowLockErrorInfo& error_info);
   Status FlushExplicitRowLockIntents(YbcPgExplicitRowLockErrorInfo& error_info);
 
@@ -780,7 +782,8 @@ class PgApiImpl {
   Result<client::TabletServersInfo> ListTabletServers();
 
   Status GetIndexBackfillProgress(std::vector<PgObjectId> oids,
-                                  uint64_t** backfill_statuses);
+                                  uint64_t* num_rows_read_from_table,
+                                  double* num_rows_backfilled);
 
   void StartSysTablePrefetching(const PrefetcherOptions& options);
   void StopSysTablePrefetching();
@@ -794,7 +797,9 @@ class PgApiImpl {
 
   //------------------------------------------------------------------------------------------------
   // System Validation.
-  Status ValidatePlacement(const char *placement_info, bool check_satisfiable);
+  Status ValidatePlacements(
+      const char *live_placement_info, const char *read_placement_info,
+      bool check_satisfiable);
 
   Result<bool> CheckIfPitrActive();
 
@@ -877,13 +882,11 @@ class PgApiImpl {
   Result<int64_t> GetCronLastMinute();
 
   [[nodiscard]] YbcReadPointHandle GetCurrentReadPoint() const;
+  [[nodiscard]] YbcReadPointHandle GetMaxReadPoint() const;
   Status RestoreReadPoint(YbcReadPointHandle read_point);
   Result<YbcReadPointHandle> RegisterSnapshotReadTime(uint64_t read_time, bool use_read_time);
 
   void DdlEnableForceCatalogModification();
-
-  void RecordTablespaceOid(uint32_t db_oid, uint32_t table_oid, uint32_t tablespace_oid);
-  void ClearTablespaceOid(uint32_t db_oid, uint32_t table_oid);
 
   Status TriggerRelcacheInitConnection(const std::string& dbname);
 
@@ -954,8 +957,6 @@ class PgApiImpl {
   YbcPgCallbacks pg_callbacks_;
 
   const WaitEventWatcher wait_event_watcher_;
-
-  TablespaceMap tablespace_map_;
 
   PgSharedDataHolder pg_shared_data_;
 

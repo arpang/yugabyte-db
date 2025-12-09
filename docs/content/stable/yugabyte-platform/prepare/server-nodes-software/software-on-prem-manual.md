@@ -4,6 +4,8 @@ headerTitle: Legacy provisioning
 linkTitle: Legacy provisioning
 description: How to provision on-premises provider nodes using legacy manual method.
 headContent: Prepare a VM for deploying universes on-premises
+aliases:
+    - /stable/yugabyteplatform/prepare/server-nodes-software/software-on-premmanual/
 menu:
   stable_yugabyte-platform:
     identifier: software-on-prem-4-manual
@@ -72,7 +74,9 @@ For each node VM, perform the following:
 - [Install systemd-related database service unit files](#install-systemd-related-database-service-unit-files)
 - [Install the node agent](#install-node-agent)
 
-After you have provisioned the nodes, you can proceed to [Add instances to the on-prem provider](../../../configure-yugabyte-platform/on-premises-nodes/#add-instances).
+After you have provisioned the VM, reboot the system.
+
+You can then proceed to [Add the instance to the on-prem provider](../../../configure-yugabyte-platform/on-premises-nodes/#add-instances).
 
 {{<note title="Root-level systemd or cron">}}
 The following instructions use user-level systemd to provide the necessary access to system resources. Versions prior to v2.20 use root-level systemd or cron. If you have previously provisioned nodes for this provider using either root-level systemd or cron, you should use the same steps, as all nodes in a provider need to be provisioned in the same way. For instructions on provisioning using root-level systemd or cron, see the [instructions for v2.18](https://docs-archive.yugabyte.com/v2.18/yugabyte-platform/configure-yugabyte-platform/set-up-cloud-provider/on-premises-manual/).
@@ -625,7 +629,7 @@ You must reboot the system for these two settings to take effect.
 
 ## Install node agent
 
-The YugabyteDB Anywhere node agent is used to manage communication between YugabyteDB Anywhere and the node. When node agent is installed, YugabyteDB Anywhere no longer requires SSH or sudo access to nodes. For more information, refer to [Node agent](/preview/faq/yugabyte-platform/#node-agent) FAQ.
+The YugabyteDB Anywhere node agent is used to manage communication between YugabyteDB Anywhere and the node. When node agent is installed, YugabyteDB Anywhere no longer requires SSH or sudo access to nodes. For more information, refer to [Node agent](/stable/faq/yugabyte-platform/#node-agent) FAQ.
 
 For automated and assisted manual provisioning, node agents are installed onto instances automatically when adding instances, or when running the pre-provisioning script using the `--install_node_agent` flag.
 

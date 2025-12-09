@@ -35,6 +35,7 @@ import com.yugabyte.yw.models.Region;
 import com.yugabyte.yw.models.RuntimeConfigEntry;
 import com.yugabyte.yw.models.TaskInfo;
 import com.yugabyte.yw.models.Universe;
+import com.yugabyte.yw.models.helpers.CommonUtils;
 import com.yugabyte.yw.models.helpers.NodeDetails;
 import com.yugabyte.yw.models.helpers.TaskType;
 import java.util.Arrays;
@@ -195,7 +196,7 @@ public class ReadOnlyClusterCreateTest extends UniverseModifyBaseTest {
     assertNotNull(taskInfo);
     assertEquals(Success, taskInfo.getTaskState());
 
-    verify(mockNodeManager, times(8)).nodeCommand(any(), any());
+    verify(mockNodeManager, times(9)).nodeCommand(any(), any());
     List<TaskInfo> subTasks = taskInfo.getSubTasks();
 
     Map<Integer, List<TaskInfo>> subTasksByPosition =
@@ -254,12 +255,14 @@ public class ReadOnlyClusterCreateTest extends UniverseModifyBaseTest {
                 Map.of("1", Arrays.asList("host-readonly1-n1", "host-readonly1-n2")))));
 
     verifyNodeInteractionsCapacityReservation(
-        16,
+        18,
         NodeManager.NodeCommandType.Create,
         params -> ((AnsibleCreateServer.Params) params).capacityReservation,
         Map.of(
             DoCapacityReservation.getCapacityReservationGroupName(
-                universe.getUniverseUUID(), region.getCode()),
+                universe.getUniverseUUID(),
+                CommonUtils.getClusterType(region.getProvider(), universe),
+                region.getCode()),
             Arrays.asList("host-readonly1-n1", "host-readonly1-n2")));
   }
 
@@ -310,12 +313,15 @@ public class ReadOnlyClusterCreateTest extends UniverseModifyBaseTest {
                     "region-1", Arrays.asList("host-readonly1-n1", "host-readonly1-n2")))));
 
     verifyNodeInteractionsCapacityReservation(
-        16,
+        18,
         NodeManager.NodeCommandType.Create,
         params -> ((AnsibleCreateServer.Params) params).capacityReservation,
         Map.of(
             DoCapacityReservation.getZoneInstanceCapacityReservationName(
-                universe.getUniverseUUID(), "az-1", rrInstanceType),
+                universe.getUniverseUUID(),
+                CommonUtils.getClusterType(defaultProvider, universe),
+                "az-1",
+                rrInstanceType),
             Arrays.asList("host-readonly1-n1", "host-readonly1-n2")));
   }
 
@@ -366,7 +372,7 @@ public class ReadOnlyClusterCreateTest extends UniverseModifyBaseTest {
 
     TaskInfo taskInfo = submitTask(taskParams);
 
-    verify(mockNodeManager, times(9)).nodeCommand(any(), any());
+    verify(mockNodeManager, times(10)).nodeCommand(any(), any());
 
     UniverseDefinitionTaskParams univUTP =
         Universe.getOrBadRequest(onPremUniverse.getUniverseUUID()).getUniverseDetails();

@@ -535,7 +535,6 @@ ybginDoFirstExec(IndexScanDesc scan, ScanDirection dir)
 		ybginSetupTargets(scan);
 
 	YbSetCatalogCacheVersion(ybso->handle, YbGetCatalogCacheVersion());
-	YbMaybeSetNonSystemTablespaceOid(ybso->handle, scan->indexRelation);
 
 	/* execute select */
 	ybginExecSelect(scan, dir);
@@ -637,7 +636,7 @@ ybgingettuple(IndexScanDesc scan, ScanDirection dir)
  * TODO(jason): don't assume that recheck is needed.
  */
 bool
-ybginmightrecheck(Relation heapRelation, Relation indexRelation,
+ybginmightrecheck(Scan *scan, Relation heapRelation, Relation indexRelation,
 				  bool xs_want_itup, ScanKey keys, int nkeys)
 {
 	return true;

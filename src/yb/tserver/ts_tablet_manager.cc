@@ -1827,7 +1827,8 @@ Status TSTabletManager::DeleteTablet(
     const string& tablet_id, TabletDataState delete_type,
     tablet::ShouldAbortActiveTransactions should_abort_active_txns,
     const std::optional<int64_t>& cas_config_opid_index_less_or_equal, bool hide_only,
-    bool keep_data, std::optional<TabletServerErrorPB::Code>* error_code) {
+    bool keep_data, std::optional<TabletServerErrorPB::Code>* error_code,
+    std::optional<TransactionId>&& exclude_aborting_txn_id) {
   TEST_PAUSE_IF_FLAG(TEST_pause_delete_tablet);
 
   if (delete_type != TABLET_DATA_DELETED && delete_type != TABLET_DATA_TOMBSTONED) {
@@ -1899,7 +1900,8 @@ Status TSTabletManager::DeleteTablet(
     return meta->Flush();
   }
   RETURN_NOT_OK(tablet_peer->Shutdown(
-      should_abort_active_txns, tablet::DisableFlushOnShutdown::kTrue));
+      should_abort_active_txns, tablet::DisableFlushOnShutdown::kTrue,
+      std::move(exclude_aborting_txn_id)));
 
   auto last_logged_opid = tablet_peer->GetLatestLogEntryOpId();
 
@@ -2948,9 +2950,12 @@ void TSTabletManager::HandleNonReadyTabletOnStartup(
     const RaftGroupMetadataPtr& meta,
     const scoped_refptr<TransitionInProgressDeleter>& deleter) {
   Status s = DoHandleNonReadyTabletOnStartup(meta.get(), deleter);
-  LOG_IF(FATAL, !s.ok())
-      << TabletLogPrefix(meta->raft_group_id())
-      << " Failed to handle non ready tablet on tserver startup: " << s;
+  if (s.IsShutdownInProgress()) {
+    LOG_WITH_PREFIX(WARNING) << s;
+  } else if (!s.ok()) {
+    LOG(FATAL) << TabletLogPrefix(meta->raft_group_id())
+               << " Failed to handle non ready tablet on tserver startup: " << s;
+  }
 }
 
 Status TSTabletManager::DoHandleNonReadyTabletOnStartup(

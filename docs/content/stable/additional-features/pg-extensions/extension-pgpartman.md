@@ -11,6 +11,8 @@ menu:
     parent: pg-extensions
     weight: 20
 type: docs
+aliases:
+  - /stable/explore/ysql-language-features/pg-extensions/extension-pgpartman
 ---
 
 PostgreSQL Partition Manager (pg_partman) is an extension to create and manage both time-based and serial-based table partition sets. pg_partman simplifies managing table partitions based on time or serial IDs, automating their creation and maintenance. While it includes many options, only a few are typically needed, making it user-friendly.
@@ -177,14 +179,6 @@ The following example shows an unsupported operation using non-native partitioni
 
 ```sql
 CREATE SCHEMA partman;
-
-CREATE EXTENSION pg_partman WITH SCHEMA partman;
-
-CREATE TABLE orders (
-  order_id SERIAL,
-  order_date DATE NOT NULL,
-  customer_id INT
-) PARTITION BY RANGE (order_date);
 
 CREATE EXTENSION pg_partman WITH SCHEMA partman;
 
@@ -396,6 +390,6 @@ Although not recommended, it is possible to use pg_partman using the following s
 
 During normal operations, as DDLs occur on the source universe, monitor the pg_audit log (on the source universe) to detect partition-related DDLs.
 
-When you detect partition-related DDLs, follow the instructions in [Handling DDL changes](/preview/deploy/multi-dc/async-replication/async-deployment/#handling-ddl-changes) to issue the same DDL command on the replica universe and include the table in xCluster replication.
+When you detect partition-related DDLs, follow the instructions in [Handling DDL changes](/stable/deploy/multi-dc/async-replication/async-deployment/#handling-ddl-changes) to issue the same DDL command on the replica universe and include the table in xCluster replication.
 
 Note that the sequence of operations can vary by DDL command (for example, CREATE partition and DROP partition require different follow-up actions in different orders).

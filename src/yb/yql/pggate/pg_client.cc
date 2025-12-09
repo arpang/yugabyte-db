@@ -427,6 +427,7 @@ Status DoProcessResponse(
   RETURN_NOT_OK(ResponseStatus(data.resp));
   RETURN_NOT_OK(data.Process());
   if (data.resp.has_catalog_read_time()) {
+    VLOG(2) << "Got catalog_read_time: " << data.resp.catalog_read_time().ShortDebugString();
     result.catalog_read_time = ReadHybridTime::FromPB(data.resp.catalog_read_time());
   }
   result.used_in_txn_limit = HybridTime::FromPB(data.resp.used_in_txn_limit_ht());
@@ -678,8 +679,13 @@ class PgClient::Impl : public BigDataFetcher {
         CoarseMonoClock::Now() +
             MonoDelta::FromSeconds((FLAGS_ddl_verification_timeout_multiplier + 1) *
                                    FLAGS_yb_client_admin_operation_timeout_sec);
+
+    auto wait_event = commit ?
+        ash::WaitStateCode::kTransactionCommit :
+        ash::WaitStateCode::kTransactionTerminate;
+
     RETURN_NOT_OK(DoSyncRPC(&PgClientServiceProxy::FinishTransaction,
-        req, resp, PggateRPC::kFinishTransaction, deadline));
+        req, resp, wait_event, deadline));
 
     return ResponseStatus(resp);
   }
@@ -718,7 +724,7 @@ class PgClient::Impl : public BigDataFetcher {
     tserver::PgRollbackToSubTransactionResponsePB resp;
 
     RETURN_NOT_OK(DoSyncRPC(&PgClientServiceProxy::RollbackToSubTransaction,
-        req, resp, PggateRPC::kRollbackToSubTransaction));
+        req, resp, ash::WaitStateCode::kTransactionRollbackToSavepoint));
     return ResponseStatus(resp);
   }
 
@@ -868,8 +874,8 @@ class PgClient::Impl : public BigDataFetcher {
     return ResponseStatus(resp);
   }
 
-  template <class Data, typename MethodPtr, class... Args>
-  ResultFuture<Data> PrepareAndSend(MethodPtr method, Args&&... args) {
+  template <class Data, class Method, class... Args>
+  ResultFuture<Data> PrepareAndSend(Method method, Args&&... args) {
     auto data = std::make_shared<Data>(std::forward<Args>(args)...);
     if (session_shared_mem_ && session_shared_mem_->exchange().ReadyToSend()) {
       ash::MetadataSerializer metadata(rpc::MetadataSerializationMode::kWriteOnZero);
@@ -903,8 +909,9 @@ class PgClient::Impl : public BigDataFetcher {
       }
     }
     data->controller.set_invoke_callback_mode(rpc::InvokeCallbackMode::kReactorThread);
-    (proxy_.get()->*method)(
-        data->req, &data->resp, SetupController<typename Data::RequestType>(&data->controller),
+    method(
+        proxy_.get(), data->req, &data->resp,
+        SetupController<typename Data::RequestType>(&data->controller),
         [data] {
           data->promise.set_value(MakeExchangeResult(*data, data->controller.CheckedResponse()));
         });
@@ -919,8 +926,10 @@ class PgClient::Impl : public BigDataFetcher {
     *req.mutable_options() = std::move(*options);
     req.set_serial_no(next_perform_op_serial_no_.fetch_add(1, std::memory_order_acq_rel));
     PrepareOperations(&req, operations);
-    return PrepareAndSend<PerformData>(
-        &tserver::PgClientServiceProxy::PerformAsync, req, &arena, std::move(operations), metrics);
+    auto method = [](auto* proxy, const auto& req, auto* resp, auto* controller, auto callback) {
+      proxy->PerformAsync(req, resp, controller, std::move(callback));
+    };
+    return PrepareAndSend<PerformData>(method, req, &arena, std::move(operations), metrics);
   }
 
   Status AcquireObjectLock(
@@ -939,10 +948,10 @@ class PgClient::Impl : public BigDataFetcher {
       lock_oid.set_tablespace_oid(*tablespace_oid);
     }
     req.set_lock_type(static_cast<tserver::ObjectLockMode>(mode));
-
-    auto result_future = PrepareAndSend<AcquireObjectLockData>(
-        &tserver::PgClientServiceProxy::AcquireObjectLockAsync, req, &object_locks_arena_);
-    return result_future.Get().status;
+    auto method = [](auto* proxy, const auto& req, auto* resp, auto* controller, auto callback) {
+      proxy->AcquireObjectLockAsync(req, resp, controller, std::move(callback));
+    };
+    return PrepareAndSend<AcquireObjectLockData>(method, req, &object_locks_arena_).Get().status;
   }
 
   bool TryAcquireObjectLockInSharedMemory(
@@ -1130,7 +1139,8 @@ class PgClient::Impl : public BigDataFetcher {
   }
 
   Status GetIndexBackfillProgress(const std::vector<PgObjectId>& index_ids,
-                                uint64_t** backfill_statuses) {
+                                  uint64_t* num_rows_read_from_table,
+                                  double* num_rows_backfilled) {
     tserver::PgGetIndexBackfillProgressRequestPB req;
     tserver::PgGetIndexBackfillProgressResponsePB resp;
 
@@ -1141,10 +1151,11 @@ class PgClient::Impl : public BigDataFetcher {
     RETURN_NOT_OK(DoSyncRPC(&PgClientServiceProxy::GetIndexBackfillProgress,
         req, resp, PggateRPC::kGetIndexBackfillProgress));
     RETURN_NOT_OK(ResponseStatus(resp));
-    uint64_t* backfill_status = *backfill_statuses;
-    for (const auto entry : resp.num_rows_read_from_table_for_backfill()) {
-      *backfill_status = entry;
-      backfill_status++;
+    for (int i = 0; i < resp.num_rows_read_from_table_for_backfill_size(); ++i) {
+      num_rows_read_from_table[i] = resp.num_rows_read_from_table_for_backfill(i);
+      if (num_rows_backfilled) {
+        num_rows_backfilled[i] = resp.num_rows_backfilled_in_index(i);
+      }
     }
     return Status::OK();
   }
@@ -1394,7 +1405,7 @@ class PgClient::Impl : public BigDataFetcher {
     req.set_transaction_id(transaction_id, kUuidSize);
     tserver::PgCancelTransactionResponsePB resp;
     RETURN_NOT_OK(DoSyncRPC(&PgClientServiceProxy::CancelTransaction,
-        req, resp, PggateRPC::kCancelTransaction));
+        req, resp, ash::WaitStateCode::kTransactionCancel));
     return ResponseStatus(resp);
   }
 
@@ -1684,22 +1695,22 @@ class PgClient::Impl : public BigDataFetcher {
   template <class Proxy, class Req, class Resp>
   Status DoSyncRPCImpl(
       Proxy& proxy, SyncRPCFunc<Proxy, Req, Resp> func, Req& req, Resp& resp,
-      PggateRPC rpc_enum, rpc::RpcController* controller) {
+      PggateRPC rpc_enum, rpc::RpcController* controller, ash::WaitStateCode wait_event) {
 
     const auto log_detail =
         yb_debug_log_docdb_requests &&
         std::ranges::any_of(kDebugLogRPCs, [rpc_enum](auto value) { return value == rpc_enum; });
 
     if (log_detail) {
-      LOG(INFO) << "DoSyncRPC " << GetTypeName<Req>() << ":\n " << req.DebugString();
+      LOG(INFO) << "DoSyncRPC " << GetTypeName<Req>() << ":\n " << req.ShortDebugString();
     }
 
-    auto watcher = wait_event_watcher_(ash::WaitStateCode::kWaitingOnTServer, rpc_enum);
+    auto watcher = wait_event_watcher_(wait_event, rpc_enum);
     const auto s = (proxy.*func)(req, &resp, controller);
 
     if (log_detail) {
       LOG(INFO) << "DoSyncRPC " << GetTypeName<Resp>() << " response:\n"
-                << "status " << s << "\n" << resp.DebugString();
+                << "status " << s << "\n" << resp.ShortDebugString();
     }
 
     return s;
@@ -1722,7 +1733,17 @@ class PgClient::Impl : public BigDataFetcher {
       Req& req, Resp& resp, PggateRPC rpc_enum, Args&&... args) {
     return DoSyncRPCImpl(
         *DCHECK_NOTNULL(GetProxy(static_cast<Proxy*>(nullptr))), func, req, resp, rpc_enum,
-        GetRpcController<Req>(std::forward<Args>(args)...));
+        GetRpcController<Req>(std::forward<Args>(args)...), ash::WaitStateCode::kWaitingOnTServer);
+  }
+
+  // Overload for when wait_event is specific enough and RPC name is not needed.
+  template <class Proxy, class Req, class Resp, class... Args>
+  Status DoSyncRPC(
+      SyncRPCFunc<Proxy, Req, Resp> func,
+      Req& req, Resp& resp, ash::WaitStateCode wait_event, Args&&... args) {
+    return DoSyncRPCImpl(
+        *DCHECK_NOTNULL(GetProxy(static_cast<Proxy*>(nullptr))), func, req, resp, PggateRPC::kNoRPC,
+        GetRpcController<Req>(std::forward<Args>(args)...), wait_event);
   }
 
   std::unique_ptr<PgClientServiceProxy> proxy_;
@@ -1862,8 +1883,11 @@ Status PgClient::BackfillIndex(
 
 Status PgClient::GetIndexBackfillProgress(
     const std::vector<PgObjectId>& index_ids,
-    uint64_t** backfill_statuses) {
-  return impl_->GetIndexBackfillProgress(index_ids, backfill_statuses);
+    uint64_t* num_rows_read_from_table,
+    double* num_rows_backfilled) {
+  return impl_->GetIndexBackfillProgress(index_ids,
+                                         num_rows_read_from_table,
+                                         num_rows_backfilled);
 }
 
 Result<yb::tserver::PgGetLockStatusResponsePB> PgClient::GetLockStatusData(

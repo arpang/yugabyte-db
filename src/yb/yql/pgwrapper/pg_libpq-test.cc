@@ -2999,10 +2999,6 @@ TEST_F(PgLibPqTest, LoadBalanceMultipleTablegroups) {
 class PgLibPqTestDisableObjectLocking : public PgLibPqTest {
  public:
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
-    AppendFlagToAllowedPreviewFlagsCsv(
-        options->extra_tserver_flags, "enable_object_locking_for_table_locks");
-    AppendFlagToAllowedPreviewFlagsCsv(
-        options->extra_tserver_flags, "ysql_yb_ddl_transaction_block_enabled");
     options->extra_tserver_flags.emplace_back("--enable_object_locking_for_table_locks=false");
     options->extra_tserver_flags.emplace_back("--ysql_yb_ddl_transaction_block_enabled=false");
   }
@@ -4464,6 +4460,30 @@ TEST_F_EX(PgLibPqTest, PgEnumPreloadMinPreloadTest, BasePgEnumPreloadMinimalPrel
   RunTest(false /* preloaded */);
 }
 
+// Test that negative caching works correctly when ysql_minimal_catalog_caches_preload=true.
+TEST_F_EX(PgLibPqTest, PgEnumMinPreloadNegativeCaching, BasePgEnumPreloadMinimalPreloadTest) {
+  auto conn = ASSERT_RESULT(Connect());
+
+  // Create a user-defined enum type.
+  ASSERT_OK(conn.Execute(
+      "CREATE TYPE user_color AS ENUM ('red', 'green', 'blue');"
+      "CREATE TABLE user_enum_table (c user_color);"
+    ));
+
+  auto conn2 = ASSERT_RESULT(Connect());
+
+  ASSERT_OK(conn2.Execute("SET yb_neg_catcache_ids='23,24'"));
+  ASSERT_OK(conn2.Execute("INSERT INTO user_enum_table VALUES ('red')"));
+
+  auto result = ASSERT_RESULT(conn2.FetchRow<std::string>(
+      "SELECT c::text FROM user_enum_table"));
+  ASSERT_EQ(result, "red");
+
+  auto cast_result = ASSERT_RESULT(conn2.FetchRow<std::string>(
+      "SELECT 'green'::user_color::text"));
+  ASSERT_EQ(cast_result, "green");
+}
+
 // Test that preloading pg_range prevents cache misses on the RANGEMULTIRANGE catcache.
 class PgRangeTest : public PgLibPqTest,
       public ::testing::WithParamInterface<bool> {
@@ -4904,7 +4924,16 @@ TEST_F(PgLibPqTest, RelfilenodeOidCollision) {
   result = ASSERT_RESULT(conn.FetchAllAsString(
     "SELECT oid,relfilenode,relname FROM pg_class WHERE relname LIKE 'base_t%'"));
   LOG(INFO) << "result: " << result;
-  std::string tmpname = std::tmpnam(nullptr);
+
+  std::unique_ptr<WritableFile> file_handle;
+  std::string tmpname;
+  ASSERT_OK(yb::Env::Default()->NewTempWritableFile(
+    WritableFileOptions(),
+    "/tmp/tmp_fileXXXXXX",
+    &tmpname,
+    &file_handle));
+  ASSERT_OK(file_handle->Close());
+
   auto hostport = cluster_->ysql_hostport(0);
   std::string ysql_dump_path = ASSERT_RESULT(path_utils::GetPgToolPath("ysql_dump"));
   std::string ysql_dump_cmd = Format(
@@ -5075,11 +5104,7 @@ class PgLibPqTestTableLocksDisabled : public PgLibPqTest {
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     // TODO(#28742): Fix interaction with ysql_yb_ddl_transaction_block_enabled here.
     // Enabling table locks+concurrent DDLs causes the ConcurrentAnalyzeWithDDL fail.
-    AppendFlagToAllowedPreviewFlagsCsv(
-        options->extra_tserver_flags, "enable_object_locking_for_table_locks");
     options->extra_tserver_flags.emplace_back("--enable_object_locking_for_table_locks=false");
-    AppendFlagToAllowedPreviewFlagsCsv(
-        options->extra_tserver_flags, "ysql_yb_ddl_transaction_block_enabled");
     options->extra_tserver_flags.emplace_back("--ysql_yb_ddl_transaction_block_enabled=false");
     PgLibPqTest::UpdateMiniClusterOptions(options);
   }
@@ -5091,9 +5116,10 @@ class PgLibPqTestTableLocksDisabled : public PgLibPqTest {
 // StartTransactionCommand and CommitTransactionCommand are called internally by ANALYZE
 // for (1) the ANALYZE command itself and
 //     (2) analyzing each individual table selected by the ANALYZE.
-// In read committed isolation, we retry aborted DDL queries. An unclean retry of ANALYZE having
-// set SecurityRestrictionContext causes assertion failure in StartTransactionCommand, making
-// its connection FATAL.
+// In read committed isolation, we used to retry aborted ANALYZE queries.
+// An unclean retry of ANALYZE having set SecurityRestrictionContext, in_progress_list_len, or
+// other variables causes assertion failure in StartTransactionCommand, making
+// its connection FATAL. So, retries on `ANALYZE` are disabled.
 TEST_F_EX(PgLibPqTest, ConcurrentAnalyzeWithDDL, PgLibPqTestTableLocksDisabled) {
   auto conn = ASSERT_RESULT(Connect());
   auto conn2 = ASSERT_RESULT(Connect());
@@ -5114,11 +5140,10 @@ TEST_F_EX(PgLibPqTest, ConcurrentAnalyzeWithDDL, PgLibPqTestTableLocksDisabled) 
         // Setting yb_use_internal_auto_analyze_service_conn simulates ANALYZE command
         // as ANALYZE command run by auto analyze service -- auto-ANALYZE command has
         // a lower txn priority than regular DDLs, so that ANALYZE in this thread
-        // is always aborted by DROP TABLE and retries later on.
+        // is always aborted by DROP TABLE.
         ASSERT_OK(conn.Execute("SET yb_use_internal_auto_analyze_service_conn = TRUE"));
         ASSERT_OK(conn.Execute("SET yb_debug_log_internal_restarts=TRUE"));
         ASSERT_OK(conn.Execute("SET log_min_messages=DEBUG3"));
-        ASSERT_OK(conn.Execute("SET yb_max_query_layer_retries=300"));
         auto status = conn.Execute("ANALYZE");
     }
   });

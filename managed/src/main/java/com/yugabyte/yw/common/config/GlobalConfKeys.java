@@ -1771,6 +1771,14 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Cache size for node agent client connections",
           ConfDataType.IntegerType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> nodeAgentIgnoreConnectionCacheSize =
+      new ConfKeyInfo<>(
+          "yb.node_agent.ignore_connection_cache_size",
+          ScopeType.GLOBAL,
+          "Ignore Node Agent Client Connection Cache Size",
+          "Ignore the cache size (limit) for node agent client connections",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Duration> nodeAgentConnectTimeout =
       new ConfKeyInfo<>(
           "yb.node_agent.connect_timeout",
@@ -1924,5 +1932,32 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Wait( in seconds ) between each retry for capacity reservation failures",
           "Wait( in seconds ) between each retry for capacity reservation failures",
           ConfDataType.IntegerType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
+  public static final ConfKeyInfo<Boolean> allowYbaRestoreWithUniverses =
+      new ConfKeyInfo<>(
+          "yb.yba_backup.allow_restore_with_universes",
+          ScopeType.GLOBAL,
+          "Allow YBA Restore With Universes",
+          "Allow YBA restore from one time restore or continuous backup when existing universes are"
+              + " present",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> allowYbaRestoreWithOldBackup =
+      new ConfKeyInfo<>(
+          "yb.yba_backup.allow_restore_with_old_backup",
+          ScopeType.GLOBAL,
+          "Allow YBA Restore With Old Backup",
+          "Allow YBA restore from one time restore or continuous backup when backup file is more"
+              + " than 1 day old",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<List> accessLogExcludeRegex =
+      new ConfKeyInfo<>(
+          "yb.log.access.exclude_regex",
+          ScopeType.GLOBAL,
+          "List of 'METHOD uri' regexes to exclude from the access log",
+          "List of 'METHOD uri' regexes which we don't print in access log, like 'GET"
+              + " \\/some\\/path\\/.+",
+          ConfDataType.StringListType,
           ImmutableList.of(ConfKeyTags.INTERNAL));
 }

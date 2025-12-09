@@ -118,9 +118,11 @@
 /* YB includes */
 #include "access/heaptoast.h"
 #include "access/yb_scan.h"
+#include "catalog/index.h"
 #include "commands/copy.h"
 #include "common/pg_yb_param_status_flags.h"
 #include "executor/ybModifyTable.h"
+#include "optimizer/yb_saop_merge.h"
 #include "pg_yb_utils.h"
 #include "tcop/pquery.h"
 #include "utils/syscache.h"
@@ -2407,6 +2409,17 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_debug_log_snapshot_mgmt_stack_trace", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Log stack traces as well for lines logged by yb_debug_log_snapshot_mgmt."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_debug_log_snapshot_mgmt_stack_trace,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_enable_create_with_table_oid", PGC_USERSET, CUSTOM_OPTIONS,
 			gettext_noop("Enables the ability to set table oids when creating tables or indexes."),
 			NULL,
@@ -3087,6 +3100,22 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_enable_update_reltuples_after_create_index", PGC_USERSET,
+			QUERY_TUNING_OTHER,
+			gettext_noop("Enables update of reltuples in pg_class for the base "
+						 "table and index after creating the index. When "
+						 "disabled, reltuples are not updated during "
+						 "concurrent index creation and only index reltuples "
+						 "are updated during non-concurrent index creation."),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&yb_enable_update_reltuples_after_create_index,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_enable_add_column_missing_default", PGC_USERSET, CUSTOM_OPTIONS,
 			gettext_noop("Enable using the default value for existing rows"
 						 " after an ADD COLUMN ... DEFAULT operation."),
@@ -3646,16 +3675,55 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
-
 	{
-		{"yb_make_all_ddl_statements_incrementing", PGC_SIGHUP, CUSTOM_OPTIONS,
+		{"yb_test_make_all_ddl_statements_incrementing", PGC_SIGHUP, DEVELOPER_OPTIONS,
 			gettext_noop("When set, all DDL statements will cause the "
 						 "catalog version to increment. This mainly affects "
 						 "CREATE commands such as CREATE TABLE, CREATE VIEW, "
 						 "and CREATE SEQUENCE."),
 			NULL
 		},
-		&yb_make_all_ddl_statements_incrementing,
+		&yb_test_make_all_ddl_statements_incrementing,
+		false,
+		NULL, NULL, NULL
+	},
+
+	/*
+	 * TODOs:
+	 *
+	 * (1) Flush the catalog cache when changing from legacy to the new mode since the legacy mode
+	 * could have stale catalog information but the new mode relies on the fact that no catalog
+	 * information in the cache is stale.
+	 *
+	 * (2) Disallow setting this GUC in the middle of a transaction.
+	 */
+	{
+		{"yb_fallback_to_legacy_catalog_read_time", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("[This is an advanced flag, avoid using it unless recommened by Yugabyte"
+				"support.] If object locking is enabled, concurrent DDLs are allowed. This is done by "
+				"using the new mode for catalog reads and writes using PG's catalog snapshot. Set this "
+				"flag to true for falling back to the legacy mode which involves using pggate's catalog "
+				"read time for catalog reads when running a DML transaction (and) the transaction snapshot "
+				"for catalog reads and writes when running a DDL transaction. Concurrent DDLs will not be "
+				"supported if this flag is set. If object locking is disabled, only the legacy mode is "
+				"used."),
+			NULL
+		},
+		&yb_fallback_to_legacy_catalog_read_time,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_ignore_bool_cond_for_legacy_estimate", PGC_USERSET, COMPAT_OPTIONS_PREVIOUS,
+			gettext_noop("Ignore boolean condition for row count estimate in legacy cost model."),
+			gettext_noop("Negates the side effect on legacy mode row count "
+						 "estimate introduced by the fix \"[#26266] YSQL: Add "
+						 "BOOL_LSM_FAM_OID to boolean family\" for backward "
+						 "compatibility"),
+			GUC_EXPLAIN
+		},
+		&yb_ignore_bool_cond_for_legacy_estimate,
 		false,
 		NULL, NULL, NULL
 	},
@@ -5633,6 +5701,25 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		/* TODO(#29072): switch to PGC_USERSET when results become correct. */
+		{"yb_max_saop_merge_streams", PGC_SUSET, QUERY_TUNING_METHOD,
+			gettext_noop("Sets the maximum number of streams tolerated for "
+						 "scalar array operation merge."),
+			gettext_noop("For YB LSM index scans, when multiple "
+						 "SAOP-mergeable scalar array operations are "
+						 "involved, they are added to SAOP merge until their "
+						 "cartesian product's cardinality reaches this limit. "
+						 "Scalar array operation merge is per index scan, and "
+						 "the limit applies per index scan, not globally. Set "
+						 "to 0 to disable. WARNING(#29072): results are not "
+						 "sorted correctly."),
+		},
+		&yb_max_saop_merge_streams,
+		0, 0, 1024,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, 0, 0, NULL, NULL, NULL
@@ -7446,7 +7533,7 @@ static const char *const YbDbAdminVariables[] = {
 	"yb_binary_restore",
 	"yb_speculatively_execute_pl_statements",
 	"yb_whitelist_extra_statements_for_pl_speculative_execution",
-	"yb_make_all_ddl_statements_incrementing",
+	"yb_test_make_all_ddl_statements_incrementing",
 };
 
 
@@ -9220,7 +9307,13 @@ BeginReportingGUCOptions(void)
 	{
 		struct config_generic *conf = guc_variables[i];
 
-		if (conf->flags & GUC_REPORT)
+		/*
+		 * YB_TODO(#27725): Replace with a tighter reporting that is needed for
+		 * connection manager
+		 */
+		if ((conf->flags & GUC_REPORT) ||
+			(conf->context >= PGC_SU_BACKEND &&
+			 (conf->source == PGC_S_CLIENT || conf->source == PGC_S_SESSION)))
 			ReportGUCOption(conf);
 	}
 
@@ -9302,7 +9395,42 @@ ReportGUCOption(struct config_generic *record)
 			if (record->flags & GUC_REPORT)
 				flags |= YB_PARAM_STATUS_REPORT_ENABLED;
 
-			/* TODO(arpit.saxena): Populate other bits in flags */
+			switch (record->context)
+			{
+				case PGC_INTERNAL:
+				case PGC_POSTMASTER:
+				case PGC_SIGHUP:
+					/*
+					 * These can never be set by an external client, so
+					 * connection manager doesn't care about these
+					 */
+					break;
+				case PGC_SU_BACKEND:
+				case PGC_BACKEND:
+					/*
+					 * Connection Manager only cares if the external client set
+					 * this variable. That can only happen through the startup
+					 * packet i.e. PGC_S_CLIENT source
+					 */
+
+					if (record->source == PGC_S_CLIENT)
+						flags |= YB_PARAM_STATUS_CONTEXT_BACKEND;
+					break;
+				case PGC_SUSET:
+				case PGC_USERSET:
+					if (record->source == PGC_S_CLIENT)
+						flags |=
+							YB_PARAM_STATUS_USERSET_OR_SUSET_SOURCE_STARTUP;
+					else if (record->source == PGC_S_SESSION)
+						flags |=
+							YB_PARAM_STATUS_USERSET_OR_SUSET_SOURCE_SESSION;
+
+					/*
+					 * TODO(#28445): Populate
+					 * YB_PARAM_STATUS_USERSET_SOURCE_RESET
+					 */
+					break;
+			}
 
 			pq_beginmessage(&msgbuf, 'r');
 			pq_sendstring(&msgbuf, record->name);
@@ -16111,6 +16239,37 @@ assign_yb_enable_cbo(int new_value, void *extra)
 			yb_legacy_bnl_cost = true;
 			yb_ignore_stats = true;
 			break;
+	}
+
+	/*
+	 * When enabling CBO, also set:
+	 *  - yb_enable_bitmapscan to on
+	 *  - yb_parallel_range_rows to 10000
+	 *  - yb_enable_update_reltuples_after_create_index to on
+	 */
+	if (new_value == YB_COST_MODEL_ON)
+	{
+		SetConfigOption("yb_enable_bitmapscan", "on",
+						PGC_INTERNAL, PGC_S_DYNAMIC_DEFAULT);
+		SetConfigOption("yb_parallel_range_rows", "10000",
+						PGC_INTERNAL, PGC_S_DYNAMIC_DEFAULT);
+		SetConfigOption("yb_enable_update_reltuples_after_create_index", "on",
+						PGC_INTERNAL, PGC_S_DYNAMIC_DEFAULT);
+	}
+	/*
+	 * When disabling CBO, also reset:
+	 *  - yb_enable_bitmapscan
+	 *  - yb_parallel_range_rows
+	 *  - yb_enable_update_reltuples_after_create_index
+	 */
+	else
+	{
+		SetConfigOption("yb_enable_bitmapscan", "off",
+						PGC_INTERNAL, PGC_S_DYNAMIC_DEFAULT);
+		SetConfigOption("yb_parallel_range_rows", "0",
+						PGC_INTERNAL, PGC_S_DYNAMIC_DEFAULT);
+		SetConfigOption("yb_enable_update_reltuples_after_create_index", "off",
+						PGC_INTERNAL, PGC_S_DYNAMIC_DEFAULT);
 	}
 }
 

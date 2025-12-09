@@ -165,6 +165,8 @@ YbRowBounds
 YbRunWithPrefetcherContext
 YbSample
 YbSampleData
+YbSaopMergeInfo
+YbSaopMergeSaopColInfo
 YbScanDesc
 YbScanDescData
 YbScanPlan
@@ -175,6 +177,7 @@ YbSeqScanState
 YbSessionStats
 YbSkippableEntities
 YbSkippableEntityType
+YbSortInfo
 YbSplitType
 YbStatLabel
 YbStatLabelData
@@ -222,7 +225,6 @@ YbcConstSliceSet
 YbcConstSliceVector
 YbcCstringToTextWithLenFn
 YbcFlushDebugContext
-YbcFlushReason
 YbcGetTableKeyRangesCallback
 YbcHeapSnapshotSample
 YbcLsnType
@@ -232,6 +234,7 @@ YbcObjectLockMode
 YbcOrderingMode
 YbcPallocFn
 YbcPgAshConfig
+YbcPgAtomicUint64
 YbcPgAttrValueDescriptor
 YbcPgBoundType
 YbcPgCallbacks
@@ -283,6 +286,7 @@ YbcPgStatement
 YbcPgSysColumns
 YbcPgSysTablePrefetcherCacheMode
 YbcPgTableDesc
+YbcPgTableLocalityInfo
 YbcPgTabletsDescriptor
 YbcPgThreadLocalRegexpCache
 YbcPgThreadLocalRegexpCacheCleanup

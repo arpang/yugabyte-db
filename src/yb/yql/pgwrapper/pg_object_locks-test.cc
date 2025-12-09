@@ -534,9 +534,6 @@ class PgObjectLocksTest : public LibPqTestBase {
     LibPqTestBase::UpdateMiniClusterOptions(opts);
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_vmodule) = "libpq_utils=1";
     opts->extra_tserver_flags.emplace_back(
-        yb::Format("--allowed_preview_flags_csv=enable_object_locking_for_table_locks,"
-                   "ysql_yb_ddl_transaction_block_enabled"));
-    opts->extra_tserver_flags.emplace_back(
         yb::Format("--enable_object_locking_for_table_locks=$0", EnableTableLocks()));
     opts->extra_tserver_flags.emplace_back(
         yb::Format("--ysql_yb_ddl_transaction_block_enabled=$0", EnableTableLocks()));
@@ -851,7 +848,7 @@ TEST_F(PgObjectLocksTest, VerifyLockTimeout) {
   // Verify the lock attempt fails with lock timeout error.
   Status result = conn2_lock_future.get();
   ASSERT_NOK(result);
-  ASSERT_STR_CONTAINS(result.ToString(), "Timed out");
+  ASSERT_STR_CONTAINS(result.ToString(), "canceling statement due to lock timeout");
 
   // Conn1 should still be able to commit
   ASSERT_OK(conn1.CommitTransaction());

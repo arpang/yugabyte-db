@@ -11,6 +11,8 @@ menu:
     identifier: auto-analyze
     parent: additional-features
     weight: 100
+aliases:
+  - /stable/explore/query-1-performance/auto-analyze/
 type: docs
 ---
 
@@ -67,7 +69,7 @@ SELECT reltuples FROM pg_class WHERE relname = 'test';
 ```
 
 ```output
- reltuples 
+ reltuples
 -----------
         -1
 (1 row)

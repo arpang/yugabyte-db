@@ -62,6 +62,7 @@
 #include "yb/util/yb_partition.h"
 
 #include "yb/yql/pggate/pg_expr.h"
+#include "yb/yql/pggate/pg_flush_debug_context.h"
 #include "yb/yql/pggate/pg_gate_fwd.h"
 #include "yb/yql/pggate/pg_tabledesc.h"
 #include "yb/yql/pggate/pg_tools.h"
@@ -170,7 +171,7 @@ inline std::optional<Bound> MakeBound(YbcPgBoundType type, uint16_t value) {
   return Bound{.value = value, .is_inclusive = (type == YB_YQL_BOUND_VALID_INCLUSIVE)};
 }
 
-void InitPgGateImpl(
+Status InitPgGateImpl(
     YbcPgTypeEntities type_entities, const YbcPgCallbacks& pg_callbacks,
     YbcPgAshConfig& ash_config, const YbcPgInitPostgresInfo& init_postgres_info) {
   // TODO: We should get rid of hybrid clock usage in YSQL backend processes (see #16034).
@@ -191,8 +192,10 @@ void InitPgGateImpl(
 
   pgapi_shutdown_done.exchange(false);
   pgapi = new PgApiImpl(type_entities, pg_callbacks, init_postgres_info, ash_config);
+  RETURN_NOT_OK(pgapi->StartPgApi(init_postgres_info));
 
   VLOG(1) << "PgGate open";
+  return Status::OK();
 }
 
 Status PgInitSessionImpl(YbcPgExecStatsState& session_stats, bool is_binary_upgrade) {
@@ -496,13 +499,12 @@ YbcPgTabletsDescriptor MakeYbcPgTabletsDescriptor(const tablet::TabletStatusPB& 
 
 extern "C" {
 
-void YBCInitPgGate(
+YbcStatus YBCInitPgGate(
     YbcPgTypeEntities type_entities, const YbcPgCallbacks *pg_callbacks,
     const YbcPgInitPostgresInfo *init_postgres_info, YbcPgAshConfig *ash_config) {
-  CHECK_OK(WithMaskedYsqlSignals(
+  return ToYBCStatus(WithMaskedYsqlSignals(
       [&type_entities, pg_callbacks, init_postgres_info, ash_config]() -> Status {
-        InitPgGateImpl(type_entities, *pg_callbacks, *ash_config, *init_postgres_info);
-        return Status::OK();
+        return InitPgGateImpl(type_entities, *pg_callbacks, *ash_config, *init_postgres_info);
   }));
 }
 
@@ -1217,12 +1219,6 @@ YbcStatus YBCPgSetTablespaceOid(YbcPgStatement handle, uint32_t tablespace_oid) 
   return ToYBCStatus(pgapi->SetTablespaceOid(handle, tablespace_oid));
 }
 
-#ifndef NDEBUG
-void YBCPgCheckTablespaceOid(uint32_t db_oid, uint32_t table_oid, uint32_t tablespace_oid) {
-  pgapi->CheckTablespaceOid(db_oid, table_oid, tablespace_oid);
-}
-#endif
-
 YbcStatus YBCPgDmlModifiesRow(YbcPgStatement handle, bool *modifies_row) {
   return ExtractValueFromResult(pgapi->DmlModifiesRow(handle), modifies_row);
 }
@@ -1539,8 +1535,8 @@ void YBCPgResetOperationsBuffering() {
   pgapi->ResetOperationsBuffering();
 }
 
-YbcStatus YBCPgFlushBufferedOperations(YbcFlushDebugContext *debug_context) {
-  return ToYBCStatus(pgapi->FlushBufferedOperations(*debug_context));
+YbcStatus YBCPgFlushBufferedOperations(const YbcFlushDebugContext *debug_context) {
+  return ToYBCStatus(pgapi->FlushBufferedOperations(PgFlushDebugContext::Make(*debug_context)));
 }
 
 YbcStatus YBCPgAdjustOperationsBuffering(int multiple) {
@@ -1560,11 +1556,12 @@ YbcStatus YBCPgBuildYBTupleId(const YbcPgYBTupleIdDescriptor *source, uint64_t *
 }
 
 YbcStatus YBCPgNewSample(
-    const YbcPgOid database_oid, const YbcPgOid table_relfilenode_oid, bool is_region_local,
+    const YbcPgOid database_oid, const YbcPgOid table_relfilenode_oid,
+    YbcPgTableLocalityInfo locality_info,
     int targrows, double rstate_w, uint64_t rand_state_s0, uint64_t rand_state_s1,
     YbcPgStatement *handle) {
   return ToYBCStatus(pgapi->NewSample(
-      {database_oid, table_relfilenode_oid}, is_region_local,
+      {database_oid, table_relfilenode_oid}, locality_info,
       targrows, {.w = rstate_w, .s0 = rand_state_s0, .s1 = rand_state_s1}, handle));
 }
 
@@ -1589,11 +1586,11 @@ YbcStatus YBCPgGetEstimatedRowCount(YbcPgStatement handle, double *liverows, dou
 YbcStatus YBCPgNewInsertBlock(
     YbcPgOid database_oid,
     YbcPgOid table_oid,
-    bool is_region_local,
+    YbcPgTableLocalityInfo locality_info,
     YbcPgTransactionSetting transaction_setting,
     YbcPgStatement *handle) {
   auto result = pgapi->NewInsertBlock(
-      PgObjectId(database_oid, table_oid), is_region_local, transaction_setting);
+      PgObjectId(database_oid, table_oid), locality_info, transaction_setting);
   if (result.ok()) {
     *handle = *result;
     return nullptr;
@@ -1603,11 +1600,11 @@ YbcStatus YBCPgNewInsertBlock(
 
 YbcStatus YBCPgNewInsert(const YbcPgOid database_oid,
                          const YbcPgOid table_relfilenode_oid,
-                         bool is_region_local,
+                         YbcPgTableLocalityInfo locality_info,
                          YbcPgStatement *handle,
                          YbcPgTransactionSetting transaction_setting) {
   const PgObjectId table_id(database_oid, table_relfilenode_oid);
-  return ToYBCStatus(pgapi->NewInsert(table_id, is_region_local, handle, transaction_setting));
+  return ToYBCStatus(pgapi->NewInsert(table_id, locality_info, handle, transaction_setting));
 }
 
 YbcStatus YBCPgExecInsert(YbcPgStatement handle) {
@@ -1635,11 +1632,11 @@ YbcStatus YBCPgInsertStmtSetIsBackfill(YbcPgStatement handle, const bool is_back
 // UPDATE Operations -------------------------------------------------------------------------------
 YbcStatus YBCPgNewUpdate(const YbcPgOid database_oid,
                          const YbcPgOid table_relfilenode_oid,
-                         bool is_region_local,
+                         YbcPgTableLocalityInfo locality_info,
                          YbcPgStatement *handle,
                          YbcPgTransactionSetting transaction_setting) {
   const PgObjectId table_id(database_oid, table_relfilenode_oid);
-  return ToYBCStatus(pgapi->NewUpdate(table_id, is_region_local, handle, transaction_setting));
+  return ToYBCStatus(pgapi->NewUpdate(table_id, locality_info, handle, transaction_setting));
 }
 
 YbcStatus YBCPgExecUpdate(YbcPgStatement handle) {
@@ -1649,11 +1646,11 @@ YbcStatus YBCPgExecUpdate(YbcPgStatement handle) {
 // DELETE Operations -------------------------------------------------------------------------------
 YbcStatus YBCPgNewDelete(const YbcPgOid database_oid,
                          const YbcPgOid table_relfilenode_oid,
-                         bool is_region_local,
+                         YbcPgTableLocalityInfo locality_info,
                          YbcPgStatement *handle,
                          YbcPgTransactionSetting transaction_setting) {
   const PgObjectId table_id(database_oid, table_relfilenode_oid);
-  return ToYBCStatus(pgapi->NewDelete(table_id, is_region_local, handle, transaction_setting));
+  return ToYBCStatus(pgapi->NewDelete(table_id, locality_info, handle, transaction_setting));
 }
 
 YbcStatus YBCPgExecDelete(YbcPgStatement handle) {
@@ -1667,12 +1664,12 @@ YbcStatus YBCPgDeleteStmtSetIsPersistNeeded(YbcPgStatement handle, const bool is
 // Colocated TRUNCATE Operations -------------------------------------------------------------------
 YbcStatus YBCPgNewTruncateColocated(const YbcPgOid database_oid,
                                     const YbcPgOid table_relfilenode_oid,
-                                    bool is_region_local,
+                                    YbcPgTableLocalityInfo locality_info,
                                     YbcPgStatement *handle,
                                     YbcPgTransactionSetting transaction_setting) {
   const PgObjectId table_id(database_oid, table_relfilenode_oid);
   return ToYBCStatus(pgapi->NewTruncateColocated(
-      table_id, is_region_local, handle, transaction_setting));
+      table_id, locality_info, handle, transaction_setting));
 }
 
 YbcStatus YBCPgExecTruncateColocated(YbcPgStatement handle) {
@@ -1682,11 +1679,11 @@ YbcStatus YBCPgExecTruncateColocated(YbcPgStatement handle) {
 // SELECT Operations -------------------------------------------------------------------------------
 YbcStatus YBCPgNewSelect(
     YbcPgOid database_oid, YbcPgOid table_relfilenode_oid, const YbcPgPrepareParameters* params,
-    bool is_region_local, YbcPgStatement* handle) {
+    YbcPgTableLocalityInfo locality_info, YbcPgStatement* handle) {
   return ToYBCStatus(pgapi->NewSelect(
       PgObjectId{database_oid, table_relfilenode_oid},
       PgObjectId{database_oid, params ? params->index_relfilenode_oid : kInvalidOid},
-      params, is_region_local, handle));
+      params, locality_info, handle));
 }
 
 YbcStatus YBCPgSetForwardScan(YbcPgStatement handle, bool is_forward_scan) {
@@ -2023,8 +2020,11 @@ bool YBCCurrentTransactionUsesFastPath() {
 //------------------------------------------------------------------------------------------------
 // System validation.
 //------------------------------------------------------------------------------------------------
-YbcStatus YBCPgValidatePlacement(const char *placement_info, bool check_satisfiable) {
-  return ToYBCStatus(pgapi->ValidatePlacement(placement_info, check_satisfiable));
+YbcStatus YBCPgValidatePlacements(
+    const char *live_placement_info, const char *read_replica_placement_info,
+    bool check_satisfiable) {
+  return ToYBCStatus(pgapi->ValidatePlacements(
+      live_placement_info, read_replica_placement_info, check_satisfiable));
 }
 
 // Referential Integrity Caching
@@ -2044,26 +2044,25 @@ void YBCPgAddIntoForeignKeyReferenceCache(YbcPgOid table_relfilenode_oid, uint64
 }
 
 YbcStatus YBCForeignKeyReferenceExists(
-  const YbcPgYBTupleIdDescriptor *source, bool relation_is_region_local, bool* res) {
+  const YbcPgYBTupleIdDescriptor *source, YbcPgTableLocalityInfo locality_info, bool* res) {
   return ProcessYbctid(
     *source,
-    [res, source, relation_is_region_local](auto table_id, const auto& ybctid) -> Status {
+    [res, source, &locality_info](auto table_id, const auto& ybctid) -> Status {
     *res = VERIFY_RESULT(pgapi->ForeignKeyReferenceExists(
-        table_id, ybctid, relation_is_region_local, source->database_oid));
+        PgObjectId{source->database_oid, table_id}, ybctid, locality_info));
     return Status::OK();
   });
 }
 
 YbcStatus YBCAddForeignKeyReferenceIntent(
-    const YbcPgYBTupleIdDescriptor *source, bool is_region_local_relation,
+    const YbcPgYBTupleIdDescriptor* source, YbcPgTableLocalityInfo locality_info,
     bool is_deferred_trigger) {
   return ProcessYbctid(
       *source,
-      [source, is_region_local_relation, is_deferred_trigger](auto table_id, const auto& ybctid) {
+      [source, &locality_info, is_deferred_trigger](auto table_id, const auto& ybctid) {
         return pgapi->AddForeignKeyReferenceIntent(
-            table_id, ybctid,
-            {.is_region_local = is_region_local_relation, .is_deferred = is_deferred_trigger},
-            source->database_oid);
+            PgObjectId{source->database_oid, table_id}, ybctid,
+            {.locality_info = locality_info, .is_deferred = is_deferred_trigger});
       });
 }
 
@@ -2073,11 +2072,11 @@ void YBCNotifyDeferredTriggersProcessingStarted() {
 
 YbcPgExplicitRowLockStatus YBCAddExplicitRowLockIntent(
     YbcPgOid table_relfilenode_oid, uint64_t ybctid, YbcPgOid database_oid,
-    const YbcPgExplicitRowLockParams *params, bool is_region_local) {
+    const YbcPgExplicitRowLockParams* params, YbcPgTableLocalityInfo locality_info) {
   auto result = MakePgExplicitRowLockStatus();
   result.ybc_status = ToYBCStatus(pgapi->AddExplicitRowLockIntent(
       PgObjectId(database_oid, table_relfilenode_oid), YbctidAsSlice(ybctid), *params,
-      is_region_local, result.error_info));
+      locality_info, result.error_info));
   return result;
 }
 
@@ -2288,14 +2287,31 @@ YbcStatus YBCGetTabletServerHosts(YbcServerDescriptor **servers, size_t *count) 
   return YBCStatusOK();
 }
 
+/*
+ * Get the index backfill progress.
+ *
+ * Returns the number of base table tuples scanned and index tuples inserted
+ * during the index backfill. If the backfill is in progress, it will report
+ * only the tuples scanned and inserted so far. After the backfill is completed,
+ * this function only returns the tuple scanned and inserted at the time of
+ * completion of the backfill, not the actual number of tuples in the base table
+ * and index currently.
+ *
+ * If an index is not found in the DocDB catalog, both return values are set to
+ * UINT64_MAX for this index.
+ *
+ * If num_rows_backfilled is NULL, it will not be populated.
+ */
 YbcStatus YBCGetIndexBackfillProgress(YbcPgOid* index_oids, YbcPgOid* database_oids,
-                                      uint64_t** backfill_statuses,
-                                      int num_indexes) {
+                                      uint64_t* num_rows_read_from_table,
+                                      double* num_rows_backfilled, int num_indexes) {
   std::vector<PgObjectId> index_ids;
   for (int i = 0; i < num_indexes; ++i) {
     index_ids.emplace_back(PgObjectId(database_oids[i], index_oids[i]));
   }
-  return ToYBCStatus(pgapi->GetIndexBackfillProgress(index_ids, backfill_statuses));
+  return ToYBCStatus(pgapi->GetIndexBackfillProgress(index_ids,
+                                                     num_rows_read_from_table,
+                                                     num_rows_backfilled));
 }
 
 //------------------------------------------------------------------------------------------------
@@ -3070,6 +3086,10 @@ YbcReadPointHandle YBCPgGetCurrentReadPoint() {
   return pgapi->GetCurrentReadPoint();
 }
 
+YbcReadPointHandle YBCPgGetMaxReadPoint() {
+  return pgapi->GetMaxReadPoint();
+}
+
 YbcStatus YBCPgRestoreReadPoint(YbcReadPointHandle read_point) {
   return ToYBCStatus(pgapi->RestoreReadPoint(read_point));
 }
@@ -3151,14 +3171,6 @@ void YBCSetBinaryUpgrade(bool value) {
   yb_is_binary_upgrade = value;
 }
 
-void YBCRecordTablespaceOid(YbcPgOid db_oid, YbcPgOid table_oid, YbcPgOid tablespace_oid) {
-  pgapi->RecordTablespaceOid(db_oid, table_oid, tablespace_oid);
-}
-
-void YBCClearTablespaceOid(YbcPgOid db_oid, YbcPgOid table_oid) {
-  pgapi->ClearTablespaceOid(db_oid, table_oid);
-}
-
 YbcStatus YBCInitTransaction(const YbcPgInitTransactionData *data) {
   return ToYBCStatus(YBCInitTransactionImpl(*data));
 }
@@ -3169,6 +3181,46 @@ YbcStatus YBCCommitTransactionIntermediate(const YbcPgInitTransactionData *data)
 
 YbcStatus YBCTriggerRelcacheInitConnection(const char* dbname) {
   return ToYBCStatus(pgapi->TriggerRelcacheInitConnection(dbname));
+}
+
+YbcFlushDebugContext YBCMakeFlushDebugContextBeginSubTxn(uint32_t id, const char *name) {
+  return PgFlushDebugContext::YbcBeginSubTxn(id, name);
+}
+
+YbcFlushDebugContext YBCMakeFlushDebugContextEndSubTxn(uint32_t id) {
+  return PgFlushDebugContext::YbcEndSubTxn(id);
+}
+
+YbcFlushDebugContext YBCMakeFlushDebugContextGetTxnSnapshot() {
+  return PgFlushDebugContext::YbcGetTxnSnapshot(YBCPgGetCurrentReadPoint());
+}
+
+YbcFlushDebugContext YBCMakeFlushDebugContextUnbatchableStmtInSqlFunc(
+    uint64_t cmd, const char * func_name) {
+  return PgFlushDebugContext::YbcUnbatchableStmtInSqlFunc(cmd, func_name);
+}
+
+YbcFlushDebugContext YBCMakeFlushDebugContextUnbatchablePlStmt(
+    const char* stmt_name, const char* func_name) {
+  return PgFlushDebugContext::YbcUnbatchablePlStmt(stmt_name, func_name);
+}
+
+YbcFlushDebugContext YBCMakeFlushDebugContextUnbatchableStmtInPlFunc(
+    const char* cmd_name, const char* func_name) {
+  return PgFlushDebugContext::YbcUnbatchableStmtInPlFunc(cmd_name, func_name);
+}
+
+YbcFlushDebugContext YBCMakeFlushDebugContextCopyBatch(
+    uint64_t tuples_processed, const char *table_name) {
+  return PgFlushDebugContext::YbcCopyBatch(tuples_processed, table_name);
+}
+
+YbcFlushDebugContext YBCMakeFlushDebugContextSwithToDbCatalogVersionMode(YbcPgOid db_oid) {
+  return PgFlushDebugContext::YbcSwitchToDbCatalogVersionMode(db_oid);
+}
+
+YbcFlushDebugContext YBCMakeFlushDebugContextEndOfTopLevelStmt() {
+  return PgFlushDebugContext::YbcEndOfTopLevelStmt();
 }
 
 } // extern "C"

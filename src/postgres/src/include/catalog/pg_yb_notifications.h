@@ -25,7 +25,7 @@
  *		typedef struct FormData_pg_yb_notifications
  * ----------------
  */
-CATALOG(pg_yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(8101,YbNotificationsRelation_Rowtype_Id) YB_BKI_TSERVER_HOSTED BKI_SCHEMA_MACRO
+CATALOG(pg_yb_notifications,8101,YbNotificationsRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(8102,YbNotificationsRelation_Rowtype_Id) YB_BKI_TSERVER_HOSTED BKI_SCHEMA_MACRO
 {
 	uuid		sender_node;	/* uuid of node hosting the sender backend */
 
@@ -47,6 +47,6 @@ CATALOG(pg_yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION 
  */
 typedef FormData_pg_yb_notifications * Form_pg_yb_notifications;
 
-DECLARE_UNIQUE_INDEX_PKEY(pg_yb_notifications_pkey, 8102, YbNotificationsPKeyIndexId, on pg_yb_notifications using btree(sender_node uuid_ops HASH, sender_pid int4_ops HASH) num_tablets 3);
+DECLARE_UNIQUE_INDEX_PKEY(pg_yb_notifications_pkey, 8103, YbNotificationsPKeyIndexId, on pg_yb_notifications using btree(sender_node uuid_ops HASH, sender_pid int4_ops HASH) num_tablets 3);
 
 #endif							/* PG_YB_NOTIFICATIONS_H */

@@ -110,6 +110,7 @@
 #include "yb/gutil/stl_util.h"
 #include "yb/gutil/strings/escaping.h"
 #include "yb/gutil/strings/join.h"
+#include "yb/gutil/strings/split.h"
 #include "yb/gutil/strings/substitute.h"
 #include "yb/gutil/sysinfo.h"
 #include "yb/gutil/walltime.h"
@@ -210,6 +211,7 @@
 #include "yb/util/status.h"
 #include "yb/util/status_format.h"
 #include "yb/util/status_log.h"
+#include "yb/util/stol_utils.h"
 #include "yb/util/stopwatch.h"
 #include "yb/util/string_case.h"
 #include "yb/util/string_util.h"
@@ -473,6 +475,10 @@ DEFINE_test_flag(bool, sequential_colocation_ids, false,
                  "When set, colocation IDs will be assigned sequentially (starting from 20001) "
                  "rather than at random. This is especially useful for making pg_regress "
                  "tests output consistent and predictable.");
+
+DEFINE_test_flag(string, colocation_ids, "",
+                 "Comma separated list of colocation ids that should be used for the first created "
+                 "tables.");
 
 DEFINE_RUNTIME_bool(disable_truncate_table, false,
     "When enabled, truncate table will be disallowed");
@@ -2402,12 +2408,6 @@ Status CatalogManager::ValidateTableReplicationInfo(
   if (!IsReplicationInfoSet(replication_info)) {
     return STATUS(InvalidArgument, "No replication info set.");
   }
-  // We don't support read replica placements for now.
-  if (!replication_info.read_replicas().empty()) {
-    return STATUS(
-        InvalidArgument,
-        "Read replica placement info cannot be set for table level replication info.");
-  }
 
   auto l = ClusterConfig()->LockForRead();
   const ReplicationInfoPB& cluster_replication_info = l->pb.replication_info();
@@ -2522,6 +2522,7 @@ Status CatalogManager::UpdateTransactionStatusTableTablespaces(
       if (tablespace_id && !tablespace_info.count(*tablespace_id)) {
         LOG(INFO) << "Found transaction status table for tablespace id " << *tablespace_id
                   << " which doesn't exist, clearing tablespace id and deleting";
+        // todo(GH29185): acquires a COW write lock while holding mutex_ exclusively.
         ClearTransactionStatusTableTablespace(table);
         RETURN_NOT_OK(ScheduleDeleteTable(table, epoch));
       }
@@ -2938,6 +2939,7 @@ Status CatalogManager::DoSplitTablet(
     // mutex_ -> table -> tablet is required to prevent deadlocks.
     // TODO: Pass the table and tablet locks in directly to the validation functions.
     SharedLock lock(mutex_);
+    // todo(GH29185): Acquiring a write lock while holding mutex_.
     auto source_table_lock = table->LockForWrite();
     TabletInfo::WriteLock source_tablet_lock;
     {
@@ -3116,6 +3118,11 @@ TabletInfos CatalogManager::GetTabletInfos(const std::vector<TabletId>& ids) {
     result.push_back(FindPtrOrNull(*tablet_map_, id));
   }
   return result;
+}
+
+bool CatalogManager::IsColocatedNamespace(const NamespaceId& ns_id) const {
+  SharedLock lock(mutex_);
+  return colocated_db_tablets_map_.contains(ns_id);
 }
 
 void CatalogManager::SplitTabletWithKey(
@@ -3306,6 +3313,16 @@ Result<ColocationId> ConceiveColocationId(
           .CloneAndAddErrorCode(MasterError(MasterErrorPB::INVALID_SCHEMA));
     }
     return req.colocation_id();
+  }
+
+  if (PREDICT_FALSE(!FLAGS_TEST_colocation_ids.empty())) {
+    auto ids = VERIFY_RESULT(ParseCommaSeparatedListOfNumbers<ColocationId>(
+        FLAGS_TEST_colocation_ids));
+    for (auto colocation_id : ids) {
+      if (!contains_colocation_id(colocation_id)) {
+        return colocation_id;
+      }
+    }
   }
 
   // Generate a random colocation ID unique within colocation group.
@@ -4010,10 +4027,9 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
       namespace_id = ns->id();
       namespace_name = ns->name();
     }
-    SharedLock lock(mutex_);
     is_colocated_via_database =
         (IsColocatedDbParentTableId(req.table_id()) ||
-             colocated_db_tablets_map_.contains(namespace_id)) &&
+         IsColocatedNamespace(namespace_id)) &&
         // Opt out of colocation if the request says so.
         (!req.has_is_colocated_via_database() || req.is_colocated_via_database()) &&
         // Opt out of colocation if the indexed table opted out of colocation.
@@ -4310,8 +4326,14 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
         }
       } else {
         // Adding a table to an existing colocation tablet.
+        std::optional<uint32_t> current_partition_list_version;
         if (is_vector_index) {
           tablets = VERIFY_RESULT(indexed_table->GetTablets(GetTabletsMode::kOrderByTabletId));
+
+          // Since the vector index table shares the same tablets with the indexable table,
+          // it is necessary to propagate the actual partition list version. It is safe to read
+          // the partition list version here because the indexable table holds the write lock.
+          current_partition_list_version = indexed_table.lock->pb.partition_list_version();
         } else {
           auto tablet = tablegroup ?
               tablegroup->tablet() :
@@ -4341,6 +4363,11 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
 
         CHECK_NE(colocation_id, kColocationIdNotSet);
         table_pb.mutable_schema()->mutable_colocated_table_id()->set_colocation_id(colocation_id);
+
+        if (current_partition_list_version.has_value()) {
+          table_pb.set_partition_list_version(*current_partition_list_version);
+          LOG(INFO) << "Partition list version is set to " << table_pb.partition_list_version();
+        }
 
         // TODO(zdrudi): In principle if the hosted_tables_mapped_by_parent_id field is set we could
         // avoid writing the tablets and even avoid any tablet mutations here at all. However
@@ -4910,6 +4937,7 @@ Status CatalogManager::AddTransactionStatusTablet(
   {
     LockGuard lock(mutex_);
     table = VERIFY_RESULT(FindTableByIdUnlocked(req->table_id()));
+    // todo(GH29185): acquires COW write lock while holding mutex_ exclusively.
     write_lock = table->LockForWrite();
 
     auto schema = VERIFY_RESULT(table->GetSchema());
@@ -5788,6 +5816,23 @@ Result<scoped_refptr<NamespaceInfo>> CatalogManager::FindNamespaceByIdUnlocked(
   return it->second;
 }
 
+Result<scoped_refptr<NamespaceInfo>> CatalogManager::FindNamespaceByName(
+    YQLDatabase db_type, const std::string& name) const {
+  SharedLock lock(mutex_);
+  return FindNamespaceByNameUnlocked(db_type, name);
+}
+
+Result<scoped_refptr<NamespaceInfo>> CatalogManager::FindNamespaceByNameUnlocked(
+    YQLDatabase db_type, const std::string& name) const {
+  auto it = namespace_names_mapper_[db_type].find(name);
+  if (it == namespace_names_mapper_[db_type].end()) {
+    return STATUS(
+        NotFound, Format("$0 keyspace name not found", ShortDatabaseType(db_type)), name,
+        MasterError(MasterErrorPB::NAMESPACE_NOT_FOUND));
+  }
+  return it->second;
+}
+
 Result<scoped_refptr<NamespaceInfo>> CatalogManager::FindNamespaceUnlocked(
     const NamespaceIdentifierPB& ns_identifier) const {
   if (ns_identifier.has_id()) {
@@ -5795,16 +5840,7 @@ Result<scoped_refptr<NamespaceInfo>> CatalogManager::FindNamespaceUnlocked(
   }
 
   if (ns_identifier.has_name()) {
-    auto db = GetDatabaseType(ns_identifier);
-    auto it = namespace_names_mapper_[db].find(ns_identifier.name());
-    if (it == namespace_names_mapper_[db].end()) {
-      return STATUS(
-          NotFound,
-          Format("$0 keyspace name not found", ShortDatabaseType(db)),
-          ns_identifier.name(),
-          MasterError(MasterErrorPB::NAMESPACE_NOT_FOUND));
-    }
-    return it->second;
+    return FindNamespaceByNameUnlocked(GetDatabaseType(ns_identifier), ns_identifier.name());
   }
 
   LOG(DFATAL) << __func__ << ": " << ns_identifier.ShortDebugString() << ", \n" << GetStackTrace();
@@ -5921,15 +5957,12 @@ Status CatalogManager::TruncateTable(const TableId& table_id,
                                      const LeaderEpoch& epoch) {
   // Lookup the table and verify if it exists.
   TRACE(Substitute("Looking up object by id $0", table_id));
-  scoped_refptr<TableInfo> table;
-  {
-    SharedLock lock(mutex_);
-    table = tables_->FindTableOrNull(table_id);
-    if (table == nullptr) {
-      Status s = STATUS_SUBSTITUTE(NotFound, "The object with id $0 does not exist", table_id);
-      return SetupError(resp->mutable_error(), MasterErrorPB::OBJECT_NOT_FOUND, s);
-    }
+  auto table_result = FindTableById(table_id);
+  if (!table_result.ok()) {
+    return SetupError(
+        resp->mutable_error(), MasterErrorPB::OBJECT_NOT_FOUND, table_result.status());
   }
+  auto& table = *table_result;
 
   TRACE(Substitute("Locking object with id $0", table_id));
   RETURN_NOT_OK(CatalogManagerUtil::CheckIfTableDeletedOrNotVisibleToClient(
@@ -6037,17 +6070,13 @@ Status CatalogManager::IsTruncateTableDone(const IsTruncateTableDoneRequestPB* r
 
   // Lookup the truncated table.
   TRACE("Looking up table $0", req->table_id());
-  scoped_refptr<TableInfo> table;
-  {
-    SharedLock lock(mutex_);
-    table = tables_->FindTableOrNull(req->table_id());
-  }
+  auto table_result = FindTableById(req->table_id());
 
-  if (table == nullptr) {
+  if (!table_result.ok()) {
     Status s = STATUS(NotFound, "The object does not exist: table with id", req->table_id());
     return SetupError(resp->mutable_error(), MasterErrorPB::OBJECT_NOT_FOUND, s);
   }
-
+  const auto& table = *table_result;
   TRACE("Locking table");
   RETURN_NOT_OK(
       CatalogManagerUtil::CheckIfTableDeletedOrNotVisibleToClient(table->LockForRead(), resp));
@@ -6447,30 +6476,17 @@ Status CatalogManager::GetIndexBackfillProgress(const GetIndexBackfillProgressRe
   // Note: the caller expects the ordering of the indexes in the response PB to be the
   // same as that in the request PB.
   for (const auto& index_id : req->index_ids()) {
-    // Retrieve the number of rows processed by the backfill job.
-    // When the backfill job is live, the num_rows_read_from_table_for_backfill field in the indexed
-    // table's BackfillJobPB would give us the desired information. For backfill jobs that haven't
-    // been created or have completed/failed (and been cleared) the
-    // num_rows_read_from_table_for_backfill field in the IndexInfoPB would give us the desired
-    // information.
-    // The following cases are possible:
-    // 1) The index or the indexed table is not found: the information can't be determined so
-    //    we set the num_rows_read_from_table_for_backfill to 0.
-    // 2) The backfill job hasn't been created: we use IndexInfoPB's
-    //    num_rows_read_from_table_for_backfill (in this case the value of this field is the default
-    //    value 0).
-    // 3) The backfill job is live: we use BackfillJobPB's num_rows_read_from_table_for_backfill.
-    // 4) The backfill job was successful/unsuccessful and cleared after completion:
-    //    we use IndexInfoPB's num_rows_read_from_table_for_backfill.
-    // Notes:
-    // a) We are safe from concurrency issues when reading the backfill state and
-    //    the index info's num_rows_read_from_table_for_backfill because the updation for these two
-    //    fields happenswithin the same LockForWrite in BackfillTable::MarkIndexesAsDesired.
+    // Retrieve the number of rows read from base table and the number of rows inserted in the index
+    // by the backfill job. For active jobs, we get these values from the BackfillJobPB. If an
+    // active job is not found, we get these values from the IndexInfoPB.
+    // We are safe from concurrency issues when reading the backfill state and
+    // the index info's num_rows_processed because the updation for these two fields happens
+    // within the same LockForWrite in BackfillTable::MarkIndexesAsDesired.
     auto index_table = GetTableInfo(index_id);
     if (index_table == nullptr) {
       LOG_WITH_FUNC(INFO) << "Requested Index " << index_id << " not found";
-      // No backfill job can be found for this index - set the rows processed to 0.
-      resp->add_num_rows_read_from_table_for_backfill(0);
+      resp->add_num_rows_read_from_table_for_backfill(UINT64_MAX);
+      resp->add_num_rows_backfilled_in_index(-1.0);
       continue;
     }
 
@@ -6478,8 +6494,8 @@ Status CatalogManager::GetIndexBackfillProgress(const GetIndexBackfillProgressRe
     auto indexed_table = GetTableInfo(index_table->indexed_table_id());
     if (indexed_table == nullptr) {
       LOG_WITH_FUNC(INFO) << "Indexed table for requested index " << index_id << " not found";
-      // No backfill job can be found for this index - set the rows processed to 0.
-      resp->add_num_rows_read_from_table_for_backfill(0);
+      resp->add_num_rows_read_from_table_for_backfill(UINT64_MAX);
+      resp->add_num_rows_backfilled_in_index(-1.0);
       continue;
     }
 
@@ -6495,14 +6511,28 @@ Status CatalogManager::GetIndexBackfillProgress(const GetIndexBackfillProgressRe
       if (backfill_job.backfill_state().find(index_id) != backfill_job.backfill_state().end()) {
         resp->add_num_rows_read_from_table_for_backfill(
             backfill_job.num_rows_read_from_table_for_backfill());
+        // If the index is part of this backfill job, get the desired information from the
+        // backfill job, else get it from the IndexInfoPB.
+        if (backfill_job.num_rows_backfilled_in_index().find(index_id) !=
+            backfill_job.num_rows_backfilled_in_index().end()) {
+          resp->add_num_rows_backfilled_in_index(
+            backfill_job.num_rows_backfilled_in_index().at(index_id));
+        } else {
+          // In case of rolling upgrade, an older tserver may not include
+          // num_rows_backfilled_in_index in its response. We report 0 in this case, so index
+          // reltuples may be inaccurate.
+          resp->add_num_rows_backfilled_in_index(0.0);
+        }
         continue;
       }
     }
+
     // Find the desired index's IndexInfoPB from the indexed table's TableInfo.
     for (const auto& index_info_pb : l->pb.indexes()) {
       if (index_info_pb.table_id() == index_id) {
         resp->add_num_rows_read_from_table_for_backfill(
             index_info_pb.num_rows_read_from_table_for_backfill());
+        resp->add_num_rows_backfilled_in_index(index_info_pb.num_rows_backfilled_in_index());
         break;
       }
     }
@@ -6555,7 +6585,6 @@ Status CatalogManager::DeleteTable(
     DCHECK(req->transaction().has_transaction_id());
   }
 
-  scoped_refptr<TableInfo> indexed_table;
   if (req->is_index_table()) {
     TRACE("Looking up index");
     TableId table_id = table->id();
@@ -6569,24 +6598,20 @@ Status CatalogManager::DeleteTable(
       is_transactional = l->schema().table_properties().is_transactional();
       index_table_type = l->table_type();
     }
-    NamespaceInfoPtr ns_info;
-    {
-      SharedLock lock(mutex_);
-      indexed_table = GetTableInfoUnlocked(indexed_table_id);
-      ns_info = VERIFY_RESULT(FindNamespaceByIdUnlocked(indexed_table->namespace_id()));
-    }
-    const bool is_pg_table = indexed_table != nullptr &&
-                             indexed_table->GetTableType() == PGSQL_TABLE_TYPE;
-    if (!is_pg_table && IsIndexBackfillEnabled(index_table_type, is_transactional)) {
+    auto indexed_table = GetTableInfo(indexed_table_id);
+    bool is_pg_table =
+        indexed_table != nullptr && indexed_table->GetTableType() == PGSQL_TABLE_TYPE;
+    bool is_non_pg_table =
+        indexed_table != nullptr && indexed_table->GetTableType() != PGSQL_TABLE_TYPE;
+    if (is_non_pg_table && IsIndexBackfillEnabled(index_table_type, is_transactional)) {
       return MarkIndexInfoFromTableForDeletion(
           indexed_table_id, table_id, /*multi_stage=*/true, epoch, resp, /*data_map_ptr=*/nullptr,
-          ns_info);
-    }
-
-    // If DDL Rollback is enabled, we will not delete the index now, but merely mark it for
-    // deletion when the transaction commits. Thus set the response fields required by the client
-    // right away.
-    if (is_pg_table && req->ysql_yb_ddl_rollback_enabled()) {
+          VERIFY_RESULT(FindNamespaceById(indexed_table->namespace_id())));
+    } else if (is_pg_table && req->ysql_yb_ddl_rollback_enabled()) {
+      // If DDL Rollback is enabled, we will not delete the index now, but merely mark it for
+      // deletion when the transaction commits. Thus set the response fields required by the client
+      // right away.
+      auto ns_info = VERIFY_RESULT(FindNamespaceById(indexed_table->namespace_id()));
       auto* resp_indexed_table = resp->mutable_indexed_table();
       resp_indexed_table->mutable_namespace_()->set_name(ns_info->name());
       resp_indexed_table->mutable_namespace_()->set_id(ns_info->id());
@@ -6686,14 +6711,8 @@ Status CatalogManager::DeleteTable(
 Status CatalogManager::DeleteTableInternal(
     const DeleteTableRequestPB* req, DeleteTableResponsePB* resp, rpc::RpcContext* rpc,
     const LeaderEpoch& epoch) {
-  TableInfoPtr table;
-  NamespaceInfoPtr ns_info;
-  {
-    SharedLock lock(mutex_);
-    table = VERIFY_RESULT(FindTableUnlocked(req->table()));
-    ns_info = VERIFY_RESULT(FindNamespaceByIdUnlocked(table->namespace_id()));
-  }
-
+  auto table = VERIFY_RESULT(FindTable(req->table()));
+  auto ns_info = VERIFY_RESULT(FindNamespaceById(table->namespace_id()));
   if (table->IgnoreHideRequest()) {
     return Status::OK();
   }
@@ -7202,18 +7221,14 @@ Status CatalogManager::IsDeleteTableDone(const IsDeleteTableDoneRequestPB* req,
                                          IsDeleteTableDoneResponsePB* resp) {
   // Lookup the deleted table.
   TRACE("Looking up table $0", req->table_id());
-  scoped_refptr<TableInfo> table;
-  {
-    SharedLock lock(mutex_);
-    table = tables_->FindTableOrNull(req->table_id());
-  }
-
-  if (table == nullptr) {
+  auto table_result = FindTableById(req->table_id());
+  if (!table_result.ok()) {
     LOG(INFO) << "Servicing IsDeleteTableDone request for table id "
               << req->table_id() << ": deleted (not found)";
     resp->set_done(true);
     return Status::OK();
   }
+  auto& table = (*table_result);
 
   TRACE("Locking table");
   bool deleted;
@@ -7526,6 +7541,7 @@ Status CatalogManager::AlterTable(const AlterTableRequestPB* req,
         xcluster_manager_.get()->IsNamespaceInAutomaticDDLMode(table->namespace_id());
   }
 
+  // todo(GH29185): too much happens here under the cm mutex.
   UniqueLock lock(mutex_);
   VLOG_WITH_FUNC(3) << "Acquired the catalog manager lock";
 
@@ -7749,6 +7765,7 @@ Status CatalogManager::AlterTable(const AlterTableRequestPB* req,
   lock.unlock();
 
   TEST_SYNC_POINT("YBBackupTestWithColocationParam::AlterTableDocDBTableCommitted");
+  TEST_SYNC_POINT("YBBackupTestWithColocationParam::ContinueAlterTable");
   if (PREDICT_FALSE(FLAGS_TEST_fail_alter_table_after_commit)) {
     return STATUS(IllegalState, "Injected failure after in-memory commit");
   }
@@ -8027,17 +8044,12 @@ Status CatalogManager::GetTableSchemaInternal(const GetTableSchemaRequestPB* req
     }
   }
 
-  // Get namespace name by id.
-  SharedLock lock(mutex_);
-  TRACE("Looking up namespace");
-  const scoped_refptr<NamespaceInfo> ns = FindPtrOrNull(namespace_ids_map_, table->namespace_id());
-
-  if (ns == nullptr) {
-    Status s = STATUS_SUBSTITUTE(
-        NotFound, "Could not find namespace by namespace id $0 for request $1.",
-        table->namespace_id(), req->DebugString());
-    return SetupError(resp->mutable_error(), MasterErrorPB::NAMESPACE_NOT_FOUND, s);
+  auto ns_result = FindNamespaceById(table->namespace_id());
+  if (!ns_result.ok()) {
+    return SetupError(
+        resp->mutable_error(), MasterErrorPB::NAMESPACE_NOT_FOUND, ns_result.status());
   }
+  auto& ns = *ns_result;
 
   resp->mutable_identifier()->mutable_namespace_()->set_name(ns->name());
 
@@ -8078,7 +8090,6 @@ Status CatalogManager::GetTablegroupSchema(const GetTablegroupSchemaRequestPB* r
   std::unordered_set<TableId> table_ids;
   {
     SharedLock lock(mutex_);
-
     const auto* tablegroup = tablegroup_manager_->Find(tablegroup_id);
     SCHECK(tablegroup, NotFound, Substitute("Tablegroup with ID $0 not found", tablegroup_id));
     table_ids = tablegroup->ChildTableIds();
@@ -8521,22 +8532,18 @@ Status CatalogManager::CreateTablegroup(
   // Use the tablegroup id as the prefix for the parent table id.
   TableId parent_table_id;
   TableName parent_table_name;
-  {
-    LockGuard lock(mutex_);
-    scoped_refptr<NamespaceInfo> ns = FindPtrOrNull(namespace_ids_map_, req->namespace_id());
-    if (ns == nullptr) {
-      Status s = STATUS_SUBSTITUTE(
-          NotFound, "Could not find namespace by namespace id $0 for request $1.",
-          req->namespace_id(), req->DebugString());
-      return SetupError(resp->mutable_error(), MasterErrorPB::NAMESPACE_NOT_FOUND, s);
-    }
-    if (ns->colocated()) {
-      parent_table_id = GetColocationParentTableId(req->id());
-      parent_table_name = GetColocationParentTableName(req->id());
-    } else {
-      parent_table_id = GetTablegroupParentTableId(req->id());
-      parent_table_name = GetTablegroupParentTableName(req->id());
-    }
+  auto ns_result = FindNamespaceById(req->namespace_id());
+  if (!ns_result.ok()) {
+    return SetupError(
+        resp->mutable_error(), MasterErrorPB::NAMESPACE_NOT_FOUND, ns_result.status());
+  }
+  auto& ns = *ns_result;
+  if (ns->colocated()) {
+    parent_table_id = GetColocationParentTableId(req->id());
+    parent_table_name = GetColocationParentTableName(req->id());
+  } else {
+    parent_table_id = GetTablegroupParentTableId(req->id());
+    parent_table_name = GetTablegroupParentTableName(req->id());
   }
   if (req->has_transaction()) {
     ctreq.mutable_transaction()->CopyFrom(req->transaction());
@@ -9905,9 +9912,7 @@ Status CatalogManager::GetNamespaceInfo(const GetNamespaceInfoRequestPB* req,
   resp->mutable_namespace_()->set_database_type(ns->database_type());
   resp->set_colocated(ns->colocated());
   if (ns->colocated()) {
-    LockGuard lock(mutex_);
-    resp->set_legacy_colocated_database(colocated_db_tablets_map_.find(ns->id())
-                                        != colocated_db_tablets_map_.end());
+    resp->set_legacy_colocated_database(IsColocatedNamespace(ns->id()));
   }
   return Status::OK();
 }
@@ -10498,7 +10503,8 @@ uint64_t CatalogManager::GetTransactionTablesVersion() {
 }
 
 Status CatalogManager::WaitForTransactionTableVersionUpdateToPropagate() {
-  auto ts_descriptors = master_->ts_manager()->GetAllDescriptors();
+  TSDescriptorVector ts_descriptors;
+  master_->ts_manager()->GetAllLiveDescriptors(&ts_descriptors);
   size_t num_descriptors = ts_descriptors.size();
 
   CountDownLatch latch(num_descriptors);
@@ -11042,6 +11048,10 @@ void CatalogManager::SendDeleteTabletRequest(
   }
   if (table != nullptr) {
     table->AddTask(call);
+    TransactionId txn_id = TransactionId::Nil();
+    if (IsTableDeletionDueToRollbackToSubTxn(table, txn_id)) {
+      call->set_exclude_aborting_transaction_id(txn_id);
+    }
   }
 
   auto status = ScheduleTask(call);
@@ -12098,15 +12108,13 @@ Result<shared_ptr<tablet::AbstractTablet>> CatalogManager::GetSystemTablet(const
 
 Status CatalogManager::GetTabletLocations(
     const TabletId& tablet_id, TabletLocationsPB* locs_pb, IncludeHidden include_hidden) {
-  TabletInfoPtr tablet_info;
-  {
-    SharedLock lock(mutex_);
-    if (!FindCopy(*tablet_map_, tablet_id, &tablet_info)) {
-      return STATUS_SUBSTITUTE(NotFound, "Unknown tablet $0", tablet_id);
-    }
+  auto tablet_info_result = GetTabletInfo(tablet_id);
+  if (!tablet_info_result.ok()) {
+    // Some clients expect non-ok statuses to have a certain form.
+    return STATUS_FORMAT(NotFound, "Unknown tablet $0", tablet_id);
   }
+  const auto& tablet_info = *tablet_info_result;
   Status s = GetTabletLocations(tablet_info, locs_pb, include_hidden);
-
   auto num_replicas = GetNumTabletReplicas(tablet_info);
   if (num_replicas.ok() && *num_replicas > 0 &&
       implicit_cast<size_t>(locs_pb->replicas().size()) != *num_replicas) {
@@ -12347,7 +12355,7 @@ Status CatalogManager::PeerStateDump(const vector<RaftPeerPB>& peers,
 }
 
 void CatalogManager::ReportMetrics() {
-  // Report metrics on load balancer state.
+  // Report metrics on cluster balancer state.
   load_balance_policy_->ReportMetrics();
 
   // Report metrics on how many tservers are alive.
@@ -12503,14 +12511,13 @@ Result<size_t> CatalogManager::GetNumTabletReplicas(const TabletInfoPtr& tablet)
 
 Status CatalogManager::GetExpectedNumberOfReplicasForTablet(
     const TabletId& tablet_id, int* num_live_replicas, int* num_read_replicas) {
-  TabletInfoPtr tablet_info;
-  {
-    SharedLock lock(mutex_);
-    if (!FindCopy(*tablet_map_, tablet_id, &tablet_info)) {
-      return STATUS_SUBSTITUTE(NotFound, "Unknown tablet $0", tablet_id);
-    }
+  auto tablet_info_result = GetTabletInfo(tablet_id);
+  if (!tablet_info_result.ok()) {
+    // Some clients expect non-ok statuses to have a certain form.
+    return STATUS_FORMAT(NotFound, "Unknown tablet $0", tablet_id);
   }
-  GetExpectedNumberOfReplicasForTable(tablet_info->table(), num_live_replicas, num_read_replicas);
+  GetExpectedNumberOfReplicasForTable(
+      (*tablet_info_result)->table(), num_live_replicas, num_read_replicas);
   return Status::OK();
 }
 
@@ -13012,7 +13019,7 @@ Status CatalogManager::InitializeTableLoadState(
   return CatalogManagerUtil::FillTableLoadState(table_info, state);
 }
 
-// TODO: consider unifying this code with the load balancer.
+// TODO: consider unifying this code with the cluster balancer.
 Result<CMGlobalLoadState> CatalogManager::InitializeGlobalLoadState(
     const TSDescriptorVector& ts_descs) {
   CMGlobalLoadState state;
@@ -13023,6 +13030,7 @@ Result<CMGlobalLoadState> CatalogManager::InitializeGlobalLoadState(
   }
 
   SharedLock l(mutex_);
+  // todo(zdrudi): replace this with a better index
   for (const auto& info : tables_->GetAllTables()) {
     // Ignore system, colocated and deleting/deleted tables.
     {
