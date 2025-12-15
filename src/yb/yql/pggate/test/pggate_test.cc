@@ -47,6 +47,7 @@ using namespace std::literals;
 
 DECLARE_string(pggate_master_addresses);
 DECLARE_string(test_leave_files);
+DECLARE_bool(enable_object_locking_for_table_locks);
 
 namespace yb {
 namespace pggate {
@@ -79,6 +80,10 @@ const char* GetDebugQueryStringStub() {
 
 YbcWaitEventInfo PgstatReportWaitStartNoOp(YbcWaitEventInfo info) {
   return info;
+}
+
+YbcReadPointHandle GetCatalogSnapshotReadPoint(YbcPgOid table_oid, bool create_if_not_exists) {
+  return 0;
 }
 
 } // namespace
@@ -116,6 +121,13 @@ struct varlena* PggateTestCStringToTextWithLen(const char* c, int size) {
 
 void PggateTest::SetUp() {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_test_leave_files) = "always";
+  // The tests by pass creating pg connections and perform custom operations by creating
+  // YbcPgStatement and invoking YBCPgExecInsert/YBCPgExecSelect etc. In the normal case,
+  // these functions are invoked from the ysql backend after opening the relevant relations
+  // (and thus acquiring relevant object locks). As a result, the sanity check which ensures
+  // that some object locks are taken before performing a read/write fails for these tests.
+  // Hence, disabling the object locks feature for this suite.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_object_locking_for_table_locks) = false;
   YBTest::SetUp();
 }
 
@@ -150,6 +162,7 @@ Status PggateTest::Init(
   callbacks.GetCurrentYbMemctx = &GetCurrentTestYbMemctx;
   callbacks.GetDebugQueryString = &GetDebugQueryStringStub;
   callbacks.PgstatReportWaitStart = &PgstatReportWaitStartNoOp;
+  callbacks.GetCatalogSnapshotReadPoint = &GetCatalogSnapshotReadPoint;
 
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_pggate_tserver_shared_memory_uuid) =
       cluster_->tablet_server(0)->instance_id().permanent_uuid();

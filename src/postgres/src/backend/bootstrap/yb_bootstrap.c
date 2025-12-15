@@ -80,7 +80,7 @@ YBCAddSysCatalogColumn(YbcPgStatement yb_stmt,
 							 errmsg("HASH sharding is only supported for "
 									"tserver hosted catalog tables.")));
 
-				is_hash = tserver_hosted && (elem->ordering == SORTBY_HASH);
+				is_hash = elem->ordering == SORTBY_HASH;
 			}
 		}
 	}

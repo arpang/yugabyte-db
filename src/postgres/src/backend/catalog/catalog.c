@@ -1196,21 +1196,6 @@ YbGetUseInitdbAclFromRelOptions(List *options)
 	return false;
 }
 
-bool
-YbGetIsTserverHostedFromRelOptions(List *options)
-{
-	ListCell   *opt_cell;
-
-	foreach(opt_cell, options)
-	{
-		DefElem    *def = lfirst_node(DefElem, opt_cell);
-
-		if (strcmp(def->defname, "tserver_hosted") == 0)
-			return defGetBoolean(def);
-	}
-	return false;
-}
-
 /*
  * Is this relation stored into the YB system catalog tablet?
  */

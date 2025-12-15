@@ -51,7 +51,9 @@
      "(^yb_release_manifest.json$)",
      "(^managed/client/java/.*/pom.xml)",
      "(^src/yb/tools/.*pl$)",
-     "(^yugabyted-ui/ui/package-lock.json)"
+     "(^yugabyted-ui/ui/package-lock.json)",
+     "(^src/yb/integration-tests/conflict_resolve_keys_verification/sql/expected/)",
+     "(^java/yb-pgsql/src/test/resources/TestYbQueryDiagnostics/)"
   ],
   "linters": {
     "go-files": {

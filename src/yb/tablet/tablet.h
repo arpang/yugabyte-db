@@ -185,6 +185,7 @@ class Tablet : public AbstractTablet,
       const uint64_t postgres_auth_key,
       bool is_xcluster_target,
       uint64_t* number_of_rows_processed,
+      std::unordered_map<TableId, double>& num_rows_backfilled_in_index,
       std::string* backfilled_until);
 
   Status VerifyIndexTableConsistencyForCQL(
@@ -971,7 +972,8 @@ class Tablet : public AbstractTablet,
         max_key_length, std::move(callback), colocated_table_id);
   }
 
-  Status AbortActiveTransactions(CoarseTimePoint deadline) const;
+  Status AbortActiveTransactions(
+      CoarseTimePoint deadline, std::optional<TransactionId>&& exclude_txn_id = std::nullopt) const;
 
   // TODO: Move mutex to private section.
   // Lock used to serialize the creation of RocksDB checkpoints.

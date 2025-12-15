@@ -124,6 +124,10 @@ DEFINE_UNKNOWN_uint64(
 DEFINE_RUNTIME_bool(ysql_enable_pack_full_row_update, false,
                     "Whether to enable packed row for full row update.");
 
+DEFINE_RUNTIME_bool(ysql_mark_update_packed_row, false,
+                    "Whether to mark packed rows created from UPDATE operations with a flag. "
+                    "This allows CDC to differentiate between INSERT and UPDATE packed rows."
+                    "Default is false.");
 DEFINE_RUNTIME_PREVIEW_bool(ysql_use_packed_row_v2, false,
                             "Whether to use packed row V2 when row packing is enabled.");
 
@@ -748,19 +752,19 @@ struct RowPackerData {
     };
   }
 
-  dockv::RowPackerVariant MakePacker() const {
+  dockv::RowPackerVariant MakePacker(bool is_update = false) const {
     if (FLAGS_ysql_use_packed_row_v2) {
-      return MakePackerHelper<dockv::RowPackerV2>();
+      return MakePackerHelper<dockv::RowPackerV2>(is_update);
     }
-    return MakePackerHelper<dockv::RowPackerV1>();
+    return MakePackerHelper<dockv::RowPackerV1>(is_update);
   }
 
  private:
   template <class T>
-  dockv::RowPackerVariant MakePackerHelper() const {
+  dockv::RowPackerVariant MakePackerHelper(bool is_update) const {
     return dockv::RowPackerVariant(
         std::in_place_type_t<T>(), schema_version, packing, FLAGS_ysql_packed_row_size_limit,
-        Slice());
+        Slice(), is_update);
   }
 };
 
@@ -1128,11 +1132,12 @@ class PgsqlWriteOperation::RowPackContext {
  public:
   RowPackContext(const PgsqlWriteRequestPB& request,
                  const DocOperationApplyData& data,
-                 const RowPackerData& packer_data)
+                 const RowPackerData& packer_data,
+                 bool is_update = false)
       : query_id_(request.stmt_id()),
         data_(data),
         write_id_(data.doc_write_batch->ReserveWriteId()),
-        packer_(packer_data.MakePacker()) {
+        packer_(packer_data.MakePacker(is_update)) {
   }
 
   template <class Value>
@@ -1213,7 +1218,7 @@ Result<bool> PgsqlWriteOperation::HasDuplicateUniqueIndexValue(const DocOperatio
 
 Result<bool> PgsqlWriteOperation::HasDuplicateUniqueIndexValueBackward(
     const DocOperationApplyData& data) {
-  VLOG(2) << "Looking for collision while going backward. Trying to insert " << doc_key_;
+  VLOG_WITH_FUNC(2) << "doc key: " << doc_key_;
 
   auto iter = CreateIntentAwareIterator(
       data.doc_write_batch->doc_db(),
@@ -1222,8 +1227,10 @@ Result<bool> PgsqlWriteOperation::HasDuplicateUniqueIndexValueBackward(
       txn_op_context_,
       data.read_operation_data.WithAlteredReadTime(ReadHybridTime::Max()));
 
+  VLOG_WITH_FUNC(4) << "whole row: " << doc_key_;
   HybridTime oldest_past_min_ht = VERIFY_RESULT(FindOldestOverwrittenTimestamp(
       iter.get(), SubDocKey(doc_key_), data.read_time().read));
+  VLOG_WITH_FUNC(4) << "liveness column: " << SubDocKey(doc_key_, KeyEntryValue::kLivenessColumn);
   const HybridTime oldest_past_min_ht_liveness =
       VERIFY_RESULT(FindOldestOverwrittenTimestamp(
           iter.get(),
@@ -1309,16 +1316,16 @@ Result<HybridTime> PgsqlWriteOperation::FindOldestOverwrittenTimestamp(
     const SubDocKey& sub_doc_key,
     HybridTime min_read_time) {
   HybridTime result;
-  VLOG(3) << "Doing iter->Seek " << doc_key_;
+  VLOG_WITH_FUNC(3) << doc_key_;
   iter->Seek(doc_key_);
   if (VERIFY_RESULT_REF(iter->Fetch())) {
     const auto bytes = sub_doc_key.EncodeWithoutHt();
     const Slice& sub_key_slice = bytes.AsSlice();
     result = VERIFY_RESULT(iter->FindOldestRecord(sub_key_slice, min_read_time));
-    VLOG(2) << "iter->FindOldestRecord returned " << result << " for "
-            << SubDocKey::DebugSliceToString(sub_key_slice);
+    VLOG_WITH_FUNC(2) << "iter->FindOldestRecord returned " << result << " for "
+                      << SubDocKey::DebugSliceToString(sub_key_slice);
   } else {
-    VLOG(3) << "iter->Seek " << doc_key_ << " turned out to be out of records";
+    VLOG_WITH_FUNC(3) << "iter->Seek " << doc_key_ << " turned out to be out of records";
   }
   return result;
 }
@@ -1629,7 +1636,8 @@ Status PgsqlWriteOperation::ApplyUpdate(const DocOperationApplyData& data) {
         ShouldYsqlPackRow(schema.is_colocated()) &&
         make_unsigned(request_.column_new_values().size()) == num_non_key_columns) {
       RowPackContext pack_context(
-          request_, data, VERIFY_RESULT(RowPackerData::Create(request_, *doc_read_context_)));
+          request_, data, VERIFY_RESULT(RowPackerData::Create(request_, *doc_read_context_)),
+          FLAGS_ysql_mark_update_packed_row /* is_update */);
 
       auto column_id_extractor = [](const PgsqlColumnValuePB& column_value) {
         return column_value.column_id();
@@ -3011,15 +3019,13 @@ Status PgsqlReadOperation::PopulateResultSet(const dockv::PgTableRow& table_row,
   return Status::OK();
 }
 
-Status PgsqlReadOperation::GetSpecialColumn(ColumnIdRep column_id, QLValuePB* result) {
+Result<Slice> PgsqlReadOperation::GetSpecialColumn(ColumnIdRep column_id) {
   // Get row key and save to QLValue.
   // TODO(neil) Check if we need to append a table_id and other info to TupleID. For example, we
   // might need info to make sure the TupleId by itself is a valid reference to a specific row of
   // a valid table.
   if (column_id == static_cast<int>(PgSystemAttrNum::kYBTupleId)) {
-    const Slice tuple_id = table_iter_->GetTupleId();
-    result->set_binary_value(tuple_id.data(), tuple_id.size());
-    return Status::OK();
+    return table_iter_->GetTupleId();
   }
 
   return STATUS_SUBSTITUTE(InvalidArgument, "Invalid column ID: $0", column_id);

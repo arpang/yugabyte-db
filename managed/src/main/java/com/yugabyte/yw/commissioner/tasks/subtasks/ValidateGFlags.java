@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
@@ -161,9 +162,17 @@ public class ValidateGFlags extends UniverseDefinitionTaskBase {
     Map<String, String> tserverGFlagsValidationErrors = new HashMap<>();
 
     NodeDetails masterNode =
-        nodesInAZ.stream().filter(node -> node.isMaster).findFirst().orElse(null);
+        nodesInAZ.stream()
+            .filter(node -> node.isMaster)
+            .filter(node -> node.cloudInfo != null && node.cloudInfo.private_ip != null)
+            .findFirst()
+            .orElse(null);
     NodeDetails tserverNode =
-        nodesInAZ.stream().filter(node -> node.isTserver).findFirst().orElse(null);
+        nodesInAZ.stream()
+            .filter(node -> node.isTserver)
+            .filter(node -> node.cloudInfo != null && node.cloudInfo.private_ip != null)
+            .findFirst()
+            .orElse(null);
 
     if (masterNode != null) {
       try {
@@ -202,6 +211,9 @@ public class ValidateGFlags extends UniverseDefinitionTaskBase {
                 tserverNode.nodeName, azUuid, e.getMessage()));
       }
     }
+
+    masterGFlagsForAZ = filterUndefokFlags(masterGFlagsForAZ);
+    tserverGFlagsForAZ = filterUndefokFlags(tserverGFlagsForAZ);
 
     if (taskParams().useCLIBinary) {
       if (!masterGFlagsForAZ.isEmpty()) {
@@ -261,7 +273,9 @@ public class ValidateGFlags extends UniverseDefinitionTaskBase {
 
     boolean useHostname =
         universe.getUniverseDetails().getPrimaryCluster().userIntent.useHostname
-            || !isIpAddress(node.cloudInfo.private_ip);
+            || (node.cloudInfo != null
+                && node.cloudInfo.private_ip != null
+                && !isIpAddress(node.cloudInfo.private_ip));
 
     // GFlags set by platform
     Map<String, String> gflags =
@@ -360,6 +374,23 @@ public class ValidateGFlags extends UniverseDefinitionTaskBase {
     return gflags;
   }
 
+  private Map<String, String> filterUndefokFlags(Map<String, String> gflags) {
+    Set<String> undefokFlags = GFlagsUtil.extractUndefokFlags(gflags);
+
+    if (undefokFlags.isEmpty()) {
+      return gflags;
+    }
+
+    Map<String, String> filteredGFlags = new HashMap<>(gflags);
+    for (String undefokFlag : undefokFlags) {
+      if (filteredGFlags.containsKey(undefokFlag)) {
+        filteredGFlags.remove(undefokFlag);
+      }
+    }
+
+    return filteredGFlags;
+  }
+
   private Map<String, String> validateGFlagsWithYBClient(
       Map<String, String> gflags, Universe universe, ServerType serverType) {
     Map<String, String> serverGFlagsValidationErrors = new HashMap<String, String>();
@@ -432,8 +463,10 @@ public class ValidateGFlags extends UniverseDefinitionTaskBase {
             command.toString(), taskParams().ybSoftwareVersion, gFlagsValidation));
 
     try {
+      // Not using bash since some gflag values may have complicated escaping needed for bash case
       ShellResponse response =
-          nodeUniverseManager.runCommand(node, universe, command, shellContext);
+          nodeUniverseManager.runCommand(
+              node, universe, command, shellContext, false /* use bash */);
       if (response.code != 0) {
         log.warn(
             "Shell response returned with non-zero exit code with message: {}",

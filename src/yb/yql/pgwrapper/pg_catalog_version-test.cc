@@ -106,8 +106,6 @@ class PgCatalogVersionTest : public LibPqTestBase {
       cluster_->master(i)->mutable_flags()->push_back(db_catalog_version_gflag);
       if (!enabled) {
         cluster_->master(i)->mutable_flags()->push_back(
-            "--allowed_preview_flags_csv=enable_object_locking_for_table_locks");
-        cluster_->master(i)->mutable_flags()->push_back(
             "--enable_object_locking_for_table_locks=false");
       }
     }
@@ -117,8 +115,6 @@ class PgCatalogVersionTest : public LibPqTestBase {
         cluster_->tablet_server(i)->mutable_flags()->push_back(flag);
       }
       if (!enabled) {
-        cluster_->tablet_server(i)->mutable_flags()->push_back(
-            "--allowed_preview_flags_csv=enable_object_locking_for_table_locks");
         cluster_->tablet_server(i)->mutable_flags()->push_back(
             "--enable_object_locking_for_table_locks=false");
       }
@@ -2669,7 +2665,7 @@ DROP TABLE tempTable2;
   LOG(INFO) << "result.size(): " << result.size();
   LOG(INFO) << "fingerprint: " << fingerprint;
   ASSERT_EQ(result.size(), 54564U);
-  ASSERT_EQ(fingerprint, 11276843017411745442UL);
+  ASSERT_EQ(fingerprint, 11184523026608037303UL);
 }
 
 TEST_F(PgCatalogVersionTest, InvalMessageAlterTableRefreshTest) {
@@ -3679,7 +3675,7 @@ TEST_F(PgCatalogVersionTest, NewConnectionRelCachePreloadTest) {
   const int loop_count = 10;
   auto version = ASSERT_RESULT(GetCatalogVersion(&conn_yugabyte));
   for (int i = 1; i <= loop_count; i++) {
-    ASSERT_OK(BumpCatalogVersion(1, &conn_yugabyte, i % 2 ? "NOSUPERUSER" : "SUPERUSER"));
+    ASSERT_OK(BumpCatalogVersion(1, &conn_yugabyte));
     auto new_version = ASSERT_RESULT(GetCatalogVersion(&conn_yugabyte));
     ASSERT_EQ(new_version, version + i);
     // Next connection is a new connection after a DDL, it needs to rebuild relcache.
@@ -3695,7 +3691,7 @@ TEST_F(PgCatalogVersionTest, NewConnectionRelCachePreloadTest) {
   // At this point, we have seen initialCount + loop_count relcache preloads.
   ASSERT_EQ(GetNumRelCachePreloads(), initialCount + loop_count);
   // Execute another DDL that increments the catalog version.
-  ASSERT_OK(BumpCatalogVersion(1, &conn_yugabyte, "NOSUPERUSER"));
+  ASSERT_OK(BumpCatalogVersion(1, &conn_yugabyte));
 
   // Concurrently creates a number of connections.
   TestThreadHolder thread_holder;

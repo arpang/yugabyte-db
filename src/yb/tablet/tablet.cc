@@ -264,6 +264,9 @@ DEFINE_RUNTIME_bool(tablet_exclusive_full_compaction, false,
        "scheduled and unscheduled compactions are run before the full compaction and no other "
        "compactions will get scheduled during a full compaction.");
 
+DEFINE_RUNTIME_bool(tablet_split_use_middle_user_key, true,
+       "Consider only user keys while determining middle key for tablet split");
+
 DEFINE_RUNTIME_uint32(cdcsdk_retention_barrier_no_revision_interval_secs, 120,
                      "Duration for which CDCSDK retention barriers cannot be revised from the "
                      "cdcsdk_block_barrier_revision_start_time");
@@ -448,9 +451,9 @@ class YSQLMetricsScope : public MetricsScope {
     }
 
     if (GetAtomicFlag(&FLAGS_ysql_analyze_dump_metrics) &&
-        metrics_capture_ == PgsqlMetricsCaptureType::PGSQL_METRICS_CAPTURE_ALL) {
-      scoped_tablet_metrics_.CopyToPgsqlResponse(&pgsql_response_);
-      scoped_docdb_statistics_.CopyToPgsqlResponse(&pgsql_response_);
+        metrics_capture_ != PgsqlMetricsCaptureType::PGSQL_METRICS_CAPTURE_NONE) {
+      scoped_tablet_metrics_.CopyToPgsqlResponse(&pgsql_response_, metrics_capture_);
+      scoped_docdb_statistics_.CopyToPgsqlResponse(&pgsql_response_, metrics_capture_);
     }
   }
 
@@ -3049,7 +3052,7 @@ string GenerateSerializedBackfillSpec(uint64_t batch_size, const string& next_ro
 }
 
 Result<PgsqlBackfillSpecPB> QueryPostgresToDoBackfill(
-    pgwrapper::PGConn* conn, const string& query) {
+    pgwrapper::PGConn* conn, const string& query, double* num_rows_backfilled_in_index) {
   auto result = conn->Fetch(query);
   if (!result.ok()) {
     const auto libpq_error_msg = AuxilaryMessage(result.status()).value();
@@ -3064,8 +3067,9 @@ Result<PgsqlBackfillSpecPB> QueryPostgresToDoBackfill(
   }
   auto& res = result.get();
   CHECK_EQ(PQntuples(res.get()), 1);
-  CHECK_EQ(PQnfields(res.get()), 1);
+  CHECK_EQ(PQnfields(res.get()), 2);
   const auto returned_spec = CHECK_RESULT(pgwrapper::GetValue<std::string>(res.get(), 0, 0));
+  *num_rows_backfilled_in_index = CHECK_RESULT(pgwrapper::GetValue<double>(res.get(), 0, 1));
   VLOG(4) << "Returned backfill spec (raw): " << returned_spec;
 
   PgsqlBackfillSpecPB spec;
@@ -3170,7 +3174,9 @@ Status Tablet::BackfillIndexesForYsql(
     const uint64_t postgres_auth_key,
     bool is_xcluster_target,
     uint64_t* number_of_rows_processed,
+    std::unordered_map<TableId, double>& num_rows_backfilled_in_index,
     std::string* backfilled_until) {
+  DCHECK_EQ(indexes.size(), 1) << "We don't support batching index backfill in YSQL yet";
   LOG(INFO) << "Begin " << __func__ << " of tablet " << tablet_id() << " at " << read_time
             << " from row \"" << strings::b2a_hex(backfill_from)
             << "\" for indexes " << AsString(indexes);
@@ -3223,18 +3229,28 @@ Status Tablet::BackfillIndexesForYsql(
       RETURN_NOT_OK(conn.Execute("SET yb_xcluster_consistency_level = tablet;"));
     }
 
-    const auto spec = VERIFY_RESULT(QueryPostgresToDoBackfill(&conn, query_str));
+    double num_rows_backfilled_in_index_in_batch = 0.0;
+    const auto spec = VERIFY_RESULT(QueryPostgresToDoBackfill(
+        &conn,
+        query_str,
+        &num_rows_backfilled_in_index_in_batch));
     *number_of_rows_processed += spec.count();
     *backfilled_until = spec.next_row_key();
+    if (num_rows_backfilled_in_index.find(indexes[0].table_id()) ==
+        num_rows_backfilled_in_index.end()) {
+      num_rows_backfilled_in_index.emplace(indexes[0].table_id(), 0);
+    }
+    num_rows_backfilled_in_index[indexes[0].table_id()] +=
+        num_rows_backfilled_in_index_in_batch;
 
-    VLOG(2) << "Backfilled " << *number_of_rows_processed << " rows so far in this chunk. "
-            << "Setting backfilled_until to \"" << b2a_hex(*backfilled_until) << "\"";
+    VLOG(2) << "Processed " << *number_of_rows_processed << " base table rows so far in this "
+            << "chunk. Setting backfilled_until to \"" << b2a_hex(*backfilled_until) << "\"";
 
     MaybeSleepToThrottleBackfill(backfill_params.start_time, *number_of_rows_processed);
   } while (CanProceedToBackfillMoreRows(
       backfill_params, *backfilled_until, *number_of_rows_processed));
 
-  VLOG(1) << "Backfilled " << *number_of_rows_processed << " rows in this chunk. "
+  VLOG(1) << "Processed " << *number_of_rows_processed << " base table rows in this chunk. "
           << "Set backfilled_until to \"" << b2a_hex(*backfilled_until) << "\"";
   return Status::OK();
 }
@@ -4511,7 +4527,7 @@ Result<RaftGroupMetadataPtr> Tablet::CreateSubtablet(
       tablet_id, partition, key_bounds.lower.ToStringBuffer(), key_bounds.upper.ToStringBuffer()));
 
   RETURN_NOT_OK(snapshots_->CreateCheckpoint(
-      metadata->rocksdb_dir(), CreateIntentsCheckpointIn::kSubDir));
+      metadata->rocksdb_dir(), CreateCheckpointIn::kUseSuffix));
 
   // We want flushed frontier to cover split_op_id, so during bootstrap of after-split tablets
   // we don't replay split operation.
@@ -4636,7 +4652,11 @@ Result<std::string> Tablet::GetEncodedMiddleSplitKey(std::string *partition_spli
   };
 
   // TODO(tsplit): should take key_bounds_ into account.
-  auto middle_key = VERIFY_RESULT(regular_db_->GetMiddleKey());
+  Slice lower_bound_key;
+  if (FLAGS_tablet_split_use_middle_user_key) {
+    lower_bound_key = Slice(&dockv::kMinRegularDbTableRowFirstByte, 1);
+  }
+  auto middle_key = VERIFY_RESULT(regular_db_->GetMiddleKey(lower_bound_key));
 
   // In some rare cases middle key can point to a special internal record which is not visible
   // for a user, but tablet splitting routines expect the specific structure for partition keys
@@ -5319,14 +5339,16 @@ std::string IncrementedCopy(Slice key) {
 
 } // namespace
 
-Status Tablet::AbortActiveTransactions(CoarseTimePoint deadline) const {
+Status Tablet::AbortActiveTransactions(
+    CoarseTimePoint deadline, std::optional<TransactionId>&& exclude_txn_id) const {
   if (transaction_participant() == nullptr) {
     return Status::OK();
   }
   HybridTime max_cutoff = HybridTime::kMax;
   LOG(INFO) << "Aborting transactions that started prior to " << max_cutoff << " for tablet id "
             << tablet_id();
-  return transaction_participant()->StopActiveTxnsPriorTo(max_cutoff, deadline);
+  return transaction_participant()->StopActiveTxnsPriorTo(
+      max_cutoff, deadline, exclude_txn_id.has_value() ? &*exclude_txn_id : nullptr);
 }
 
 Status Tablet::GetTabletKeyRanges(

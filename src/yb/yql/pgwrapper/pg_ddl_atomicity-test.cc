@@ -80,12 +80,8 @@ class PgDdlAtomicityTest : public PgDdlAtomicityTestBase {
     options->extra_tserver_flags.push_back("--ysql_pg_conf_csv=log_statement=all");
     options->extra_tserver_flags.push_back(
         Format("--ysql_yb_ddl_transaction_block_enabled=$0", TransactionalDdlEnabled()));
-    AppendCsvFlagValue(options->extra_tserver_flags, "allowed_preview_flags_csv",
-                       "ysql_yb_ddl_transaction_block_enabled");
     options->extra_tserver_flags.push_back(
         Format("--enable_object_locking_for_table_locks=$0", TableLocksEnabled()));
-    AppendCsvFlagValue(options->extra_tserver_flags, "allowed_preview_flags_csv",
-                       "enable_object_locking_for_table_locks");
 
   }
 
@@ -1037,9 +1033,6 @@ class PgDdlAtomicitySanityTestWithTableLocks : public PgDdlAtomicitySanityTest,
         yb::Format("--enable_object_locking_for_table_locks=$0", TableLocksEnabled()));
     options->extra_tserver_flags.push_back(
         yb::Format("--ysql_yb_ddl_transaction_block_enabled=$0", TableLocksEnabled()));
-    AppendCsvFlagValue(
-        options->extra_tserver_flags, "allowed_preview_flags_csv",
-        "enable_object_locking_for_table_locks,ysql_yb_ddl_transaction_block_enabled");
   }
 
   bool TransactionalDdlEnabled() const override { return true; }
@@ -1051,6 +1044,7 @@ TEST_P(PgDdlAtomicitySanityTestWithTableLocks, DmlWithAddColTest) {
   // With table locks, the add-column operation will be blocked until the DML transaction
   // is committed. This is because the add-column operation acquires an EXCLUSIVE lock on the table
   // and the DML transaction acquires an ACCESS_SHARE lock on the table (at ts-1).
+  const int kTimeoutSec = 3;
   auto client = ASSERT_RESULT(cluster_->CreateClient());
   const string table = "dml_with_add_col_test";
   CreateTable(table);
@@ -1063,7 +1057,7 @@ TEST_P(PgDdlAtomicitySanityTestWithTableLocks, DmlWithAddColTest) {
 
   // Conn2: Initiate rollback of the alter.
   ASSERT_OK(cluster_->SetFlagOnMasters("TEST_pause_ddl_rollback", "true"));
-  ASSERT_OK(conn2.Execute("SET statement_timeout = 8"));
+  ASSERT_OK(conn2.Execute("SET statement_timeout = '" + std::to_string(kTimeoutSec) + "s'"));
 
   if (TableLocksEnabled()) {
     // Conn2 will have to fail because it cannot get the table locks held by conn1.

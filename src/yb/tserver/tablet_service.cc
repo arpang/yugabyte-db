@@ -477,6 +477,12 @@ Status PrintYSQLWriteRequest(
   return Status::OK();
 }
 
+template <typename Req>
+std::optional<uint64_t> GetRecipientLeaseEpoch(const Req& req) {
+  return req.has_recipient_lease_epoch() ? std::optional(req.recipient_lease_epoch())
+                                         : std::nullopt;
+}
+
 } // namespace
 
 typedef ListTabletsResponsePB::StatusAndSchemaPB StatusAndSchemaPB;
@@ -559,9 +565,10 @@ class WriteQueryCompletionCallback {
     auto tablet_metrics = query_->scoped_tablet_metrics();
     auto statistics = query_->scoped_statistics();
 
-    if (auto* resp = query_->GetPgsqlResponseForMetricsCapture()) {
-      tablet_metrics.CopyToPgsqlResponse(resp);
-      statistics.CopyToPgsqlResponse(resp);
+    auto [resp_ptr, metrics_capture] = query_->GetPgsqlResponseAndMetricsCapture();
+    if (resp_ptr) {
+      tablet_metrics.CopyToPgsqlResponse(resp_ptr, metrics_capture);
+      statistics.CopyToPgsqlResponse(resp_ptr, metrics_capture);
     }
   }
 
@@ -918,6 +925,7 @@ void TabletServiceAdminImpl::BackfillIndex(
   std::string backfilled_until;
   std::unordered_set<TableId> failed_indexes;
   uint64_t num_rows_read_from_table_for_backfill = 0;
+  std::unordered_map<TableId, double> num_rows_backfilled_in_index;
   if (is_pg_table) {
     if (!req->has_namespace_name()) {
       SetupErrorAndRespond(
@@ -953,6 +961,7 @@ void TabletServiceAdminImpl::BackfillIndex(
         server_->GetSharedMemoryPostgresAuthKey(),
         is_xcluster_automatic_mode_target,
         &num_rows_read_from_table_for_backfill,
+        num_rows_backfilled_in_index,
         &backfilled_until);
     if (backfill_status.IsIllegalState()) {
       DCHECK_EQ(failed_indexes.size(), 0) << "We don't support batching in YSQL yet";
@@ -985,6 +994,11 @@ void TabletServiceAdminImpl::BackfillIndex(
   resp->set_backfilled_until(backfilled_until);
   resp->set_propagated_hybrid_time(server_->Clock()->Now().ToUint64());
   resp->set_num_rows_read_from_table_for_backfill(num_rows_read_from_table_for_backfill);
+  if (is_pg_table) {
+    for (const auto& [index_id, num_rows_backfilled] : num_rows_backfilled_in_index) {
+      resp->mutable_num_rows_backfilled_in_index()->insert({index_id, num_rows_backfilled});
+    }
+  }
 
   if (!backfill_status.ok()) {
     VLOG(2) << " Failed indexes are " << yb::ToString(failed_indexes);
@@ -1840,10 +1854,15 @@ void TabletServiceAdminImpl::DeleteTablet(const DeleteTabletRequestPB* req,
     cas_config_opid_index_less_or_equal = req->cas_config_opid_index_less_or_equal();
   }
   std::optional<TabletServerErrorPB::Code> error_code;
+  std::optional<TransactionId> txn_id;
+  if (req->has_transaction_id()) {
+    txn_id = CHECK_RESULT(TransactionId::FromString(req->transaction_id()));
+  }
   Status s = server_->tablet_manager()->DeleteTablet(
       req->tablet_id(), delete_type,
       tablet::ShouldAbortActiveTransactions(req->should_abort_active_txns()),
-      cas_config_opid_index_less_or_equal, req->hide_only(), req->keep_data(), &error_code);
+      cas_config_opid_index_less_or_equal, req->hide_only(), req->keep_data(), &error_code,
+      std::move(txn_id));
   if (PREDICT_FALSE(!s.ok())) {
     HandleErrorResponse(resp, &context, s, error_code);
     return;
@@ -2486,6 +2505,7 @@ void TabletServiceAdminImpl::WaitForYsqlBackendsCatalogVersion(
   const std::string num_lagging_backends_query = Format(
       "SELECT count(*) FROM pg_stat_activity WHERE"
       " backend_type != 'walsender' AND backend_type != 'yb-conn-mgr walsender'"
+      " AND backend_type != 'yb auto analyze backend'"
       " AND catalog_version < $0 AND datid = $1$2",
       catalog_version, database_oid,
       (req->has_requestor_pg_backend_pid() ?
@@ -2739,6 +2759,7 @@ void TabletServiceImpl::Read(const ReadRequestPB* req,
     return;
   }
 
+  VLOG(5) << "Read req: " << req->ShortDebugString();
   PerformRead(server_, this, req, resp, std::move(context));
 }
 
@@ -3799,6 +3820,9 @@ void TabletServiceImpl::AcquireObjectLocks(
   TRACE("Start AcquireObjectLocks");
   VLOG(2) << "Received AcquireObjectLocks RPC: " << req->DebugString();
 
+  if (auto s = CheckLocalLeaseEpoch(GetRecipientLeaseEpoch(*req)); !s.ok()) {
+    return SetupErrorAndRespond(resp->mutable_error(), s, &context);
+  }
   auto ts_local_lock_manager = server_->ts_local_lock_manager();
   if (!ts_local_lock_manager) {
     return SetupErrorAndRespond(
@@ -3816,6 +3840,9 @@ void TabletServiceImpl::ReleaseObjectLocks(
   TRACE("Start ReleaseObjectLocks");
   VLOG(2) << "Received ReleaseObjectLocks RPC: " << req->DebugString();
 
+  if (auto s = CheckLocalLeaseEpoch(GetRecipientLeaseEpoch(*req)); !s.ok()) {
+    return SetupErrorAndRespond(resp->mutable_error(), s, &context);
+  }
   auto ts_local_lock_manager = server_->ts_local_lock_manager();
   if (!ts_local_lock_manager) {
     resp->set_propagated_hybrid_time(server_->Clock()->Now().ToUint64());
@@ -3929,6 +3956,23 @@ Result<VerifyVectorIndexesResponsePB> TabletServiceImpl::VerifyVectorIndexes(
     RETURN_NOT_OK(tablet->vector_indexes().Verify());
   }
   return VerifyVectorIndexesResponsePB();
+}
+
+Status TabletServiceImpl::CheckLocalLeaseEpoch(std::optional<uint64_t> recipient_lease_epoch) {
+  if (!recipient_lease_epoch.has_value()) {
+    return Status::OK();
+  }
+  auto local_lease_info = VERIFY_RESULT(server_->GetYSQLLeaseInfo());
+  if (local_lease_info.is_live && local_lease_info.lease_epoch == *recipient_lease_epoch) {
+    return Status::OK();
+  }
+  auto msg = !local_lease_info.is_live
+                 ? "TServer does not have a live lease"
+                 : Format(
+                       "Expected lease epoch in request $0 does not match TServer's local "
+                       "lease epoch $1",
+                       *recipient_lease_epoch, local_lease_info.lease_epoch);
+  return STATUS(IllegalState, msg);
 }
 
 }  // namespace yb::tserver

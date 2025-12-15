@@ -6,13 +6,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
-import com.yugabyte.yw.commissioner.AbstractTaskBase;
 import com.yugabyte.yw.commissioner.BaseTaskDependencies;
 import com.yugabyte.yw.commissioner.Common;
 import com.yugabyte.yw.commissioner.Common.CloudType;
 import com.yugabyte.yw.commissioner.tasks.params.NodeTaskParams;
 import com.yugabyte.yw.common.CloudQueryHelper;
 import com.yugabyte.yw.common.FileHelperService;
+import com.yugabyte.yw.common.NodeManager;
 import com.yugabyte.yw.common.NodeUniverseManager;
 import com.yugabyte.yw.common.ShellProcessContext;
 import com.yugabyte.yw.common.Util;
@@ -39,7 +39,7 @@ import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class YNPProvisioning extends AbstractTaskBase {
+public class YNPProvisioning extends NodeTaskBase {
   private final NodeUniverseManager nodeUniverseManager;
   private final RuntimeConfGetter confGetter;
   private final CloudQueryHelper queryHelper;
@@ -81,7 +81,7 @@ public class YNPProvisioning extends AbstractTaskBase {
       Path nodeAgentHome) {
 
     ObjectMapper mapper = new ObjectMapper();
-    UserIntent userIntent = universe.getUniverseDetails().getPrimaryCluster().userIntent;
+    UserIntent userIntent = universe.getCluster(node.placementUuid).userIntent;
 
     try {
       ObjectNode rootNode = mapper.createObjectNode();
@@ -136,12 +136,7 @@ public class YNPProvisioning extends AbstractTaskBase {
       if (taskParams().deviceInfo.mountPoints != null) {
         extraNode.put("mount_paths", taskParams().deviceInfo.mountPoints);
       } else {
-        int numVolumes =
-            universe
-                .getCluster(node.placementUuid)
-                .userIntent
-                .getDeviceInfoForNode(node)
-                .numVolumes;
+        int numVolumes = userIntent.getDeviceInfoForNode(node).numVolumes;
         StringBuilder volumePaths = new StringBuilder();
         for (int i = 0; i < numVolumes; i++) {
           if (i > 0) {
@@ -223,6 +218,7 @@ public class YNPProvisioning extends AbstractTaskBase {
           StandardOpenOption.TRUNCATE_EXISTING);
     } catch (Exception e) {
       log.error("Failed generating JSON file: ", e);
+      throw new RuntimeException(e);
     }
   }
 
@@ -237,6 +233,17 @@ public class YNPProvisioning extends AbstractTaskBase {
     Provider provider =
         Provider.getOrBadRequest(
             UUID.fromString(universe.getCluster(node.placementUuid).userIntent.provider));
+
+    /*
+     *  But First, setup the dual NIC on YBM if needed. Let's do that even before we run
+     *  YNP based provisioning because dual NIC setup will require a reboot which might
+     *  clean up the tmp directory where the YNP config is created.
+     */
+    AnsibleSetupServer.Params ansibleParams = buildDualNicSetupParams(universe, node, provider);
+    nodeManager
+        .nodeCommand(NodeManager.NodeCommandType.Provision, ansibleParams)
+        .processErrors("Dual NIC setup failed");
+
     String customTmpDirectory =
         confGetter.getConfForScope(provider, ProviderConfKeys.remoteTmpDirectory);
     String targetConfigPath =
@@ -260,9 +267,21 @@ public class YNPProvisioning extends AbstractTaskBase {
     sb.append(" && chown -R $(id -u):$(id -g) ").append(nodeAgentHomePath);
     List<String> command = getCommand("/bin/bash", "-c", sb.toString());
     log.debug("Running YNP installation command: {}", command);
+
     nodeUniverseManager
         .runCommand(node, universe, command, shellContext)
         .processErrors("Installation failed");
+  }
+
+  private AnsibleSetupServer.Params buildDualNicSetupParams(
+      Universe universe, NodeDetails node, Provider provider) {
+    UserIntent userIntent = universe.getCluster(node.placementUuid).userIntent;
+    AnsibleSetupServer.Params ansibleParams = new AnsibleSetupServer.Params();
+    fillSetupParamsForNode(ansibleParams, userIntent, node);
+    ansibleParams.skipAnsiblePlaybook = true;
+    ansibleParams.sshUserOverride = node.sshUserOverride;
+    ansibleParams.sshPortOverride = node.sshPortOverride;
+    return ansibleParams;
   }
 
   private List<String> getCommand(String... args) {

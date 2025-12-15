@@ -3,6 +3,10 @@ title: Colocating tables and databases
 headerTitle: Colocating tables
 linkTitle: Colocation
 description: Learn how colocated tables aggregate data into a single tablet.
+aliases:
+  - /stable/architecture/docdb/colocated_tables/
+  - /stable/architecture/docdb-sharding/colocated-tables/
+  - /stable/explore/colocation/
 menu:
   stable:
     identifier: colocation

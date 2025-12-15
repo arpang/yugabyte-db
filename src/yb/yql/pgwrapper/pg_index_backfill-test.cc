@@ -89,9 +89,6 @@ class PgIndexBackfillTest : public LibPqTestBase, public ::testing::WithParamInt
 
     const bool enable_table_locks = EnableTableLocks();
     options->extra_tserver_flags.push_back(
-        Format("--allowed_preview_flags_csv=$0,$1",
-                "enable_object_locking_for_table_locks", "ysql_yb_ddl_transaction_block_enabled"));
-    options->extra_tserver_flags.push_back(
         Format("--enable_object_locking_for_table_locks=$0", enable_table_locks));
     options->extra_tserver_flags.push_back(
         Format("--ysql_yb_ddl_transaction_block_enabled=$0", enable_table_locks));
@@ -2813,5 +2810,35 @@ TEST_P(PgIndexBackfillReadBeforeConcurrentUpdate, PartialIndex) {
 
   ASSERT_OK(CheckIndexConsistency(kPartialIndex));
 }
+
+class PgIndexBackfillIgnoreApplyTest : public PgIndexBackfillTest {
+ protected:
+  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
+    PgIndexBackfillTest::UpdateMiniClusterOptions(options);
+
+    options->extra_master_flags.push_back("--TEST_colocation_ids=1000,3000,2000");
+
+    options->extra_tserver_flags.push_back("--TEST_transaction_ignore_applying_probability=1.0");
+  }
+};
+
+TEST_P(PgIndexBackfillIgnoreApplyTest, Backward) {
+  const std::string kDbName = "colodb";
+  ASSERT_OK(conn_->ExecuteFormat("CREATE DATABASE $0 with COLOCATION = true", kDbName));
+  auto conn = ASSERT_RESULT(ConnectToDB(kDbName));
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE t2 (k INT, PRIMARY KEY (k ASC))"));
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE test (k INT, v INT, PRIMARY KEY (k ASC))"));
+  ASSERT_OK(conn.Execute("INSERT INTO t2 VALUES (48)"));
+
+  ASSERT_OK(conn.StartTransaction(IsolationLevel::SNAPSHOT_ISOLATION));
+  ASSERT_OK(conn.Execute("INSERT INTO test VALUES (11, 99)"));
+  ASSERT_OK(conn.CommitTransaction());
+
+  ASSERT_OK(conn.ExecuteFormat("CREATE UNIQUE INDEX idx ON test (v ASC)"));
+}
+
+INSTANTIATE_TEST_CASE_P(, PgIndexBackfillIgnoreApplyTest, ::testing::Bool());
 
 } // namespace yb::pgwrapper

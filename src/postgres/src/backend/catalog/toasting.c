@@ -341,7 +341,8 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 				 INDEX_CREATE_IS_PRIMARY, 0, true, true, NULL, NULL,
 				 true /* skip_index_backfill */ , false /* is_colocated */ ,
 				 InvalidOid /* tablegroupId */ , InvalidOid /* colocationId */ ,
-				 NIL /* yb_stmt_options */ , NULL /* yb_stmt_relation */ );
+				 NIL /* yb_stmt_options */ , NULL /* yb_stmt_relation */ ,
+				 false /* yb_skip_index_creation */ );
 
 	table_close(toast_rel, NoLock);
 

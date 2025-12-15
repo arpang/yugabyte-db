@@ -28,13 +28,15 @@
  *		should match kPgYbNotificationsTableOid.
  * ----------------
  */
-CATALOG(pg_yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(8101,YbNotificationsRelation_Rowtype_Id) YB_BKI_TSERVER_HOSTED BKI_SCHEMA_MACRO
+CATALOG(pg_yb_notifications,8101,YbNotificationsRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(8102,YbNotificationsRelation_Rowtype_Id) YB_BKI_TSERVER_HOSTED BKI_SCHEMA_MACRO
 {
-	uuid		sender_node;	/* uuid of node hosting the sender backend */
+	uuid		notif_uuid;     /* randomly generated notification uuid */
+
+	uuid		sender_node_uuid;	/* uuid of node hosting the sender backend */
 
 	int32		sender_pid;		/* pid of the sender backend */
 
-	Oid			dbid;			/* notification's db oid */
+	Oid			db_oid;			/* notification's db oid */
 
 #ifdef CATALOG_VARLEN			/* variable-length fields start here */
 	text		data BKI_FORCE_NOT_NULL;
@@ -48,6 +50,6 @@ CATALOG(pg_yb_notifications,8100,YbNotificationsRelationId) BKI_SHARED_RELATION 
  */
 typedef FormData_pg_yb_notifications * Form_pg_yb_notifications;
 
-DECLARE_UNIQUE_INDEX_PKEY(pg_yb_notifications_pkey, 8102, YbNotificationsPKeyIndexId, on pg_yb_notifications using btree(sender_node uuid_ops HASH, sender_pid int4_ops HASH) num_tablets 3);
+DECLARE_UNIQUE_INDEX_PKEY(pg_yb_notifications_pkey, 8103, YbNotificationsPKeyIndexId, on pg_yb_notifications using btree(notif_uuid uuid_ops));
 
 #endif							/* PG_YB_NOTIFICATIONS_H */

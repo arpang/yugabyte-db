@@ -33,7 +33,6 @@ typedef struct YbcStatusStruct* YbcStatus;
 
 bool YBCStatusIsNotFound(YbcStatus s);
 bool YBCStatusIsUnknownSession(YbcStatus s);
-bool YBCStatusIsDuplicateKey(YbcStatus s);
 bool YBCStatusIsSnapshotTooOld(YbcStatus s);
 bool YBCStatusIsTryAgain(YbcStatus s);
 bool YBCStatusIsAlreadyPresent(YbcStatus s);
@@ -160,6 +159,9 @@ void YBCUpdateInitPostgresMetrics();
 // Partition key hash decoding helpers
 uint16_t YBCDecodeMultiColumnHashLeftBound(const char* partition_key, size_t key_len);
 uint16_t YBCDecodeMultiColumnHashRightBound(const char* partition_key, size_t key_len);
+
+bool YBCIsObjectLockingEnabled();
+bool YBCIsLegacyModeForCatalogOps();
 
 #ifdef __cplusplus
 } // extern "C"

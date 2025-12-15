@@ -210,15 +210,6 @@ static relopt_bool boolRelOpts[] =
 		},
 		false
 	},
-	{
-		{
-			"tserver_hosted",
-			"Whether the table is hosted on tserver. Meant to be used only in YSQL migration script for PG catalog tables.",
-			RELOPT_KIND_HEAP,
-			AccessExclusiveLock
-		},
-		false
-	},
 	/* list terminator */
 	{{NULL}}
 };
@@ -648,7 +639,21 @@ static relopt_string stringRelOpts[] =
 		},
 		0,						/* default_len */
 		true,					/* default_isnull */
-		validatePlacementConfiguration,
+		NULL,					/* validate_cb */
+		NULL,					/* fill_cb */
+		NULL					/* default_val */
+	},
+	{
+		{
+			"read_replica_placement",
+			"Json formatted string with array of placement policies",
+			RELOPT_KIND_YB_TABLESPACE,
+			AccessExclusiveLock
+		},
+		0,						/* default_len */
+		true,					/* default_isnull */
+		NULL,					/* validate_cb */
+		NULL,					/* fill_cb */
 		NULL					/* default_val */
 	},
 	/* list terminator */
@@ -1486,8 +1491,7 @@ ybExcludeNonPersistentReloptions(Datum options)
 		if (IsYsqlUpgrade &&
 			(strcmp(s, "table_oid") == 0 ||
 			 strcmp(s, "row_type_oid") == 0 ||
-			 strcmp(s, "use_initdb_acl") == 0 ||
-			 strcmp(s, "tserver_hosted") == 0))
+			 strcmp(s, "use_initdb_acl") == 0))
 			continue;
 
 		/*
@@ -2103,7 +2107,6 @@ default_reloptions(Datum reloptions, bool validate, relopt_kind kind)
 		{"colocation_id", RELOPT_TYPE_OID, offsetof(StdRdOptions, colocation_id)},
 		{"table_oid", RELOPT_TYPE_OID, offsetof(StdRdOptions, table_oid)},
 		{"row_type_oid", RELOPT_TYPE_OID, offsetof(StdRdOptions, row_type_oid)},
-		{"tserver_hosted", RELOPT_TYPE_BOOL, offsetof(StdRdOptions, tserver_hosted)},
 	};
 
 	return (bytea *) build_reloptions(reloptions, validate, kind,
@@ -2349,7 +2352,10 @@ yb_tablespace_reloptions(Datum reloptions, bool validate)
 	YBTableSpaceOpts *tsopts;
 	int			numoptions;
 	static const relopt_parse_elt yb_tab[] = {
-		{"replica_placement", RELOPT_TYPE_STRING, offsetof(YBTableSpaceOpts, placement_offset)}
+		{"replica_placement", RELOPT_TYPE_STRING,
+		 offsetof(YBTableSpaceOpts, placement_offset)},
+		{"read_replica_placement", RELOPT_TYPE_STRING,
+		 offsetof(YBTableSpaceOpts, read_replica_placement_offset)}
 	};
 
 	options = parseRelOptions(reloptions, validate, RELOPT_KIND_YB_TABLESPACE, &numoptions);
@@ -2364,6 +2370,19 @@ yb_tablespace_reloptions(Datum reloptions, bool validate)
 
 	fillRelOptions((void *) tsopts, sizeof(YBTableSpaceOpts), options, numoptions,
 				   validate, yb_tab, lengthof(yb_tab));
+
+	if (validate)
+	{
+		const char *live_replicas_str = NULL;
+		const char *read_replicas_str = NULL;
+
+		if (tsopts->placement_offset > 0)
+			live_replicas_str = (char *) tsopts + tsopts->placement_offset;
+		if (tsopts->read_replica_placement_offset > 0)
+			read_replicas_str = (char *) tsopts + tsopts->read_replica_placement_offset;
+
+		validatePlacementConfigurations(live_replicas_str, read_replicas_str);
+	}
 
 	pfree(options);
 

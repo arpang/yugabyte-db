@@ -46,6 +46,8 @@
 
 namespace yb::pggate {
 
+class PgFlushDebugContext;
+
 YB_STRONGLY_TYPED_BOOL(OpBuffered);
 YB_STRONGLY_TYPED_BOOL(InvalidateOnPgClient);
 YB_STRONGLY_TYPED_BOOL(UseCatalogSession);
@@ -161,8 +163,7 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
 
   // Flush all pending buffered operations. Buffering mode remain unchanged.
   Result<SetupPerformOptionsAccessorTag> FlushBufferedOperations(
-      const YbcFlushDebugContext& debug_context);
-  Result<SetupPerformOptionsAccessorTag> FlushBufferedOperations(YbcFlushReason reason);
+      const PgFlushDebugContext& dbg_ctx);
   // Drop all pending buffered operations. Buffering mode remain unchanged.
   SetupPerformOptionsAccessorTag DropBufferedOperations();
 
@@ -221,7 +222,9 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
   // -------------
   Result<client::TabletServersInfo> ListTabletServers();
 
-  Status GetIndexBackfillProgress(std::vector<PgObjectId> index_ids, uint64_t** backfill_statuses);
+  Status GetIndexBackfillProgress(std::vector<PgObjectId> index_ids,
+                                  uint64_t* num_rows_read_from_table,
+                                  double* num_rows_backfilled);
 
   std::string GenerateNewYbrowid();
 
@@ -244,7 +247,10 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
 
   void SetLockTimeout(int lock_timeout_ms);
 
-  Status ValidatePlacement(const std::string& placement_info, bool check_satisfiable);
+  Status ValidatePlacements(
+      const std::string& live_placement_info,
+      const std::string& read_replica_placement_info,
+      bool check_satisfiable);
 
   void TrySetCatalogReadPoint(const ReadHybridTime& read_ht);
 
@@ -297,13 +303,23 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
 
   Status AcquireObjectLock(const YbcObjectLockId& lock_id, YbcObjectLockMode mode);
 
+  YbcReadPointHandle GetCurrentReadPoint() const {
+    return pg_txn_manager_->GetCurrentReadPoint();
+  }
+
+  Status RestoreReadPoint(YbcReadPointHandle read_point) {
+    return pg_txn_manager_->RestoreReadPoint(read_point);
+  }
+
+  YbcReadPointHandle GetCatalogSnapshotReadPoint(YbcPgOid table_oid, bool create_if_not_exists);
+
  private:
   Result<PgTableDescPtr> DoLoadTable(
       const PgObjectId& table_id, bool fail_on_cache_hit,
       master::IncludeHidden include_hidden = master::IncludeHidden::kFalse);
   Result<FlushFuture> FlushOperations(
-      BufferableOperations&& ops, bool transactional, const YbcFlushDebugContext& debug_context);
-  std::string FlushReasonToString(const YbcFlushDebugContext& debug_context) const;
+      BufferableOperations&& ops, bool transactional, const PgFlushDebugContext& debug_context);
+  std::string FlushReasonToString(const PgFlushDebugContext& debug_context) const;
 
   const std::string LogPrefix() const;
 
