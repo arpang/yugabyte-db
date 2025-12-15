@@ -903,6 +903,7 @@ YBCCreateTable(CreateStmt *stmt, char *tableName, char relkind, TupleDesc desc,
 									   relationId,
 									   oldRelfileNodeId,
 									   isTruncate,
+									   YbIsTserverHostedCatalogRel(relationId),
 									   &handle));
 
 	CreateTableAddColumns(handle, desc, primary_key, is_colocated_via_database,
@@ -1262,6 +1263,7 @@ YBCCreateIndex(const char *indexName,
 									   tablespaceId,
 									   indexId,
 									   oldRelfileNodeId,
+									   YbIsTserverHostedCatalogRel(RelationGetRelid(rel)),
 									   &handle));
 
 	IndexAmRoutine *amroutine = GetIndexAmRoutineByAmId(indexInfo->ii_Am,
