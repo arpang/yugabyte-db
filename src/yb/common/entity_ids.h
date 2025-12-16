@@ -54,7 +54,7 @@ static const uint32_t kPgYbInvalidationMessagesTableOid = 8080;
 static const uint32_t kPgPublicationRelOid = 6106;
 
 // Hardcoded for pg_yb_notifications (in pg_yb_notifications.h).
-static const uint32_t kPgYbNotificationsTableOid = 8100;
+static const uint32_t kPgYbNotificationsTableOid = 8101;
 
 extern const TableId kPgProcTableId;
 extern const TableId kPgYbCatalogVersionTableId;

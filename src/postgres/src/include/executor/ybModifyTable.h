@@ -167,6 +167,7 @@ extern bool YBCExecuteDelete(Relation rel,
 							 YbcPgTransactionSetting transaction_setting,
 							 bool changingPart,
 							 EState *estate);
+
 /*
  * Delete a tuple (identified by index columns and base table ybctid) from an
  * index's backing YugaByte index table.
