@@ -911,16 +911,16 @@ YbInsertNotifications(void)
 	while (nextNotify)
 	{
 		Notification *n = (Notification *) lfirst(nextNotify);
-		slot->tts_isnull[Anum_pg_yb_notifications_sender_node - 1] = false;
-		slot->tts_values[Anum_pg_yb_notifications_sender_node - 1] =
+		slot->tts_isnull[Anum_pg_yb_notifications_sender_node_uuid - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_sender_node_uuid - 1] =
 			CStringGetDatum(YBCGetLocalTserverUuid());
 
 		slot->tts_isnull[Anum_pg_yb_notifications_sender_pid - 1] = false;
 		slot->tts_values[Anum_pg_yb_notifications_sender_pid - 1] =
 			Int32GetDatum(MyProcPid);
 
-		slot->tts_isnull[Anum_pg_yb_notifications_dbid - 1] = false;
-		slot->tts_values[Anum_pg_yb_notifications_dbid - 1] =
+		slot->tts_isnull[Anum_pg_yb_notifications_db_oid - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_db_oid - 1] =
 			ObjectIdGetDatum(MyDatabaseId);
 
 		slot->tts_isnull[Anum_pg_yb_notifications_data - 1] = false;
@@ -2691,7 +2691,7 @@ YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 	TupleDesc desc = RelationGetDescr(rel);
 
 	bool isnull;
-	Datum sender_node = heap_getattr(tuple, Anum_pg_yb_notifications_sender_node, desc, &isnull);
+	Datum sender_node = heap_getattr(tuple, Anum_pg_yb_notifications_sender_node_uuid, desc, &isnull);
 	Assert(!isnull);
 	memcpy(qe->yb_node_uuid.data, DatumGetUUIDP(sender_node), UUID_LEN);
 
@@ -2699,7 +2699,7 @@ YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 	Assert(!isnull);
 	qe->srcPid = DatumGetInt32(sender_id);
 
-	Datum dbid = heap_getattr(tuple, Anum_pg_yb_notifications_dbid, desc, &isnull);
+	Datum dbid = heap_getattr(tuple, Anum_pg_yb_notifications_db_oid, desc, &isnull);
 	Assert(!isnull);
 	qe->dboid = DatumGetObjectId(dbid);
 
