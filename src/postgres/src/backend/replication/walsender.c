@@ -1514,7 +1514,7 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 }
 
 void
-YbNotificationsWalSenderMain(Datum main_arg)
+YbNotificationsPollerMain(Datum main_arg)
 {
 	am_walsender = true;
 	am_db_walsender = true;

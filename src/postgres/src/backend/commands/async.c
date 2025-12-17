@@ -911,6 +911,9 @@ YbInsertNotifications(void)
 	while (nextNotify)
 	{
 		Notification *n = (Notification *) lfirst(nextNotify);
+		slot->tts_isnull[Anum_pg_yb_notifications_notif_uuid - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_notif_uuid - 1] = gen_random_uuid(NULL);
+
 		slot->tts_isnull[Anum_pg_yb_notifications_sender_node_uuid - 1] = false;
 		slot->tts_values[Anum_pg_yb_notifications_sender_node_uuid - 1] =
 			CStringGetDatum(YBCGetLocalTserverUuid());
@@ -2649,14 +2652,14 @@ YbRegisterNotificationsWalSender()
 	BackgroundWorker worker;
 
 	memset(&worker, 0, sizeof(worker));
-	sprintf(worker.bgw_name, "notifications walsender");
-	sprintf(worker.bgw_type, "walsender");
+	sprintf(worker.bgw_name, "notifications poller");
+	sprintf(worker.bgw_type, "notifications poller");
 	worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
 					   BGWORKER_BACKEND_DATABASE_CONNECTION;
 	worker.bgw_start_time = BgWorkerStart_ConsistentState;
 	worker.bgw_restart_time = 1; /* restart after a crash */
 	sprintf(worker.bgw_library_name, "postgres");
-	sprintf(worker.bgw_function_name, "YbNotificationsWalSenderMain");
+	sprintf(worker.bgw_function_name, "YbNotificationsPollerMain");
 	worker.bgw_main_arg = (Datum) 0;
 	worker.bgw_notify_pid = getpid();
 
