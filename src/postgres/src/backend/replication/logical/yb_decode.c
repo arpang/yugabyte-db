@@ -145,10 +145,25 @@ static void
 YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 {
 	const YbVirtualWalRecord *yb_record = record->yb_virtual_wal_record;
+	/*
+	 * Remove comment: There is no concrete reason in my understanding why YB
+	 *  uses reorder buffer. Notification walsender can use it to batch tuples.
+	 */
+	ReorderBufferChange *change = ReorderBufferGetChange(ctx->reorder);
 	HeapTuple	tuple;
 	ReorderBufferTupleBuf *tuple_buf;
 
 	Assert(ctx->reader->ReadRecPtr == yb_record->lsn);
+
+	change->action = REORDER_BUFFER_CHANGE_INSERT;
+	/*
+	 * We do not send the replication origin information. So any dummy value is
+	 * sufficient here.
+	 */
+	change->origin_id = 1;
+
+	ReorderBufferProcessXid(ctx->reorder, yb_record->xid,
+							ctx->reader->ReadRecPtr);
 
 	/*
 	 * In PG, we know the size of the tuple from the header, so they can
@@ -163,21 +178,6 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 	 * created.
 	 */
 	tuple = YBGetHeapTuplesForRecord(yb_record);
-
-	/*
-	 * There is no concrete reason in my understanding why YB uses reorder buffer.
-	 * Notification walsender can use it to batch tuples.
-	 */
-	ReorderBufferChange *change = ReorderBufferGetChange(ctx->reorder);
-	change->action = REORDER_BUFFER_CHANGE_INSERT;
-	/*
-	 * We do not send the replication origin information. So any dummy value is
-	 * sufficient here.
-	 */
-	change->origin_id = 1;
-
-	ReorderBufferProcessXid(ctx->reorder, yb_record->xid,
-							ctx->reader->ReadRecPtr);
 	tuple_buf =
 		ReorderBufferGetTupleBuf(ctx->reorder, tuple->t_len + HEAPTUPLESIZE);
 	yb_heap_copytuple_with_tuple(tuple, &tuple_buf->tuple);
