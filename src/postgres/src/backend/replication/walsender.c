@@ -1529,7 +1529,7 @@ YbNotificationsPollerMain(Datum main_arg)
 	StartReplicationCmd cmd;
 	cmd.type = T_StartReplicationCmd;
 	cmd.kind = REPLICATION_KIND_LOGICAL;
-	cmd.slotname = YbNotificationsSlotName();
+	cmd.slotname = YbNotificationReplicationSlotName();
 	elog(LOG, "Arpan slotname %s", cmd.slotname);
 	cmd.startpoint = InvalidXLogRecPtr;
 	cmd.options = NIL;

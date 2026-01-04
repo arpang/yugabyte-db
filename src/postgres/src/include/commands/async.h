@@ -55,6 +55,6 @@ extern void ProcessNotifyInterrupt(bool flush);
 
 extern int YbAsyncQueueAddEntries(YbcPgRowMessage *rows, int row_count, int start_index);
 
-extern char *YbNotificationsSlotName();
+extern char *YbNotificationReplicationSlotName();
 
 #endif							/* ASYNC_H */

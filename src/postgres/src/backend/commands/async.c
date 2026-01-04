@@ -189,8 +189,7 @@ typedef struct AsyncQueueEntry
 	Oid			dboid;			/* sender's database OID */
 	TransactionId xid;			/* sender's XID */
 	int32		srcPid;			/* sender's PID */
-	pg_uuid_t	yb_node_uuid;	/* sender node uuid. */
-	uint64_t	yb_commit_time_ht;	/* hybrid commit time of notification */
+	pg_uuid_t yb_node_uuid;		/* sender node uuid. */
 	char		data[NAMEDATALEN + NOTIFY_PAYLOAD_MAX_LENGTH];
 } AsyncQueueEntry;
 
@@ -481,11 +480,10 @@ static uint32 notification_hash(const void *key, Size keysize);
 static int	notification_match(const void *key1, const void *key2, Size keysize);
 static void ClearPendingActionsAndNotifies(void);
 
-static void YbRegisterNotificationsWalSender();
-static BackgroundWorkerHandle *YbShmemWalSenderBgWHandle(bool *found);
+static void YbCreateNotificationReplicationSlot();
+static void YbStartNotificationsPollerProcess();
 static void YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
-static void CreateNotificationsSlot();
-static void DropNotificationsSlot();
+static BackgroundWorkerHandle *YbShmemNotificationsPollerBgWHandle(bool *found);
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -1199,12 +1197,7 @@ Exec_ListenPreCommit(void)
 	max = QUEUE_TAIL;
 	prevListener = InvalidBackendId;
 
-	/*
-	 * Start the special walsender process if this is the first listener in the
-	 * node.
-	 */
-	elog(INFO, "Arpan QUEUE_FIRST_LISTENER == InvalidBackendId %d", QUEUE_FIRST_LISTENER == InvalidBackendId);
-	bool ybFirstListener = QUEUE_FIRST_LISTENER == InvalidBackendId;
+	bool ybFirstListenerOnNode = QUEUE_FIRST_LISTENER == InvalidBackendId;
 
 	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
 	{
@@ -1230,15 +1223,18 @@ Exec_ListenPreCommit(void)
 	}
 	LWLockRelease(NotifyQueueLock);
 
-	if (ybFirstListener)
+	if (ybFirstListenerOnNode)
 	{
 		/*
-		 * TODO: Why is the replication slot being created here and not by the
-		 * walsender process? yb_is_for_notifications arg may nt be required if
-		 * we do the latter.
+		 * Create the replication slot and start the notifications poller
+		 * process as this is the first listener in the node.
 		 */
-		CreateNotificationsSlot();
-		YbRegisterNotificationsWalSender();
+		/*
+		 * TODO: Can slot creation be done by notifications poller process?
+		 * yb_is_for_notifications arg may nt be required if we do the latter.
+		 */
+		YbCreateNotificationReplicationSlot();
+		YbStartNotificationsPollerProcess();
 	}
 
 	/* Now we are listed in the global array, so remember we're listening */
@@ -1388,17 +1384,19 @@ asyncQueueUnregister(void)
 	QUEUE_NEXT_LISTENER(MyBackendId) = InvalidBackendId;
 
 	/*
-	 * Terminate the special walsender process if this was the last listener in
-	 * the node.
+	 * Terminate the notifications fetcher process and drop the replication slot
+	 * if this was the last listener in the node.
 	 */
-	elog(INFO, "QUEUE_FIRST_LISTENER == InvalidBackendId %d", QUEUE_FIRST_LISTENER == InvalidBackendId);
 	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
 	{
 		bool found;
-		BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
+		BackgroundWorkerHandle *shm_handle =
+			YbShmemNotificationsPollerBgWHandle(&found);
 		Assert(found);
 		TerminateBackgroundWorker(shm_handle);
-		DropNotificationsSlot();
+		ReplicationSlotDrop(YbNotificationReplicationSlotName(),
+							/* nowait = */ true,
+							/* yb_force = */ true);
 		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
 	}
 
@@ -2639,15 +2637,62 @@ ClearPendingActionsAndNotifies(void)
 	pendingNotifies = NULL;
 }
 
-static BackgroundWorkerHandle *
-YbShmemWalSenderBgWHandle(bool *found)
+char *
+YbNotificationReplicationSlotName()
 {
-	return ShmemInitStruct("NotificationsWalSenderBgWHandle",
-						   YbBackgroundWorkerHandleSize(), found);
+	size_t hex_uuid_len = 2 * UUID_LEN + 1;
+	char *uuid = palloc(hex_uuid_len);
+	YbConvertToHex(YBCGetLocalTserverUuid(), UUID_LEN, uuid);
+	uuid[2 * UUID_LEN] = '\0';
+	return psprintf("yb_notifications_%s", uuid);
 }
 
 static void
-YbRegisterNotificationsWalSender()
+YbCreateNotificationReplicationSlot()
+{
+	MemoryContext cur_context = CurrentMemoryContext;
+	char *slotname = YbNotificationReplicationSlotName();
+	PG_TRY();
+	{
+		/* If a notification slot with the same name already exists, drop it.
+		 * Ideally, such a slot should not exists. But it can exist when created
+		 * by an old LISTENER on this node but was not dropped when no listeners
+		 * remained.  It is possible if the last listening backend crashed or
+		 * the tserver itself crashed.
+		 *
+		 * TODO: handle slot deletion when last listening backend crashes or the
+		 * tserver itself crashes.
+		 */
+		ReplicationSlotDrop(slotname, /* nowait = */ true,
+							/* yb_force = */ true);
+	}
+	PG_CATCH();
+	{
+		ErrorData *edata;
+		MemoryContextSwitchTo(cur_context);
+		edata = CopyErrorData();
+		FreeErrorData(edata);
+		FlushErrorState();
+	}
+	PG_END_TRY();
+
+	/*
+	 * TODO:
+	 * - Is RS_EPHEMERAL the right choice?
+	 * - is two_phase = false the right choice?
+	 * - what should be the plugin?
+	 * - is CRS_HYBRID_TIME the right choice?
+	 */
+	uint64_t yb_consistent_snapshot_time;
+	ReplicationSlotCreate(slotname, false, RS_EPHEMERAL,
+						  /* two_phase = */ false, "wal2json",
+						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
+						  CRS_HYBRID_TIME, YB_CRS_TRANSACTION,
+						  /* yb_is_for_notifications = */ true);
+}
+
+static void
+YbStartNotificationsPollerProcess()
 {
 	BackgroundWorker worker;
 
@@ -2676,7 +2721,9 @@ YbRegisterNotificationsWalSender()
 				 errhint("More details may be available in the server log.")));
 
 	bool found;
-	BackgroundWorkerHandle *shm_handle = YbShmemWalSenderBgWHandle(&found);
+	BackgroundWorkerHandle *shm_handle =
+		YbShmemNotificationsPollerBgWHandle(&found);
+	Assert(!found);
 	memcpy(shm_handle, local_handle, YbBackgroundWorkerHandleSize());
 	pfree(local_handle);
 }
@@ -2709,70 +2756,15 @@ YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 	size_t datalen = VARSIZE_ANY(data);
 	memcpy(qe->data, VARDATA_ANY(data), datalen);
 
-	qe->yb_commit_time_ht = row_message->commit_time_ht;
-
 	int entryLength = AsyncQueueEntryEmptySize + datalen - 2;
 	entryLength = QUEUEALIGN(entryLength);
 	qe->length = entryLength;
 	RelationClose(rel);
 }
 
-char *
-YbNotificationsSlotName()
+static BackgroundWorkerHandle *
+YbShmemNotificationsPollerBgWHandle(bool *found)
 {
-	size_t hex_uuid_len = 2 * UUID_LEN + 1;
-	char *uuid = palloc(hex_uuid_len);
-	YbConvertToHex(YBCGetLocalTserverUuid(), UUID_LEN, uuid);
-	uuid[2 * UUID_LEN] = '\0';
-	return psprintf("yb_notifications_%s", uuid);
-}
-
-static void
-CreateNotificationsSlot()
-{
-	MemoryContext cur_context = CurrentMemoryContext;
-	char *slotname = YbNotificationsSlotName();
-	PG_TRY();
-	{
-		/* If a notification slot with the same name already exists, drop it.
-		 * Ideally, such a slot should not exists. But it can exist when created
-		 * by an old LISTENER on this node but was not dropped when no listeners
-		 * remained.  It is possible if the last listening backend crashed or
-		 * the tserver itself crashed.
-		 *
-		 * TODO: handle slot deletion when last listening backend crashes or the
-		 * tserver itself crashes.
-		 */
-		ReplicationSlotDrop(slotname, /* nowait = */ true, /* yb_force = */ true);
-	}
-	PG_CATCH();
-	{
-		ErrorData *edata;
-		MemoryContextSwitchTo(cur_context);
-		edata = CopyErrorData();
-		FreeErrorData(edata);
-		FlushErrorState();
-	}
-	PG_END_TRY();
-
-	/*
-	 * TODO:
-	 * - Is RS_EPHEMERAL the right choice?
-	 * - is two_phase = false the right choice?
-	 * - what should be the plugin?
-	 * - is CRS_HYBRID_TIME the right choice?
-	 */
-	uint64_t yb_consistent_snapshot_time;
-	ReplicationSlotCreate(slotname, false, RS_EPHEMERAL,
-						  /* two_phase = */ false, "wal2json",
-						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
-						  CRS_HYBRID_TIME, YB_CRS_TRANSACTION,
-						  /* yb_is_for_notifications = */ true);
-}
-
-static void
-DropNotificationsSlot()
-{
-	char *slotname = YbNotificationsSlotName();
-	ReplicationSlotDrop(slotname, /* nowait = */ true, /* yb_force = */ true);
+	return ShmemInitStruct("NotificationsPollerBgWHandle",
+						   YbBackgroundWorkerHandleSize(), found);
 }
