@@ -1534,6 +1534,10 @@ YbAsyncQueueAddEntries(YbcPgRowMessage *rows, int row_count, int start_index)
 	/*
 	 * Signal listening backends and advance tail if applicable.
 	 */
+	/*
+	 * IMP TODO: SignalBackends has condition based on MyDatabaseId, which is
+	 * not applicable to YB as this is called bg task.
+	 */
 	if (list_head(notifications) != nextNotify)
 		SignalBackends();
 
