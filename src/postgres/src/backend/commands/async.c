@@ -1497,61 +1497,6 @@ asyncQueueNotificationToEntry(Notification *n, AsyncQueueEntry *qe)
 	memcpy(qe->data, n->data, channellen + payloadlen + 2);
 }
 
-int
-YbAsyncQueueAddEntries(YbcPgRowMessage *rows, int row_count, int start_index)
-{
-	List *notifications = NIL;
-	int index = start_index;
-	bool queue_full = false;
-
-	LWLockAcquire(NotifyQueueLock, LW_SHARED);
-	queue_full = asyncQueueIsFull();
-	LWLockRelease(NotifyQueueLock);
-	if (queue_full)
-		return start_index;
-
-	while (index < row_count)
-	{
-		notifications = lappend(notifications, rows + index);
-		index++;
-	}
-
-	StartTransactionCommand();
-	ListCell *nextNotify = list_head(notifications);
-	while (nextNotify != NULL)
-	{
-		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
-		if (asyncQueueIsFull())
-		{
-			LWLockRelease(NotifyQueueLock);
-			break;
-		}
-		nextNotify = asyncQueueAddEntries(nextNotify, notifications);
-		LWLockRelease(NotifyQueueLock);
-	}
-	AbortCurrentTransaction();
-
-	/*
-	 * Signal listening backends and advance tail if applicable.
-	 */
-	/*
-	 * IMP TODO: SignalBackends has condition based on MyDatabaseId, which is
-	 * not applicable to YB as this is called bg task.
-	 */
-	if (list_head(notifications) != nextNotify)
-		SignalBackends();
-
-	if (tryAdvanceTail)
-	{
-		tryAdvanceTail = false;
-		asyncQueueAdvanceTail();
-	}
-
-	return nextNotify ?
-			   list_cell_number(notifications, nextNotify) + start_index :
-			   row_count;
-}
-
 /*
  * Add pending notifications to the queue.
  *
@@ -2639,6 +2584,61 @@ ClearPendingActionsAndNotifies(void)
 	 */
 	pendingActions = NULL;
 	pendingNotifies = NULL;
+}
+
+int
+YbAsyncQueueAddEntries(YbcPgRowMessage *rows, int row_count, int start_index)
+{
+	List *notifications = NIL;
+	int index = start_index;
+	bool queue_full = false;
+
+	LWLockAcquire(NotifyQueueLock, LW_SHARED);
+	queue_full = asyncQueueIsFull();
+	LWLockRelease(NotifyQueueLock);
+	if (queue_full)
+		return start_index;
+
+	while (index < row_count)
+	{
+		notifications = lappend(notifications, rows + index);
+		index++;
+	}
+
+	StartTransactionCommand();
+	ListCell *nextNotify = list_head(notifications);
+	while (nextNotify != NULL)
+	{
+		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+		if (asyncQueueIsFull())
+		{
+			LWLockRelease(NotifyQueueLock);
+			break;
+		}
+		nextNotify = asyncQueueAddEntries(nextNotify, notifications);
+		LWLockRelease(NotifyQueueLock);
+	}
+	AbortCurrentTransaction();
+
+	/*
+	 * Signal listening backends and advance tail if applicable.
+	 */
+	/*
+	 * IMP TODO: SignalBackends has condition based on MyDatabaseId, which is
+	 * not applicable to YB as this is called bg task.
+	 */
+	if (list_head(notifications) != nextNotify)
+		SignalBackends();
+
+	if (tryAdvanceTail)
+	{
+		tryAdvanceTail = false;
+		asyncQueueAdvanceTail();
+	}
+
+	return nextNotify ?
+			   list_cell_number(notifications, nextNotify) + start_index :
+			   row_count;
 }
 
 char *
