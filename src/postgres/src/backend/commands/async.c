@@ -1975,7 +1975,6 @@ AtSubAbort_Notify(void)
 void
 HandleNotifyInterrupt(void)
 {
-	elog(INFO, "Arpan HandleNotifyInterrupt");
 	/*
 	 * Note: this is called by a SIGNAL HANDLER. You must be very wary what
 	 * you do here.
@@ -2006,7 +2005,6 @@ HandleNotifyInterrupt(void)
 void
 ProcessNotifyInterrupt(bool flush)
 {
-	elog(INFO, "Arpan ProcessNotifyInterrupt flush %d", flush);
 	if (IsTransactionOrTransactionBlock())
 		return;					/* not really idle */
 
@@ -2024,7 +2022,6 @@ ProcessNotifyInterrupt(bool flush)
 static void
 asyncQueueReadAllNotifications(void)
 {
-	elog(INFO, "Arpan asyncQueueReadAllNotifications");
 	volatile QueuePosition pos;
 	QueuePosition head;
 	Snapshot	snapshot;
@@ -2046,12 +2043,9 @@ asyncQueueReadAllNotifications(void)
 
 	if (QUEUE_POS_EQUAL(pos, head))
 	{
-		elog(INFO, "All notifications read, returning");
 		/* Nothing to do, we have read all notifications already. */
 		return;
 	}
-
-	elog(INFO, "Some notifications are to be read");
 
 	/*----------
 	 * Get snapshot we'll use to decide which xacts are still in progress.
@@ -2159,7 +2153,6 @@ asyncQueueReadAllNotifications(void)
 			reachedStop = asyncQueueProcessPageEntries(&pos, head,
 													   page_buffer.buf,
 													   snapshot);
-			elog(INFO, "Arpan reachedStop %d", reachedStop);
 		} while (!reachedStop);
 	}
 	PG_FINALLY();
@@ -2370,8 +2363,6 @@ ProcessIncomingNotify(bool flush)
 
 	/* We *must* reset the flag */
 	notifyInterruptPending = false;
-
-	elog(INFO, "Arpan ProcessIncomingNotify list_length(listenChannels) %d", list_length(listenChannels));
 
 	/* Do nothing else if we aren't actively listening */
 	if (listenChannels == NIL)
