@@ -2184,7 +2184,7 @@ YBCCreateReplicationSlot(const char *slot_name,
 
 	HandleYBStatus(YBCPgNewCreateReplicationSlot(slot_name,
 												 plugin_name,
-												 MyDatabaseId,
+												 is_for_notifications ? Template1DbOid : MyDatabaseId,
 												 repl_slot_snapshot_action,
 												 repl_slot_lsn_type,
 												 repl_slot_ordering_mode,

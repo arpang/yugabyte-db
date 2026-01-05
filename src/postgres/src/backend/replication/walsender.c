@@ -1522,7 +1522,7 @@ YbNotificationsPollerMain(Datum main_arg)
 	WalSndSignals();
 	BackgroundWorkerUnblockSignals();
 	/* TODO: remove hardcoding */
-	BackgroundWorkerInitializeConnection("yugabyte", "yugabyte", 0);
+	BackgroundWorkerInitializeConnection("template1", "yugabyte", 0);
 
 	InitWalSender();
 
