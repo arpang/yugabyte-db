@@ -2718,7 +2718,6 @@ YbStartNotificationsPollerProcess()
 	bool found;
 	BackgroundWorkerHandle *shm_handle =
 		YbShmemNotificationsPollerBgWHandle(&found);
-	Assert(!found);
 	memcpy(shm_handle, local_handle, YbBackgroundWorkerHandleSize());
 	pfree(local_handle);
 }
