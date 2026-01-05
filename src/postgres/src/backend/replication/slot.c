@@ -543,7 +543,7 @@ retry:
 		HTAB	   *replica_identities;
 		HASHCTL		ctl;
 
-		YBCGetReplicationSlot(name, &yb_replication_slot);
+		YBCGetReplicationSlot(name, &yb_replication_slot, /* if_exists */ false);
 
 		s = palloc(sizeof(ReplicationSlot));
 		namestrcpy(&s->data.name, yb_replication_slot->slot_name);
@@ -847,7 +847,7 @@ restart:
  * Permanently drop replication slot identified by the passed in name.
  */
 void
-ReplicationSlotDrop(const char *name, bool nowait, bool yb_force)
+ReplicationSlotDrop(const char *name, bool nowait, bool yb_force, bool yb_if_exists)
 {
 	Assert(MyReplicationSlot == NULL);
 
@@ -858,16 +858,20 @@ ReplicationSlotDrop(const char *name, bool nowait, bool yb_force)
 	 */
 	if (IsYugaByteEnabled())
 	{
-		YbcReplicationSlotDescriptor *yb_replication_slot;
+		if (!yb_force)
+		{
+			YbcReplicationSlotDescriptor *yb_replication_slot;
 
-		YBCGetReplicationSlot(name, &yb_replication_slot);
+			if (!YBCGetReplicationSlot(name, &yb_replication_slot, yb_if_exists))
+				return;
 
-		if (yb_replication_slot->active && !yb_force)
-			ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_IN_USE),
-					 errmsg("replication slot \"%s\" is active", name)));
+			if (yb_replication_slot->active)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_IN_USE),
+						errmsg("replication slot \"%s\" is active", name)));
+		}
 
-		YBCDropReplicationSlot(name);
+		YBCDropReplicationSlot(name, yb_if_exists);
 
 		ReplicationSlot *slot_for_array = SearchNamedReplicationSlot(name, false);
 

@@ -2222,33 +2222,51 @@ YBCListReplicationSlots(YbcReplicationSlotDescriptor **replication_slots,
 											 numreplicationslots));
 }
 
-void
+bool
 YBCGetReplicationSlot(const char *slot_name,
-					  YbcReplicationSlotDescriptor **replication_slot)
+					  YbcReplicationSlotDescriptor **replication_slot,
+					  bool if_exists)
 {
+	YbcStatus status = YBCPgGetReplicationSlot(slot_name, replication_slot);
+
+	if (if_exists && YBCStatusIsNotFound(status))
+	{
+		elog(LOG, "replication slot \"%s\" not found", slot_name);
+		YBCFreeStatus(status);
+		return false;
+	}
+
 	char		error_message[NAMEDATALEN + 64] = "";
 
 	snprintf(error_message, sizeof(error_message),
 			 "replication slot \"%s\" does not exist", slot_name);
 
-	HandleYBStatusWithCustomErrorForNotFound(YBCPgGetReplicationSlot(slot_name,
-																	 replication_slot),
-											 error_message);
+	HandleYBStatusWithCustomErrorForNotFound(status, error_message);
+	return true;
 }
 
 void
-YBCDropReplicationSlot(const char *slot_name)
+YBCDropReplicationSlot(const char *slot_name, bool if_exists)
 {
 	YbcPgStatement handle;
+	HandleYBStatus(YBCPgNewDropReplicationSlot(slot_name, &handle));
+
+	YbcStatus status = YBCPgExecDropReplicationSlot(handle);
+
+	if (if_exists && YBCStatusIsNotFound(status))
+	{
+		elog(LOG, "replication slot \"%s\" does not exist, skipping",
+			 slot_name);
+		YBCFreeStatus(status);
+		return;
+	}
+
 	char		error_message[NAMEDATALEN + 64] = "";
 
 	snprintf(error_message, sizeof(error_message),
 			 "replication slot \"%s\" does not exist", slot_name);
 
-	HandleYBStatus(YBCPgNewDropReplicationSlot(slot_name,
-											   &handle));
-	HandleYBStatusWithCustomErrorForNotFound(YBCPgExecDropReplicationSlot(handle),
-											 error_message);
+	HandleYBStatusWithCustomErrorForNotFound(status, error_message);
 }
 
 /*

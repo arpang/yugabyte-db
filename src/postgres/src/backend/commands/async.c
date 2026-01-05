@@ -1396,7 +1396,8 @@ asyncQueueUnregister(void)
 		TerminateBackgroundWorker(shm_handle);
 		ReplicationSlotDrop(YbNotificationReplicationSlotName(),
 							/* nowait = */ true,
-							/* yb_force = */ true);
+							/* yb_force = */ true,
+							/* yb_if_exists =*/false);
 		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
 	}
 
@@ -2649,31 +2650,14 @@ YbNotificationReplicationSlotName()
 static void
 YbCreateNotificationReplicationSlot()
 {
-	MemoryContext cur_context = CurrentMemoryContext;
 	char *slotname = YbNotificationReplicationSlotName();
-	PG_TRY();
-	{
-		/* If a notification slot with the same name already exists, drop it.
-		 * Ideally, such a slot should not exists. But it can exist when created
-		 * by an old LISTENER on this node but was not dropped when no listeners
-		 * remained.  It is possible if the last listening backend crashed or
-		 * the tserver itself crashed.
-		 *
-		 * TODO: handle slot deletion when last listening backend crashes or the
-		 * tserver itself crashes.
-		 */
-		ReplicationSlotDrop(slotname, /* nowait = */ true,
-							/* yb_force = */ true);
-	}
-	PG_CATCH();
-	{
-		ErrorData *edata;
-		MemoryContextSwitchTo(cur_context);
-		edata = CopyErrorData();
-		FreeErrorData(edata);
-		FlushErrorState();
-	}
-	PG_END_TRY();
+
+	/*
+	 * If slot with the same name exists, drop it. This can occur if a previous
+	 * sole listener exited without dropping it (say, due to a crash).
+	 */
+	ReplicationSlotDrop(slotname, /* nowait = */ true,
+						/* yb_force = */ true, /* yb_if_exists =*/true);
 
 	/*
 	 * TODO:

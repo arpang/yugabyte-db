@@ -235,7 +235,7 @@ extern void ReplicationSlotCreate(const char *name, bool db_specific,
 								  YbCRSOrderingMode yb_ordering_mode,
 								  bool yb_is_for_notifications);
 extern void ReplicationSlotPersist(void);
-extern void ReplicationSlotDrop(const char *name, bool nowait, bool yb_force);
+extern void ReplicationSlotDrop(const char *name, bool nowait, bool yb_force, bool yb_if_exists);
 
 extern void ReplicationSlotAcquire(const char *name, bool nowait);
 extern void ReplicationSlotRelease(void);

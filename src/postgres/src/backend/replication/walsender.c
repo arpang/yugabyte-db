@@ -1510,7 +1510,8 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 				 errmsg("waiting for a replication slot is not yet"
 						" supported")));
 
-	ReplicationSlotDrop(cmd->slotname, !cmd->wait, /* yb_force = */ false);
+	ReplicationSlotDrop(cmd->slotname, !cmd->wait, /* yb_force = */ false,
+						/* yb_if_exists= */ false);
 }
 
 void

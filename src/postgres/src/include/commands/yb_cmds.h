@@ -132,10 +132,11 @@ extern void YBCCreateReplicationSlot(const char *slot_name,
 extern void YBCListReplicationSlots(YbcReplicationSlotDescriptor **replication_slots,
 									size_t *numreplicationslots);
 
-extern void YBCGetReplicationSlot(const char *slot_name,
-								  YbcReplicationSlotDescriptor **replication_slot);
+extern bool YBCGetReplicationSlot(const char *slot_name,
+								  YbcReplicationSlotDescriptor **replication_slot,
+								  bool if_exists);
 
-extern void YBCDropReplicationSlot(const char *slot_name);
+extern void YBCDropReplicationSlot(const char *slot_name, bool if_exists);
 
 extern void
 			YBCInitVirtualWalForCDC(const char *stream_id, Oid *relations,

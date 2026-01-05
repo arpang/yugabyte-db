@@ -754,7 +754,8 @@ YBCRefreshReplicaIdentities(Oid *table_oids, int num_tables)
 	YbcReplicationSlotDescriptor *yb_replication_slot;
 	int			replica_identity_idx = 0;
 
-	YBCGetReplicationSlot(MyReplicationSlot->data.name.data, &yb_replication_slot);
+	YBCGetReplicationSlot(MyReplicationSlot->data.name.data,
+						  &yb_replication_slot, /* if_exists */ false);
 
 	/* Populate the replica identities for new tables in MyReplicationSlot. */
 	for (replica_identity_idx = 0;
