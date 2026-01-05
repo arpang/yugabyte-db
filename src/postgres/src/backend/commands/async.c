@@ -1776,7 +1776,15 @@ SignalBackends(void)
 
 		Assert(pid != InvalidPid);
 		pos = QUEUE_BACKEND_POS(i);
-		if (QUEUE_BACKEND_DBOID(i) == MyDatabaseId)
+
+		/*
+		 * YB note: In vanilla PG, this function is called by the backend
+		 * process executing NOTIFY. Hence, only the listeners in the current db
+		 * are signaled (unless a listener is far behind, see below). But in YB,
+		 * the bg 'notifications poller' process calls it. Hence, always signal
+		 * all the listeners in all the dbs, unless they are already caught up.
+		 */
+		if (QUEUE_BACKEND_DBOID(i) == MyDatabaseId || IsYugaByteEnabled())
 		{
 			/*
 			 * Always signal listeners in our own database, unless they're
@@ -2613,10 +2621,6 @@ YbAsyncQueueAddEntries(YbcPgRowMessage *rows, int row_count, int start_index)
 
 	/*
 	 * Signal listening backends and advance tail if applicable.
-	 */
-	/*
-	 * IMP TODO: SignalBackends has condition based on MyDatabaseId, which is
-	 * not applicable to YB as this is called bg task.
 	 */
 	if (list_head(notifications) != nextNotify)
 		SignalBackends();
