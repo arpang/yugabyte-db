@@ -126,7 +126,7 @@ bool		am_walsender = false;	/* Am I a walsender process? */
 bool		am_cascading_walsender = false; /* Am I cascading WAL to another
 											 * standby? */
 bool		am_db_walsender = false;	/* Connected to a database? */
-bool am_listen_walsender = false;		/* Walsender for LISTEN command? */
+bool		am_notifications_poller = false;	/* Am I notifications poller process? */
 
 /* User-settable parameters for walsender */
 int			max_wal_senders = 0;	/* the maximum number of concurrent
@@ -1518,7 +1518,7 @@ YbNotificationsPollerMain(Datum main_arg)
 {
 	am_walsender = true;
 	am_db_walsender = true;
-	am_listen_walsender = true;
+	am_notifications_poller = true;
 	WalSndSignals();
 	BackgroundWorkerUnblockSignals();
 	/* TODO: remove hardcoding */
@@ -1585,7 +1585,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 		got_STOPPING = true;
 	}
 
-	if (IsYugaByteEnabled() && !am_listen_walsender)
+	if (IsYugaByteEnabled() && !am_notifications_poller)
 		YBCGetTableHashRange(&cmd->options);
 
 	/*
@@ -1605,7 +1605,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 	xlogreader = logical_decoding_ctx->reader;
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 
-	if (!am_listen_walsender)
+	if (!am_notifications_poller)
 	{
 		/* Send a CopyBothResponse message, and start streaming */
 		pq_beginmessage(&buf, 'W');
@@ -2806,7 +2806,7 @@ WalSndLoop(WalSndSendDataCallback send_data)
 		}
 
 		/* Check for input from the client */
-		if (!am_listen_walsender)
+		if (!am_notifications_poller)
 			ProcessRepliesIfAny();
 
 		/*
