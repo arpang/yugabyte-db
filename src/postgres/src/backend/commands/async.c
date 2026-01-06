@@ -2660,17 +2660,16 @@ YbCreateNotificationReplicationSlot()
 						/* yb_force = */ true, /* yb_if_exists =*/true);
 
 	/*
-	 * TODO:
-	 * - Is RS_EPHEMERAL the right choice?
-	 * - is two_phase = false the right choice?
-	 * - what should be the plugin?
-	 * - is CRS_HYBRID_TIME the right choice?
+	 * Note: wal2json is just a placeholder, output plugin is not used for
+	 * notifications.
+	 *
+	 * TODO: is CRS_SEQUENCE the right choice?
 	 */
 	uint64_t yb_consistent_snapshot_time;
-	ReplicationSlotCreate(slotname, false, RS_EPHEMERAL,
+	ReplicationSlotCreate(slotname, /* db_specific = */ false, RS_PERSISTENT,
 						  /* two_phase = */ false, "wal2json",
 						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
-						  CRS_HYBRID_TIME, YB_CRS_TRANSACTION,
+						  CRS_SEQUENCE, YB_CRS_TRANSACTION,
 						  /* yb_is_for_notifications = */ true);
 }
 
