@@ -909,6 +909,10 @@ YbInsertNotifications(void)
 	while (nextNotify)
 	{
 		Notification *n = (Notification *) lfirst(nextNotify);
+
+		ExecClearTuple(slot);
+		ResetPerTupleExprContext(estate);
+
 		slot->tts_isnull[Anum_pg_yb_notifications_notif_uuid - 1] = false;
 		slot->tts_values[Anum_pg_yb_notifications_notif_uuid - 1] = gen_random_uuid(NULL);
 
@@ -939,7 +943,6 @@ YbInsertNotifications(void)
 
 		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */ ,
 						 txn_setting, false /* changingPart */ , estate);
-		MemoryContextReset(GetPerTupleMemoryContext(estate));
 		nextNotify = lnext(pendingNotifies->events, nextNotify);
 	}
 
