@@ -186,7 +186,6 @@ YBCDestroyVirtualWal()
 	needs_publication_table_list_refresh = false;
 }
 
-
 static List *
 YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables, Oid *dboid)
 {
@@ -196,7 +195,7 @@ YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables, Oid *dboid)
 
 	Assert(IsTransactionState());
 
-	if (am_notifications_poller)
+	if (yb_am_notifications_poller)
 	{
 		Assert(publication_names == NIL);
 		tables = list_make1_oid(YbNotificationsRelationId);
@@ -474,7 +473,7 @@ YBCReadRecord(XLogReaderState *state, List *publication_names, char **errormsg)
 
 	last_getconsistentchanges_response_empty = false;
 
-	if (am_notifications_poller)
+	if (yb_am_notifications_poller)
 		cached_records_last_sent_row_idx = YbAsyncQueueAddEntries(cached_records->rows,
 																  cached_records->row_count,
 																  cached_records_last_sent_row_idx);

@@ -1400,7 +1400,7 @@ asyncQueueUnregister(void)
 		ReplicationSlotDrop(YbNotificationReplicationSlotName(),
 							/* nowait = */ true,
 							/* yb_force = */ true,
-							/* yb_if_exists =*/false);
+							/* yb_if_exists = */ false);
 		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
 	}
 
@@ -2660,7 +2660,7 @@ YbCreateNotificationReplicationSlot()
 	 * sole listener exited without dropping it (say, due to a crash).
 	 */
 	ReplicationSlotDrop(slotname, /* nowait = */ true,
-						/* yb_force = */ true, /* yb_if_exists =*/true);
+						/* yb_force = */ true, /* yb_if_exists = */ true);
 
 	/*
 	 * Note: wal2json is just a placeholder, output plugin is not used for
