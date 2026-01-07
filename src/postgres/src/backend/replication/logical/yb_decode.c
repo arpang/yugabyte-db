@@ -517,8 +517,6 @@ YBGetHeapTuplesForRecord(const YbVirtualWalRecord *yb_record)
 		pfree((char *) tuple_string);
 	}
 
-	// elog(LOG, "Arpan notification tuple %s, commit ht %llu",
-	// 	 YbHeapTupleToString(tuple, tupdesc), yb_record->commit_time_ht);
 	RelationClose(relation);
 	return tuple;
 }
