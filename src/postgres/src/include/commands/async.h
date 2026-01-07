@@ -15,9 +15,6 @@
 
 #include <signal.h>
 
-/* YB includes */
-#include "nodes/pg_list.h"
-
 /*
  * The number of SLRU page buffers we use for the notification queue.
  */
