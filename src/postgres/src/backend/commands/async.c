@@ -2643,11 +2643,11 @@ YbAsyncQueueAddEntries(YbcPgRowMessage *rows, int row_count, int start_index)
 char *
 YbNotificationReplicationSlotName()
 {
-	size_t hex_uuid_len = 2 * UUID_LEN + 1;
-	char *uuid = palloc(hex_uuid_len);
-	YbConvertToHex(YBCGetLocalTserverUuid(), UUID_LEN, uuid);
-	uuid[2 * UUID_LEN] = '\0';
-	return psprintf("yb_notifications_%s", uuid);
+	char *hex_uuid = palloc(2 * UUID_LEN + 1);
+	const char *uuid = (const char *) YBCGetLocalTserverUuid();
+	hex_encode(uuid, UUID_LEN, hex_uuid);
+	hex_uuid[2 * UUID_LEN] = '\0';
+	return psprintf("yb_notifications_%s", hex_uuid);
 }
 
 static void

@@ -4714,6 +4714,22 @@ pg_is_other_temp_schema(PG_FUNCTION_ARGS)
 	PG_RETURN_BOOL(isOtherTempNamespace(oid));
 }
 
+char *
+YbConvertToHex(const unsigned char *src, size_t len, char *dest)
+{
+	static const char hex_chars[] = "0123456789abcdef";
+
+	for (size_t i = 0; i < len; ++i)
+	{
+		const int	high = src[i] >> 4;
+		const int	low = src[i] & 0x0F;
+
+		*(dest++) = hex_chars[high];
+		*(dest++) = hex_chars[low];
+	}
+	return dest;
+}
+
 /*
  * Used in YB to construct the temporary namespace suffix. This function
  * returns the local tserver uuid as a regular string (without the hyphens),
