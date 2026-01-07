@@ -4714,7 +4714,7 @@ pg_is_other_temp_schema(PG_FUNCTION_ARGS)
 	PG_RETURN_BOOL(isOtherTempNamespace(oid));
 }
 
-char *
+static char *
 YbConvertToHex(const unsigned char *src, size_t len, char *dest)
 {
 	static const char hex_chars[] = "0123456789abcdef";
