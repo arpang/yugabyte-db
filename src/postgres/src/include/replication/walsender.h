@@ -47,7 +47,7 @@ extern PGDLLIMPORT bool am_walsender;
 extern PGDLLIMPORT bool am_cascading_walsender;
 extern PGDLLIMPORT bool am_db_walsender;
 extern PGDLLIMPORT bool wake_wal_senders;
-extern PGDLLIMPORT bool am_notifications_poller;
+extern PGDLLIMPORT bool yb_am_notifications_poller;
 
 /* user-settable parameters */
 extern PGDLLIMPORT int max_wal_senders;
