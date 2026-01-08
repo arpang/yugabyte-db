@@ -160,6 +160,7 @@
 #include "pg_yb_utils.h"
 #include "replication/slot.h"
 #include "replication/yb_decode.h"
+#include "replication/yb_virtual_wal_client.h"
 
 /*
  * Maximum size of a NOTIFY payload, including terminating NULL.  This
@@ -170,6 +171,12 @@
  * restrictions.
  */
 #define NOTIFY_PAYLOAD_MAX_LENGTH	(BLCKSZ - NAMEDATALEN - 128)
+
+typedef uint8_t YbQueueEntryType;
+
+#define YB_QUEUE_ENTRY_BEGIN		0
+#define YB_QUEUE_ENTRY_COMMIT		1
+#define YB_QUEUE_ENTRY_NOTIFICATION 2
 
 /*
  * Struct representing an entry in the global notify queue
@@ -190,6 +197,7 @@ typedef struct AsyncQueueEntry
 	TransactionId xid;			/* sender's XID */
 	int32		srcPid;			/* sender's PID */
 	pg_uuid_t yb_node_uuid;		/* sender node uuid. */
+	YbQueueEntryType yb_type;	/* queue entry type (see above).  */
 	char		data[NAMEDATALEN + NOTIFY_PAYLOAD_MAX_LENGTH];
 } AsyncQueueEntry;
 
@@ -428,6 +436,10 @@ typedef struct NotificationHash
 
 static NotificationList *pendingNotifies = NULL;
 
+static List *yb_pending_queue_entries = NIL;
+static TransactionId yb_current_xid = InvalidTransactionId;
+bool yb_am_notifications_poller = false; /* Am I notification poller process? */
+
 /*
  * Inbound notifications are initially processed by HandleNotifyInterrupt(),
  * called from inside a signal handler. That just sets the
@@ -463,7 +475,7 @@ static void asyncQueueUnregister(void);
 static bool asyncQueueIsFull(void);
 static bool asyncQueueAdvance(volatile QueuePosition *position, int entryLength);
 static void asyncQueueNotificationToEntry(Notification *n, AsyncQueueEntry *qe);
-static ListCell *asyncQueueAddEntries(ListCell *nextNotify, List *yb_notifications);
+static ListCell *asyncQueueAddEntries(ListCell *nextNotify);
 static double asyncQueueUsage(void);
 static void asyncQueueFillWarning(void);
 static void SignalBackends(void);
@@ -481,6 +493,7 @@ static int	notification_match(const void *key1, const void *key2, Size keysize);
 static void ClearPendingActionsAndNotifies(void);
 
 static void YbCreateNotificationReplicationSlot();
+static char *YbNotificationReplicationSlotName();
 static void YbStartNotificationsPollerProcess();
 static void YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
 static BackgroundWorkerHandle *YbShmemNotificationsPollerBgWHandle(bool *found);
@@ -1055,7 +1068,7 @@ PreCommit_Notify(void)
 				ereport(ERROR,
 						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 						 errmsg("too many notifications in the NOTIFY queue")));
-			nextNotify = asyncQueueAddEntries(nextNotify, pendingNotifies->events);
+			nextNotify = asyncQueueAddEntries(nextNotify);
 			LWLockRelease(NotifyQueueLock);
 		}
 
@@ -1518,7 +1531,7 @@ asyncQueueNotificationToEntry(Notification *n, AsyncQueueEntry *qe)
  * NotifySLRULock locally in this function.
  */
 ListCell *
-asyncQueueAddEntries(ListCell *nextNotify, List *yb_notifications)
+asyncQueueAddEntries(ListCell *nextNotify)
 {
 	AsyncQueueEntry qe;
 	QueuePosition queue_head;
@@ -1562,23 +1575,14 @@ asyncQueueAddEntries(ListCell *nextNotify, List *yb_notifications)
 
 	while (nextNotify != NULL)
 	{
-		if (!IsYugaByteEnabled())
+		if (IsYugaByteEnabled())
+			qe = *((AsyncQueueEntry *) lfirst(nextNotify));
+		else
 		{
 			Notification *n = (Notification *) lfirst(nextNotify);
 
 			/* Construct a valid queue entry in local variable qe */
 			asyncQueueNotificationToEntry(n, &qe);
-		}
-		else
-		{
-			YbcPgRowMessage *msg = (YbcPgRowMessage *) lfirst(nextNotify);
-			if (msg->action != YB_PG_ROW_MESSAGE_ACTION_INSERT)
-			{
-				nextNotify = lnext(yb_notifications, nextNotify);
-				continue;
-			}
-			/* Construct a valid queue entry in local variable qe */
-			YbRowMessageToAsyncQueueEntry(msg, &qe);
 		}
 
 		offset = QUEUE_POS_OFFSET(queue_head);
@@ -1587,7 +1591,9 @@ asyncQueueAddEntries(ListCell *nextNotify, List *yb_notifications)
 		if (offset + qe.length <= QUEUE_PAGESIZE)
 		{
 			/* OK, so advance nextNotify past this item */
-			nextNotify = lnext(yb_notifications, nextNotify);
+			nextNotify = lnext(IsYugaByteEnabled() ? yb_pending_queue_entries :
+													 pendingNotifies->events,
+							   nextNotify);
 		}
 		else
 		{
@@ -2589,55 +2595,85 @@ ClearPendingActionsAndNotifies(void)
 	pendingNotifies = NULL;
 }
 
-int
-YbAsyncQueueAddEntries(YbcPgRowMessage *rows, int row_count, int start_index)
+void
+YbBufferQueueEntries(YbcPgRowMessage *record)
 {
-	List *notifications = NIL;
-	int index = start_index;
-	bool queue_full = false;
+	MemoryContext oldcontext = MemoryContextSwitchTo(CurTransactionContext);
+	AsyncQueueEntry *qe = palloc0(sizeof(AsyncQueueEntry));
+	YbRowMessageToAsyncQueueEntry(record, qe);
+	yb_pending_queue_entries = lappend(yb_pending_queue_entries, qe);
+	MemoryContextSwitchTo(oldcontext);
+}
 
-	LWLockAcquire(NotifyQueueLock, LW_SHARED);
-	queue_full = asyncQueueIsFull();
-	LWLockRelease(NotifyQueueLock);
-	if (queue_full)
-		return start_index;
-
-	while (index < row_count)
+void
+YbBlockingAsyncQueueAddEntries()
+{
+	ListCell *queue_entry = list_head(yb_pending_queue_entries);
+	while (queue_entry != NULL)
 	{
-		notifications = lappend(notifications, rows + index);
-		index++;
-	}
+		CHECK_FOR_INTERRUPTS();
 
-	StartTransactionCommand();
-	ListCell *nextNotify = list_head(notifications);
-	while (nextNotify != NULL)
-	{
 		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
 		if (asyncQueueIsFull())
 		{
 			LWLockRelease(NotifyQueueLock);
-			break;
+			CHECK_FOR_INTERRUPTS();
+			pg_usleep(10000L); /* sleep for 10ms */
+			continue;
 		}
-		nextNotify = asyncQueueAddEntries(nextNotify, notifications);
+		queue_entry = asyncQueueAddEntries(queue_entry);
 		LWLockRelease(NotifyQueueLock);
 	}
-	AbortCurrentTransaction();
+}
 
-	/*
-	 * Signal listening backends and advance tail if applicable.
-	 */
-	if (list_head(notifications) != nextNotify)
-		SignalBackends();
+void
+YbProcessNotificationRecord(YbcPgRowMessage *record)
+{
+	Assert(record->table_oid == YbNotificationsRelationId);
 
-	if (tryAdvanceTail)
+	Assert(yb_current_xid == (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
+								  InvalidTransactionId :
+								  record->xid));
+
+	switch (record->action)
 	{
-		tryAdvanceTail = false;
-		asyncQueueAdvanceTail();
-	}
+		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
+			Assert(yb_pending_queue_entries == NIL);
+			StartTransactionCommand();
+			yb_current_xid = record->xid;
+			yb_switch_fallthrough();
+		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
+			YbBufferQueueEntries(record);
+			break;
+		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
+			YbBlockingAsyncQueueAddEntries();
+			YBCCalculatePersistAndGetRestartLSN(record->lsn);
+			yb_pending_queue_entries = NIL;
+			YbBufferQueueEntries(record);
+			YbBlockingAsyncQueueAddEntries();
+			SignalBackends();
+			if (tryAdvanceTail)
+			{
+				tryAdvanceTail = false;
+				asyncQueueAdvanceTail();
+			}
+			yb_pending_queue_entries = NIL;
+			AbortCurrentTransaction();
+			yb_current_xid = InvalidTransactionId;
+			break;
+		case YB_PG_ROW_MESSAGE_ACTION_DELETE:
+			/* Just ignore the DELETE record. */
+			break;
 
-	return nextNotify ?
-			   list_cell_number(notifications, nextNotify) + start_index :
-			   row_count;
+		default:
+			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), errmsg("Invalid "
+																	"record "
+																	"found by "
+																	"notificati"
+																	"on poller "
+																	"proces"
+																	"s")));
+	}
 }
 
 char *
@@ -2715,11 +2751,23 @@ YbStartNotificationsPollerProcess()
 static void
 YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 {
-	Assert(row_message->table_oid == YbNotificationsRelationId);
+	YbcPgRowMessageAction action = row_message->action;
+	if (action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ||
+		action == YB_PG_ROW_MESSAGE_ACTION_COMMIT)
+	{
+		qe->yb_type = action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
+						  YB_QUEUE_ENTRY_BEGIN :
+						  YB_QUEUE_ENTRY_COMMIT;
+		qe->xid = row_message->xid;
+		return;
+	}
+
 	HeapTuple tuple = YBGetHeapTuplesForRecord(row_message);
 
 	Relation rel = RelationIdGetRelation(YbNotificationsRelationId);
 	TupleDesc desc = RelationGetDescr(rel);
+
+	qe->yb_type = YB_QUEUE_ENTRY_NOTIFICATION;
 
 	bool isnull;
 	Datum sender_node = heap_getattr(tuple, Anum_pg_yb_notifications_sender_node_uuid, desc, &isnull);
@@ -2751,4 +2799,41 @@ YbShmemNotificationsPollerBgWHandle(bool *found)
 {
 	return ShmemInitStruct("NotificationsPollerBgWHandle",
 						   YbBackgroundWorkerHandleSize(), found);
+}
+
+static void
+YbStartPollingNotifications(char *slotname)
+{
+	if (!yb_enable_replication_commands ||
+		!yb_enable_replication_slot_consumption)
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						errmsg("Unable to fetch notifications"),
+						errdetail("For LISTEN/NOTIFY, "
+								  "yb_enable_replication_commands and "
+								  "yb_enable_replication_slot_consumption must "
+								  "be true.")));
+	CheckSlotRequirements();
+	Assert(!MyReplicationSlot);
+	ReplicationSlotAcquire(slotname, true);
+	YBCInitVirtualWal(NIL);
+	YbVirtualWalRecord *record;
+	for (;;)
+	{
+		CHECK_FOR_INTERRUPTS();
+		record = YBCReadRecord(NIL);
+		YbProcessNotificationRecord(record);
+	}
+	YBCDestroyVirtualWal();
+	ReplicationSlotRelease();
+}
+
+void
+YbNotificationsPollerMain(Datum main_arg)
+{
+	yb_am_notifications_poller = true;
+	WalSndSignals();
+	BackgroundWorkerUnblockSignals();
+	/* TODO: remove hardcoding */
+	BackgroundWorkerInitializeConnection("template1", "yugabyte", 0);
+	YbStartPollingNotifications(YbNotificationReplicationSlotName());
 }

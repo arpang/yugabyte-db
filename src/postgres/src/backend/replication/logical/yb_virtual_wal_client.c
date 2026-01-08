@@ -377,7 +377,30 @@ GetDynamicTypeEntity(int attr_num, Oid relid)
 }
 
 YbVirtualWalRecord *
-YBCReadRecord(XLogReaderState *state, List *publication_names, char **errormsg)
+YBXLogReadRecord(XLogReaderState *state, List *publication_names,
+				 char **errormsg)
+{
+	MemoryContext caller_context;
+	caller_context = MemoryContextSwitchTo(cached_records_context);
+
+	/* reset error state */
+	*errormsg = NULL;
+	state->errormsg_buf[0] = '\0';
+
+	YBResetDecoder(state);
+
+	YbVirtualWalRecord *record = YBCReadRecord(publication_names);
+
+	state->ReadRecPtr = record->lsn;
+	state->yb_virtual_wal_record = record;
+
+	TrackUnackedTransaction(record);
+	MemoryContextSwitchTo(caller_context);
+	return record;
+}
+
+YbVirtualWalRecord *
+YBCReadRecord(List *publication_names)
 {
 	MemoryContext caller_context;
 	YbVirtualWalRecord *record = NULL;
@@ -388,12 +411,6 @@ YBCReadRecord(XLogReaderState *state, List *publication_names, char **errormsg)
 	elog(DEBUG4, "YBCReadRecord");
 
 	caller_context = MemoryContextSwitchTo(cached_records_context);
-
-	/* reset error state */
-	*errormsg = NULL;
-	state->errormsg_buf[0] = '\0';
-
-	YBResetDecoder(state);
 
 	/* Fetch a batch of changes from CDC service if needed. */
 	if (cached_records == NULL ||
@@ -473,18 +490,7 @@ YBCReadRecord(XLogReaderState *state, List *publication_names, char **errormsg)
 
 	last_getconsistentchanges_response_empty = false;
 
-	if (yb_am_notifications_poller)
-		cached_records_last_sent_row_idx = YbAsyncQueueAddEntries(cached_records->rows,
-																  cached_records->row_count,
-																  cached_records_last_sent_row_idx);
-	else
-	{
-		record = &cached_records->rows[cached_records_last_sent_row_idx++];
-		state->ReadRecPtr = record->lsn;
-		state->yb_virtual_wal_record = record;
-
-		TrackUnackedTransaction(record);
-	}
+	record = &cached_records->rows[cached_records_last_sent_row_idx++];
 
 	MemoryContextSwitchTo(caller_context);
 	return record;

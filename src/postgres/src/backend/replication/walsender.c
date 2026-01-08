@@ -126,7 +126,6 @@ bool		am_walsender = false;	/* Am I a walsender process? */
 bool		am_cascading_walsender = false; /* Am I cascading WAL to another
 											 * standby? */
 bool		am_db_walsender = false;	/* Connected to a database? */
-bool		yb_am_notifications_poller = false;	/* Am I notifications poller process? */
 
 /* User-settable parameters for walsender */
 int			max_wal_senders = 0;	/* the maximum number of concurrent
@@ -1514,30 +1513,6 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 						/* yb_if_exists= */ false);
 }
 
-void
-YbNotificationsPollerMain(Datum main_arg)
-{
-	am_walsender = true;
-	am_db_walsender = true;
-	yb_am_notifications_poller = true;
-	WalSndSignals();
-	BackgroundWorkerUnblockSignals();
-	/* TODO: remove hardcoding */
-	BackgroundWorkerInitializeConnection("template1", "yugabyte", 0);
-
-	InitWalSender();
-
-	StartReplicationCmd cmd;
-	cmd.type = T_StartReplicationCmd;
-	cmd.kind = REPLICATION_KIND_LOGICAL;
-	cmd.slotname = YbNotificationReplicationSlotName();
-	elog(LOG, "Arpan slotname %s", cmd.slotname);
-	cmd.startpoint = InvalidXLogRecPtr;
-	cmd.options = NIL;
-	cmd.timeline = 0;
-	StartLogicalReplication(&cmd);
-}
-
 /*
  * Load previously initiated logical slot and prepare for sending data (via
  * WalSndLoop).
@@ -1586,7 +1561,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 		got_STOPPING = true;
 	}
 
-	if (IsYugaByteEnabled() && !yb_am_notifications_poller)
+	if (IsYugaByteEnabled())
 		YBCGetTableHashRange(&cmd->options);
 
 	/*
@@ -1606,15 +1581,12 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 	xlogreader = logical_decoding_ctx->reader;
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 
-	if (!yb_am_notifications_poller)
-	{
-		/* Send a CopyBothResponse message, and start streaming */
-		pq_beginmessage(&buf, 'W');
-		pq_sendbyte(&buf, 0);
-		pq_sendint16(&buf, 0);
-		pq_endmessage(&buf);
-		pq_flush();
-	}
+	/* Send a CopyBothResponse message, and start streaming */
+	pq_beginmessage(&buf, 'W');
+	pq_sendbyte(&buf, 0);
+	pq_sendint16(&buf, 0);
+	pq_endmessage(&buf);
+	pq_flush();
 
 	/* Start reading WAL from the oldest required WAL. */
 	XLogBeginRead(logical_decoding_ctx->reader,
@@ -1635,6 +1607,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 
 	SyncRepInitConfig();
 
+	// init virtual wal
 	if (IsYugaByteEnabled())
 		YBCInitVirtualWal(logical_decoding_ctx->options.yb_publication_names);
 
@@ -2807,8 +2780,7 @@ WalSndLoop(WalSndSendDataCallback send_data)
 		}
 
 		/* Check for input from the client */
-		if (!yb_am_notifications_poller)
-			ProcessRepliesIfAny();
+		ProcessRepliesIfAny();
 
 		/*
 		 * If we have received CopyDone from the client, sent CopyDone
@@ -3386,9 +3358,9 @@ XLogSendLogical(void)
 
 	if (IsYugaByteEnabled())
 	{
-		yb_record = YBCReadRecord(logical_decoding_ctx->reader,
-								  logical_decoding_ctx->options.yb_publication_names,
-								  &errm);
+		yb_record = YBXLogReadRecord(
+			logical_decoding_ctx->reader,
+			logical_decoding_ctx->options.yb_publication_names, &errm);
 
 		/*
 		 * Explicitly set record to NULL so that the NULL check below is only

@@ -447,7 +447,7 @@ YBDecodeCommit(LogicalDecodingContext *ctx, XLogReaderState *record)
 		 "end_lsn: %lu",
 		 yb_record->xid, commit_lsn, end_lsn);
 
-	/* it sends data, I might need to make changes in it if I decide to use it. */
+	// Use commit_time_ht instead of commit_time for notifications.
 	ReorderBufferCommit(ctx->reorder, yb_record->xid, commit_lsn, end_lsn,
 						yb_record->commit_time, origin_id, origin_lsn);
 

@@ -22,6 +22,8 @@
 
 extern PGDLLIMPORT bool Trace_notify;
 extern PGDLLIMPORT volatile sig_atomic_t notifyInterruptPending;
+extern PGDLLIMPORT bool yb_am_notifications_poller;
+
 
 extern Size AsyncShmemSize(void);
 extern void AsyncShmemInit(void);
@@ -50,8 +52,6 @@ extern void HandleNotifyInterrupt(void);
 /* process interrupts */
 extern void ProcessNotifyInterrupt(bool flush);
 
-extern int YbAsyncQueueAddEntries(YbcPgRowMessage *rows, int row_count, int start_index);
-
-extern char *YbNotificationReplicationSlotName();
+extern void YbNotificationsPollerMain(Datum main_arg);
 
 #endif							/* ASYNC_H */
