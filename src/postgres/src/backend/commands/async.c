@@ -2638,8 +2638,6 @@ YbBlockingAsyncQueueAddEntries()
 void
 YbProcessNotificationRecord(YbcPgRowMessage *record)
 {
-	Assert(record->table_oid == YbNotificationsRelationId);
-
 	Assert(yb_current_xid == (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
 								  InvalidTransactionId :
 								  record->xid));
@@ -2653,6 +2651,7 @@ YbProcessNotificationRecord(YbcPgRowMessage *record)
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
+			Assert(record->table_oid == YbNotificationsRelationId);
 			YbBufferQueueEntries(record);
 			break;
 
@@ -2801,8 +2800,6 @@ YbShmemNotificationsPollerBgWHandle(bool *found)
 static void
 YbStartPollingNotifications(char *slotname)
 {
-	elog(LOG, "Arpan bg process pid %d", getpid());
-	pg_usleep(10 * 1000 * 1000);
 	if (!yb_enable_replication_commands ||
 		!yb_enable_replication_slot_consumption)
 		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -2820,7 +2817,8 @@ YbStartPollingNotifications(char *slotname)
 	{
 		CHECK_FOR_INTERRUPTS();
 		record = YBCReadRecord(NIL);
-		YbProcessNotificationRecord(record);
+		if (record)
+			YbProcessNotificationRecord(record);
 	}
 	YBCDestroyVirtualWal();
 	ReplicationSlotRelease();
