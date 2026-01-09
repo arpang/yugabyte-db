@@ -96,10 +96,8 @@
 #include "utils/timestamp.h"
 
 /* YB includes */
-#include "commands/async.h"
 #include "commands/yb_cmds.h"
 #include "pg_yb_utils.h"
-#include "postmaster/bgworker.h"
 #include "replication/yb_virtual_wal_client.h"
 #include "yb/yql/pggate/util/ybc_guc.h"
 #include "yb/yql/pggate/ybc_gflags.h"
@@ -1579,6 +1577,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 							  WalSndPrepareWrite, WalSndWriteData,
 							  WalSndUpdateProgress);
 	xlogreader = logical_decoding_ctx->reader;
+
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 
 	/* Send a CopyBothResponse message, and start streaming */
@@ -1607,7 +1606,6 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 
 	SyncRepInitConfig();
 
-	// init virtual wal
 	if (IsYugaByteEnabled())
 		YBCInitVirtualWal(logical_decoding_ctx->options.yb_publication_names);
 
@@ -3358,9 +3356,8 @@ XLogSendLogical(void)
 
 	if (IsYugaByteEnabled())
 	{
-		yb_record = YBXLogReadRecord(
-			logical_decoding_ctx->reader,
-			logical_decoding_ctx->options.yb_publication_names, &errm);
+		yb_record = YBXLogReadRecord(logical_decoding_ctx->reader,
+									 logical_decoding_ctx->options.yb_publication_names, &errm);
 
 		/*
 		 * Explicitly set record to NULL so that the NULL check below is only

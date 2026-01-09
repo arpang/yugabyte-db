@@ -1532,7 +1532,7 @@ asyncQueueNotificationToEntry(Notification *n, AsyncQueueEntry *qe)
  * We are holding NotifyQueueLock already from the caller and grab
  * NotifySLRULock locally in this function.
  */
-ListCell *
+static ListCell *
 asyncQueueAddEntries(ListCell *nextNotify)
 {
 	AsyncQueueEntry qe;
@@ -2675,13 +2675,9 @@ YbProcessNotificationRecord(YbcPgRowMessage *record)
 			break;
 
 		default:
-			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), errmsg("Invalid "
-																	"record "
-																	"found by "
-																	"notificati"
-																	"on poller "
-																	"proces"
-																	"s")));
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("invalid record found by notification poller process")));
 	}
 }
 
@@ -2802,12 +2798,13 @@ YbStartPollingNotifications(char *slotname)
 {
 	if (!yb_enable_replication_commands ||
 		!yb_enable_replication_slot_consumption)
-		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						errmsg("Unable to fetch notifications"),
-						errdetail("For LISTEN/NOTIFY, "
-								  "yb_enable_replication_commands and "
-								  "yb_enable_replication_slot_consumption must "
-								  "be true.")));
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("unable to start polling notifications"),
+				 errdetail("For LISTEN/NOTIFY, yb_enable_replication_commands "
+						   "and yb_enable_replication_slot_consumption must be "
+						   "true.")));
+
 	CheckSlotRequirements();
 	Assert(!MyReplicationSlot);
 	ReplicationSlotAcquire(slotname, true);
