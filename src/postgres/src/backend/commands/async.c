@@ -1223,7 +1223,16 @@ Exec_ListenPreCommit(void)
 		if (i < MyBackendId)
 			prevListener = i;
 	}
-	QUEUE_BACKEND_POS(MyBackendId) = IsYugaByteEnabled() ? head : max;
+
+	/*
+	 * YB note: In YB, the queue only contains the committed notifications.
+	 * These notifications were committed before this listen, so we can safely
+	 * set max to head.
+	 */
+	if (IsYugaByteEnabled())
+		max = head;
+
+	QUEUE_BACKEND_POS(MyBackendId) = max;
 	QUEUE_BACKEND_PID(MyBackendId) = MyProcPid;
 	QUEUE_BACKEND_DBOID(MyBackendId) = MyDatabaseId;
 	/* Insert backend into list of listeners at correct position */
