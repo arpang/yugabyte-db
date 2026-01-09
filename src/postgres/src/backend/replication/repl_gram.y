@@ -302,7 +302,7 @@ start_replication:
 					$$ = (Node *) cmd;
 				}
 			;
-// grammar
+
 /* START_REPLICATION SLOT slot LOGICAL %X/%X options */
 start_logical_replication:
 			K_START_REPLICATION K_SLOT IDENT K_LOGICAL RECPTR plugin_options

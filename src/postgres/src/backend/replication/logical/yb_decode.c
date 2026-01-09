@@ -28,7 +28,6 @@
 #include <inttypes.h>
 
 #include "access/xact.h"
-#include "commands/async.h"
 #include "pg_yb_utils.h"
 #include "replication/walsender_private.h"
 #include "replication/yb_decode.h"
@@ -144,10 +143,6 @@ static void
 YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 {
 	const YbVirtualWalRecord *yb_record = record->yb_virtual_wal_record;
-	/*
-	 * Remove comment: There is no concrete reason in my understanding why YB
-	 *  uses reorder buffer. Notification walsender can use it to batch tuples.
-	 */
 	ReorderBufferChange *change = ReorderBufferGetChange(ctx->reorder);
 	HeapTuple	tuple;
 	ReorderBufferTupleBuf *tuple_buf;
