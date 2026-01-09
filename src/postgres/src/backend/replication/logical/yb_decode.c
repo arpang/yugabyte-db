@@ -89,7 +89,6 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
-			elog(LOG, "Arpan BEGIN");
 			/*
 			 * Start a transaction so that we can get the relation by oid in
 			 * case of change operations. This transaction must be aborted
