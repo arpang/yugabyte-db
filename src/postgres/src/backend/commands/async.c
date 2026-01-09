@@ -172,12 +172,6 @@
  */
 #define NOTIFY_PAYLOAD_MAX_LENGTH	(BLCKSZ - NAMEDATALEN - 128)
 
-typedef uint8_t YbQueueEntryType;
-
-#define YB_QUEUE_ENTRY_BEGIN		0
-#define YB_QUEUE_ENTRY_COMMIT		1
-#define YB_QUEUE_ENTRY_NOTIFICATION 2
-
 /*
  * Struct representing an entry in the global notify queue
  *
@@ -197,7 +191,6 @@ typedef struct AsyncQueueEntry
 	TransactionId xid;			/* sender's XID */
 	int32		srcPid;			/* sender's PID */
 	pg_uuid_t yb_node_uuid;		/* sender node uuid. */
-	YbQueueEntryType yb_type;	/* queue entry type (see above).  */
 	char		data[NAMEDATALEN + NOTIFY_PAYLOAD_MAX_LENGTH];
 } AsyncQueueEntry;
 
@@ -2628,10 +2621,17 @@ YbBlockingAsyncQueueAddEntries()
 			LWLockRelease(NotifyQueueLock);
 			CHECK_FOR_INTERRUPTS();
 			pg_usleep(10000L); /* sleep for 10ms */
+			asyncQueueAdvanceTail();
 			continue;
 		}
 		queue_entry = asyncQueueAddEntries(queue_entry);
 		LWLockRelease(NotifyQueueLock);
+	}
+	SignalBackends();
+	if (tryAdvanceTail)
+	{
+		tryAdvanceTail = false;
+		asyncQueueAdvanceTail();
 	}
 }
 
@@ -2650,26 +2650,27 @@ YbProcessNotificationRecord(YbcPgRowMessage *record)
 			Assert(yb_pending_queue_entries == NIL);
 			StartTransactionCommand();
 			yb_current_xid = record->xid;
-			yb_switch_fallthrough();
+			break;
+
 		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
 			YbBufferQueueEntries(record);
 			break;
+
 		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
 			YbBlockingAsyncQueueAddEntries();
+			/*
+			 * TODO: If the process crashes during or after
+			 * YbBlockingAsyncQueueAddEntries() and before
+			 * YBCCalculatePersistAndGetRestartLSN(), then the queue will have
+			 * duplicate notifications. Handle it by adding BEGIN and COMMIT
+			 * entries in the queue.
+			 */
 			YBCCalculatePersistAndGetRestartLSN(record->lsn);
 			yb_pending_queue_entries = NIL;
-			YbBufferQueueEntries(record);
-			YbBlockingAsyncQueueAddEntries();
-			SignalBackends();
-			if (tryAdvanceTail)
-			{
-				tryAdvanceTail = false;
-				asyncQueueAdvanceTail();
-			}
-			yb_pending_queue_entries = NIL;
-			AbortCurrentTransaction();
 			yb_current_xid = InvalidTransactionId;
+			AbortCurrentTransaction();
 			break;
+
 		case YB_PG_ROW_MESSAGE_ACTION_DELETE:
 			/* Just ignore the DELETE record. */
 			break;
@@ -2760,23 +2761,10 @@ YbStartNotificationsPollerProcess()
 static void
 YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 {
-	YbcPgRowMessageAction action = row_message->action;
-	if (action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ||
-		action == YB_PG_ROW_MESSAGE_ACTION_COMMIT)
-	{
-		qe->yb_type = action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
-						  YB_QUEUE_ENTRY_BEGIN :
-						  YB_QUEUE_ENTRY_COMMIT;
-		qe->xid = row_message->xid;
-		return;
-	}
-
 	HeapTuple tuple = YBGetHeapTuplesForRecord(row_message);
 
 	Relation rel = RelationIdGetRelation(YbNotificationsRelationId);
 	TupleDesc desc = RelationGetDescr(rel);
-
-	qe->yb_type = YB_QUEUE_ENTRY_NOTIFICATION;
 
 	bool isnull;
 	Datum sender_node = heap_getattr(tuple, Anum_pg_yb_notifications_sender_node_uuid, desc, &isnull);
@@ -2813,6 +2801,8 @@ YbShmemNotificationsPollerBgWHandle(bool *found)
 static void
 YbStartPollingNotifications(char *slotname)
 {
+	elog(LOG, "Arpan bg process pid %d", getpid());
+	pg_usleep(10 * 1000 * 1000);
 	if (!yb_enable_replication_commands ||
 		!yb_enable_replication_slot_consumption)
 		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
