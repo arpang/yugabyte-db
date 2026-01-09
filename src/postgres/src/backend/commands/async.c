@@ -429,8 +429,8 @@ typedef struct NotificationHash
 
 static NotificationList *pendingNotifies = NULL;
 
-static List *yb_pending_queue_entries = NIL;
-static TransactionId yb_current_xid = InvalidTransactionId;
+static List *yb_queue_entries_to_write = NIL;
+static TransactionId yb_current_notify_xid = InvalidTransactionId;
 bool yb_am_notifications_poller = false; /* Am I notification poller process? */
 
 /*
@@ -490,6 +490,10 @@ static char *YbNotificationReplicationSlotName();
 static void YbStartNotificationsPollerProcess();
 static void YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
 static BackgroundWorkerHandle *YbShmemNotificationsPollerBgWHandle(bool *found);
+static void YbPollandProcessNotifications();
+static void YbBufferQueueEntriesForWrite(YbcPgRowMessage *record);
+static void YbFlushBufferedQueueEntries();
+static void YbProcessNotificationRecord(YbcPgRowMessage *record);
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -1247,10 +1251,6 @@ Exec_ListenPreCommit(void)
 		 * Create the replication slot and start the notifications poller
 		 * process as this is the first listener in the node.
 		 */
-		/*
-		 * TODO: Can slot creation be done by notifications poller process?
-		 * yb_is_for_notifications arg may nt be required if we do the latter.
-		 */
 		YbCreateNotificationReplicationSlot();
 		YbStartNotificationsPollerProcess();
 	}
@@ -1402,8 +1402,8 @@ asyncQueueUnregister(void)
 	QUEUE_NEXT_LISTENER(MyBackendId) = InvalidBackendId;
 
 	/*
-	 * Terminate the notifications fetcher process and drop the replication slot
-	 * if this was the last listener in the node.
+	 * YB note: Terminate the notifications fetcher process and drop the
+	 * replication slot if this was the last listener in the node.
 	 */
 	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
 	{
@@ -1593,7 +1593,7 @@ asyncQueueAddEntries(ListCell *nextNotify)
 		if (offset + qe.length <= QUEUE_PAGESIZE)
 		{
 			/* OK, so advance nextNotify past this item */
-			nextNotify = lnext(IsYugaByteEnabled() ? yb_pending_queue_entries :
+			nextNotify = lnext(IsYugaByteEnabled() ? yb_queue_entries_to_write :
 													 pendingNotifies->events,
 							   nextNotify);
 		}
@@ -2597,90 +2597,6 @@ ClearPendingActionsAndNotifies(void)
 	pendingNotifies = NULL;
 }
 
-void
-YbBufferQueueEntries(YbcPgRowMessage *record)
-{
-	MemoryContext oldcontext = MemoryContextSwitchTo(CurTransactionContext);
-	AsyncQueueEntry *qe = palloc0(sizeof(AsyncQueueEntry));
-	YbRowMessageToAsyncQueueEntry(record, qe);
-	yb_pending_queue_entries = lappend(yb_pending_queue_entries, qe);
-	MemoryContextSwitchTo(oldcontext);
-}
-
-void
-YbBlockingAsyncQueueAddEntries()
-{
-	ListCell *queue_entry = list_head(yb_pending_queue_entries);
-	while (queue_entry != NULL)
-	{
-		CHECK_FOR_INTERRUPTS();
-
-		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
-		if (asyncQueueIsFull())
-		{
-			LWLockRelease(NotifyQueueLock);
-			CHECK_FOR_INTERRUPTS();
-			pg_usleep(10000L); /* sleep for 10ms */
-			asyncQueueAdvanceTail();
-			continue;
-		}
-		queue_entry = asyncQueueAddEntries(queue_entry);
-		LWLockRelease(NotifyQueueLock);
-	}
-	SignalBackends();
-	if (tryAdvanceTail)
-	{
-		tryAdvanceTail = false;
-		asyncQueueAdvanceTail();
-	}
-}
-
-void
-YbProcessNotificationRecord(YbcPgRowMessage *record)
-{
-	Assert(yb_current_xid == (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
-								  InvalidTransactionId :
-								  record->xid));
-
-	switch (record->action)
-	{
-		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
-			Assert(yb_pending_queue_entries == NIL);
-			StartTransactionCommand();
-			yb_current_xid = record->xid;
-			break;
-
-		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
-			Assert(record->table_oid == YbNotificationsRelationId);
-			YbBufferQueueEntries(record);
-			break;
-
-		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
-			YbBlockingAsyncQueueAddEntries();
-			/*
-			 * TODO: If the process crashes during or after
-			 * YbBlockingAsyncQueueAddEntries() and before
-			 * YBCCalculatePersistAndGetRestartLSN(), then the queue will have
-			 * duplicate notifications. Handle it by adding BEGIN and COMMIT
-			 * entries in the queue.
-			 */
-			YBCCalculatePersistAndGetRestartLSN(record->lsn);
-			yb_pending_queue_entries = NIL;
-			yb_current_xid = InvalidTransactionId;
-			AbortCurrentTransaction();
-			break;
-
-		case YB_PG_ROW_MESSAGE_ACTION_DELETE:
-			/* Just ignore the DELETE record. */
-			break;
-
-		default:
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("invalid record found by notification poller process")));
-	}
-}
-
 char *
 YbNotificationReplicationSlotName()
 {
@@ -2793,8 +2709,20 @@ YbShmemNotificationsPollerBgWHandle(bool *found)
 						   YbBackgroundWorkerHandleSize(), found);
 }
 
+void
+YbNotificationsPollerMain(Datum main_arg)
+{
+	yb_am_notifications_poller = true;
+	/* Is this correct? */
+	WalSndSignals();
+	BackgroundWorkerUnblockSignals();
+	/* TODO: remove hardcoding */
+	BackgroundWorkerInitializeConnection("template1", "yugabyte", 0);
+	YbPollandProcessNotifications();
+}
+
 static void
-YbStartPollingNotifications(char *slotname)
+YbPollandProcessNotifications()
 {
 	if (!yb_enable_replication_commands ||
 		!yb_enable_replication_slot_consumption)
@@ -2807,7 +2735,7 @@ YbStartPollingNotifications(char *slotname)
 
 	CheckSlotRequirements();
 	Assert(!MyReplicationSlot);
-	ReplicationSlotAcquire(slotname, true);
+	ReplicationSlotAcquire(YbNotificationReplicationSlotName(), true);
 	YBCInitVirtualWal(NIL);
 	YbVirtualWalRecord *record;
 	for (;;)
@@ -2821,13 +2749,87 @@ YbStartPollingNotifications(char *slotname)
 	ReplicationSlotRelease();
 }
 
-void
-YbNotificationsPollerMain(Datum main_arg)
+static void
+YbProcessNotificationRecord(YbcPgRowMessage *record)
 {
-	yb_am_notifications_poller = true;
-	WalSndSignals();
-	BackgroundWorkerUnblockSignals();
-	/* TODO: remove hardcoding */
-	BackgroundWorkerInitializeConnection("template1", "yugabyte", 0);
-	YbStartPollingNotifications(YbNotificationReplicationSlotName());
+	Assert(yb_current_notify_xid ==
+		   (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
+				InvalidTransactionId :
+				record->xid));
+
+	switch (record->action)
+	{
+		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
+			Assert(yb_queue_entries_to_write == NIL);
+			StartTransactionCommand();
+			yb_current_notify_xid = record->xid;
+			break;
+
+		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
+			Assert(record->table_oid == YbNotificationsRelationId);
+			YbBufferQueueEntriesForWrite(record);
+			break;
+
+		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
+			YbFlushBufferedQueueEntries();
+			/*
+			 * TODO: If the process crashes during or after
+			 * YbBlockingAsyncQueueAddEntries() and before
+			 * YBCCalculatePersistAndGetRestartLSN(), then the queue will have
+			 * duplicate notifications. Handle it by adding BEGIN and COMMIT
+			 * entries in the queue.
+			 */
+			YBCCalculatePersistAndGetRestartLSN(record->lsn);
+			yb_queue_entries_to_write = NIL;
+			yb_current_notify_xid = InvalidTransactionId;
+			AbortCurrentTransaction();
+			break;
+
+		case YB_PG_ROW_MESSAGE_ACTION_DELETE:
+			/* Just ignore the DELETE record. */
+			break;
+
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("invalid record found by notification poller process")));
+	}
+}
+
+static void
+YbBufferQueueEntriesForWrite(YbcPgRowMessage *record)
+{
+	MemoryContext oldcontext = MemoryContextSwitchTo(CurTransactionContext);
+	AsyncQueueEntry *qe = palloc0(sizeof(AsyncQueueEntry));
+	YbRowMessageToAsyncQueueEntry(record, qe);
+	yb_queue_entries_to_write = lappend(yb_queue_entries_to_write, qe);
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static void
+YbFlushBufferedQueueEntries()
+{
+	ListCell *queue_entry = list_head(yb_queue_entries_to_write);
+	while (queue_entry != NULL)
+	{
+		CHECK_FOR_INTERRUPTS();
+
+		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+		if (asyncQueueIsFull())
+		{
+			LWLockRelease(NotifyQueueLock);
+			CHECK_FOR_INTERRUPTS();
+			pg_usleep(10000L); /* sleep for 10ms */
+			asyncQueueAdvanceTail();
+			continue;
+		}
+		queue_entry = asyncQueueAddEntries(queue_entry);
+		LWLockRelease(NotifyQueueLock);
+	}
+	SignalBackends();
+	if (tryAdvanceTail)
+	{
+		tryAdvanceTail = false;
+		asyncQueueAdvanceTail();
+	}
 }
