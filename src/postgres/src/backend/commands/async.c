@@ -429,10 +429,6 @@ typedef struct NotificationHash
 
 static NotificationList *pendingNotifies = NULL;
 
-static List *yb_queue_entries_to_write = NIL;
-static TransactionId yb_current_notify_xid = InvalidTransactionId;
-bool yb_am_notifications_poller = false; /* Am I notification poller process? */
-
 /*
  * Inbound notifications are initially processed by HandleNotifyInterrupt(),
  * called from inside a signal handler. That just sets the
@@ -453,6 +449,10 @@ static bool tryAdvanceTail = false;
 
 /* GUC parameter */
 bool		Trace_notify = false;
+
+static List *yb_queue_entries_to_write = NIL;
+static TransactionId yb_current_notify_xid = InvalidTransactionId;
+bool yb_am_notifications_poller = false; /* Am I notification poller process? */
 
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
@@ -485,15 +485,17 @@ static uint32 notification_hash(const void *key, Size keysize);
 static int	notification_match(const void *key1, const void *key2, Size keysize);
 static void ClearPendingActionsAndNotifies(void);
 
+static void YbInsertNotifications(void);
 static void YbCreateNotificationReplicationSlot();
 static char *YbNotificationReplicationSlotName();
 static void YbStartNotificationsPollerProcess();
-static void YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
 static BackgroundWorkerHandle *YbShmemNotificationsPollerBgWHandle(bool *found);
 static void YbPollandProcessNotifications();
+static void YbProcessNotificationRecord(YbcPgRowMessage *record);
 static void YbBufferQueueEntriesForWrite(YbcPgRowMessage *record);
 static void YbFlushBufferedQueueEntries();
-static void YbProcessNotificationRecord(YbcPgRowMessage *record);
+static void YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
+
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -902,63 +904,6 @@ AtPrepare_Notify(void)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("cannot PREPARE a transaction that has executed LISTEN, UNLISTEN, or NOTIFY")));
-}
-
-void
-YbInsertNotifications(void)
-{
-	if (!pendingNotifies)
-		return;
-
-	Relation rel = RelationIdGetRelation(YbNotificationsRelationId);
-	TupleDesc desc = RelationGetDescr(rel);
-	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
-	EState *estate = CreateExecutorState();
-
-	ListCell *nextNotify = list_head(pendingNotifies->events);
-	while (nextNotify)
-	{
-		Notification *n = (Notification *) lfirst(nextNotify);
-
-		ExecClearTuple(slot);
-		ResetPerTupleExprContext(estate);
-
-		slot->tts_isnull[Anum_pg_yb_notifications_notif_uuid - 1] = false;
-		slot->tts_values[Anum_pg_yb_notifications_notif_uuid - 1] = gen_random_uuid(NULL);
-
-		slot->tts_isnull[Anum_pg_yb_notifications_sender_node_uuid - 1] = false;
-		slot->tts_values[Anum_pg_yb_notifications_sender_node_uuid - 1] =
-			CStringGetDatum(YBCGetLocalTserverUuid());
-
-		slot->tts_isnull[Anum_pg_yb_notifications_sender_pid - 1] = false;
-		slot->tts_values[Anum_pg_yb_notifications_sender_pid - 1] =
-			Int32GetDatum(MyProcPid);
-
-		slot->tts_isnull[Anum_pg_yb_notifications_db_oid - 1] = false;
-		slot->tts_values[Anum_pg_yb_notifications_db_oid - 1] =
-			ObjectIdGetDatum(MyDatabaseId);
-
-		slot->tts_isnull[Anum_pg_yb_notifications_data - 1] = false;
-		slot->tts_values[Anum_pg_yb_notifications_data - 1] =
-			CStringGetDatum(cstring_to_text_with_len(n->data,
-							n->channel_len + n->payload_len + 2));
-
-		ExecStoreVirtualTuple(slot);
-
-		YbcPgTransactionSetting txn_setting = IsTransactionBlock() ?
-												  YB_TRANSACTIONAL :
-												  YB_SINGLE_SHARD_TRANSACTION;
-		YBCExecuteInsertForDb(YBCGetDatabaseOid(rel), rel, slot,
-							  ONCONFLICT_NONE, NULL, txn_setting);
-
-		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */ ,
-						 txn_setting, false /* changingPart */ , estate);
-		nextNotify = lnext(pendingNotifies->events, nextNotify);
-	}
-
-	FreeExecutorState(estate);
-	ExecDropSingleTupleTableSlot(slot);
-	RelationClose(rel);
 }
 
 /*
@@ -2597,14 +2542,61 @@ ClearPendingActionsAndNotifies(void)
 	pendingNotifies = NULL;
 }
 
-char *
-YbNotificationReplicationSlotName()
+static void
+YbInsertNotifications(void)
 {
-	char *hex_uuid = palloc(2 * UUID_LEN + 1);
-	const char *uuid = (const char *) YBCGetLocalTserverUuid();
-	hex_encode(uuid, UUID_LEN, hex_uuid);
-	hex_uuid[2 * UUID_LEN] = '\0';
-	return psprintf("yb_notifications_%s", hex_uuid);
+	if (!pendingNotifies)
+		return;
+
+	Relation rel = RelationIdGetRelation(YbNotificationsRelationId);
+	TupleDesc desc = RelationGetDescr(rel);
+	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
+	EState *estate = CreateExecutorState();
+
+	ListCell *nextNotify = list_head(pendingNotifies->events);
+	while (nextNotify)
+	{
+		Notification *n = (Notification *) lfirst(nextNotify);
+
+		ExecClearTuple(slot);
+		ResetPerTupleExprContext(estate);
+
+		slot->tts_isnull[Anum_pg_yb_notifications_notif_uuid - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_notif_uuid - 1] = gen_random_uuid(NULL);
+
+		slot->tts_isnull[Anum_pg_yb_notifications_sender_node_uuid - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_sender_node_uuid - 1] =
+			CStringGetDatum(YBCGetLocalTserverUuid());
+
+		slot->tts_isnull[Anum_pg_yb_notifications_sender_pid - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_sender_pid - 1] =
+			Int32GetDatum(MyProcPid);
+
+		slot->tts_isnull[Anum_pg_yb_notifications_db_oid - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_db_oid - 1] =
+			ObjectIdGetDatum(MyDatabaseId);
+
+		slot->tts_isnull[Anum_pg_yb_notifications_data - 1] = false;
+		slot->tts_values[Anum_pg_yb_notifications_data - 1] =
+			CStringGetDatum(cstring_to_text_with_len(n->data,
+							n->channel_len + n->payload_len + 2));
+
+		ExecStoreVirtualTuple(slot);
+
+		YbcPgTransactionSetting txn_setting = IsTransactionBlock() ?
+												  YB_TRANSACTIONAL :
+												  YB_SINGLE_SHARD_TRANSACTION;
+		YBCExecuteInsertForDb(YBCGetDatabaseOid(rel), rel, slot,
+							  ONCONFLICT_NONE, NULL, txn_setting);
+
+		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */ ,
+						 txn_setting, false /* changingPart */ , estate);
+		nextNotify = lnext(pendingNotifies->events, nextNotify);
+	}
+
+	FreeExecutorState(estate);
+	ExecDropSingleTupleTableSlot(slot);
+	RelationClose(rel);
 }
 
 static void
@@ -2631,6 +2623,16 @@ YbCreateNotificationReplicationSlot()
 						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
 						  CRS_SEQUENCE, YB_CRS_TRANSACTION,
 						  /* yb_is_for_notifications = */ true);
+}
+
+char *
+YbNotificationReplicationSlotName()
+{
+	char *hex_uuid = palloc(2 * UUID_LEN + 1);
+	const char *uuid = (const char *) YBCGetLocalTserverUuid();
+	hex_encode(uuid, UUID_LEN, hex_uuid);
+	hex_uuid[2 * UUID_LEN] = '\0';
+	return psprintf("yb_notifications_%s", hex_uuid);
 }
 
 static void
@@ -2667,39 +2669,6 @@ YbStartNotificationsPollerProcess()
 		YbShmemNotificationsPollerBgWHandle(&found);
 	memcpy(shm_handle, local_handle, YbBackgroundWorkerHandleSize());
 	pfree(local_handle);
-}
-
-static void
-YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
-{
-	HeapTuple tuple = YBGetHeapTuplesForRecord(row_message);
-
-	Relation rel = RelationIdGetRelation(YbNotificationsRelationId);
-	TupleDesc desc = RelationGetDescr(rel);
-
-	bool isnull;
-	Datum sender_node = heap_getattr(tuple, Anum_pg_yb_notifications_sender_node_uuid, desc, &isnull);
-	Assert(!isnull);
-	memcpy(qe->yb_node_uuid.data, DatumGetUUIDP(sender_node), UUID_LEN);
-
-	Datum sender_id = heap_getattr(tuple, Anum_pg_yb_notifications_sender_pid, desc, &isnull);
-	Assert(!isnull);
-	qe->srcPid = DatumGetInt32(sender_id);
-
-	Datum dbid = heap_getattr(tuple, Anum_pg_yb_notifications_db_oid, desc, &isnull);
-	Assert(!isnull);
-	qe->dboid = DatumGetObjectId(dbid);
-
-	Datum data_datum = heap_getattr(tuple, Anum_pg_yb_notifications_data, desc, &isnull);
-	Assert(!isnull);
-	const void *data = DatumGetPointer(data_datum);
-	size_t datalen = VARSIZE_ANY(data);
-	memcpy(qe->data, VARDATA_ANY(data), datalen);
-
-	int entryLength = AsyncQueueEntryEmptySize + datalen - 2;
-	entryLength = QUEUEALIGN(entryLength);
-	qe->length = entryLength;
-	RelationClose(rel);
 }
 
 static BackgroundWorkerHandle *
@@ -2832,4 +2801,37 @@ YbFlushBufferedQueueEntries()
 		tryAdvanceTail = false;
 		asyncQueueAdvanceTail();
 	}
+}
+
+static void
+YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
+{
+	HeapTuple tuple = YBGetHeapTuplesForRecord(row_message);
+
+	Relation rel = RelationIdGetRelation(YbNotificationsRelationId);
+	TupleDesc desc = RelationGetDescr(rel);
+
+	bool isnull;
+	Datum sender_node = heap_getattr(tuple, Anum_pg_yb_notifications_sender_node_uuid, desc, &isnull);
+	Assert(!isnull);
+	memcpy(qe->yb_node_uuid.data, DatumGetUUIDP(sender_node), UUID_LEN);
+
+	Datum sender_id = heap_getattr(tuple, Anum_pg_yb_notifications_sender_pid, desc, &isnull);
+	Assert(!isnull);
+	qe->srcPid = DatumGetInt32(sender_id);
+
+	Datum dbid = heap_getattr(tuple, Anum_pg_yb_notifications_db_oid, desc, &isnull);
+	Assert(!isnull);
+	qe->dboid = DatumGetObjectId(dbid);
+
+	Datum data_datum = heap_getattr(tuple, Anum_pg_yb_notifications_data, desc, &isnull);
+	Assert(!isnull);
+	const void *data = DatumGetPointer(data_datum);
+	size_t datalen = VARSIZE_ANY(data);
+	memcpy(qe->data, VARDATA_ANY(data), datalen);
+
+	int entryLength = AsyncQueueEntryEmptySize + datalen - 2;
+	entryLength = QUEUEALIGN(entryLength);
+	qe->length = entryLength;
+	RelationClose(rel);
 }
