@@ -155,7 +155,6 @@
 #include "utils/timestamp.h"
 
 /* YB includes */
-#include "access/table.h"
 #include "catalog/pg_namespace_d.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"

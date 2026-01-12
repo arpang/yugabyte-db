@@ -210,6 +210,7 @@ YBCGetTables(List *publication_names, bool *yb_is_pub_all_tables)
 		*yb_is_pub_all_tables = true;
 	}
 
+
 	return tables;
 }
 
