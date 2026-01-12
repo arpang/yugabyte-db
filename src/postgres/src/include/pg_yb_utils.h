@@ -429,7 +429,7 @@ const char *YBCGetSchemaName(Oid schemaoid);
  */
 Oid			YBCGetDatabaseOid(Relation rel);
 Oid			YBCGetDatabaseOidByRelid(Oid relid);
-Oid			YBCGetDatabaseOidFromShared(bool relisshared);
+Oid			YBCGetDatabaseOidFromShared(bool relisshared, bool yb_is_global);
 
 /*
  * Raise an unsupported feature error with the given message and
@@ -446,6 +446,8 @@ extern double PowerWithUpperLimit(double base, int exponent, double upper_limit)
  * Return whether to use wholerow junk attribute for YB relations.
  */
 extern bool YbWholeRowAttrRequired(Relation relation, CmdType operation);
+
+extern Oid YBCGlobalsDbOid();
 
 /* ------------------------------------------------------------------------------ */
 /* YB GUC variables. */

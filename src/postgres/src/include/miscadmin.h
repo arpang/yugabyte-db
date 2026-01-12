@@ -299,6 +299,8 @@ extern PGDLLIMPORT int64 VacuumPageDirty;
 extern PGDLLIMPORT int VacuumCostBalance;
 extern PGDLLIMPORT bool VacuumCostActive;
 
+extern PGDLLIMPORT char *YbGlobalsDbName;
+extern PGDLLIMPORT Oid YbGlobalsDbOid;
 
 /* in tcop/postgres.c */
 

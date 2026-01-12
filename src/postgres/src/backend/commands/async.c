@@ -326,7 +326,6 @@ static SlruCtlData NotifyCtlData;
 #define QUEUE_FULL_WARN_INTERVAL	5000	/* warn at most once every 5s */
 
 // #define PG_YB_NOTIFICATIONS_TABLE_NAME "pg_yb_notifications2"
-#define PG_YB_GLOBALS_DB_NAME		   "pg_yb_globals"
 #define YB_NOTIFICATIONS_NATTS		   (sizeof(YbSysAtt) / sizeof(YbSysAtt[0]))
 
 /*
@@ -2549,16 +2548,6 @@ ClearPendingActionsAndNotifies(void)
 	pendingNotifies = NULL;
 }
 
-static Oid yb_globals_db_oid = InvalidOid;
-
-static Oid
-YbGlobalsDbOid()
-{
-	if (yb_globals_db_oid == InvalidOid)
-		yb_globals_db_oid = get_database_oid(PG_YB_GLOBALS_DB_NAME, false);
-	return yb_globals_db_oid;
-}
-
 static FormData_pg_attribute notif_uuid = {
 	.attname = {"notif_uuid"},
 	.atttypid = UUIDOID,
@@ -2693,6 +2682,7 @@ YbNotificationsRelation()
 
 		pg_yb_notifications_relation->rd_att =
 			CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbSysAtt);
+		pg_yb_notifications_relation->yb_is_global = true;
 		MemoryContextSwitchTo(oldcxt);
 	}
 	return pg_yb_notifications_relation;
@@ -2704,7 +2694,7 @@ YbInsertNotifications(void)
 	if (!pendingNotifies)
 		return;
 
-	Oid dboid = YbGlobalsDbOid();
+	Oid dboid = YBCGlobalsDbOid();
 	Relation rel = YbNotificationsRelation();
 	TupleDesc desc = RelationGetDescr(rel);
 	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
@@ -2747,10 +2737,8 @@ YbInsertNotifications(void)
 												  YB_SINGLE_SHARD_TRANSACTION;
 		YBCExecuteInsertForDb(dboid, rel, slot, ONCONFLICT_NONE, NULL,
 							  txn_setting);
-
-		// TODO
-		// YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */ ,
-		// 				 txn_setting, false /* changingPart */ , estate);
+		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */ ,
+						 txn_setting, false /* changingPart */ , estate);
 		nextNotify = lnext(pendingNotifies->events, nextNotify);
 	}
 
@@ -2966,7 +2954,6 @@ static void
 YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 {
 	HeapTuple tuple = YBGetHeapTuplesForRecord(row_message);
-
 	TupleDesc desc = CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbSysAtt);
 
 	bool isnull;

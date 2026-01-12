@@ -2058,7 +2058,7 @@ YBCGetSchemaName(Oid schemaoid)
 Oid
 YBCGetDatabaseOid(Relation rel)
 {
-	return YBCGetDatabaseOidFromShared(rel->rd_rel->relisshared);
+	return YBCGetDatabaseOidFromShared(rel->rd_rel->relisshared, rel->yb_is_global);
 }
 
 Oid
@@ -2068,13 +2068,23 @@ YBCGetDatabaseOidByRelid(Oid relid)
 	bool		relisshared = relation->rd_rel->relisshared;
 
 	RelationClose(relation);
-	return YBCGetDatabaseOidFromShared(relisshared);
+	return YBCGetDatabaseOidFromShared(relisshared, relation->yb_is_global);
 }
 
 Oid
-YBCGetDatabaseOidFromShared(bool relisshared)
+YBCGlobalsDbOid()
 {
-	return relisshared ? Template1DbOid : MyDatabaseId;
+	if (YbGlobalsDbOid == InvalidOid)
+		YbGlobalsDbOid = get_database_oid(YbGlobalsDbName, false);
+	return YbGlobalsDbOid;
+}
+
+Oid
+YBCGetDatabaseOidFromShared(bool relisshared, bool yb_is_global)
+{
+	Assert(!relisshared || !yb_is_global);
+	return relisshared ? Template1DbOid :
+						 (yb_is_global ? YBCGlobalsDbOid() : MyDatabaseId);
 }
 
 void
