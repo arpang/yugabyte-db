@@ -1202,7 +1202,6 @@ Exec_ListenPreCommit(void)
 		 * Create the replication slot and start the notifications poller
 		 * process as this is the first listener in the node.
 		 */
-		YbCreateNotificationReplicationSlot();
 		YbStartNotificationsPollerProcess();
 	}
 
@@ -2769,7 +2768,7 @@ YbCreateNotificationReplicationSlot()
 						  /* two_phase = */ false, "wal2json",
 						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
 						  CRS_SEQUENCE, YB_CRS_TRANSACTION,
-						  /* yb_is_for_notifications = */ true);
+						  /* yb_is_for_notifications = */ false);
 }
 
 char *
@@ -2828,12 +2827,12 @@ YbShmemNotificationsPollerBgWHandle(bool *found)
 void
 YbNotificationsPollerMain(Datum main_arg)
 {
-	yb_am_notifications_poller = true;
 	/* Is this correct? */
 	WalSndSignals();
 	BackgroundWorkerUnblockSignals();
 	/* TODO: remove hardcoding */
-	BackgroundWorkerInitializeConnection("template1", "yugabyte", 0);
+	BackgroundWorkerInitializeConnection(YbGlobalsDbName, "yugabyte", 0);
+	YbCreateNotificationReplicationSlot();
 	YbPollAndProcessNotifications();
 }
 
@@ -2852,12 +2851,13 @@ YbPollAndProcessNotifications()
 	CheckSlotRequirements();
 	Assert(!MyReplicationSlot);
 	ReplicationSlotAcquire(YbNotificationReplicationSlotName(), true);
-	YBCInitVirtualWal(NIL);
+	List *publicaiton = list_make1("notifications_publication");
+	YBCInitVirtualWal(publicaiton);
 	YbVirtualWalRecord *record;
 	for (;;)
 	{
 		CHECK_FOR_INTERRUPTS();
-		record = YBCReadRecord(NIL);
+		record = YBCReadRecord(publicaiton);
 		if (record)
 			YbProcessNotificationRecord(record);
 	}
