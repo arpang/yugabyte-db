@@ -22,7 +22,6 @@
 
 extern PGDLLIMPORT bool Trace_notify;
 extern PGDLLIMPORT volatile sig_atomic_t notifyInterruptPending;
-extern PGDLLIMPORT bool yb_am_notifications_poller;
 
 
 extern Size AsyncShmemSize(void);

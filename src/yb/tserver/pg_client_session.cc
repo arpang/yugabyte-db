@@ -1799,8 +1799,7 @@ class PgClientSession::Impl {
         CDCSDKDynamicTablesOption::DYNAMIC_TABLES_ENABLED,
         &consistent_snapshot_time,
         lsn_type,
-        ordering_mode,
-        req.is_for_notifications()));
+        ordering_mode));
     *resp->mutable_stream_id() = stream_result.ToString();
     resp->set_cdcsdk_consistent_snapshot_time(consistent_snapshot_time);
     return Status::OK();

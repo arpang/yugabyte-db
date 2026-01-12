@@ -272,8 +272,7 @@ ReplicationSlotCreate(const char *name, bool db_specific,
 					  CRSSnapshotAction yb_snapshot_action,
 					  uint64_t *yb_consistent_snapshot_time,
 					  YbCRSLsnType lsn_type,
-					  YbCRSOrderingMode yb_ordering_mode,
-					  bool yb_is_for_notifications)
+					  YbCRSOrderingMode yb_ordering_mode)
 {
 	ReplicationSlot *slot = NULL;
 	int			i;
@@ -299,7 +298,7 @@ ReplicationSlotCreate(const char *name, bool db_specific,
 
 		YBCCreateReplicationSlot(name, yb_plugin_name, yb_snapshot_action,
 								 yb_consistent_snapshot_time, lsn_type,
-								 yb_ordering_mode, yb_is_for_notifications);
+								 yb_ordering_mode);
 
 		/*
 		 * The creation of a replication slot establishes a boundry between the

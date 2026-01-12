@@ -2451,7 +2451,6 @@ YbcStatus YBCPgNewCreateReplicationSlot(const char *slot_name,
                                         YbcPgReplicationSlotSnapshotAction snapshot_action,
                                         YbcLsnType lsn_type,
                                         YbcOrderingMode ordering_mode,
-                                        bool is_for_notifications,
                                         YbcPgStatement *handle) {
   return ToYBCStatus(pgapi->NewCreateReplicationSlot(slot_name,
                                                      plugin_name,
@@ -2459,7 +2458,6 @@ YbcStatus YBCPgNewCreateReplicationSlot(const char *slot_name,
                                                      snapshot_action,
                                                      lsn_type,
                                                      ordering_mode,
-                                                     is_for_notifications,
                                                      handle));
 }
 

@@ -126,8 +126,7 @@ extern void YBCCreateReplicationSlot(const char *slot_name,
 									 CRSSnapshotAction snapshot_action,
 									 uint64_t *consistent_snapshot_time,
 									 YbCRSLsnType lsn_type,
-									 YbCRSOrderingMode yb_ordering_mode,
-									 bool is_for_notifications);
+									 YbCRSOrderingMode yb_ordering_mode);
 
 extern void YBCListReplicationSlots(YbcReplicationSlotDescriptor **replication_slots,
 									size_t *numreplicationslots);
@@ -143,8 +142,7 @@ extern void
 									size_t numrelations,
 									const YbcReplicationSlotHashRange *slot_hash_range,
 									uint64_t active_pid, Oid *publications,
-									size_t numpublications, bool yb_is_pub_all_tables,
-									Oid dboid);
+									size_t numpublications, bool yb_is_pub_all_tables);
 
 extern void YBCUpdatePublicationTableList(const char *stream_id,
 										  Oid *relations,

@@ -1199,8 +1199,7 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 		ReplicationSlotCreate(cmd->slotname, false,
 							  cmd->temporary ? RS_TEMPORARY : RS_PERSISTENT,
 							  false,
-							  cmd->plugin, snapshot_action, NULL, lsn_type, yb_ordering_mode,
-							  /* yb_is_for_notifications = */ false);
+							  cmd->plugin, snapshot_action, NULL, lsn_type, yb_ordering_mode);
 	}
 	else
 	{
@@ -1223,8 +1222,7 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 			ReplicationSlotCreate(cmd->slotname, true,
 								  cmd->temporary ? RS_TEMPORARY : RS_EPHEMERAL,
 								  two_phase, cmd->plugin, snapshot_action, NULL,
-								  lsn_type, yb_ordering_mode,
-								  /* yb_is_for_notifications = */ false);
+								  lsn_type, yb_ordering_mode);
 		}
 	}
 
@@ -1325,8 +1323,7 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 			ReplicationSlotCreate(cmd->slotname, true, RS_PERSISTENT, two_phase,
 								  cmd->plugin, snapshot_action,
 								  &yb_consistent_snapshot_time, lsn_type,
-								  yb_ordering_mode,
-								  /* yb_is_for_notifications = */ false);
+								  yb_ordering_mode);
 
 			if (snapshot_action == CRS_EXPORT_SNAPSHOT)
 				snapshot_name = YbSnapBuildExportSnapshotWithReadTime(yb_consistent_snapshot_time);

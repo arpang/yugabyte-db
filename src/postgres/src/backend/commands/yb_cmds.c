@@ -2147,8 +2147,7 @@ YBCCreateReplicationSlot(const char *slot_name,
 						 CRSSnapshotAction snapshot_action,
 						 uint64_t *consistent_snapshot_time,
 						 YbCRSLsnType lsn_type,
-						 YbCRSOrderingMode yb_ordering_mode,
-						 bool is_for_notifications)
+						 YbCRSOrderingMode yb_ordering_mode)
 {
 	YbcPgStatement handle;
 
@@ -2184,11 +2183,10 @@ YBCCreateReplicationSlot(const char *slot_name,
 
 	HandleYBStatus(YBCPgNewCreateReplicationSlot(slot_name,
 												 plugin_name,
-												 is_for_notifications ? Template1DbOid : MyDatabaseId,
+												 MyDatabaseId,
 												 repl_slot_snapshot_action,
 												 repl_slot_lsn_type,
 												 repl_slot_ordering_mode,
-												 is_for_notifications,
 												 &handle));
 
 	YbcStatus	status = YBCPgExecCreateReplicationSlot(handle, consistent_snapshot_time);
@@ -2286,16 +2284,16 @@ YBCInitVirtualWalForCDC(const char *stream_id, Oid *relations,
 						const YbcReplicationSlotHashRange *slot_hash_range,
 						uint64_t active_pid,
 						Oid *publications, size_t numpublications,
-						bool yb_is_pub_all_tables, Oid dboid)
+						bool yb_is_pub_all_tables)
 {
-	Assert(dboid);
+	Assert(MyDatabaseId);
 
 	Oid		   *relfilenodes;
 
 	relfilenodes = palloc(sizeof(Oid) * numrelations);
 	YBCGetRelfileNodes(relations, numrelations, relfilenodes);
 
-	HandleYBStatus(YBCPgInitVirtualWalForCDC(stream_id, dboid, relations,
+	HandleYBStatus(YBCPgInitVirtualWalForCDC(stream_id, MyDatabaseId, relations,
 											 relfilenodes, numrelations,
 											 slot_hash_range, active_pid, publications,
 											 numpublications, yb_is_pub_all_tables));

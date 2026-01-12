@@ -2375,11 +2375,11 @@ void PgApiImpl::RestoreSessionState(const YbcPgSessionState& session_data) {
 Status PgApiImpl::NewCreateReplicationSlot(
     const char* slot_name, const char* plugin_name, PgOid database_oid,
     YbcPgReplicationSlotSnapshotAction snapshot_action, YbcLsnType lsn_type,
-    YbcOrderingMode ordering_mode, bool is_for_notifications, PgStatement** handle) {
+    YbcOrderingMode ordering_mode, PgStatement** handle) {
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateReplicationSlot>(
           pg_session_, slot_name, plugin_name, database_oid, snapshot_action, lsn_type,
-          ordering_mode, is_for_notifications),
+          ordering_mode),
       handle);
 }
 

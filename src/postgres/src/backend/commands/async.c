@@ -458,7 +458,6 @@ bool		Trace_notify = false;
 
 static List *yb_queue_entries_to_write = NIL;
 static TransactionId yb_current_notify_xid = InvalidTransactionId;
-bool yb_am_notifications_poller = false; /* Am I notification poller process? */
 
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
@@ -2767,8 +2766,7 @@ YbCreateNotificationReplicationSlot()
 	ReplicationSlotCreate(slotname, /* db_specific = */ false, RS_PERSISTENT,
 						  /* two_phase = */ false, "wal2json",
 						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
-						  CRS_SEQUENCE, YB_CRS_TRANSACTION,
-						  /* yb_is_for_notifications = */ false);
+						  CRS_SEQUENCE, YB_CRS_TRANSACTION);
 }
 
 char *

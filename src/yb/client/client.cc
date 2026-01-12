@@ -1553,8 +1553,7 @@ Result<xrepl::StreamId> YBClient::CreateCDCSDKStreamForNamespace(
     const CDCSDKDynamicTablesOption& dynamic_tables_option,
     uint64_t *consistent_snapshot_time_out,
     const std::optional<ReplicationSlotLsnType>& lsn_type,
-    const std::optional<ReplicationSlotOrderingMode>& ordering_mode,
-    bool is_for_notifications) {
+    const std::optional<ReplicationSlotOrderingMode>& ordering_mode) {
   CreateCDCStreamRequestPB req;
 
   if (populate_namespace_id_as_table_id) {
@@ -1586,8 +1585,6 @@ Result<xrepl::StreamId> YBClient::CreateCDCSDKStreamForNamespace(
   }
   req.mutable_cdcsdk_stream_create_options()->set_cdcsdk_dynamic_tables_option(
       dynamic_tables_option);
-
-  req.set_is_for_notifications(is_for_notifications);
 
   CreateCDCStreamResponsePB resp;
   deadline = PatchAdminDeadline(deadline);

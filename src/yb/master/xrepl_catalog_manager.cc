@@ -812,12 +812,6 @@ Status CatalogManager::CreateCDCStream(
     return Status::OK();
   }
 
-  if (req->is_for_notifications()) {
-    return CreateNewCdcsdkStream(
-        *req, {GetPgsqlTableId(kTemplate1Oid, kPgYbNotificationsTableOid)}, req->namespace_id(),
-        resp, epoch, rpc);
-  }
-
   // CDCSDK mode.
   RETURN_NOT_OK(ValidateCDCSDKRequestProperties(
       *req, source_type_option_value, record_type_option_value, id_type_option_value));

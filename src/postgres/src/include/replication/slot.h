@@ -232,8 +232,7 @@ extern void ReplicationSlotCreate(const char *name, bool db_specific,
 								  CRSSnapshotAction yb_snapshot_action,
 								  uint64_t *yb_consistent_snapshot_time,
 								  YbCRSLsnType lsn_type,
-								  YbCRSOrderingMode yb_ordering_mode,
-								  bool yb_is_for_notifications);
+								  YbCRSOrderingMode yb_ordering_mode);
 extern void ReplicationSlotPersist(void);
 extern void ReplicationSlotDrop(const char *name, bool nowait, bool yb_force, bool yb_if_exists);
 

@@ -51,8 +51,7 @@ create_physical_replication_slot(char *name, bool immediately_reserve,
 	ReplicationSlotCreate(name, false,
 						  temporary ? RS_TEMPORARY : RS_PERSISTENT, false,
 						  NULL /* yb_plugin_name */ , CRS_NOEXPORT_SNAPSHOT,
-						  NULL, CRS_SEQUENCE, YB_CRS_TRANSACTION,
-						  /* yb_is_for_notifications = */ false);
+						  NULL, CRS_SEQUENCE, YB_CRS_TRANSACTION);
 
 	if (immediately_reserve)
 	{
@@ -157,8 +156,7 @@ create_logical_replication_slot(char *name, char *plugin,
 	ReplicationSlotCreate(name, true, temporary ? RS_TEMPORARY : RS_EPHEMERAL,
 						  two_phase, plugin, CRS_NOEXPORT_SNAPSHOT, NULL,
 						  YBParseLsnType(yb_lsn_type),
-						  YBParseOrderingMode(yb_ordering_mode),
-						  /* yb_is_for_notifications = */ false);
+						  YBParseOrderingMode(yb_ordering_mode));
 
 	if (!IsYugaByteEnabled())
 	{
