@@ -132,14 +132,10 @@
 
 #include "access/parallel.h"
 #include "access/slru.h"
-#include "access/table.h"
 #include "access/transam.h"
 #include "access/xact.h"
-#include "catalog/pg_collation_d.h"
 #include "catalog/pg_database.h"
-#include "catalog/pg_namespace_d.h"
 #include "commands/async.h"
-#include "commands/dbcommands.h"
 #include "common/hashfn.h"
 #include "funcapi.h"
 #include "libpq/libpq.h"
@@ -159,6 +155,8 @@
 #include "utils/timestamp.h"
 
 /* YB includes */
+#include "access/table.h"
+#include "catalog/pg_namespace_d.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
 #include "replication/slot.h"
@@ -325,7 +323,6 @@ static SlruCtlData NotifyCtlData;
 #define QUEUE_PAGESIZE				BLCKSZ
 #define QUEUE_FULL_WARN_INTERVAL	5000	/* warn at most once every 5s */
 
-// #define PG_YB_NOTIFICATIONS_TABLE_NAME "pg_yb_notifications2"
 #define YB_NOTIFICATIONS_NATTS		   (sizeof(YbSysAtt) / sizeof(YbSysAtt[0]))
 
 /*
@@ -2656,9 +2653,7 @@ static Oid
 YbNotificationsRelationId()
 {
 	if (pg_yb_notifications_oid == InvalidOid)
-	{
-		pg_yb_notifications_oid = 16384; // TODO handle hardcoding
-	}
+		pg_yb_notifications_oid = 16384; /* TODO handle hardcoding */
 	return pg_yb_notifications_oid;
 }
 
@@ -2723,9 +2718,8 @@ YbInsertNotifications(void)
 		slot->tts_values[is_listen.attnum - 1] = false;
 
 		slot->tts_isnull[data.attnum - 1] = false;
-		slot->tts_values[data.attnum - 1] = CStringGetDatum(
-			cstring_to_text_with_len(n->data,
-									 n->channel_len + n->payload_len + 2));
+		slot->tts_values[data.attnum - 1] = CStringGetDatum(cstring_to_text_with_len(n->data,
+															n->channel_len + n->payload_len + 2));
 
 		slot->tts_isnull[options.attnum - 1] = true;
 		ExecStoreVirtualTuple(slot);

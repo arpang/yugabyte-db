@@ -176,5 +176,5 @@ int64		VacuumPageDirty = 0;
 int			VacuumCostBalance = 0;	/* working state for vacuum */
 bool		VacuumCostActive = false;
 
-char*       YbGlobalsDbName = "pg_yb_globals";
+char        *YbGlobalsDbName = "pg_yb_globals";
 Oid			YbGlobalsDbOid = InvalidOid;
