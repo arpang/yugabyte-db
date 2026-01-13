@@ -142,6 +142,8 @@ static uint64_t yb_new_catalog_version = YB_CATCACHE_VERSION_UNINITIALIZED;
 static uint64_t yb_logical_client_cache_version = YB_CATCACHE_VERSION_UNINITIALIZED;
 static bool yb_need_invalidate_all_table_cache = false;
 
+static Oid pg_yb_globals_db_oid_cache = InvalidOid;
+
 static bool YbHasDdlMadeChanges();
 
 uint64_t
@@ -2074,9 +2076,9 @@ YBCGetDatabaseOidByRelid(Oid relid)
 Oid
 YBCGlobalsDbOid()
 {
-	if (YbGlobalsDbOid == InvalidOid)
-		YbGlobalsDbOid = get_database_oid(YbGlobalsDbName, false);
-	return YbGlobalsDbOid;
+	if (pg_yb_globals_db_oid_cache == InvalidOid)
+		pg_yb_globals_db_oid_cache = get_database_oid(YbGlobalsDbName, false);
+	return pg_yb_globals_db_oid_cache;
 }
 
 Oid
