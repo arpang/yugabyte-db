@@ -293,6 +293,7 @@ YB_DEFINE_TYPED_ENUM(PggateRPC, uint16_t,
   (kClearExportedTxnSnapshots)
   (kPollVectorIndexReady)
   (kGetXClusterRole)
+  (kGetTableOid)
 
   // CDCService RPCs
   (kInitVirtualWALForCDC)

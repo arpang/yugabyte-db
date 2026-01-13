@@ -2651,8 +2651,11 @@ Oid pg_yb_notifications_oid = InvalidOid;
 static Oid
 YbNotificationsRelationId()
 {
+	/* TODO: Change */
+	char *table_name = "pg_yb_notifications2";
 	if (pg_yb_notifications_oid == InvalidOid)
-		pg_yb_notifications_oid = 16384; /* TODO handle hardcoding */
+		HandleYBStatus(YBCGetTableOid(YBCGlobalsDbOid(), table_name,
+									  &pg_yb_notifications_oid));
 	return pg_yb_notifications_oid;
 }
 
