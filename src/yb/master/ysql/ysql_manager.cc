@@ -520,27 +520,27 @@ void YsqlManager::PgYbNotificationsTableBgTask() {
     LOG(INFO) << Format(
         "No active tservers found, skipping $0 table creation", kPgYbNotificationsTableName);
   } else {
-    CreatePgYbGlobalsDBIfNeeded();
-    if (created_pg_yb_globals_db_) {
+    CreateYbSystemDBIfNeeded();
+    if (created_yb_system_db_) {
       CreatePgYbNotificationsTableIfNeeded();
     }
   }
 }
 
-void YsqlManager::CreatePgYbGlobalsDBIfNeeded() {
+void YsqlManager::CreateYbSystemDBIfNeeded() {
   DCHECK(FLAGS_enable_ysql);
 
-  if (creating_pg_yb_globals_db_ || created_pg_yb_globals_db_) {
+  if (creating_yb_system_db_ || created_yb_system_db_) {
     return;
   }
 
   auto prepend = Format("Failed to create database $0", kYbSystemDbName);
   StdStatusCallback callback = [this, prepend](const Status& status) {
     if (!status.ok() && !status.IsAlreadyPresent()) {
-      creating_pg_yb_globals_db_ = false;
+      creating_yb_system_db_ = false;
       WARN_NOT_OK(status, prepend);
     } else {
-      created_pg_yb_globals_db_ = true;
+      created_yb_system_db_ = true;
     }
   };
 
@@ -549,7 +549,7 @@ void YsqlManager::CreatePgYbGlobalsDBIfNeeded() {
   auto s = ExecutePgsqlStatements("yugabyte", {statement}, catalog_manager_, deadline, callback);
 
   if (s.ok()) {
-    creating_pg_yb_globals_db_ = true;
+    creating_yb_system_db_ = true;
   } else {
     WARN_NOT_OK(s, prepend);
   }
@@ -557,7 +557,7 @@ void YsqlManager::CreatePgYbGlobalsDBIfNeeded() {
 
 void YsqlManager::CreatePgYbNotificationsTableIfNeeded() {
   DCHECK(FLAGS_enable_ysql);
-  DCHECK(created_pg_yb_globals_db_);
+  DCHECK(created_yb_system_db_);
 
   if (creating_pg_yb_notifications_table_) {
     return;
