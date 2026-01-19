@@ -115,7 +115,6 @@ class TserverXClusterContextIf;
     (GetTableKeyRanges) \
     /**/
 
-
 class PgClientServiceImpl : public PgClientServiceIf {
  public:
   explicit PgClientServiceImpl(
@@ -133,7 +132,8 @@ class PgClientServiceImpl : public PgClientServiceIf {
   ~PgClientServiceImpl();
 
   void Perform(
-      const PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext context) override;
+      const PgPerformRequestMsg* req, PgPerformResponseMsg* resp,
+      rpc::RpcContext context) override;
 
   void InvalidateTableCache();
   void InvalidateTableCache(const std::unordered_map<uint32_t, uint64_t>& db_oids_updated,

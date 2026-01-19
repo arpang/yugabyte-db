@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <sys/types.h>
+
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -115,8 +117,8 @@ class PgClientSession final {
   PgClientSession(
       TransactionBuilder&& transaction_builder, SharedThisSource shared_this_source,
       client::YBClient& client, std::reference_wrapper<const PgClientSessionContext> context,
-      uint64_t id, uint64_t lease_epoch, tserver::TSLocalLockManagerPtr ts_local_lock_manager,
-      rpc::Scheduler& scheduler);
+      uint64_t id, pid_t pid, uint64_t lease_epoch,
+      tserver::TSLocalLockManagerPtr ts_local_lock_manager, rpc::Scheduler& scheduler);
   ~PgClientSession();
 
   uint64_t id() const;
@@ -169,7 +171,7 @@ class PgClientSession final {
 };
 
 void PreparePgTablesQuery(
-    const PgPerformRequestPB& req, boost::container::small_vector_base<TableId>& table_ids);
+    const PgPerformRequestMsg& req, boost::container::small_vector_base<TableId>& table_ids);
 
 } // namespace tserver
 } // namespace yb

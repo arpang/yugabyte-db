@@ -224,6 +224,8 @@ public class UniverseCRUDHandler {
                 PlacementInfoUtil.getDefaultRegion(taskParams))
             || PlacementInfoUtil.didAffinitizedLeadersChange(
                 currentCluster.placementInfo, cluster.placementInfo)
+            || PlacementInfoUtil.areReplicasChanged(
+                currentCluster.placementInfo, cluster.placementInfo)
             || isRegionListUpdate(cluster, currentCluster)
             || cluster.userIntent.replicationFactor != currentCluster.userIntent.replicationFactor
             || isKubernetesVolumeUpdate(cluster, currentCluster)
@@ -1380,6 +1382,12 @@ public class UniverseCRUDHandler {
     return Universe.maybeGetUniverseByName(customer.getId(), name)
         .map(value -> Collections.singletonList(UniverseResp.create(value, null, confGetter)))
         .orElseGet(Collections::emptyList);
+  }
+
+  public UniverseResp findByUUID(Customer customer, UUID universeUUID) {
+    return Universe.maybeGet(universeUUID)
+        .map(value -> UniverseResp.create(value, null, confGetter))
+        .orElse(null);
   }
 
   public UUID destroy(

@@ -59,6 +59,7 @@
 #include "yb/util/status_format.h"
 #include "yb/util/tcmalloc_profile.h"
 #include "yb/util/thread.h"
+#include "yb/util/thread_pool.h"
 #include "yb/util/yb_partition.h"
 
 #include "yb/yql/pggate/pg_expr.h"
@@ -82,8 +83,6 @@ DEFINE_UNKNOWN_int32(pggate_num_connections_to_server, 1,
 DECLARE_int32(num_connections_to_server);
 
 DECLARE_int32(delay_alter_sequence_sec);
-
-DECLARE_int32(client_read_write_timeout_ms);
 
 DEPRECATE_FLAG(bool, ysql_disable_per_tuple_memory_context_in_update_relattrs, "06_2023");
 
@@ -173,12 +172,15 @@ inline std::optional<Bound> MakeBound(YbcPgBoundType type, uint16_t value) {
 
 Status InitPgGateImpl(
     YbcPgTypeEntities type_entities, const YbcPgCallbacks& pg_callbacks,
-    YbcPgAshConfig& ash_config, const YbcPgInitPostgresInfo& init_postgres_info) {
+    YbcPgAshConfig& ash_config, const YbcPgInitPostgresInfo& init_postgres_info,
+    YbcPgExecStatsState& session_stats, bool is_binary_upgrade) {
   // TODO: We should get rid of hybrid clock usage in YSQL backend processes (see #16034).
   // However, this is added to allow simulating and testing of some known bugs until we remove
   // HybridClock usage.
   server::SkewedClock::Register();
   server::RegisterClockboundClockProvider();
+
+  YBThreadPool::DisableDetailedLogging();
 
   InitThreading();
 
@@ -191,18 +193,12 @@ Status InitPgGateImpl(
 #endif
 
   pgapi_shutdown_done.exchange(false);
-  pgapi = new PgApiImpl(type_entities, pg_callbacks, init_postgres_info, ash_config);
-  RETURN_NOT_OK(pgapi->StartPgApi(init_postgres_info));
+  pgapi = VERIFY_RESULT(PgApiImpl::Make(
+      type_entities, pg_callbacks, init_postgres_info, ash_config, session_stats,
+      is_binary_upgrade)).release();
 
   VLOG(1) << "PgGate open";
   return Status::OK();
-}
-
-Status PgInitSessionImpl(YbcPgExecStatsState& session_stats, bool is_binary_upgrade) {
-  return WithMaskedYsqlSignals([&session_stats, is_binary_upgrade] {
-    pgapi->InitSession(session_stats, is_binary_upgrade);
-    return static_cast<Status>(Status::OK());
-  });
 }
 
 // ql_value is modified in-place.
@@ -501,10 +497,14 @@ extern "C" {
 
 YbcStatus YBCInitPgGate(
     YbcPgTypeEntities type_entities, const YbcPgCallbacks *pg_callbacks,
-    const YbcPgInitPostgresInfo *init_postgres_info, YbcPgAshConfig *ash_config) {
+    const YbcPgInitPostgresInfo *init_postgres_info, YbcPgAshConfig *ash_config,
+    YbcPgExecStatsState *session_stats, bool is_binary_upgrade) {
   return ToYBCStatus(WithMaskedYsqlSignals(
-      [&type_entities, pg_callbacks, init_postgres_info, ash_config]() -> Status {
-        return InitPgGateImpl(type_entities, *pg_callbacks, *ash_config, *init_postgres_info);
+      [&type_entities, pg_callbacks, init_postgres_info, ash_config, session_stats,
+       is_binary_upgrade] {
+        return InitPgGateImpl(
+            type_entities, *pg_callbacks, *ash_config, *init_postgres_info, *session_stats,
+            is_binary_upgrade);
   }));
 }
 
@@ -587,10 +587,6 @@ void YBCDumpCurrentPgSessionState(YbcPgSessionState* session_data) {
 void YBCRestorePgSessionState(const YbcPgSessionState* session_data) {
   CHECK_NOTNULL(pgapi);
   pgapi->RestoreSessionState(*session_data);
-}
-
-YbcStatus YBCPgInitSession(YbcPgExecStatsState* session_stats, bool is_binary_upgrade) {
-  return ToYBCStatus(PgInitSessionImpl(*session_stats, is_binary_upgrade));
 }
 
 void YBCPgIncrementIndexRecheckCount() {
@@ -1392,8 +1388,9 @@ YbcStatus YBCPgWaitVectorIndexReady(
 // DML Statements.
 //--------------------------------------------------------------------------------------------------
 
-YbcStatus YBCPgDmlAppendTarget(YbcPgStatement handle, YbcPgExpr target) {
-  return ToYBCStatus(pgapi->DmlAppendTarget(handle, target));
+YbcStatus YBCPgDmlAppendTarget(
+    YbcPgStatement handle, YbcPgExpr target, bool is_for_secondary_index) {
+  return ToYBCStatus(pgapi->DmlAppendTarget(handle, target, is_for_secondary_index));
 }
 
 YbcStatus YbPgDmlAppendQual(
@@ -1488,6 +1485,11 @@ YbcStatus YBCPgDmlBindRange(YbcPgStatement handle,
             Slice(upper_bound, upper_bound_len), false));
 }
 
+YbcStatus YBCPgDmlSetMergeSortKeys(YbcPgStatement handle, int num_keys,
+                                   const YbcSortKey *sort_keys) {
+  return ToYBCStatus(pgapi->DmlSetMergeSortKeys(handle, num_keys, sort_keys));
+}
+
 YbcStatus YBCPgDmlBindTable(YbcPgStatement handle) {
   return ToYBCStatus(pgapi->DmlBindTable(handle));
 }
@@ -1565,14 +1567,16 @@ YbcStatus YBCPgSampleNextBlock(YbcPgStatement handle, bool *has_more) {
   return ExtractValueFromResult(pgapi->SampleNextBlock(handle), has_more);
 }
 
-YbcStatus YBCPgExecSample(YbcPgStatement handle) {
-  return ToYBCStatus(pgapi->ExecSample(handle));
+YbcStatus YBCPgExecSample(YbcPgStatement handle, YbcPgExecParameters* exec_params) {
+  return ToYBCStatus(pgapi->ExecSample(handle, exec_params));
 }
 
-YbcStatus YBCPgGetEstimatedRowCount(YbcPgStatement handle, double *liverows, double *deadrows) {
+YbcStatus YBCPgGetEstimatedRowCount(YbcPgStatement handle, int *sampledrows, double *liverows,
+                                    double *deadrows) {
   return ExtractValueFromResult(
       pgapi->GetEstimatedRowCount(handle),
-      [liverows, deadrows](const auto& count) {
+      [sampledrows, liverows, deadrows](const auto& count) {
+        *sampledrows = count.sampledrows;
         *liverows = count.live;
         *deadrows = count.dead;
       });
@@ -1886,8 +1890,8 @@ YbcStatus YBCPgRestartTransaction() {
   return ToYBCStatus(pgapi->RestartTransaction());
 }
 
-YbcStatus YBCPgResetTransactionReadPoint() {
-  return ToYBCStatus(pgapi->ResetTransactionReadPoint());
+YbcStatus YBCPgResetTransactionReadPoint(bool is_catalog_snapshot) {
+  return ToYBCStatus(pgapi->ResetTransactionReadPoint(is_catalog_snapshot));
 }
 
 double YBCGetTransactionPriority() {
@@ -2229,29 +2233,37 @@ bool YBCPgIsYugaByteEnabled() {
   return pgapi;
 }
 
-static int GetTimeoutValue(int timeout_ms) {
-  DCHECK_GE(timeout_ms, 0) << "Timeout value should be non-negative";
-  const auto default_client_timeout_ms = client::YsqlClientReadWriteTimeoutMs();
-  // If the timeout is 0, it means no timeout in Postgres, so we use the default value.
-  if (timeout_ms == 0) {
-    return default_client_timeout_ms;
-  }
-  // Otherwise, return the minimum of the provided timeout and the default timeout.
-  return std::min(timeout_ms, default_client_timeout_ms);
-}
-
 void YBCSetLockTimeout(int lock_timeout_ms, void* extra) {
   if (!pgapi || lock_timeout_ms < 0) {
     return;
   }
-  pgapi->SetLockTimeout(GetTimeoutValue(lock_timeout_ms));
+  pgapi->SetLockTimeout(lock_timeout_ms);
 }
 
-void YBCSetTimeout(int timeout_ms, void* extra) {
-  if (!pgapi || timeout_ms < 0) {
+void YBCSetTimeout(int timeout_ms) {
+  if (!pgapi || timeout_ms <= 0) {
     return;
   }
-  pgapi->SetTimeout(GetTimeoutValue(timeout_ms));
+  pgapi->SetTimeout(timeout_ms);
+}
+
+void YBCClearTimeout() {
+  if (!pgapi) {
+    return;
+  }
+  pgapi->ClearTimeout();
+}
+
+void YBCCheckForInterrupts() {
+  LOG_IF(FATAL, !is_main_thread())
+      << __PRETTY_FUNCTION__ << " should only be invoked from the main thread";
+
+  // If we're in the midst of shutting down, do not bother checking for interrupts.
+  if (!pgapi) {
+    return;
+  }
+
+  pgapi->pg_callbacks()->CheckForInterrupts();
 }
 
 YbcStatus YBCNewGetLockStatusDataSRF(YbcPgFunction *handle) {
@@ -2542,6 +2554,7 @@ YbcStatus YBCPgListReplicationSlots(
           .yb_lsn_type = YBCPAllocStdString(lsn_type_result.get()),
           .active_pid = info.active_pid(),
           .expired = info.expired(),
+          .allow_tables_without_primary_key = info.allow_tables_without_primary_key(),
       };
       ++dest;
     }
@@ -2598,6 +2611,7 @@ YbcStatus YBCPgGetReplicationSlot(
       .yb_lsn_type = YBCPAllocStdString(lsn_type_result.get()),
       .active_pid = slot_info.active_pid(),
       .expired = slot_info.expired(),
+      .allow_tables_without_primary_key = slot_info.allow_tables_without_primary_key(),
   };
 
   return YBCStatusOK();
@@ -2876,7 +2890,6 @@ YbcStatus YBCPgGetCDCConsistentChanges(
       }
     }
 
-
     new (&resp_rows[row_idx]) YbcPgRowMessage{
         .col_count = col_count,
         .cols = cols,
@@ -2887,7 +2900,9 @@ YbcStatus YBCPgGetCDCConsistentChanges(
         .action = GetRowMessageAction(row_message_pb),
         .table_oid = table_oid,
         .lsn = row_message_pb.pg_lsn(),
-        .xid = row_message_pb.pg_transaction_id()};
+        .xid = row_message_pb.pg_transaction_id(),
+        .xrepl_origin_id =
+            row_message_pb.has_xrepl_origin_id() ? row_message_pb.xrepl_origin_id() : 0};
 
     min_resp_lsn = std::min(min_resp_lsn, row_message_pb.pg_lsn());
     max_resp_lsn = std::max(max_resp_lsn, row_message_pb.pg_lsn());

@@ -295,7 +295,7 @@ static void assign_yb_enable_cbo(int new_value, void *extra);
 static void assign_yb_enable_optimizer_statistics(bool new_value, void *extra);
 static void assign_yb_enable_base_scans_cost_model(bool new_value, void *extra);
 
-
+static bool check_yb_disable_pg_snapshot_mgmt_in_repeatable_read(bool *newval, void **extra, GucSource source);
 static bool check_yb_enable_advisory_locks(bool *newval, void **extra, GucSource source);
 
 static void assign_yb_silence_advisory_locks_not_supported_error(bool newval, void *extra);
@@ -2626,6 +2626,17 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_enable_ddl_savepoint_infra", PGC_SIGHUP, LOCK_MANAGEMENT,
+			gettext_noop("Allow enabling ddl savepoint support."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_enable_ddl_savepoint_infra,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_allow_replication_slot_lsn_types", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Allow specifying LSN type while creating replication slot"),
 			NULL,
@@ -2655,6 +2666,18 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_enable_consistent_replication_from_hash_range,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_cdcsdk_stream_tables_without_primary_key", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("Enable streaming of tables without primary key in CDC logical "
+						 "replication streams."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_cdcsdk_stream_tables_without_primary_key,
 		false,
 		NULL, NULL, NULL
 	},
@@ -2983,6 +3006,19 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_enable_derived_saops", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("If true, derives additional scalar array operation "
+						 "conditions from table constraints and adds them to "
+						 "queries to improve performance."),
+			gettext_noop("Has no impact in case yb_max_saop_merge_streams is 0."),
+			GUC_EXPLAIN
+		},
+		&yb_enable_derived_saops,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_enable_upsert_mode", PGC_USERSET, CLIENT_CONN_STATEMENT,
 			gettext_noop("Sets the boolean flag to enable or disable upsert mode for writes."),
 			NULL
@@ -3083,6 +3119,18 @@ static struct config_bool ConfigureNamesBool[] =
 		&yb_is_client_ysqlconnmgr,
 		false,
 		yb_is_client_ysqlconnmgr_check_hook, yb_is_client_ysqlconnmgr_assign_hook, NULL
+	},
+
+	{
+		{"yb_enable_derived_equalities", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enable derivation of additional equalities for"
+						 " generated columns and expression indexes"),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&yb_enable_derived_equalities,
+		false,
+		NULL, NULL, NULL
 	},
 
 	{
@@ -3609,7 +3657,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_enable_pg_stat_statements_rpc_stats,
-		false,
+		true,
 		NULL, assign_yb_enable_pg_stat_statements_rpc_stats, NULL
 	},
 
@@ -3684,7 +3732,7 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&yb_test_make_all_ddl_statements_incrementing,
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 
@@ -3724,6 +3772,32 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_EXPLAIN
 		},
 		&yb_ignore_bool_cond_for_legacy_estimate,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_disable_pg_snapshot_mgmt_in_repeatable_read", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("[Deprecated - This GUC is valid only in older releases. It is present here"
+						 "just to avoid a failure in case you forgot to remove it from your configuration.]"),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_disable_pg_snapshot_mgmt_in_repeatable_read,
+		false,
+		check_yb_disable_pg_snapshot_mgmt_in_repeatable_read, NULL, NULL
+	},
+
+	{
+		{"yb_enable_pg_stat_statements_metrics", PGC_SUSET, STATS_MONITORING,
+			gettext_noop("If true, enable metrics collection for pg_stat_statements."),
+			gettext_noop("This enables collection of the following metrics: "
+									"docdb_seeks, docdb_nexts, docdb_prevs, "
+									"docdb_read_time, docdb_write_time and "
+									"docdb_obsolete_rows_scanned"),
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_enable_pg_stat_statements_metrics,
 		false,
 		NULL, NULL, NULL
 	},
@@ -4308,7 +4382,7 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&StatementTimeout,
 		0, 0, INT_MAX,
-		NULL, YBCSetTimeout, NULL
+		NULL, NULL, NULL
 	},
 
 
@@ -8721,9 +8795,29 @@ SelectConfigFiles(const char *userDoption, const char *progname)
 static bool
 yb_should_report_guc(struct config_generic *record)
 {
-	/* TODO(arpit.saxena): Use narrower sending criteria for correctness */
-	return ((record->flags & GUC_REPORT) && !YbIsClientYsqlConnMgr()) ||
-		(YbIsClientYsqlConnMgr() && record->context > PGC_BACKEND);
+	bool		shouldReportGUC = record->flags & GUC_REPORT;
+
+	if (YbIsClientYsqlConnMgr())
+	{
+		shouldReportGUC = shouldReportGUC ||
+			(record->status & GUC_VALUE_RESET) ||
+			(record->context >= PGC_SU_BACKEND &&
+			 (record->source == PGC_S_CLIENT ||
+			  record->source == PGC_S_SESSION));
+		/*
+		 * A special case has been added here for auth passthrough mode where we do
+		 * not want to report GUC variables to connection manager in case auth
+		 * passthrough has failed.
+		 * Specifically, we do not want to send back ParameterStatus packets for
+		 * GUCs like session_authorization, client_encoding that are set during the
+		 * authentication phase of Auth Passthrough as this causes certain
+		 * sync issues due to the final RFQ sent by the server to conn mgr.
+		 */
+		shouldReportGUC =
+			shouldReportGUC &&
+			(MyProcPort == NULL || !MyProcPort->yb_has_auth_passthrough_failed);
+	}
+	return shouldReportGUC;
 }
 
 /*
@@ -8831,6 +8925,9 @@ ResetAllOptions(void)
 		gconf->source = gconf->reset_source;
 		gconf->scontext = gconf->reset_scontext;
 		gconf->srole = gconf->reset_srole;
+		/* YB: Add GUC_VALUE_RESET for relaying back to Connection Manager */
+		if (YbIsClientYsqlConnMgr())
+			gconf->status |= GUC_VALUE_RESET;
 
 		if (yb_should_report_guc(gconf))
 		{
@@ -9004,6 +9101,7 @@ AtEOXact_GUC(bool isCommit, int nestLevel)
 			bool		restorePrior = false;
 			bool		restoreMasked = false;
 			bool		changed;
+			bool		yb_needs_report;
 
 			/*
 			 * In this next bit, if we don't set either restorePrior or
@@ -9086,6 +9184,7 @@ AtEOXact_GUC(bool isCommit, int nestLevel)
 			}
 
 			changed = false;
+			yb_needs_report = false;
 
 			if (restorePrior || restoreMasked)
 			{
@@ -9243,6 +9342,18 @@ AtEOXact_GUC(bool isCommit, int nestLevel)
 				set_extra_field(gconf, &(stack->prior.extra), NULL);
 				set_extra_field(gconf, &(stack->masked.extra), NULL);
 
+				/*
+				 * YB: Connection manager needs to be informed if any variable
+				 * set by the user is rolled back
+				 */
+				if (YbIsClientYsqlConnMgr() && changed &&
+					(gconf->context == PGC_SUSET ||
+					 gconf->context == PGC_USERSET) &&
+					gconf->source == PGC_S_SESSION)
+				{
+					yb_needs_report = true;
+				}
+
 				/* And restore source information */
 				gconf->source = newsource;
 				gconf->scontext = newscontext;
@@ -9254,7 +9365,7 @@ AtEOXact_GUC(bool isCommit, int nestLevel)
 			pfree(stack);
 
 			/* Report new value if we changed it */
-			if (changed && yb_should_report_guc(gconf))
+			if (changed && (yb_needs_report || yb_should_report_guc(gconf)))
 			{
 				gconf->status |= GUC_NEEDS_REPORT;
 				report_needed = true;
@@ -9307,13 +9418,7 @@ BeginReportingGUCOptions(void)
 	{
 		struct config_generic *conf = guc_variables[i];
 
-		/*
-		 * YB_TODO(#27725): Replace with a tighter reporting that is needed for
-		 * connection manager
-		 */
-		if ((conf->flags & GUC_REPORT) ||
-			(conf->context >= PGC_SU_BACKEND &&
-			 (conf->source == PGC_S_CLIENT || conf->source == PGC_S_SESSION)))
+		if (yb_should_report_guc(conf))
 			ReportGUCOption(conf);
 	}
 
@@ -9359,7 +9464,8 @@ ReportChangedGUCOptions(void)
 	{
 		struct config_generic *conf = guc_variables[i];
 
-		if (((conf->flags & GUC_REPORT) || YbIsClientYsqlConnMgr()) && (conf->status & GUC_NEEDS_REPORT))
+		if (((conf->flags & GUC_REPORT) || YbIsClientYsqlConnMgr()) &&
+			(conf->status & GUC_NEEDS_REPORT))
 			ReportGUCOption(conf);
 	}
 
@@ -9382,6 +9488,11 @@ ReportGUCOption(struct config_generic *record)
 {
 	char	   *val = _ShowOption(record, false);
 
+	/*
+	 * YB: record->last_reported doesn't make sense for connection manager
+	 * since the backend can be attached to another client which would need
+	 * ParameterStatus of a variable it sets
+	 */
 	if (YbIsClientYsqlConnMgr() ||
 		record->last_reported == NULL ||
 		strcmp(val, record->last_reported) != 0)
@@ -9424,11 +9535,6 @@ ReportGUCOption(struct config_generic *record)
 					else if (record->source == PGC_S_SESSION)
 						flags |=
 							YB_PARAM_STATUS_USERSET_OR_SUSET_SOURCE_SESSION;
-
-					/*
-					 * TODO(#28445): Populate
-					 * YB_PARAM_STATUS_USERSET_SOURCE_RESET
-					 */
 					break;
 			}
 
@@ -9459,6 +9565,9 @@ ReportGUCOption(struct config_generic *record)
 	pfree(val);
 
 	record->status &= ~GUC_NEEDS_REPORT;
+	/* YB: Reset flag that was set for Connection Manager */
+	if (YbIsClientYsqlConnMgr())
+		record->status &= ~GUC_VALUE_RESET;
 }
 
 /*
@@ -10258,6 +10367,7 @@ set_config_option_ext(const char *name, const char *value,
 	void	   *newextra = NULL;
 	bool		prohibitValueChange = false;
 	bool		makeDefault;
+	bool		gucReset = value == NULL && source == PGC_S_SESSION;
 
 	if (source == YSQL_CONN_MGR)
 		Assert(YbIsClientYsqlConnMgr());
@@ -10291,6 +10401,18 @@ set_config_option_ext(const char *name, const char *value,
 				 source == PGC_S_USER ||
 				 source == PGC_S_DATABASE_USER)
 			elevel = WARNING;
+		else if (MyProcPort != NULL && MyProcPort->yb_is_auth_passthrough_req)
+			/*
+			 * YB: In the Auth Passthrough mode of Connection Manager, we want
+			 * to abort auth in case of error while setting GUC values. Ideally,
+			 * we should forward a FatalForLogicalConnection Packet, but
+			 * forwarding a FATAL would also stop auth.
+			 *
+			 * TODO (vikram.damle) (#29818): Add a mechanism to forward a
+			 * FatalForLogicalConection to preserve this backend instead of
+			 * forwarding a FATAL directly and terminating the backend.
+			 */
+			elevel = FATAL;
 		else
 			elevel = ERROR;
 	}
@@ -10517,6 +10639,24 @@ set_config_option_ext(const char *name, const char *value,
 		((value != NULL) || source == PGC_S_DEFAULT);
 
 	/*
+	 * YB: When in Auth Passthrough mode of conn mgr, avoid setting defaults on
+	 * the control backend (auth_passthrough_req == true) when parsing startup
+	 * packet GUC opts (source == PGC_S_CLIENT).
+	 * We do not wish to set defaults in this case as GUCs on the control
+	 * backend need to be reverted to their original defaults in preparation for
+	 * the next authentication attempt. Changes made via makeDefault are
+	 * non-transactional in nature and cannot be uniformly reverted. The setting
+	 * of defaults serves no purpose during authentication either as conn mgr is
+	 * responsible for tracking client session defaults during the deploy phase
+	 * on txn backends.
+	 */
+	if (MyProcPort != NULL && MyProcPort->yb_is_auth_passthrough_req &&
+		source >= PGC_S_CLIENT)
+	{
+		makeDefault = false;
+	}
+
+	/*
 	 * Ignore attempted set if overridden by previously processed setting.
 	 * However, if changeVal is false then plow ahead anyway since we are
 	 * trying to find out if the value is potentially good, not actually use
@@ -10606,6 +10746,9 @@ set_config_option_ext(const char *name, const char *value,
 					conf->gen.source = source;
 					conf->gen.scontext = context;
 					conf->gen.srole = srole;
+					/* YB: Mark value as been reset for connection manager */
+					if (gucReset)
+						conf->gen.status |= GUC_VALUE_RESET;
 				}
 				if (makeDefault)
 				{
@@ -10704,6 +10847,9 @@ set_config_option_ext(const char *name, const char *value,
 					conf->gen.source = source;
 					conf->gen.scontext = context;
 					conf->gen.srole = srole;
+					/* YB: Mark value as been reset for connection manager */
+					if (gucReset)
+						conf->gen.status |= GUC_VALUE_RESET;
 				}
 				if (makeDefault)
 				{
@@ -10797,6 +10943,9 @@ set_config_option_ext(const char *name, const char *value,
 									newextra);
 					conf->gen.source = source;
 					conf->gen.scontext = context;
+					/* YB: Mark value as been reset for connection manager */
+					if (gucReset)
+						conf->gen.status |= GUC_VALUE_RESET;
 				}
 				if (makeDefault)
 				{
@@ -10893,6 +11042,9 @@ set_config_option_ext(const char *name, const char *value,
 					conf->gen.source = source;
 					conf->gen.scontext = context;
 					conf->gen.srole = srole;
+					/* YB: Mark value as been reset for connection manager */
+					if (gucReset)
+						conf->gen.status |= GUC_VALUE_RESET;
 				}
 				if (makeDefault)
 				{
@@ -11020,6 +11172,9 @@ set_config_option_ext(const char *name, const char *value,
 					conf->gen.source = source;
 					conf->gen.scontext = context;
 					conf->gen.srole = srole;
+					/* YB: Mark value as been reset for connection manager */
+					if (gucReset)
+						conf->gen.status |= GUC_VALUE_RESET;
 
 					/*
 					 * Ugly hack: during SET session_authorization, forcibly
@@ -11167,6 +11322,9 @@ set_config_option_ext(const char *name, const char *value,
 					conf->gen.source = source;
 					conf->gen.scontext = context;
 					conf->gen.srole = srole;
+					/* YB: Mark value as been reset for connection manager */
+					if (gucReset)
+						conf->gen.status |= GUC_VALUE_RESET;
 				}
 				if (makeDefault)
 				{
@@ -16478,6 +16636,15 @@ yb_set_neg_catcache_ids(const char *newval, void *extra)
 		YbSetAdditionalNegCacheIds(neg_cache_ids_list);
 		list_free(neg_cache_ids_list);
 	}
+}
+
+static bool
+check_yb_disable_pg_snapshot_mgmt_in_repeatable_read(bool *newval, void **extra, GucSource source)
+{
+	ereport(WARNING,
+			(errmsg("the parameter \"yb_disable_pg_snapshot_mgmt_in_repeatable_read\" is deprecated, "
+					"remove it from your configuration.")));
+	return true;				/* still allow usage, but warn */
 }
 
 static bool

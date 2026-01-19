@@ -70,7 +70,7 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
       IsLocalObjectLockOp is_local_object_lock_op = IsLocalObjectLockOp::kFalse);
   Status RecreateTransaction();
   Status RestartTransaction();
-  Status ResetTransactionReadPoint();
+  Status ResetTransactionReadPoint(bool is_catalog_snapshot);
   Status EnsureReadPoint();
   Status RestartReadPoint();
   bool IsRestartReadPointRequested();
@@ -156,7 +156,8 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
         [this, original_value] { is_read_time_history_cutoff_disabled_ = original_value; });
   }
 
-  bool IsTableLockingEnabled() const;
+  bool IsTableLockingEnabledForCurrentTxn() const;
+  bool ShouldEnableTableLocking() const;
 
  private:
   class SerialNo {
@@ -242,6 +243,7 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   std::optional<uint64_t> priority_;
   SavePriority use_saved_priority_ = SavePriority::kFalse;
   int64_t pg_txn_start_us_ = 0;
+  bool using_table_locks_ = false;
   bool snapshot_read_time_is_used_ = false;
   bool has_exported_snapshots_ = false;
 

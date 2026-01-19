@@ -53,7 +53,7 @@ DEFINE_test_flag(bool, disable_release_object_locks_on_ddl_verification, false,
     "When set, skip release object lock rpcs to tservers triggered at the end of DDL verification, "
     "that release object locks acquired by the DDL.");
 
-DECLARE_bool(TEST_ysql_yb_enable_ddl_savepoint_support);
+DECLARE_bool(ysql_yb_enable_ddl_savepoint_support);
 
 using namespace std::placeholders;
 using std::shared_ptr;
@@ -573,7 +573,7 @@ Status CatalogManager::YsqlDdlTxnAlterTableHelper(const YsqlTableDdlTxnState txn
                                                   bool success,
                                                   int rollback_till_ddl_state_index) {
   RSTATUS_DCHECK(
-      rollback_till_ddl_state_index == 0 || FLAGS_TEST_ysql_yb_enable_ddl_savepoint_support,
+      rollback_till_ddl_state_index == 0 || FLAGS_ysql_yb_enable_ddl_savepoint_support,
       InternalError, "Unexpected value of rollback_till_ddl_state_index");
 
   auto& table_pb = txn_data.write_lock.mutable_data()->pb;
@@ -754,7 +754,7 @@ void CatalogManager::RemoveDdlTransactionStateUnlocked(
     // If savepoint support is enabled, also delete from the
     // ysql_ddl_txn_undergoing_subtransaction_rollback_map_ map since the entire
     // txn is going away for the table.
-    if (FLAGS_TEST_ysql_yb_enable_ddl_savepoint_support) {
+    if (FLAGS_ysql_yb_enable_ddl_savepoint_support) {
       RemoveDdlRollbackToSubTxnStateUnlocked(table_id, txn_id);
     }
 
@@ -1030,6 +1030,16 @@ Status CatalogManager::YsqlRollbackDocdbSchemaToSubTxn(const std::string& pb_txn
   for (auto& table : tables) {
     auto table_txn_id = table->LockForRead()->pb_transaction_id();
 
+    // Deletion of a table is async. It is possible that the table was deleted in a previous
+    // rollback to sub-transaction operation but before it could be removed from the
+    // ysql_ddl_txn_verfication_state_map_ map, another RollbackDocdbSchemaToSubTxn RPC arrived.
+    // In such cases, we should skip the rollback to sub-transaction for this table.
+    if (table->LockForRead()->is_deleting() || table->LockForRead()->is_deleted()) {
+      LOG(INFO) << "Skipping rollback to sub-transaction for table " << table->ToString()
+                << " as it is being deleted or deleted";
+      continue;
+    }
+
     // If the table is no longer involved in a DDL transaction or involved in a new DDL transaction,
     // then txn has already completed.
     // This can happen if the transaction aborts (say client disconnect) during the processing of
@@ -1039,6 +1049,7 @@ Status CatalogManager::YsqlRollbackDocdbSchemaToSubTxn(const std::string& pb_txn
     if (table_txn_id.empty() || table_txn_id != pb_txn_id) {
       VLOG(3) << "Rolling back to sub-transaction for an already completed "
               << " transaction: " << txn
+              << ", table: " << table->ToString()
               << ", table_txn_id: " << table_txn_id
               << ", pb_txn_id: " << pb_txn_id;
       return Status::OK();
@@ -1234,7 +1245,7 @@ Status CatalogManager::IsRollbackDocdbSchemaToSubtxnDone(
 
 bool CatalogManager::IsTableDeletionDueToRollbackToSubTxn(
     const scoped_refptr<TableInfo>& table, TransactionId& txn_id) {
-  if (!FLAGS_TEST_ysql_yb_enable_ddl_savepoint_support) {
+  if (!FLAGS_ysql_yb_enable_ddl_savepoint_support) {
     return false;
   }
 

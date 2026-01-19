@@ -122,6 +122,7 @@ YbNLBucketInfo
 YbNameToOidMapEntry
 YbNewRelMapEntry
 YbNextRangeResult
+YbObjectLockMode
 YbOidAssignmentMapEntry
 YbOptSplit
 YbOptionalReadPointHandle
@@ -182,6 +183,7 @@ YbSplitType
 YbStatLabel
 YbStatLabelData
 YbStatementType
+YbSubstituteContext
 YbSysCatalogModificationAspect
 YbSysScanBase
 YbSysScanBaseData
@@ -223,7 +225,9 @@ YbcCloneInfo
 YbcConnectionMetrics
 YbcConstSliceSet
 YbcConstSliceVector
+YbcCreateMemoryContextFn
 YbcCstringToTextWithLenFn
+YbcDeleteMemoryContextFn
 YbcFlushDebugContext
 YbcGetTableKeyRangesCallback
 YbcHeapSnapshotSample
@@ -315,7 +319,9 @@ YbcSamplingAlgorithmEnum
 YbcServerDescriptor
 YbcSliceSet
 YbcSliceVector
+YbcSortKey
 YbcStatus
+YbcSwitchMemoryContextFn
 YbcTableProperties
 YbcTablePropertiesData
 YbcTcmallocStats

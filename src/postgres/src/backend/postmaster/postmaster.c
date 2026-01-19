@@ -2092,6 +2092,17 @@ initMasks(fd_set *rmask)
 	return maxsock + 1;
 }
 
+/*
+ * YB: This function is a wrapper around ProcessStartupPacket, lifting it from
+ * `static` to `extern` as it is required in postgres.c for the Authentication
+ * Passthrough mode of Connection Manager, while making minimal changes to
+ * upstream-owned code.
+ */
+int
+YbProcessStartupPacket(Port *port, bool ssl_done, bool gss_done)
+{
+	return ProcessStartupPacket(port, ssl_done, gss_done);
+}
 
 /*
  * Read a client's startup packet and do something according to it.
@@ -2130,6 +2141,7 @@ ProcessStartupPacket(Port *port, bool ssl_done, bool gss_done)
 	char		yb_logical_conn_type = 'U'; /* Unencrypted */
 	bool		yb_logical_conn_type_provided = false;
 	bool		yb_auto_analyze_backend = false;
+	bool		yb_is_auth_via_conn_mgr = false;
 
 	pq_startmsgread();
 
@@ -2494,15 +2506,19 @@ retry1:
 			SendNegotiateProtocolVersion(unrecognized_protocol_options);
 	}
 
+	yb_is_auth_via_conn_mgr = yb_is_auth_backend ||
+		port->yb_is_auth_passthrough_req;
+
 	if (YBIsEnabledInPostgresEnvVar())
 	{
 		if (yb_auth_backend_remote_host != NULL)
 		{
-			if (!yb_is_auth_backend)
+			if (!yb_is_auth_via_conn_mgr)
 				ereport(FATAL,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
-						 errmsg("yb_auth_remote_host must only be provided when"
-								" yb_authonly is true")));
+						 errmsg("yb_auth_remote_host must only be provided "
+								"when yb_authonly is true or in an auth passthrough "
+								"'A' request packet")));
 
 			/*
 			 * HARD Code connection type between client and ysql_conn_mgr to
@@ -2521,7 +2537,7 @@ retry1:
 
 		if (yb_logical_conn_type_provided)
 		{
-			if (!yb_is_auth_backend)
+			if (!yb_is_auth_via_conn_mgr)
 				ereport(FATAL,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						 errmsg("yb_logical_conn_type must only be provided "
@@ -4830,6 +4846,14 @@ BackendInitialize(Port *port)
 	port->remote_port = "";
 
 	/*
+	 * YB: Initialize custom vars to avoid issue in control/auth backend startup
+	 */
+	port->yb_is_auth_passthrough_req = false;
+	port->yb_has_auth_passthrough_failed = false;
+	port->yb_is_tserver_auth_method = false;
+	port->yb_is_ssl_enabled_in_logical_conn = false;
+
+	/*
 	 * Initialize libpq and enable reporting of ereport errors to the client.
 	 * Must do this now because authentication uses libpq to send messages.
 	 */
@@ -4977,9 +5001,6 @@ BackendInitialize(Port *port)
 			snprintf(remote_ps_data, sizeof(remote_ps_data), "%s", remote_host);
 		else
 			snprintf(remote_ps_data, sizeof(remote_ps_data), "%s(%s)", remote_host, remote_port);
-
-		/* Cannot be a walsender and an auth-backend simultaneously. */
-		Assert(!(am_walsender && yb_is_auth_backend));
 
 		YBC_LOG_INFO("Started %s backend with pid: %d, user_name: %s, "
 					 "remote_ps_data: %s",

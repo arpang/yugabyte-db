@@ -668,6 +668,7 @@ message PgReplicationSlotInfoPB {
   PGReplicationSlotLsnType yb_lsn_type = 12;
   uint64 active_pid = 13;
   bool expired = 14;
+  bool allow_tables_without_primary_key = 15;
 }
 
 message PgListReplicationSlotsResponsePB {
@@ -785,6 +786,10 @@ message PgPerformOptionsPB {
   bool clamp_uncertainty_window = 24;
 
   bool xcluster_target_ddl_bypass = 26;
+
+  uint32 xrepl_origin_id = 31;
+
+  bool is_using_table_locks = 32;
 }
 
 message PgPerformRequestPB {

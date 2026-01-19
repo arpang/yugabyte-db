@@ -33,7 +33,7 @@ import { ArrowDropDown } from '@material-ui/icons';
 import { Fade, Grow } from '@material-ui/core';
 import { Universe } from '@app/v2/api/yugabyteDBAnywhereV2APIs.schemas';
 
-import { ReactComponent as NodesIcon } from '@app/redesign/assets/nodes.svg';
+import NodesIcon from '@app/redesign/assets/nodes.svg';
 
 const { Box, styled } = mui;
 
@@ -224,6 +224,21 @@ export const NodesAvailability = forwardRef<
             <GuidedRequirementDetails />
           )}
           <AvailabilityZones />
+          {(errors as any)?.lesserNodes?.message && (
+            <YBAlert
+              open
+              variant={AlertVariant.Error}
+              text={
+                <Trans
+                  t={t}
+                  i18nKey={(errors as any)?.lesserNodes?.message}
+                  components={{ b: <b /> }}
+                >
+                  {(errors as any).lesserNodes.message}
+                </Trans>
+              }
+            />
+          )}
         </Box>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <YBMaps

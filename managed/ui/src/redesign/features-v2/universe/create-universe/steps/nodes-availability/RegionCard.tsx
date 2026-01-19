@@ -9,7 +9,7 @@ import { FaultToleranceType } from '../resilence-regions/dtos';
 import { NodeAvailabilityProps, Zone as ZoneType } from './dtos';
 import { Region } from '../../../../../features/universe/universe-form/utils/dto';
 import { canSelectMultipleRegions } from '../../CreateUniverseUtils';
-import { ReactComponent as AddIcon } from '../../../../../assets/add2.svg';
+import AddIcon from '../../../../../assets/add2.svg';
 import { getFlagFromRegion } from '../../helpers/RegionToFlagUtils';
 
 interface RegionCardProps {
@@ -24,12 +24,6 @@ const StyledRegionCard = styled('div')(({ theme }) => ({
   gap: '24px',
   border: `1px solid ${theme.palette.grey[300]}`,
   borderRadius: '8px'
-}));
-
-const StyledRegionName = styled('div')(({ theme }) => ({
-  borderRadius: '6px',
-  background: theme.palette.primary[200],
-  padding: '10px 4px 10px 8px'
 }));
 
 export const RegionCard: FC<RegionCardProps> = ({ region, index }) => {
@@ -55,7 +49,7 @@ export const RegionCard: FC<RegionCardProps> = ({ region, index }) => {
 
     setValue(`availabilityZones.${region.code}`, [
       ...az,
-      { ...azToAdd, nodeCount: nodesPerAz, preffered: 0 }
+      { ...azToAdd, nodeCount: nodesPerAz ?? 1, preffered: 0 }
     ]);
   };
 

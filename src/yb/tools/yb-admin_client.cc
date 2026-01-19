@@ -96,6 +96,7 @@
 
 #include "yb/encryption/encryption_util.h"
 
+#include "yb/util/date_time.h"
 #include "yb/util/format.h"
 #include "yb/util/is_operation_done_result.h"
 #include "yb/util/net/net_util.h"
@@ -2645,9 +2646,13 @@ Result<master::GetMasterXClusterConfigResponsePB> ClusterAdminClient::GetMasterX
                    "MasterServiceImpl::GetMasterXClusterConfig call failed.");
 }
 
-Status ClusterAdminClient::SplitTablet(const TabletId& tablet_id) {
+Status ClusterAdminClient::SplitTablet(const TabletId& tablet_id, int split_factor) {
   master::SplitTabletRequestPB req;
   req.set_tablet_id(tablet_id);
+  if (split_factor > 1) {
+    req.set_split_factor(split_factor);
+  }
+
   const auto resp = VERIFY_RESULT(InvokeRpc(
       &master::MasterAdminProxy::SplitTablet, *master_admin_proxy_, req));
   if (resp.has_error()) {
@@ -4020,8 +4025,8 @@ Status ClusterAdminClient::ListCDCSDKStreams(const std::string& namespace_name) 
   if (!namespace_name.empty()) {
     cout << "Filtering out DB streams for the namespace: " << namespace_name << "\n\n";
     master::GetNamespaceInfoResponsePB namespace_info_resp;
-    RETURN_NOT_OK(yb_client_->GetNamespaceInfo(
-        "", namespace_name, YQL_DATABASE_PGSQL, &namespace_info_resp));
+    RETURN_NOT_OK(
+        yb_client_->GetNamespaceInfo(namespace_name, YQL_DATABASE_PGSQL, &namespace_info_resp));
     req.set_namespace_id(namespace_info_resp.namespace_().id());
   }
 
@@ -4148,11 +4153,11 @@ Status ClusterAdminClient::ValidateAndSyncCDCStateEntriesForCDCSDKStream(
 
   cout << "Successfully validated and synced CDC state table entries on CDC stream: " << stream_id
        << "\n";
-  if (resp.updated_tablet_entries().size() > 0) {
-    cout << "Updated checkpoint for the stream's cdc state table entries for following tablet_ids: "
-         << AsString(resp.updated_tablet_entries()) << "\n";
+  if (resp.deleted_tablet_entries().size() > 0) {
+    cout << "Deleted cdc state table entries for the stream for following tablet_ids: "
+         << AsString(resp.deleted_tablet_entries()) << "\n";
   } else {
-    cout << "No additional entries found in cdc state table that requires update. \n";
+    cout << "No additional entries found in cdc state table that requires deletion. \n";
   }
 
   return Status::OK();
@@ -4802,6 +4807,57 @@ Status ClusterAdminClient::WriteSysCatalogEntryAction(
   RETURN_NOT_OK(WriteSysCatalogEntry(operation, entry_type, entry_id, entity_data));
 
   std::cout << std::endl << "Successfully updated the YugabyteDB system catalog." << std::endl;
+  return Status::OK();
+}
+
+Status ClusterAdminClient::GetTableXorHash(const TableId& table_id, uint64_t read_ht) {
+  uint64_t xor_hash = 0;
+  uint64_t row_count = 0;
+
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablet_locations;
+  RETURN_NOT_OK(yb_client_->GetTabletsFromTableId(table_id, /*max_tablets=*/0, &tablet_locations));
+  std::cout << "Processing " << tablet_locations.size() << " tablets for table " << table_id
+            << std::endl;
+
+  HybridTime ht;
+  if (!read_ht) {
+    ht = HybridTime::FromMicros(DateTime::TimestampNow().ToInt64());
+  } else {
+    RETURN_NOT_OK(ht.FromUint64(read_ht));
+  }
+  std::cout << "Read HT: " << ht << std::endl;
+
+  for (const auto& location : tablet_locations) {
+    auto leader_replica = std::find_if(
+        location.replicas().begin(), location.replicas().end(),
+        [](const auto& replica) { return replica.role() == PeerRole::LEADER; });
+    SCHECK_FORMAT(
+        leader_replica != location.replicas().end(), NotFound,
+        "Leader replica not found for tablet $0", location.tablet_id());
+
+    auto addr = HostPort::FromPB(leader_replica->ts_info().private_rpc_addresses(0));
+    auto tserver_proxy =
+        std::make_unique<tserver::TabletServerServiceProxy>(proxy_cache_.get(), addr);
+    tserver::DumpTabletDataRequestPB req;
+    tserver::DumpTabletDataResponsePB resp;
+    RpcController rpc;
+    rpc.set_timeout(timeout_);
+    req.set_tablet_id(location.tablet_id());
+    req.set_read_ht(ht.ToUint64());
+    RETURN_NOT_OK(tserver_proxy->DumpTabletData(req, &resp, &rpc));
+    if (resp.has_error()) {
+      return StatusFromPB(resp.error().status());
+    }
+    std::cout << "Tablet ID: " << location.tablet_id() << std::endl;
+    std::cout << "\tRow count: " << resp.row_count() << std::endl;
+    std::cout << "\tXOR hash: " << resp.xor_hash() << std::endl;
+    std::cout << std::endl;
+    xor_hash ^= resp.xor_hash();
+    row_count += resp.row_count();
+  }
+
+  std::cout << "Total row count: " << row_count << std::endl;
+  std::cout << "Total XOR hash: " << xor_hash << std::endl;
   return Status::OK();
 }
 

@@ -455,12 +455,6 @@ static void PgRpczHandler(const Webserver::WebRequest &req, Webserver::WebRespon
         writer.String(entry->port);
       }
 
-      writer.String("pid");
-      writer.Int(entry->proc_id);
-
-      writer.String("pss_mem_bytes");
-      writer.Int64(entry->pss_mem_bytes);
-
       writer.EndObject();
     }
   }
@@ -496,6 +490,9 @@ static void PgLogicalRpczHandler(const Webserver::WebRequest &req, Webserver::We
     writer.String(stat.user_name);
     writer.String("User OID");
     writer.Int64(stat.user_oid);
+
+    writer.String("logical_rep");
+    writer.Bool(stat.logical_rep);
 
     // Number of logical connections that are attached to any physical connection. A logical
     // connection gets attached to a physical connection during lifetime of a transaction.

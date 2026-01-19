@@ -1020,7 +1020,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     return subtxn_metadata_pb;
   }
 
-  Status SetPgTxnStart(int64_t pg_txn_start_us) {
+  Status SetPgTxnStart(int64_t pg_txn_start_us, bool using_table_locks) {
     VLOG_WITH_PREFIX(4) << "set pg_txn_start_us_=" << pg_txn_start_us;
     RSTATUS_DCHECK(
         !metadata_.pg_txn_start_us,
@@ -1028,6 +1028,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
         Format("Tried to set pg_txn_start_us (= $0) to new value (= $1)",
                metadata_.pg_txn_start_us, pg_txn_start_us));
     metadata_.pg_txn_start_us = pg_txn_start_us;
+    metadata_.using_table_locks = using_table_locks;
     return Status::OK();
   }
 
@@ -1291,6 +1292,11 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     callback(status);
   }
 
+  void SetOriginId(uint32_t origin_id) EXCLUDES(mutex_) {
+    std::lock_guard lock(mutex_);
+    origin_id_ = origin_id;
+  }
+
  private:
   void CompleteConstruction() {
     LOG_IF(FATAL, !IsAcceptableAtomicImpl(log_prefix_.tag));
@@ -1458,6 +1464,9 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     state.set_transaction_id(metadata_.transaction_id.data(), metadata_.transaction_id.size());
     state.set_status(seal_only ? TransactionStatus::SEALED : TransactionStatus::COMMITTED);
     state.mutable_tablets()->Reserve(narrow_cast<int>(tablets_.size()));
+    if (origin_id_) {
+      state.set_xrepl_origin_id(origin_id_);
+    }
     for (const auto& tablet : tablets_) {
       // If tablet does not have metadata it should not participate in commit.
       if (!seal_only && !tablet.second.has_metadata) {
@@ -2629,6 +2638,8 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
       GUARDED_BY(async_write_query_mutex_);
   StdStatusCallback async_write_commit_waiter_ GUARDED_BY(async_write_query_mutex_);
   Status async_write_status_ GUARDED_BY(async_write_query_mutex_);
+
+  uint32_t origin_id_ GUARDED_BY(mutex_) = 0;
 };
 
 CoarseTimePoint AdjustDeadline(CoarseTimePoint deadline) {
@@ -2805,8 +2816,8 @@ bool YBTransaction::HasSubTransaction(SubTransactionId id) {
   return impl_->HasSubTransaction(id);
 }
 
-Status YBTransaction::SetPgTxnStart(int64_t pg_txn_start_us) {
-  return impl_->SetPgTxnStart(pg_txn_start_us);
+Status YBTransaction::SetPgTxnStart(int64_t pg_txn_start_us, bool using_table_locks) {
+  return impl_->SetPgTxnStart(pg_txn_start_us, using_table_locks);
 }
 
 void YBTransaction::IncreaseMutationCounts(
@@ -2854,6 +2865,8 @@ std::optional<int64_t> YBTransaction::GetPendingAsyncWriteTerm(const TabletId& t
 void YBTransaction::WaitForAsyncWrites(const TabletId& tablet_id, StdStatusCallback&& callback) {
   return impl_->WaitForAsyncWrites(tablet_id, std::move(callback));
 }
+
+void YBTransaction::SetOriginId(uint32_t origin_id) { impl_->SetOriginId(origin_id); }
 
 } // namespace client
 } // namespace yb

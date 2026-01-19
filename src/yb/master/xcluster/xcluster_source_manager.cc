@@ -771,12 +771,10 @@ void XClusterSourceManager::RecordHiddenTablets(
       continue;
     }
 
-    decltype(HiddenTabletInfo::split_tablets) split_tablets = {};
     auto tablet_lock = hidden_tablet->LockForRead();
     auto& tablet_pb = tablet_lock->pb;
-    if (tablet_pb.split_tablet_ids_size() == kNumSplitParts) {
-      split_tablets = {tablet_pb.split_tablet_ids(0), tablet_pb.split_tablet_ids(1)};
-    }
+    std::vector<TabletId> split_tablets(
+        tablet_pb.split_tablet_ids().begin(), tablet_pb.split_tablet_ids().end());
 
     HiddenTabletInfo info{
         .table_id = hidden_tablet->table()->id(),

@@ -1144,9 +1144,27 @@ Result<vector<NamespaceInfo>> YBClient::ListNamespaces(
 }
 
 Status YBClient::GetNamespaceInfo(
-    const NamespaceId& namespace_id,
-    const NamespaceName& namespace_name,
-    const std::optional<YQLDatabase>& database_type,
+    const NamespaceName& namespace_name, const std::optional<YQLDatabase>& database_type,
+    master::GetNamespaceInfoResponsePB* ret) {
+  return GetNamespaceInfo(
+      /* namespace_id */ {}, namespace_name, database_type, /* table_id */ {}, ret);
+}
+
+Status YBClient::GetNamespaceInfo(
+    const NamespaceId& namespace_id, master::GetNamespaceInfoResponsePB* ret) {
+  return GetNamespaceInfo(
+      namespace_id, /* namespace_name */ {}, /* database_type */ {}, /* table_id */ {}, ret);
+}
+
+Status YBClient::GetNamespaceInfoByTableId(
+    const TableId& table_id, master::GetNamespaceInfoResponsePB* ret) {
+  return GetNamespaceInfo(
+      /* namespace_id */ {}, /* namespace_name */ {}, /* database_type */ {}, table_id, ret);
+}
+
+Status YBClient::GetNamespaceInfo(
+    const NamespaceId& namespace_id, const NamespaceName& namespace_name,
+    const std::optional<YQLDatabase>& database_type, const TableId& table_id,
     master::GetNamespaceInfoResponsePB* ret) {
   GetNamespaceInfoRequestPB req;
   GetNamespaceInfoResponsePB resp;
@@ -1156,6 +1174,9 @@ Status YBClient::GetNamespaceInfo(
   }
   if (!namespace_name.empty()) {
     req.mutable_namespace_()->set_name(namespace_name);
+  }
+  if (!table_id.empty()) {
+    req.set_table_id(table_id);
   }
   if (database_type) {
     req.mutable_namespace_()->set_database_type(*database_type);
@@ -1298,10 +1319,10 @@ Status YBClient::DeleteTablegroup(
                                  sub_transaction_id);
 }
 
-Result<vector<master::TablegroupIdentifierPB>>
-YBClient::ListTablegroups(const NamespaceName& namespace_name) {
+Result<vector<master::TablegroupIdentifierPB>> YBClient::ListTablegroups(
+    const NamespaceName& namespace_name) {
   GetNamespaceInfoResponsePB ret;
-  Status s = GetNamespaceInfo("", namespace_name, YQL_DATABASE_PGSQL, &ret);
+  Status s = GetNamespaceInfo(namespace_name, YQL_DATABASE_PGSQL, &ret);
   if (!s.ok()) {
     return s;
   }
@@ -2381,10 +2402,10 @@ Result<int> YBClient::WaitForYsqlBackendsCatalogVersion(
     const std::string& database_name, uint64_t version, const CoarseTimePoint& deadline,
     pid_t requestor_pg_backend_pid) {
   GetNamespaceInfoResponsePB resp;
-  RETURN_NOT_OK(GetNamespaceInfo("", database_name, YQL_DATABASE_PGSQL, &resp));
+  RETURN_NOT_OK(GetNamespaceInfo(database_name, YQL_DATABASE_PGSQL, &resp));
   PgOid database_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(resp.namespace_().id()));
-  return WaitForYsqlBackendsCatalogVersion(database_oid, version, deadline,
-                                           requestor_pg_backend_pid);
+  return WaitForYsqlBackendsCatalogVersion(
+      database_oid, version, deadline, requestor_pg_backend_pid);
 }
 
 Result<int> YBClient::WaitForYsqlBackendsCatalogVersion(
@@ -2923,7 +2944,7 @@ void YBClient::OpenTableAsync(
   DoOpenTableAsync(table_name, callback);
 }
 
-void YBClient::OpenTableAsync(const TableId& table_id, const OpenTableAsyncCallback& callback,
+void YBClient::OpenTableAsync(TableIdView table_id, const OpenTableAsyncCallback& callback,
                               master::IncludeHidden include_hidden,
                               master::GetTableSchemaResponsePB* resp) {
   DoOpenTableAsync(table_id, callback, include_hidden, resp);

@@ -111,6 +111,7 @@ extern PGDLLIMPORT volatile uint32 CritSectionCount;
 
 /* in tcop/postgres.c */
 extern void ProcessInterrupts(void);
+extern void YBCheckForInterrupts(void);
 
 /* Test whether an interrupt is pending */
 #ifndef WIN32
@@ -504,6 +505,10 @@ extern void YbInitPostgres(const char *in_dbname, Oid dboid,
 extern long YbGetAuthorizedConnections();
 
 extern void BaseInit(void);
+
+extern void YbCheckMyDatabase(const char *name, bool am_superuser,
+							  bool override_allow_connections, Oid db_oid);
+extern void YbAuthPassthroughSetupGUCAndReport(void);
 
 /* in utils/init/miscinit.c */
 extern PGDLLIMPORT bool IgnoreSystemIndexes;

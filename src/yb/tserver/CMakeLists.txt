@@ -135,6 +135,7 @@ ADD_YB_LIBRARY(tserver_admin_proto
 
 YRPC_GENERATE(
   TSERVER_YRPC_SRCS TSERVER_YRPC_HDRS TSERVER_YRPC_TGTS
+  MESSAGES TRUE
   SOURCE_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..
   BINARY_ROOT ${CMAKE_CURRENT_BINARY_DIR}/../..
   PROTO_FILES tserver_service.proto)
@@ -266,6 +267,7 @@ set(TSERVER_SRCS
   tablet_validator.cc
   ts_data_size_metrics.cc
   ts_local_lock_manager.cc
+  ts_snapshots_page_handler.cc
   ts_tablet_manager.cc
   tserver-path-handlers.cc
   tserver_auto_flags_manager.cc

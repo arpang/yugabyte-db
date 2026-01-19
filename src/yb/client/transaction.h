@@ -185,7 +185,7 @@ class YBTransaction : public std::enable_shared_from_this<YBTransaction> {
 
   std::optional<SubTransactionMetadataPB> GetSubTransactionMetadataPB() const;
 
-  Status SetPgTxnStart(int64_t pg_txn_start_us);
+  Status SetPgTxnStart(int64_t pg_txn_start_us, bool using_table_locks);
 
   Status RollbackToSubTransaction(SubTransactionId id, CoarseTimePoint deadline);
 
@@ -223,6 +223,7 @@ class YBTransaction : public std::enable_shared_from_this<YBTransaction> {
       const TabletId& tablet_id, const OpId& op_id, const Status& status);
   std::optional<int64_t> GetPendingAsyncWriteTerm(const TabletId& tablet_id) const;
   void WaitForAsyncWrites(const TabletId& tablet_id, StdStatusCallback&& callback);
+  void SetOriginId(uint32_t origin_id);
 
  private:
   class Impl;

@@ -108,6 +108,12 @@ DEFINE_NON_RUNTIME_bool(cdc_enable_intra_transactional_before_image,
                         false,
                         "If 'true', before image is populated for the intra-transactional DMLs.");
 
+DEFINE_RUNTIME_bool(cdc_enable_savepoint_rollback_filtering, false,
+                    "If 'true', CDC streaming will filter out intents from aborted "
+                    "subtransactions (rolled-back savepoints). This prevents CDC consumers "
+                    "from receiving data that was never actually committed. This flag is only "
+                    "used for YSQL tables.");
+
 DECLARE_bool(ysql_enable_packed_row);
 DECLARE_bool(ysql_yb_enable_replica_identity);
 
@@ -185,7 +191,7 @@ Status AddColumnToMap(
     if (!IsNull(ql_value) && col_schema.pg_type_oid() != 0 /*kInvalidOid*/) {
       RETURN_NOT_OK(docdb::SetValueFromQLBinaryWrapper(
           ql_value, col_schema.pg_type_oid(), enum_oid_label_map, composite_atts_map,
-          cdc_datum_message));
+          *cdc_datum_message));
     } else {
       cdc_datum_message->set_column_type(col_schema.pg_type_oid());
       cdc_datum_message->set_pg_type(col_schema.pg_type_oid());
@@ -1324,13 +1330,16 @@ void FillBeginRecordForSingleShardTransaction(
 }
 
 void FillCommitRecordForSingleShardTransaction(
-    const OpId& op_id, const uint64_t& commit_timestamp, GetChangesResponsePB* resp,
-    CDCThroughputMetrics* throughput_metrics) {
+    const OpId& op_id, const uint64_t& commit_timestamp, uint32_t xrepl_origin_id,
+    GetChangesResponsePB* resp, CDCThroughputMetrics* throughput_metrics) {
   CDCSDKProtoRecordPB* proto_record = resp->add_cdc_sdk_proto_records();
   RowMessage* row_message = proto_record->mutable_row_message();
 
   row_message->set_op(RowMessage_Op_COMMIT);
   row_message->set_commit_time(commit_timestamp);
+  if (xrepl_origin_id) {
+    row_message->set_xrepl_origin_id(xrepl_origin_id);
+  }
   // No need to add record_time to the Commit record since it does not have any intent associated
   // with it.
 
@@ -1383,6 +1392,8 @@ Status PopulateCDCSDKWriteRecord(
   auto table_name = tablet_ptr->metadata()->table_name();
   auto table_id = tablet_ptr->metadata()->table_id();
   SchemaPackingStorage* schema_packing_storage = &schema_packing_storages->at(table_id);
+  uint32_t xrepl_origin_id = 0;
+
   // TODO: This function and PopulateCDCSDKIntentRecord have a lot of code in common. They should
   // be refactored to use some common row-column iterator.
   int record_batch_idx = 0;
@@ -1486,6 +1497,11 @@ Status PopulateCDCSDKWriteRecord(
       CDCSDKOpIdPB* cdc_sdk_op_id_pb = proto_record->mutable_cdc_sdk_op_id();
       SetCDCSDKOpId(msg->id().term(), msg->id().index(), record_batch_idx, "", cdc_sdk_op_id_pb);
       is_packed_row_record = false;
+
+      // Populate PostgreSQL replication origin id if available.
+      if (msg->write().has_xrepl_origin_id()) {
+        xrepl_origin_id = msg->write().xrepl_origin_id();
+      }
 
       // Check whether operation is WRITE or DELETE.
       if (value_type == dockv::ValueEntryType::kTombstone && decoded_key.num_subkeys() == 0) {
@@ -1627,7 +1643,8 @@ Status PopulateCDCSDKWriteRecord(
     }
 
     FillCommitRecordForSingleShardTransaction(
-        OpId(msg->id().term(), msg->id().index()), msg->hybrid_time(), resp, throughput_metrics);
+        OpId(msg->id().term(), msg->id().index()), msg->hybrid_time(), xrepl_origin_id, resp,
+        throughput_metrics);
   }
 
   return Status::OK();
@@ -1769,8 +1786,8 @@ void FillBeginRecord(
 }
 
 void FillCommitRecord(
-    const OpId& op_id, const TransactionId& transaction_id, const uint64_t& commit_timestamp,
-    CDCSDKCheckpointPB* checkpoint, GetChangesResponsePB* resp,
+    const OpId& op_id, const TransactionId& transaction_id, uint32_t xrepl_origin_id,
+    const uint64_t& commit_timestamp, CDCSDKCheckpointPB* checkpoint, GetChangesResponsePB* resp,
     CDCThroughputMetrics* throughput_metrics) {
   CDCSDKProtoRecordPB* proto_record = resp->add_cdc_sdk_proto_records();
   RowMessage* row_message = proto_record->mutable_row_message();
@@ -1778,6 +1795,9 @@ void FillCommitRecord(
   row_message->set_op(RowMessage_Op_COMMIT);
   row_message->set_transaction_id(transaction_id.ToString());
   row_message->set_commit_time(commit_timestamp);
+  if (xrepl_origin_id) {
+    row_message->set_xrepl_origin_id(xrepl_origin_id);
+  }
   // No need to add record_time to the Commit record since it does not have any intent associated
   // with it.
 
@@ -1790,24 +1810,16 @@ void FillCommitRecord(
 }
 
 Status ProcessIntents(
-    const OpId& op_id,
-    const TransactionId& transaction_id,
-    const SubtxnSet& aborted,
-    const StreamMetadata& metadata,
-    const EnumOidLabelMap& enum_oid_label_map,
-    const CompositeAttsMap& composite_atts_map,
-    CDCSDKRequestSource request_source,
-    GetChangesResponsePB* resp,
-    ScopedTrackedConsumption* consumption,
-    CDCSDKCheckpointPB* checkpoint,
+    const OpId& op_id, const TransactionId& transaction_id, uint32_t xrepl_origin_id,
+    const SubtxnSet& aborted, const StreamMetadata& metadata,
+    const EnumOidLabelMap& enum_oid_label_map, const CompositeAttsMap& composite_atts_map,
+    CDCSDKRequestSource request_source, GetChangesResponsePB* resp,
+    ScopedTrackedConsumption* consumption, CDCSDKCheckpointPB* checkpoint,
     const std::shared_ptr<tablet::TabletPeer>& tablet_peer,
     std::vector<docdb::IntentKeyValueForCDC>* keyValueIntents,
-    docdb::ApplyTransactionState* stream_state,
-    client::YBClient* client,
-    SchemaDetailsMap* cached_schema_details,
-    TableSchemaPackingStorage* schema_packing_storages,
-    HybridTime commit_time,
-    CDCThroughputMetrics* throughput_metrics) {
+    docdb::ApplyTransactionState* stream_state, client::YBClient* client,
+    SchemaDetailsMap* cached_schema_details, TableSchemaPackingStorage* schema_packing_storages,
+    HybridTime commit_time, CDCThroughputMetrics* throughput_metrics) {
   auto tablet = VERIFY_RESULT(tablet_peer->shared_tablet());
   if (stream_state->key.empty() && stream_state->write_id == 0 &&
       FLAGS_cdc_populate_end_markers_transactions) {
@@ -1863,7 +1875,8 @@ Status ProcessIntents(
     if (FLAGS_cdc_populate_end_markers_transactions) {
       TEST_SYNC_POINT("FillCommitRecord::Start");
       FillCommitRecord(
-          op_id, transaction_id, commit_time.ToUint64(), checkpoint, resp, throughput_metrics);
+          op_id, transaction_id, xrepl_origin_id, commit_time.ToUint64(), checkpoint, resp,
+          throughput_metrics);
     }
   } else {
     SetKeyWriteId(reverse_index_key, write_id, checkpoint);
@@ -1873,30 +1886,23 @@ Status ProcessIntents(
 }
 
 Status ProcessIntentsWithInvalidSchemaRetry(
-    const OpId& op_id,
-    const TransactionId& transaction_id,
-    const SubtxnSet& aborted,
-    const StreamMetadata& metadata,
-    const EnumOidLabelMap& enum_oid_label_map,
-    const CompositeAttsMap& composite_atts_map,
-    CDCSDKRequestSource request_source,
-    GetChangesResponsePB* resp,
-    ScopedTrackedConsumption* consumption,
-    CDCSDKCheckpointPB* checkpoint,
+    const OpId& op_id, const TransactionId& transaction_id, uint32_t xrepl_origin_id,
+    const SubtxnSet& aborted, const StreamMetadata& metadata,
+    const EnumOidLabelMap& enum_oid_label_map, const CompositeAttsMap& composite_atts_map,
+    CDCSDKRequestSource request_source, GetChangesResponsePB* resp,
+    ScopedTrackedConsumption* consumption, CDCSDKCheckpointPB* checkpoint,
     const std::shared_ptr<tablet::TabletPeer>& tablet_peer,
     std::vector<docdb::IntentKeyValueForCDC>* keyValueIntents,
-    docdb::ApplyTransactionState* stream_state,
-    client::YBClient* client,
-    SchemaDetailsMap* cached_schema_details,
-    TableSchemaPackingStorage* schema_packing_storages,
-    HybridTime commit_time,
-    CDCThroughputMetrics* throughput_metrics) {
+    docdb::ApplyTransactionState* stream_state, client::YBClient* client,
+    SchemaDetailsMap* cached_schema_details, TableSchemaPackingStorage* schema_packing_storages,
+    HybridTime commit_time, CDCThroughputMetrics* throughput_metrics) {
   const auto& records_size_before = resp->cdc_sdk_proto_records_size();
 
   auto status = ProcessIntents(
-      op_id, transaction_id, aborted, metadata, enum_oid_label_map, composite_atts_map,
-      request_source, resp, consumption, checkpoint, tablet_peer, keyValueIntents, stream_state,
-      client, cached_schema_details, schema_packing_storages, commit_time, throughput_metrics);
+      op_id, transaction_id, xrepl_origin_id, aborted, metadata, enum_oid_label_map,
+      composite_atts_map, request_source, resp, consumption, checkpoint, tablet_peer,
+      keyValueIntents, stream_state, client, cached_schema_details, schema_packing_storages,
+      commit_time, throughput_metrics);
 
   if (!status.ok()) {
     VLOG_WITH_FUNC(1) << "Received error status: " << status.ToString()
@@ -1918,9 +1924,10 @@ Status ProcessIntentsWithInvalidSchemaRetry(
     }
 
     status = ProcessIntents(
-        op_id, transaction_id, aborted, metadata, enum_oid_label_map, composite_atts_map,
-        request_source, resp, consumption, checkpoint, tablet_peer, keyValueIntents, stream_state,
-        client, cached_schema_details, schema_packing_storages, commit_time, throughput_metrics);
+        op_id, transaction_id, xrepl_origin_id, aborted, metadata, enum_oid_label_map,
+        composite_atts_map, request_source, resp, consumption, checkpoint, tablet_peer,
+        keyValueIntents, stream_state, client, cached_schema_details, schema_packing_storages,
+        commit_time, throughput_metrics);
   }
 
   return status;
@@ -1970,7 +1977,7 @@ Status PopulateCDCSDKSnapshotRecord(
         if (col_schema.pg_type_oid() != 0 /*kInvalidOid*/) {
           RETURN_NOT_OK(docdb::SetValueFromQLBinaryWrapper(
               *value, col_schema.pg_type_oid(), enum_oid_label_map, composite_atts_map,
-              cdc_datum_message));
+              *cdc_datum_message));
         } else {
           cdc_datum_message->set_column_type(col_schema.pg_type_oid());
           cdc_datum_message->set_pg_type(col_schema.pg_type_oid());
@@ -2700,6 +2707,7 @@ Status GetChangesForCDCSDK(
     last_seen_op_id.term = from_op_id.term();
     last_seen_op_id.index = from_op_id.index();
     HybridTime commit_timestamp;
+    uint32_t xrepl_origin_id = 0;
 
     size_t next_checkpoint_index = 0;
     std::vector<std::shared_ptr<yb::consensus::LWReplicateMsg>> wal_records, all_checkpoints;
@@ -2736,6 +2744,9 @@ Status GetChangesForCDCSDK(
               << msg->id().ShortDebugString() << ", tablet_id: " << tablet_id
               << ", transaction_id: " << txn_id;
       commit_timestamp = HybridTime::FromPB(msg->transaction_state().commit_hybrid_time());
+      if (msg->transaction_state().has_xrepl_origin_id()) {
+        xrepl_origin_id = msg->transaction_state().xrepl_origin_id();
+      }
 
       op_id.term = msg->id().term();
       op_id.index = msg->id().index();
@@ -2753,13 +2764,16 @@ Status GetChangesForCDCSDK(
     RETURN_NOT_OK(reverse_index_key_slice.consume_byte(dockv::KeyEntryTypeAsChar::kTransactionId));
     auto transaction_id = VERIFY_RESULT(DecodeTransactionId(&reverse_index_key_slice));
 
-    auto aborted_subtxns = VERIFY_RESULT(SubtxnSet::FromPB(
-      wal_records[wal_segment_index]->transaction_state().aborted().set()));
+    auto aborted_subtxns =
+        FLAGS_cdc_enable_savepoint_rollback_filtering
+            ? VERIFY_RESULT(SubtxnSet::FromPB(
+                  wal_records[wal_segment_index]->transaction_state().aborted().set()))
+            : SubtxnSet();
 
     RETURN_NOT_OK(ProcessIntentsWithInvalidSchemaRetry(
-        op_id, transaction_id, aborted_subtxns, stream_metadata, enum_oid_label_map,
-        composite_atts_map, request_source, resp, &consumption, &checkpoint, tablet_peer,
-        &keyValueIntents, &stream_state, client, cached_schema_details,
+        op_id, transaction_id, xrepl_origin_id, aborted_subtxns, stream_metadata,
+        enum_oid_label_map, composite_atts_map, request_source, resp, &consumption, &checkpoint,
+        tablet_peer, &keyValueIntents, &stream_state, client, cached_schema_details,
         schema_packing_storages, commit_timestamp, throughput_metrics));
 
     if (checkpoint.write_id() == 0 && checkpoint.key().empty() && wal_records.size()) {
@@ -2913,8 +2927,10 @@ Status GetChangesForCDCSDK(
               auto txn_id = VERIFY_RESULT(
                   FullyDecodeTransactionId(msg->transaction_state().transaction_id()));
 
-              auto aborted_subtxns = VERIFY_RESULT(
-                SubtxnSet::FromPB(msg->transaction_state().aborted().set()));
+              auto aborted_subtxns =
+                  FLAGS_cdc_enable_savepoint_rollback_filtering
+                      ? VERIFY_RESULT(SubtxnSet::FromPB(msg->transaction_state().aborted().set()))
+                      : SubtxnSet();
 
               // It is possible for a transaction to have two APPLYs in WAL. This check
               // prevents us from streaming the same transaction twice in the same GetChanges
@@ -2932,6 +2948,10 @@ Status GetChangesForCDCSDK(
               docdb::ApplyTransactionState new_stream_state;
 
               *commit_timestamp = HybridTime::FromPB(msg->transaction_state().commit_hybrid_time());
+              uint32_t xrepl_origin_id = 0;
+              if (msg->transaction_state().has_xrepl_origin_id()) {
+                xrepl_origin_id = msg->transaction_state().xrepl_origin_id();
+              }
               op_id.term = msg->id().term();
               op_id.index = msg->id().index();
 
@@ -2940,11 +2960,11 @@ Status GetChangesForCDCSDK(
                       << ", transaction_id: " << txn_id << ", commit_time: " << *commit_timestamp;
 
               RETURN_NOT_OK(ProcessIntentsWithInvalidSchemaRetry(
-                  op_id, txn_id, aborted_subtxns,
-                  stream_metadata, enum_oid_label_map, composite_atts_map,
-                  request_source, resp, &consumption, &checkpoint, tablet_peer, &intents,
-                  &new_stream_state, client, cached_schema_details, schema_packing_storages,
-                  *commit_timestamp, throughput_metrics));
+                  op_id, txn_id, xrepl_origin_id, aborted_subtxns, stream_metadata,
+                  enum_oid_label_map, composite_atts_map, request_source, resp, &consumption,
+                  &checkpoint, tablet_peer, &intents, &new_stream_state, client,
+                  cached_schema_details, schema_packing_storages, *commit_timestamp,
+                  throughput_metrics));
               streamed_txns.insert(txn_id.ToString());
 
               if (new_stream_state.write_id != 0 && !new_stream_state.key.empty()) {
@@ -3252,7 +3272,7 @@ Status GetChangesForCDCSDK(
           << ", tablet_id: " << tablet_id;
 
   return Status::OK();
-}
+}  // NOLINT(readability/fn_size)
 
 }  // namespace cdc
 }  // namespace yb

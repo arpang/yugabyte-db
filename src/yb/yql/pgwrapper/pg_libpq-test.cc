@@ -55,6 +55,7 @@
 #include "yb/util/path_util.h"
 #include "yb/util/random_util.h"
 #include "yb/util/scope_exit.h"
+#include "yb/util/status_format.h"
 #include "yb/util/status_log.h"
 #include "yb/util/test_thread_holder.h"
 #include "yb/util/tsan_util.h"
@@ -81,6 +82,7 @@ METRIC_DECLARE_counter(transaction_not_found);
 METRIC_DECLARE_entity(server);
 METRIC_DECLARE_counter(rpc_inbound_calls_created);
 METRIC_DECLARE_counter(rpc_inbound_calls_failed);
+METRIC_DECLARE_histogram(handler_latency_yb_tserver_TabletServerService_Read);
 
 namespace yb::pgwrapper {
 
@@ -154,6 +156,9 @@ class PgLibPqTest : public LibPqTestBase {
   void TestSecondaryIndexInsertSelect();
 
   Status TestEmbeddedIndexScanOptimization(bool is_colocated_with_tablespaces);
+
+  Status TestPagingReadRestart(
+      size_t alter_count, size_t reader_count, bool expect_retryable_errors);
 
   void KillPostmasterProcessOnTservers();
 
@@ -1280,7 +1285,7 @@ Result<TableId> GetColocationOrTablegroupParentTableId(
     const std::string& database_name,
     const std::string& tablegroup_id) {
   master::GetNamespaceInfoResponsePB resp;
-  Status s = client->GetNamespaceInfo("", database_name, YQL_DATABASE_PGSQL, &resp);
+  Status s = client->GetNamespaceInfo(database_name, YQL_DATABASE_PGSQL, &resp);
   if (!s.ok()) {
     return s;
   }
@@ -3278,36 +3283,44 @@ class CoordinatedRunner {
 
 } // namespace
 
-TEST_F(PgLibPqTest, PagingReadRestart) {
-  // TODO(#28042): Enable deadlock detection once the false deadlock issue (with object locking
-  // enabled) is addressed.
-  cluster_->AddExtraFlagOnTServers("disable_deadlock_detection", "true");
-  cluster_->Shutdown(ExternalMiniCluster::NodeSelectionMode::TS_ONLY);
-  ASSERT_OK(cluster_->Restart());
-
-  auto conn = ASSERT_RESULT(Connect());
-  ASSERT_OK(conn.Execute("CREATE TABLE t (key INT PRIMARY KEY)"));
-  ASSERT_OK(conn.Execute("INSERT INTO t SELECT generate_series(1, 5000)"));
-  const size_t reader_count = 20;
+Status PgLibPqTest::TestPagingReadRestart(
+    size_t alter_count, size_t reader_count, bool expect_retryable_errors) {
+  auto conn = VERIFY_RESULT(Connect());
+  RETURN_NOT_OK(conn.Execute("CREATE TABLE t (key INT PRIMARY KEY)"));
+  RETURN_NOT_OK(conn.Execute("INSERT INTO t SELECT generate_series(1, 5000)"));
   std::vector<CoordinatedRunner::RepeatableCommand> commands;
-  commands.reserve(reader_count + 1);
-  commands.emplace_back(
-      [connection = std::make_shared<PGConn>(ASSERT_RESULT(Connect()))] () -> Status {
-        RETURN_NOT_OK(connection->Execute("ALTER TABLE t ADD COLUMN v INT DEFAULT 100"));
-        RETURN_NOT_OK(connection->Execute("ALTER TABLE t DROP COLUMN v"));
-        return Status::OK();
-  });
+  commands.reserve(reader_count + alter_count);
+  for (size_t i = 0; i < alter_count; ++i) {
+    commands.emplace_back(
+        [connection = std::make_shared<PGConn>(VERIFY_RESULT(Connect())), i] -> Status {
+          RETURN_NOT_OK(connection->ExecuteFormat(
+              "ALTER TABLE t ADD COLUMN v$0 INT DEFAULT 100", i));
+          return connection->ExecuteFormat("ALTER TABLE t DROP COLUMN v$0", i);
+    });
+  }
   for (size_t i = 0; i < reader_count; ++i) {
     commands.emplace_back(
-        [connection = std::make_shared<PGConn>(ASSERT_RESULT(Connect()))] () -> Status {
+        [connection = std::make_shared<PGConn>(VERIFY_RESULT(Connect())),
+         expect_retryable_errors] -> Status {
           const auto res = connection->Fetch("SELECT key FROM t");
+          if (!expect_retryable_errors) {
+            return ResultToStatus(res);
+          }
           return (res.ok() || IsRetryable(res.status())) ? Status::OK() : res.status();
     });
   }
   CoordinatedRunner runner(std::move(commands));
   std::this_thread::sleep_for(10s);
   runner.Stop();
-  ASSERT_FALSE(runner.HasError());
+  SCHECK(!runner.HasError(), IllegalState, "Expected to not see any error");
+  return Status::OK();
+}
+
+TEST_F(PgLibPqTest, PagingReadRestart) {
+  const auto is_object_locking_enabled = ASSERT_RESULT(
+      cluster_->tablet_server(0)->GetFlag("enable_object_locking_for_table_locks")) == "true";
+  ASSERT_OK(TestPagingReadRestart(
+      1 /* alter_count */, 20 /* reader_count */, !is_object_locking_enabled));
 }
 
 TEST_F(PgLibPqTest, CollationRangePresplit) {
@@ -3353,6 +3366,22 @@ Result<string> PgLibPqTest::GetPostmasterPidViaShell(pid_t backend_pid) {
 Result<string> PgLibPqTest::GetPostmasterPidViaShell(PGConn* conn) {
   auto backend_pid = VERIFY_RESULT(conn->FetchRow<int32_t>("SELECT pg_backend_pid()"));
   return GetPostmasterPidViaShell(static_cast<pid_t>(backend_pid));
+}
+
+class PgLibPqConcurrentDdlDml : public PgLibPqTest {
+ public:
+  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
+    options->extra_tserver_flags.push_back(Format("--enable_object_locking_for_table_locks=true"));
+    options->extra_tserver_flags.push_back(Format("--ysql_yb_ddl_transaction_block_enabled=true"));
+    options->extra_tserver_flags.push_back(
+        Format("--ysql_pg_conf_csv=yb_fallback_to_legacy_catalog_read_time=false"));
+    PgLibPqTest::UpdateMiniClusterOptions(options);
+  }
+};
+
+TEST_F(PgLibPqConcurrentDdlDml, YB_DISABLE_TEST_IN_TSAN(Simple)) {
+  ASSERT_OK(TestPagingReadRestart(
+      5 /* alter_count */, 15 /* reader_count */, false /* expect_retryable_errors */));
 }
 
 // The motive of this test is to prove that when a postgres backend crashes
@@ -3931,8 +3960,7 @@ TEST_F(PgOidCollisionReservedNormalOid, PgOidCollisionSystemPostgresTest) {
   ASSERT_TRUE(user_created_db_oids == expected) << yb::ToString(user_created_db_oids);
   auto client = ASSERT_RESULT(cluster_->CreateClient());
   master::GetNamespaceInfoResponsePB namespace_info;
-  ASSERT_OK(client->GetNamespaceInfo(
-      "" /* namespace_id */, "system_postgres", YQL_DATABASE_PGSQL, &namespace_info));
+  ASSERT_OK(client->GetNamespaceInfo("system_postgres", YQL_DATABASE_PGSQL, &namespace_info));
 
   const auto db_oid = CHECK_RESULT(GetPgsqlDatabaseOid(
       namespace_info.namespace_().id()));
@@ -4262,6 +4290,12 @@ TEST_F(PgLibPqTest, CatalogCacheIdMissMetricsTest) {
 }
 
 class PgLibPqAmopNegCacheTest : public PgLibPqTest {
+ public:
+  enum class NegCacheTestType {
+    kPreload,
+    kNoPreload,
+    kNegCache
+  };
  protected:
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     options->extra_tserver_flags.emplace_back(
@@ -4269,7 +4303,7 @@ class PgLibPqAmopNegCacheTest : public PgLibPqTest {
     PgLibPqTest::UpdateMiniClusterOptions(options);
   }
 
-  void TestAmopNegCacheMiss(bool preloaded) {
+  void TestAmopNegCacheMiss(NegCacheTestType test_type) {
     auto conn = ASSERT_RESULT(Connect());
     ASSERT_OK(conn.Execute("CREATE TABLE test(k TEXT PRIMARY KEY)"));
 
@@ -4288,7 +4322,18 @@ class PgLibPqAmopNegCacheTest : public PgLibPqTest {
     int64_t value1 = ASSERT_RESULT(runQueryAndGetMetricLambda());
     int64_t value2 = ASSERT_RESULT(runQueryAndGetMetricLambda());
 
-    ASSERT_GT(value2, value1);
+    switch (test_type) {
+      case NegCacheTestType::kNegCache:
+        // Negative caching enabled: there shouldn't be any further
+        // cache misses since the negative cache entry should be present.
+        ASSERT_EQ(value2, value1);
+      break;
+      case NegCacheTestType::kPreload: FALLTHROUGH_INTENDED;
+      case NegCacheTestType::kNoPreload:
+        // Without negative caching, we should see a cache miss here.
+        ASSERT_GT(value2, value1);
+        break;
+    }
 
     LOG(INFO) << "Testing invalid values for yb_neg_catcache_ids";
     ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='52252'"),
@@ -4302,18 +4347,35 @@ class PgLibPqAmopNegCacheTest : public PgLibPqTest {
     ASSERT_OK(conn2.Execute("SET yb_neg_catcache_ids='3'"));
     int64_t value3 = ASSERT_RESULT(runQueryAndGetMetricLambda());
 
-    if (preloaded) {
-      // When preloaded, allowing neg caching already returns a neg cache hit
-      // so we should see no further misses on pg_amop at this point.
-      ASSERT_EQ(value3, value2);
-    } else {
-      // When not preloaded, we need one additional query to create the neg
-      // cache entry, after which we should see no further misses.
-      ASSERT_GT(value3, value2);
+    switch (test_type) {
+      case NegCacheTestType::kNegCache:
+        // Negative caching enabled: there shouldn't be any further
+        // cache misses since the negative cache entry should be present.
+        ASSERT_EQ(value2, value1);
+      break;
+      case NegCacheTestType::kPreload:
+        // When preloaded, allowing neg caching already returns a neg cache hit
+        // so we should see no further misses on pg_amop at this point.
+        ASSERT_EQ(value3, value2);
+        break;
+      case NegCacheTestType::kNoPreload:
+        // When not preloaded, we need one additional query to create the neg
+        // cache entry, after which we should see no further misses.
+        ASSERT_GT(value3, value2);
 
-      int64_t value4 = ASSERT_RESULT(runQueryAndGetMetricLambda());
-      ASSERT_EQ(value4, value3);
+        int64_t value4 = ASSERT_RESULT(runQueryAndGetMetricLambda());
+        ASSERT_EQ(value4, value3);
+        break;
     }
+  }
+};
+
+class PgLibPqAmopNoPreloadNegCacheTest : public PgLibPqAmopNegCacheTest {
+ protected:
+  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
+    options->extra_tserver_flags.emplace_back(
+        "--ysql_pg_conf_csv=yb_test_make_all_ddl_statements_incrementing=false");
+    PgLibPqTest::UpdateMiniClusterOptions(options);
   }
 };
 
@@ -4321,18 +4383,28 @@ class PgLibPqAmopPreloadNegCacheTest : public PgLibPqAmopNegCacheTest {
  protected:
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     options->extra_tserver_flags.emplace_back(
+        "--ysql_pg_conf_csv=yb_test_make_all_ddl_statements_incrementing=false");
+    options->extra_tserver_flags.emplace_back(
         "--ysql_catalog_preload_additional_table_list=pg_amop");
-    PgLibPqAmopNegCacheTest::UpdateMiniClusterOptions(options);
+    PgLibPqTest::UpdateMiniClusterOptions(options);
   }
 };
 
+// Default behavior: negative caching is enabled.
 TEST_F_EX(PgLibPqTest, PgAmopNegCacheTest, PgLibPqAmopNegCacheTest) {
-  TestAmopNegCacheMiss(false);
+  TestAmopNegCacheMiss(NegCacheTestType::kNegCache);
 }
 
-TEST_F_EX(PgLibPqTest, PgAmopPreloadNegCacheTest, PgLibPqAmopPreloadNegCacheTest) {
-  TestAmopNegCacheMiss(true);
+// Disable negative caching.
+TEST_F_EX(PgLibPqTest, PgAmopNoPreloadCacheTest, PgLibPqAmopNoPreloadNegCacheTest) {
+  TestAmopNegCacheMiss(NegCacheTestType::kNoPreload);
 }
+
+// Disable negative caching and preload pg_amop.
+TEST_F_EX(PgLibPqTest, PgAmopPreloadCacheTest, PgLibPqAmopPreloadNegCacheTest) {
+  TestAmopNegCacheMiss(NegCacheTestType::kPreload);
+}
+
 
 class PgLibPqPgInheritsNegCacheTest : public PgLibPqTest {
  protected:
@@ -4547,11 +4619,21 @@ TEST_F(PgLibPqCreateSequenceNamespaceRaceTest, CreateSequenceNamespaceRaceTest) 
   auto conn2 = ASSERT_RESULT(Connect());
   TestThreadHolder thread_holder;
   thread_holder.AddThreadFunctor([&conn1]() -> void {
-    ASSERT_OK(conn1.Execute("CREATE TABLE t1(k SERIAL, v INT)"));
+    // Retry on 40001 (serialization failure) which can occur due to
+    // running CREATE TABLE concurrently with the other thread.
+    Status s;
+    do {
+      s = conn1.Execute("CREATE TABLE t1(k SERIAL, v INT)");
+    } while (!s.ok() && HasTransactionError(s));
+    ASSERT_OK(s);
     ASSERT_OK(conn1.Execute("INSERT INTO t1(v) VALUES(1)"));
   });
   thread_holder.AddThreadFunctor([&conn2]() -> void {
-    ASSERT_OK(conn2.Execute("CREATE TABLE t2(k SERIAL, v INT)"));
+    Status s;
+    do {
+      s = conn2.Execute("CREATE TABLE t2(k SERIAL, v INT)");
+    } while (!s.ok() && HasTransactionError(s));
+    ASSERT_OK(s);
     ASSERT_OK(conn2.Execute("INSERT INTO t2(v) VALUES(2)"));
   });
   thread_holder.WaitAndStop(10s * kTimeMultiplier);
@@ -5155,6 +5237,160 @@ TEST_F_EX(PgLibPqTest, ConcurrentAnalyzeWithDDL, PgLibPqTestTableLocksDisabled) 
   stop = true;
   analyze_thread.join();
   ASSERT_NE(conn.ConnStatus(), CONNECTION_BAD);
+}
+
+namespace {
+
+// Captures command output and checks if it contains beta warning
+void ValidateExtensionOutput(PGConn* conn, const std::string& command, bool expect_beta_warning) {
+  std::string output;
+  auto notice_receiver = [](void* arg, const PGresult* res) {
+    auto* output_ptr = static_cast<std::string*>(arg);
+    const char* msg = PQresultErrorField(res, PG_DIAG_MESSAGE_PRIMARY);
+    if (msg) {
+      *output_ptr += std::string(msg) + "\n";
+    }
+  };
+
+  PQsetNoticeReceiver(conn->get(), notice_receiver, &output);
+  auto status = conn->Execute(command);
+  ASSERT_OK(status);
+
+  if (expect_beta_warning) {
+    ASSERT_STR_CONTAINS(output, "'pg_stat_monitor' is a beta feature");
+  } else {
+    ASSERT_STR_NOT_CONTAINS(output, "'pg_stat_monitor' is a beta feature");
+  }
+}
+
+} // namespace
+
+// Test that installing pg_stat_monitor through CREATE EXTENSION and
+// CREATE EXTENSION IF NOT EXISTS commands gives a beta warning on default.
+// Other extensions should not give warnings.
+TEST_F(PgLibPqTest, PgStatMonitorBetaWarning) {
+  auto conn = ASSERT_RESULT(Connect());
+
+  // pg_stat_monitor should give warning on CREATE EXTENSION
+  ASSERT_OK(conn.Execute("DROP EXTENSION IF EXISTS pg_stat_monitor"));
+  ValidateExtensionOutput(&conn, "CREATE EXTENSION pg_stat_monitor", true);
+
+  // pg_stat_monitor should give warning on CREATE EXTENSION IF NOT EXISTS
+  ASSERT_OK(conn.Execute("DROP EXTENSION IF EXISTS pg_stat_monitor"));
+  ValidateExtensionOutput(&conn, "CREATE EXTENSION IF NOT EXISTS pg_stat_monitor", true);
+
+  // Other extensions should NOT give warnings
+  ASSERT_OK(conn.Execute("DROP EXTENSION IF EXISTS pgcrypto"));
+  ValidateExtensionOutput(&conn, "CREATE EXTENSION pgcrypto", false);
+
+  ASSERT_OK(conn.Execute("DROP EXTENSION IF EXISTS fuzzystrmatch"));
+  ValidateExtensionOutput(&conn, "CREATE EXTENSION IF NOT EXISTS fuzzystrmatch", false);
+}
+
+// Test dumping tablet data works for leaders and followers and each returns the same XOR hash.
+TEST_F(PgLibPqTest, DumpTabletData) {
+  ASSERT_OK(EnsureClientCreated());
+
+  const auto namespace_name = "yugabyte";
+  auto conn = ASSERT_RESULT(cluster_->ConnectToDB(namespace_name));
+  const auto table_name = "tbl1";
+  ASSERT_OK(conn.ExecuteFormat(
+      "CREATE TABLE $0 (id INT PRIMARY KEY, name TEXT) SPLIT INTO 1 TABLETS", table_name));
+  ASSERT_OK(conn.ExecuteFormat(
+      "INSERT INTO $0 (id, name) SELECT i, 'test' || i FROM generate_series(1, 10) i", table_name));
+
+  std::vector<TabletId> tablet_ids;
+  auto table_names = ASSERT_RESULT(client_->ListTables(table_name));
+  ASSERT_EQ(table_names.size(), 1);
+  const auto yb_table_name = table_names.front();
+  ASSERT_OK(client_->GetTablets(yb_table_name, 0 /* max_tablets */, &tablet_ids, NULL));
+  ASSERT_EQ(tablet_ids.size(), 1);
+  const auto tablet_id = tablet_ids.front();
+
+  auto tablet_leader_index = ASSERT_RESULT(cluster_->GetTabletLeaderIndex(tablet_id));
+  auto leader_tserver = cluster_->tablet_server(tablet_leader_index);
+  auto leader_proxy = cluster_->GetProxy<tserver::TabletServerServiceProxy>(leader_tserver);
+
+  LOG(INFO) << "Reading from tablet " << tablet_id << " on tserver " << leader_tserver->uuid();
+
+  tserver::DumpTabletDataRequestPB req;
+  req.set_tablet_id(tablet_id);
+  req.set_dest_path("/tmp/dump_tablet_data.txt");
+  tserver::DumpTabletDataResponsePB leader_resp;
+  rpc::RpcController rpc;
+  rpc.set_timeout(10s);
+
+  ASSERT_OK(leader_proxy.DumpTabletData(req, &leader_resp, &rpc));
+  LOG(INFO) << "DumpTabletData response: " << leader_resp.DebugString();
+  ASSERT_FALSE(leader_resp.has_error());
+
+  // Wait for rows to get replicated to followers.
+  SleepFor(1s * kTimeMultiplier);
+
+  for (size_t i = 0; i < cluster_->num_tablet_servers(); i++) {
+    if (i == tablet_leader_index) {
+      continue;
+    }
+    auto follower_tserver = cluster_->tablet_server(i);
+    auto follower_proxy = cluster_->GetProxy<tserver::TabletServerServiceProxy>(follower_tserver);
+    tserver::DumpTabletDataResponsePB follower_resp;
+    rpc::RpcController rpc;
+    rpc.set_timeout(10s);
+    ASSERT_OK(follower_proxy.DumpTabletData(req, &follower_resp, &rpc));
+    LOG(INFO) << "DumpTabletData response from follower " << follower_tserver->uuid() << ": "
+              << follower_resp.DebugString();
+    ASSERT_FALSE(follower_resp.has_error());
+    ASSERT_EQ(leader_resp.row_count(), follower_resp.row_count());
+    ASSERT_EQ(leader_resp.xor_hash(), follower_resp.xor_hash());
+  }
+}
+
+// Test yb-admin get_table_hash command for tables with different number of tablets, but same data
+// returns the same XOR hash.
+TEST_F(PgLibPqTest, TestGetTableXorHash) {
+  ASSERT_OK(EnsureClientCreated());
+
+  const auto namespace_name = "yugabyte";
+  auto conn = ASSERT_RESULT(Connect());
+
+  const auto tbl1 = "tbl1";
+  ASSERT_OK(conn.ExecuteFormat(
+      "CREATE TABLE $0 (id INT PRIMARY KEY, name TEXT) SPLIT INTO 1 TABLETS", tbl1));
+  ASSERT_OK(conn.ExecuteFormat(
+      "INSERT INTO $0 (id, name) SELECT i, 'test' || i FROM generate_series(1, 10) i", tbl1));
+
+  const auto tbl2 = "tbl2";
+  ASSERT_OK(conn.ExecuteFormat(
+      "CREATE TABLE $0 (id INT PRIMARY KEY, name TEXT) SPLIT INTO 5 TABLETS", tbl2));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO $0 SELECT * FROM $1", tbl2, tbl1));
+
+  std::string tbl1_id =
+      ASSERT_RESULT(GetTableIdByTableName(client_.get(), namespace_name, tbl1));
+  std::string tbl2_id =
+      ASSERT_RESULT(GetTableIdByTableName(client_.get(), namespace_name, tbl2));
+  auto tbl1_output = ASSERT_RESULT(RunYbAdminCommand(Format("get_table_hash $0", tbl1_id)));
+  auto tbl2_output = ASSERT_RESULT(RunYbAdminCommand(Format("get_table_hash $0", tbl2_id)));
+
+  auto extract_from_output = [&](const std::string& output) -> std::pair<uint64_t, uint64_t> {
+    LOG(INFO) << "Command output: " << output;
+    // Extract the row count from the output.
+    // Total row count: 100
+    // Total XOR hash: 1234567890
+    const auto total_row_count_prefix = "Total row count: ";
+    const auto total_xor_hash_prefix = "Total XOR hash: ";
+    auto row_count_pos = output.find(total_row_count_prefix);
+    auto xor_hash_pos = output.find(total_xor_hash_prefix);
+    auto row_count = std::stoull(output.substr(row_count_pos + strlen(total_row_count_prefix)));
+    auto xor_hash = std::stoull(output.substr(xor_hash_pos + strlen(total_xor_hash_prefix)));
+    LOG(INFO) << "Row count: " << row_count << ", XOR hash: " << xor_hash;
+    return std::make_pair(row_count, xor_hash);
+  };
+  auto [tbl1_row_count, tbl1_xor_hash] = extract_from_output(tbl1_output);
+  auto [tbl2_row_count, tbl2_xor_hash] = extract_from_output(tbl2_output);
+  ASSERT_EQ(tbl1_row_count, 10);
+  ASSERT_NE(tbl1_xor_hash, 0);
+  ASSERT_EQ(tbl2_row_count, 10);
+  ASSERT_EQ(tbl1_xor_hash, tbl2_xor_hash);
 }
 
 } // namespace yb::pgwrapper

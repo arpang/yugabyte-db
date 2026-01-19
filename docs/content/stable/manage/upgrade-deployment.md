@@ -62,7 +62,19 @@ To upgrade YugabyteDB to a version based on a different version of PostgreSQL (f
   - If you have PITR enabled, you must disable it before performing an upgrade. Re-enable it only after the upgrade is either finalized or rolled back.
   - After the upgrade, PITR cannot be done to a time before the upgrade.
 
-- For more information, refer to [Upgrade FAQ](/stable/faq/operations-faq/#upgrade).
+- YSQL
+
+  - For additional information on upgrading universes that have Enhanced PostgreSQL Compatibility Mode, refer to [Enhanced PostgreSQL Compatibility Mode](../../reference/configuration/postgresql-compatibility/).
+
+  - For information on upgrading or enabling cost-based optimizer, refer to [Enable cost-based optimizer](../../best-practices-operations/ysql-yb-enable-cbo/).
+
+    If you upgrade to v2025.2 and the universe already has cost-based optimizer enabled, the following features are enabled by default:
+
+    - Auto Analyze (ysql_enable_auto_analyze=true)
+    - YugabyteDB bitmap scan (yb_enable_bitmapscan=true)
+    - Parallel query (yb_enable_parallel_append=true)
+
+For more information, refer to [Upgrade FAQ](/stable/faq/operations-faq/#upgrade).
 
 ## Upgrade YugabyteDB cluster
 
@@ -189,10 +201,10 @@ New YugabyteDB features may require changes to the format of data that is sent o
     Current config version: 1
     ```
 
-    {{< note title="Note" >}}
+    {{< note title="Promoting AutoFlags" >}}
+`promote_auto_flags` is a cluster-level operation; you don't need to run it on every node.
 
-- `promote_auto_flags` is a cluster-level operation; you don't need to run it on every node.
-- Before promoting AutoFlags, ensure that all YugabyteDB processes in the cluster have been upgraded to the new version. Process running an old version may fail to connect to the cluster after the AutoFlags have been promoted.
+Before promoting AutoFlags, ensure that all YugabyteDB processes in the cluster have been upgraded to the new version. A process running an old version may fail to connect to the cluster after AutoFlags have been promoted.
     {{< /note >}}
 
 1. Wait at least 10 seconds (`FLAGS_auto_flags_apply_delay_ms`) for the new AutoFlags to be propagated and applied on all YugabyteDB processes.

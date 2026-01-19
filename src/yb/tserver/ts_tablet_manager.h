@@ -106,9 +106,8 @@ using rocksdb::MemoryMonitor;
 typedef std::unordered_map<TabletId, std::string> TransitionInProgressMap;
 
 class TransitionInProgressDeleter;
-struct TabletCreationMetaData;
-typedef boost::container::static_vector<TabletCreationMetaData, kNumSplitParts>
-    SplitTabletsCreationMetaData;
+struct TabletCreationMetadata;
+typedef std::vector<TabletCreationMetadata> SplitTabletsCreationMetadata;
 
 typedef Callback<void(tablet::TabletPeerPtr)> ConsensusChangeCallback;
 
@@ -396,7 +395,7 @@ class TSTabletManager : public tserver::TabletPeerLookupIf, public tablet::Table
 
   bool IsTabletInTransition(const TabletId& tablet_id) const;
 
-  TabletServer* server() { return server_; }
+  TabletServer* server() const { return server_; }
 
   MemoryMonitor* memory_monitor() { return tablet_options_.memory_monitor.get(); }
 
@@ -565,7 +564,7 @@ class TSTabletManager : public tserver::TabletPeerLookupIf, public tablet::Table
       const tablet::RaftGroupMetadata& source_tablet_meta, const TabletId& tablet_id, Env* env);
 
   Status StartSubtabletsSplit(
-      const tablet::RaftGroupMetadata& source_tablet_meta, SplitTabletsCreationMetaData* tcmetas);
+      const tablet::RaftGroupMetadata& source_tablet_meta, SplitTabletsCreationMetadata* tcmetas);
 
   Status DoApplyCloneTablet(
       tablet::CloneOperation* operation, log::Log* raft_log,

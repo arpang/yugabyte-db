@@ -86,6 +86,13 @@ YbcReadPointHandle GetCatalogSnapshotReadPoint(YbcPgOid table_oid, bool create_i
   return 0;
 }
 
+uint16_t GetSessionReplicationOriginId() {
+  return 0;
+}
+
+void CheckForInterruptsNoOp() {
+}
+
 } // namespace
 
 PggateTest::PggateTest() = default;
@@ -114,6 +121,18 @@ struct varlena* PggateTestCStringToTextWithLen(const char* c, int size) {
   memcpy(buf, c, size);
   buf[size] = 0;
   return reinterpret_cast<struct varlena*>(buf);
+}
+
+void *PggateTestSwitchMemoryContext(void* context) {
+  return context;
+}
+
+void *PggateTestCreateMemContext(void* parent, const char*name) {
+  static MemoryContext memctx;
+  return static_cast<void*>(&memctx);
+}
+
+void PggateTestDeleteMemContext(void* context) {
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -152,7 +171,9 @@ Status PggateTest::Init(
   RETURN_NOT_OK(CreateCluster(num_tablet_servers, replication_factor));
 
   // Init PgGate API.
-  CHECK_YBC_STATUS(YBCInit(test_name, PggateTestAlloc, PggateTestCStringToTextWithLen));
+  CHECK_YBC_STATUS(YBCInit(test_name, PggateTestAlloc, PggateTestCStringToTextWithLen,
+                           PggateTestSwitchMemoryContext, PggateTestCreateMemContext,
+                           PggateTestDeleteMemContext));
 
   YbcPgCallbacks callbacks;
 
@@ -163,20 +184,21 @@ Status PggateTest::Init(
   callbacks.GetDebugQueryString = &GetDebugQueryStringStub;
   callbacks.PgstatReportWaitStart = &PgstatReportWaitStartNoOp;
   callbacks.GetCatalogSnapshotReadPoint = &GetCatalogSnapshotReadPoint;
+  callbacks.GetSessionReplicationOriginId = &GetSessionReplicationOriginId;
+  callbacks.CheckForInterrupts = &CheckForInterruptsNoOp;
 
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_pggate_tserver_shared_memory_uuid) =
       cluster_->tablet_server(0)->instance_id().permanent_uuid();
 
-  ash_metadata.query_id = 5; // to make sure a DCHECK passes during metadata serilazation
+  ash_metadata.query_id = 5; // to make sure a DCHECK passes during metadata serialization
   ash_config.metadata = &ash_metadata;
 
   YbcPgInitPostgresInfo init_info{
     .parallel_leader_session_id = nullptr,
     .shared_data = &shared_data_placeholder};
-  YBCInitPgGate(
-      YBCTestGetTypeTable(), &callbacks, &init_info, &ash_config);
-
-  CHECK_YBC_STATUS(YBCPgInitSession(session_stats, false /* is_binary_upgrade */));
+  CHECK_YBC_STATUS(YBCInitPgGate(
+      YBCTestGetTypeTable(), &callbacks, &init_info, &ash_config, session_stats,
+      false /* is_binary_upgrade */));
   if (should_create_db) {
     CreateDB();
   }

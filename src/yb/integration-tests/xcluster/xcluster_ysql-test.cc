@@ -152,22 +152,12 @@ class XClusterYsqlTest : public XClusterYsqlTestBase {
     return Status::OK();
   }
 
-  Result<YBTableName> CreateMaterializedView(Cluster* cluster, const YBTableName& table) {
-    auto conn = EXPECT_RESULT(cluster->ConnectToDB(table.namespace_name()));
-    RETURN_NOT_OK(conn.ExecuteFormat(
-        "CREATE MATERIALIZED VIEW $0_mv AS SELECT COUNT(*) FROM $0", table.table_name()));
-    return GetYsqlTable(
-        cluster, table.namespace_name(), table.pgschema_name(), table.table_name() + "_mv");
-  }
-
   void TestDropTableOnConsumerThenProducer(bool restart_master);
   void TestDropTableOnProducerThenConsumer(bool restart_master);
 
   MonoDelta MaxAsyncTaskWaitDuration() {
     return 3s * FLAGS_cdc_parent_tablet_deletion_task_retry_secs * kTimeMultiplier;
   }
-
- private:
 };
 
 TEST_F(XClusterYsqlTest, GenerateSeries) {
@@ -345,7 +335,8 @@ class XClusterYSqlTestConsistentTransactionsTest : public XClusterYsqlTest {
     auto catalog_manager =
         &CHECK_NOTNULL(VERIFY_RESULT(cluster->GetLeaderMiniMaster()))->catalog_manager();
     return catalog_manager->SplitTablet(
-        tablet_id, master::ManualSplit::kTrue, catalog_manager->GetLeaderEpochInternal());
+        tablet_id, master::ManualSplit::kTrue, cluster->GetSplitFactor(),
+        catalog_manager->GetLeaderEpochInternal());
   }
 
   Status SetupReplicationAndWaitForValidSafeTime() {
@@ -2033,13 +2024,15 @@ TEST_F(XClusterYsqlTest, SetupReplicationWithMaterializedViews) {
   std::shared_ptr<client::YBTable> producer_mv;
   std::shared_ptr<client::YBTable> consumer_mv;
   ASSERT_OK(InsertRowsInProducer(0, 5));
-  ASSERT_OK(producer_client()->OpenTable(
-      ASSERT_RESULT(CreateMaterializedView(&producer_cluster_, producer_table_->name())),
-      &producer_mv));
+  ASSERT_OK(
+      producer_client()->OpenTable(
+          ASSERT_RESULT(CreateMaterializedView(producer_cluster_, producer_table_->name())),
+          &producer_mv));
   producer_tables.push_back(producer_mv);
-  ASSERT_OK(consumer_client()->OpenTable(
-      ASSERT_RESULT(CreateMaterializedView(&consumer_cluster_, consumer_table_->name())),
-      &consumer_mv));
+  ASSERT_OK(
+      consumer_client()->OpenTable(
+          ASSERT_RESULT(CreateMaterializedView(consumer_cluster_, consumer_table_->name())),
+          &consumer_mv));
 
   auto s = SetupUniverseReplication(producer_tables);
 
@@ -2548,11 +2541,9 @@ TEST_F(XClusterYsqlTest, DeletingDatabaseContainingReplicatedTable) {
 
   ASSERT_OK(DropDatabase(producer_cluster_, namespace_name));
   master::GetNamespaceInfoResponsePB ret;
-  ASSERT_NOK(producer_client()->GetNamespaceInfo(
-      /*namespace_id=*/"", namespace_name, YQL_DATABASE_PGSQL, &ret));
+  ASSERT_NOK(producer_client()->GetNamespaceInfo(namespace_name, YQL_DATABASE_PGSQL, &ret));
   ASSERT_OK(DropDatabase(consumer_cluster_, namespace_name));
-  ASSERT_NOK(consumer_client()->GetNamespaceInfo(
-      /*namespace_id=*/"", namespace_name, YQL_DATABASE_PGSQL, &ret));
+  ASSERT_NOK(consumer_client()->GetNamespaceInfo(namespace_name, YQL_DATABASE_PGSQL, &ret));
 }
 
 struct XClusterPgSchemaNameParams {
