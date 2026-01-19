@@ -433,10 +433,12 @@ const char *YBCGetSchemaName(Oid schemaoid);
 /*
  * Get the real database id of a relation. For shared relations
  * (which are meant to be accessible from all databases), it will be template1.
+ * Relations in yb_system database are also expected to be access by all
+ * databases.
  */
 Oid			YBCGetDatabaseOid(Relation rel);
 Oid			YBCGetDatabaseOidByRelid(Oid relid);
-Oid			YBCGetDatabaseOidFromShared(bool relisshared, bool yb_is_global);
+Oid			YBCGetDatabaseOidFromShared(bool relisshared, bool yb_system_rel);
 
 /*
  * Raise an unsupported feature error with the given message and
@@ -454,7 +456,7 @@ extern double PowerWithUpperLimit(double base, int exponent, double upper_limit)
  */
 extern bool YbWholeRowAttrRequired(Relation relation, CmdType operation);
 
-extern Oid YBCGlobalsDbOid();
+extern Oid YbSystemDbOid();
 
 /* ------------------------------------------------------------------------------ */
 /* YB GUC variables. */

@@ -2646,17 +2646,16 @@ static FormData_pg_attribute *YbSysAtt[] = {&notif_uuid, &sender_node_uuid,
 											&options};
 
 Relation pg_yb_notifications_relation = NULL;
-Oid pg_yb_notifications_oid = InvalidOid;
+Oid pg_yb_notifications_rel_oid = InvalidOid;
 
 static Oid
 YbNotificationsRelationId()
 {
-	/* TODO: Change */
-	char *table_name = "pg_yb_notifications2";
-	if (pg_yb_notifications_oid == InvalidOid)
-		HandleYBStatus(YBCGetTableOid(YBCGlobalsDbOid(), table_name,
-									  &pg_yb_notifications_oid));
-	return pg_yb_notifications_oid;
+	if (pg_yb_notifications_rel_oid == InvalidOid)
+		HandleYBStatus(YBCGetTableOid(YbSystemDbOid(),
+									  PgYbNotificationsTableName,
+									  &pg_yb_notifications_rel_oid));
+	return pg_yb_notifications_rel_oid;
 }
 
 static Relation
@@ -2677,7 +2676,7 @@ YbNotificationsRelation()
 
 		pg_yb_notifications_relation->rd_att =
 			CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbSysAtt);
-		pg_yb_notifications_relation->yb_is_global = true;
+		pg_yb_notifications_relation->yb_system_rel = true;
 		MemoryContextSwitchTo(oldcxt);
 	}
 	return pg_yb_notifications_relation;
@@ -2689,7 +2688,7 @@ YbInsertNotifications(void)
 	if (!pendingNotifies)
 		return;
 
-	Oid dboid = YBCGlobalsDbOid();
+	Oid dboid = YbSystemDbOid();
 	Relation rel = YbNotificationsRelation();
 	TupleDesc desc = RelationGetDescr(rel);
 	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
@@ -2825,7 +2824,7 @@ YbNotificationsPollerMain(Datum main_arg)
 	WalSndSignals();
 	BackgroundWorkerUnblockSignals();
 	/* TODO: remove hardcoding */
-	BackgroundWorkerInitializeConnection(YbGlobalsDbName, "yugabyte", 0);
+	BackgroundWorkerInitializeConnection(YbSystemDbName, "yugabyte", 0);
 	YbCreateNotificationReplicationSlot();
 	YbPollAndProcessNotifications();
 }
@@ -2845,7 +2844,7 @@ YbPollAndProcessNotifications()
 	CheckSlotRequirements();
 	Assert(!MyReplicationSlot);
 	ReplicationSlotAcquire(YbNotificationReplicationSlotName(), true);
-	List *publicaiton = list_make1("notifications_publication");
+	List *publicaiton = list_make1(PgYbNotificationsPublicationName);
 	YBCInitVirtualWal(publicaiton);
 	YbVirtualWalRecord *record;
 	for (;;)

@@ -143,7 +143,7 @@ static uint64_t yb_new_catalog_version = YB_CATCACHE_VERSION_UNINITIALIZED;
 static uint64_t yb_logical_client_cache_version = YB_CATCACHE_VERSION_UNINITIALIZED;
 static bool yb_need_invalidate_all_table_cache = false;
 
-static Oid pg_yb_globals_db_oid_cache = InvalidOid;
+static Oid yb_system_db_oid_cache = InvalidOid;
 
 static bool YbHasDdlMadeChanges();
 static int YbGetNumCreateFunctionStmts();
@@ -2104,7 +2104,8 @@ YBCGetSchemaName(Oid schemaoid)
 Oid
 YBCGetDatabaseOid(Relation rel)
 {
-	return YBCGetDatabaseOidFromShared(rel->rd_rel->relisshared, rel->yb_is_global);
+	return YBCGetDatabaseOidFromShared(rel->rd_rel->relisshared,
+									   rel->yb_system_rel);
 }
 
 Oid
@@ -2114,23 +2115,23 @@ YBCGetDatabaseOidByRelid(Oid relid)
 	bool		relisshared = relation->rd_rel->relisshared;
 
 	RelationClose(relation);
-	return YBCGetDatabaseOidFromShared(relisshared, relation->yb_is_global);
+	return YBCGetDatabaseOidFromShared(relisshared, relation->yb_system_rel);
 }
 
 Oid
-YBCGlobalsDbOid()
+YbSystemDbOid()
 {
-	if (pg_yb_globals_db_oid_cache == InvalidOid)
-		pg_yb_globals_db_oid_cache = get_database_oid(YbGlobalsDbName, false);
-	return pg_yb_globals_db_oid_cache;
+	if (yb_system_db_oid_cache == InvalidOid)
+		yb_system_db_oid_cache = get_database_oid(YbSystemDbName, false);
+	return yb_system_db_oid_cache;
 }
 
 Oid
-YBCGetDatabaseOidFromShared(bool relisshared, bool yb_is_global)
+YBCGetDatabaseOidFromShared(bool relisshared, bool yb_system_rel)
 {
-	Assert(!relisshared || !yb_is_global);
+	Assert(!relisshared || !yb_system_rel);
 	return relisshared ? Template1DbOid :
-						 (yb_is_global ? YBCGlobalsDbOid() : MyDatabaseId);
+						 (yb_system_rel ? YbSystemDbOid() : MyDatabaseId);
 }
 
 void
