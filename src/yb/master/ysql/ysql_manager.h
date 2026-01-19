@@ -166,7 +166,7 @@ class YsqlManager : public YsqlManagerIf {
 
   // Background task and helper functions for creating yb_system.pg_yb_notifications table.
   void PgYbNotificationsTableBgTask();
-  void CreatePgYbGlobalsDBIfNeeded();
+  void CreateYbSystemDBIfNeeded();
   void CreatePgYbNotificationsTableIfNeeded();
 
   Master& master_;
@@ -192,8 +192,8 @@ class YsqlManager : public YsqlManagerIf {
   std::atomic<bool> pg_catalog_versions_bg_task_running_ = {false};
   rpc::ScheduledTaskTracker refresh_ysql_pg_catalog_versions_task_;
 
-  bool creating_pg_yb_globals_db_ = false;
-  bool created_pg_yb_globals_db_ = false;
+  bool creating_yb_system_db_ = false;
+  bool created_yb_system_db_ = false;
   bool creating_pg_yb_notifications_table_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(YsqlManager);
