@@ -2425,9 +2425,9 @@ TEST_F(PgCatalogVersionTest, AnalyzeAllTables) {
         "13515, 21, 216; 13515, 22, 96; 13515, 23, 216; 13515, 24, 360; 13515, 25, 192; "
         "13515, 26, 120; 13515, 27, 192; 13515, 28, 120; 13515, 29, 264; 13515, 30, 168; "
         "13515, 31, 144; 13515, 32, 192; 13515, 33, 120; 13515, 34, 96; 13515, 35, 120; "
-        "13515, 36, 216; 13515, 37, 96; 13515, 38, 192; 13515, 39, 240; 13524, 40, 72; "
-        "13515, 41, 168; 13515, 42, 120; 13515, 43, 120; 13515, 44, 96"
-      : "13515, 2, 10848";
+        "13515, 36, 216; 13515, 37, 96; 13515, 38, 192; 13515, 39, 240; 13515, 40, 168; "
+        "13515, 41, 120; 13515, 42, 120; 13515, 43, 96"
+      : "13515, 2, 10776";
   const string yugabyte_db_oid_str = Format("$0, ", yugabyte_db_oid);
   // Replace 13515 with the real yugabyte_db_oid.
   GlobalReplaceSubstring("13515, ", yugabyte_db_oid_str, &expected);
@@ -3203,7 +3203,7 @@ TEST_F(PgCatalogVersionTest, InvalMessageWaitOnVersionGap) {
   // conn1 connects to node 1
   auto conn1 = ASSERT_RESULT(ConnectToDB(kYugabyteDatabase));
   auto v = ASSERT_RESULT(GetCatalogVersion(&conn1));
-  ASSERT_EQ(v, IsTransactionalDdlEnabled() ? 88 : 3);
+  ASSERT_EQ(v, IsTransactionalDdlEnabled() ? 87 : 3);
   auto result = ASSERT_RESULT(conn1.FetchAllAsString("SELECT id FROM test_table"));
   ASSERT_EQ(result, "1");
 

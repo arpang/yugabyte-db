@@ -1728,8 +1728,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
           query = "SELECT c.*, "
               + "EXISTS (SELECT 1 FROM pg_attribute a "
               + "        WHERE a.attrelid = c.oid AND a.attname = 'oid') "
-              + "    AND relkind = 'r' AS relhasoids, "
-              + "(yb_table_properties(c.oid)).num_tablets as num_tablets "
+              + "    AND relkind = 'r' AS relhasoids "
               + "FROM pg_class c "
               + "WHERE c.oid NOT IN (" + testRelOidsCsv + ")";
           break;

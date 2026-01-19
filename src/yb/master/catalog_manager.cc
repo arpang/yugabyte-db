@@ -3931,10 +3931,6 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
 
   const bool is_pg_table = orig_req->table_type() == PGSQL_TABLE_TYPE;
   const bool is_pg_catalog_table = is_pg_table && orig_req->is_pg_catalog_table();
-  const bool is_tserver_hosted_pg_catalog_table = orig_req->is_tserver_hosted_pg_catalog_table();
-
-  DCHECK(!is_tserver_hosted_pg_catalog_table || is_pg_catalog_table);
-
   if (!is_pg_catalog_table || !FLAGS_hide_pg_catalog_table_creation_logs) {
     LOG(INFO) << "CreateTable from " << RequestorString(rpc)
                 << ":\n" << orig_req->DebugString();
@@ -3974,7 +3970,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
   RETURN_NOT_OK(CreateGlobalTransactionStatusTableIfNeededForNewTable(*orig_req, rpc, epoch));
   RETURN_NOT_OK(MaybeCreateLocalTransactionTable(*orig_req, rpc, epoch));
 
-  if (is_pg_catalog_table && !is_tserver_hosted_pg_catalog_table) {
+  if (is_pg_catalog_table) {
     // No batching for migration.
     auto ns = VERIFY_RESULT(FindNamespace(orig_req->namespace_()));
     CreateYsqlSysTableData data;
@@ -4133,8 +4129,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
   const auto [partition_schema, partitions] =
       VERIFY_RESULT(CreatePartitions(schema, num_tablets, colocated, &req, resp));
 
-  if (!FLAGS_TEST_skip_placement_validation_createtable_api &&
-      !is_tserver_hosted_pg_catalog_table) {
+  if (!FLAGS_TEST_skip_placement_validation_createtable_api) {
     ValidateReplicationInfoRequestPB validate_req;
     validate_req.mutable_replication_info()->CopyFrom(replication_info);
     ValidateReplicationInfoResponsePB validate_resp;
@@ -4285,7 +4280,7 @@ Status CatalogManager::CreateTable(const CreateTableRequestPB* orig_req,
     RETURN_NOT_OK(CreateTableInMemory(
         req, schema, partition_schema, namespace_id, namespace_name, partitions, colocated,
         IsSystemObject::kFalse, &index_info, joining_colocation_group ? nullptr : &tablets, resp,
-        &table, &indexed_table, is_tserver_hosted_pg_catalog_table));
+        &table, &indexed_table));
 
     // Section is executed when a table is either the parent table or a user table in a colocation
     // group.
@@ -4799,12 +4794,11 @@ Status CatalogManager::CreateTableInMemory(const CreateTableRequestPB& req,
                                            TabletInfos* tablets,
                                            CreateTableResponsePB* resp,
                                            TableInfoPtr* table,
-                                           TableInfoWithWriteLock* indexed_table,
-                                           bool is_tserver_hosted_pg_catalog_table) {
+                                           TableInfoWithWriteLock* indexed_table) {
   // Add the new table in "preparing" state.
   *table = CreateTableInfo(
       req, schema, partition_schema, namespace_id, namespace_name, colocated, index_info,
-      indexed_table, is_tserver_hosted_pg_catalog_table);
+      indexed_table);
   const TableId& table_id = (*table)->id();
 
   VLOG_WITH_PREFIX_AND_FUNC(2)
@@ -4821,13 +4815,8 @@ Status CatalogManager::CreateTableInMemory(const CreateTableRequestPB& req,
     transaction_table_ids_set_.insert(table_id);
   }
 
-  // Check that atleast one of system_table and is_tserver_hosted_pg_catalog_table is false.
-  DCHECK(!system_table || !is_tserver_hosted_pg_catalog_table);
-
   if (system_table) {
     (*table)->set_is_system();
-  } else if (is_tserver_hosted_pg_catalog_table) {
-    (*table)->set_is_tserver_hosted_pg_catalog_table();
   }
 
   if (tablets) {
@@ -5626,8 +5615,7 @@ scoped_refptr<TableInfo> CatalogManager::CreateTableInfo(const CreateTableReques
                                                          const NamespaceName& namespace_name,
                                                          bool colocated,
                                                          IndexInfoPB* index_info,
-                                                         TableInfoWithWriteLock* indexed_table,
-                                                         bool is_tserver_hosted_pg_catalog_table) {
+                                                         TableInfoWithWriteLock* indexed_table) {
   DCHECK(schema.has_column_ids());
   TableId table_id
       = !req.table_id().empty() ? req.table_id() : GenerateIdUnlocked(SysRowEntryType::TABLE);
@@ -5716,8 +5704,6 @@ scoped_refptr<TableInfo> CatalogManager::CreateTableInfo(const CreateTableReques
   if (colocated) {
     metadata->set_colocated(true);
   }
-
-  metadata->set_is_tserver_hosted_pg_catalog_table(is_tserver_hosted_pg_catalog_table);
 
   return table;
 }
@@ -9612,7 +9598,6 @@ Status CatalogManager::DeleteYsqlDBTables(
   TabletInfoPtr sys_tablet_info;
   vector<pair<scoped_refptr<TableInfo>, TableInfo::WriteLock>> tables_and_locks;
   std::unordered_set<TableId> sys_table_ids;
-  int num_tserver_hosted_pg_catalog_tables = 0;
   {
     // Lock the catalog to iterate over table_ids_map_.
     SharedLock lock(mutex_);
@@ -9640,8 +9625,6 @@ Status CatalogManager::DeleteYsqlDBTables(
 
       if (table->is_system()) {
         sys_table_ids.insert(table->id());
-      } else if (table->is_tserver_hosted_pg_catalog_table()) {
-        num_tserver_hosted_pg_catalog_tables++;
       }
 
       // For regular (indexed) table, insert table info and lock in the front of the list. Else for
@@ -9672,8 +9655,8 @@ Status CatalogManager::DeleteYsqlDBTables(
 
   if (is_ysql_major_upgrade || delete_type == DeleteYsqlDBTablesType::kMajorUpgradeCleanup) {
     RSTATUS_DCHECK(
-        tables_and_locks.size() == (sys_table_ids.size() + num_tserver_hosted_pg_catalog_tables),
-        IllegalState, "Unexpected non sytem tables found during ysql major upgrade or cleanup");
+        tables_and_locks.size() == sys_table_ids.size(), IllegalState,
+        "Unexpected non sytem tables found during ysql major upgrade or cleanup");
   }
 
   if (is_ysql_major_upgrade) {

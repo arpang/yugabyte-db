@@ -55,7 +55,6 @@
 #include "catalog/pg_yb_catalog_version.h"
 #include "catalog/pg_yb_invalidation_messages.h"
 #include "catalog/pg_yb_logical_client_version.h"
-#include "catalog/pg_yb_notifications_d.h"
 #include "catalog/pg_yb_profile.h"
 #include "catalog/pg_yb_role_profile.h"
 #include "catalog/pg_yb_tablegroup.h"
@@ -323,8 +322,7 @@ IsSharedRelation(Oid relationId)
 		relationId == YbInvalidationMessagesRelationId ||
 		relationId == YbProfileRelationId ||
 		relationId == YbRoleProfileRelationId ||
-		relationId == YBLogicalClientVersionRelationId ||
-		relationId == YbNotificationsRelationId)
+		relationId == YBLogicalClientVersionRelationId)
 		return true;
 	/* These are their indexes */
 	if (relationId == AuthIdOidIndexId ||
@@ -351,8 +349,7 @@ IsSharedRelation(Oid relationId)
 		relationId == YbProfileOidIndexId ||
 		relationId == YbProfileRolnameIndexId ||
 		relationId == YbRoleProfileOidIndexId ||
-		relationId == YBLogicalClientVersionDbOidIndexId ||
-		relationId == YbNotificationsPKeyIndexId)
+		relationId == YBLogicalClientVersionDbOidIndexId)
 		return true;
 	/* These are their toast tables and toast indexes */
 	if (relationId == PgAuthidToastTable ||
@@ -401,27 +398,6 @@ IsSharedRelation(Oid relationId)
 	}
 
 	return false;
-}
-
-bool
-YbDoIsTserverHostedCatalogRel(Oid relationId)
-{
-	if (relationId == YbNotificationsRelationId)
-		return true;
-	return false;
-}
-
-bool
-YbIsTserverHostedCatalogRel(Oid relationId)
-{
-	bool		is_tserver_hosted = YbDoIsTserverHostedCatalogRel(relationId);
-
-	if (is_tserver_hosted && !IsSharedRelation(relationId))
-		elog(ERROR,
-			 "tserver-hosted catalog relations must be shared, relation %u "
-			 "is marked tserver-server hosted but not shared",
-			 relationId);
-	return is_tserver_hosted;
 }
 
 /*
@@ -1193,7 +1169,7 @@ YbGetUseInitdbAclFromRelOptions(List *options)
 			return defGetBoolean(def);
 	}
 
-	return false;
+	return InvalidOid;
 }
 
 /*

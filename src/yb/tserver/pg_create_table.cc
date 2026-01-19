@@ -156,13 +156,6 @@ Status PgCreateTable::Exec(
                 .is_truncate(req_.is_truncate());
   if (req_.is_pg_catalog_table()) {
     table_creator->is_pg_catalog_table();
-    if (req_.is_tserver_hosted_catalog_table()) {
-      table_creator->is_tserver_hosted_pg_catalog_table();
-    }
-
-    if (req_.is_initdb_mode()) {
-      table_creator->is_initdb_mode();
-    }
   }
   if (req_.is_shared_table()) {
     table_creator->is_pg_shared_table();
@@ -173,7 +166,7 @@ Status PgCreateTable::Exec(
 
   if (hash_schema_) {
     table_creator->hash_schema(*hash_schema_);
-  } else if (!req_.is_pg_catalog_table() || req_.is_tserver_hosted_catalog_table()) {
+  } else if (!req_.is_pg_catalog_table()) {
     table_creator->set_range_partition_columns(range_columns_, split_rows);
   }
 

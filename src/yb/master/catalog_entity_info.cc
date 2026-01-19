@@ -1044,8 +1044,7 @@ bool TableInfo::UsesTablespacesForPlacement() const {
       l->pb.table_type() == PGSQL_TABLE_TYPE &&
       l->namespace_id() != kPgSequencesDataNamespaceId &&
       !IsSecondaryTable() &&
-      !IsColocationParentTable() &&
-      !is_tserver_hosted_pg_catalog_table();
+      !IsColocationParentTable();
   return is_transaction_table_using_tablespaces ||
          is_regular_ysql_table ||
          IsTablegroupParentTable();
@@ -1205,7 +1204,7 @@ bool TableInfo::IsUserCreated(const ReadLock& lock) const {
   }
   return !is_system() && !IsSequencesSystemTable(lock) &&
          lock->namespace_id() != kSystemNamespaceId &&
-         !IsColocationParentTable() && !is_tserver_hosted_pg_catalog_table();
+         !IsColocationParentTable();
 }
 
 bool TableInfo::IsUserTable(const ReadLock& lock) const {

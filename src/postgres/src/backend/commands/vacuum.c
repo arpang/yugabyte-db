@@ -62,7 +62,6 @@
 
 /* YB includes */
 #include "access/sysattr.h"
-#include "catalog/catalog.h"
 #include "pg_yb_utils.h"
 
 
@@ -936,14 +935,6 @@ get_all_vacuum_rels(int options)
 		Form_pg_class classForm = (Form_pg_class) GETSTRUCT(tuple);
 		MemoryContext oldcontext;
 		Oid			relid = classForm->oid;
-
-		/*
-		 * Skip tserver hosted catalog relation during initdb as the tablets do
-		 * not even exist at that time.
-		 */
-		if (YBCIsInitDbModeEnvVarSet() &&
-			YbIsTserverHostedCatalogRel(classForm->oid))
-			continue;
 
 		/* check permissions of relation */
 		if (!vacuum_is_relation_owner(relid, classForm, options))

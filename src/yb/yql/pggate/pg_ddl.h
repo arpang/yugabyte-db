@@ -141,8 +141,7 @@ class PgCreateTableBase : public PgDdl {
                     const PgObjectId& old_relfilenode_oid,
                     bool is_truncate,
                     bool use_transaction,
-                    bool use_regular_transaction_block,
-                    bool is_tserver_hosted_catalog_table);
+                    bool use_regular_transaction_block);
 
   tserver::PgCreateTableRequestPB req_;
 
@@ -173,8 +172,7 @@ class PgCreateTable final : public PgStatementLeafBase<PgCreateTableBase, StmtOp
       const PgObjectId& old_relfilenode_oid,
       bool is_truncate,
       bool use_transaction,
-      bool use_regular_transaction_block,
-      bool is_tserver_hosted_catalog_table);
+      bool use_regular_transaction_block);
 };
 
 class PgCreateIndex final : public PgStatementLeafBase<PgCreateTableBase, StmtOp::kCreateIndex> {
@@ -201,8 +199,7 @@ class PgCreateIndex final : public PgStatementLeafBase<PgCreateTableBase, StmtOp
       bool use_regular_transaction_block,
       const PgObjectId& base_table_id,
       bool is_unique_index,
-      bool skip_index_backfill,
-      bool is_tserver_hosted_catalog_table);
+      bool skip_index_backfill);
 };
 
 class PgDropTable final : public PgStatementLeafBase<PgDdl, StmtOp::kDropTable> {

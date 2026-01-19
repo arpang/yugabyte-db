@@ -443,8 +443,7 @@ foreach my $catname (@catnames)
 	print $bki "create $catname $catalog->{relation_oid}"
 	  . $catalog->{shared_relation}
 	  . $catalog->{bootstrap}
-	  . $catalog->{rowtype_oid_clause}
-	  . $catalog->{yb_tserver_hosted};
+	  . $catalog->{rowtype_oid_clause};
 
 	my $first = 1;
 

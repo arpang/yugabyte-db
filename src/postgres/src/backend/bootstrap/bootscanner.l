@@ -106,10 +106,6 @@ NULL			{ yylval.kw = "NULL"; return XNULL; }
 
 yb_check_if_initdb_is_already_done { yylval.kw = "yb_check_if_initdb_is_already_done"; return YBCHECKINITDBDONE; }
 
-yb_tserver_hosted	{ yylval.kw = "yb_tserver_hosted"; return YB_XTSERVER_HOSTED; }
-HASH				{ yylval.kw = "HASH"; return YB_XHASH; }
-num_tablets			{ yylval.kw = "num_tablets"; return YB_XNUM_TABLETS; }
-
 {id}			{
 					yylval.str = pstrdup(yytext);
 					return ID;

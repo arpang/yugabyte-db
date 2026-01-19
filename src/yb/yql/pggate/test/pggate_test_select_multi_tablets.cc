@@ -53,7 +53,6 @@ TEST_F(PggateTestSelectMultiTablets, TestSelectMultiTablets) {
                                        kInvalidOid /* pg_table_oid */,
                                        kInvalidOid /* old_relfilenode_oid */,
                                        false /* is_truncate */,
-                                       false /* is_tserver_hosted_catalog_table */,
                                        &pg_stmt));
   CHECK_YBC_STATUS(YBCTestCreateTableAddColumn(pg_stmt, "hash_key", ++col_count,
                                                DataType::INT64, true, true));

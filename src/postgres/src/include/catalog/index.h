@@ -95,8 +95,6 @@ extern Oid	index_create(Relation heapRelation,
 						 bool is_colocated,
 						 Oid tablegroupId,
 						 Oid colocationId,
-						 List *yb_stmt_options,
-						 RangeVar *yb_stmt_relation,
 						 bool yb_skip_index_creation);
 
 #define	INDEX_CONSTR_CREATE_MARK_AS_PRIMARY	(1 << 0)

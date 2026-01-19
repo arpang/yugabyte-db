@@ -86,16 +86,6 @@ YBTableCreator& YBTableCreator::is_pg_shared_table() {
   return *this;
 }
 
-YBTableCreator& YBTableCreator::is_tserver_hosted_pg_catalog_table() {
-  is_tserver_hosted_pg_catalog_table_ = true;
-  return *this;
-}
-
-YBTableCreator& YBTableCreator::is_initdb_mode() {
-  is_initdb_mode_ = true;
-  return *this;
-}
-
 YBTableCreator& YBTableCreator::hash_schema(dockv::YBHashSchema hash_schema) {
   switch (hash_schema) {
     case dockv::YBHashSchema::kMultiColumnHash:
@@ -313,19 +303,8 @@ Status YBTableCreator::Create() {
   if (!table_id_.empty()) {
     req.set_table_id(table_id_);
   }
-
-  DCHECK(!is_tserver_hosted_pg_catalog_table_ || (is_pg_catalog_table_ && *is_pg_catalog_table_));
-  DCHECK(!is_initdb_mode_ || (is_pg_catalog_table_ && *is_pg_catalog_table_));
-
   if (is_pg_catalog_table_) {
     req.set_is_pg_catalog_table(*is_pg_catalog_table_);
-    req.set_is_tserver_hosted_pg_catalog_table(is_tserver_hosted_pg_catalog_table_);
-
-    // During initdb, do not wait for table creation to complete for tserver-hosted catalog tables.
-    // This is because its tablets will be created only when tservers come up.
-    if (is_initdb_mode_ && is_tserver_hosted_pg_catalog_table_) {
-      wait_ = false;
-    }
   }
   if (is_pg_shared_table_) {
     req.set_is_pg_shared_table(*is_pg_shared_table_);

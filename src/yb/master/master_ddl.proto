@@ -152,8 +152,6 @@ message CreateTableRequestPB {
 
   // For YSQL tables, the sub-transaction used by this DDL. If aborted, table will be removed.
   optional uint32 sub_transaction_id = 35;
-
-  optional bool is_tserver_hosted_pg_catalog_table = 36;
 }
 
 message CreateTableResponsePB {

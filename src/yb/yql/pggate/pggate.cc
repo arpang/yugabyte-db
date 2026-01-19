@@ -1038,7 +1038,6 @@ Status PgApiImpl::NewCreateTable(const char* database_name,
                                  const PgObjectId& pg_table_oid,
                                  const PgObjectId& old_relfilenode_oid,
                                  bool is_truncate,
-                                 bool is_tserver_hosted_catalog_table,
                                  PgStatement** handle) {
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateTable>(
@@ -1046,7 +1045,7 @@ Status PgApiImpl::NewCreateTable(const char* database_name,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
           old_relfilenode_oid, is_truncate, pg_txn_manager_->IsDdlMode(),
-          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock(), is_tserver_hosted_catalog_table),
+          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
       handle);
 }
 
@@ -1251,7 +1250,6 @@ Status PgApiImpl::NewCreateIndex(const char* database_name,
                                  const PgObjectId& tablespace_oid,
                                  const PgObjectId& pg_table_id,
                                  const PgObjectId& old_relfilenode_id,
-                                 bool is_tserver_hosted_catalog_table,
                                  PgStatement** handle) {
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateIndex>(
@@ -1260,7 +1258,7 @@ Status PgApiImpl::NewCreateIndex(const char* database_name,
           tablegroup_oid, colocation_id, tablespace_oid, false /* is_matview */, pg_table_id,
           old_relfilenode_id, false /* is_truncate */, pg_txn_manager_->IsDdlMode(),
           pg_txn_manager_->IsDdlModeWithRegularTransactionBlock(), base_table_id,
-          is_unique_index, skip_index_backfill, is_tserver_hosted_catalog_table),
+          is_unique_index, skip_index_backfill),
       handle);
 }
 
