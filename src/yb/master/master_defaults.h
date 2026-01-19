@@ -96,5 +96,8 @@ constexpr uint16_t kMasterDefaultWebPort = 7000;
 
 static constexpr int32_t kInvalidClusterConfigVersion = 0;
 
+static const char* const kYbSystemDbName = "yb_system";
+static const char* const kPgYbNotificationsTableName = "pg_yb_notifications";
+
 } // namespace master
 } // namespace yb
