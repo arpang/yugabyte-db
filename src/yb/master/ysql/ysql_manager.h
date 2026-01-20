@@ -196,7 +196,7 @@ class YsqlManager : public YsqlManagerIf {
   std::atomic<bool> pg_catalog_versions_bg_task_running_ = {false};
   rpc::ScheduledTaskTracker refresh_ysql_pg_catalog_versions_task_;
 
-  bool listen_notify_task_in_progress_ = false;
+  bool listen_notify_async_request_in_progress_ = false;
   bool yb_system_db_created_ = false;
   bool notifications_table_created_ = false;
   bool notifications_publication_created_ = false;
