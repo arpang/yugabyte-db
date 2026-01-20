@@ -568,9 +568,19 @@ Status YsqlManager::CreateNotificationsPublicationIfNeeded() {
 
   auto failure_warn_prefix =
       Format("Failed to create publication $0", kPgYbNotificationsPublicationName);
+
   auto statement = Format(
-      "CREATE PUBLICATION $0 FOR TABLE $1", kPgYbNotificationsPublicationName,
-      kPgYbNotificationsTableName);
+      "DO $$$$\n"
+      "BEGIN\n"
+      "  IF NOT EXISTS (\n"
+      "    SELECT 1 FROM pg_publication WHERE pubname = '$0'\n"
+      "  ) THEN\n"
+      "    CREATE PUBLICATION $0 FOR TABLE $1;\n"
+      "  END IF;\n"
+      "END\n"
+      "$$$$;",
+      kPgYbNotificationsPublicationName, kPgYbNotificationsTableName);
+
   return ExecuteListenNotifyTaskAsync(
       kYbSystemDbName, statement, failure_warn_prefix, &notifications_publication_created_);
 }
