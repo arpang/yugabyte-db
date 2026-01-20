@@ -169,8 +169,8 @@ class YsqlManager : public YsqlManagerIf {
   Status CreateYbSystemDBIfNeeded();
   Status CreateNotificationsTableIfNeeded();
   Status CreateNotificationsPublicationIfNeeded();
-  Status ExecuteListenNotifyTaskAsync(
-      const std::string& database_name, std::string statement,
+  Status CreateListenNotifyObjectAsync(
+      const std::string& database_name, const std::string& statement,
       const std::string& failure_warn_prefix, bool* created);
 
   Master& master_;
@@ -196,7 +196,7 @@ class YsqlManager : public YsqlManagerIf {
   std::atomic<bool> pg_catalog_versions_bg_task_running_ = {false};
   rpc::ScheduledTaskTracker refresh_ysql_pg_catalog_versions_task_;
 
-  bool listen_notify_async_request_in_progress_ = false;
+  bool creating_listen_notify_object_ = false;
   bool yb_system_db_created_ = false;
   bool notifications_table_created_ = false;
   bool notifications_publication_created_ = false;
