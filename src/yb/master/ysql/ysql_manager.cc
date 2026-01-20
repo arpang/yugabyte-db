@@ -51,6 +51,8 @@ DECLARE_bool(ysql_enable_auto_analyze_infra);
 
 DECLARE_int32(heartbeat_interval_ms);
 
+DECLARE_bool(TEST_ysql_enable_listen_notify);
+
 namespace yb::master {
 
 using namespace std::literals;
@@ -347,7 +349,9 @@ void YsqlManager::RunBgTasks(const LeaderEpoch& epoch) {
     if (FLAGS_ysql_enable_auto_analyze_infra)
       WARN_NOT_OK(CreatePgAutoAnalyzeService(epoch), "Failed to create Auto Analyze service");
 
-    WARN_NOT_OK(ListenNotifyBgTask(), "Failed to complete LISTEN/NOTIFY background task");
+    if (FLAGS_TEST_ysql_enable_listen_notify) {
+      WARN_NOT_OK(ListenNotifyBgTask(), "Failed to complete LISTEN/NOTIFY background task");
+    }
   }
 
   StartTablespaceBgTaskIfStopped();
