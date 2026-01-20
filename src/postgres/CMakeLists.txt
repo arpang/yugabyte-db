@@ -82,6 +82,10 @@ if(APPLE)
     -Wno-nullability-completeness
     -Wno-availability
   )
+
+  if (IS_CLANG)
+    add_pg_c_cxx_flags(-Wno-gnu-folding-constant)
+  endif()
 endif()
 
 if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "x86_64")
