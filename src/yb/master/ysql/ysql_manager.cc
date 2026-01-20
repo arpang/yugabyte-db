@@ -525,7 +525,7 @@ Status YsqlManager::ListenNotifyBgTask() {
 Status YsqlManager::CreateYbSystemDBIfNeeded() {
   DCHECK(FLAGS_enable_ysql);
 
-  if (yb_system_db_created_ || listen_notify_task_in_progress_) {
+  if (yb_system_db_created_ || listen_notify_async_request_in_progress_) {
     return Status::OK();
   }
 
@@ -545,7 +545,8 @@ Status YsqlManager::CreateYbSystemDBIfNeeded() {
 Status YsqlManager::CreateNotificationsTableIfNeeded() {
   DCHECK(FLAGS_enable_ysql);
 
-  if (notifications_table_created_ || !yb_system_db_created_ || listen_notify_task_in_progress_) {
+  if (notifications_table_created_ || !yb_system_db_created_ ||
+      listen_notify_async_request_in_progress_) {
     return Status::OK();
   }
 
@@ -569,7 +570,7 @@ Status YsqlManager::CreateNotificationsPublicationIfNeeded() {
   DCHECK(FLAGS_enable_ysql);
 
   if (notifications_publication_created_ || !notifications_table_created_ ||
-      listen_notify_task_in_progress_) {
+      listen_notify_async_request_in_progress_) {
     return Status::OK();
   }
 
@@ -601,12 +602,12 @@ Status YsqlManager::ExecuteListenNotifyTaskAsync(
     } else {
       *created = true;
     }
-    listen_notify_task_in_progress_ = false;
+    listen_notify_async_request_in_progress_ = false;
   };
   CoarseTimePoint deadline = CoarseMonoClock::now() + MonoDelta::FromSeconds(60);
   RETURN_NOT_OK(
       ExecutePgsqlStatements(database_name, {statement}, catalog_manager_, deadline, callback));
-  listen_notify_task_in_progress_ = true;
+  listen_notify_async_request_in_progress_ = true;
   return Status::OK();
 }
 
