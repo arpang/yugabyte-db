@@ -529,6 +529,13 @@ Status YsqlManager::CreateYbSystemDBIfNeeded() {
     return Status::OK();
   }
 
+  // Check if kYbSystemDbName namespace already exists.
+  auto s = catalog_manager_.GetNamespaceId(YQL_DATABASE_PGSQL, kYbSystemDbName);
+  if (s.ok()) {
+    yb_system_db_created_ = true;
+    return Status::OK();
+  }
+
   auto failure_warn_prefix = Format("Failed to create database $0", kYbSystemDbName);
   auto statement = Format("CREATE DATABASE $0", kYbSystemDbName);
   return ExecuteListenNotifyTaskAsync(
