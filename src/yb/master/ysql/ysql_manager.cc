@@ -347,7 +347,7 @@ void YsqlManager::RunBgTasks(const LeaderEpoch& epoch) {
     if (FLAGS_ysql_enable_auto_analyze_infra)
       WARN_NOT_OK(CreatePgAutoAnalyzeService(epoch), "Failed to create Auto Analyze service");
 
-    WARN_NOT_OK(ListenNotifyBgTask(), "Failed to complete LISTEN/NOTIFY tasks");
+    WARN_NOT_OK(ListenNotifyBgTask(), "Failed to complete LISTEN/NOTIFY background task");
   }
 
   StartTablespaceBgTaskIfStopped();
@@ -513,7 +513,7 @@ Status YsqlManager::ListenNotifyBgTask() {
   }
   auto num_tservers = VERIFY_RESULT(catalog_manager_.GetNumLiveTServersForActiveCluster());
   if (num_tservers == 0) {
-    LOG(INFO) << "No active tservers found, skipping LISTEN/NOTIFY tasks for now";
+    LOG(INFO) << "No active tservers found, skipping LISTEN/NOTIFY background task for now";
   } else {
     RETURN_NOT_OK(CreateYbSystemDBIfNeeded());
     RETURN_NOT_OK(CreateNotificationsTableIfNeeded());
