@@ -168,6 +168,7 @@ class YsqlManager : public YsqlManagerIf {
   Status ListenNotifyBgTask();
   Status CreateYbSystemDBIfNeeded();
   Status CreateNotificationsTableIfNeeded();
+  Status CreateNotificationsPublicationIfNeeded();
   Status ExecuteListenNotifyTaskAsync(
       const std::string& database_name, std::string statement,
       const std::string& failure_warn_prefix, bool* created);
@@ -198,6 +199,7 @@ class YsqlManager : public YsqlManagerIf {
   bool listen_notify_task_in_progress_ = false;
   bool yb_system_db_created_ = false;
   bool notifications_table_created_ = false;
+  bool notifications_publication_created_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(YsqlManager);
 };

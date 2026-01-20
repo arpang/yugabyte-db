@@ -507,8 +507,8 @@ void YsqlManager::RefreshPgCatalogVersionInfoPeriodically() {
 }
 
 Status YsqlManager::ListenNotifyBgTask() {
-  // TODO: early return if publication is created.
-  if (!FLAGS_enable_ysql) {
+  // If notifications_publication_created_ is true, it means all tasks are done.
+  if (!FLAGS_enable_ysql || notifications_publication_created_) {
     return Status::OK();
   }
   auto num_tservers = VERIFY_RESULT(catalog_manager_.GetNumLiveTServersForActiveCluster());
@@ -517,6 +517,7 @@ Status YsqlManager::ListenNotifyBgTask() {
   } else {
     RETURN_NOT_OK(CreateYbSystemDBIfNeeded());
     RETURN_NOT_OK(CreateNotificationsTableIfNeeded());
+    RETURN_NOT_OK(CreateNotificationsPublicationIfNeeded());
   }
   return Status::OK();
 }
@@ -555,6 +556,23 @@ Status YsqlManager::CreateNotificationsTableIfNeeded() {
       kPgYbNotificationsTableName);
   return ExecuteListenNotifyTaskAsync(
       kYbSystemDbName, statement, failure_warn_prefix, &notifications_table_created_);
+}
+
+Status YsqlManager::CreateNotificationsPublicationIfNeeded() {
+  DCHECK(FLAGS_enable_ysql);
+
+  if (notifications_publication_created_ || !notifications_table_created_ ||
+      listen_notify_task_in_progress_) {
+    return Status::OK();
+  }
+
+  auto failure_warn_prefix =
+      Format("Failed to create publication $0", kPgYbNotificationsPublicationName);
+  auto statement = Format(
+      "CREATE PUBLICATION $0 FOR TABLE $1", kPgYbNotificationsPublicationName,
+      kPgYbNotificationsTableName);
+  return ExecuteListenNotifyTaskAsync(
+      kYbSystemDbName, statement, failure_warn_prefix, &notifications_publication_created_);
 }
 
 Status YsqlManager::ExecuteListenNotifyTaskAsync(
