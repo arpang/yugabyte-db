@@ -83,7 +83,7 @@ if(APPLE)
     -Wno-availability
   )
 
-  if (IS_CLANG)
+  if (IS_CLANG AND "${COMPILER_VERSION}" VERSION_GREATER_EQUAL "17.0.0")
     add_pg_c_cxx_flags(-Wno-gnu-folding-constant)
   endif()
 endif()
