@@ -164,10 +164,13 @@ class YsqlManager : public YsqlManagerIf {
   // Background task that refreshes the in-memory map for YSQL pg_yb_catalog_version table.
   void RefreshPgCatalogVersionInfoPeriodically();
 
-  // Background task and helper functions for creating yb_system.pg_yb_notifications table.
-  void PgYbNotificationsTableBgTask();
-  void CreateYbSystemDBIfNeeded();
-  void CreatePgYbNotificationsTableIfNeeded();
+  // Background task (and its helper functions) related to LISTEN/NOTIFY.
+  Status ListenNotifyBgTask();
+  Status CreateYbSystemDBIfNeeded();
+  Status CreateNotificationsTableIfNeeded();
+  Status ExecuteListenNotifyTaskAsync(
+      const std::string& database_name, std::string statement,
+      const std::string& failure_warn_prefix, bool* created);
 
   Master& master_;
   CatalogManager& catalog_manager_;
@@ -192,9 +195,9 @@ class YsqlManager : public YsqlManagerIf {
   std::atomic<bool> pg_catalog_versions_bg_task_running_ = {false};
   rpc::ScheduledTaskTracker refresh_ysql_pg_catalog_versions_task_;
 
-  bool creating_yb_system_db_ = false;
-  bool created_yb_system_db_ = false;
-  bool creating_pg_yb_notifications_table_ = false;
+  bool listen_notify_task_in_progress_ = false;
+  bool yb_system_db_created_ = false;
+  bool notifications_table_created_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(YsqlManager);
 };
