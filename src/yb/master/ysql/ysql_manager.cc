@@ -553,14 +553,13 @@ Status YsqlManager::CreateNotificationsTableIfNeeded() {
   auto failure_warn_prefix = Format("Failed to create table $0", kPgYbNotificationsTableName);
   auto statement = Format(
       "CREATE TABLE IF NOT EXISTS $0 ("
-      "notif_uuid uuid NOT NULL,"
+      "notif_uuid uuid PRIMARY KEY,"
       "sender_node_uuid uuid NOT NULL,"
       "sender_pid int NOT NULL,"
       "db_oid oid NOT NULL,"
       "is_listen bool NOT NULL,"
       "data bytea NOT NULL,"
-      "extra_options jsonb,"
-      "CONSTRAINT $0_notif_uuid_index PRIMARY KEY ((notif_uuid)))",
+      "extra_options jsonb)",
       kPgYbNotificationsTableName);
   return ExecuteListenNotifyTaskAsync(
       kYbSystemDbName, statement, failure_warn_prefix, &notifications_table_created_);
