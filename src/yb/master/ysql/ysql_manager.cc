@@ -592,15 +592,16 @@ Status YsqlManager::CreateListenNotifyObjects() {
       kPgYbNotificationsTableName));
 
   statements.emplace_back(Format(
-      "DO $$$$\n"
-      "BEGIN\n"
-      "  IF NOT EXISTS (\n"
-      "    SELECT 1 FROM pg_publication WHERE pubname = '$0'\n"
-      "  ) THEN\n"
-      "    CREATE PUBLICATION $0 FOR TABLE $1;\n"
-      "  END IF;\n"
-      "END\n"
-      "$$$$;",
+      R"(DO $$$$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_publication
+                WHERE pubname = '$0'
+            ) THEN CREATE PUBLICATION $0 FOR TABLE $1;
+            END IF;
+        END
+        $$$$)",
       kPgYbNotificationsPublicationName, kPgYbNotificationsTableName));
   return ExecuteStatementsAsync(
       kYbSystemDbName, statements, catalog_manager_, failure_warn_prefix,
