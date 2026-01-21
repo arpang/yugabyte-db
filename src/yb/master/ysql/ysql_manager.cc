@@ -562,8 +562,9 @@ Status YsqlManager::CreateYbSystemDBIfNeeded() {
     return Status::OK();
   }
 
-  auto failure_warn_prefix = Format("Failed to create database $0", kYbSystemDbName);
   auto statement = Format("CREATE DATABASE $0", kYbSystemDbName);
+  auto failure_warn_prefix = Format("Failed to create database $0", kYbSystemDbName);
+
   return ExecuteStatementsAsync(
       "yugabyte", {statement}, catalog_manager_, failure_warn_prefix,
       &creating_listen_notify_objects_, &yb_system_db_created_);
@@ -576,7 +577,6 @@ Status YsqlManager::CreateListenNotifyObjects() {
     return Status::OK();
   }
 
-  auto failure_warn_prefix = Format("Failed to create LISTEN/NOTIFY object");
   std::vector<std::string> statements;
   statements.emplace_back(Format(
       "CREATE TABLE IF NOT EXISTS $0 ("
@@ -590,7 +590,6 @@ Status YsqlManager::CreateListenNotifyObjects() {
       "  CONSTRAINT $0_pkey PRIMARY KEY (notif_uuid HASH)"
       ") SPLIT INTO 1 TABLETS",
       kPgYbNotificationsTableName));
-
   statements.emplace_back(Format(
       R"(DO $$$$
         BEGIN
@@ -603,6 +602,9 @@ Status YsqlManager::CreateListenNotifyObjects() {
         END
         $$$$)",
       kPgYbNotificationsPublicationName, kPgYbNotificationsTableName));
+
+  auto failure_warn_prefix = Format("Failed to create LISTEN/NOTIFY object");
+
   return ExecuteStatementsAsync(
       kYbSystemDbName, statements, catalog_manager_, failure_warn_prefix,
       &creating_listen_notify_objects_, &created_listen_notify_objects_);
