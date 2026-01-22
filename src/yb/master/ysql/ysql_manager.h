@@ -167,11 +167,7 @@ class YsqlManager : public YsqlManagerIf {
   // Background task (and its helper functions) related to LISTEN/NOTIFY.
   Status ListenNotifyBgTask();
   Status CreateYbSystemDBIfNeeded();
-  Status CreateNotificationsTableIfNeeded();
-  Status CreateNotificationsPublicationIfNeeded();
-  Status CreateListenNotifyObjectAsync(
-      const std::string& database_name, const std::string& statement,
-      const std::string& failure_warn_prefix, bool* created);
+  Status CreateListenNotifyObjects();
 
   Master& master_;
   CatalogManager& catalog_manager_;
@@ -196,10 +192,9 @@ class YsqlManager : public YsqlManagerIf {
   std::atomic<bool> pg_catalog_versions_bg_task_running_ = {false};
   rpc::ScheduledTaskTracker refresh_ysql_pg_catalog_versions_task_;
 
-  bool creating_listen_notify_object_ = false;
   bool yb_system_db_created_ = false;
-  bool notifications_table_created_ = false;
-  bool notifications_publication_created_ = false;
+  bool creating_listen_notify_objects_ = false;
+  bool created_listen_notify_objects_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(YsqlManager);
 };
