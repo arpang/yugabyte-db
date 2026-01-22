@@ -51,7 +51,7 @@ DECLARE_bool(ysql_enable_auto_analyze_infra);
 
 DECLARE_int32(heartbeat_interval_ms);
 
-DECLARE_bool(TEST_ysql_enable_listen_notify);
+DECLARE_bool(TEST_ysql_yb_enable_listen_notify);
 
 namespace yb::master {
 
@@ -372,7 +372,7 @@ void YsqlManager::RunBgTasks(const LeaderEpoch& epoch) {
     if (FLAGS_ysql_enable_auto_analyze_infra)
       WARN_NOT_OK(CreatePgAutoAnalyzeService(epoch), "Failed to create Auto Analyze service");
 
-    if (FLAGS_TEST_ysql_enable_listen_notify) {
+    if (FLAGS_TEST_ysql_yb_enable_listen_notify) {
       WARN_NOT_OK(ListenNotifyBgTask(), "Failed to complete LISTEN/NOTIFY background task");
     }
   }
@@ -579,16 +579,16 @@ Status YsqlManager::CreateListenNotifyObjects() {
 
   std::vector<std::string> statements;
   statements.emplace_back(Format(
-      "CREATE TABLE IF NOT EXISTS $0 ("
-      "  notif_uuid uuid NOT NULL,"
-      "  sender_node_uuid uuid NOT NULL,"
-      "  sender_pid int NOT NULL,"
-      "  db_oid oid NOT NULL,"
-      "  is_listen bool NOT NULL,"
-      "  data bytea NOT NULL,"
-      "  extra_options jsonb,"
-      "  CONSTRAINT $0_pkey PRIMARY KEY (notif_uuid HASH)"
-      ") SPLIT INTO 1 TABLETS",
+      R"(CREATE TABLE IF NOT EXISTS $0 (
+           notif_uuid uuid NOT NULL,
+           sender_node_uuid uuid NOT NULL,
+           sender_pid int NOT NULL,
+           db_oid oid NOT NULL,
+           is_listen bool NOT NULL,
+           data bytea NOT NULL,
+           extra_options jsonb,
+           CONSTRAINT $0_pkey PRIMARY KEY (notif_uuid HASH)
+         ) SPLIT INTO 1 TABLETS)",
       kPgYbNotificationsTableName));
   statements.emplace_back(Format(
       R"(DO $$$$
@@ -603,7 +603,7 @@ Status YsqlManager::CreateListenNotifyObjects() {
         $$$$)",
       kPgYbNotificationsPublicationName, kPgYbNotificationsTableName));
 
-  auto failure_warn_prefix = Format("Failed to create LISTEN/NOTIFY object");
+  auto failure_warn_prefix = Format("Failed to create LISTEN/NOTIFY objects");
 
   return ExecuteStatementsAsync(
       kYbSystemDbName, statements, catalog_manager_, failure_warn_prefix,
