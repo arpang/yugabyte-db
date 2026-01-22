@@ -321,8 +321,6 @@ static SlruCtlData NotifyCtlData;
 #define QUEUE_PAGESIZE				BLCKSZ
 #define QUEUE_FULL_WARN_INTERVAL	5000	/* warn at most once every 5s */
 
-#define YB_NOTIFICATIONS_NATTS		   (sizeof(YbSysAtt) / sizeof(YbSysAtt[0]))
-
 /*
  * Use segments 0000 through FFFF.  Each contains SLRU_PAGES_PER_SEGMENT pages
  * which gives us the pages from 0 to SLRU_PAGES_PER_SEGMENT * 0x10000 - 1.
@@ -450,6 +448,117 @@ static bool tryAdvanceTail = false;
 
 /* GUC parameter */
 bool		Trace_notify = false;
+
+/* YB file-scoped global variables */
+static FormData_pg_attribute yb_notif_uuid_att = {
+	.attname = {"notif_uuid"},
+	.atttypid = UUIDOID,
+	.attlen = UUID_LEN,
+	.attnum = 1,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_CHAR,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_sender_node_uuid_att = {
+	.attname = {"sender_node_uuid"},
+	.atttypid = UUIDOID,
+	.attlen = UUID_LEN,
+	.attnum = 2,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_CHAR,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_sender_pid_att = {
+	.attname = {"sender_pid"},
+	.atttypid = INT4OID,
+	.attlen = 4,
+	.attnum = 3,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = true,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_db_oid_att = {
+	.attname = {"db_oid"},
+	.atttypid = OIDOID,
+	.attlen = sizeof(Oid),
+	.attnum = 4,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = true,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_is_listen_att = {
+	.attname = {"is_listen"},
+	.atttypid = BOOLOID,
+	.attlen = 1,
+	.attnum = 5,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = true,
+	.attalign = TYPALIGN_CHAR,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_data_att = {
+	.attname = {"data"},
+	.atttypid = BYTEAOID,
+	.attlen = -1,
+	.attnum = 6,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_EXTENDED,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_extra_options_att = {
+	.attname = {"extra_options"},
+	.atttypid = JSONBOID,
+	.attlen = -1,
+	.attnum = 7,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_EXTENDED,
+	.attnotnull = false,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute *YbNotificationsAtts[] = {
+	&yb_notif_uuid_att,
+	&yb_sender_node_uuid_att,
+	&yb_sender_pid_att,
+	&yb_db_oid_att,
+	&yb_is_listen_att,
+	&yb_data_att,
+	&yb_extra_options_att};
+
+#define YB_NOTIFICATIONS_NATTS \
+	(sizeof(YbNotificationsAtts) / sizeof(YbNotificationsAtts[0]))
 
 static List *yb_queue_entries_to_write = NIL;
 static TransactionId yb_current_notify_xid = InvalidTransactionId;
@@ -2541,109 +2650,6 @@ ClearPendingActionsAndNotifies(void)
 	pendingNotifies = NULL;
 }
 
-static FormData_pg_attribute notif_uuid = {
-	.attname = {"notif_uuid"},
-	.atttypid = UUIDOID,
-	.attlen = UUID_LEN,
-	.attnum = 1,
-	.attcacheoff = -1,
-	.atttypmod = -1,
-	.attbyval = false,
-	.attalign = TYPALIGN_CHAR,
-	.attstorage = TYPSTORAGE_PLAIN,
-	.attnotnull = true,
-	.attislocal = true,
-};
-
-static FormData_pg_attribute sender_node_uuid = {
-	.attname = {"sender_node_uuid"},
-	.atttypid = UUIDOID,
-	.attlen = UUID_LEN,
-	.attnum = 2,
-	.attcacheoff = -1,
-	.atttypmod = -1,
-	.attbyval = false,
-	.attalign = TYPALIGN_CHAR,
-	.attstorage = TYPSTORAGE_PLAIN,
-	.attnotnull = true,
-	.attislocal = true,
-};
-
-static FormData_pg_attribute sender_pid = {
-	.attname = {"sender_pid"},
-	.atttypid = INT4OID,
-	.attlen = 4,
-	.attnum = 3,
-	.attcacheoff = -1,
-	.atttypmod = -1,
-	.attbyval = true,
-	.attalign = TYPALIGN_INT,
-	.attstorage = TYPSTORAGE_PLAIN,
-	.attnotnull = true,
-	.attislocal = true,
-};
-
-static FormData_pg_attribute db_oid = {
-	.attname = {"db_oid"},
-	.atttypid = OIDOID,
-	.attlen = sizeof(Oid),
-	.attnum = 4,
-	.attcacheoff = -1,
-	.atttypmod = -1,
-	.attbyval = true,
-	.attalign = TYPALIGN_INT,
-	.attstorage = TYPSTORAGE_PLAIN,
-	.attnotnull = true,
-	.attislocal = true,
-};
-
-static FormData_pg_attribute is_listen = {
-	.attname = {"is_listen"},
-	.atttypid = BOOLOID,
-	.attlen = 1,
-	.attnum = 5,
-	.attcacheoff = -1,
-	.atttypmod = -1,
-	.attbyval = true,
-	.attalign = TYPALIGN_CHAR,
-	.attstorage = TYPSTORAGE_PLAIN,
-	.attnotnull = true,
-	.attislocal = true,
-};
-
-static FormData_pg_attribute data = {
-	.attname = {"data"},
-	.atttypid = BYTEAOID,
-	.attlen = -1,
-	.attnum = 6,
-	.attcacheoff = -1,
-	.atttypmod = -1,
-	.attbyval = false,
-	.attalign = TYPALIGN_INT,
-	.attstorage = TYPSTORAGE_EXTENDED,
-	.attnotnull = true,
-	.attislocal = true,
-};
-
-static FormData_pg_attribute options = {
-	.attname = {"options"},
-	.atttypid = JSONBOID,
-	.attlen = -1,
-	.attnum = 7,
-	.attcacheoff = -1,
-	.atttypmod = -1,
-	.attbyval = false,
-	.attalign = TYPALIGN_INT,
-	.attstorage = TYPSTORAGE_EXTENDED,
-	.attnotnull = false,
-	.attislocal = true,
-};
-
-static FormData_pg_attribute *YbSysAtt[] = {&notif_uuid, &sender_node_uuid,
-											&sender_pid, &db_oid,
-											&is_listen,	 &data,
-											&options};
-
 Relation pg_yb_notifications_relation = NULL;
 Oid pg_yb_notifications_rel_oid = InvalidOid;
 
@@ -2678,7 +2684,7 @@ YbNotificationsRelation()
 		pg_yb_notifications_relation->rd_rel = relationForm;
 
 		pg_yb_notifications_relation->rd_att =
-			CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbSysAtt);
+			CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbNotificationsAtts);
 		pg_yb_notifications_relation->yb_system_rel = true;
 		MemoryContextSwitchTo(oldcxt);
 	}
@@ -2705,27 +2711,27 @@ YbInsertNotifications(void)
 		ExecClearTuple(slot);
 		ResetPerTupleExprContext(estate);
 
-		slot->tts_isnull[notif_uuid.attnum - 1] = false;
-		slot->tts_values[notif_uuid.attnum - 1] = gen_random_uuid(NULL);
+		slot->tts_isnull[yb_notif_uuid_att.attnum - 1] = false;
+		slot->tts_values[yb_notif_uuid_att.attnum - 1] = gen_random_uuid(NULL);
 
-		slot->tts_isnull[sender_node_uuid.attnum - 1] = false;
-		slot->tts_values[sender_node_uuid.attnum - 1] =
+		slot->tts_isnull[yb_sender_node_uuid_att.attnum - 1] = false;
+		slot->tts_values[yb_sender_node_uuid_att.attnum - 1] =
 			CStringGetDatum(YBCGetLocalTserverUuid());
 
-		slot->tts_isnull[sender_pid.attnum - 1] = false;
-		slot->tts_values[sender_pid.attnum - 1] = Int32GetDatum(MyProcPid);
+		slot->tts_isnull[yb_sender_pid_att.attnum - 1] = false;
+		slot->tts_values[yb_sender_pid_att.attnum - 1] = Int32GetDatum(MyProcPid);
 
-		slot->tts_isnull[db_oid.attnum - 1] = false;
-		slot->tts_values[db_oid.attnum - 1] = ObjectIdGetDatum(MyDatabaseId);
+		slot->tts_isnull[yb_db_oid_att.attnum - 1] = false;
+		slot->tts_values[yb_db_oid_att.attnum - 1] = ObjectIdGetDatum(MyDatabaseId);
 
-		slot->tts_isnull[is_listen.attnum - 1] = false;
-		slot->tts_values[is_listen.attnum - 1] = false;
+		slot->tts_isnull[yb_is_listen_att.attnum - 1] = false;
+		slot->tts_values[yb_is_listen_att.attnum - 1] = false;
 
-		slot->tts_isnull[data.attnum - 1] = false;
-		slot->tts_values[data.attnum - 1] = CStringGetDatum(cstring_to_text_with_len(n->data,
+		slot->tts_isnull[yb_data_att.attnum - 1] = false;
+		slot->tts_values[yb_data_att.attnum - 1] = CStringGetDatum(cstring_to_text_with_len(n->data,
 															n->channel_len + n->payload_len + 2));
 
-		slot->tts_isnull[options.attnum - 1] = true;
+		slot->tts_isnull[yb_extra_options_att.attnum - 1] = true;
 		ExecStoreVirtualTuple(slot);
 
 		YbcPgTransactionSetting txn_setting = IsTransactionBlock() ?
@@ -2950,18 +2956,19 @@ static void
 YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 {
 	HeapTuple tuple = YBGetHeapTuplesForRecord(row_message);
-	TupleDesc desc = CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbSysAtt);
+	TupleDesc desc =
+		CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbNotificationsAtts);
 
 	bool isnull;
-	Datum sender_id = heap_getattr(tuple, sender_pid.attnum, desc, &isnull);
+	Datum sender_id = heap_getattr(tuple, yb_sender_pid_att.attnum, desc, &isnull);
 	Assert(!isnull);
 	qe->srcPid = DatumGetInt32(sender_id);
 
-	Datum dbid = heap_getattr(tuple, db_oid.attnum, desc, &isnull);
+	Datum dbid = heap_getattr(tuple, yb_db_oid_att.attnum, desc, &isnull);
 	Assert(!isnull);
 	qe->dboid = DatumGetObjectId(dbid);
 
-	Datum data_datum = heap_getattr(tuple, data.attnum, desc, &isnull);
+	Datum data_datum = heap_getattr(tuple, yb_data_att.attnum, desc, &isnull);
 	Assert(!isnull);
 	const void *data = DatumGetPointer(data_datum);
 	size_t datalen = VARSIZE_ANY(data);
