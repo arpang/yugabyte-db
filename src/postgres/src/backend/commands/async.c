@@ -155,6 +155,7 @@
 #include "utils/timestamp.h"
 
 /* YB includes */
+#include "yb/yql/pggate/ybc_gflags.h"
 #include "catalog/pg_namespace_d.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
@@ -744,6 +745,13 @@ pg_notify(PG_FUNCTION_ARGS)
 	PG_RETURN_VOID();
 }
 
+void
+YbCheckIfListenNotifyIsEnabled()
+{
+	if (!*YBCGetGFlags()->TEST_ysql_yb_enable_listen_notify)
+		elog(ERROR, "LISTEN/NOTIFY is disabled. Enable it via flag "
+					"ysql_yb_enable_listen_notify");
+}
 
 /*
  * Async_Notify
@@ -762,6 +770,8 @@ Async_Notify(const char *channel, const char *payload)
 	size_t		payload_len;
 	Notification *n;
 	MemoryContext oldcontext;
+
+	YbCheckIfListenNotifyIsEnabled();
 
 	if (IsParallelWorker())
 		elog(ERROR, "cannot send notifications from a parallel worker");
@@ -904,6 +914,8 @@ queue_listen(ListenActionKind action, const char *channel)
 void
 Async_Listen(const char *channel)
 {
+	YbCheckIfListenNotifyIsEnabled();
+
 	if (Trace_notify)
 		elog(DEBUG1, "Async_Listen(%s,%d)", channel, MyProcPid);
 
@@ -918,6 +930,8 @@ Async_Listen(const char *channel)
 void
 Async_Unlisten(const char *channel)
 {
+	YbCheckIfListenNotifyIsEnabled();
+
 	if (Trace_notify)
 		elog(DEBUG1, "Async_Unlisten(%s,%d)", channel, MyProcPid);
 
@@ -936,11 +950,7 @@ Async_Unlisten(const char *channel)
 void
 Async_UnlistenAll(void)
 {
-	/*
-	 * (YB) Note: This function is replaced by NOOP, but we don't raise warning
-	 * here to avoid double warning message when using "UNLISTEN *".
-	 */
-	return;
+	YbCheckIfListenNotifyIsEnabled();
 
 	if (Trace_notify)
 		elog(DEBUG1, "Async_UnlistenAll(%d)", MyProcPid);
