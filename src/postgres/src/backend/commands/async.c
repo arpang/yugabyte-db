@@ -155,13 +155,13 @@
 #include "utils/timestamp.h"
 
 /* YB includes */
-#include "yb/yql/pggate/ybc_gflags.h"
 #include "catalog/pg_namespace_d.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
 #include "replication/slot.h"
 #include "replication/yb_decode.h"
 #include "replication/yb_virtual_wal_client.h"
+#include "yb/yql/pggate/ybc_gflags.h"
 
 /*
  * Maximum size of a NOTIFY payload, including terminating NULL.  This
