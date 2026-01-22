@@ -563,6 +563,8 @@ static FormData_pg_attribute *YbNotificationsAtts[] = {
 
 static List *yb_queue_entries_to_write = NIL;
 static TransactionId yb_current_notification_xid = InvalidTransactionId;
+static Relation pg_yb_notifications_relation = NULL;
+static Oid pg_yb_notifications_rel_oid = InvalidOid;
 
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
@@ -595,17 +597,18 @@ static uint32 notification_hash(const void *key, Size keysize);
 static int	notification_match(const void *key1, const void *key2, Size keysize);
 static void ClearPendingActionsAndNotifies(void);
 
-static void YbInsertNotifications(void);
-static void YbCreateNotificationReplicationSlot();
+static void YbInsertPendingNotifies(void);
+static void YbCreateReplicationSlotForNotifications();
 static char *YbNotificationReplicationSlotName();
 static void YbStartNotificationsPollerProcess();
 static BackgroundWorkerHandle *YbShmemNotificationsPollerBgWHandle(bool *found);
 static void YbPollAndProcessNotifications();
-static void YbProcessNotificationRecord(YbcPgRowMessage *record);
-static void YbBufferQueueEntriesForWrite(YbcPgRowMessage *record);
+static void YbProcessNotificationRecord(const YbcPgRowMessage *record);
+static void YbBufferQueueEntriesForWrite(const YbcPgRowMessage *record);
 static void YbFlushBufferedQueueEntries();
-static void YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
-
+static void YbRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
+static Oid YbNotificationsRelationId();
+static Relation YbNotificationsRelation();
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -1073,8 +1076,6 @@ PreCommit_Notify(void)
 		}
 	}
 
-	YbInsertNotifications();
-
 	/* Queue any pending notifies (must happen after the above) */
 	if (!IsYugaByteEnabled() && pendingNotifies)
 	{
@@ -1135,6 +1136,15 @@ PreCommit_Notify(void)
 
 		/* Note that we don't clear pendingNotifies; AtCommit_Notify will. */
 	}
+	else if (IsYugaByteEnabled() && pendingNotifies)
+	{
+		/*
+		 * YB note: PG writes the notifications to the central
+		 * queue on commit. YB, though, writes them to the pg_yb_notifications
+		 * table.
+		 */
+		YbInsertPendingNotifies();
+	}
 }
 
 /*
@@ -1194,8 +1204,11 @@ AtCommit_Notify(void)
 	 * Send signals to listening backends.  We need do this only if there are
 	 * pending notifies, which were previously added to the shared queue by
 	 * PreCommit_Notify().
+	 *
+	 * YB note: notifications poller signals the listening backends when writing
+	 * to the queue.
 	 */
-	if (pendingNotifies != NULL && !IsYugaByteEnabled())
+	if (!IsYugaByteEnabled() && pendingNotifies != NULL)
 		SignalBackends();
 
 	/*
@@ -1312,8 +1325,8 @@ Exec_ListenPreCommit(void)
 	if (ybFirstListenerOnNode)
 	{
 		/*
-		 * Create the replication slot and start the notifications poller
-		 * process as this is the first listener in the node.
+		 * YB note: The first listener on the node starts the notifications
+		 * poller bg worker (which also creates a replication slot).
 		 */
 		YbStartNotificationsPollerProcess();
 	}
@@ -2660,53 +2673,9 @@ ClearPendingActionsAndNotifies(void)
 	pendingNotifies = NULL;
 }
 
-Relation pg_yb_notifications_relation = NULL;
-Oid pg_yb_notifications_rel_oid = InvalidOid;
-
-static Oid
-YbNotificationsRelationId()
-{
-	if (pg_yb_notifications_rel_oid == InvalidOid)
-	{
-		// HandleYBStatus(YBCGetTableOid(YbSystemDbOid(),
-		// 							  PgYbNotificationsTableName,
-		// 							  &pg_yb_notifications_rel_oid));
-		pg_yb_notifications_rel_oid = 16384; /* TODO: Remove this once
-											YBCGetTableOid lands */
-	}
-	return pg_yb_notifications_rel_oid;
-}
-
-static Relation
-YbNotificationsRelation()
-{
-	if (!pg_yb_notifications_relation)
-	{
-		MemoryContext oldcxt = MemoryContextSwitchTo(CacheMemoryContext);
-		pg_yb_notifications_relation = (Relation) palloc0(sizeof(RelationData));
-		pg_yb_notifications_relation->rd_id = YbNotificationsRelationId();
-
-		Form_pg_class relationForm = (Form_pg_class) palloc0(CLASS_TUPLE_SIZE);
-		relationForm->relnamespace = PG_PUBLIC_NAMESPACE;
-		relationForm->relkind = RELKIND_RELATION;
-		relationForm->oid = pg_yb_notifications_relation->rd_id;
-		relationForm->relnatts = YB_NOTIFICATIONS_NATTS;
-		pg_yb_notifications_relation->rd_rel = relationForm;
-
-		pg_yb_notifications_relation->rd_att =
-			CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbNotificationsAtts);
-		pg_yb_notifications_relation->yb_system_rel = true;
-		MemoryContextSwitchTo(oldcxt);
-	}
-	return pg_yb_notifications_relation;
-}
-
 static void
-YbInsertNotifications(void)
+YbInsertPendingNotifies(void)
 {
-	if (!pendingNotifies)
-		return;
-
 	Oid dboid = YbSystemDbOid();
 	Relation rel = YbNotificationsRelation();
 	TupleDesc desc = RelationGetDescr(rel);
@@ -2759,7 +2728,7 @@ YbInsertNotifications(void)
 }
 
 static void
-YbCreateNotificationReplicationSlot()
+YbCreateReplicationSlotForNotifications()
 {
 	char *slotname = YbNotificationReplicationSlotName();
 
@@ -2842,9 +2811,8 @@ YbNotificationsPollerMain(Datum main_arg)
 	/* Is this correct? */
 	WalSndSignals();
 	BackgroundWorkerUnblockSignals();
-	/* TODO: remove hardcoding */
 	BackgroundWorkerInitializeConnection(YbSystemDbName, "yugabyte", 0);
-	YbCreateNotificationReplicationSlot();
+	YbCreateReplicationSlotForNotifications();
 	YbPollAndProcessNotifications();
 }
 
@@ -2855,7 +2823,7 @@ YbPollAndProcessNotifications()
 		!yb_enable_replication_slot_consumption)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("unable to start polling notifications"),
+				 errmsg("unable to poll notifications"),
 				 errdetail("For LISTEN/NOTIFY, yb_enable_replication_commands "
 						   "and yb_enable_replication_slot_consumption must be "
 						   "true.")));
@@ -2878,7 +2846,7 @@ YbPollAndProcessNotifications()
 }
 
 static void
-YbProcessNotificationRecord(YbcPgRowMessage *record)
+YbProcessNotificationRecord(const YbcPgRowMessage *record)
 {
 	Assert(yb_current_notification_xid ==
 		   (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
@@ -2925,7 +2893,7 @@ YbProcessNotificationRecord(YbcPgRowMessage *record)
 }
 
 static void
-YbBufferQueueEntriesForWrite(YbcPgRowMessage *record)
+YbBufferQueueEntriesForWrite(const YbcPgRowMessage *record)
 {
 	MemoryContext oldcontext = MemoryContextSwitchTo(CurTransactionContext);
 	AsyncQueueEntry *qe = palloc0(sizeof(AsyncQueueEntry));
@@ -2963,7 +2931,7 @@ YbFlushBufferedQueueEntries()
 }
 
 static void
-YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
+YbRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 {
 	HeapTuple tuple = YBGetHeapTuplesForRecord(row_message);
 	TupleDesc desc =
@@ -2987,4 +2955,42 @@ YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 	int entryLength = AsyncQueueEntryEmptySize + datalen - 2;
 	entryLength = QUEUEALIGN(entryLength);
 	qe->length = entryLength;
+}
+
+static Oid
+YbNotificationsRelationId()
+{
+	if (!OidIsValid(pg_yb_notifications_rel_oid))
+	{
+		// HandleYBStatus(YBCGetTableOid(YbSystemDbOid(),
+		// 							  PgYbNotificationsTableName,
+		// 							  &pg_yb_notifications_rel_oid));
+		pg_yb_notifications_rel_oid = 16384; /* TODO: Remove this once
+											YBCGetTableOid lands */
+	}
+	return pg_yb_notifications_rel_oid;
+}
+
+static Relation
+YbNotificationsRelation()
+{
+	if (!pg_yb_notifications_relation)
+	{
+		MemoryContext oldcxt = MemoryContextSwitchTo(CacheMemoryContext);
+		pg_yb_notifications_relation = (Relation) palloc0(sizeof(RelationData));
+		pg_yb_notifications_relation->rd_id = YbNotificationsRelationId();
+
+		Form_pg_class relationForm = (Form_pg_class) palloc0(CLASS_TUPLE_SIZE);
+		relationForm->relnamespace = PG_PUBLIC_NAMESPACE;
+		relationForm->relkind = RELKIND_RELATION;
+		relationForm->oid = pg_yb_notifications_relation->rd_id;
+		relationForm->relnatts = YB_NOTIFICATIONS_NATTS;
+		pg_yb_notifications_relation->rd_rel = relationForm;
+
+		pg_yb_notifications_relation->rd_att =
+			CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbNotificationsAtts);
+		pg_yb_notifications_relation->yb_system_rel = true;
+		MemoryContextSwitchTo(oldcxt);
+	}
+	return pg_yb_notifications_relation;
 }
