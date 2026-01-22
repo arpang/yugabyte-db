@@ -190,7 +190,6 @@ typedef struct AsyncQueueEntry
 	Oid			dboid;			/* sender's database OID */
 	TransactionId xid;			/* sender's XID */
 	int32		srcPid;			/* sender's PID */
-	pg_uuid_t yb_node_uuid;		/* sender node uuid. */
 	char		data[NAMEDATALEN + NOTIFY_PAYLOAD_MAX_LENGTH];
 } AsyncQueueEntry;
 
@@ -2652,9 +2651,13 @@ static Oid
 YbNotificationsRelationId()
 {
 	if (pg_yb_notifications_rel_oid == InvalidOid)
-		HandleYBStatus(YBCGetTableOid(YbSystemDbOid(),
-									  PgYbNotificationsTableName,
-									  &pg_yb_notifications_rel_oid));
+	{
+		// HandleYBStatus(YBCGetTableOid(YbSystemDbOid(),
+		// 							  PgYbNotificationsTableName,
+		// 							  &pg_yb_notifications_rel_oid));
+		pg_yb_notifications_rel_oid = 16384; /* TODO: Remove this once
+											YBCGetTableOid lands */
+	}
 	return pg_yb_notifications_rel_oid;
 }
 
@@ -2950,10 +2953,6 @@ YbRowMessageToAsyncQueueEntry(YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
 	TupleDesc desc = CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbSysAtt);
 
 	bool isnull;
-	Datum sender_node = heap_getattr(tuple, sender_node_uuid.attnum, desc, &isnull);
-	Assert(!isnull);
-	memcpy(qe->yb_node_uuid.data, DatumGetUUIDP(sender_node), UUID_LEN);
-
 	Datum sender_id = heap_getattr(tuple, sender_pid.attnum, desc, &isnull);
 	Assert(!isnull);
 	qe->srcPid = DatumGetInt32(sender_id);
