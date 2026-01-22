@@ -556,8 +556,7 @@ Status YsqlManager::CreateYbSystemDBIfNeeded() {
   }
 
   // Check if kYbSystemDbName namespace already exists.
-  auto s = catalog_manager_.GetNamespaceId(YQL_DATABASE_PGSQL, kYbSystemDbName);
-  if (s.ok()) {
+  if (VERIFY_RESULT(catalog_manager_.sys_catalog()->NamespaceExists(kYbSystemDbName))) {
     yb_system_db_created_ = true;
     return Status::OK();
   }
