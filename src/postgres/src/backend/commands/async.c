@@ -561,7 +561,7 @@ static FormData_pg_attribute *YbNotificationsAtts[] = {
 	(sizeof(YbNotificationsAtts) / sizeof(YbNotificationsAtts[0]))
 
 static List *yb_queue_entries_to_write = NIL;
-static TransactionId yb_current_notify_xid = InvalidTransactionId;
+static TransactionId yb_current_notification_xid = InvalidTransactionId;
 
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
@@ -2870,7 +2870,7 @@ YbPollAndProcessNotifications()
 static void
 YbProcessNotificationRecord(YbcPgRowMessage *record)
 {
-	Assert(yb_current_notify_xid ==
+	Assert(yb_current_notification_xid ==
 		   (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
 				InvalidTransactionId :
 				record->xid));
@@ -2880,7 +2880,7 @@ YbProcessNotificationRecord(YbcPgRowMessage *record)
 		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
 			Assert(yb_queue_entries_to_write == NIL);
 			StartTransactionCommand();
-			yb_current_notify_xid = record->xid;
+			yb_current_notification_xid = record->xid;
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
@@ -2899,7 +2899,7 @@ YbProcessNotificationRecord(YbcPgRowMessage *record)
 			 */
 			YBCCalculatePersistAndGetRestartLSN(record->lsn);
 			yb_queue_entries_to_write = NIL;
-			yb_current_notify_xid = InvalidTransactionId;
+			yb_current_notification_xid = InvalidTransactionId;
 			AbortCurrentTransaction();
 			break;
 
