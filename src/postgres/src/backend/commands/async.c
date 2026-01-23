@@ -1662,7 +1662,7 @@ asyncQueueAddEntries(ListCell *nextNotify)
 
 			/* Construct a valid queue entry in local variable qe */
 			asyncQueueNotificationToEntry(n, &qe);
-		}
+		} /* YB */
 
 		offset = QUEUE_POS_OFFSET(queue_head);
 
@@ -1839,7 +1839,7 @@ asyncQueueFillWarning(void)
  * to have very low probability of failure.
  */
 
-/*TODO:  is the palloc here getting cleaned up */
+/* YB TODO:  is the palloc here getting cleaned up */
 static void
 SignalBackends(void)
 {
@@ -2759,7 +2759,7 @@ YbCreateReplicationSlotForNotifications()
 						  CRS_SEQUENCE, YB_CRS_TRANSACTION);
 }
 
-/* TODO: can alloc once and reuse */
+/* YB TODO: can alloc once and reuse */
 char *
 YbNotificationReplicationSlotName()
 {
