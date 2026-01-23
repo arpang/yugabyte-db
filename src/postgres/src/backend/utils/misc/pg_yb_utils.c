@@ -2118,11 +2118,12 @@ YBCGetDatabaseOidByRelid(Oid relid)
 	return YBCGetDatabaseOidFromShared(relisshared, relation->yb_system_rel);
 }
 
+/* TODO: add retires to this till db becomes available */
 Oid
 YbSystemDbOid()
 {
 	if (yb_system_db_oid_cache == InvalidOid)
-		yb_system_db_oid_cache = get_database_oid(YbSystemDbName, false);
+		yb_system_db_oid_cache = get_database_oid(YbSystemDbName, true);
 	return yb_system_db_oid_cache;
 }
 
