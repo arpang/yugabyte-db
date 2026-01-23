@@ -1838,7 +1838,6 @@ asyncQueueFillWarning(void)
  * This is called during CommitTransaction(), so it's important for it
  * to have very low probability of failure.
  */
-
 static void
 SignalBackends(void)
 {
