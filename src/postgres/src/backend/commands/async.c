@@ -1839,7 +1839,6 @@ asyncQueueFillWarning(void)
  * to have very low probability of failure.
  */
 
-/* YB TODO:  is the palloc here getting cleaned up */
 static void
 SignalBackends(void)
 {
@@ -1872,8 +1871,9 @@ SignalBackends(void)
 		 * YB note: In vanilla PG, this function is called by the backend
 		 * process executing NOTIFY. Hence, only the listeners in the current db
 		 * are signaled (unless a listener is far behind, see below). But in YB,
-		 * the bg 'notifications poller' process calls it. Hence, always signal
-		 * all the listeners in all the dbs, unless they are already caught up.
+		 * the bg 'notifications poller' process executes this. Hence, always
+		 * signal all the listeners in all the dbs, unless they are already
+		 * caught up.
 		 */
 		if (QUEUE_BACKEND_DBOID(i) == MyDatabaseId || IsYugaByteEnabled())
 		{
@@ -2748,8 +2748,6 @@ YbCreateReplicationSlotForNotifications()
 	/*
 	 * Note: wal2json is just a placeholder, output plugin is not used for
 	 * notifications.
-	 *
-	 * TODO: is CRS_SEQUENCE the right choice?
 	 */
 	uint64_t	yb_consistent_snapshot_time;
 
