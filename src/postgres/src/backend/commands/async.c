@@ -749,11 +749,21 @@ pg_notify(PG_FUNCTION_ARGS)
 }
 
 void
-YbCheckIfListenNotifyIsEnabled()
+YbListenNotifyPreChecks()
 {
 	if (!*YBCGetGFlags()->TEST_ysql_yb_enable_listen_notify)
-		elog(ERROR, "LISTEN/NOTIFY is disabled. Enable it via flag "
-			 "ysql_yb_enable_listen_notify");
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("listen/notify is disabled. Enable it via runtime "
+						"tserver flag ysql_yb_enable_listen_notify")));
+
+	if (!OidIsValid(YbSystemDbOid()))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("Creating internal objects for listen/notify, please try after some a few seconds"),
+				 errdetail("yb_system database is being created")));
+
+	/* TODO: check if tablet and publication are created. */
 }
 
 /*
@@ -774,7 +784,7 @@ Async_Notify(const char *channel, const char *payload)
 	Notification *n;
 	MemoryContext oldcontext;
 
-	YbCheckIfListenNotifyIsEnabled();
+	YbListenNotifyPreChecks();
 
 	if (IsParallelWorker())
 		elog(ERROR, "cannot send notifications from a parallel worker");
@@ -917,7 +927,7 @@ queue_listen(ListenActionKind action, const char *channel)
 void
 Async_Listen(const char *channel)
 {
-	YbCheckIfListenNotifyIsEnabled();
+	YbListenNotifyPreChecks();
 
 	if (Trace_notify)
 		elog(DEBUG1, "Async_Listen(%s,%d)", channel, MyProcPid);
@@ -933,8 +943,6 @@ Async_Listen(const char *channel)
 void
 Async_Unlisten(const char *channel)
 {
-	YbCheckIfListenNotifyIsEnabled();
-
 	if (Trace_notify)
 		elog(DEBUG1, "Async_Unlisten(%s,%d)", channel, MyProcPid);
 
@@ -953,8 +961,6 @@ Async_Unlisten(const char *channel)
 void
 Async_UnlistenAll(void)
 {
-	YbCheckIfListenNotifyIsEnabled();
-
 	if (Trace_notify)
 		elog(DEBUG1, "Async_UnlistenAll(%d)", MyProcPid);
 
