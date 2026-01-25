@@ -542,7 +542,7 @@ Status YsqlManager::ListenNotifyBgTask() {
   if (num_live_tservers == 0) {
     LOG(INFO) << "No live tservers found, skipping LISTEN/NOTIFY background task for now";
   } else {
-    RETURN_NOT_OK(CreateYbSystemDBIfNeeded());
+    // RETURN_NOT_OK(CreateYbSystemDBIfNeeded());
     RETURN_NOT_OK(CreateListenNotifyObjects());
   }
   return Status::OK();
@@ -605,7 +605,7 @@ Status YsqlManager::CreateListenNotifyObjects() {
   auto failure_warn_prefix = Format("Failed to create LISTEN/NOTIFY objects");
 
   return ExecuteStatementsAsync(
-      kYbSystemDbName, statements, catalog_manager_, failure_warn_prefix,
+      "yugabyte", statements, catalog_manager_, failure_warn_prefix,
       &creating_listen_notify_objects_, &created_listen_notify_objects_);
 }
 
