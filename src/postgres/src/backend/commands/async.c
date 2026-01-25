@@ -565,6 +565,7 @@ static List *yb_queue_entries_to_write = NIL;
 static TransactionId yb_current_notification_xid = InvalidTransactionId;
 static Relation pg_yb_notifications_relation = NULL;
 static Oid	pg_yb_notifications_rel_oid = InvalidOid;
+static Oid	pg_yb_notifications_relfilenode = InvalidOid;
 
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
@@ -607,7 +608,7 @@ static void YbProcessNotificationRecord(const YbcPgRowMessage *record);
 static void YbBufferQueueEntriesForWrite(const YbcPgRowMessage *record);
 static void YbFlushBufferedQueueEntries();
 static void YbRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
-static Oid	YbNotificationsRelationId();
+static void YbNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode);
 static Relation YbNotificationsRelation();
 
 /*
@@ -1668,7 +1669,7 @@ asyncQueueAddEntries(ListCell *nextNotify)
 
 			/* Construct a valid queue entry in local variable qe */
 			asyncQueueNotificationToEntry(n, &qe);
-		} /* YB */
+		}						/* YB */
 
 		offset = QUEUE_POS_OFFSET(queue_head);
 
@@ -2865,6 +2866,8 @@ YbPollAndProcessNotifications()
 static void
 YbProcessNotificationRecord(const YbcPgRowMessage *record)
 {
+	Oid			notif_rel_oid;
+
 	Assert(yb_current_notification_xid ==
 		   (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
 			InvalidTransactionId :
@@ -2879,7 +2882,8 @@ YbProcessNotificationRecord(const YbcPgRowMessage *record)
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
-			Assert(record->table_oid == YbNotificationsRelationId());
+			YbNotificationsRelationInfo(&notif_rel_oid, /* relfilenode */ NULL);
+			Assert(record->table_oid == notif_rel_oid);
 			YbBufferQueueEntriesForWrite(record);
 			break;
 
@@ -2981,18 +2985,20 @@ YbRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message, AsyncQueueEntr
 	qe->length = entryLength;
 }
 
-static Oid
-YbNotificationsRelationId()
+static void
+YbNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode)
 {
 	if (!OidIsValid(pg_yb_notifications_rel_oid))
 	{
-		/* HandleYBStatus(YBCGetTableOid(YbSystemDbOid(), */
-		/* PgYbNotificationsTableName, */
-		/* &pg_yb_notifications_rel_oid)); */
-		pg_yb_notifications_rel_oid = 16384;	/* TODO: Remove this once
-												 * YBCGetTableOid lands */
+		HandleYBStatus(YBCGetYbSystemTableInfo(
+											   PG_PUBLIC_NAMESPACE, PgYbNotificationsTableName,
+											   &pg_yb_notifications_rel_oid, &pg_yb_notifications_relfilenode));
 	}
-	return pg_yb_notifications_rel_oid;
+
+	if (rel_oid)
+		*rel_oid = pg_yb_notifications_rel_oid;
+	if (relfilenode)
+		*relfilenode = pg_yb_notifications_relfilenode;
 }
 
 static Relation
@@ -3002,17 +3008,16 @@ YbNotificationsRelation()
 	{
 		MemoryContext oldcxt = MemoryContextSwitchTo(CacheMemoryContext);
 
+		Form_pg_class rel_form = (Form_pg_class) palloc0(CLASS_TUPLE_SIZE);
+
+		YbNotificationsRelationInfo(&rel_form->oid, &rel_form->relfilenode);
+		rel_form->relnamespace = PG_PUBLIC_NAMESPACE;
+		rel_form->relkind = RELKIND_RELATION;
+		rel_form->relnatts = YB_NOTIFICATIONS_NATTS;
+
 		pg_yb_notifications_relation = (Relation) palloc0(sizeof(RelationData));
-		pg_yb_notifications_relation->rd_id = YbNotificationsRelationId();
-
-		Form_pg_class relationForm = (Form_pg_class) palloc0(CLASS_TUPLE_SIZE);
-
-		relationForm->relnamespace = PG_PUBLIC_NAMESPACE;
-		relationForm->relkind = RELKIND_RELATION;
-		relationForm->oid = pg_yb_notifications_relation->rd_id;
-		relationForm->relnatts = YB_NOTIFICATIONS_NATTS;
-		pg_yb_notifications_relation->rd_rel = relationForm;
-
+		pg_yb_notifications_relation->rd_rel = rel_form;
+		pg_yb_notifications_relation->rd_id = rel_form->oid;
 		pg_yb_notifications_relation->rd_att =
 			CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbNotificationsAtts);
 		pg_yb_notifications_relation->yb_system_rel = true;
