@@ -610,6 +610,8 @@ static void YbFlushBufferedQueueEntries();
 static void YbRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
 static void YbNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode);
 static Relation YbNotificationsRelation();
+static Oid YbNotificationsRelId();
+
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -761,10 +763,14 @@ YbListenNotifyPreChecks()
 	if (!OidIsValid(YbSystemDbOid()))
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("Creating internal objects for listen/notify, please try after some a few seconds"),
+				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
 				 errdetail("yb_system database is being created")));
 
-	/* TODO: check if tablet and publication are created. */
+	if (!OidIsValid(YbNotificationsRelId()))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
+				 errdetail("pg_yb_notifications table is being created")));
 }
 
 /*
@@ -2866,8 +2872,6 @@ YbPollAndProcessNotifications()
 static void
 YbProcessNotificationRecord(const YbcPgRowMessage *record)
 {
-	Oid			notif_rel_oid;
-
 	Assert(yb_current_notification_xid ==
 		   (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
 			InvalidTransactionId :
@@ -2882,8 +2886,7 @@ YbProcessNotificationRecord(const YbcPgRowMessage *record)
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
-			YbNotificationsRelationInfo(&notif_rel_oid, /* relfilenode */ NULL);
-			Assert(record->table_oid == notif_rel_oid);
+			Assert(record->table_oid == YbNotificationsRelId());
 			YbBufferQueueEntriesForWrite(record);
 			break;
 
@@ -2990,8 +2993,7 @@ YbNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode)
 {
 	if (!OidIsValid(pg_yb_notifications_rel_oid))
 	{
-		HandleYBStatus(YBCGetYbSystemTableInfo(
-											   PG_PUBLIC_NAMESPACE, PgYbNotificationsTableName,
+		HandleYBStatus(YBCGetYbSystemTableInfo(PG_PUBLIC_NAMESPACE, PgYbNotificationsTableName,
 											   &pg_yb_notifications_rel_oid, &pg_yb_notifications_relfilenode));
 	}
 
@@ -3024,4 +3026,12 @@ YbNotificationsRelation()
 		MemoryContextSwitchTo(oldcxt);
 	}
 	return pg_yb_notifications_relation;
+}
+
+static Oid
+YbNotificationsRelId()
+{
+	Oid oid;
+	YbNotificationsRelationInfo(&oid, /* relfilenode = */ NULL);
+	return oid;
 }
