@@ -1338,9 +1338,10 @@ Exec_ListenPreCommit(void)
 	if (ybFirstListenerOnNode)
 	{
 		/*
-		 * YB note: The first listener on the node starts the notifications
-		 * poller bg worker (which also creates a replication slot).
+		 * YB note: The first listener on the node creates the replication and
+		 * starts the notifications poller process.
 		 */
+		YbCreateReplicationSlotForNotifications();
 		YbStartNotificationsPollerProcess();
 	}
 
@@ -2834,7 +2835,6 @@ YbNotificationsPollerMain(Datum main_arg)
 	WalSndSignals();
 	BackgroundWorkerUnblockSignals();
 	BackgroundWorkerInitializeConnection(YbSystemDbName, "yugabyte", 0);
-	YbCreateReplicationSlotForNotifications();
 	YbPollAndProcessNotifications();
 }
 
