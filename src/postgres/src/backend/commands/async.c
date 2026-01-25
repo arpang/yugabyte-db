@@ -611,7 +611,7 @@ static void YbRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message, As
 static void YbNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode);
 static Relation YbNotificationsRelation();
 static Oid YbNotificationsRelId();
-
+static void YbListenNotifyPreChecks();
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -749,28 +749,6 @@ pg_notify(PG_FUNCTION_ARGS)
 	Async_Notify(channel, payload);
 
 	PG_RETURN_VOID();
-}
-
-void
-YbListenNotifyPreChecks()
-{
-	if (!*YBCGetGFlags()->TEST_ysql_yb_enable_listen_notify)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("listen/notify is disabled. Enable it via runtime "
-						"tserver flag ysql_yb_enable_listen_notify")));
-
-	if (!OidIsValid(YbSystemDbOid()))
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
-				 errdetail("yb_system database is being created")));
-
-	if (!OidIsValid(YbNotificationsRelId()))
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
-				 errdetail("pg_yb_notifications table is being created")));
 }
 
 /*
@@ -3034,4 +3012,28 @@ YbNotificationsRelId()
 	Oid oid;
 	YbNotificationsRelationInfo(&oid, /* relfilenode = */ NULL);
 	return oid;
+}
+
+static void
+YbListenNotifyPreChecks()
+{
+	if (!*YBCGetGFlags()->TEST_ysql_yb_enable_listen_notify)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("listen/notify is disabled. Enable it via runtime "
+						"tserver flag ysql_yb_enable_listen_notify")));
+
+	if (!OidIsValid(YbSystemDbOid()))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
+				 errdetail("yb_system database is being created")));
+
+	if (!OidIsValid(YbNotificationsRelId()))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
+				 errdetail("pg_yb_notifications table is being created")));
+
+	/* TODO: Add check for publication too. */
 }
