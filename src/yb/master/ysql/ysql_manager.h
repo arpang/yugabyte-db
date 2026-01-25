@@ -192,7 +192,7 @@ class YsqlManager : public YsqlManagerIf {
   std::atomic<bool> pg_catalog_versions_bg_task_running_ = {false};
   rpc::ScheduledTaskTracker refresh_ysql_pg_catalog_versions_task_;
 
-  bool yb_system_db_created_ = false;
+  bool yb_system_db_created_ = true;
   bool creating_listen_notify_objects_ = false;
   bool created_listen_notify_objects_ = false;
 
