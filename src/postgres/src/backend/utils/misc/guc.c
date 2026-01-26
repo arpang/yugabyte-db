@@ -3758,7 +3758,7 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&yb_fallback_to_legacy_catalog_read_time,
-		true,
+		false,
 		NULL, NULL, NULL
 	},
 
