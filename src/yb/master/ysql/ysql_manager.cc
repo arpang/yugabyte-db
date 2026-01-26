@@ -605,7 +605,7 @@ Status YsqlManager::CreateListenNotifyObjects() {
   auto failure_warn_prefix = Format("Failed to create LISTEN/NOTIFY objects");
 
   return ExecuteStatementsAsync(
-      "yugabyte", statements, catalog_manager_, failure_warn_prefix,
+      "system_platform", statements, catalog_manager_, failure_warn_prefix,
       &creating_listen_notify_objects_, &created_listen_notify_objects_);
 }
 
