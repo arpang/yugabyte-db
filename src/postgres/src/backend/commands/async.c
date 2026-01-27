@@ -2742,10 +2742,10 @@ YbCreateReplicationSlotForNotifications()
 	 */
 	uint64_t	yb_consistent_snapshot_time;
 
-	ReplicationSlotCreate(slotname, /* db_specific = */ false, RS_PERSISTENT,
-						   /* two_phase = */ false, "wal2json",
+	YbReplicationSlotCreate(slotname, /* two_phase = */ false, "wal2json",
 						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
-						  CRS_SEQUENCE, YB_CRS_TRANSACTION);
+						  CRS_SEQUENCE, YB_CRS_TRANSACTION,
+						  /* for_notifications = */ true);
 }
 
 /* YB TODO: can alloc once and reuse */
