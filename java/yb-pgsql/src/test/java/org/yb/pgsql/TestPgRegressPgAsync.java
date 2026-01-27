@@ -22,14 +22,10 @@ import org.yb.YBTestRunner;
  */
 @RunWith(value=YBTestRunner.class)
 public class TestPgRegressPgAsync extends BasePgRegressTestPorted {
+
   @Override
   public int getTestMethodTimeoutSec() {
     return 1800;
-  }
-
-  @Test
-  public void schedule() throws Exception {
-    runPgRegressTest("yb_pg_async_schedule");
   }
 
   @Override
@@ -39,10 +35,25 @@ public class TestPgRegressPgAsync extends BasePgRegressTestPorted {
     return flagMap;
   }
 
-    @Override
+  @Override
   protected Map<String, String> getMasterFlags() {
     Map<String, String> flagMap = super.getMasterFlags();
     flagMap.put("TEST_ysql_yb_enable_listen_notify", "true");
     return flagMap;
+  }
+
+  @Test
+  public void schedule() throws Exception {
+    Thread.sleep(30 * 1000);
+    runPgRegressTest("yb_pg_async_schedule");
+  }
+
+  @Test
+  public void testIsolationPgRegress() throws Exception {
+    Thread.sleep(30 * 1000);
+    runPgRegressTest(
+      PgRegressBuilder.PG_ISOLATION_REGRESS_DIR /* inputDir */,
+      "yb_pg_async_isolation_schedule",
+      0 /* maxRuntimeMillis */, PgRegressBuilder.PG_ISOLATION_REGRESS_EXECUTABLE);
   }
 }
