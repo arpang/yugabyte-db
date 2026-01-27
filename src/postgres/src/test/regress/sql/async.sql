@@ -2,7 +2,7 @@
 -- ASYNC
 --
 
-SELECT pg_sleep(10); -- YB: sleep to ensure internal objects are created.
+SELECT pg_sleep(30); -- YB: sleep to ensure internal objects are created.
 
 --Should work. Send a valid message via a valid channel name
 SELECT pg_notify('notify_async1','sample message1');

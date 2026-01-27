@@ -1,7 +1,7 @@
 --
 -- ASYNC
 --
-SELECT pg_sleep(10); -- YB: sleep to ensure internal objects are created.
+SELECT pg_sleep(30); -- YB: sleep to ensure internal objects are created.
  pg_sleep 
 ----------
  
