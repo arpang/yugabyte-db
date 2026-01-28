@@ -288,11 +288,48 @@ ReplicationSlotCreate(const char *name, bool db_specific,
 	 */
 	if (IsYugaByteEnabled())
 	{
-		return YbReplicationSlotCreate(name, two_phase, yb_plugin_name,
-									   yb_snapshot_action,
-									   yb_consistent_snapshot_time, lsn_type,
-									   yb_ordering_mode,
-									   /* for_notifications = */ false);
+		int32_t		max_clock_skew;
+
+		/* TODO(#24025): This must be removed once we support two_phase. */
+		if (two_phase)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("two_phase is not supported")));
+
+		YBCCreateReplicationSlot(name, yb_plugin_name, yb_snapshot_action,
+								 yb_consistent_snapshot_time, lsn_type,
+								 yb_ordering_mode);
+
+		/*
+		 * The creation of a replication slot establishes a boundry between the
+		 * snapshot and change records. This is represented as a hybrid time.
+		 * This hybrid time can be chosen up to max_clock_skew us in the future.
+		 * We do not want to return the control back to the client before this
+		 * time passes otherwise the below scenario can cause confusion.
+		 *
+		 * T1: Slot creation (snapshot time chosen as Tsnap)
+		 *  ... command returns to the client before Tsnap is in the past.
+		 * T2: Insert operation where T2 < Tsnap
+		 *
+		 * The user would expect the insert operation to be part of the change
+		 * operations as it was done after the slot creation but it'll be
+		 * treated as snapshot operation. Sleeping here prevents that.
+		 *
+		 * Another scenario faced by the PG Debezium connector is that it
+		 * attempts to set the yb_read_time to the consistent snapshot time as
+		 * soon as the slot is created. Since this time is in the future
+		 * (without the sleep), such an attempt to set the yb_read_time to a
+		 * future time value can fail.
+		 *
+		 * It is fine to sleep like this because slot creation is not expected
+		 * to be a frequent operation.
+		 */
+		max_clock_skew = YBGetMaxClockSkewUsec();
+		elog(DEBUG1,
+			 "Sleeping for %d us after the slot creation to handle clock skew.",
+			 max_clock_skew);
+		pg_usleep(max_clock_skew);
+		return;
 	}
 
 	/*
@@ -401,61 +438,6 @@ ReplicationSlotCreate(const char *name, bool db_specific,
 	ConditionVariableBroadcast(&slot->active_cv);
 }
 
-void
-YbReplicationSlotCreate(const char *name, bool two_phase,
-						const char *yb_plugin_name,
-						CRSSnapshotAction yb_snapshot_action,
-						uint64_t *yb_consistent_snapshot_time,
-						YbCRSLsnType lsn_type,
-						YbCRSOrderingMode yb_ordering_mode,
-						bool for_notifications)
-{
-		int32_t		max_clock_skew;
-
-		Assert(ReplicationSlotValidateName(name, ERROR));
-
-		/* TODO(#24025): This must be removed once we support two_phase. */
-		if (two_phase)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("two_phase is not supported")));
-
-		YBCCreateReplicationSlot(name, yb_plugin_name, yb_snapshot_action,
-								 yb_consistent_snapshot_time, lsn_type,
-								 yb_ordering_mode, for_notifications);
-
-		/*
-		 * The creation of a replication slot establishes a boundry between the
-		 * snapshot and change records. This is represented as a hybrid time.
-		 * This hybrid time can be chosen up to max_clock_skew us in the future.
-		 * We do not want to return the control back to the client before this
-		 * time passes otherwise the below scenario can cause confusion.
-		 *
-		 * T1: Slot creation (snapshot time chosen as Tsnap)
-		 *  ... command returns to the client before Tsnap is in the past.
-		 * T2: Insert operation where T2 < Tsnap
-		 *
-		 * The user would expect the insert operation to be part of the change
-		 * operations as it was done after the slot creation but it'll be
-		 * treated as snapshot operation. Sleeping here prevents that.
-		 *
-		 * Another scenario faced by the PG Debezium connector is that it
-		 * attempts to set the yb_read_time to the consistent snapshot time as
-		 * soon as the slot is created. Since this time is in the future
-		 * (without the sleep), such an attempt to set the yb_read_time to a
-		 * future time value can fail.
-		 *
-		 * It is fine to sleep like this because slot creation is not expected
-		 * to be a frequent operation.
-		 */
-		max_clock_skew = YBGetMaxClockSkewUsec();
-		elog(DEBUG1,
-			 "Sleeping for %d us after the slot creation to handle clock skew.",
-			 max_clock_skew);
-		pg_usleep(max_clock_skew);
-		return;
-}
-
 /*
  * Search for the named replication slot.
  *
@@ -560,7 +542,7 @@ retry:
 		HTAB	   *replica_identities;
 		HASHCTL		ctl;
 
-		YBCGetReplicationSlot(name, &yb_replication_slot, /* if_exists */ false);
+		YBCGetReplicationSlot(name, &yb_replication_slot);
 
 		s = palloc(sizeof(ReplicationSlot));
 		namestrcpy(&s->data.name, yb_replication_slot->slot_name);
@@ -867,7 +849,7 @@ restart:
  * Permanently drop replication slot identified by the passed in name.
  */
 void
-ReplicationSlotDrop(const char *name, bool nowait, bool yb_force, bool yb_if_exists)
+ReplicationSlotDrop(const char *name, bool nowait)
 {
 	Assert(MyReplicationSlot == NULL);
 
@@ -878,20 +860,16 @@ ReplicationSlotDrop(const char *name, bool nowait, bool yb_force, bool yb_if_exi
 	 */
 	if (IsYugaByteEnabled())
 	{
-		if (!yb_force)
-		{
-			YbcReplicationSlotDescriptor *yb_replication_slot;
+		YbcReplicationSlotDescriptor *yb_replication_slot;
 
-			if (!YBCGetReplicationSlot(name, &yb_replication_slot, yb_if_exists))
-				return;
+		YBCGetReplicationSlot(name, &yb_replication_slot);
 
-			if (yb_replication_slot->active)
-				ereport(ERROR,
-						(errcode(ERRCODE_OBJECT_IN_USE),
-						errmsg("replication slot \"%s\" is active", name)));
-		}
+		if (yb_replication_slot->active)
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_IN_USE),
+					 errmsg("replication slot \"%s\" is active", name)));
 
-		YBCDropReplicationSlot(name, yb_if_exists);
+		YBCDropReplicationSlot(name);
 
 		ReplicationSlot *slot_for_array = SearchNamedReplicationSlot(name, false);
 

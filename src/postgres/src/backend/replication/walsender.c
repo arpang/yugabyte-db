@@ -1504,8 +1504,7 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 				 errmsg("waiting for a replication slot is not yet"
 						" supported")));
 
-	ReplicationSlotDrop(cmd->slotname, !cmd->wait, /* yb_force = */ false,
-						/* yb_if_exists= */ false);
+	ReplicationSlotDrop(cmd->slotname, !cmd->wait);
 }
 
 /*
@@ -3353,8 +3352,9 @@ XLogSendLogical(void)
 
 	if (IsYugaByteEnabled())
 	{
-		yb_record = YBXLogReadRecord(logical_decoding_ctx->reader,
-									 logical_decoding_ctx->options.yb_publication_names, &errm);
+		yb_record = YBCReadRecord(logical_decoding_ctx->reader,
+								  logical_decoding_ctx->options.yb_publication_names,
+								  &errm);
 
 		/*
 		 * Explicitly set record to NULL so that the NULL check below is only

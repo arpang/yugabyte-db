@@ -2149,8 +2149,7 @@ YBCCreateReplicationSlot(const char *slot_name,
 						 CRSSnapshotAction snapshot_action,
 						 uint64_t *consistent_snapshot_time,
 						 YbCRSLsnType lsn_type,
-						 YbCRSOrderingMode yb_ordering_mode,
-						 bool for_notifications)
+						 YbCRSOrderingMode yb_ordering_mode)
 {
 	YbcPgStatement handle;
 
@@ -2223,51 +2222,33 @@ YBCListReplicationSlots(YbcReplicationSlotDescriptor **replication_slots,
 											 numreplicationslots));
 }
 
-bool
+void
 YBCGetReplicationSlot(const char *slot_name,
-					  YbcReplicationSlotDescriptor **replication_slot,
-					  bool if_exists)
+					  YbcReplicationSlotDescriptor **replication_slot)
 {
-	YbcStatus status = YBCPgGetReplicationSlot(slot_name, replication_slot);
-
-	if (if_exists && YBCStatusIsNotFound(status))
-	{
-		elog(LOG, "replication slot \"%s\" not found", slot_name);
-		YBCFreeStatus(status);
-		return false;
-	}
-
 	char		error_message[NAMEDATALEN + 64] = "";
 
 	snprintf(error_message, sizeof(error_message),
 			 "replication slot \"%s\" does not exist", slot_name);
 
-	HandleYBStatusWithCustomErrorForNotFound(status, error_message);
-	return true;
+	HandleYBStatusWithCustomErrorForNotFound(YBCPgGetReplicationSlot(slot_name,
+																	 replication_slot),
+											 error_message);
 }
 
 void
-YBCDropReplicationSlot(const char *slot_name, bool if_exists)
+YBCDropReplicationSlot(const char *slot_name)
 {
 	YbcPgStatement handle;
-	HandleYBStatus(YBCPgNewDropReplicationSlot(slot_name, &handle));
-
-	YbcStatus status = YBCPgExecDropReplicationSlot(handle);
-
-	if (if_exists && YBCStatusIsNotFound(status))
-	{
-		elog(LOG, "replication slot \"%s\" does not exist, skipping",
-			 slot_name);
-		YBCFreeStatus(status);
-		return;
-	}
-
 	char		error_message[NAMEDATALEN + 64] = "";
 
 	snprintf(error_message, sizeof(error_message),
 			 "replication slot \"%s\" does not exist", slot_name);
 
-	HandleYBStatusWithCustomErrorForNotFound(status, error_message);
+	HandleYBStatus(YBCPgNewDropReplicationSlot(slot_name,
+											   &handle));
+	HandleYBStatusWithCustomErrorForNotFound(YBCPgExecDropReplicationSlot(handle),
+											 error_message);
 }
 
 /*
