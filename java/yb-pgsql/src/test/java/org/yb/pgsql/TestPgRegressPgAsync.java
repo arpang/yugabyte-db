@@ -56,4 +56,16 @@ public class TestPgRegressPgAsync extends BasePgRegressTestPorted {
       "yb_pg_async_isolation_schedule",
       0 /* maxRuntimeMillis */, PgRegressBuilder.PG_ISOLATION_REGRESS_EXECUTABLE);
   }
+
+  @Override
+  protected Map<String, String> getPgRegressEnvVars() {
+    Map<String, String> envs = super.getPgRegressEnvVars();
+
+    // In YB, it takes longer to deliver the notifications. In order to match the
+    // PG's expected output for isolation test async-notify, introduce a sleep in
+    // isolationtester.c after completing execution of each step and before
+    // checking for notifications.
+    envs.put("YB_ISOLATION_TEST_WAIT_FOR_NOTIFS_MS", "500");
+    return envs;
+  }
 }
