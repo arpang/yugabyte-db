@@ -433,8 +433,9 @@ const char *YBCGetSchemaName(Oid schemaoid);
 /*
  * Get the real database id of a relation. For shared relations
  * (which are meant to be accessible from all databases), it will be template1.
- * Relations in yb_system database are also expected to be access by all
- * databases.
+ * YB: Note that relations in yb_system database are also meant to be
+ * accessible by all databases. Naturally, for these relations, it will be
+ * yb_system.
  */
 Oid			YBCGetDatabaseOid(Relation rel);
 Oid			YBCGetDatabaseOidByRelid(Oid relid);

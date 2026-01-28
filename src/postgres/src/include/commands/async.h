@@ -50,6 +50,7 @@ extern void HandleNotifyInterrupt(void);
 /* process interrupts */
 extern void ProcessNotifyInterrupt(bool flush);
 
+/* entry point for notifications poller background process */
 extern void YbNotificationsPollerMain(Datum main_arg);
 
 #endif							/* ASYNC_H */

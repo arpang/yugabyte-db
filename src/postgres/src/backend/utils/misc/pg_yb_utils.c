@@ -2119,7 +2119,6 @@ YBCGetDatabaseOidByRelid(Oid relid)
 									   relation->belongs_to_yb_system_db);
 }
 
-/* TODO: add retires to this till db becomes available */
 Oid
 YbSystemDbOid()
 {
