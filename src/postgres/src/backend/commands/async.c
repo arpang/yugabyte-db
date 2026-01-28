@@ -610,7 +610,7 @@ static void YbFlushBufferedQueueEntries();
 static void YbRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
 static void YbNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode);
 static Relation YbNotificationsRelation();
-static Oid YbNotificationsRelId();
+static Oid	YbNotificationsRelId();
 static void YbListenNotifyPreChecks();
 
 /*
@@ -2747,9 +2747,9 @@ YbCreateReplicationSlotForNotifications()
 	uint64_t	yb_consistent_snapshot_time;
 
 	YbReplicationSlotCreate(slotname, /* two_phase = */ false, "wal2json",
-						  CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
-						  CRS_SEQUENCE, YB_CRS_TRANSACTION,
-						  /* for_notifications = */ true);
+							CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
+							CRS_SEQUENCE, YB_CRS_TRANSACTION,
+							 /* for_notifications = */ true);
 }
 
 /* YB TODO: can alloc once and reuse */
@@ -3013,7 +3013,8 @@ YbNotificationsRelation()
 static Oid
 YbNotificationsRelId()
 {
-	Oid oid;
+	Oid			oid;
+
 	YbNotificationsRelationInfo(&oid, /* relfilenode = */ NULL);
 	return oid;
 }

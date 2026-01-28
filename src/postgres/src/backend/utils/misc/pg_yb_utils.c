@@ -143,7 +143,7 @@ static uint64_t yb_new_catalog_version = YB_CATCACHE_VERSION_UNINITIALIZED;
 static uint64_t yb_logical_client_cache_version = YB_CATCACHE_VERSION_UNINITIALIZED;
 static bool yb_need_invalidate_all_table_cache = false;
 
-static Oid yb_system_db_oid_cache = InvalidOid;
+static Oid	yb_system_db_oid_cache = InvalidOid;
 
 static bool YbHasDdlMadeChanges();
 static int YbGetNumCreateFunctionStmts();
@@ -2132,7 +2132,7 @@ YBCGetDatabaseOidFromShared(bool relisshared, bool yb_system_rel)
 {
 	Assert(!relisshared || !yb_system_rel);
 	return relisshared ? Template1DbOid :
-						 (yb_system_rel ? YbSystemDbOid() : MyDatabaseId);
+		(yb_system_rel ? YbSystemDbOid() : MyDatabaseId);
 }
 
 void
