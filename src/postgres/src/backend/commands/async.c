@@ -3004,7 +3004,7 @@ YbNotificationsRelation()
 		pg_yb_notifications_relation->rd_id = rel_form->oid;
 		pg_yb_notifications_relation->rd_att =
 			CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbNotificationsAtts);
-		pg_yb_notifications_relation->yb_system_rel = true;
+		pg_yb_notifications_relation->belongs_to_yb_system_db = true;
 		MemoryContextSwitchTo(oldcxt);
 	}
 	return pg_yb_notifications_relation;

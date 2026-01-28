@@ -438,7 +438,7 @@ const char *YBCGetSchemaName(Oid schemaoid);
  */
 Oid			YBCGetDatabaseOid(Relation rel);
 Oid			YBCGetDatabaseOidByRelid(Oid relid);
-extern Oid	YBCGetDatabaseOidFromShared(bool relisshared, bool yb_system_rel);
+extern Oid	YBCGetDatabaseOidFromShared(bool relisshared, bool belongs_to_yb_system_db);
 
 /*
  * Raise an unsupported feature error with the given message and

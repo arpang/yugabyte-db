@@ -2105,7 +2105,7 @@ Oid
 YBCGetDatabaseOid(Relation rel)
 {
 	return YBCGetDatabaseOidFromShared(rel->rd_rel->relisshared,
-									   rel->yb_system_rel);
+									   rel->belongs_to_yb_system_db);
 }
 
 Oid
@@ -2115,7 +2115,8 @@ YBCGetDatabaseOidByRelid(Oid relid)
 	bool		relisshared = relation->rd_rel->relisshared;
 
 	RelationClose(relation);
-	return YBCGetDatabaseOidFromShared(relisshared, relation->yb_system_rel);
+	return YBCGetDatabaseOidFromShared(relisshared,
+									   relation->belongs_to_yb_system_db);
 }
 
 /* TODO: add retires to this till db becomes available */
@@ -2128,11 +2129,11 @@ YbSystemDbOid()
 }
 
 Oid
-YBCGetDatabaseOidFromShared(bool relisshared, bool yb_system_rel)
+YBCGetDatabaseOidFromShared(bool relisshared, bool belongs_to_yb_system_db)
 {
-	Assert(!relisshared || !yb_system_rel);
+	Assert(!relisshared || !belongs_to_yb_system_db);
 	return relisshared ? Template1DbOid :
-		(yb_system_rel ? YbSystemDbOid() : MyDatabaseId);
+		(belongs_to_yb_system_db ? YbSystemDbOid() : MyDatabaseId);
 }
 
 void
