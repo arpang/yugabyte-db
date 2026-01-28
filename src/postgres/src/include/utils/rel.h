@@ -258,7 +258,7 @@ typedef struct RelationData
 	Bitmapset  *primary_key_bms;	/* NULL if not initialized */
 	/* contains all primary keys of the relation, including yb system columns. */
 	Bitmapset  *full_primary_key_bms;	/* NULL if not initialized */
-	bool 		belongs_to_yb_system_db; /* true for relations in yb_system db. */
+	bool		belongs_to_yb_system_db;	/* true for rels in yb_system db. */
 } RelationData;
 
 
