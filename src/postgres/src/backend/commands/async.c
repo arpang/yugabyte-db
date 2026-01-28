@@ -600,7 +600,7 @@ static void ClearPendingActionsAndNotifies(void);
 
 static void YbInsertPendingNotifies(void);
 static void YbCreateReplicationSlotForNotifications();
-static char *YbNotificationReplicationSlotName();
+static const char *YbNotificationReplicationSlotName();
 static void YbStartNotificationsPollerProcess();
 static BackgroundWorkerHandle *YbShmemNotificationsPollerBgWHandle(bool *found);
 static void YbPollAndProcessNotifications();
@@ -1068,7 +1068,16 @@ PreCommit_Notify(void)
 	}
 
 	/* Queue any pending notifies (must happen after the above) */
-	if (!IsYugaByteEnabled() && pendingNotifies)
+	if (IsYugaByteEnabled() && pendingNotifies)
+	{
+		/*
+		 * YB note: PG writes the notifications to the central
+		 * queue on commit. YB, though, writes them to the pg_yb_notifications
+		 * table.
+		 */
+		YbInsertPendingNotifies();
+	}
+	else if (pendingNotifies)
 	{
 		ListCell   *nextNotify;
 
@@ -1126,15 +1135,6 @@ PreCommit_Notify(void)
 		}
 
 		/* Note that we don't clear pendingNotifies; AtCommit_Notify will. */
-	}
-	else if (IsYugaByteEnabled() && pendingNotifies)
-	{
-		/*
-		 * YB note: PG writes the notifications to the central
-		 * queue on commit. YB, though, writes them to the pg_yb_notifications
-		 * table.
-		 */
-		YbInsertPendingNotifies();
 	}
 }
 
@@ -1470,7 +1470,7 @@ asyncQueueUnregister(void)
 	QUEUE_NEXT_LISTENER(MyBackendId) = InvalidBackendId;
 
 	/*
-	 * YB note: Terminate the notifications fetcher process and drop the
+	 * YB note: Terminate the notifications poller process and drop the
 	 * replication slot if this was the last listener in the node.
 	 */
 	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
@@ -2303,6 +2303,10 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 		/* Ignore messages destined for other databases */
 		if (qe->dboid == MyDatabaseId)
 		{
+			/*
+			 * YB: In YB, only the committed notifications are received via
+			 * replication slot and written to the queue.
+			 */
 			if (!IsYugaByteEnabled() && XidInMVCCSnapshot(qe->xid, snapshot))
 			{
 				/*
@@ -2727,7 +2731,7 @@ YbInsertPendingNotifies(void)
 static void
 YbCreateReplicationSlotForNotifications()
 {
-	char	   *slotname = YbNotificationReplicationSlotName();
+	const char *slotname = YbNotificationReplicationSlotName();
 
 	/*
 	 * If slot with the same name exists, drop it. This can occur if a previous
@@ -2749,7 +2753,7 @@ YbCreateReplicationSlotForNotifications()
 }
 
 /* YB TODO: can alloc once and reuse */
-char *
+const char *
 YbNotificationReplicationSlotName()
 {
 	char	   *hex_uuid = palloc(2 * UUID_LEN + 1);
