@@ -113,7 +113,8 @@ nonzero
 f      
 (1 row)
 
-step bignotify: SELECT count(pg_notify('c1', s::text)) FROM generate_series(1, 1000) s;
+step bignotify: SELECT count(pg_notify('c1', s::text)) FROM generate_series(1, 1000) s; <waiting ...>
+step bignotify: <... completed>
 count
 -----
  1000
