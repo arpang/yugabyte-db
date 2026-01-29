@@ -2816,7 +2816,7 @@ YbNotificationsPollerMain(Datum main_arg)
 	/* Set up signal handlers */
 	pqsignal(SIGHUP, SignalHandlerForConfigReload);
 	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
+	pqsignal(SIGTERM, die);
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 
 	BackgroundWorkerUnblockSignals();
