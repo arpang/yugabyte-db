@@ -155,8 +155,14 @@
 #include "utils/timestamp.h"
 
 /* YB includes */
+#include "catalog/pg_namespace_d.h"
+#include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
-
+#include "postmaster/interrupt.h"
+#include "replication/slot.h"
+#include "replication/yb_decode.h"
+#include "replication/yb_virtual_wal_client.h"
+#include "yb/yql/pggate/ybc_gflags.h"
 
 /*
  * Maximum size of a NOTIFY payload, including terminating NULL.  This
@@ -445,6 +451,123 @@ static bool tryAdvanceTail = false;
 /* GUC parameter */
 bool		Trace_notify = false;
 
+/* YB file-scoped global variables */
+static FormData_pg_attribute yb_notif_uuid_att = {
+	.attname = {"notif_uuid"},
+	.atttypid = UUIDOID,
+	.attlen = UUID_LEN,
+	.attnum = 1,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_CHAR,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_sender_node_uuid_att = {
+	.attname = {"sender_node_uuid"},
+	.atttypid = UUIDOID,
+	.attlen = UUID_LEN,
+	.attnum = 2,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_CHAR,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_sender_pid_att = {
+	.attname = {"sender_pid"},
+	.atttypid = INT4OID,
+	.attlen = 4,
+	.attnum = 3,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = true,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_db_oid_att = {
+	.attname = {"db_oid"},
+	.atttypid = OIDOID,
+	.attlen = sizeof(Oid),
+	.attnum = 4,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = true,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_is_listen_att = {
+	.attname = {"is_listen"},
+	.atttypid = BOOLOID,
+	.attlen = 1,
+	.attnum = 5,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = true,
+	.attalign = TYPALIGN_CHAR,
+	.attstorage = TYPSTORAGE_PLAIN,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_data_att = {
+	.attname = {"data"},
+	.atttypid = BYTEAOID,
+	.attlen = -1,
+	.attnum = 6,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_EXTENDED,
+	.attnotnull = true,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute yb_extra_options_att = {
+	.attname = {"extra_options"},
+	.atttypid = JSONBOID,
+	.attlen = -1,
+	.attnum = 7,
+	.attcacheoff = -1,
+	.atttypmod = -1,
+	.attbyval = false,
+	.attalign = TYPALIGN_INT,
+	.attstorage = TYPSTORAGE_EXTENDED,
+	.attnotnull = false,
+	.attislocal = true,
+};
+
+static FormData_pg_attribute *YbNotificationsAtts[] = {
+	&yb_notif_uuid_att,
+	&yb_sender_node_uuid_att,
+	&yb_sender_pid_att,
+	&yb_db_oid_att,
+	&yb_is_listen_att,
+	&yb_data_att,
+&yb_extra_options_att};
+
+#define YB_NOTIFICATIONS_NATTS \
+	(sizeof(YbNotificationsAtts) / sizeof(YbNotificationsAtts[0]))
+
+static List *yb_queue_entries_to_write = NIL;
+static TransactionId yb_current_notification_xid = InvalidTransactionId;
+static Relation pg_yb_notifications_relation = NULL;
+static Oid	pg_yb_notifications_rel_oid = InvalidOid;
+static Oid	pg_yb_notifications_relfilenode = InvalidOid;
+
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
 static bool asyncQueuePagePrecedes(int p, int q);
@@ -475,6 +598,21 @@ static void AddEventToPendingNotifies(Notification *n);
 static uint32 notification_hash(const void *key, Size keysize);
 static int	notification_match(const void *key1, const void *key2, Size keysize);
 static void ClearPendingActionsAndNotifies(void);
+
+static void YbInsertPendingNotifies(void);
+static void YbCreateReplicationSlotForNotifications();
+static const char *YbNotificationReplicationSlotName();
+static void YbStartNotificationsPollerProcess();
+static BackgroundWorkerHandle *YbShmemNotificationsPollerBgWHandle(bool *found);
+static void YbPollAndProcessNotifications();
+static void YbProcessNotificationRecord(const YbcPgRowMessage *record);
+static void YbBufferQueueEntriesForWrite(const YbcPgRowMessage *record);
+static void YbFlushBufferedQueueEntries();
+static void YbRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message, AsyncQueueEntry *qe);
+static void YbNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode);
+static Relation YbNotificationsRelation();
+static Oid	YbNotificationsRelId();
+static void YbListenNotifyPreChecks();
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -593,9 +731,6 @@ AsyncShmemInit(void)
 Datum
 pg_notify(PG_FUNCTION_ARGS)
 {
-	/* Note: Async_Notify is replaced by NOOP */
-	YBRaiseNotSupportedSignal("NOTIFY not supported yet and will be ignored", 1872 /* issue_no */ , WARNING);
-
 	const char *channel;
 	const char *payload;
 
@@ -617,7 +752,6 @@ pg_notify(PG_FUNCTION_ARGS)
 	PG_RETURN_VOID();
 }
 
-
 /*
  * Async_Notify
  *
@@ -630,17 +764,13 @@ pg_notify(PG_FUNCTION_ARGS)
 void
 Async_Notify(const char *channel, const char *payload)
 {
-	/*
-	 * (YB) Note: This function is replaced by NOOP, but we don't raise warning
-	 * here to avoid double warning message when using "NOTIFY channel".
-	 */
-	return;
-
 	int			my_level = GetCurrentTransactionNestLevel();
 	size_t		channel_len;
 	size_t		payload_len;
 	Notification *n;
 	MemoryContext oldcontext;
+
+	YbListenNotifyPreChecks();
 
 	if (IsParallelWorker())
 		elog(ERROR, "cannot send notifications from a parallel worker");
@@ -783,11 +913,7 @@ queue_listen(ListenActionKind action, const char *channel)
 void
 Async_Listen(const char *channel)
 {
-	/*
-	 * (YB) Note: This function is replaced by NOOP, but we don't raise warning
-	 * here to avoid double warning message when using "LISTEN channel".
-	 */
-	return;
+	YbListenNotifyPreChecks();
 
 	if (Trace_notify)
 		elog(DEBUG1, "Async_Listen(%s,%d)", channel, MyProcPid);
@@ -803,12 +929,6 @@ Async_Listen(const char *channel)
 void
 Async_Unlisten(const char *channel)
 {
-	/*
-	 * (YB) Note: This function is replaced by NOOP, but we don't raise warning
-	 * here to avoid double warning message when using "UNLISTEN channel".
-	 */
-	return;
-
 	if (Trace_notify)
 		elog(DEBUG1, "Async_Unlisten(%s,%d)", channel, MyProcPid);
 
@@ -827,12 +947,6 @@ Async_Unlisten(const char *channel)
 void
 Async_UnlistenAll(void)
 {
-	/*
-	 * (YB) Note: This function is replaced by NOOP, but we don't raise warning
-	 * here to avoid double warning message when using "UNLISTEN *".
-	 */
-	return;
-
 	if (Trace_notify)
 		elog(DEBUG1, "Async_UnlistenAll(%d)", MyProcPid);
 
@@ -955,7 +1069,16 @@ PreCommit_Notify(void)
 	}
 
 	/* Queue any pending notifies (must happen after the above) */
-	if (pendingNotifies)
+	if (IsYugaByteEnabled() && pendingNotifies)
+	{
+		/*
+		 * YB note: PG writes the notifications to the central
+		 * queue on commit. YB, though, writes them to the pg_yb_notifications
+		 * table.
+		 */
+		YbInsertPendingNotifies();
+	}
+	else if (pendingNotifies)
 	{
 		ListCell   *nextNotify;
 
@@ -1073,8 +1196,11 @@ AtCommit_Notify(void)
 	 * Send signals to listening backends.  We need do this only if there are
 	 * pending notifies, which were previously added to the shared queue by
 	 * PreCommit_Notify().
+	 *
+	 * YB note: notifications poller signals the listening backends when writing
+	 * to the queue.
 	 */
-	if (pendingNotifies != NULL)
+	if (!IsYugaByteEnabled() && pendingNotifies != NULL)
 		SignalBackends();
 
 	/*
@@ -1152,6 +1278,9 @@ Exec_ListenPreCommit(void)
 	head = QUEUE_HEAD;
 	max = QUEUE_TAIL;
 	prevListener = InvalidBackendId;
+
+	bool		ybFirstListenerOnNode = QUEUE_FIRST_LISTENER == InvalidBackendId;
+
 	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
 	{
 		if (QUEUE_BACKEND_DBOID(i) == MyDatabaseId)
@@ -1160,6 +1289,15 @@ Exec_ListenPreCommit(void)
 		if (i < MyBackendId)
 			prevListener = i;
 	}
+
+	/*
+	 * YB note: In YB, the queue only contains the committed notifications.
+	 * These notifications were committed before this listen, so we can safely
+	 * set max to head.
+	 */
+	if (IsYugaByteEnabled())
+		max = head;
+
 	QUEUE_BACKEND_POS(MyBackendId) = max;
 	QUEUE_BACKEND_PID(MyBackendId) = MyProcPid;
 	QUEUE_BACKEND_DBOID(MyBackendId) = MyDatabaseId;
@@ -1175,6 +1313,16 @@ Exec_ListenPreCommit(void)
 		QUEUE_FIRST_LISTENER = MyBackendId;
 	}
 	LWLockRelease(NotifyQueueLock);
+
+	if (ybFirstListenerOnNode)
+	{
+		/*
+		 * YB note: The first listener on the node creates the replication and
+		 * starts the notifications poller process.
+		 */
+		YbCreateReplicationSlotForNotifications();
+		YbStartNotificationsPollerProcess();
+	}
 
 	/* Now we are listed in the global array, so remember we're listening */
 	amRegisteredListener = true;
@@ -1321,6 +1469,26 @@ asyncQueueUnregister(void)
 		}
 	}
 	QUEUE_NEXT_LISTENER(MyBackendId) = InvalidBackendId;
+
+	/*
+	 * YB note: Terminate the notifications poller process and drop the
+	 * replication slot if this was the last listener in the node.
+	 */
+	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
+	{
+		bool		found;
+		BackgroundWorkerHandle *shm_handle =
+			YbShmemNotificationsPollerBgWHandle(&found);
+
+		Assert(found);
+		TerminateBackgroundWorker(shm_handle);
+		ReplicationSlotDrop(YbNotificationReplicationSlotName(),
+							 /* nowait = */ true,
+							 /* yb_force = */ true,
+							 /* yb_if_exists = */ false);
+		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
+	}
+
 	LWLockRelease(NotifyQueueLock);
 
 	/* mark ourselves as no longer listed in the global array */
@@ -1479,10 +1647,15 @@ asyncQueueAddEntries(ListCell *nextNotify)
 
 	while (nextNotify != NULL)
 	{
-		Notification *n = (Notification *) lfirst(nextNotify);
+		if (IsYugaByteEnabled())
+			qe = *((AsyncQueueEntry *) lfirst(nextNotify));
+		else
+		{
+			Notification *n = (Notification *) lfirst(nextNotify);
 
-		/* Construct a valid queue entry in local variable qe */
-		asyncQueueNotificationToEntry(n, &qe);
+			/* Construct a valid queue entry in local variable qe */
+			asyncQueueNotificationToEntry(n, &qe);
+		}						/* YB */
 
 		offset = QUEUE_POS_OFFSET(queue_head);
 
@@ -1490,7 +1663,9 @@ asyncQueueAddEntries(ListCell *nextNotify)
 		if (offset + qe.length <= QUEUE_PAGESIZE)
 		{
 			/* OK, so advance nextNotify past this item */
-			nextNotify = lnext(pendingNotifies->events, nextNotify);
+			nextNotify = lnext(IsYugaByteEnabled() ? yb_queue_entries_to_write :
+							   pendingNotifies->events,
+							   nextNotify);
 		}
 		else
 		{
@@ -1683,7 +1858,16 @@ SignalBackends(void)
 
 		Assert(pid != InvalidPid);
 		pos = QUEUE_BACKEND_POS(i);
-		if (QUEUE_BACKEND_DBOID(i) == MyDatabaseId)
+
+		/*
+		 * YB note: In vanilla PG, this function is called by the backend
+		 * process executing NOTIFY. Hence, only the listeners in the current db
+		 * are signaled (unless a listener is far behind, see below). But in YB,
+		 * the bg 'notifications poller' process executes this. Hence, always
+		 * signal all the listeners in all the dbs, unless they are already
+		 * caught up.
+		 */
+		if (QUEUE_BACKEND_DBOID(i) == MyDatabaseId || IsYugaByteEnabled())
 		{
 			/*
 			 * Always signal listeners in our own database, unless they're
@@ -2120,7 +2304,11 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 		/* Ignore messages destined for other databases */
 		if (qe->dboid == MyDatabaseId)
 		{
-			if (XidInMVCCSnapshot(qe->xid, snapshot))
+			/*
+			 * YB: In YB, only the committed notifications are received via
+			 * replication slot and written to the queue.
+			 */
+			if (!IsYugaByteEnabled() && XidInMVCCSnapshot(qe->xid, snapshot))
 			{
 				/*
 				 * The source transaction is still in progress, so we can't
@@ -2145,7 +2333,7 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 				reachedStop = true;
 				break;
 			}
-			else if (TransactionIdDidCommit(qe->xid))
+			else if (IsYugaByteEnabled() || TransactionIdDidCommit(qe->xid))
 			{
 				/* qe->data is the null-terminated channel name */
 				char	   *channel = qe->data;
@@ -2482,4 +2670,380 @@ ClearPendingActionsAndNotifies(void)
 	 */
 	pendingActions = NULL;
 	pendingNotifies = NULL;
+}
+
+static void
+YbInsertPendingNotifies(void)
+{
+	Oid			dboid = YbSystemDbOid();
+	Relation	rel = YbNotificationsRelation();
+	TupleDesc	desc = RelationGetDescr(rel);
+	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
+	EState	   *estate = CreateExecutorState();
+
+	ListCell   *nextNotify = list_head(pendingNotifies->events);
+
+	while (nextNotify)
+	{
+		Notification *n = (Notification *) lfirst(nextNotify);
+
+		ExecClearTuple(slot);
+		ResetPerTupleExprContext(estate);
+
+		slot->tts_isnull[yb_notif_uuid_att.attnum - 1] = false;
+		slot->tts_values[yb_notif_uuid_att.attnum - 1] = gen_random_uuid(NULL);
+
+		slot->tts_isnull[yb_sender_node_uuid_att.attnum - 1] = false;
+		slot->tts_values[yb_sender_node_uuid_att.attnum - 1] =
+			CStringGetDatum(YBCGetLocalTserverUuid());
+
+		slot->tts_isnull[yb_sender_pid_att.attnum - 1] = false;
+		slot->tts_values[yb_sender_pid_att.attnum - 1] = Int32GetDatum(MyProcPid);
+
+		slot->tts_isnull[yb_db_oid_att.attnum - 1] = false;
+		slot->tts_values[yb_db_oid_att.attnum - 1] = ObjectIdGetDatum(MyDatabaseId);
+
+		slot->tts_isnull[yb_is_listen_att.attnum - 1] = false;
+		slot->tts_values[yb_is_listen_att.attnum - 1] = false;
+
+		slot->tts_isnull[yb_data_att.attnum - 1] = false;
+		slot->tts_values[yb_data_att.attnum - 1] = CStringGetDatum(cstring_to_text_with_len(n->data,
+																							n->channel_len + n->payload_len + 2));
+
+		slot->tts_isnull[yb_extra_options_att.attnum - 1] = true;
+		ExecStoreVirtualTuple(slot);
+
+		YbcPgTransactionSetting txn_setting = IsTransactionBlock() ?
+			YB_TRANSACTIONAL :
+			YB_SINGLE_SHARD_TRANSACTION;
+
+		YBCExecuteInsertForDb(dboid, rel, slot, ONCONFLICT_NONE, NULL,
+							  txn_setting);
+		YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */ ,
+						 txn_setting, false /* changingPart */ , estate);
+		nextNotify = lnext(pendingNotifies->events, nextNotify);
+	}
+
+	FreeExecutorState(estate);
+	ExecDropSingleTupleTableSlot(slot);
+}
+
+static void
+YbCreateReplicationSlotForNotifications()
+{
+	const char *slotname = YbNotificationReplicationSlotName();
+
+	/*
+	 * If slot with the same name exists, drop it. This can occur if a previous
+	 * sole listener exited without dropping it (say, due to a crash).
+	 */
+	ReplicationSlotDrop(slotname, /* nowait = */ true,
+						 /* yb_force = */ true, /* yb_if_exists = */ true);
+
+	/*
+	 * Note: wal2json is just a placeholder, output plugin is not used for
+	 * notifications.
+	 */
+	uint64_t	yb_consistent_snapshot_time;
+
+	YbReplicationSlotCreate(slotname, /* two_phase = */ false, "wal2json",
+							CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
+							CRS_SEQUENCE, YB_CRS_TRANSACTION,
+							 /* for_notifications = */ true);
+}
+
+/* TODO: Can palloc() once and reuse the result. */
+const char *
+YbNotificationReplicationSlotName()
+{
+	char	   *hex_uuid = palloc(2 * UUID_LEN + 1);
+	const char *uuid = (const char *) YBCGetLocalTserverUuid();
+
+	hex_encode(uuid, UUID_LEN, hex_uuid);
+	hex_uuid[2 * UUID_LEN] = '\0';
+	return psprintf("yb_notifications_%s", hex_uuid);
+}
+
+static void
+YbStartNotificationsPollerProcess()
+{
+	BackgroundWorker worker;
+
+	memset(&worker, 0, sizeof(worker));
+	sprintf(worker.bgw_name, "notifications poller");
+	sprintf(worker.bgw_type, "notifications poller");
+	worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
+		BGWORKER_BACKEND_DATABASE_CONNECTION;
+	worker.bgw_start_time = BgWorkerStart_ConsistentState;
+	worker.bgw_restart_time = 1;	/* restart after a crash */
+	sprintf(worker.bgw_library_name, "postgres");
+	sprintf(worker.bgw_function_name, "YbNotificationsPollerMain");
+	worker.bgw_main_arg = (Datum) 0;
+	worker.bgw_notify_pid = getpid();
+
+	BackgroundWorkerHandle *local_handle;
+
+	RegisterDynamicBackgroundWorker(&worker, &local_handle);
+
+	BgwHandleStatus status;
+	pid_t		pid;
+
+	status = WaitForBackgroundWorkerStartup(local_handle, &pid);
+	if (status != BGWH_STARTED)
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+				 errmsg("could not start background process"),
+				 errhint("More details may be available in the server log.")));
+
+	bool		found;
+	BackgroundWorkerHandle *shm_handle =
+		YbShmemNotificationsPollerBgWHandle(&found);
+
+	memcpy(shm_handle, local_handle, YbBackgroundWorkerHandleSize());
+	pfree(local_handle);
+}
+
+static BackgroundWorkerHandle *
+YbShmemNotificationsPollerBgWHandle(bool *found)
+{
+	return ShmemInitStruct("NotificationsPollerBgWHandle",
+						   YbBackgroundWorkerHandleSize(), found);
+}
+
+void
+YbNotificationsPollerMain(Datum main_arg)
+{
+	/* Set up signal handlers */
+	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
+	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
+	/* SIGQUIT handler was already set up by InitPostmasterChild */
+
+	BackgroundWorkerUnblockSignals();
+
+	BackgroundWorkerInitializeConnection(YbSystemDbName, "yugabyte", 0);
+	YbPollAndProcessNotifications();
+}
+
+static void
+YbPollAndProcessNotifications()
+{
+	if (!yb_enable_replication_commands ||
+		!yb_enable_replication_slot_consumption)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("unable to poll notifications"),
+				 errdetail("For LISTEN/NOTIFY, yb_enable_replication_commands "
+						   "and yb_enable_replication_slot_consumption must be "
+						   "true.")));
+
+	CheckSlotRequirements();
+	Assert(!MyReplicationSlot);
+	ReplicationSlotAcquire(YbNotificationReplicationSlotName(), true);
+	List	   *publicaiton = list_make1(PgYbNotificationsPublicationName);
+
+	YBCInitVirtualWal(publicaiton);
+	YbVirtualWalRecord *record;
+
+	for (;;)
+	{
+		CHECK_FOR_INTERRUPTS();
+		record = YBCReadRecord(publicaiton);
+		if (record)
+			YbProcessNotificationRecord(record);
+	}
+	YBCDestroyVirtualWal();
+	ReplicationSlotRelease();
+}
+
+static void
+YbProcessNotificationRecord(const YbcPgRowMessage *record)
+{
+	Assert(yb_current_notification_xid ==
+		   (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
+			InvalidTransactionId :
+			record->xid));
+
+	switch (record->action)
+	{
+		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
+			Assert(yb_queue_entries_to_write == NIL);
+			StartTransactionCommand();
+			yb_current_notification_xid = record->xid;
+			break;
+
+		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
+			Assert(record->table_oid == YbNotificationsRelId());
+			YbBufferQueueEntriesForWrite(record);
+			break;
+
+		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
+			YbFlushBufferedQueueEntries();
+			/*
+			 * TODO: If the process crashes during or after
+			 * YbBlockingAsyncQueueAddEntries() and before
+			 * YBCCalculatePersistAndGetRestartLSN(), then the queue will have
+			 * duplicate notifications. Handle it by adding BEGIN and COMMIT
+			 * entries in the queue.
+			 */
+			YBCCalculatePersistAndGetRestartLSN(record->lsn);
+			yb_queue_entries_to_write = NIL;
+			yb_current_notification_xid = InvalidTransactionId;
+			AbortCurrentTransaction();
+			break;
+
+		case YB_PG_ROW_MESSAGE_ACTION_DELETE:
+			/* Just ignore the DELETE record. */
+			break;
+
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("invalid record found by notification poller process")));
+	}
+}
+
+static void
+YbBufferQueueEntriesForWrite(const YbcPgRowMessage *record)
+{
+	MemoryContext oldcontext = MemoryContextSwitchTo(CurTransactionContext);
+	AsyncQueueEntry *qe = palloc0(sizeof(AsyncQueueEntry));
+
+	YbRowMessageToAsyncQueueEntry(record, qe);
+	yb_queue_entries_to_write = lappend(yb_queue_entries_to_write, qe);
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static void
+YbFlushBufferedQueueEntries()
+{
+	ListCell   *queue_entry = list_head(yb_queue_entries_to_write);
+
+	while (queue_entry != NULL)
+	{
+		CHECK_FOR_INTERRUPTS();
+
+		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+		if (asyncQueueIsFull())
+		{
+			LWLockRelease(NotifyQueueLock);
+			CHECK_FOR_INTERRUPTS();
+			pg_usleep(10000L);	/* sleep for 10ms */
+			asyncQueueAdvanceTail();
+			continue;
+		}
+		queue_entry = asyncQueueAddEntries(queue_entry);
+		LWLockRelease(NotifyQueueLock);
+	}
+	SignalBackends();
+	if (tryAdvanceTail)
+	{
+		tryAdvanceTail = false;
+		asyncQueueAdvanceTail();
+	}
+}
+
+static void
+YbRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message, AsyncQueueEntry *qe)
+{
+	HeapTuple	tuple = YBGetHeapTuplesForRecord(row_message);
+	TupleDesc	desc =
+		CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbNotificationsAtts);
+
+	bool		isnull;
+	Datum		sender_id = heap_getattr(tuple, yb_sender_pid_att.attnum, desc, &isnull);
+
+	Assert(!isnull);
+	qe->srcPid = DatumGetInt32(sender_id);
+
+	Datum		dbid = heap_getattr(tuple, yb_db_oid_att.attnum, desc, &isnull);
+
+	Assert(!isnull);
+	qe->dboid = DatumGetObjectId(dbid);
+
+	Datum		data_datum = heap_getattr(tuple, yb_data_att.attnum, desc, &isnull);
+
+	Assert(!isnull);
+	const void *data = DatumGetPointer(data_datum);
+	size_t		datalen = VARSIZE_ANY(data);
+
+	memcpy(qe->data, VARDATA_ANY(data), datalen);
+
+	int			entryLength = AsyncQueueEntryEmptySize + datalen - 2;
+
+	entryLength = QUEUEALIGN(entryLength);
+	qe->length = entryLength;
+}
+
+static void
+YbNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode)
+{
+	if (!OidIsValid(pg_yb_notifications_rel_oid))
+	{
+		HandleYBStatus(YBCGetYbSystemTableInfo(PG_PUBLIC_NAMESPACE, PgYbNotificationsTableName,
+											   &pg_yb_notifications_rel_oid, &pg_yb_notifications_relfilenode));
+	}
+
+	if (rel_oid)
+		*rel_oid = pg_yb_notifications_rel_oid;
+	if (relfilenode)
+		*relfilenode = pg_yb_notifications_relfilenode;
+}
+
+static Relation
+YbNotificationsRelation()
+{
+	if (!pg_yb_notifications_relation)
+	{
+		MemoryContext oldcxt = MemoryContextSwitchTo(CacheMemoryContext);
+
+		Form_pg_class rel_form = (Form_pg_class) palloc0(CLASS_TUPLE_SIZE);
+
+		YbNotificationsRelationInfo(&rel_form->oid, &rel_form->relfilenode);
+		rel_form->relnamespace = PG_PUBLIC_NAMESPACE;
+		rel_form->relkind = RELKIND_RELATION;
+		rel_form->relnatts = YB_NOTIFICATIONS_NATTS;
+
+		pg_yb_notifications_relation = (Relation) palloc0(sizeof(RelationData));
+		pg_yb_notifications_relation->rd_rel = rel_form;
+		pg_yb_notifications_relation->rd_id = rel_form->oid;
+		pg_yb_notifications_relation->rd_att =
+			CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbNotificationsAtts);
+		pg_yb_notifications_relation->belongs_to_yb_system_db = true;
+		MemoryContextSwitchTo(oldcxt);
+	}
+	return pg_yb_notifications_relation;
+}
+
+static Oid
+YbNotificationsRelId()
+{
+	Oid			oid;
+
+	YbNotificationsRelationInfo(&oid, /* relfilenode = */ NULL);
+	return oid;
+}
+
+static void
+YbListenNotifyPreChecks()
+{
+	if (!*YBCGetGFlags()->TEST_ysql_yb_enable_listen_notify)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("listen/notify is disabled. Enable it via runtime "
+						"tserver flag ysql_yb_enable_listen_notify")));
+
+	if (!OidIsValid(YbSystemDbOid()))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
+				 errdetail("yb_system database is being created")));
+
+	if (!OidIsValid(YbNotificationsRelId()))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
+				 errdetail("pg_yb_notifications table is being created")));
+
+	/* TODO: Add check for publication too. */
 }

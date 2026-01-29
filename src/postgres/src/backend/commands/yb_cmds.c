@@ -602,7 +602,9 @@ YBCCreateTable(CreateStmt *stmt, char *tableName, char relkind, TupleDesc desc,
 	YbcPgStatement handle = NULL;
 	ListCell   *listptr;
 	bool		is_shared_relation = tablespaceId == GLOBALTABLESPACE_OID;
-	Oid			databaseId = YBCGetDatabaseOidFromShared(is_shared_relation);
+	Oid			databaseId =
+		YBCGetDatabaseOidFromShared(is_shared_relation,
+									/* belongs_to_yb_system_db= */ false);
 	bool		is_matview = relkind == RELKIND_MATVIEW;
 	bool		is_colocated_tables_with_tablespace_enabled =
 		*YBCGetGFlags()->ysql_enable_colocated_tables_with_tablespaces;
@@ -2147,7 +2149,8 @@ YBCCreateReplicationSlot(const char *slot_name,
 						 CRSSnapshotAction snapshot_action,
 						 uint64_t *consistent_snapshot_time,
 						 YbCRSLsnType lsn_type,
-						 YbCRSOrderingMode yb_ordering_mode)
+						 YbCRSOrderingMode yb_ordering_mode,
+						 bool for_notifications)
 {
 	YbcPgStatement handle;
 
@@ -2183,7 +2186,7 @@ YBCCreateReplicationSlot(const char *slot_name,
 
 	HandleYBStatus(YBCPgNewCreateReplicationSlot(slot_name,
 												 plugin_name,
-												 MyDatabaseId,
+												 for_notifications ? YbSystemDbOid() : MyDatabaseId,
 												 repl_slot_snapshot_action,
 												 repl_slot_lsn_type,
 												 repl_slot_ordering_mode,
@@ -2220,33 +2223,51 @@ YBCListReplicationSlots(YbcReplicationSlotDescriptor **replication_slots,
 											 numreplicationslots));
 }
 
-void
+bool
 YBCGetReplicationSlot(const char *slot_name,
-					  YbcReplicationSlotDescriptor **replication_slot)
+					  YbcReplicationSlotDescriptor **replication_slot,
+					  bool if_exists)
 {
+	YbcStatus status = YBCPgGetReplicationSlot(slot_name, replication_slot);
+
+	if (if_exists && YBCStatusIsNotFound(status))
+	{
+		elog(LOG, "replication slot \"%s\" not found", slot_name);
+		YBCFreeStatus(status);
+		return false;
+	}
+
 	char		error_message[NAMEDATALEN + 64] = "";
 
 	snprintf(error_message, sizeof(error_message),
 			 "replication slot \"%s\" does not exist", slot_name);
 
-	HandleYBStatusWithCustomErrorForNotFound(YBCPgGetReplicationSlot(slot_name,
-																	 replication_slot),
-											 error_message);
+	HandleYBStatusWithCustomErrorForNotFound(status, error_message);
+	return true;
 }
 
 void
-YBCDropReplicationSlot(const char *slot_name)
+YBCDropReplicationSlot(const char *slot_name, bool if_exists)
 {
 	YbcPgStatement handle;
+	HandleYBStatus(YBCPgNewDropReplicationSlot(slot_name, &handle));
+
+	YbcStatus status = YBCPgExecDropReplicationSlot(handle);
+
+	if (if_exists && YBCStatusIsNotFound(status))
+	{
+		elog(LOG, "replication slot \"%s\" does not exist, skipping",
+			 slot_name);
+		YBCFreeStatus(status);
+		return;
+	}
+
 	char		error_message[NAMEDATALEN + 64] = "";
 
 	snprintf(error_message, sizeof(error_message),
 			 "replication slot \"%s\" does not exist", slot_name);
 
-	HandleYBStatus(YBCPgNewDropReplicationSlot(slot_name,
-											   &handle));
-	HandleYBStatusWithCustomErrorForNotFound(YBCPgExecDropReplicationSlot(handle),
-											 error_message);
+	HandleYBStatusWithCustomErrorForNotFound(status, error_message);
 }
 
 /*
