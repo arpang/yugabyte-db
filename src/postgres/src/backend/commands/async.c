@@ -158,6 +158,7 @@
 #include "catalog/pg_namespace_d.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
+#include "postmaster/interrupt.h"
 #include "replication/slot.h"
 #include "replication/yb_decode.h"
 #include "replication/yb_virtual_wal_client.h"
@@ -2712,7 +2713,6 @@ YbInsertPendingNotifies(void)
 		slot->tts_isnull[yb_extra_options_att.attnum - 1] = true;
 		ExecStoreVirtualTuple(slot);
 
-		/* todo: check correctness */
 		YbcPgTransactionSetting txn_setting = IsTransactionBlock() ?
 			YB_TRANSACTIONAL :
 			YB_SINGLE_SHARD_TRANSACTION;
@@ -2752,7 +2752,7 @@ YbCreateReplicationSlotForNotifications()
 							 /* for_notifications = */ true);
 }
 
-/* YB TODO: can alloc once and reuse */
+/* TODO: Can palloc() once and reuse the result. */
 const char *
 YbNotificationReplicationSlotName()
 {
@@ -2813,9 +2813,14 @@ YbShmemNotificationsPollerBgWHandle(bool *found)
 void
 YbNotificationsPollerMain(Datum main_arg)
 {
-	/* Is this correct? */
-	WalSndSignals();
+	/* Set up signal handlers */
+	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
+	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
+	/* SIGQUIT handler was already set up by InitPostmasterChild */
+
 	BackgroundWorkerUnblockSignals();
+
 	BackgroundWorkerInitializeConnection(YbSystemDbName, "yugabyte", 0);
 	YbPollAndProcessNotifications();
 }
