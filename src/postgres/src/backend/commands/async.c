@@ -752,6 +752,7 @@ pg_notify(PG_FUNCTION_ARGS)
 	PG_RETURN_VOID();
 }
 
+
 /*
  * Async_Notify
  *
@@ -2740,15 +2741,12 @@ YbCreateReplicationSlotForNotifications()
 	ReplicationSlotDrop(slotname, /* nowait = */ true,
 						 /* yb_force = */ true, /* yb_if_exists = */ true);
 
-	/*
-	 * Note: wal2json is just a placeholder, output plugin is not used for
-	 * notifications.
-	 */
 	uint64_t	yb_consistent_snapshot_time;
 
-	YbReplicationSlotCreate(slotname, /* two_phase = */ false, "wal2json",
-							CRS_NOEXPORT_SNAPSHOT, &yb_consistent_snapshot_time,
-							CRS_SEQUENCE, YB_CRS_TRANSACTION,
+	YbReplicationSlotCreate(slotname, /* two_phase = */ false,
+							 /* yb_plugin_name = */ NULL, CRS_NOEXPORT_SNAPSHOT,
+							&yb_consistent_snapshot_time, CRS_SEQUENCE,
+							YB_CRS_TRANSACTION,
 							 /* for_notifications = */ true);
 }
 
