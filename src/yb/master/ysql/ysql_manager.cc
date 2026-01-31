@@ -561,11 +561,13 @@ Status YsqlManager::CreateYbSystemDBIfNeeded() {
     return Status::OK();
   }
 
-  auto statement = Format("CREATE DATABASE $0", kYbSystemDbName);
+  std::vector<std::string> statements;
+  statements.emplace_back("set yb_use_internal_auto_analyze_service_conn = true");
+  statements.emplace_back(Format("CREATE DATABASE $0", kYbSystemDbName));
   auto failure_warn_prefix = Format("Failed to create database $0", kYbSystemDbName);
 
   return ExecuteStatementsAsync(
-      "yugabyte", {statement}, catalog_manager_, failure_warn_prefix,
+      "yugabyte", statements, catalog_manager_, failure_warn_prefix,
       &creating_listen_notify_objects_, &yb_system_db_created_);
 }
 
@@ -577,6 +579,7 @@ Status YsqlManager::CreateListenNotifyObjects() {
   }
 
   std::vector<std::string> statements;
+  statements.emplace_back("set yb_use_internal_auto_analyze_service_conn = true");
   statements.emplace_back(Format(
       R"(CREATE TABLE IF NOT EXISTS $0 (
            notif_uuid uuid NOT NULL,
