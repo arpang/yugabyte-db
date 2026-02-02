@@ -375,6 +375,8 @@ void YsqlManager::RunBgTasks(const LeaderEpoch& epoch) {
     if (FLAGS_TEST_ysql_yb_enable_listen_notify) {
       WARN_NOT_OK(ListenNotifyBgTask(), "Failed to complete LISTEN/NOTIFY background task");
     }
+
+    WARN_NOT_OK(CreateCDCTable(), "Failed to create yb_cdc_changes table");
   }
 
   StartTablespaceBgTaskIfStopped();
@@ -611,6 +613,40 @@ Status YsqlManager::CreateListenNotifyObjects() {
   return ExecuteStatementsAsync(
       kYbSystemDbName, statements, catalog_manager_, failure_warn_prefix,
       &creating_listen_notify_objects_, &created_listen_notify_objects_);
+}
+
+Status YsqlManager::CreateCDCTable() {
+  DCHECK(FLAGS_enable_ysql);
+
+  if (created_cdc_table_.load(std::memory_order_acquire) ||
+      creating_cdc_table_.load(std::memory_order_acquire)) {
+    return Status::OK();
+  }
+
+  std::vector<std::string> statements;
+  statements.emplace_back("set yb_use_internal_auto_analyze_service_conn = true");
+  statements.emplace_back("CREATE SCHEMA IF NOT EXISTS yb_cdc");
+  statements.emplace_back(Format(
+      R"(CREATE TABLE IF NOT EXISTS yb_cdc.yb_cdc_changes (
+        bucket_id          INT,
+        commit_time        BIGINT,
+        transaction_id     UUID,
+        record_time        BIGINT,
+        write_id           BIGINT,
+        table_id           UUID,
+        row_ybctid         BYTEA,
+        origin_id          INT,
+        op                 CHAR(1) NOT NULL,
+        before             JSONB,
+        after              JSONB,
+        primary_key_values JSONB NOT NULL,
+        PRIMARY KEY (bucket_id HASH, commit_time ASC, transaction_id ASC, record_time ASC, write_id ASC, table_id ASC, row_ybctid ASC)))"));
+
+  auto failure_warn_prefix = Format("Failed to create yb_cdc_changes table");
+
+  return ExecuteStatementsAsync(
+      "yugabyte", statements, catalog_manager_, failure_warn_prefix, &creating_cdc_table_,
+      &created_cdc_table_);
 }
 
 }  // namespace yb::master

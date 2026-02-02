@@ -169,6 +169,8 @@ class YsqlManager : public YsqlManagerIf {
   Status CreateYbSystemDBIfNeeded();
   Status CreateListenNotifyObjects();
 
+  Status CreateCDCTable();
+
   Master& master_;
   CatalogManager& catalog_manager_;
   SysCatalogTable& sys_catalog_;
@@ -195,6 +197,9 @@ class YsqlManager : public YsqlManagerIf {
   std::atomic<bool> yb_system_db_created_ = {false};
   std::atomic<bool> creating_listen_notify_objects_ = {false};
   std::atomic<bool> created_listen_notify_objects_ = {false};
+
+  std::atomic<bool> creating_cdc_table_ = {false};
+  std::atomic<bool> created_cdc_table_ = {false};
 
   DISALLOW_COPY_AND_ASSIGN(YsqlManager);
 };
