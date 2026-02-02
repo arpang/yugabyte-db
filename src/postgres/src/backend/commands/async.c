@@ -164,6 +164,7 @@
 #include "replication/yb_virtual_wal_client.h"
 #include "yb/yql/pggate/ybc_gflags.h"
 
+
 /*
  * Maximum size of a NOTIFY payload, including terminating NULL.  This
  * must be kept small enough so that a notification message fits on one
