@@ -173,7 +173,7 @@ DEFINE_RUNTIME_PG_FLAG(bool, yb_enable_invalidation_messages, true,
 #ifdef NDEBUG
 constexpr bool kEnableDdlTransactionBlocks = true;
 #else
-constexpr bool kEnableDdlTransactionBlocks = true;
+constexpr bool kEnableDdlTransactionBlocks = false;
 #endif
 DEFINE_NON_RUNTIME_PG_FLAG(bool, yb_ddl_transaction_block_enabled, kEnableDdlTransactionBlocks,
     "If true, DDL operations in YSQL will execute within the active transaction"
@@ -221,9 +221,9 @@ TAG_FLAG(refresh_waiter_timeout_ms, advanced);
 TAG_FLAG(refresh_waiter_timeout_ms, hidden);
 
 #ifdef NDEBUG
-constexpr bool kEnableObjectLockingForTableLocks = true;
+constexpr bool kEnableObjectLockingForTableLocks = kEnableDdlTransactionBlocks;
 #else
-constexpr bool kEnableObjectLockingForTableLocks = true;
+constexpr bool kEnableObjectLockingForTableLocks = false;
 #endif
 DEFINE_NON_RUNTIME_bool(enable_object_locking_for_table_locks,
     kEnableObjectLockingForTableLocks,
