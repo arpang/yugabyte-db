@@ -600,7 +600,7 @@ static uint32 notification_hash(const void *key, Size keysize);
 static int	notification_match(const void *key1, const void *key2, Size keysize);
 static void ClearPendingActionsAndNotifies(void);
 
-static void ybInsertPendingNotifies(void);
+static void ybInsertPendingNotifiesToTable(void);
 static void ybCreateReplicationSlotForNotifications();
 static const char *ybNotificationReplicationSlotName();
 static void ybStartNotificationsPollerProcess();
@@ -608,7 +608,7 @@ static BackgroundWorkerHandle *ybShmemNotificationsPollerBgWHandle(bool *found);
 static void ybPollAndProcessNotifications();
 static void ybProcessNotificationRecord(const YbcPgRowMessage *record);
 static void ybBufferQueueEntriesForWrite(const YbcPgRowMessage *record);
-static void ybFlushBufferedQueueEntries();
+static void ybWriteBufferedEntriesToQueue();
 static void ybRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message,
 										  AsyncQueueEntry *qe);
 static void ybNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode);
@@ -1079,7 +1079,7 @@ PreCommit_Notify(void)
 		 * queue on commit. YB, though, writes them to the pg_yb_notifications
 		 * table.
 		 */
-		ybInsertPendingNotifies();
+		ybInsertPendingNotifiesToTable();
 	}
 	else if (pendingNotifies)
 	{
@@ -2676,7 +2676,7 @@ ClearPendingActionsAndNotifies(void)
 }
 
 static void
-ybInsertPendingNotifies(void)
+ybInsertPendingNotifiesToTable(void)
 {
 	Oid			dboid = YbSystemDbOid();
 	Relation	rel = ybNotificationsRelation();
@@ -2878,7 +2878,7 @@ ybProcessNotificationRecord(const YbcPgRowMessage *record)
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
-			ybFlushBufferedQueueEntries();
+			ybWriteBufferedEntriesToQueue();
 			/*
 			 * TODO: If the process crashes during or after
 			 * YbBlockingAsyncQueueAddEntries() and before
@@ -2915,7 +2915,7 @@ ybBufferQueueEntriesForWrite(const YbcPgRowMessage *record)
 }
 
 static void
-ybFlushBufferedQueueEntries()
+ybWriteBufferedEntriesToQueue()
 {
 	ListCell   *queue_entry = list_head(yb_queue_entries_to_write);
 
