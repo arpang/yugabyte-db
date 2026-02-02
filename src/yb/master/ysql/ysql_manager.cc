@@ -623,6 +623,12 @@ Status YsqlManager::CreateCDCTable() {
     return Status::OK();
   }
 
+  auto num_live_tservers = VERIFY_RESULT(catalog_manager_.GetNumLiveTServersForActiveCluster());
+  if (num_live_tservers == 0) {
+    LOG(INFO) << "No live tservers found, skipping yb_cdc_changes table creation for now";
+    return Status::OK();
+  }
+
   std::vector<std::string> statements;
   statements.emplace_back("set yb_use_internal_auto_analyze_service_conn = true");
   statements.emplace_back("CREATE SCHEMA IF NOT EXISTS yb_cdc");
