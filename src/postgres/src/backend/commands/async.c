@@ -2743,11 +2743,11 @@ YbCreateReplicationSlotForNotifications()
 
 	uint64_t	yb_consistent_snapshot_time;
 
-	YbReplicationSlotCreate(slotname, /* two_phase = */ false,
-							 /* yb_plugin_name = */ "", CRS_NOEXPORT_SNAPSHOT,
-							&yb_consistent_snapshot_time, CRS_SEQUENCE,
-							YB_CRS_TRANSACTION,
-							 /* for_notifications = */ true);
+	YbReplicationSlotCreateForDB(slotname, /* two_phase = */ false,
+								 /* yb_plugin_name = */ "",
+								 CRS_NOEXPORT_SNAPSHOT,
+								 &yb_consistent_snapshot_time, CRS_SEQUENCE,
+								 YB_CRS_TRANSACTION, YbSystemDbOid());
 }
 
 /* TODO: Can palloc() once and reuse the result. */
