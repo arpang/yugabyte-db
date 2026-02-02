@@ -81,4 +81,10 @@ permutation l2listen l2begin notify1 lbegins llisten lcommit l2commit l2stop
 # commit the listener's transaction, so that it never reports these events.
 # Hence, this should be the last test in this script.
 
-permutation llisten lbegin usage bignotify usage
+# YB: In YB, any operation taking longer than
+# YB_NUM_SECONDS_TO_WAIT_TO_ASSUME_SESSION_BLOCKED is deemed as waiting on the
+# other session. The step 'bignotify' intermittently breaches this limit. To
+# make the output deterministic, add (*) to bignotify to always report it as
+# waiting.
+
+permutation llisten lbegin usage bignotify(*) usage

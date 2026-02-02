@@ -1,1 +1,1 @@
-test: async-notify
+test: yb.port.async-notify
