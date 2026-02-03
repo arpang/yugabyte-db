@@ -2680,6 +2680,12 @@ ClearPendingActionsAndNotifies(void)
 	pendingNotifies = NULL;
 }
 
+/*
+ * Insert the pending notifications to the pg_yb_notifications table. In order
+ * to GC the tables, also perform a delete. This is fine because CDC logical
+ * replication is used to stream the changes of this table (notifications) to
+ * every tservers and CDC reads the records from WAL/intentsdb.
+ */
 static void
 ybInsertPendingNotifiesToTable(void)
 {
@@ -2736,6 +2742,11 @@ ybInsertPendingNotifiesToTable(void)
 	ExecDropSingleTupleTableSlot(slot);
 }
 
+/*
+ * Create a replication slot to stream the notifications to the local tserver.
+ * Use yb_notifications_<local_tserver_uuid> as the slot name. If a slot with
+ * the same name exists, drop it.
+ */
 static void
 ybCreateReplicationSlotForNotifications()
 {
@@ -2756,7 +2767,12 @@ ybCreateReplicationSlotForNotifications()
 								 YB_CRS_TRANSACTION, YbSystemDbOid());
 }
 
-/* TODO: Can palloc() once and reuse the result. */
+/*
+ * Returns 'yb_notifications_<local_tserver_uuid>', which is used as the
+ * replication slot name to stream the notifications.
+ *
+ * TODO: palloc() once and cache the result.
+ */
 const char *
 ybNotificationsReplicationSlotName()
 {
@@ -2768,6 +2784,10 @@ ybNotificationsReplicationSlotName()
 	return psprintf("yb_notifications_%s", hex_uuid);
 }
 
+/*
+ * Start the 'notifications poller' background worker which fetches the
+ * notifications from the virtual wal and writes them to the central queue.
+ */
 static void
 ybStartNotificationsPollerProcess()
 {
@@ -2850,11 +2870,11 @@ ybPollAndProcessNotifications()
 	YbVirtualWalRecord *record;
 
 	/*
-	 * In a loop, poll records from CDC stream and add them to the central
-	 * queue, if any. When this background process gets terminated,
-	 * CleanupSessions() will destroy the virtual wal. Also, it is okay to not
-	 * invoke ReplicationSlotRelease() because no other process will try to
-	 * acquire this slot.
+	 * In a loop, poll records from the virtual wal and add them to the central
+	 * queue. When this background process gets terminated, CleanupSessions()
+	 * will destroy the virtual wal. Also, it is okay to not invoke
+	 * ReplicationSlotRelease() because no other process will try to acquire
+	 * this slot.
 	 */
 	for (;;)
 	{
@@ -2914,6 +2934,10 @@ ybProcessNotificationRecord(const YbcPgRowMessage *record)
 	}
 }
 
+/*
+ * Construct a queue entry from the YbcPgRowMessage and add it to the
+ * ybAsyncQueueEntryBatch.
+ */
 static void
 ybAddRecordToBatch(const YbcPgRowMessage *record)
 {
@@ -2925,6 +2949,10 @@ ybAddRecordToBatch(const YbcPgRowMessage *record)
 	MemoryContextSwitchTo(oldcontext);
 }
 
+/*
+ * Add the queue entry batch (ybAsyncQueueEntryBatch) to the central queue. If
+ * the queue is full, wait for it to become empty.
+ */
 static void
 ybAsyncQueueAddEntries()
 {
@@ -2954,6 +2982,10 @@ ybAsyncQueueAddEntries()
 	}
 }
 
+/*
+ * Fill the AsyncQueueEntry at *qe from the YbcPgRowMessage received from the
+ * virtual wal.
+ */
 static void
 ybRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message,
 							  AsyncQueueEntry *qe)
@@ -2987,6 +3019,10 @@ ybRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message,
 	qe->length = entryLength;
 }
 
+/*
+ * Fill *rel_oid with the pg_yb_notification relation's oid and *relfilenode
+ * with its relfilenode.
+ */
 static void
 ybNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode)
 {
@@ -3002,6 +3038,12 @@ ybNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode)
 		*relfilenode = pg_yb_notifications_relfilenode;
 }
 
+/*
+ * Construct and return the relation object corresponding to the
+ * pg_yb_notifications relation. Note that this table is not part of relcache as
+ * it belong to the internal yb_system database. Only the field required by
+ * YBCExecuteInsertForDb() and YBCExecuteDelete() are populated.
+ */
 static Relation
 ybNotificationsRelation()
 {
