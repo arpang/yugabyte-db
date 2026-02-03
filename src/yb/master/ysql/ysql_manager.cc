@@ -542,7 +542,7 @@ Status YsqlManager::ListenNotifyBgTask() {
   if (num_live_tservers == 0) {
     LOG(INFO) << "No live tservers found, skipping LISTEN/NOTIFY background task for now";
   } else {
-    RETURN_NOT_OK(CreateYbSystemDBIfNeeded());
+    // RETURN_NOT_OK(CreateYbSystemDBIfNeeded());
     RETURN_NOT_OK(CreateListenNotifyObjects());
   }
   return Status::OK();
@@ -563,11 +563,13 @@ Status YsqlManager::CreateYbSystemDBIfNeeded() {
     return Status::OK();
   }
 
-  auto statement = Format("CREATE DATABASE $0", kYbSystemDbName);
+  std::vector<std::string> statements;
+  statements.emplace_back("set yb_use_internal_auto_analyze_service_conn = true");
+  statements.emplace_back(Format("CREATE DATABASE $0", kYbSystemDbName));
   auto failure_warn_prefix = Format("Failed to create database $0", kYbSystemDbName);
 
   return ExecuteStatementsAsync(
-      "yugabyte", {statement}, catalog_manager_, failure_warn_prefix,
+      "yugabyte", statements, catalog_manager_, failure_warn_prefix,
       &creating_listen_notify_objects_, &yb_system_db_created_);
 }
 
@@ -581,6 +583,7 @@ Status YsqlManager::CreateListenNotifyObjects() {
   }
 
   std::vector<std::string> statements;
+  statements.emplace_back("set yb_use_internal_auto_analyze_service_conn = true");
   statements.emplace_back(Format(
       R"(CREATE TABLE IF NOT EXISTS $0 (
            notif_uuid uuid NOT NULL,
@@ -609,7 +612,7 @@ Status YsqlManager::CreateListenNotifyObjects() {
   auto failure_warn_prefix = Format("Failed to create LISTEN/NOTIFY objects");
 
   return ExecuteStatementsAsync(
-      kYbSystemDbName, statements, catalog_manager_, failure_warn_prefix,
+      "system_platform", statements, catalog_manager_, failure_warn_prefix,
       &creating_listen_notify_objects_, &created_listen_notify_objects_);
 }
 
