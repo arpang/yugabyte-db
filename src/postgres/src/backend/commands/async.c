@@ -602,9 +602,9 @@ static void ClearPendingActionsAndNotifies(void);
 
 static void ybInsertPendingNotifiesToTable(void);
 static void ybCreateReplicationSlotForNotifications();
-static const char *ybNotificationReplicationSlotName();
+static const char *ybNotificationsReplicationSlotName();
 static void ybStartNotificationsPollerProcess();
-static BackgroundWorkerHandle *ybShmemNotificationsPollerBgWHandle(bool *found);
+static BackgroundWorkerHandle *ybShmemNotificationsPollerBgwHandle(bool *found);
 static void ybPollAndProcessNotifications();
 static void ybProcessNotificationRecord(const YbcPgRowMessage *record);
 static void ybBufferQueueEntriesForWrite(const YbcPgRowMessage *record);
@@ -1481,11 +1481,11 @@ asyncQueueUnregister(void)
 	{
 		bool		found;
 		BackgroundWorkerHandle *shm_handle =
-			ybShmemNotificationsPollerBgWHandle(&found);
+			ybShmemNotificationsPollerBgwHandle(&found);
 
 		Assert(found);
 		TerminateBackgroundWorker(shm_handle);
-		ReplicationSlotDrop(ybNotificationReplicationSlotName(),
+		ReplicationSlotDrop(ybNotificationsReplicationSlotName(),
 							 /* nowait = */ true,
 							 /* yb_force = */ true,
 							 /* yb_if_exists = */ false);
@@ -2716,9 +2716,9 @@ ybInsertPendingNotifiesToTable(void)
 		slot->tts_isnull[yb_extra_options_att.attnum - 1] = true;
 		ExecStoreVirtualTuple(slot);
 
-		YbcPgTransactionSetting txn_setting = IsTransactionBlock() ?
-			YB_TRANSACTIONAL :
-			YB_SINGLE_SHARD_TRANSACTION;
+		YbcPgTransactionSetting txn_setting = (IsTransactionBlock() ?
+											   YB_TRANSACTIONAL :
+											   YB_SINGLE_SHARD_TRANSACTION);
 
 		YBCExecuteInsertForDb(dboid, rel, slot, ONCONFLICT_NONE, NULL,
 							  txn_setting);
@@ -2734,7 +2734,8 @@ ybInsertPendingNotifiesToTable(void)
 static void
 ybCreateReplicationSlotForNotifications()
 {
-	const char *slotname = ybNotificationReplicationSlotName();
+	const char *slotname = ybNotificationsReplicationSlotName();
+	uint64_t	yb_consistent_snapshot_time;
 
 	/*
 	 * If slot with the same name exists, drop it. This can occur if a previous
@@ -2742,8 +2743,6 @@ ybCreateReplicationSlotForNotifications()
 	 */
 	ReplicationSlotDrop(slotname, /* nowait = */ true,
 						 /* yb_force = */ true, /* yb_if_exists = */ true);
-
-	uint64_t	yb_consistent_snapshot_time;
 
 	YbReplicationSlotCreateForDB(slotname, /* two_phase = */ false,
 								  /* yb_plugin_name = */ "",
@@ -2754,7 +2753,7 @@ ybCreateReplicationSlotForNotifications()
 
 /* TODO: Can palloc() once and reuse the result. */
 const char *
-ybNotificationReplicationSlotName()
+ybNotificationsReplicationSlotName()
 {
 	char	   *hex_uuid = palloc(2 * UUID_LEN + 1);
 	const char *uuid = (const char *) YBCGetLocalTserverUuid();
@@ -2772,8 +2771,8 @@ ybStartNotificationsPollerProcess()
 	memset(&worker, 0, sizeof(worker));
 	sprintf(worker.bgw_name, "notifications poller");
 	sprintf(worker.bgw_type, "notifications poller");
-	worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
-		BGWORKER_BACKEND_DATABASE_CONNECTION;
+	worker.bgw_flags =
+		(BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION);
 	worker.bgw_start_time = BgWorkerStart_ConsistentState;
 	worker.bgw_restart_time = 1;	/* restart after a crash */
 	sprintf(worker.bgw_library_name, "postgres");
@@ -2797,14 +2796,14 @@ ybStartNotificationsPollerProcess()
 
 	bool		found;
 	BackgroundWorkerHandle *shm_handle =
-		ybShmemNotificationsPollerBgWHandle(&found);
+		ybShmemNotificationsPollerBgwHandle(&found);
 
 	memcpy(shm_handle, local_handle, YbBackgroundWorkerHandleSize());
 	pfree(local_handle);
 }
 
 static BackgroundWorkerHandle *
-ybShmemNotificationsPollerBgWHandle(bool *found)
+ybShmemNotificationsPollerBgwHandle(bool *found)
 {
 	return ShmemInitStruct("NotificationsPollerBgWHandle",
 						   YbBackgroundWorkerHandleSize(), found);
@@ -2839,16 +2838,16 @@ ybPollAndProcessNotifications()
 
 	CheckSlotRequirements();
 	Assert(!MyReplicationSlot);
-	ReplicationSlotAcquire(ybNotificationReplicationSlotName(), true);
-	List	   *publicaiton = list_make1(PgYbNotificationsPublicationName);
+	ReplicationSlotAcquire(ybNotificationsReplicationSlotName(), true);
+	List	   *publications = list_make1(PgYbNotificationsPublicationName);
 
-	YBCInitVirtualWal(publicaiton);
+	YBCInitVirtualWal(publications);
 	YbVirtualWalRecord *record;
 
 	for (;;)
 	{
 		CHECK_FOR_INTERRUPTS();
-		record = YBCReadRecord(publicaiton);
+		record = YBCReadRecord(publications);
 		if (record)
 			ybProcessNotificationRecord(record);
 	}
