@@ -563,11 +563,16 @@ static FormData_pg_attribute *YbNotificationsAtts[] = {
 #define YB_NOTIFICATIONS_NATTS \
 	(sizeof(YbNotificationsAtts) / sizeof(YbNotificationsAtts[0]))
 
-static List *yb_queue_entries_to_write = NIL;
-static TransactionId yb_current_notification_xid = InvalidTransactionId;
 static Relation pg_yb_notifications_relation = NULL;
 static Oid	pg_yb_notifications_rel_oid = InvalidOid;
 static Oid	pg_yb_notifications_relfilenode = InvalidOid;
+
+/*
+ * The notifications poller process writes to the central queue in batches. All
+ * notifications generating from a single transaction form a batch.
+ */
+static List *ybAsyncQueueEntryBatch = NIL;
+static TransactionId ybCurrentQueueEntryBatchXid = InvalidTransactionId;
 
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
@@ -607,8 +612,8 @@ static void ybStartNotificationsPollerProcess();
 static BackgroundWorkerHandle *ybShmemNotificationsPollerBgwHandle(bool *found);
 static void ybPollAndProcessNotifications();
 static void ybProcessNotificationRecord(const YbcPgRowMessage *record);
-static void ybBufferQueueEntriesForWrite(const YbcPgRowMessage *record);
-static void ybWriteBufferedEntriesToQueue();
+static void ybAddRecordToBatch(const YbcPgRowMessage *record);
+static void ybAsyncQueueAddEntries();
 static void ybRowMessageToAsyncQueueEntry(const YbcPgRowMessage *row_message,
 										  AsyncQueueEntry *qe);
 static void ybNotificationsRelationInfo(Oid *rel_oid, Oid *relfilenode);
@@ -1666,7 +1671,7 @@ asyncQueueAddEntries(ListCell *nextNotify)
 		if (offset + qe.length <= QUEUE_PAGESIZE)
 		{
 			/* OK, so advance nextNotify past this item */
-			nextNotify = lnext(IsYugaByteEnabled() ? yb_queue_entries_to_write :
+			nextNotify = lnext(IsYugaByteEnabled() ? ybAsyncQueueEntryBatch :
 							   pendingNotifies->events,
 							   nextNotify);
 		}
@@ -2844,6 +2849,13 @@ ybPollAndProcessNotifications()
 	YBCInitVirtualWal(publications);
 	YbVirtualWalRecord *record;
 
+	/*
+	 * In a loop, poll records from CDC stream and add them to the central
+	 * queue, if any. When this background process gets terminated,
+	 * CleanupSessions() will destroy the virtual wal. Also, it is okay to not
+	 * invoke ReplicationSlotRelease() because no other process will try to
+	 * acquire this slot.
+	 */
 	for (;;)
 	{
 		CHECK_FOR_INTERRUPTS();
@@ -2851,14 +2863,14 @@ ybPollAndProcessNotifications()
 		if (record)
 			ybProcessNotificationRecord(record);
 	}
-	YBCDestroyVirtualWal();
-	ReplicationSlotRelease();
+
+	pg_unreachable();
 }
 
 static void
 ybProcessNotificationRecord(const YbcPgRowMessage *record)
 {
-	Assert(yb_current_notification_xid ==
+	Assert(ybCurrentQueueEntryBatchXid ==
 		   (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
 			InvalidTransactionId :
 			record->xid));
@@ -2866,28 +2878,28 @@ ybProcessNotificationRecord(const YbcPgRowMessage *record)
 	switch (record->action)
 	{
 		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
-			Assert(yb_queue_entries_to_write == NIL);
+			Assert(ybAsyncQueueEntryBatch == NIL);
 			StartTransactionCommand();
-			yb_current_notification_xid = record->xid;
+			ybCurrentQueueEntryBatchXid = record->xid;
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
 			Assert(record->table_oid == ybNotificationsRelId());
-			ybBufferQueueEntriesForWrite(record);
+			ybAddRecordToBatch(record);
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
-			ybWriteBufferedEntriesToQueue();
+			ybAsyncQueueAddEntries();
 			/*
 			 * TODO: If the process crashes during or after
-			 * YbBlockingAsyncQueueAddEntries() and before
+			 * ybAsyncQueueAddEntries() and before
 			 * YBCCalculatePersistAndGetRestartLSN(), then the queue will have
 			 * duplicate notifications. Handle it by adding BEGIN and COMMIT
 			 * entries in the queue.
 			 */
 			YBCCalculatePersistAndGetRestartLSN(record->lsn);
-			yb_queue_entries_to_write = NIL;
-			yb_current_notification_xid = InvalidTransactionId;
+			ybAsyncQueueEntryBatch = NIL;
+			ybCurrentQueueEntryBatchXid = InvalidTransactionId;
 			AbortCurrentTransaction();
 			break;
 
@@ -2903,22 +2915,22 @@ ybProcessNotificationRecord(const YbcPgRowMessage *record)
 }
 
 static void
-ybBufferQueueEntriesForWrite(const YbcPgRowMessage *record)
+ybAddRecordToBatch(const YbcPgRowMessage *record)
 {
 	MemoryContext oldcontext = MemoryContextSwitchTo(CurTransactionContext);
 	AsyncQueueEntry *qe = palloc0(sizeof(AsyncQueueEntry));
 
 	ybRowMessageToAsyncQueueEntry(record, qe);
-	yb_queue_entries_to_write = lappend(yb_queue_entries_to_write, qe);
+	ybAsyncQueueEntryBatch = lappend(ybAsyncQueueEntryBatch, qe);
 	MemoryContextSwitchTo(oldcontext);
 }
 
 static void
-ybWriteBufferedEntriesToQueue()
+ybAsyncQueueAddEntries()
 {
-	ListCell   *queue_entry = list_head(yb_queue_entries_to_write);
+	ListCell   *nextQueueEntry = list_head(ybAsyncQueueEntryBatch);
 
-	while (queue_entry != NULL)
+	while (nextQueueEntry != NULL)
 	{
 		CHECK_FOR_INTERRUPTS();
 
@@ -2931,7 +2943,7 @@ ybWriteBufferedEntriesToQueue()
 			asyncQueueAdvanceTail();
 			continue;
 		}
-		queue_entry = asyncQueueAddEntries(queue_entry);
+		nextQueueEntry = asyncQueueAddEntries(nextQueueEntry);
 		LWLockRelease(NotifyQueueLock);
 	}
 	SignalBackends();
