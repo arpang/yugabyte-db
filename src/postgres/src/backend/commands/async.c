@@ -571,8 +571,8 @@ static Oid	pg_yb_notifications_relfilenode = InvalidOid;
  * The notifications poller process writes to the central queue in batches. All
  * notifications generating from a single transaction form a batch.
  */
-static List *ybAsyncQueueEntryBatch = NIL;
-static TransactionId ybCurrentQueueEntryBatchXid = InvalidTransactionId;
+static List *ybNotifsPollerPendingEntries = NIL;
+static TransactionId ybNotifsPollerProcessingXid = InvalidTransactionId;
 
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
@@ -616,8 +616,8 @@ static BackgroundWorkerHandle *ybShmemNotifsPollerBgwHandle(bool *found);
 /* YB: helper functions for 'notifications poller' bg worker */
 static void ybNotifsPollerLoop(void);
 static void ybNotifsPollerProcessRecord(const YbcPgRowMessage *record);
-static void ybNotifsPollerAddRecordToBatch(const YbcPgRowMessage *record);
-static void ybNotifsPollerAddBatchToQueue(void);
+static void ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record);
+static void ybNotifsPollerAddPendingEntriesToQueue(void);
 static void ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 									  AsyncQueueEntry *qe);
 
@@ -1678,7 +1678,8 @@ asyncQueueAddEntries(ListCell *nextNotify)
 		if (offset + qe.length <= QUEUE_PAGESIZE)
 		{
 			/* OK, so advance nextNotify past this item */
-			nextNotify = lnext(IsYugaByteEnabled() ? ybAsyncQueueEntryBatch :
+			nextNotify = lnext(IsYugaByteEnabled() ?
+							   ybNotifsPollerPendingEntries :
 							   pendingNotifies->events,
 							   nextNotify);
 		}
@@ -2897,7 +2898,13 @@ ybNotifsPollerLoop(void)
 static void
 ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 {
-	Assert(ybCurrentQueueEntryBatchXid ==
+	/*
+	 * If record is a 'BEGIN' (beginning of a new transaction),
+	 * ybNotifsPollerProcessingXid should be InvalidTransactionId, otherwise it
+	 * should be set to the id of the transaction being processed (same as
+	 * record's xid).
+	 */
+	Assert(ybNotifsPollerProcessingXid ==
 		   (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN ?
 			InvalidTransactionId :
 			record->xid));
@@ -2905,14 +2912,14 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 	switch (record->action)
 	{
 		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
-			Assert(ybAsyncQueueEntryBatch == NIL);
+			Assert(ybNotifsPollerPendingEntries == NIL);
 			StartTransactionCommand();
-			ybCurrentQueueEntryBatchXid = record->xid;
+			ybNotifsPollerProcessingXid = record->xid;
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
 			Assert(record->table_oid == ybNotificationsRelId());
-			ybNotifsPollerAddRecordToBatch(record);
+			ybNotifsPollerAddRecordToPendingEntries(record);
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_DELETE:
@@ -2920,7 +2927,7 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
-			ybNotifsPollerAddBatchToQueue();
+			ybNotifsPollerAddPendingEntriesToQueue();
 			/*
 			 * TODO: If the process crashes during or after
 			 * ybAsyncQueueAddEntries() and before
@@ -2929,8 +2936,8 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 			 * entries in the queue.
 			 */
 			YBCCalculatePersistAndGetRestartLSN(record->lsn);
-			ybAsyncQueueEntryBatch = NIL;
-			ybCurrentQueueEntryBatchXid = InvalidTransactionId;
+			ybNotifsPollerPendingEntries = NIL;
+			ybNotifsPollerProcessingXid = InvalidTransactionId;
 			AbortCurrentTransaction();
 			break;
 
@@ -2946,13 +2953,13 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
  * ybAsyncQueueEntryBatch.
  */
 static void
-ybNotifsPollerAddRecordToBatch(const YbcPgRowMessage *record)
+ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record)
 {
 	MemoryContext oldcontext = MemoryContextSwitchTo(CurTransactionContext);
 	AsyncQueueEntry *qe = palloc0(sizeof(AsyncQueueEntry));
 
 	ybRecordToAsyncQueueEntry(record, qe);
-	ybAsyncQueueEntryBatch = lappend(ybAsyncQueueEntryBatch, qe);
+	ybNotifsPollerPendingEntries = lappend(ybNotifsPollerPendingEntries, qe);
 	MemoryContextSwitchTo(oldcontext);
 }
 
@@ -2961,9 +2968,9 @@ ybNotifsPollerAddRecordToBatch(const YbcPgRowMessage *record)
  * the queue is full, wait for it to become empty.
  */
 static void
-ybNotifsPollerAddBatchToQueue(void)
+ybNotifsPollerAddPendingEntriesToQueue(void)
 {
-	ListCell   *nextQueueEntry = list_head(ybAsyncQueueEntryBatch);
+	ListCell   *nextQueueEntry = list_head(ybNotifsPollerPendingEntries);
 
 	while (nextQueueEntry != NULL)
 	{
