@@ -1332,8 +1332,8 @@ Exec_ListenPreCommit(void)
 	if (ybIsFirstListenerOnNode)
 	{
 		/*
-		 * YB note: The first listener on the node creates the replication and
-		 * starts the notifications poller process.
+		 * YB note: The first listener in the node creates the replication and
+		 * starts the 'notifications poller' bg worker.
 		 */
 		ybCreateNotifsReplicationSlot();
 		ybStartNotifsPollerBgWorker();
@@ -1485,12 +1485,13 @@ asyncQueueUnregister(void)
 	}
 	QUEUE_NEXT_LISTENER(MyBackendId) = InvalidBackendId;
 
-	/*
-	 * YB note: Terminate the notifications poller process and drop the
-	 * replication slot if this was the last listener in the node.
-	 */
 	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
 	{
+		/*
+		 * YB note: The last listener in the node terminates the 'notifications
+		 * poller' bg worker and drops the replication slot.
+		 */
+
 		bool		found;
 		BackgroundWorkerHandle *shm_handle =
 			ybShmemNotifsPollerBgwHandle(&found);
@@ -2321,8 +2322,8 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 		if (qe->dboid == MyDatabaseId)
 		{
 			/*
-			 * YB: In YB, only the committed notifications are received via
-			 * replication slot and written to the queue.
+			 * YB note: In YB, only the committed notifications are streamed
+			 * via replication slot and written to the queue.
 			 */
 			if (!IsYugaByteEnabled() && XidInMVCCSnapshot(qe->xid, snapshot))
 			{
@@ -2692,7 +2693,7 @@ ClearPendingActionsAndNotifies(void)
  * Insert the pending notifications to the pg_yb_notifications table. In order
  * to GC the tables, also perform a delete. This is fine because CDC logical
  * replication is used to stream the changes of this table (notifications) to
- * every tservers and CDC reads the records from WAL/intentsdb.
+ * the tservers and CDC reads the records from WAL/intentsdb.
  */
 static void
 ybInsertPendingNotifiesToTable(void)
@@ -2777,7 +2778,7 @@ ybCreateNotifsReplicationSlot(void)
 
 /*
  * Start the 'notifications poller' background worker which fetches the
- * notifications from the virtual wal and writes them to the central queue.
+ * notifications from the replication slot and writes them to the central queue.
  */
 static void
 ybStartNotifsPollerBgWorker(void)
@@ -2932,8 +2933,8 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 }
 
 /*
- * Construct a queue entry from the record received from the virtual wal and
- * add it to the list of entries pending to be written to the queue.
+ * Construct a queue entry using the record received from the replication slot
+ * and add it to the list of entries pending to be written to the queue.
  */
 static void
 ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record)
@@ -2947,8 +2948,8 @@ ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record)
 }
 
 /*
- * Add pending entries (ybNotifsPollerPendingEntries) to the queue. If the queue
- * is full, wait for it to become empty.
+ * Add the pending entries to the queue. If the queue is full, wait for it to
+ * become empty.
  */
 static void
 ybNotifsPollerAddPendingEntriesToQueue(void)
@@ -2980,8 +2981,8 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 }
 
 /*
- * Fill the AsyncQueueEntry at *qe from the YbcPgRowMessage received from the
- * virtual wal.
+ * Fill the AsyncQueueEntry at *qe using the record received from the
+ * replication slot.
  */
 static void
 ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
