@@ -622,11 +622,11 @@ static void ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 									  AsyncQueueEntry *qe);
 
 /* YB: common helper functions */
+static void ybListenNotifyPreChecks(void);
 static const char *ybNotifsReplicationSlotName(void);
 static Relation ybNotificationsRel(void);
-static void ybNotificationsRelInfo(Oid *reloid, Oid *relfilenode);
 static Oid	ybNotificationsRelId(void);
-static void ybListenNotifyPreChecks(void);
+static void ybNotificationsRelInfo(Oid *reloid, Oid *relfilenode);
 
 /*
  * Compute the difference between two queue page numbers (i.e., p - q),
@@ -2776,23 +2776,6 @@ ybCreateNotifsReplicationSlot(void)
 }
 
 /*
- * Returns 'yb_notifications_<local_tserver_uuid>', which is used as the
- * replication slot name to stream the notifications.
- *
- * TODO: palloc() once and cache the result.
- */
-const char *
-ybNotifsReplicationSlotName(void)
-{
-	char	   *hex_uuid = palloc(2 * UUID_LEN + 1);
-	const char *uuid = (const char *) YBCGetLocalTserverUuid();
-
-	hex_encode(uuid, UUID_LEN, hex_uuid);
-	hex_uuid[2 * UUID_LEN] = '\0';
-	return psprintf("yb_notifications_%s", hex_uuid);
-}
-
-/*
  * Start the 'notifications poller' background worker which fetches the
  * notifications from the virtual wal and writes them to the central queue.
  */
@@ -2828,8 +2811,7 @@ ybStartNotifsPollerBgWorker(void)
 				 errhint("More details may be available in the server log.")));
 
 	bool		found;
-	BackgroundWorkerHandle *shm_handle =
-		ybShmemNotifsPollerBgwHandle(&found);
+	BackgroundWorkerHandle *shm_handle = ybShmemNotifsPollerBgwHandle(&found);
 
 	memcpy(shm_handle, local_handle, YbBackgroundWorkerHandleSize());
 	pfree(local_handle);
@@ -3033,23 +3015,45 @@ ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 	qe->length = entryLength;
 }
 
-/*
- * Fill *reloid with the pg_yb_notification relation's oid and *relfilenode
- * with its relfilenode.
- */
 static void
-ybNotificationsRelInfo(Oid *reloid, Oid *relfilenode)
+ybListenNotifyPreChecks(void)
 {
-	if (!OidIsValid(pg_yb_notifications_reloid))
-	{
-		HandleYBStatus(YBCGetYbSystemTableInfo(PG_PUBLIC_NAMESPACE, PgYbNotificationsTableName,
-											   &pg_yb_notifications_reloid, &pg_yb_notifications_relfilenode));
-	}
+	if (!*YBCGetGFlags()->TEST_ysql_yb_enable_listen_notify)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("listen/notify is disabled. Enable it via runtime "
+						"tserver flag ysql_yb_enable_listen_notify")));
 
-	if (reloid)
-		*reloid = pg_yb_notifications_reloid;
-	if (relfilenode)
-		*relfilenode = pg_yb_notifications_relfilenode;
+	if (!OidIsValid(YbSystemDbOid()))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
+				 errdetail("yb_system database is being created")));
+
+	if (!OidIsValid(ybNotificationsRelId()))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
+				 errdetail("pg_yb_notifications table is being created")));
+
+	/* TODO: Add check for publication too. */
+}
+
+/*
+ * Returns 'yb_notifications_<local_tserver_uuid>', which is used as the
+ * replication slot name to stream the notifications.
+ *
+ * TODO: palloc() once and cache the result.
+ */
+const char *
+ybNotifsReplicationSlotName(void)
+{
+	char	   *hex_uuid = palloc(2 * UUID_LEN + 1);
+	const char *uuid = (const char *) YBCGetLocalTserverUuid();
+
+	hex_encode(uuid, UUID_LEN, hex_uuid);
+	hex_uuid[2 * UUID_LEN] = '\0';
+	return psprintf("yb_notifications_%s", hex_uuid);
 }
 
 /*
@@ -3092,26 +3096,21 @@ ybNotificationsRelId(void)
 	return oid;
 }
 
+/*
+ * Fill *reloid with the pg_yb_notification relation's oid and *relfilenode
+ * with its relfilenode.
+ */
 static void
-ybListenNotifyPreChecks(void)
+ybNotificationsRelInfo(Oid *reloid, Oid *relfilenode)
 {
-	if (!*YBCGetGFlags()->TEST_ysql_yb_enable_listen_notify)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("listen/notify is disabled. Enable it via runtime "
-						"tserver flag ysql_yb_enable_listen_notify")));
+	if (!OidIsValid(pg_yb_notifications_reloid))
+	{
+		HandleYBStatus(YBCGetYbSystemTableInfo(PG_PUBLIC_NAMESPACE, PgYbNotificationsTableName,
+											   &pg_yb_notifications_reloid, &pg_yb_notifications_relfilenode));
+	}
 
-	if (!OidIsValid(YbSystemDbOid()))
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
-				 errdetail("yb_system database is being created")));
-
-	if (!OidIsValid(ybNotificationsRelId()))
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
-				 errdetail("pg_yb_notifications table is being created")));
-
-	/* TODO: Add check for publication too. */
+	if (reloid)
+		*reloid = pg_yb_notifications_reloid;
+	if (relfilenode)
+		*relfilenode = pg_yb_notifications_relfilenode;
 }
