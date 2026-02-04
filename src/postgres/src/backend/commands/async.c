@@ -2911,11 +2911,12 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
 			ybNotifsPollerAddPendingEntriesToQueue();
 			/*
-			 * TODO: If the process crashes during or after
-			 * ybAsyncQueueAddEntries() and before
-			 * YBCCalculatePersistAndGetRestartLSN(), then the queue will have
-			 * duplicate notifications. Handle it by adding BEGIN and COMMIT
-			 * entries in the queue.
+			 * TODO(arpan): If the worker crashes here (ie, after writing
+			 * to the queue but before sending ack to CDC via
+			 * YBCCalculatePersistAndGetRestartLSN()), on restart the worker
+			 * will receive the current txn's records again. Consequently, the
+			 * queue will have duplicate notifications. Handle it by adding
+			 * BEGIN and COMMIT entries in the queue.
 			 */
 			YBCCalculatePersistAndGetRestartLSN(record->lsn);
 			ybNotifsPollerPendingEntries = NIL;
@@ -2931,8 +2932,8 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 }
 
 /*
- * Construct a queue entry from the YbcPgRowMessage and add it to the
- * ybAsyncQueueEntryBatch.
+ * Construct a queue entry from the record received from the virtual wal and
+ * add it to the list of entries pending to be written to the queue.
  */
 static void
 ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record)
@@ -2946,8 +2947,8 @@ ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record)
 }
 
 /*
- * Add the queue entry batch (ybAsyncQueueEntryBatch) to the central queue. If
- * the queue is full, wait for it to become empty.
+ * Add pending entries (ybNotifsPollerPendingEntries) to the queue. If the queue
+ * is full, wait for it to become empty.
  */
 static void
 ybNotifsPollerAddPendingEntriesToQueue(void)
@@ -3036,14 +3037,15 @@ ybListenNotifyPreChecks(void)
 				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
 				 errdetail("pg_yb_notifications table is being created")));
 
-	/* TODO: Add check for publication too. */
+	/* TODO(arpan): Add check for publication too. */
 }
 
 /*
- * Returns 'yb_notifications_<local_tserver_uuid>', which is used as the
- * replication slot name to stream the notifications.
+ * Returns 'yb_notifications_<local_tserver_uuid>', which is used as the name
+ * of the replication slot that streams the notifications from the
+ * pg_yb_notifications table to the local tserver.
  *
- * TODO: palloc() once and cache the result.
+ * TODO(arpan): palloc() once and cache the result.
  */
 const char *
 ybNotifsReplicationSlotName(void)
@@ -3059,7 +3061,7 @@ ybNotifsReplicationSlotName(void)
 /*
  * Construct and return the relation object corresponding to the
  * pg_yb_notifications relation. Note that this table is not part of relcache as
- * it belong to the internal yb_system database. Only the field required by
+ * it belongs to the internal yb_system database. Only the fields required by
  * YBCExecuteInsertForDb() and YBCExecuteDelete() are populated.
  */
 static Relation
