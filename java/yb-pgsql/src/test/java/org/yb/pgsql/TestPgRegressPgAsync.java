@@ -44,13 +44,13 @@ public class TestPgRegressPgAsync extends BasePgRegressTestPorted {
 
   @Test
   public void schedule() throws Exception {
-    Thread.sleep(30 * 1000);
+    Thread.sleep(30 * 1000); // Wait for master to create LISTEN/NOTIFY objects.
     runPgRegressTest("yb_pg_async_schedule");
   }
 
   @Test
   public void testIsolationPgRegress() throws Exception {
-    Thread.sleep(30 * 1000);
+    Thread.sleep(30 * 1000); // Wait for master to create LISTEN/NOTIFY objects.
     runPgRegressTest(
       PgRegressBuilder.PG_ISOLATION_REGRESS_DIR /* inputDir */,
       "yb_pg_async_isolation_schedule",

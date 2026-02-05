@@ -144,7 +144,7 @@ static const struct
 		"YbQueryDiagnosticsDatabaseConnectionWorkerMain", YbQueryDiagnosticsDatabaseConnectionWorkerMain
 	},
 	{
-		"YbNotificationsPollerMain", YbNotificationsPollerMain
+		"YbNotifsPollerMain", YbNotifsPollerMain
 	}
 };
 

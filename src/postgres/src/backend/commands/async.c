@@ -2793,7 +2793,7 @@ ybStartNotifsPollerBgWorker(void)
 	worker.bgw_start_time = BgWorkerStart_ConsistentState;
 	worker.bgw_restart_time = 1;	/* restart after a crash */
 	sprintf(worker.bgw_library_name, "postgres");
-	sprintf(worker.bgw_function_name, "YbNotificationsPollerMain");
+	sprintf(worker.bgw_function_name, "YbNotifsPollerMain");
 	worker.bgw_main_arg = (Datum) 0;
 	worker.bgw_notify_pid = getpid();
 
@@ -2826,7 +2826,7 @@ ybShmemNotifsPollerBgwHandle(bool *found)
 }
 
 void
-YbNotificationsPollerMain(Datum main_arg)
+YbNotifsPollerMain(Datum main_arg)
 {
 	/* Set up signal handlers */
 	pqsignal(SIGHUP, SignalHandlerForConfigReload);
@@ -2972,7 +2972,10 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 		nextQueueEntry = asyncQueueAddEntries(nextQueueEntry);
 		LWLockRelease(NotifyQueueLock);
 	}
-	SignalBackends();
+
+	if (ybNotifsPollerPendingEntries != NIL)
+		SignalBackends();
+
 	if (tryAdvanceTail)
 	{
 		tryAdvanceTail = false;
@@ -3011,6 +3014,10 @@ ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 
 	memcpy(qe->data, VARDATA_ANY(data), datalen);
 
+	/*
+	 * Both AsyncQueueEntryEmptySize amd datalen count the two null terminators
+	 * in the 'data' field. Adjust to avoid double counting them.
+	 */
 	int			entryLength = AsyncQueueEntryEmptySize + datalen - 2;
 
 	entryLength = QUEUEALIGN(entryLength);

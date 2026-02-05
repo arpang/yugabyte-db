@@ -51,6 +51,6 @@ extern void HandleNotifyInterrupt(void);
 extern void ProcessNotifyInterrupt(bool flush);
 
 /* entry point for notifications poller background process */
-extern void YbNotificationsPollerMain(Datum main_arg);
+extern void YbNotifsPollerMain(Datum main_arg);
 
 #endif							/* ASYNC_H */
