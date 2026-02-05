@@ -2254,7 +2254,7 @@ YBCDropReplicationSlot(const char *slot_name, bool if_exists)
 
 	if (if_exists && YBCStatusIsNotFound(status))
 	{
-		elog(LOG, "replication slot \"%s\" does not exist, skipping",
+		elog(LOG, "replication slot \"%s\" does not exist, skipping drop",
 			 slot_name);
 		YBCFreeStatus(status);
 		return;
