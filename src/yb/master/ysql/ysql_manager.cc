@@ -630,8 +630,11 @@ Status YsqlManager::CreateCDCTable() {
   }
 
   std::vector<std::string> statements;
-  statements.emplace_back("set yb_use_internal_auto_analyze_service_conn = true");
+  // statements.emplace_back("set yb_use_internal_auto_analyze_service_conn = true");
+  statements.emplace_back("set yb_enable_invalidation_messages = false");
+  statements.emplace_back("set yb_make_next_ddl_statement_nonincrementing = true");
   statements.emplace_back("CREATE SCHEMA IF NOT EXISTS yb_cdc");
+  statements.emplace_back("set yb_make_next_ddl_statement_nonincrementing = true");
   statements.emplace_back(Format(
       R"(CREATE TABLE IF NOT EXISTS yb_cdc.yb_cdc_changes (
         bucket_id          INT,
