@@ -3022,6 +3022,9 @@ ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 
 	entryLength = QUEUEALIGN(entryLength);
 	qe->length = entryLength;
+
+	pfree(desc);
+	pfree(tuple);
 }
 
 static void
