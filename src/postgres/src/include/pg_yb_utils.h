@@ -40,6 +40,7 @@
 #include "utils/resowner.h"
 #include "utils/tuplestore.h"
 #include "utils/typcache.h"
+#include "utils/uuid.h"
 #include "yb/yql/pggate/util/ybc_util.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 #include "yb_ysql_conn_mgr_helper.h"
@@ -845,6 +846,8 @@ extern bool yb_user_ddls_preempt_auto_analyze;
  */
 extern bool yb_enable_pg_stat_statements_rpc_stats;
 
+extern bool yb_enable_global_views;
+
 /*
  * If true, enable DocDB metrics collection for pg_stat_statements.
  */
@@ -1546,5 +1549,8 @@ extern YbcPgStatement YbNewTruncateColocated(Relation rel,
 
 extern YbcPgStatement YbNewTruncateColocatedIgnoreNotFound(Relation rel,
 														   YbcPgTransactionSetting transaction_setting);
+
+extern const unsigned char *YbGetLocalTServerUuid();
+extern void YbUCharToUuid(const unsigned char *in, pg_uuid_t *out);
 
 #endif							/* PG_YB_UTILS_H */

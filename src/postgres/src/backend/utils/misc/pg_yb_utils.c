@@ -2320,6 +2320,8 @@ bool		yb_enable_pg_stat_statements_rpc_stats = true;
 
 bool		yb_enable_pg_stat_statements_docdb_metrics = false;
 
+bool		yb_enable_global_views = false;
+
 const char *
 YBDatumToString(Datum datum, Oid typid)
 {
@@ -3267,10 +3269,24 @@ YBCommitTransactionContainingDDL()
 	YBClearDdlTransactionState();
 
 	if (use_regular_txn_block)
+	{
 		HandleYBStatus(YBCPgCommitPlainTransactionContainingDDL(MyDatabaseId, is_silent_altering));
+		/*
+		 * Next reads from catalog tables have to see changes made by the plain
+		 * transaction that contains DDL.
+		 */
+		if (YBCIsLegacyModeForCatalogOps())
+			YBCPgResetCatalogReadTime();
+	}
 	else
+	{
 		HandleYBStatus(YBCPgExitSeparateDdlTxnMode(MyDatabaseId,
 												   is_silent_altering));
+		/*
+		 * Next reads from catalog tables have to see changes made by the DDL transaction.
+		 */
+		YBCPgResetCatalogReadTime();
+	}
 
 	/*
 	 * Optimization to avoid redundant cache refresh on the current session
@@ -5166,6 +5182,26 @@ yb_database_clones(PG_FUNCTION_ARGS)
 	return (Datum) 0;
 }
 
+/* This function caches the local tserver's uuid locally */
+const unsigned char *
+YbGetLocalTServerUuid()
+{
+	static const unsigned char *local_tserver_uuid = NULL;
+
+	if (!local_tserver_uuid && IsYugaByteEnabled())
+		local_tserver_uuid = YBCGetLocalTserverUuid();
+
+	return local_tserver_uuid;
+}
+
+Datum
+yb_get_local_tserver_uuid(PG_FUNCTION_ARGS)
+{
+	pg_uuid_t *uuid = (pg_uuid_t *) palloc(UUID_LEN);
+	memcpy(uuid->data, YbGetLocalTServerUuid(), UUID_LEN);
+	return UUIDPGetDatum(uuid);
+}
+
 /*
  * This function is adapted from code of PQescapeLiteral() in fe-exec.c.
  * If use_quote_strategy_token is false, the string value will be converted
@@ -6271,7 +6307,7 @@ YBComputeNonCSortKey(Oid collation_id, const char *value, int64_t bytes)
 	}
 	else
 	{
-		Assert(bsize >= 0);
+		Assert((ptrdiff_t) bsize >= 0);
 		/*
 		 * Both strxfrm and strxfrm_l return the length of the transformed
 		 * string not including the terminating \0 byte.
@@ -6912,30 +6948,23 @@ YBCheckServerAccessIsAllowed()
 }
 
 static void
-aggregateRpcMetrics(YbcPgExecStorageMetrics **instr_metrics,
+aggregateRpcMetrics(YbcPgExecStorageMetrics *instr_metrics,
 					const YbcPgExecStorageMetrics *exec_stats_metrics)
 {
-	uint64_t	instr_version = (*instr_metrics) ? (*instr_metrics)->version
-		: 0;
-
-	if (exec_stats_metrics->version == instr_version)
+	if (exec_stats_metrics->version == 0)
 		return;
 
-	if (!(*instr_metrics))
-		*instr_metrics = (YbcPgExecStorageMetrics *) palloc0(sizeof(YbcPgExecStorageMetrics));
-
-	(*instr_metrics)->version = exec_stats_metrics->version;
+	instr_metrics->version += exec_stats_metrics->version;
 
 	for (int i = 0; i < YB_STORAGE_GAUGE_COUNT; ++i)
-		(*instr_metrics)->gauges[i] += exec_stats_metrics->gauges[i];
+		instr_metrics->gauges[i] += exec_stats_metrics->gauges[i];
 
 	for (int i = 0; i < YB_STORAGE_COUNTER_COUNT; ++i)
-		(*instr_metrics)->counters[i] += exec_stats_metrics->counters[i];
-
+		instr_metrics->counters[i] += exec_stats_metrics->counters[i];
 	for (int i = 0; i < YB_STORAGE_EVENT_COUNT; ++i)
 	{
 		const YbcPgExecEventMetric *val = &exec_stats_metrics->events[i];
-		YbcPgExecEventMetric *agg = &(*instr_metrics)->events[i];
+		YbcPgExecEventMetric *agg = &instr_metrics->events[i];
 
 		agg->sum += val->sum;
 		agg->count += val->count;
