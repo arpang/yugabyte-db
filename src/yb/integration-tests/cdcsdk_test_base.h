@@ -63,6 +63,7 @@ DECLARE_bool(TEST_cdc_hit_deadline_on_wal_read);
 DECLARE_int32(min_segment_size_bytes_to_rollover_at_flush);
 DECLARE_uint64(initial_log_segment_size_bytes);
 DECLARE_bool(ysql_yb_cdcsdk_stream_tables_without_primary_key);
+DECLARE_bool(TEST_ysql_yb_create_cdc_changes_table);
 
 namespace yb {
 using client::YBClient;
@@ -150,6 +151,8 @@ class CDCSDKTestBase : public YBTest {
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_enable_packed_row_for_colocated_table) = true;
 
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_dcheck_for_missing_schema_packing) = false;
+
+    ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_ysql_yb_create_cdc_changes_table) = true;
   }
 
   void TearDown() override;

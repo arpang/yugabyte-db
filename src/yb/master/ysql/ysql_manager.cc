@@ -52,6 +52,7 @@ DECLARE_bool(ysql_enable_auto_analyze_infra);
 DECLARE_int32(heartbeat_interval_ms);
 
 DECLARE_bool(TEST_ysql_yb_enable_listen_notify);
+DECLARE_bool(TEST_ysql_yb_create_cdc_changes_table);
 
 namespace yb::master {
 
@@ -376,7 +377,9 @@ void YsqlManager::RunBgTasks(const LeaderEpoch& epoch) {
       WARN_NOT_OK(ListenNotifyBgTask(), "Failed to complete LISTEN/NOTIFY background task");
     }
 
-    WARN_NOT_OK(CreateCDCTable(), "Failed to create yb_cdc_changes table");
+    if (FLAGS_TEST_ysql_yb_create_cdc_changes_table) {
+      WARN_NOT_OK(CreateCDCTable(), "Failed to create yb_cdc_changes table");
+    }
   }
 
   StartTablespaceBgTaskIfStopped();

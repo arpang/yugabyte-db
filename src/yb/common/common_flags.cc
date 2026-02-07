@@ -350,6 +350,8 @@ DEFINE_RUNTIME_int32(timestamp_history_retention_interval_sec, 900,
 
 DEFINE_test_flag(bool, ysql_yb_enable_listen_notify, false, "Enable YSQL LISTEN/NOTIFY.");
 
+DEFINE_test_flag(bool, ysql_yb_create_cdc_changes_table, false, "Create yb_cdc_changes table.");
+
 namespace yb {
 
 void InitCommonFlags() {
