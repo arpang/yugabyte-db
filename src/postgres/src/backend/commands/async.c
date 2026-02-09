@@ -569,7 +569,8 @@ static Oid	pg_yb_notifications_relfilenode = InvalidOid;
 
 /*
  * The notifications poller process writes to the central queue in batches. All
- * notifications generating from a single transaction form a batch.
+ * notifications generating from a single transaction form a batch. Hence, this
+ * list is allocated in the CurTransactionContext.
  */
 static List *ybNotifsPollerPendingEntries = NIL;
 static TransactionId ybNotifsPollerProcessingXid = InvalidTransactionId;
@@ -2854,7 +2855,7 @@ ybNotifsPollerLoop(void)
 
 	CheckSlotRequirements();
 	Assert(!MyReplicationSlot);
-	ReplicationSlotAcquire(ybNotifsReplicationSlotName(), true);
+	ReplicationSlotAcquire(ybNotifsReplicationSlotName(), /* nowait = */ true);
 	List	   *publications = list_make1(PgYbNotificationsPublicationName);
 
 	YBCInitVirtualWal(publications);
