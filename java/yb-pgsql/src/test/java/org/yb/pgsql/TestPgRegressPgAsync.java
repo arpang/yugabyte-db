@@ -13,15 +13,58 @@
 package org.yb.pgsql;
 
 import java.util.Map;
+import java.sql.Connection;
+import java.sql.Statement;
+
 import org.junit.Test;
 import org.junit.runner.RunWith;
+
 import org.yb.YBTestRunner;
+import org.yb.client.TestUtils;
+import org.yb.util.Timeouts;
 
 /**
  * Runs the pg_regress test suite on YB code.
  */
 @RunWith(value=YBTestRunner.class)
 public class TestPgRegressPgAsync extends BasePgRegressTestPorted {
+
+  private void waitForObect(Connection conn, String stmt) throws Exception {
+    Statement statement = conn.createStatement();
+    TestUtils.waitFor(() -> {
+      Row row = getSingleRow(statement, stmt);
+      return row.getInt(0) == 1;
+    }, Timeouts.adjustTimeoutSecForBuildType(120 * 1000));
+  }
+
+  private void waitForYbSystemDB() throws Exception {
+    waitForObect(connection,
+        "SELECT" +
+            "  CASE" +
+            "      WHEN EXISTS (" +
+            "          SELECT 1 FROM pg_database WHERE datname = 'yb_system'" +
+            "      )" +
+            "      THEN 1" +
+            "      ELSE 0" +
+            "  END");
+  }
+
+  private void waitForNotificationsTable() throws Exception {
+    waitForYbSystemDB();
+    Connection conn = getConnectionBuilder().withDatabase("yb_system").connect();
+    waitForObect(conn,
+        " SELECT" +
+            "    CASE" +
+            "        WHEN EXISTS (" +
+            "            SELECT 1 FROM pg_class" +
+            "            WHERE relname = 'pg_yb_notifications'" +
+            "              AND relkind = 'r'" +
+            "              AND relnamespace = 2200" +
+            "        )" +
+            "        THEN 1" +
+            "        ELSE 0" +
+            "    END ");
+  }
 
   @Override
   public int getTestMethodTimeoutSec() {
@@ -44,13 +87,13 @@ public class TestPgRegressPgAsync extends BasePgRegressTestPorted {
 
   @Test
   public void schedule() throws Exception {
-    Thread.sleep(30 * 1000); // Wait for master to create LISTEN/NOTIFY objects.
+    waitForNotificationsTable();
     runPgRegressTest("yb_pg_async_schedule");
   }
 
   @Test
   public void testIsolationPgRegress() throws Exception {
-    Thread.sleep(30 * 1000); // Wait for master to create LISTEN/NOTIFY objects.
+    waitForNotificationsTable();
     runPgRegressTest(
       PgRegressBuilder.PG_ISOLATION_REGRESS_DIR /* inputDir */,
       "yb_pg_async_isolation_schedule",
