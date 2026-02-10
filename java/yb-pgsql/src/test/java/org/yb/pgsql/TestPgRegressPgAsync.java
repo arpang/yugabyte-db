@@ -37,6 +37,7 @@ public class TestPgRegressPgAsync extends BasePgRegressTestPorted {
     }, Timeouts.adjustTimeoutSecForBuildType(120 * 1000));
   }
 
+  // Wait for master to create yb_system database.
   private void waitForYbSystemDB() throws Exception {
     waitForObect(connection,
         "SELECT" +
@@ -49,6 +50,7 @@ public class TestPgRegressPgAsync extends BasePgRegressTestPorted {
             "  END");
   }
 
+  // Wait for master to create pg_yb_notifications table.
   private void waitForNotificationsTable() throws Exception {
     waitForYbSystemDB();
     Connection conn = getConnectionBuilder().withDatabase("yb_system").connect();
