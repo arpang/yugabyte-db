@@ -1297,6 +1297,7 @@ Exec_ListenPreCommit(void)
 
 	bool		ybIsFirstListenerOnNode = QUEUE_FIRST_LISTENER == InvalidBackendId;
 
+	elog(LOG, "Arpan Exec_ListenPreCommit");
 	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
 	{
 		if (QUEUE_BACKEND_DBOID(i) == MyDatabaseId)
@@ -1318,6 +1319,8 @@ Exec_ListenPreCommit(void)
 	QUEUE_BACKEND_PID(MyBackendId) = MyProcPid;
 	QUEUE_BACKEND_DBOID(MyBackendId) = MyDatabaseId;
 	/* Insert backend into list of listeners at correct position */
+	// if ((prevListener > 0 ? QUEUE_NEXT_LISTENER(prevListener) : QUEUE_FIRST_LISTENER) != MyBackendId)
+	// {
 	if (prevListener > 0)
 	{
 		QUEUE_NEXT_LISTENER(MyBackendId) = QUEUE_NEXT_LISTENER(prevListener);
@@ -1328,17 +1331,23 @@ Exec_ListenPreCommit(void)
 		QUEUE_NEXT_LISTENER(MyBackendId) = QUEUE_FIRST_LISTENER;
 		QUEUE_FIRST_LISTENER = MyBackendId;
 	}
+	// }
 	LWLockRelease(NotifyQueueLock);
 
 	if (ybIsFirstListenerOnNode)
 	{
+		elog(LOG, "Arpan Exec_ListenPreCommit ybIsFirstListenerOnNode");
 		/*
 		 * YB note: The first listener in the node creates the replication and
 		 * starts the 'notifications poller' bg worker.
 		 */
 		ybCreateNotifsReplicationSlot();
+		elog(LOG, "Arpan Exec_ListenPreCommit after ybCreateNotifsReplicationSlot");
 		ybStartNotifsPollerBgWorker();
+		elog(LOG, "Arpan Exec_ListenPreCommit after ybStartNotifsPollerBgWorker");
 	}
+
+	elog(LOG, "Arpan Exec_ListenPreCommit after ybIsFirstListenerOnNode");
 
 	/* Now we are listed in the global array, so remember we're listening */
 	amRegisteredListener = true;
@@ -1510,6 +1519,71 @@ asyncQueueUnregister(void)
 
 	/* mark ourselves as no longer listed in the global array */
 	amRegisteredListener = false;
+}
+
+void
+YbCleanupListenStateForProc(PGPROC *proc)
+{
+	Assert(proc->backendId);
+
+	bool ybWasLastListener = false;
+	bool cleanupNeeded = false;
+	BackendId backendId = proc->backendId;
+
+	LWLockAcquire(NotifyQueueLock, LW_SHARED);
+	cleanupNeeded = QUEUE_BACKEND_PID(backendId) == proc->pid;
+	elog(LOG, "Arpan listen cleanup for pid %d required: %d", proc->pid, cleanupNeeded);
+	LWLockRelease(NotifyQueueLock);
+	if (!cleanupNeeded)
+		return;
+
+	/*
+	 * Need exclusive lock here to manipulate list links.
+	 */
+	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+	/* Mark our entry as invalid */
+	QUEUE_BACKEND_PID(backendId) = InvalidPid;
+	QUEUE_BACKEND_DBOID(backendId) = InvalidOid;
+	/* and remove it from the list */
+
+	ybWasLastListener = QUEUE_FIRST_LISTENER == backendId && QUEUE_NEXT_LISTENER(backendId) == InvalidBackendId;
+
+	if (QUEUE_FIRST_LISTENER == backendId)
+		QUEUE_FIRST_LISTENER = QUEUE_NEXT_LISTENER(backendId);
+	else
+	{
+		for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
+		{
+			if (QUEUE_NEXT_LISTENER(i) == backendId)
+			{
+				QUEUE_NEXT_LISTENER(i) = QUEUE_NEXT_LISTENER(backendId);
+				break;
+			}
+		}
+	}
+	QUEUE_NEXT_LISTENER(backendId) = InvalidBackendId;
+
+	if (ybWasLastListener)
+	{
+		/*
+		 * YB note: The last listener in the node terminates the 'notifications
+		 * poller' bg worker and drops the replication slot.
+		 */
+
+		bool		found;
+		BackgroundWorkerHandle *shm_handle =
+			ybShmemNotifsPollerBgwHandle(&found);
+
+		Assert(found);
+		TerminateBackgroundWorker(shm_handle);
+		// ReplicationSlotDrop(ybNotifsReplicationSlotName(),
+		// 					 /* nowait = */ true,
+		// 					 /* yb_force = */ true,
+		// 					 /* yb_if_exists = */ false);
+		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
+	}
+
+	LWLockRelease(NotifyQueueLock);
 }
 
 /*
@@ -1871,7 +1945,9 @@ SignalBackends(void)
 	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
 	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
 	{
+		elog(LOG, "Arpan processing backend id %d, next in line %d", i, QUEUE_NEXT_LISTENER(i));
 		int32		pid = QUEUE_BACKEND_PID(i);
+		elog(LOG, "Arpan processing backend has pid %d", pid);
 		QueuePosition pos;
 
 		Assert(pid != InvalidPid);
@@ -2760,7 +2836,9 @@ ybInsertPendingNotifiesToTable(void)
 static void
 ybCreateNotifsReplicationSlot(void)
 {
+	elog(LOG, "Arpan ybCreateNotifsReplicationSlot");
 	const char *slotname = ybNotifsReplicationSlotName();
+	elog(LOG, "Arpan ybCreateNotifsReplicationSlot %s", slotname);
 	uint64_t	yb_consistent_snapshot_time;
 
 	/*
@@ -2770,11 +2848,14 @@ ybCreateNotifsReplicationSlot(void)
 	ReplicationSlotDrop(slotname, /* nowait = */ true,
 						 /* yb_force = */ true, /* yb_if_exists = */ true);
 
+	elog(LOG, "Arpan ybCreateNotifsReplicationSlot after ReplicationSlotDrop");
+	elog(LOG, "Arpan ybCreateNotifsReplicationSlot slot %s, db_oid %d", slotname, YbSystemDbOid());
 	YbReplicationSlotCreateForDB(slotname, /* two_phase = */ false,
 								  /* yb_plugin_name = */ "",
 								 CRS_NOEXPORT_SNAPSHOT,
 								 &yb_consistent_snapshot_time, CRS_SEQUENCE,
 								 YB_CRS_TRANSACTION, YbSystemDbOid());
+	elog(LOG, "Arpan ybCreateNotifsReplicationSlot after YbReplicationSlotCreateForDB");
 }
 
 /*

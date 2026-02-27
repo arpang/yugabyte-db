@@ -142,6 +142,7 @@
 /* YB includes */
 #include "access/xact.h"
 #include "arpa/inet.h"
+#include "commands/async.h"
 #include "common/pg_yb_common.h"
 #include "pg_yb_utils.h"
 #include "replication/slot.h"
@@ -3293,6 +3294,10 @@ reaper(SIGNAL_ARGS)
 				break;
 			}
 
+			elog(LOG,
+				 "Arpan postmaster exited process pid %d, backendid %d, "
+				 "backend worker %d",
+				 proc->pid, proc->backendId, proc->isBackgroundWorker);
 			/*
 			 * We can't know what the parent of a background requires to properly clean this up.
 			 * ReportBackgroundWorkerExit seems like it should do the trick, there's complexity
@@ -3336,6 +3341,10 @@ reaper(SIGNAL_ARGS)
 
 			elog(INFO, "cleaning up after process with pid %d exited with status %d",
 				 pid, exitstatus);
+
+			elog(LOG,
+				 "Arpan postmaster exited process pid %d, backendid %d, "
+				 "reached CleanupKilledProcess", proc->pid, proc->backendId);
 			if (!CleanupKilledProcess(proc))
 			{
 				YbCrashInUnmanageableState = true;
@@ -3798,6 +3807,8 @@ CleanupKilledProcess(PGPROC *proc)
 
 		/* From SharedInvalBackendInit */
 		CleanupInvalidationStateForProc(proc);
+
+		YbCleanupListenStateForProc(proc);
 	}
 
 	/* From ProcKill */
