@@ -1333,8 +1333,8 @@ Exec_ListenPreCommit(void)
 	if (ybIsFirstListenerOnNode)
 	{
 		/*
-		 * YB note: The first listener in the node creates the replication and
-		 * starts the 'notifications poller' bg worker.
+		 * YB note: The first listener in the node creates the replication slot
+		 * and starts the 'notifications poller' bg worker.
 		 */
 		ybCreateNotifsReplicationSlot();
 		ybStartNotifsPollerBgWorker();
