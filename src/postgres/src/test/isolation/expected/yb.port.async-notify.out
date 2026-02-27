@@ -1,4 +1,4 @@
-Parsed test spec with 3 sessions
+Parsed test spec with 4 sessions
 
 starting permutation: listenc notify1 notify2 notify3 notifyf
 step listenc: LISTEN c1; LISTEN c2;
@@ -92,6 +92,34 @@ x
 listener: NOTIFY "c1" with payload "" from notifier
 listener: NOTIFY "c2" with payload "payload" from notifier
 listener: NOTIFY "c2" with payload "" from notifier
+
+starting permutation: llisten l2listenall notify1 n2notify1 notify2 n2notify2 lcheck l2check
+step llisten: LISTEN c1; LISTEN c2;
+step l2listenall: LISTEN c1; LISTEN c2;
+step notify1: NOTIFY c1;
+step n2notify1: NOTIFY c1, 'payload_n2_c1';
+step notify2: NOTIFY c2, 'payload';
+step n2notify2: NOTIFY c2, 'payload_n2_c2';
+step lcheck: SELECT 1 AS x;
+x
+-
+1
+(1 row)
+
+listener: NOTIFY "c1" with payload "" from notifier
+listener: NOTIFY "c1" with payload "payload_n2_c1" from notifier2
+listener: NOTIFY "c2" with payload "payload" from notifier
+listener: NOTIFY "c2" with payload "payload_n2_c2" from notifier2
+step l2check: SELECT 2 AS y;
+y
+-
+2
+(1 row)
+
+listener2: NOTIFY "c1" with payload "" from notifier
+listener2: NOTIFY "c1" with payload "payload_n2_c1" from notifier2
+listener2: NOTIFY "c2" with payload "payload" from notifier
+listener2: NOTIFY "c2" with payload "payload_n2_c2" from notifier2
 
 starting permutation: l2listen l2begin notify1 lbegins llisten lcommit l2commit l2stop
 step l2listen: LISTEN c1;

@@ -35,6 +35,11 @@ step usage		{ SELECT pg_notification_queue_usage() > 0 AS nonzero; }
 step bignotify	{ SELECT count(pg_notify('c1', s::text)) FROM generate_series(1, 1000) s; }
 teardown		{ UNLISTEN *; }
 
+# A second notifier session for cross-backend fan-out checks.
+session notifier2
+step n2notify1	{ NOTIFY c1, 'payload_n2_c1'; }
+step n2notify2	{ NOTIFY c2, 'payload_n2_c2'; }
+
 # The listener session is used for cross-backend notify checks.
 
 session listener
@@ -49,8 +54,10 @@ teardown		{ UNLISTEN *; }
 
 session listener2
 step l2listen	{ LISTEN c1; }
+step l2listenall	{ LISTEN c1; LISTEN c2; }
 step l2begin	{ BEGIN; }
 step l2commit	{ COMMIT; }
+step l2check	{ SELECT 2 AS y; }
 step l2stop		{ UNLISTEN *; }
 
 
@@ -68,6 +75,9 @@ permutation llisten notify1 notify2 notify3 notifyf lcheck
 
 # Again, with local delivery too.
 permutation listenc llisten notify1 notify2 notify3 notifyf lcheck
+
+# Cross-backend delivery with multiple listeners and multiple notifiers.
+permutation llisten l2listenall notify1 n2notify1 notify2 n2notify2 lcheck l2check
 
 # Check for bug when initial listen is only action in a serializable xact,
 # and notify queue is not empty
