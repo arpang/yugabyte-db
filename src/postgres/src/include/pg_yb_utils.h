@@ -559,6 +559,13 @@ extern bool yb_enable_base_scans_cost_model;
 extern bool yb_enable_update_reltuples_after_create_index;
 
 /*
+ * Enables index backfill column projection optimization.
+ * If true, index build/backfill only reads columns needed for the index,
+ * rather than all columns from the base table.
+ */
+extern bool yb_enable_index_backfill_column_projection;
+
+/*
  * Total timeout for waiting for backends to have up-to-date catalog version.
  */
 extern int	yb_wait_for_backends_catalog_version_timeout;
@@ -643,11 +650,11 @@ extern bool yb_debug_log_internal_restarts;
 extern bool yb_test_system_catalogs_creation;
 
 /*
- * If set to true, next DDL operation (only creating a relation for now) will fail,
- * resetting this back to false.
+ * If set to non-zero, next DDL operation will fail with the specified error level:
+ * 0 = disabled (default), 1 = ERROR, 2 = FATAL, 3 = PANIC, 4 = crash.
+ * Resets to 0 after triggering.
  */
-extern bool yb_test_fail_next_ddl;
-
+extern int yb_test_fail_next_ddl;
 /*
  * If set to true,the next DDL will update the catalog in force mode which
  * allows it to operate even during ysql major catalog upgrades.
@@ -1513,6 +1520,32 @@ typedef enum YbTxnError
 	YB_TXN_LOCK_NOT_FOUND,
 	YB_TXN_CONFLICT_KIND_COUNT, /* Must be last value of this enum */
 } YbTxnError;
+
+typedef enum
+{
+	YB_QPM_TRACK_NONE,
+	YB_QPM_TRACK_TOP,
+	YB_QPM_TRACK_ALL
+} YbQpmTrackEnum;
+
+typedef enum
+{
+	YB_QPM_SIMPLE_CLOCK_LRU,
+	YB_QPM_TRUE_LRU
+} YbCacheReplacementAlgorithmEnum;
+
+typedef struct YbQpmConfiguration
+{
+	int track;
+	int cache_replacement_algorithm;
+	int max_cache_size;
+	bool track_catalog_queries;
+	int plan_format;
+	bool verbose_plans;
+	bool compress_text;
+} YbQpmConfiguration;
+
+extern YbQpmConfiguration yb_qpm_configuration;
 
 extern void YbResetRetryCounts();
 extern void YbIncrementRetryCount(YbTxnError kind);

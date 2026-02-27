@@ -337,7 +337,7 @@
         "disableTitle": "Disable Performance Monitoring",
         "enablePaUniverseSuccess": "Successfully enabled  Performance Monitoring to the universe",
         "enablePaUniverseFailure": "Failed to  Performance Monitoring to the universe",
-        "disbalePaUniverseSuccess": "Successfully disbled Performance Monitoring for the universe",
+        "disablePaUniverseSuccess": "Successfully disabled Performance Monitoring for the universe",
         "disablePaUniverseFailure": "Failed to disable  Performance Monitoring to the universe",
         "subText": "Are you sure you want to {{action}}  Performance Monitoring for the universe <strong>{{universeName}}</strong>?"
       },
@@ -573,11 +573,13 @@
         "missingQuoteAttributeValue": "Missing quotes or having spaces within attribute values",
         "nonASCIIDetected": "Non-ASCII value detected",
         "identConfLocal": "map-name idp-user/group/role database-username",
+        "ycqlIdentConfLocal": "idp-user/group/role database-username",
         "hbaConfDescription": "Input each record as a new row, then reorder them. The sequential order of the records are significant as they are searched serially for every connection request.",
         "pgConfDescription": "CSV formatted line represented list of postgres setting assignments.",
         "identConfDescriptionFirst": "The flag's configuration follows ",
-        "identConfPostgreSQL": "PostgreSQL. ",
-        "identConfDescriptionSecond": "Enter each mapping as a new row, comprising the map-name, external user name, and database user name. ",
+        "identConfPostgreSQL": "PostgreSQL",
+        "identConfDescriptionSecond": ". Enter each mapping as a new row, comprising the map-name, external user name, and database user name. ",
+        "ycqlIdentConfDescriptionSecond": " except the omission of the map-name. Enter each mapping as a new row, comprising the external user name, and database user name. ",
         "identConfDescriptionMore": "To incorporate user name mappings from this flag, add them to the authentication methods that use external user names in hba_conf_csv file. ",
         "readMore": "Read More",
         "readLess": "Read Less",
@@ -780,6 +782,8 @@
         "paServiceUrlLabel": "Performance Monitoring Service URL",
         "ybPlatformServiceUrlLabel": "Yugabyte Platform Service URL",
         "ybPlatformMetricsUrlLabel": "Yugabyte Platform Metrics URL",
+        "ybPlatformMetricsUsernameLabel": "Yugabyte Platform Metrics Username",
+        "ybPlatformMetricsPasswordLabel": "Yugabyte Platform Metrics Password",
         "apiTokenLabel": "YBA API Token",
         "tpApiTokenLabel": "Performance Monitoring Token",
         "metricsScrapePeriodSecLabel": "Metrics Scrape Period (in seconds)",
@@ -1202,6 +1206,7 @@
               "tooltip": "<paragraph>Ensure that the backup storage config <bold>can be accessed from both {{sourceUniverseTerm}} and {{targetUniverseTerm}} universe.</bold></paragraph><paragraph>Particularly, <bold>Network File System (NFS)</bold> based storage configs may not be accessible from universes in different regions.</paragraph>"
             },
             "pitrInfoText": "Configure point-in-time recovery (PITR) settings",
+            "currentRetentionPeriod": "Current: {{retentionPeriod}}",
             "retentionPeriod": {
               "label": "Snapshot Retention Period",
               "tooltip": "A longer snapshot retention period requires more disk space."
@@ -2901,6 +2906,9 @@
       "authType": "Authentication Type",
       "siteURL": "Site URL",
       "splunkToken": "Splunk Access Token",
+      "splunkTokenTooltip": "Indicate this is the Splunk HEC token and where to generate it",
+      "splunkURLTooltip": "Clarify required format (include protocol and port, e.g., https://<host>:8088)",
+      "splunkURLPlaceholder": "https://<host>:8088/services/collector/event",
       "endpointURL": "Endpoint URL",
       "source": "Source (Optional)",
       "sourceType": "Source Type (Optional)",
@@ -2923,6 +2931,26 @@
         "apiTokenTooltip": "Create an access token with <bold>ingest metrics</bold>,  <bold>ingest logs</bold>, <bold>ingest OpenTelemetry traces</bold> and <bold>read API tokens</bold> scope in Manage > Access Tokens in your Dynatrace.",
         "apiTokenHelper": "The access policy token needs <bold>ingest metrics</bold>, <bold>ingest logs</bold>, <bold>ingest OpenTelemetry traces</bold> and <bold>read API tokens</bold> scope.",
         "apiTokenValidationError": "The access token should start with 6-character prefix, followed by 24-character public identifier, and 64-character string secret portion."
+      },
+      "otlp": {
+        "endpoint": "Endpoint URL",
+        "endpointTooltip": "OTLP receiver endpoint (e.g. https://otlp-gateway.example.com/otlp). For HTTP, /v1/logs and /v1/metrics are used when optional endpoints are not set.",
+        "protocol": "Protocol",
+        "protocolGrpc": "gRPC",
+        "protocolHttp": "HTTP",
+        "logsEndpoint": "Logs endpoint",
+        "logsEndpointTooltip": "Optional. HTTP only. Override URL for logs; if empty, main endpoint is used.",
+        "logsEndpointPlaceholder": "https://example.com:4318/v1/logs",
+        "metricsEndpoint": "Metrics endpoint",
+        "metricsEndpointTooltip": "Optional. HTTP only. Override URL for metrics; if empty, main endpoint is used.",
+        "metricsEndpointPlaceholder": "https://example.com:4318/v1/metrics",
+        "timeoutSeconds": "Timeout (seconds)",
+        "timeoutSecondsPlaceholder": "Optional",
+        "compression": "Compression",
+        "bearerToken": "Bearer Token",
+        "validationEndpointRequired": "Endpoint is required",
+        "validationProtocolRequired": "Protocol is required",
+        "validationFieldRequired": "This field is required"
       },
       "deleteModalTitle": "Delete Export Configuration",
       "deleteModalMsg": "Are you sure you want to delete <strong>{{name}}</strong> ?",
@@ -3680,7 +3708,15 @@
         },
         "accessKeyLabel": "Access Key",
         "accessKeyRequired": "Access Key is required",
-        "arnField": "Instance Profile ARN"
+        "arnField": "Instance Profile ARN",
+        "ipv6Field": {
+          "label": "Enable IPV6",
+          "subText": "Use IPV6 networking for connections between the DB servers."
+        },
+        "networkAccessField": {
+          "label": "Enable Public Network Access",
+          "subText": "Assign a load balancer or nodeport for connecting to the DB endpoints over the internet."
+        }
       },
       "reviewAndSummary": {
         "daily": "Daily",

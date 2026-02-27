@@ -49,18 +49,15 @@ namespace yb::pggate {
 
 class PgFlushDebugContext;
 
-YB_STRONGLY_TYPED_BOOL(InvalidateOnPgClient);
-YB_STRONGLY_TYPED_BOOL(UseCatalogSession);
-YB_STRONGLY_TYPED_BOOL(ForceNonBufferable);
-
 struct PgSessionRunOptions {
   HybridTime in_txn_limit{};
   ForceNonBufferable force_non_bufferable{ForceNonBufferable::kFalse};
+  std::optional<PgSessionRunOperationMarker> marker{};
 
   friend bool operator==(const PgSessionRunOptions&, const PgSessionRunOptions&) = default;
 
   std::string ToString() const {
-      return YB_STRUCT_TO_STRING(in_txn_limit, force_non_bufferable);
+      return YB_STRUCT_TO_STRING(in_txn_limit, force_non_bufferable, marker);
   }
 };
 
@@ -70,6 +67,7 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
  public:
   // Public types.
   using ScopedRefPtr = PgSessionPtr;
+  using RunRWOperationsHook = std::function<Status(std::optional<PgSessionRunOperationMarker>)>;
 
   // Constructors.
   PgSession(
@@ -79,7 +77,8 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
       YbcPgExecStatsState& stats_state,
       bool is_pg_binary_upgrade,
       std::reference_wrapper<const WaitEventWatcher> wait_event_watcher,
-      BufferingSettings& buffering_settings);
+      BufferingSettings& buffering_settings,
+      RunRWOperationsHook&& hook);
   ~PgSession();
 
   // Resets the read point for catalog tables.
@@ -215,8 +214,22 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
     return pg_txn_manager_->GetCurrentReadPoint();
   }
 
+  TxnReadPoint GetCurrentReadPointState() const {
+    return pg_txn_manager_->GetCurrentReadPointState();
+  }
+
   Status RestoreReadPoint(YbcReadPointHandle read_point) {
     return pg_txn_manager_->RestoreReadPoint(read_point);
+  }
+
+  // Restores the read point to saved_read_point.read_time, but only if the current
+  // txn matches saved_read_point.txn. If txn doesn't match, no restore is performed.
+  Status RestoreReadPoint(const TxnReadPoint& saved_read_point) {
+    return pg_txn_manager_->RestoreReadPoint(saved_read_point);
+  }
+
+  Status EnsureReadPoint() {
+    return pg_txn_manager_->EnsureReadPoint();
   }
 
   YbcReadPointHandle GetCatalogSnapshotReadPoint(YbcPgOid table_oid, bool create_if_not_exists);
@@ -235,6 +248,7 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
 
   struct PerformOptions {
     UseCatalogSession use_catalog_session = UseCatalogSession::kFalse;
+    bool has_catalog_ops = false;
     std::optional<ReadTimeAction> read_time_action = {};
     std::optional<CacheOptions> cache_options = std::nullopt;
     HybridTime in_txn_limit = {};
@@ -302,6 +316,7 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
 
   const WaitEventWatcher& wait_event_watcher_;
   TablespaceCache tablespace_cache_;
+  RunRWOperationsHook rw_operations_hook_;
 };
 
 template<class PB>

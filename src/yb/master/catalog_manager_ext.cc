@@ -20,7 +20,6 @@
 
 #include "yb/client/meta_cache.h"
 #include "yb/client/session.h"
-#include "yb/client/table_info.h"
 #include "yb/client/yb_op.h"
 #include "yb/client/yb_table_name.h"
 
@@ -52,6 +51,7 @@
 #include "yb/master/catalog_entity_info.pb.h"
 #include "yb/master/catalog_manager-internal.h"
 #include "yb/master/catalog_manager.h"
+#include "yb/master/catalog_manager_util.h"
 #include "yb/master/encryption_manager.h"
 #include "yb/master/master.h"
 #include "yb/master/master_backup.pb.h"
@@ -67,7 +67,6 @@
 #include "yb/master/tablet_split_manager.h"
 #include "yb/master/ts_manager.h"
 #include "yb/master/xcluster_consumer_registry_service.h"
-#include "yb/master/ysql_ddl_verification_task.h"
 #include "yb/master/ysql/ysql_manager_if.h"
 #include "yb/master/ysql_tablegroup_manager.h"
 
@@ -146,6 +145,8 @@ DEFINE_RUNTIME_AUTO_bool(
     enable_export_snapshot_using_relfilenode, kExternal, false, true,
     "Enable exporting snapshots with the new format version = 3 that uses relfilenodes.");
 
+DECLARE_bool(enable_ysql);
+DECLARE_string(initial_sys_catalog_snapshot_path);
 DECLARE_bool(TEST_enable_table_rewrite_for_cdcsdk_table);
 
 namespace yb {
@@ -574,12 +575,12 @@ Status CatalogManager::CreateTransactionAwareSnapshot(
   // 2. The user did not specify any Ttl value explicitly.
   int32_t retention_duration_hours = req.has_retention_duration_hours()
                                          ? req.retention_duration_hours()
-                                         : GetAtomicFlag(&FLAGS_default_snapshot_retention_hours);
+                                         : FLAGS_default_snapshot_retention_hours;
   TEST_SYNC_POINT("YBBackupTestWithColocationParam::CreateSnapshotReceived");
 
   // When only the namespace_id is specified, the master snapshot coordinator collects the snapshot
   // entries as of the snapshot_hybrid_time
-  if (GetAtomicFlag(&FLAGS_enable_namespace_snapshot_workflow) && req.tables_size() == 1) {
+  if (FLAGS_enable_namespace_snapshot_workflow && req.tables_size() == 1) {
     const auto& filter = req.tables(0);
     if (filter.table_name().empty() && filter.table_id().empty() && filter.has_namespace_() &&
         filter.namespace_().has_id() && filter.namespace_().database_type() == YQL_DATABASE_PGSQL) {
@@ -624,7 +625,7 @@ Status CatalogManager::RepackSnapshotsForBackup(
   TRACE("Acquired catalog manager lock");
   // Repack & extend the backup row entries.
   for (SnapshotInfoPB& snapshot : *resp->mutable_snapshots()) {
-    auto format_version = GetAtomicFlag(&FLAGS_enable_export_snapshot_using_relfilenode) &&
+    auto format_version = FLAGS_enable_export_snapshot_using_relfilenode &&
                                   include_ddl_in_progress_tables
                               ? kUseRelfilenodeFormatVersion
                               : kUseBackupRowEntryFormatVersion;
@@ -884,6 +885,24 @@ Status CatalogManager::DoImportSnapshotMeta(
       }
     }
   }
+  // For YSQL restores (both backup/restore and clone), we would have run ysql_dump before
+  // ImportSnapshot. It is important to invalidate the TServer's OID cache after ImportSnapshot so
+  // that the TServer is aware of all objects that were created. Otherwise, the following order of
+  // events is possible:
+  // 1. The dump script creates a table with OID 16384 because that is what the dump script says
+  //    to use (using binary_upgrade_set_next_heap_relfilenode). This does not go through the
+  //    TServer's oid allocator.
+  // 2. The dump script creates an object that needs a new OID (e.g., a CHECK constraint). To get a
+  //    new OID, the TServer calls ReservePgsqlOids, which returns 16384-17000 as available OIDs.
+  // 3. The constraint is created with OID 16385 because that is the first free OID in the range.
+  // 4. A snapshot schedule is created for the restored database.
+  // 5. The table is dropped (actually hidden, because of the snapshot schedule).
+  // 6. The table is recreated with OID 16384, which PG thinks is a free OID because the table is
+  //    not in pg_class anymore. This fails on master because the original table with this OID still
+  //    exists.
+  // Invalidating the OID cache forces the TServer to refresh its OID cache on the next heartbeat
+  // it receives from the master.
+  RETURN_NOT_OK(InvalidateTserverOidCaches());
 
   if (PREDICT_FALSE(FLAGS_TEST_import_snapshot_failed)) {
     const string msg = "ImportSnapshotMeta interrupted due to test flag";
@@ -2988,7 +3007,7 @@ Status CatalogManager::RestoreSysCatalog(
     SnapshotScheduleRestoration* restoration, tablet::Tablet* tablet, bool leader_mode,
     Status* complete_status) {
   Status s;
-  if (GetAtomicFlag(&FLAGS_enable_fast_pitr)) {
+  if (FLAGS_enable_fast_pitr) {
     s = RestoreSysCatalogFastPitr(restoration, tablet);
   } else {
     s = RestoreSysCatalogSlowPitr(restoration, tablet);

@@ -128,6 +128,7 @@
 #include "utils/syscache.h"
 #include "yb/util/debug/leak_annotations.h"
 #include "yb_ash.h"
+#include "yb_qpm.h"
 #include "yb_query_diagnostics.h"
 #include "yb_tcmalloc_utils.h"
 
@@ -692,6 +693,30 @@ static const struct config_enum_entry yb_cost_model_options[] = {
 	{NULL, 0, false}
 };
 
+static const struct config_enum_entry yb_qpm_track_options[] =
+{
+	{"none", YB_QPM_TRACK_NONE, false},
+	{"top", YB_QPM_TRACK_TOP, false},
+	{"all", YB_QPM_TRACK_ALL, false},
+	{NULL, 0, false}
+};
+
+static const struct config_enum_entry yb_cache_replacement_algorithm_options[] =
+{
+	{"simple_clock_lru", YB_QPM_SIMPLE_CLOCK_LRU, false},
+	{"true_lru", YB_QPM_TRUE_LRU, false},
+	{NULL, 0, false}
+};
+
+static const struct config_enum_entry yb_qpm_plan_format_options[] =
+{
+	{"text", EXPLAIN_FORMAT_TEXT, false},
+	{"xml", EXPLAIN_FORMAT_XML, false},
+	{"json", EXPLAIN_FORMAT_JSON, false},
+	{"yaml", EXPLAIN_FORMAT_YAML, false},
+	{NULL, 0, false}
+};
+
 /*
  * Options for enum values stored in other modules
  */
@@ -730,6 +755,7 @@ bool		session_auth_is_superuser;
 
 int			log_min_error_statement = ERROR;
 int			log_min_messages = WARNING;
+int			yb_log_min_backtraces = FATAL;
 int			client_min_messages = NOTICE;
 int			log_min_duration_sample = -1;
 int			log_min_duration_statement = -1;
@@ -2754,18 +2780,6 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"yb_test_fail_next_ddl", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("When set, the next DDL will fail right before "
-						 "commit."),
-			NULL,
-			GUC_NOT_IN_SAMPLE
-		},
-		&yb_test_fail_next_ddl,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"yb_xcluster_automatic_mode_target_ddl", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Used to identify DDLs executed in Automatic xCluster mode target "
 						 "universe. For example, DDL operations will skip the data loading "
@@ -3338,6 +3352,19 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_enable_index_backfill_column_projection", PGC_USERSET, QUERY_TUNING_OTHER,
+			gettext_noop("Enables index backfill column projection optimization. "
+						 "If true, index build/backfill only reads columns needed for the index, "
+						 "rather than all columns from the base table."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_enable_index_backfill_column_projection,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_enable_fkey_catcache", PGC_USERSET, DEVELOPER_OPTIONS,
 			gettext_noop("Enable preloading of foreign key information into the relation cache."),
 			NULL,
@@ -3790,19 +3817,14 @@ static struct config_bool ConfigureNamesBool[] =
 	 * (2) Disallow setting this GUC in the middle of a transaction.
 	 */
 	{
-		{"yb_fallback_to_legacy_catalog_read_time", PGC_USERSET, CUSTOM_OPTIONS,
+		{"yb_enable_concurrent_ddl", PGC_USERSET, CUSTOM_OPTIONS,
 			gettext_noop("[This is an advanced flag, avoid using it unless recommened by Yugabyte"
-				"support.] If object locking is enabled, concurrent DDLs are allowed. This is done by "
-				"using the new mode for catalog reads and writes using PG's catalog snapshot. Set this "
-				"flag to true for falling back to the legacy mode which involves using pggate's catalog "
-				"read time for catalog reads when running a DML transaction (and) the transaction snapshot "
-				"for catalog reads and writes when running a DDL transaction. Concurrent DDLs will not be "
-				"supported if this flag is set. If object locking is disabled, only the legacy mode is "
-				"used."),
+				"support.] Use this flag to toggle support for concurrent DDLs. If object locking is disabled (i.e., "
+				"the gflag enable_object_locking_for_table_locks is set to false), concurrent DDLs are not supported."),
 			NULL
 		},
-		&yb_fallback_to_legacy_catalog_read_time,
-		true,
+		&yb_enable_concurrent_ddl,
+		false,
 		NULL, NULL, NULL
 	},
 
@@ -3854,6 +3876,39 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_pg_stat_plans_track_catalog_queries", PGC_SUSET, STATS_MONITORING,
+			gettext_noop("When set, QPM tracks plans for queries referencing catalog tables."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_qpm_configuration.track_catalog_queries,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_pg_stat_plans_verbose_plans", PGC_SUSET, STATS_MONITORING,
+			gettext_noop("Generate verbose plans in QPM."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_qpm_configuration.verbose_plans,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_qpm_compress_text", PGC_SUSET, STATS_MONITORING,
+			gettext_noop("Compress QPM plan and hint text if necessary."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_qpm_configuration.compress_text,
+		true,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
@@ -3884,6 +3939,17 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&PostAuthDelay,
 		0, 0, INT_MAX / 1000000,
+		NULL, NULL, NULL
+	},
+	{
+		{"yb_test_fail_next_ddl", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("When set to non-zero, the next DDL will fail: "
+						 "1=ERROR, 2=FATAL, 3=PANIC, 4=crash."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_test_fail_next_ddl,
+		0, 0, 4,
 		NULL, NULL, NULL
 	},
 	{
@@ -5815,6 +5881,15 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&yb_fk_references_cache_limit,
 		65535, 0, INT_MAX,
+	},
+
+	{
+		{"yb_pg_stat_plans_max_cache_size", PGC_POSTMASTER, STATS_MONITORING,
+			gettext_noop("Max number of query/plan pairs stored by QPM."),
+			NULL
+		},
+		&yb_qpm_configuration.max_cache_size,
+		5000, 1, 50000,
 		NULL, NULL, NULL
 	},
 		{
@@ -7269,6 +7344,16 @@ static struct config_enum ConfigureNamesEnum[] =
 	},
 
 	{
+		{"yb_log_min_backtraces", PGC_SUSET, LOGGING_WHEN,
+			gettext_noop("Sets the minimum message level for including a backtrace in the log."),
+			gettext_noop("Errors at or above this level will have a call stack attached. Each level includes all the levels that follow it.")
+		},
+		&yb_log_min_backtraces,
+		FATAL, server_message_level_options,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"log_statement", PGC_SUSET, LOGGING_WHAT,
 			gettext_noop("Sets the type of statements logged."),
 			NULL
@@ -7584,8 +7669,9 @@ static struct config_enum ConfigureNamesEnum[] =
 						 " show \"ERROR:  Query error: Restart read required at: ...\". The database"
 						 " attempts to retry on such errors internally but that is not always possible."
 						 " (b) relaxed: With this option, the read-after-commit-visibility guarantee is"
-						 " relaxed. Read only statements/transactions do not see read restart errors but"
-						 " may miss recent updates with staleness bounded by clock skew."
+						 " relaxed. Do not see read restart errors but may miss recent updates with"
+						 " staleness bounded by clock skew. This mode does not apply to"
+						 " serializable isolation level and fast path writes."
 						 " (c) deferred: Defers read point. Higher latency but read-after-commit-visibility"
 						 " guarantee is maintained."
 			),
@@ -7620,6 +7706,37 @@ static struct config_enum ConfigureNamesEnum[] =
 		},
 		&yb_enable_cbo, YB_COST_MODEL_LEGACY, yb_cost_model_options,
 		NULL, assign_yb_enable_cbo, NULL
+	},
+
+	{
+		{"yb_pg_stat_plans_track", PGC_SUSET, QUERY_TUNING_METHOD,
+			gettext_noop("Selects which statements are tracked by QPM."),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&yb_qpm_configuration.track, YB_QPM_TRACK_NONE, yb_qpm_track_options,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_pg_stat_plans_plan_format", PGC_POSTMASTER, QUERY_TUNING_METHOD,
+			gettext_noop("Plan format for QPM."),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&yb_qpm_configuration.plan_format, EXPLAIN_FORMAT_JSON, yb_qpm_plan_format_options,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_pg_stat_plans_cache_replacement_algorithm", PGC_POSTMASTER, STATS_MONITORING,
+			gettext_noop("Enable true LRU in Query Plan Management."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_qpm_configuration.cache_replacement_algorithm, YB_QPM_SIMPLE_CLOCK_LRU,
+		yb_cache_replacement_algorithm_options,
+		NULL, NULL, NULL
 	},
 
 	/* End-of-list marker */

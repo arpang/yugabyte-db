@@ -803,7 +803,7 @@ struct QueryDataBase {
   PrefixLogger LogPrefix() const { return PrefixLogger{session_id_}; }
 
   Status ValidateSidecars() const {
-    const size_t max_size = GetAtomicFlag(&FLAGS_rpc_max_message_size);
+    const size_t max_size = FLAGS_rpc_max_message_size;
     return sidecars.size() > max_size
         ? STATUS_FORMAT(InvalidArgument,
                         "Sending too long RPC message ($0 bytes of data), limit: $1 bytes",
@@ -3459,22 +3459,18 @@ class PgClientSession::Impl {
         // TODO: Shouldn't the below logic for DDL transactions as well?
         session.SetInTxnLimit(in_txn_limit);
       }
-
-      if (options.clamp_uncertainty_window() &&
-          !session.read_point()->GetReadTime()) {
-        RSTATUS_DCHECK(
-          !(txn && txn->isolation() == SERIALIZABLE_ISOLATION),
-          IllegalState, "Clamping does not apply to SERIALIZABLE txns.");
-        // Set read time with clamped uncertainty window when requested by
-        // the query layer.
-        // Do not mess with the read time if already set.
-        session.read_point()->SetCurrentReadTime(ClampUncertaintyWindow::kTrue);
-        VLOG_WITH_PREFIX_AND_FUNC(2)
-          << "Setting read time to "
-          << session.read_point()->GetReadTime()
-          << " for read only txn/stmt";
-      }
     }
+
+    // Do not clamp uncertainty window for legacy catalog reads.
+    // TODO(#30357): Measure the performance of picking time here instead of the storage layer.
+    if (options.clamp_uncertainty_window() && !session.read_point()->GetReadTime()) {
+      RSTATUS_DCHECK(
+        !(txn && txn->isolation() == SERIALIZABLE_ISOLATION),
+        IllegalState, "Clamping does not apply to SERIALIZABLE txns.");
+      session.read_point()->SetCurrentReadTime(ClampUncertaintyWindow::kTrue);
+      VLOG_WITH_PREFIX(2) << "Clamping read time to " << session.read_point()->GetReadTime();
+    }
+
     return Status::OK();
   }
 
@@ -4022,6 +4018,11 @@ class PgClientSession::Impl {
       return CalculateTablespaceBasedLocality(std::move(tablespace_oids));
     }
 
+    return CalculateRegionBasedLocality(std::move(tablespace_oids), options.is_all_region_local());
+  }
+
+  TransactionFullLocality CalculateRegionBasedLocality(
+      std::ranges::range auto&& tablespace_oids, bool is_all_region_local) const {
     // TODO: is_all_region_local() handles exactly two cases that tablespace oid check does not:
     // 1. until upgrade is finalized (enable_tablespace_based_transaction_placement autoflag on
     //    master), tablespace oid check does not work, so it is needed to avoid global latencies
@@ -4032,14 +4033,15 @@ class PgClientSession::Impl {
     //    from use setting up some unit tests.
     // Once these are no longer of concern, is_all_region_local and corresponding code in
     // pggate/pg can be removed.
-    if (!FLAGS_TEST_perform_ignore_pg_is_region_local && options.is_all_region_local()) {
+    if (!FLAGS_TEST_perform_ignore_pg_is_region_local && is_all_region_local) {
       return TransactionFullLocality::RegionLocal();
     }
-    return CalculateRegionBasedLocality(std::move(tablespace_oids));
-  }
-
-  TransactionFullLocality CalculateRegionBasedLocality(
-      std::ranges::range auto&& tablespace_oids) const {
+    // Similar to above, but for the case of table-level locks when tablespace oid locality
+    // calculations are not yet possible, we always return region-local, since requests from
+    // table-level lock acquisition never have the old is_all_region_local field set.
+    if (!context_.transaction_manager_provider().TablespaceLocalTransactionsPossible()) {
+      return TransactionFullLocality::RegionLocal();
+    }
     auto& transaction_manager = context_.transaction_manager_provider();
     bool all_region_local = transaction_manager.RegionLocalTransactionsPossible();
     for (PgTablespaceOid oid : tablespace_oids) {

@@ -139,6 +139,7 @@ func (m *InstallNodeAgent) generateProviderPayload(
 	if lon := config.GetFloat(values, "provider_region_longitude", 0.0); lon >= -180 && lon <= 180 {
 		region.Longitude = lon
 	}
+	nodeExporterPort := config.GetInt(values, "node_exporter_port", 9300)
 	var chronyServers []string
 	if str, ok := values["chrony_servers"].(string); ok {
 		for _, token := range strings.Split(str, ",") {
@@ -158,6 +159,7 @@ func (m *InstallNodeAgent) generateProviderPayload(
 		Details: model.ProviderDetails{
 			SkipProvisioning:    true, /* Manual provisioning */
 			InstallNodeExporter: true, /* Default is true */
+			NodeExporterPort:    int(nodeExporterPort),
 			CloudInfo: model.CloudInfo{
 				Onprem: model.OnPremCloudInfo{
 					YbHomeDir:     ybHomeDir,
@@ -315,7 +317,8 @@ func (m *InstallNodeAgent) createInstanceIfNotExists(
 	provider *model.Provider,
 ) error {
 	ybaURL := values["url"].(string)
-	skipTLSVerify := !strings.HasPrefix(strings.ToLower(ybaURL), "https")
+	skipTLSVerify := !strings.HasPrefix(strings.ToLower(ybaURL), "https") ||
+		config.GetBool(values, "skip_tls_verify", false)
 	getInstanceTypeURL := m.getInstanceTypeURL(
 		values["url"].(string),
 		values["customer_uuid"].(string),
@@ -368,7 +371,8 @@ func (m *InstallNodeAgent) getProviderNodeInstances(
 ) ([]model.NodeInstance, error) {
 	providerNodesUrl := m.listProviderNodeInstancesURL(values)
 	ybaURL := values["url"].(string)
-	skipTLSVerify := !strings.HasPrefix(strings.ToLower(ybaURL), "https")
+	skipTLSVerify := !strings.HasPrefix(strings.ToLower(ybaURL), "https") ||
+		config.GetBool(values, "skip_tls_verify", false)
 	headers := m.getHeaders(values["api_key"].(string))
 	resp, _, err := m.makeRequest(providerNodesUrl, "GET", headers, nil, skipTLSVerify)
 	if err != nil {
@@ -393,6 +397,12 @@ func (m *InstallNodeAgent) checkIfNodeInstanceAlreadyExists(
 	for _, instance := range instances {
 		if instance.Details.IP == input.IP {
 			if instance.Details.Region != input.Region || instance.Details.Zone != input.Zone {
+				util.FileLogger().
+					Errorf(ctx, "Node with IP %s already exists in different region/zone: %s/%s",
+						input.IP,
+						instance.Details.Region,
+						instance.Details.Zone,
+					)
 				return false, fmt.Errorf(
 					"Node with IP %s already exists in different region/zone: %s/%s",
 					input.IP,
@@ -401,6 +411,11 @@ func (m *InstallNodeAgent) checkIfNodeInstanceAlreadyExists(
 				)
 			}
 			if instance.Details.InstanceType != input.InstanceType {
+				util.FileLogger().
+					Errorf(ctx, "Node with IP %s already exists with different instance type: %s",
+						input.IP,
+						instance.Details.InstanceType,
+					)
 				return false, fmt.Errorf(
 					"Node with IP %s already exists with different instance type: %s",
 					input.IP,
@@ -408,6 +423,11 @@ func (m *InstallNodeAgent) checkIfNodeInstanceAlreadyExists(
 				)
 			}
 			if instance.InstanceName != input.InstanceName {
+				util.FileLogger().
+					Errorf(ctx, "Node with IP %s already exists with different instance name: %s",
+						input.IP,
+						instance.InstanceName,
+					)
 				return false, fmt.Errorf(
 					"Node with IP %s already exists with different instance name: %s",
 					input.IP,

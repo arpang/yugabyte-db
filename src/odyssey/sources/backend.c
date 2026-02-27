@@ -82,13 +82,25 @@ void od_backend_evict_server_hashmap(od_server_t *server, char *context, char *d
 		return;
 	}
 	od_hash_t keyhash = strtoul(stmt_name, NULL, 16);
-	if (yb_od_hashmap_find_key_and_remove(server->prep_stmts, keyhash)) {
-		od_debug(&instance->logger, context, NULL, server, 
-			"Evicted %u hashmap entry from server", keyhash);
-	}
-	else {
-		od_error(&instance->logger, context, NULL, server, 
-			"failed to evict %u hashmap entry from server", keyhash);
+	char **matched_keys = NULL;
+	int matched_count = 0;
+	if (yb_od_hashmap_find_key_and_remove(server->prep_stmts, keyhash,
+					      &matched_keys, &matched_count)) {
+		if (matched_count > 1) {
+			od_error(&instance->logger, context, NULL, server,
+				 "Got a hashmap collision for %08x. Evicted %d entries:",
+				 keyhash, matched_count);
+			for (int i = 0; i < matched_count; i++) {
+				od_error(&instance->logger, context, NULL, server,
+					 "  [%d] %s", i, matched_keys[i]);
+			}
+		} else {
+			od_debug(&instance->logger, context, NULL, server,
+				 "Evicted %08x hashmap entry from server", keyhash);
+		}
+		for (int i = 0; i < matched_count; i++)
+			free(matched_keys[i]);
+		free(matched_keys);
 	}
 }
 
@@ -134,7 +146,7 @@ void od_backend_error(od_server_t *server, char *context, char *data,
 			 "HINT: %s", error.hint);
 		hint_len = strlen(error.hint);
 
-		if (strcmp(error.hint, "Database might have been dropped by another user") == 0)
+		if (strcmp(error.hint, "Database may have been dropped and recreated") == 0)
 		{
 			/* Reset the route and close the client */
 			yb_mark_routes_inactive(server->global->router,

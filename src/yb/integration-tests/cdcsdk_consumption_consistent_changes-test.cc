@@ -25,6 +25,11 @@ class CDCSDKConsumptionConsistentChangesTest : public CDCSDKYsqlTest {
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_cdc_consistent_snapshot_streams) = true;
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_replication_slot_consumption) = true;
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_cdcsdk_setting_get_changes_response_byte_limit) = true;
+
+    // TODO(#30298): Port all the tests to run with mechanism to poll sys catalog tablet. Certain
+    // tests written exclusively for pub refresh mechanism should be run with this flag disabled.
+    ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
+        false;
   }
 
   enum FeedbackType {
@@ -2963,7 +2968,8 @@ TEST_F(CDCSDKConsumptionConsistentChangesTest, TestRetryableErrorsNotSentToWalse
       TestSimulateErrorCode::PeerNotLeader,
       TestSimulateErrorCode::PeerNotReadyToServe,
       TestSimulateErrorCode::LogSegmentFooterNotFound,
-      TestSimulateErrorCode::LogIndexCacheEntryNotFound};
+      TestSimulateErrorCode::LogIndexCacheEntryNotFound,
+      TestSimulateErrorCode::LogReaderNotInitialized};
 
   for (auto error_code : error_codes) {
     // Setting the flag to mimic retryable errors. The expectation is that
@@ -5247,7 +5253,6 @@ TEST_F(CDCSDKConsumptionConsistentChangesTest, TestHiddenTableDeletesAfterComple
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_enable_table_rewrite_for_cdcsdk_table) = true;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_update_restart_time_interval_secs) = 0;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_parent_tablet_deletion_task_retry_secs) = 2;
-  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_enable_dynamic_table_support) = false;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
       true;
 
@@ -5487,7 +5492,6 @@ TEST_F(CDCSDKConsumptionConsistentChangesTest, TestUnackRecordsPolledFromHiddenT
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_enable_table_rewrite_for_cdcsdk_table) = true;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_update_restart_time_interval_secs) = 0;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_parent_tablet_deletion_task_retry_secs) = 2;
-  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_enable_dynamic_table_support) = false;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
       true;
 
@@ -5561,13 +5565,77 @@ TEST_F(CDCSDKConsumptionConsistentChangesTest, TestUnackRecordsPolledFromHiddenT
       std::nullopt /* expected_unqualified_table_ids*/, true /* include_catalog_tables */);
 }
 
+TEST_F(CDCSDKConsumptionConsistentChangesTest, TestDDLOnTableWithoutPrimaryKey) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_enable_table_rewrite_for_cdcsdk_table) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_cdcsdk_stream_tables_without_primary_key) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_update_restart_time_interval_secs) = 0;
+  // ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_parent_tablet_deletion_task_retry_secs) = 2;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_enable_dynamic_table_support) = false;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
+      true;
+
+  ASSERT_OK(SetUpWithParams(
+      1 /* rf */, 1 /* num_masters */, false /* colocated */,
+      true /* populate_safepoint_record */));
+  auto conn = ASSERT_RESULT(test_cluster_.ConnectToDB(kNamespaceName));
+  auto table_without_pk = ASSERT_RESULT(CreateTable(
+      &test_cluster_, kNamespaceName, "test_table", 1 /* num_tablets */,
+      false /* add_primary_key */));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table_without_pk, 0, &tablets, nullptr));
+  ASSERT_EQ(tablets.size(), 1);
+
+  auto stream_id = ASSERT_RESULT(CreateConsistentSnapshotStreamWithReplicationSlot());
+  ASSERT_OK(InitVirtualWAL(
+      stream_id, {table_without_pk.table_id()}, kVWALSessionId1, nullptr /* slot_hash_range */,
+      true /* include_oid_to_relfilenode */));
+
+  ASSERT_OK(WriteRowsHelper(0, 1, &test_cluster_, true, 2, table_without_pk.table_name().c_str()));
+  auto get_consistent_changes_resp = ASSERT_RESULT(GetAllPendingTxnsFromVirtualWAL(
+      stream_id, {table_without_pk.table_id()}, 1 /* expected_dml_records */,
+      false /* init_virtual_wal */, kVWALSessionId1));
+  ASSERT_EQ(get_consistent_changes_resp.records.size(), 3);
+
+  // Add the primary key contraint
+  ASSERT_OK(
+      conn.ExecuteFormat("ALTER TABLE $0 ADD PRIMARY KEY (key)", table_without_pk.table_name()));
+  auto table_with_pk = ASSERT_RESULT(GetTable(&test_cluster_, kNamespaceName, "test_table"));
+  ASSERT_OK(test_client()->GetTablets(table_with_pk, 0, &tablets, nullptr));
+  ASSERT_EQ(tablets.size(), 1);
+
+  ASSERT_OK(PollTillRestartTimeExceedsTableHideTime(stream_id, table_without_pk, table_with_pk));
+
+  ASSERT_OK(WriteRowsHelper(1, 2, &test_cluster_, true, 2, table_with_pk.table_name().c_str()));
+  get_consistent_changes_resp = ASSERT_RESULT(GetAllPendingTxnsFromVirtualWAL(
+      stream_id, {table_with_pk.table_id()}, 1 /* expected_dml_records */,
+      false /* init_virtual_wal */, kVWALSessionId1));
+  ASSERT_EQ(get_consistent_changes_resp.records.size(), 3);
+
+  // Removing the primary key contraint
+  ASSERT_OK(
+      conn.ExecuteFormat("ALTER TABLE $0 DROP CONSTRAINT $0_pkey", table_with_pk.table_name()));
+  auto table_with_dropped_pk =
+      ASSERT_RESULT(GetTable(&test_cluster_, kNamespaceName, "test_table"));
+  ASSERT_OK(test_client()->GetTablets(table_with_dropped_pk, 0, &tablets, nullptr));
+  ASSERT_EQ(tablets.size(), 1);
+
+  ASSERT_OK(
+      PollTillRestartTimeExceedsTableHideTime(stream_id, table_with_pk, table_with_dropped_pk));
+
+  ASSERT_OK(
+      WriteRowsHelper(2, 3, &test_cluster_, true, 2, table_with_dropped_pk.table_name().c_str()));
+  get_consistent_changes_resp = ASSERT_RESULT(GetAllPendingTxnsFromVirtualWAL(
+      stream_id, {table_with_dropped_pk.table_id()}, 1 /* expected_dml_records */,
+      false /* init_virtual_wal */, kVWALSessionId1));
+  ASSERT_EQ(get_consistent_changes_resp.records.size(), 3);
+}
+
 TEST_F(
     CDCSDKConsumptionConsistentChangesTest,
     TestSplitParentTabletAndHiddenTableGetsPolledAndDeleted) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_enable_table_rewrite_for_cdcsdk_table) = true;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_update_restart_time_interval_secs) = 0;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_parent_tablet_deletion_task_retry_secs) = 2;
-  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_enable_dynamic_table_support) = false;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
       true;
 
@@ -5637,10 +5705,9 @@ TEST_F(
 }
 
 TEST_F(CDCSDKConsumptionConsistentChangesTest, TestOnlyReWriteCausingDDLsTriggerPubRefresh) {
-  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_enable_dynamic_table_support) = false;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_enable_table_rewrite_for_cdcsdk_table) = true;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
       true;
-  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_enable_table_rewrite_for_cdcsdk_table) = true;
 
   ASSERT_OK(SetUpWithParams(
       1 /* rf */, 1 /* num_masters */, false /* colocated */,
@@ -5696,6 +5763,145 @@ TEST_F(CDCSDKConsumptionConsistentChangesTest, TestOnlyReWriteCausingDDLsTrigger
   // Consume the DDL record.
   change_resp = ASSERT_RESULT(GetConsistentChangesFromCDC(stream_id));
   ASSERT_EQ(change_resp.cdc_sdk_proto_records()[0].row_message().op(), RowMessage_Op_DDL);
+}
+
+TEST_F(
+    CDCSDKConsumptionConsistentChangesTest,
+    TestSlotWithImplicitPublicationChangesDetectionWhenFeatureDisabled) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
+      true;
+
+  ASSERT_OK(SetUpWithParams(
+      1 /* rf */, 1 /* num_masters */, false /* colocated */,
+      true /* cdc_populate_safepoint_record */));
+
+  auto stream_id = ASSERT_RESULT(CreateConsistentSnapshotStreamWithReplicationSlot());
+
+  // Trying to use a slot which has detect_publication_changes_implicitly set to true while the flag
+  // ysql_yb_enable_implicit_dynamic_tables_logical_replication is disabled should result in an
+  // error.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
+      false;
+  ASSERT_NOK(InitVirtualWAL(
+      stream_id, {} /* table_ids */, kVWALSessionId1, nullptr,
+      true /* include_oid_to_relfilenode */, 0 /* timeout*/));
+
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
+      true;
+  ASSERT_OK(InitVirtualWAL(
+      stream_id, {} /* table_ids */, kVWALSessionId1, nullptr,
+      true /* include_oid_to_relfilenode */));
+}
+
+TEST_F(CDCSDKConsumptionConsistentChangesTest, TestPubRefreshStreamsWorkFineAfterUpgrade) {
+  // Start with ysql_yb_enable_implicit_dynamic_tables_logical_replication set to false, simulating
+  // pre-upgrade universe.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
+      false;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_publication_list_refresh_interval_secs) = 5;
+  // Set this to avoid destruction of VWALs due to them being classifed as expired sessions.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_delay_before_complete_expired_pg_sessions_shutdown_ms) =
+      100 * 1000;
+
+  google::SetVLOGLevel("cdcsdk_virtual_wal", 3);
+  ASSERT_OK(SetUpWithParams(
+      1 /* rf */, 1 /* num_masters */, false /* colocated */,
+      true /* cdc_populate_safepoint_record */));
+
+  // Create a single tablet table.
+  auto table =
+      ASSERT_RESULT(CreateTable(&test_cluster_, kNamespaceName, kTableName, 1 /* num_tablets*/));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, nullptr));
+  ASSERT_EQ(tablets.size(), 1);
+
+  // Create a pub refresh slot.
+  auto pub_refresh_slot = ASSERT_RESULT(CreateConsistentSnapshotStreamWithReplicationSlot());
+
+  // Set the flag ysql_yb_enable_implicit_dynamic_tables_logical_replication to true. This simulates
+  // an upgrade.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_implicit_dynamic_tables_logical_replication) =
+      true;
+
+  ASSERT_OK(InitVirtualWAL(
+      pub_refresh_slot, {table.table_id()} /* table_ids */, 1 /* session_id */, nullptr,
+      true /* include_oid_to_relfilenode */));
+
+  auto change_resp_1 =
+      ASSERT_RESULT(GetConsistentChangesFromCDC(pub_refresh_slot, 1 /* session_id */));
+  ASSERT_TRUE(change_resp_1.cdc_sdk_proto_records().empty());
+
+  // Sleep so that the next record to be streamed from pub_refresh_slot is a pub refresh record.
+  SleepFor(MonoDelta::FromSeconds(
+      FLAGS_cdcsdk_publication_list_refresh_interval_secs * 2 * kTimeMultiplier));
+  change_resp_1 = ASSERT_RESULT(GetConsistentChangesFromCDC(pub_refresh_slot, 1 /* session_id */));
+  ASSERT_EQ(change_resp_1.cdc_sdk_proto_records_size(), 0);
+  ASSERT_TRUE(
+      change_resp_1.has_needs_publication_table_list_refresh() &&
+      change_resp_1.needs_publication_table_list_refresh() &&
+      change_resp_1.has_publication_refresh_time());
+  ASSERT_GT(change_resp_1.publication_refresh_time(), 0);
+}
+
+// This test verifies that GetConsistentChanges RPC call doesn't timeout even when there are
+// many tablets. The VWAL's GetConsistentChangesInternal will only make internal GetChanges() calls
+// to a max of FLAGS_cdcsdk_tablets_to_poll_batch_size tablets.
+TEST_F(CDCSDKConsumptionConsistentChangesTest, TestGetConsistentChangesWithManyTablets) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_vwal_tablets_to_poll_batch_size) = 10;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_cdcsdk_vwal_getchanges_rpc_delay_ms) = 1000;
+
+  constexpr int kNumTables = 5;
+  constexpr int kTabletsPerTable = 5;
+
+  ASSERT_OK(SetUpWithParams(
+      3 /* rf */, 1 /* num_masters */, false /* colocated */,
+      true /* cdc_populate_safepoint_record */));
+
+  auto conn = ASSERT_RESULT(test_cluster_.ConnectToDB(kNamespaceName));
+
+  std::vector<client::YBTableName> tables;
+  std::vector<TableId> table_ids;
+  tables.reserve(kNumTables);
+  table_ids.reserve(kNumTables);
+
+  for (int i = 0; i < kNumTables; ++i) {
+    std::string table_name = Format("test_table_$0", i);
+    ASSERT_OK(conn.ExecuteFormat(
+        "CREATE TABLE $0 (id int primary key, value_1 int) SPLIT INTO $1 TABLETS", table_name,
+        kTabletsPerTable));
+
+    auto table = ASSERT_RESULT(GetTable(&test_cluster_, kNamespaceName, table_name));
+    google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+    ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, nullptr));
+    ASSERT_EQ(tablets.size(), kTabletsPerTable);
+
+    tables.push_back(table);
+    table_ids.push_back(table.table_id());
+  }
+
+  auto stream_id = ASSERT_RESULT(CreateConsistentSnapshotStreamWithReplicationSlot());
+  ASSERT_OK(InitVirtualWAL(stream_id, table_ids, kVWALSessionId1));
+
+  // The batch size of tablets to poll in a single GetConsistentChanges call is
+  // FLAGS_cdcsdk_vwal_tablets_to_poll_batch_size. So, we need to make ceil((kNumTables *
+  // kTabletsPerTable) / FLAGS_cdcsdk_vwal_tablets_to_poll_batch_size) GetConsistentChanges calls to
+  // consume all tablets.
+  int num_get_changes_calls =
+      ((kNumTables * kTabletsPerTable) + FLAGS_cdcsdk_vwal_tablets_to_poll_batch_size - 1) /
+      FLAGS_cdcsdk_vwal_tablets_to_poll_batch_size;
+  for (int i = 0; i < num_get_changes_calls; i++) {
+    GetConsistentChangesRequestPB change_req;
+    change_req.set_stream_id(stream_id.ToString());
+    change_req.set_session_id(kVWALSessionId1);
+    GetConsistentChangesResponsePB change_resp;
+    RpcController get_changes_rpc;
+    get_changes_rpc.set_timeout(
+        MonoDelta::FromMilliseconds(
+            2 * FLAGS_TEST_cdcsdk_vwal_getchanges_rpc_delay_ms *
+            FLAGS_cdcsdk_vwal_tablets_to_poll_batch_size));
+    auto status = cdc_proxy_->GetConsistentChanges(change_req, &change_resp, &get_changes_rpc);
+    ASSERT_TRUE(status.ok() && !change_resp.has_error());
+  }
 }
 
 }  // namespace cdc

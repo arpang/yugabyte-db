@@ -134,6 +134,7 @@
 #include "yb/yql/pggate/ybc_gflags.h"
 #include "yb/yql/pggate/ybc_pggate.h"
 #include "yb_ash.h"
+#include "yb_qpm.h"
 #include "yb_query_diagnostics.h"
 
 static uint64_t yb_catalog_cache_version = YB_CATCACHE_VERSION_UNINITIALIZED;
@@ -149,6 +150,8 @@ static bool YbHasDdlMadeChanges();
 static int YbGetNumCreateFunctionStmts();
 static int YbGetNumRollbackToSavepointStmts();
 static bool YBIsCurrentStmtCreateFunction();
+
+static void yb_maybe_test_fail_ddl(void);
 
 uint64_t
 YBGetActiveCatalogCacheVersion()
@@ -1221,6 +1224,8 @@ YBInitPostgresBackend(const char *program_name, const YbcPgInitPostgresInfo *ini
 
 			if (yb_enable_query_diagnostics)
 				YbQueryDiagnosticsInstallHook();
+
+			YbQpmInit();
 		}
 
 		/*
@@ -2218,6 +2223,7 @@ bool		yb_enable_sequence_pushdown = true;
 bool		yb_disable_wait_for_backends_catalog_version = false;
 bool		yb_enable_base_scans_cost_model = false;
 bool		yb_enable_update_reltuples_after_create_index = false;
+bool		yb_enable_index_backfill_column_projection = false;
 int			yb_wait_for_backends_catalog_version_timeout = 5 * 60 * 1000;	/* 5 min */
 bool		yb_prefer_bnl = false;
 bool		yb_explain_hide_non_deterministic_fields = false;
@@ -2253,6 +2259,16 @@ YBUpdateOptimizationOptions yb_update_optimization_options = {
 	.max_cols_size_to_compare = 10 * 1024
 };
 
+YbQpmConfiguration yb_qpm_configuration = {
+	.track = YB_QPM_TRACK_NONE,
+	.cache_replacement_algorithm = YB_QPM_SIMPLE_CLOCK_LRU,
+	.max_cache_size = 5000,
+	.track_catalog_queries = true,
+	.plan_format = EXPLAIN_FORMAT_JSON,
+	.verbose_plans = false,
+	.compress_text = true
+};
+
 bool		yb_speculatively_execute_pl_statements = false;
 bool		yb_whitelist_extra_stmts_for_pl_speculative_execution = false;
 
@@ -2269,7 +2285,7 @@ bool		yb_debug_log_internal_restarts = false;
 
 bool		yb_test_system_catalogs_creation = false;
 
-bool		yb_test_fail_next_ddl = false;
+int			yb_test_fail_next_ddl = 0;
 
 bool		yb_force_catalog_update_on_next_ddl = false;
 
@@ -2702,6 +2718,13 @@ YBAddDdlTxnState(YbDdlMode mode)
 		 */
 		ddl_transaction_state.num_create_function_stmts +=
 			ddl_transaction_state.current_stmt_node_tag == T_CreateFunctionStmt ? 1 : 0;
+
+		/*
+		 * On a transaction restart, we need call YBCPgSetDdlStateInPlainTransaction()
+		 * again because it has been reset.
+		 */
+		if (!YBCPgIsDdlMode())
+			HandleYBStatus(YBCPgSetDdlStateInPlainTransaction());
 		return;
 	}
 
@@ -3074,13 +3097,7 @@ YBCommitTransactionContainingDDL()
 									has_change);
 
 	Assert(ddl_transaction_state.nesting_level == 0);
-	if (yb_test_fail_next_ddl)
-	{
-		yb_test_fail_next_ddl = false;
-		if (YbIsClientYsqlConnMgr())
-			YbSendParameterStatusForConnectionManager("yb_test_fail_next_ddl", "false");
-		elog(ERROR, "Failed DDL operation as requested");
-	}
+	yb_maybe_test_fail_ddl();
 
 	if (yb_test_delay_next_ddl > 0)
 	{
@@ -4489,6 +4506,9 @@ YbInvalidateTableCacheForAlteredTables()
 		{
 			YbDatabaseAndRelfileNodeOid *object_id =
 				(YbDatabaseAndRelfileNodeOid *) lfirst(lc);
+
+			YBC_LOG_INFO("Invalidating table cache entry for table %u:%u",
+						 object_id->database_oid, object_id->relfilenode_id);
 
 			/*
 			 * This is safe to do even for tables which don't exist or have
@@ -8529,6 +8549,57 @@ yb_get_tablet_metadata(PG_FUNCTION_ARGS)
 	return (Datum) 0;
 }
 
+Datum
+yb_stat_auto_analyze(PG_FUNCTION_ARGS)
+{
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	int			i;
+
+#define YB_AUTO_ANALYZE_TABLE_COLS 5
+
+	InitMaterializedSRF(fcinfo, 0);
+	YbcAutoAnalyzeInfo *auto_analyze_info = NULL;
+	size_t		num_rows = 0;
+
+	HandleYBStatus(YBCQueryAutoAnalyze(MyDatabaseId, &auto_analyze_info, &num_rows));
+
+	for (i = 0; i < num_rows; ++i)
+	{
+		YbcAutoAnalyzeInfo *row_info = (YbcAutoAnalyzeInfo *) auto_analyze_info + i;
+		Datum		values[YB_AUTO_ANALYZE_TABLE_COLS];
+		bool		nulls[YB_AUTO_ANALYZE_TABLE_COLS];
+
+		memset(values, 0, sizeof(values));
+		memset(nulls, 0, sizeof(nulls));
+		Relation rel = RelationIdGetRelation(row_info->table_oid);
+		/*
+		 * A table could be deleted, but auto analyze hasn't cleaned up its
+		 * entry from its service table yet.
+		 */
+		if (!RelationIsValid(rel))
+			continue;
+		values[0] = ObjectIdGetDatum(row_info->table_oid);
+		values[1] = CStringGetTextDatum(get_namespace_name(RelationGetNamespace(rel)));
+		values[2] = CStringGetTextDatum(RelationGetRelationName(rel));
+		values[3] = UInt64GetDatum(row_info->mutations);
+		if (strlen(row_info->last_analyze_info))
+		{
+			values[4] = DirectFunctionCall1(jsonb_in, CStringGetDatum(row_info->last_analyze_info));
+		}
+		else
+		{
+			nulls[4] = true;
+		}
+
+		tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc, values, nulls);
+		RelationClose(rel);
+	}
+
+#undef YB_AUTO_ANALYZE_TABLE_COLS
+
+	return (Datum) 0;
+}
+
 YbcPgStatement
 YbNewSample(Relation rel,
 			int targrows,
@@ -8557,7 +8628,7 @@ YbNewUpdateForDb(Oid db_oid, Relation rel, YbcPgTransactionSetting transaction_s
 {
 	YbcPgStatement result = NULL;
 	HandleYBStatus(YBCPgNewUpdate(db_oid, YbGetRelfileNodeId(rel),
-								  YbBuildTableLocalityInfo(rel), &result, transaction_setting));
+								  YbBuildTableLocalityInfo(rel), transaction_setting, &result));
 	return result;
 }
 
@@ -8572,7 +8643,7 @@ YbNewDelete(Relation rel, YbcPgTransactionSetting transaction_setting)
 {
 	YbcPgStatement result = NULL;
 	HandleYBStatus(YBCPgNewDelete(YBCGetDatabaseOid(rel), YbGetRelfileNodeId(rel),
-								  YbBuildTableLocalityInfo(rel), &result, transaction_setting));
+								  YbBuildTableLocalityInfo(rel), transaction_setting, &result));
 	return result;
 }
 
@@ -8581,7 +8652,7 @@ YbNewInsertForDb(Oid db_oid, Relation rel, YbcPgTransactionSetting transaction_s
 {
 	YbcPgStatement result = NULL;
 	HandleYBStatus(YBCPgNewInsert(db_oid, YbGetRelfileNodeId(rel),
-								  YbBuildTableLocalityInfo(rel), &result, transaction_setting));
+								  YbBuildTableLocalityInfo(rel), transaction_setting, &result));
 	return result;
 }
 
@@ -8606,7 +8677,7 @@ YbNewTruncateColocatedImpl(Relation rel, YbcPgTransactionSetting transaction_set
 						   YbcPgStatement *result)
 {
 	return YBCPgNewTruncateColocated(YBCGetDatabaseOid(rel), YbGetRelfileNodeId(rel),
-									 YbBuildTableLocalityInfo(rel), result, transaction_setting);
+									 YbBuildTableLocalityInfo(rel), transaction_setting, result);
 }
 
 YbcPgStatement
@@ -8625,4 +8696,42 @@ YbNewTruncateColocatedIgnoreNotFound(Relation rel, YbcPgTransactionSetting trans
 	HandleYBStatusIgnoreNotFound(YbNewTruncateColocatedImpl(rel, transaction_setting, &result),
 								 &not_found);
 	return not_found ? NULL : result;
+}
+
+/*
+ * Check yb_test_fail_next_ddl and trigger the appropriate error if set.
+ * 0 = disabled, 1 = ERROR, 2 = FATAL, 3 = PANIC, 4 = crash.
+ * Resets to 0 after triggering.
+ */
+static void
+yb_maybe_test_fail_ddl(void)
+{
+	int fail_mode = yb_test_fail_next_ddl;
+	if (fail_mode == 0)
+		return;
+	yb_test_fail_next_ddl = 0;
+	if (YbIsClientYsqlConnMgr())
+		YbSendParameterStatusForConnectionManager("yb_test_fail_next_ddl", "0");
+
+	switch (fail_mode)
+	{
+		case 1:
+			elog(ERROR, "Failed DDL operation as requested");
+			break;
+		case 2:
+			elog(FATAL, "FATAL on DDL as requested");
+			break;
+		case 3:
+			elog(PANIC, "PANIC on DDL as requested");
+			break;
+		case 4:
+			{
+				/* Intentional null pointer dereference for crash testing */
+				volatile int *null_ptr = NULL;
+				*null_ptr = 0;
+				break;
+			}
+		default:
+			break;
+	}
 }
