@@ -1328,7 +1328,6 @@ Exec_ListenPreCommit(void)
 		QUEUE_NEXT_LISTENER(MyBackendId) = QUEUE_FIRST_LISTENER;
 		QUEUE_FIRST_LISTENER = MyBackendId;
 	}
-	LWLockRelease(NotifyQueueLock);
 
 	if (ybIsFirstListenerOnNode)
 	{
@@ -1339,6 +1338,7 @@ Exec_ListenPreCommit(void)
 		ybCreateNotifsReplicationSlot();
 		ybStartNotifsPollerBgWorker();
 	}
+	LWLockRelease(NotifyQueueLock);
 
 	/* Now we are listed in the global array, so remember we're listening */
 	amRegisteredListener = true;
@@ -1515,8 +1515,6 @@ asyncQueueUnregister(void)
 void
 YbCleanupListenStateForProc(PGPROC *proc)
 {
-	bool ybWasSoleListener = false;
-
 	Assert(proc->backendId);
 
 	BackendId backendId = proc->backendId;
@@ -1536,10 +1534,7 @@ YbCleanupListenStateForProc(PGPROC *proc)
 	QUEUE_BACKEND_DBOID(backendId) = InvalidOid;
 	/* and remove it from the list */
 	if (QUEUE_FIRST_LISTENER == backendId)
-	{
 		QUEUE_FIRST_LISTENER = QUEUE_NEXT_LISTENER(backendId);
-		ybWasSoleListener = QUEUE_FIRST_LISTENER == InvalidBackendId;
-	}
 	else
 	{
 		for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
@@ -1553,7 +1548,7 @@ YbCleanupListenStateForProc(PGPROC *proc)
 	}
 	QUEUE_NEXT_LISTENER(backendId) = InvalidBackendId;
 
-	if (ybWasSoleListener)
+	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
 	{
 		/*
 		 * The last listener in the node terminates the 'notifications
@@ -1569,7 +1564,6 @@ YbCleanupListenStateForProc(PGPROC *proc)
 		TerminateBackgroundWorker(shm_handle);
 		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
 	}
-
 	LWLockRelease(NotifyQueueLock);
 }
 

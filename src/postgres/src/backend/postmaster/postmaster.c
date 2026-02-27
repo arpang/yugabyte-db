@@ -3350,7 +3350,6 @@ reaper(SIGNAL_ARGS)
 
 			elog(INFO, "cleaning up after process with pid %d exited with status %d",
 				 pid, exitstatus);
-
 			if (!CleanupKilledProcess(proc))
 			{
 				YbCrashInUnmanageableState = true;
