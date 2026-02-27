@@ -1515,14 +1515,14 @@ asyncQueueUnregister(void)
 void
 YbCleanupListenStateForProc(PGPROC *proc)
 {
+	bool ybWasSoleListener = false;
+
 	Assert(proc->backendId);
 
-	bool ybWasLastListener = false;
-	bool cleanupNeeded = false;
 	BackendId backendId = proc->backendId;
 
 	LWLockAcquire(NotifyQueueLock, LW_SHARED);
-	cleanupNeeded = QUEUE_BACKEND_PID(backendId) == proc->pid;
+	bool cleanupNeeded = QUEUE_BACKEND_PID(backendId) == proc->pid;
 	LWLockRelease(NotifyQueueLock);
 	if (!cleanupNeeded)
 		return;
@@ -1535,11 +1535,11 @@ YbCleanupListenStateForProc(PGPROC *proc)
 	QUEUE_BACKEND_PID(backendId) = InvalidPid;
 	QUEUE_BACKEND_DBOID(backendId) = InvalidOid;
 	/* and remove it from the list */
-
-	ybWasLastListener = QUEUE_FIRST_LISTENER == backendId && QUEUE_NEXT_LISTENER(backendId) == InvalidBackendId;
-
 	if (QUEUE_FIRST_LISTENER == backendId)
+	{
 		QUEUE_FIRST_LISTENER = QUEUE_NEXT_LISTENER(backendId);
+		ybWasSoleListener = QUEUE_FIRST_LISTENER == InvalidBackendId;
+	}
 	else
 	{
 		for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
@@ -1553,11 +1553,12 @@ YbCleanupListenStateForProc(PGPROC *proc)
 	}
 	QUEUE_NEXT_LISTENER(backendId) = InvalidBackendId;
 
-	if (ybWasLastListener)
+	if (ybWasSoleListener)
 	{
 		/*
-		 * YB note: The last listener in the node terminates the 'notifications
-		 * poller' bg worker and drops the replication slot.
+		 * The last listener in the node terminates the 'notifications
+		 * poller' bg worker. Since this is called from postmaster where pggate
+		 * is not available, it is not possible to drop the replication slot.
 		 */
 
 		bool		found;
@@ -1567,7 +1568,6 @@ YbCleanupListenStateForProc(PGPROC *proc)
 		Assert(found);
 		TerminateBackgroundWorker(shm_handle);
 		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
-		/* Can't drop replication slot from postmaster, so let it exist. */
 	}
 
 	LWLockRelease(NotifyQueueLock);
