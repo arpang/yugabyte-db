@@ -1328,6 +1328,7 @@ Exec_ListenPreCommit(void)
 		QUEUE_NEXT_LISTENER(MyBackendId) = QUEUE_FIRST_LISTENER;
 		QUEUE_FIRST_LISTENER = MyBackendId;
 	}
+	LWLockRelease(NotifyQueueLock);
 
 	if (ybIsFirstListenerOnNode)
 	{
@@ -1338,7 +1339,6 @@ Exec_ListenPreCommit(void)
 		ybCreateNotifsReplicationSlot();
 		ybStartNotifsPollerBgWorker();
 	}
-	LWLockRelease(NotifyQueueLock);
 
 	/* Now we are listed in the global array, so remember we're listening */
 	amRegisteredListener = true;
