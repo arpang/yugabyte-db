@@ -613,7 +613,6 @@ static void ybInsertPendingNotifiesToTable(void);
 static void ybCreateNotifsReplicationSlot(void);
 static void ybStartNotifsPollerBgWorker(void);
 static BackgroundWorkerHandle *ybShmemNotifsPollerBgwHandle(bool *found);
-static void ybAsyncQueueUnregisterBackend(BackendId backendId);
 
 /* YB: helper functions for 'notifications poller' bg worker */
 static void ybNotifsPollerLoop(void);
@@ -1464,15 +1463,68 @@ asyncQueueUnregister(void)
 	if (!amRegisteredListener)	/* nothing to do */
 		return;
 
-	ybAsyncQueueUnregisterBackend(MyBackendId);
+	/*
+	 * Need exclusive lock here to manipulate list links.
+	 */
+	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+	/* Mark our entry as invalid */
+	QUEUE_BACKEND_PID(MyBackendId) = InvalidPid;
+	QUEUE_BACKEND_DBOID(MyBackendId) = InvalidOid;
+	/* and remove it from the list */
+	if (QUEUE_FIRST_LISTENER == MyBackendId)
+		QUEUE_FIRST_LISTENER = QUEUE_NEXT_LISTENER(MyBackendId);
+	else
+	{
+		for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
+		{
+			if (QUEUE_NEXT_LISTENER(i) == MyBackendId)
+			{
+				QUEUE_NEXT_LISTENER(i) = QUEUE_NEXT_LISTENER(MyBackendId);
+				break;
+			}
+		}
+	}
+	QUEUE_NEXT_LISTENER(MyBackendId) = InvalidBackendId;
+
+	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
+	{
+		/*
+		 * YB note: The last listener in the node terminates the 'notifications
+		 * poller' bg worker and drops the replication slot.
+		 */
+
+		bool		found;
+		BackgroundWorkerHandle *shm_handle =
+			ybShmemNotifsPollerBgwHandle(&found);
+
+		Assert(found);
+		TerminateBackgroundWorker(shm_handle);
+		ReplicationSlotDrop(ybNotifsReplicationSlotName(),
+							 /* nowait = */ true,
+							 /* yb_force = */ true,
+							 /* yb_if_exists = */ false);
+		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
+	}
+
+	LWLockRelease(NotifyQueueLock);
 
 	/* mark ourselves as no longer listed in the global array */
 	amRegisteredListener = false;
 }
 
-static void
-ybAsyncQueueUnregisterBackend(BackendId backendId)
+void
+YbCleanupListenStateForProc(PGPROC *proc)
 {
+	Assert(proc->backendId);
+
+	BackendId backendId = proc->backendId;
+
+	LWLockAcquire(NotifyQueueLock, LW_SHARED);
+	bool cleanupNeeded = QUEUE_BACKEND_PID(backendId) == proc->pid;
+	LWLockRelease(NotifyQueueLock);
+	if (!cleanupNeeded)
+		return;
+
 	/*
 	 * Need exclusive lock here to manipulate list links.
 	 */
@@ -1499,41 +1551,20 @@ ybAsyncQueueUnregisterBackend(BackendId backendId)
 	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
 	{
 		/*
-		 * YB note: The last listener in the node terminates the 'notifications
-		 * poller' bg worker and drops the replication slot.
+		 * The last listener in the node terminates the 'notifications
+		 * poller' bg worker. Since this is called from postmaster where pggate
+		 * is not available, it is not possible to drop the replication slot.
 		 */
 
 		bool		found;
 		BackgroundWorkerHandle *shm_handle =
 			ybShmemNotifsPollerBgwHandle(&found);
+
 		Assert(found);
 		TerminateBackgroundWorker(shm_handle);
 		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
-
-		if (!IsPostmasterEnvironment)
-			ReplicationSlotDrop(ybNotifsReplicationSlotName(),
-								/* nowait = */ true,
-								/* yb_force = */ true,
-								/* yb_if_exists = */ false);
 	}
-
 	LWLockRelease(NotifyQueueLock);
-}
-
-void
-YbCleanupListenStateForProc(PGPROC *proc)
-{
-	Assert(proc->backendId);
-
-	BackendId backendId = proc->backendId;
-
-	LWLockAcquire(NotifyQueueLock, LW_SHARED);
-	bool cleanupNeeded = QUEUE_BACKEND_PID(backendId) == proc->pid;
-	LWLockRelease(NotifyQueueLock);
-	if (!cleanupNeeded)
-		return;
-
-	ybAsyncQueueUnregisterBackend(backendId);
 }
 
 /*
