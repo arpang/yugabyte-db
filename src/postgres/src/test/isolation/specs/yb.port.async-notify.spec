@@ -11,6 +11,10 @@ step notify1	{ NOTIFY c1; }
 step notify2	{ NOTIFY c2, 'payload'; }
 step notify3	{ NOTIFY c3, 'payload3'; }  # not listening to c3
 step notifyf	{ SELECT pg_notify('c2', NULL); }
+step boundarynotify {
+	SELECT count(pg_notify('c1', repeat('x', 120) || lpad(s::text, 3, '0')))
+	FROM generate_series(1, 56) s;
+}
 step notifyd1	{ NOTIFY c2, 'payload'; NOTIFY c1; NOTIFY "c2", 'payload'; }
 step notifyd2	{ NOTIFY c1; NOTIFY c1; NOTIFY c1, 'p1'; NOTIFY c1, 'p2'; }
 step notifys1	{
@@ -39,6 +43,7 @@ teardown		{ UNLISTEN *; }
 
 session listener
 step llisten	{ LISTEN c1; LISTEN c2; }
+step llisten2	{ LISTEN c2; }
 step lcheck		{ SELECT 1 AS x; }
 step lbegin		{ BEGIN; }
 step lbegins	{ BEGIN ISOLATION LEVEL SERIALIZABLE; }
@@ -53,6 +58,12 @@ step l2begin	{ BEGIN; }
 step l2commit	{ COMMIT; }
 step l2stop		{ UNLISTEN *; }
 
+
+# Regression test for varlena header handling in ybRecordToAsyncQueueEntry:
+# 56 notifications with a 123-byte payload keep QUEUE_HEAD on the same page
+# when the data length excludes the varlena header, and cross a page boundary
+# when the header bytes are incorrectly included.
+permutation llisten2 lbegin usage boundarynotify usage lcommit lcheck usage
 
 # Trivial cases.
 permutation listenc notify1 notify2 notify3 notifyf
