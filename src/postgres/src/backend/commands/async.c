@@ -3011,7 +3011,7 @@ ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 
 	Assert(!isnull);
 	const void *data = DatumGetPointer(data_datum);
-	size_t		datalen = VARSIZE_ANY(data);
+	size_t		datalen = VARSIZE_ANY_EXHDR(data);
 
 	memcpy(qe->data, VARDATA_ANY(data), datalen);
 
