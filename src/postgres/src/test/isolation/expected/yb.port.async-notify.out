@@ -1,5 +1,42 @@
 Parsed test spec with 3 sessions
 
+starting permutation: llisten2 lbegin usage boundarynotify usage lcommit lcheck usage
+step llisten2: LISTEN c2;
+step lbegin: BEGIN;
+step usage: SELECT pg_notification_queue_usage() > 0 AS nonzero;
+nonzero
+-------
+f      
+(1 row)
+
+step boundarynotify: 
+	SELECT count(pg_notify('c1', repeat('x', 120) || lpad(s::text, 3, '0')))
+	FROM generate_series(1, 56) s;
+
+count
+-----
+   56
+(1 row)
+
+step usage: SELECT pg_notification_queue_usage() > 0 AS nonzero;
+nonzero
+-------
+f      
+(1 row)
+
+step lcommit: COMMIT;
+step lcheck: SELECT 1 AS x;
+x
+-
+1
+(1 row)
+
+step usage: SELECT pg_notification_queue_usage() > 0 AS nonzero;
+nonzero
+-------
+f      
+(1 row)
+
 starting permutation: listenc notify1 notify2 notify3 notifyf
 step listenc: LISTEN c1; LISTEN c2;
 step notify1: NOTIFY c1;
