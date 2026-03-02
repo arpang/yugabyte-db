@@ -158,6 +158,7 @@
 #include "catalog/pg_namespace_d.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
+#include "postmaster/bgworker_internals.h"
 #include "postmaster/interrupt.h"
 #include "replication/slot.h"
 #include "replication/yb_decode.h"
@@ -1515,6 +1516,10 @@ asyncQueueUnregister(void)
 void
 YbCleanupListenStateForProc(PGPROC *proc)
 {
+	/* Don't do anything if this is called by anyone other than postmaster. */
+	if (MyProcPid != PostmasterPid)
+		return;
+
 	Assert(proc->backendId);
 
 	BackendId backendId = proc->backendId;
@@ -1562,6 +1567,7 @@ YbCleanupListenStateForProc(PGPROC *proc)
 
 		Assert(found);
 		TerminateBackgroundWorker(shm_handle);
+		BackgroundWorkerStateChange(false);
 		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
 	}
 	LWLockRelease(NotifyQueueLock);
