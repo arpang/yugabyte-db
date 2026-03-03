@@ -151,7 +151,7 @@ void FlushJob::RecordFlushIOStats() {
 Result<FileNumbersHolder> FlushJob::Run(FileMetaData* file_meta) {
   ADOPT_WAIT_STATE(wait_state_);
   SCOPED_WAIT_STATUS(RocksDB_Flush);
-  if (PREDICT_FALSE(yb::GetAtomicFlag(&FLAGS_TEST_rocksdb_crash_on_flush))) {
+  if (PREDICT_FALSE(FLAGS_TEST_rocksdb_crash_on_flush)) {
     CHECK(false) << "a flush should not have been scheduled.";
   }
 
@@ -272,10 +272,12 @@ Result<FileNumbersHolder> FlushJob::WriteLevel0Table(
       total_memory_usage += m->ApproximateMemoryUsage();
       const auto* range = m->Frontiers();
       if (range) {
-        UserFrontier::Update(
-            &range->Smallest(), UpdateUserValueType::kSmallest, &meta->smallest.user_frontier);
-        UserFrontier::Update(
-            &range->Largest(), UpdateUserValueType::kLargest, &meta->largest.user_frontier);
+        yb::storage::UserFrontier::Update(
+            &range->Smallest(), yb::storage::UpdateUserValueType::kSmallest,
+            &meta->smallest.user_frontier);
+        yb::storage::UserFrontier::Update(
+            &range->Largest(), yb::storage::UpdateUserValueType::kLargest,
+            &meta->largest.user_frontier);
       }
     }
 

@@ -703,6 +703,15 @@ class ClusterOptions:
                 parser_arg = None
             setattr(self, arg, self.parse_flag_args(parser_arg))
 
+        # Reflect webserver_port overrides from --master_flags / --tserver_flags
+        # so the status output shows the actual port the daemon will bind to.
+        for flag in self.master_flags:
+            if flag.startswith("webserver_port="):
+                self.base_ports[DAEMON_TYPE_MASTER]["http"] = int(flag.split("=", 1)[1])
+        for flag in self.tserver_flags:
+            if flag.startswith("webserver_port="):
+                self.base_ports[DAEMON_TYPE_TSERVER]["http"] = int(flag.split("=", 1)[1])
+
         try:
             self.placement_info_raw = getattr(args, "placement_info")
             placement_list = self.placement_info_raw.split(",")
@@ -1639,6 +1648,7 @@ class ClusterControl:
         num_yb_admin_ts = None
 
         def call_check_for_ts(should_get_error):
+            nonlocal num_alive_ts, num_yb_admin_ts
             if not call_check_for_processes(should_get_error):
                 self.dump_missing_process_error_logs()
                 raise ExitWithError("At least one master or tserver process is down.")

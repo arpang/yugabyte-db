@@ -31,7 +31,9 @@ import {
   fetchProviderRunTimeConfigsResponse,
   getAlerts,
   getAlertsSuccess,
-  getAlertsFailure
+  getAlertsFailure,
+  fetchPerfAdvisorList,
+  fetchPerfAdvisorListResponse
 } from '../../../actions/customers';
 import { openDialog, closeDialog } from '../../../actions/modal';
 import {
@@ -163,6 +165,11 @@ const mapDispatchToProps = (dispatch) => {
     showInstallNodeAgentModal: () => {
       dispatch(openDialog('installNodeAgentModal'));
     },
+    fetchPerfAdvisorList: () => {
+      dispatch(fetchPerfAdvisorList()).then((response) => {
+        dispatch(fetchPerfAdvisorListResponse(response.payload));
+      });
+    },
     updateBackupState: (universeUUID, flag) => {
       dispatch(updateBackupState(universeUUID, flag)).then((response) => {
         if (response.error) {
@@ -204,8 +211,8 @@ const mapDispatchToProps = (dispatch) => {
         }
       });
     },
-    getUniversePaRegistrationStatus: (paUuid, universeUuid) => {
-      return dispatch(getUniversePaRegistrationStatus(paUuid, universeUuid)).then((response) => {
+    getUniversePaRegistrationStatus: (universeUuid) => {
+      return dispatch(getUniversePaRegistrationStatus(universeUuid)).then((response) => {
         return dispatch(getUniversePaRegistrationStatusResponse(response.payload));
       });
     },

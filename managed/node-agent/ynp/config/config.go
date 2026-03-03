@@ -27,11 +27,14 @@ type Args struct {
 	Command         string
 	YnpBasePath     string
 	SpecificModules []string
+	SkipModules     []string
 	ConfigFile      string
 	PreflightCheck  bool
 	YnpConfig       map[string]map[string]any
 	DryRun          bool
 	ListModules     bool
+	NoRoot          bool
+	Root            bool
 }
 
 // Module represents a YNP module.
@@ -109,11 +112,12 @@ type CommandFactory func(context.Context, *INIConfig, Args) Command
 
 // Command represents a command to be executed.
 type Command interface {
+	Init() error
 	Validate() error
 	DryRun() error
 	RunPreflightChecks() error
 	ListModules() error
-	Execute(specificModules []string) error
+	Execute() error
 	Cleanup()
 }
 
@@ -271,10 +275,12 @@ func GenerateConfigINI(
 	configTemplate := filepath.Join(args.YnpBasePath, "configs/config.j2")
 	configPath := filepath.Join(args.YnpBasePath, "configs/config.ini")
 	ynpValues := map[string]any{
-		"ynp_config": args.YnpConfig,
-		"ynp_dir":    args.YnpBasePath,
-		"start_time": time.Now().Unix(),
-		"ynp_driver": "golang",
+		"ynp_config":     args.YnpConfig,
+		"ynp_dir":        args.YnpBasePath,
+		"is_noroot_mode": args.NoRoot,
+		"is_root_mode":   args.Root,
+		"start_time":     time.Now().Unix(),
+		"ynp_driver":     "golang",
 	}
 	jsonConfig, _ := json.MarshalIndent(ynpValues, "", "  ")
 	util.FileLogger().Infof(ctx, "YNP config here: %s", string(jsonConfig))

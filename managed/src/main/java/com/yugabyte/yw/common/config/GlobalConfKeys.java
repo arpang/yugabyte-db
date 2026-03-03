@@ -279,6 +279,15 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           ScopeType.GLOBAL,
           "Application Logs Regex Pattern",
           "Regex pattern used to filter application log files when creating support bundles.",
+          ConfDataType.RawStringType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<String> supportBundleApplicationLogsSdfPattern =
+      new ConfKeyInfo<>(
+          "yb.support_bundle.application_logs_sdf_pattern",
+          ScopeType.GLOBAL,
+          "Application Logs SDF Pattern",
+          "SimpleDateFormat pattern used to parse dates from application log file names when"
+              + " creating support bundles.",
           ConfDataType.StringType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Integer> snapshotCreationMaxAttempts =
@@ -1925,6 +1934,14 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Enable AWS signing region for S3 access",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.INTERNAL));
+  public static final ConfKeyInfo<Boolean> enableS3BackupProxy =
+      new ConfKeyInfo<>(
+          "yb.ui.feature_flags.enable_s3_backup_proxy",
+          ScopeType.GLOBAL,
+          "Enable S3 Backup Proxy",
+          "Enable proxy configuration for S3 backup storage",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Integer> capacityReservationMaxRetries =
       new ConfKeyInfo<>(
           "yb.task.capacity_reservation.max_retries",
@@ -2001,4 +2018,12 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Disable running platform HA restore operations in a transaction",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Duration> nodeAgentUpgradeRestartWaitTime =
+      new ConfKeyInfo<>(
+          "yb.node_agent.upgrade_restart_wait_time",
+          ScopeType.GLOBAL,
+          "Node Agent Upgrade Restart Wait Time",
+          "Maximum time to wait for node agent to restart after an upgrade",
+          ConfDataType.DurationType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
 }

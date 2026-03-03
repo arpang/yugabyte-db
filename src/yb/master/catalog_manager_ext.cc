@@ -20,7 +20,6 @@
 
 #include "yb/client/meta_cache.h"
 #include "yb/client/session.h"
-#include "yb/client/table_info.h"
 #include "yb/client/yb_op.h"
 #include "yb/client/yb_table_name.h"
 
@@ -52,6 +51,7 @@
 #include "yb/master/catalog_entity_info.pb.h"
 #include "yb/master/catalog_manager-internal.h"
 #include "yb/master/catalog_manager.h"
+#include "yb/master/catalog_manager_util.h"
 #include "yb/master/encryption_manager.h"
 #include "yb/master/master.h"
 #include "yb/master/master_backup.pb.h"
@@ -67,7 +67,6 @@
 #include "yb/master/tablet_split_manager.h"
 #include "yb/master/ts_manager.h"
 #include "yb/master/xcluster_consumer_registry_service.h"
-#include "yb/master/ysql_ddl_verification_task.h"
 #include "yb/master/ysql/ysql_manager_if.h"
 #include "yb/master/ysql_tablegroup_manager.h"
 
@@ -146,7 +145,9 @@ DEFINE_RUNTIME_AUTO_bool(
     enable_export_snapshot_using_relfilenode, kExternal, false, true,
     "Enable exporting snapshots with the new format version = 3 that uses relfilenodes.");
 
-DECLARE_bool(TEST_enable_table_rewrite_for_cdcsdk_table);
+DECLARE_bool(enable_ysql);
+DECLARE_string(initial_sys_catalog_snapshot_path);
+DECLARE_bool(enable_table_rewrite_for_cdcsdk_table);
 
 namespace yb {
 
@@ -574,12 +575,12 @@ Status CatalogManager::CreateTransactionAwareSnapshot(
   // 2. The user did not specify any Ttl value explicitly.
   int32_t retention_duration_hours = req.has_retention_duration_hours()
                                          ? req.retention_duration_hours()
-                                         : GetAtomicFlag(&FLAGS_default_snapshot_retention_hours);
+                                         : FLAGS_default_snapshot_retention_hours;
   TEST_SYNC_POINT("YBBackupTestWithColocationParam::CreateSnapshotReceived");
 
   // When only the namespace_id is specified, the master snapshot coordinator collects the snapshot
   // entries as of the snapshot_hybrid_time
-  if (GetAtomicFlag(&FLAGS_enable_namespace_snapshot_workflow) && req.tables_size() == 1) {
+  if (FLAGS_enable_namespace_snapshot_workflow && req.tables_size() == 1) {
     const auto& filter = req.tables(0);
     if (filter.table_name().empty() && filter.table_id().empty() && filter.has_namespace_() &&
         filter.namespace_().has_id() && filter.namespace_().database_type() == YQL_DATABASE_PGSQL) {
@@ -624,7 +625,7 @@ Status CatalogManager::RepackSnapshotsForBackup(
   TRACE("Acquired catalog manager lock");
   // Repack & extend the backup row entries.
   for (SnapshotInfoPB& snapshot : *resp->mutable_snapshots()) {
-    auto format_version = GetAtomicFlag(&FLAGS_enable_export_snapshot_using_relfilenode) &&
+    auto format_version = FLAGS_enable_export_snapshot_using_relfilenode &&
                                   include_ddl_in_progress_tables
                               ? kUseRelfilenodeFormatVersion
                               : kUseBackupRowEntryFormatVersion;
@@ -884,6 +885,24 @@ Status CatalogManager::DoImportSnapshotMeta(
       }
     }
   }
+  // For YSQL restores (both backup/restore and clone), we would have run ysql_dump before
+  // ImportSnapshot. It is important to invalidate the TServer's OID cache after ImportSnapshot so
+  // that the TServer is aware of all objects that were created. Otherwise, the following order of
+  // events is possible:
+  // 1. The dump script creates a table with OID 16384 because that is what the dump script says
+  //    to use (using binary_upgrade_set_next_heap_relfilenode). This does not go through the
+  //    TServer's oid allocator.
+  // 2. The dump script creates an object that needs a new OID (e.g., a CHECK constraint). To get a
+  //    new OID, the TServer calls ReservePgsqlOids, which returns 16384-17000 as available OIDs.
+  // 3. The constraint is created with OID 16385 because that is the first free OID in the range.
+  // 4. A snapshot schedule is created for the restored database.
+  // 5. The table is dropped (actually hidden, because of the snapshot schedule).
+  // 6. The table is recreated with OID 16384, which PG thinks is a free OID because the table is
+  //    not in pg_class anymore. This fails on master because the original table with this OID still
+  //    exists.
+  // Invalidating the OID cache forces the TServer to refresh its OID cache on the next heartbeat
+  // it receives from the master.
+  RETURN_NOT_OK(InvalidateTserverOidCaches());
 
   if (PREDICT_FALSE(FLAGS_TEST_import_snapshot_failed)) {
     const string msg = "ImportSnapshotMeta interrupted due to test flag";
@@ -1567,7 +1586,7 @@ Status CatalogManager::IsEncryptionEnabled(const IsEncryptionEnabledRequestPB* r
 Status CatalogManager::ImportNamespaceEntry(
     const SysRowEntry& entry,
     const LeaderEpoch& epoch,
-    const std::optional<string>& clone_target_namespace_name,
+    const std::optional<std::string>& clone_target_namespace_name,
     NamespaceMap* namespace_map) {
   LOG_IF(DFATAL, entry.type() != SysRowEntryType::NAMESPACE)
       << "Unexpected entry type: " << entry.type();
@@ -1577,55 +1596,48 @@ Status CatalogManager::ImportNamespaceEntry(
   ns_data.db_type = GetDatabaseType(meta);
 
   TRACE("Looking up namespace");
-  // First of all try to find the namespace by ID. It will work if we are restoring the backup
-  // on the original cluster where the backup was created.
+  // For backup/restore, we first try to find the namespace by ID. This will succeed if we are
+  // restoring the backup in-place on the original cluster where the backup was created. This is
+  // actually deprecated behaviour as of 2026/02/24.
+  //
+  // For clones, we must find the clone source namespace by ID.
   auto ns_result = FindNamespaceById(entry.id());
   bool is_clone = clone_target_namespace_name.has_value();
-  bool found_matching_ns_by_id = (ns_result.ok()) && (*ns_result)->name() == meta.name() &&
-                                 (*ns_result)->state() == SysNamespaceEntryPB::RUNNING;
-  if (found_matching_ns_by_id && !is_clone) {
+  bool found_running_ns_by_id =
+      ns_result.ok() && (*ns_result)->state() == SysNamespaceEntryPB::RUNNING;
+  if (!is_clone && found_running_ns_by_id && (*ns_result)->name() == meta.name()) {
     ns_data.new_namespace_id = entry.id();
     return Status::OK();
   }
 
-  if (is_clone && !found_matching_ns_by_id) {
+  if (is_clone && !found_running_ns_by_id) {
+    // We cannot clone successfully if we didn't find the source namespace.
     return STATUS_FORMAT(
         IllegalState, "Could not find running namespace $0 to clone from.", meta.name());
   }
 
-  // If the namespace was not found by ID, it's ok on a new cluster OR if the namespace was
-  // deleted and created again. In both cases the namespace can be found by NAME.
+  // For backup/restore, at this point we haven't found the namespace. We need to find it by name
+  // (YSQL) / create it (YCQL).
+  //
+  // For clone, we've found the source namespace of the clone and now we need to find (YSQL) /
+  // create (YCQL) the target namespace.
+  const std::string& new_namespace_name = is_clone ? *clone_target_namespace_name : meta.name();
   if (ns_data.db_type == YQL_DATABASE_PGSQL) {
     // YSQL database must be created via external call. Find it by name.
-    std::string new_namespace_name;
-    if (is_clone) {
-      new_namespace_name = *clone_target_namespace_name;
-    } else {
-      new_namespace_name = meta.name();
-    }
     ns_result = FindNamespaceByName(ns_data.db_type, new_namespace_name);
-    if (!ns_result.ok()) {
-      const string msg = Format("YSQL database must exist: $0", new_namespace_name);
+    if (!ns_result.ok() || (*ns_result)->state() != SysNamespaceEntryPB::RUNNING) {
+      const std::string msg =
+          !ns_result.ok() ? Format("YSQL database must exist: $0", new_namespace_name)
+                          : Format("Found YSQL database must be running: $0", new_namespace_name);
       LOG_WITH_FUNC(WARNING) << msg;
       return STATUS(InvalidArgument, msg, MasterError(MasterErrorPB::NAMESPACE_NOT_FOUND));
     }
-    const auto& ns = *ns_result;
-    if (ns->state() != SysNamespaceEntryPB::RUNNING) {
-      const string msg = Format("Found YSQL database must be running: $0", new_namespace_name);
-      LOG_WITH_FUNC(WARNING) << msg;
-      return STATUS(InvalidArgument, msg, MasterError(MasterErrorPB::NAMESPACE_NOT_FOUND));
-    }
-    ns_data.new_namespace_id = ns->id();
+    ns_data.new_namespace_id = (*ns_result)->id();
   } else {
     CreateNamespaceRequestPB req;
     CreateNamespaceResponsePB resp;
-    if (is_clone) {
-      req.set_name(*clone_target_namespace_name);
-    } else {
-      req.set_name(meta.name());
-    }
+    req.set_name(new_namespace_name);
     const Status s = CreateNamespace(&req, &resp, nullptr, epoch);
-
     if (s.ok()) {
       // The namespace was successfully re-created.
       ns_data.just_created = true;
@@ -2988,7 +3000,7 @@ Status CatalogManager::RestoreSysCatalog(
     SnapshotScheduleRestoration* restoration, tablet::Tablet* tablet, bool leader_mode,
     Status* complete_status) {
   Status s;
-  if (GetAtomicFlag(&FLAGS_enable_fast_pitr)) {
+  if (FLAGS_enable_fast_pitr) {
     s = RestoreSysCatalogFastPitr(restoration, tablet);
   } else {
     s = RestoreSysCatalogSlowPitr(restoration, tablet);
@@ -3196,7 +3208,7 @@ void CatalogManager::CleanupHiddenTables(
     lock.Commit();
   }
 
-  if (FLAGS_TEST_enable_table_rewrite_for_cdcsdk_table) {
+  if (FLAGS_enable_table_rewrite_for_cdcsdk_table) {
     // A hidden table, with all the tablets deleted can be removed from the stream metadata of
     // CDCSDK streams. Here we mark the streams as DELETING_METADATA, catalog manager's background
     // task will remove the tables from such streams' metadata.

@@ -5,10 +5,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"node-agent/util"
 	"node-agent/ynp"
+	"node-agent/ynp/command"
 	"node-agent/ynp/config"
 	"os"
 	"path/filepath"
@@ -21,7 +23,11 @@ var (
 	rootCmd = &cobra.Command{
 		Use:   "node-agent-provision ...",
 		Short: "Command for node agent provisioner",
-		Run:   handleCommand,
+		Run: func(cmd *cobra.Command, args []string) {
+			handleCommand(cmd, args, map[string]config.CommandFactory{
+				"provision": command.NewProvisionCommand,
+			})
+		},
 	}
 )
 
@@ -30,6 +36,7 @@ func setupCommand(cmd *cobra.Command) {
 	cmd.Flags().
 		String("ynp_base_path", "./modules", "Path to the YNP module base directory")
 	cmd.Flags().StringSlice("specific_module", []string{}, "Specific modules to execute")
+	cmd.Flags().StringSlice("skip_module", []string{}, "Modules to skip from execution")
 	cmd.Flags().String(
 		"config_file",
 		"./node-agent-provision.yaml",
@@ -55,6 +62,17 @@ func setupCommand(cmd *cobra.Command) {
 		false,
 		"Render Execution Scripts without executing them for dry_run",
 	)
+	cmd.Flags().Bool(
+		"noroot",
+		false,
+		"Run only modules that do not require root privileges",
+	)
+	cmd.Flags().Bool(
+		"root",
+		false,
+		"Run only modules that require root privileges",
+	)
+	cmd.MarkFlagsMutuallyExclusive("root", "noroot")
 	cmd.Flags().MarkHidden("ynp_base_path")
 	cmd.MarkFlagRequired("ynp_base_path")
 }
@@ -71,6 +89,10 @@ func parseArguments(cmd *cobra.Command) config.Args {
 	specificModules, err := cmd.Flags().GetStringSlice("specific_module")
 	if err != nil {
 		log.Fatalf("Error parsing specific_module flag: %v\n", err)
+	}
+	skipModules, err := cmd.Flags().GetStringSlice("skip_module")
+	if err != nil {
+		log.Fatalf("Error parsing skip_module flag: %v\n", err)
 	}
 	configFile, err := cmd.Flags().GetString("config_file")
 	if err != nil {
@@ -92,6 +114,14 @@ func parseArguments(cmd *cobra.Command) config.Args {
 	if err != nil {
 		log.Fatalf("Error parsing dry_run flag: %v\n", err)
 	}
+	noRoot, err := cmd.Flags().GetBool("noroot")
+	if err != nil {
+		log.Fatalf("Error parsing noroot flag: %v\n", err)
+	}
+	root, err := cmd.Flags().GetBool("root")
+	if err != nil {
+		log.Fatalf("Error parsing root flag: %v\n", err)
+	}
 	var exVars map[string]map[string]any
 	if extraVars != "" {
 		exVars, err = loadJSONOrFile(extraVars)
@@ -103,29 +133,22 @@ func parseArguments(cmd *cobra.Command) config.Args {
 	if err != nil {
 		log.Fatalf("Error loading YAML config: %v\n", err)
 	}
-	// Merge extra_vars into ynpConfig, giving preference to extra_vars.
-	for key, value := range exVars {
-		if section, ok := ynpConfig[key]; ok {
-			// Update existing section.
-			for k, v := range value {
-				section[k] = v
-			}
-		} else {
-			// Add new section.
-			ynpConfig[key] = value
-		}
-	}
+	setDefaultConfigs(ynpConfig)
+	mergeConfigs(ynpConfig, exVars)
 	// Fix the types in the parsed config after merging the extra_vars.
 	ynpConfig = config.FixParsedConfigMap(ynpConfig)
 	return config.Args{
 		Command:         command,
 		YnpBasePath:     ynpBasePath,
 		SpecificModules: specificModules,
+		SkipModules:     skipModules,
 		ConfigFile:      configFile,
 		PreflightCheck:  preflightCheck,
 		ListModules:     listModules,
 		YnpConfig:       ynpConfig,
 		DryRun:          dryRun,
+		NoRoot:          noRoot,
+		Root:            root,
 	}
 }
 
@@ -166,10 +189,51 @@ func loadYAMLConfig(filePath string) (map[string]map[string]any, error) {
 	return ynpConfig, nil
 }
 
-func handleCommand(cmd *cobra.Command, args []string) {
+// Set default configurations if not present for convenience.
+// This ensures the basic values used in config.j2 are always set.
+func setDefaultConfigs(ynpConfig map[string]map[string]any) {
+	extraSection, ok := ynpConfig["extra"]
+	if !ok {
+		extraSection = make(map[string]any)
+		ynpConfig["extra"] = extraSection
+	}
+	if _, ok := extraSection["cloud_type"]; !ok {
+		extraSection["cloud_type"] = "onprem"
+	}
+	if _, ok := extraSection["is_cloud"]; !ok {
+		extraSection["is_cloud"] = false
+	}
+	if _, ok := extraSection["is_ybm"]; !ok {
+		extraSection["is_ybm"] = false
+	}
+}
+
+// Merge extraVars into ynpConfig, giving preference to extraVars.
+func mergeConfigs(
+	ynpConfig map[string]map[string]any,
+	extraVars map[string]map[string]any,
+) {
+	for key, value := range extraVars {
+		if section, ok := ynpConfig[key]; ok {
+			// Update existing section.
+			for k, v := range value {
+				section[k] = v
+			}
+		} else {
+			// Add new section.
+			ynpConfig[key] = value
+		}
+	}
+}
+
+func handleCommand(
+	cmd *cobra.Command,
+	args []string,
+	commandFactories map[string]config.CommandFactory,
+) {
 	if len(args) > 0 {
 		cmd.Help()
-		log.Fatalf("Uknown non-flag args: %v", args)
+		log.Fatalf("Unknown non-flag args: %v", args)
 	}
 	ctx := context.Background()
 	cmdArgs := parseArguments(cmd)
@@ -182,9 +246,18 @@ func handleCommand(cmd *cobra.Command, args []string) {
 	jsonConfig, _ := json.MarshalIndent(iniConfig.SectionValues(), "", "  ")
 	util.ConsoleLogger().Debugf(ctx, "INI config here: %s", string(jsonConfig))
 	executor := ynp.NewExecutor(iniConfig, cmdArgs)
+	for name, factory := range commandFactories {
+		executor.RegisterCommandFactory(name, factory)
+	}
 	err = executor.Exec(ctx)
 	if err != nil {
-		util.ConsoleLogger().Fatalf(ctx, "Failed to execute provision command: %v", err)
+		exitCode := 1
+		var scriptErr *command.ScriptExitError
+		if errors.As(err, &scriptErr) {
+			exitCode = scriptErr.ExitCode
+		}
+		util.ConsoleLogger().Errorf(ctx, "Failed to execute provision command: %v", err)
+		os.Exit(exitCode)
 	}
 }
 

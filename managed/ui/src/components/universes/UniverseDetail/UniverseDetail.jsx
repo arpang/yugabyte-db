@@ -23,7 +23,7 @@ import { YBLabelWithIcon } from '../../common/descriptors';
 import { YBTabsWithLinksPanel } from '../../panels';
 import { ListTablesContainer, ReplicationContainer } from '../../tables';
 import { QueriesViewer } from '../../queries';
-import { isEmptyObject } from '../../../utils/ObjectUtils';
+import { isEmptyObject, isNonEmptyArray } from '../../../utils/ObjectUtils';
 import {
   getIsKubernetesUniverse,
   isPausableUniverse,
@@ -168,7 +168,9 @@ class UniverseDetail extends Component {
     const { featureFlags } = this.props;
     return featureFlags.test.newTaskDetailsUI || featureFlags.released.newTaskDetailsUI;
   };
+
   componentDidMount() {
+    this.props.fetchPerfAdvisorList();
     const {
       customer: { currentCustomer }
     } = this.props;
@@ -213,7 +215,7 @@ class UniverseDetail extends Component {
   componentDidUpdate(prevProps) {
     const {
       universe: { currentUniverse },
-      customer: { perfAdvisorDetails },
+      customer: { ybaToPaServiceDetails },
       universeTables
     } = this.props;
     // Always refresh universe info on Overview tab or when universe uuid in the route changes.
@@ -255,11 +257,8 @@ class UniverseDetail extends Component {
           refetchedUniverseDetails: false
         });
       }
-      if (perfAdvisorDetails?.data?.[0]?.uuid) {
-        this.props.getUniversePaRegistrationStatus(
-          perfAdvisorDetails?.data?.[0].uuid,
-          currentUniverse.data.universeUUID
-        );
+      if (isNonEmptyArray(ybaToPaServiceDetails?.data)) {
+        this.props.getUniversePaRegistrationStatus(currentUniverse.data.universeUUID);
       }
     }
   }
@@ -392,7 +391,7 @@ class UniverseDetail extends Component {
         currentUser,
         runtimeConfigs,
         providerRuntimeConfigs,
-        perfAdvisorDetails
+        ybaToPaServiceDetails
       },
       params: { tab },
       featureFlags,
@@ -495,7 +494,7 @@ class UniverseDetail extends Component {
     */
     const isPerfAdvisorServiceEnabled =
       runtimeConfigs?.data?.configEntries?.find(
-        (c) => c.key === RuntimeConfigKey.ENABLE_TROUBLESHOOTING
+        (c) => c.key === RuntimeConfigKey.ENABLE_PA_COLLECTOR
       )?.value === 'true';
 
     // Performance Tab should be shown only if Perf Advisor is already enabled for the universe and that needs to be controlled by a separate runtime config as well
@@ -781,7 +780,8 @@ class UniverseDetail extends Component {
           </Tab.Pane>
         ),
         isNotHidden(currentCustomer.data.features, 'universes.details.performance') &&
-          isPerformanceTabEnabled && (
+          isPerformanceTabEnabled &&
+          ybaToPaServiceDetails?.data?.length > 0 && (
             <Tab.Pane
               eventKey={'perfAdvisor'}
               tabtitle={
@@ -1616,29 +1616,32 @@ class UniverseDetail extends Component {
                         </YBMenuItem>
                       </RbacValidator>
                     )}
-                    {!universePaused && isPerfAdvisorServiceEnabled && (
-                      <RbacValidator
-                        isControl
-                        accessRequiredOn={{
-                          onResource: uuid,
-                          ...ApiPermissionMap.GET_UNIVERSE_PERF_ADVISOR_STATUS
-                        }}
-                      >
-                        <YBMenuItem
-                          onClick={showEnablePerfAdvisorModal}
-                          availability={getFeatureState(
-                            currentCustomer.data.features,
-                            'universes.details.overview.editGFlags'
-                          )}
+                    {!universePaused &&
+                      isPerfAdvisorServiceEnabled &&
+                      ybaToPaServiceDetails?.data?.length > 0 && (
+                        <RbacValidator
+                          isControl
+                          accessRequiredOn={{
+                            onResource: uuid,
+                            ...ApiPermissionMap.GET_UNIVERSE_PERF_ADVISOR_STATUS
+                          }}
                         >
-                          <YBLabelWithIcon icon="fa fa-trash-o fa-fw">
-                            {universePaRegistrationStatus?.data?.success
-                              ? 'Disable Perf Advisor Collector'
-                              : 'Enable Perf Advisor Collector'}
-                          </YBLabelWithIcon>
-                        </YBMenuItem>
-                      </RbacValidator>
-                    )}
+                          <YBMenuItem
+                            onClick={showEnablePerfAdvisorModal}
+                            availability={getFeatureState(
+                              currentCustomer.data.features,
+                              'universes.details.overview.editGFlags'
+                            )}
+                          >
+                            <YBLabelWithIcon icon="fa fa-trash-o fa-fw">
+                              {universePaRegistrationStatus?.data?.success &&
+                              isNonEmptyArray(ybaToPaServiceDetails?.data)
+                                ? 'Disable Perf Advisor Collector'
+                                : 'Enable Perf Advisor Collector'}
+                            </YBLabelWithIcon>
+                          </YBMenuItem>
+                        </RbacValidator>
+                      )}
 
                     <RbacValidator
                       isControl
@@ -1847,14 +1850,12 @@ class UniverseDetail extends Component {
           open={showModal && visibleModal === 'enablePerfAdvisorModal'}
           onClose={() => {
             closeModal();
-            if (perfAdvisorDetails?.data?.[0]?.uuid) {
-              this.props.getUniversePaRegistrationStatus(
-                perfAdvisorDetails?.data?.[0].uuid,
-                currentUniverse.data.universeUUID
-              );
+            if (isNonEmptyArray(ybaToPaServiceDetails?.data)) {
+              this.props.getUniversePaRegistrationStatus(currentUniverse.data.universeUUID);
             }
           }}
-          paUuid={perfAdvisorDetails?.data?.[0]?.uuid}
+          perfAdvisorDetails={ybaToPaServiceDetails}
+          paUuid={ybaToPaServiceDetails?.data?.[0]?.uuid}
           universeData={currentUniverse.data}
           perfAdvisorStatus={universePaRegistrationStatus}
         />

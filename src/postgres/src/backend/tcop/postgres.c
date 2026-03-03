@@ -3343,10 +3343,27 @@ FloatExceptionHandler(SIGNAL_ARGS)
 	/* We're not returning, so no need to save errno */
 	ereport(ERROR,
 			(errcode(ERRCODE_FLOATING_POINT_EXCEPTION),
-			 errmsg("floating-point exception"),
-			 errdetail("An invalid floating-point operation was signaled. "
-					   "This probably means an out-of-range result or an "
-					   "invalid operation, such as division by zero.")));
+				errmsg("floating-point exception"),
+				errdetail("An invalid floating-point operation was signaled. "
+						"This probably means an out-of-range result or an "
+						"invalid operation, such as division by zero."),
+				errbacktrace()));
+}
+
+void
+YbCriticalSignalHandler(SIGNAL_ARGS)
+{
+	/* reset to default handler */
+	pqsignal(postgres_signal_arg, SIG_DFL);
+
+	ereport(LOG,
+			(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("received critical signal %d", postgres_signal_arg),
+				errdetail("The backend received signal %d.", postgres_signal_arg),
+				errbacktrace()));
+
+	/* route to default handler */
+	raise(postgres_signal_arg);
 }
 
 /*
@@ -4841,14 +4858,21 @@ YBPrepareCacheRefreshIfNeeded(ErrorData *edata,
 			 * Report the original error, but add a context mentioning that a
 			 * possibly-conflicting, concurrent DDL transaction happened.
 			 */
-			ereport(edata->elevel,
-					(errcode(edata->sqlerrcode),
-					 errmsg("%s", edata->message),
-					 edata->detail ? errdetail("%s", edata->detail) : 0,
-					 edata->hint ? errhint("%s", edata->hint) : 0,
-					 !(*YBCGetGFlags()->TEST_hide_details_for_pg_regress) ?
-					 (errcontext("Catalog Version Mismatch: A DDL occurred "
-								 "while processing this query. Try again.")) : 0));
+			if (!(*YBCGetGFlags()->TEST_hide_details_for_pg_regress))
+			{
+				const char *ddl_error_context =
+					"Catalog Version Mismatch: "
+					"A DDL occurred while processing this query. "
+					"Try again.";
+				MemoryContext oldcontext = MemoryContextSwitchTo(edata->assoc_context);
+
+				if (edata->context)
+					edata->context = psprintf("%s; %s", edata->context, ddl_error_context);
+				else
+					edata->context = pstrdup(ddl_error_context);
+				MemoryContextSwitchTo(oldcontext);
+			}
+			ThrowErrorData(edata);
 		}
 		else
 		{
@@ -5290,21 +5314,14 @@ yb_is_retry_possible(ErrorData *edata, int attempt,
 		return false;
 	}
 
-	if (IsYBReadCommitted())
-	{
-		if (YBGetDdlNestingLevel() != 0)
-		{
-			const char *retry_err = ("query layer retries aren't supported "
-									 "for DDLs inside a read committed "
-									 "isolation transaction block");
-
-			edata->message = psprintf("%s (%s)", edata->message, retry_err);
-			if (yb_debug_log_internal_restarts)
-				elog(LOG, "%s", retry_err);
-			return false;
-		}
-	}
-	else if (!(is_read || is_dml))
+	/*
+	 * pg_client_session rejects read restarts in DDL mode.
+	 * Retrying in that case is not only wasteful but also results in a non-retryable error
+	 * instead of the expected read restart error. For that reason, reject read restarts
+	 * for non DML statements.
+	 * However, allow retries on conflict errors in read committed isolation.
+	 */
+	if ((!IsYBReadCommitted() || is_read_restart_error) && !(is_read || is_dml))
 	{
 		/*
 		 * if !read committed, we only support retries with
@@ -6113,7 +6130,8 @@ PostgresMain(const char *dbname, const char *username)
 		pqsignal(SIGUSR1, procsignal_sigusr1_handler);
 		pqsignal(SIGUSR2, SIG_IGN);
 		pqsignal(SIGFPE, FloatExceptionHandler);
-
+		pqsignal(SIGSEGV, YbCriticalSignalHandler);
+		pqsignal(SIGABRT, YbCriticalSignalHandler);
 		/*
 		 * Reset some signals that are accepted by postmaster but not by
 		 * backend
@@ -6537,6 +6555,8 @@ PostgresMain(const char *dbname, const char *username)
 			send_ready_for_query = false;
 
 			yb_refresh_stats_before_exec = true;
+
+			YbToggleSessionStatsTimer(yb_enable_pg_stat_statements_rpc_stats);
 		}
 
 		/*
@@ -6655,6 +6675,8 @@ PostgresMain(const char *dbname, const char *username)
 			yb_is_multi_statement_query = false;
 			/* New Query => Did not sent any data for the current query. */
 			YBMarkDataNotSentForCurrQuery();
+			/* Unclamp uncertainty window at the start of each new query. */
+			YBCPgSetClampUncertaintyWindow(false);
 		}
 
 		switch (firstchar)
@@ -7316,6 +7338,12 @@ PostgresMain(const char *dbname, const char *username)
 						yb_abort_xact_command();
 					}
 
+					/*
+					 * NOTE: We don't need to free previous
+					 * MyProcPort fields since they should be allocated in the
+					 * transaction MemoryContext which has been free'd now
+					 */
+
 					/* Place back the old context */
 					MyProcPort->yb_is_auth_passthrough_req = false;
 					MyProcPort->yb_has_auth_passthrough_failed = false;
@@ -7329,11 +7357,6 @@ PostgresMain(const char *dbname, const char *username)
 					inet_pton(AF_INET, MyProcPort->remote_host,
 							  &(ip_address_1->sin_addr));
 
-					/*
-					 * NOTE: We don't need to free previous
-					 * MyProcPort->authn_id since it was allocated in the
-					 * transaction MemoryContext which has been free'd now
-					 */
 					MyProcPort->authn_id = authn_id;
 
 					send_ready_for_query = true;
