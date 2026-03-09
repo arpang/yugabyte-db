@@ -40,26 +40,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   private static final Logger LOG = LoggerFactory.getLogger(TestPgListenNotify.class);
 
   private static final String CHANNEL = "test_channel";
-  private static final String PAYLOAD = "hello";
-
-  @Override
-  protected Map<String, String> getTServerFlags() {
-    Map<String, String> flagMap = super.getTServerFlags();
-    flagMap.put("ysql_cdc_active_replication_slot_window_ms", "0");
-    return flagMap;
-  }
-
-  @Override
-  protected Map<String, String> getMasterFlags() {
-    Map<String, String> flagMap = super.getMasterFlags();
-    flagMap.put("max_replication_slots", "1");
-    return flagMap;
-  }
-
-  @Override
-  public int getTestMethodTimeoutSec() {
-    return 300;
-  }
+  private static final String PAYLOAD = "test_payload";
 
   /**
    * LISTEN should fail when cdc_max_virtual_wal_per_tserver is 0 (no virtual
@@ -92,6 +73,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    */
   @Test
   public void testListenFailsDueToReplicationSlotLimit() throws Exception {
+    setMaxReplicationSlots("1");
+
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("SELECT pg_create_logical_replication_slot('blocker_slot', 'pgoutput')");
     }
@@ -108,7 +91,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
           e.getMessage().contains("all replication slots are in use"));
     }
 
-    setMaxReplicationSlots("10");
+    setMaxReplicationSlots("5");
     verifyListenNotifyWorks();
   }
 
@@ -154,7 +137,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   private void setVirtualWalLimit(String value) throws Exception {
     Set<HostAndPort> tServers = miniCluster.getTabletServers().keySet();
     for (HostAndPort tServer : tServers) {
-      setServerFlag(tServer, "cdc_max_virtual_wal_per_tserver", value);
+      miniCluster.getClient().setFlag(tServer, "cdc_max_virtual_wal_per_tserver", value);
     }
   }
 
