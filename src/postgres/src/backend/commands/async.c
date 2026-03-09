@@ -588,9 +588,9 @@ typedef enum YbNotifsPollerInitStatus
 
 typedef struct YbNotifsPollerShmemData
 {
-	volatile YbNotifsPollerInitStatus init_status;
+	volatile	YbNotifsPollerInitStatus init_status;
 	char		error_message[1024];
-} YbNotifsPollerShmemData;
+}			YbNotifsPollerShmemData;
 
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
@@ -630,7 +630,7 @@ static void ybInsertPendingNotifiesToTable(void);
 static void ybCreateNotifsReplicationSlot(void);
 static void ybStartNotifsPollerBgWorker(void);
 static BackgroundWorkerHandle *ybShmemNotifsPollerBgwHandle(bool *found);
-static YbNotifsPollerShmemData *ybShmemNotifsPollerData(bool *found);
+static YbNotifsPollerShmemData * ybShmemNotifsPollerData(bool *found);
 
 /* YB: helper functions for 'notifications poller' bg worker */
 static void ybNotifsPollerInit(void);
@@ -2824,6 +2824,7 @@ ybStartNotifsPollerBgWorker(void)
 
 	/* Reset init status before starting the worker. */
 	YbNotifsPollerShmemData *poller_data = ybShmemNotifsPollerData(&found);
+
 	poller_data->init_status = YB_NOTIFS_POLLER_INIT_NOT_STARTED;
 	poller_data->error_message[0] = '\0';
 
@@ -2893,6 +2894,7 @@ ybStartNotifsPollerBgWorker(void)
 	 * asyncQueueUnregister always sees a handle for a fully initialized worker.
 	 */
 	BackgroundWorkerHandle *shm_handle = ybShmemNotifsPollerBgwHandle(&found);
+
 	memcpy(shm_handle, local_handle, YbBackgroundWorkerHandleSize());
 	pfree(local_handle);
 }
@@ -2932,7 +2934,7 @@ YbNotifsPollerMain(Datum main_arg)
 static List *
 ybNotifsPublications()
 {
- return list_make1(PgYbNotificationsPublicationName);
+	return list_make1(PgYbNotificationsPublicationName);
 }
 
 static void
@@ -2990,7 +2992,7 @@ static void
 ybNotifsPollerLoop()
 {
 	YbVirtualWalRecord *record;
-	List	 		   *publications = ybNotifsPublications();
+	List	   *publications = ybNotifsPublications();
 
 	for (;;)
 	{
