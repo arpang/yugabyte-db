@@ -1518,11 +1518,11 @@ asyncQueueUnregister(void)
 		 */
 
 		bool		found;
-		YbNotifsPollerShmemData *poller_data =
+		YbNotifsPollerShmemData *yb_poller_data =
 			ybShmemNotifsPollerData(&found);
 
 		if (found &&
-			poller_data->init_status == YB_NOTIFS_POLLER_INIT_SUCCESS)
+			yb_poller_data->init_status == YB_NOTIFS_POLLER_INIT_SUCCESS)
 		{
 			BackgroundWorkerHandle *shm_handle =
 				ybShmemNotifsPollerBgwHandle(&found);
@@ -2870,19 +2870,6 @@ ybStartNotifsPollerBgWorker(void)
 							"failed to initialize"),
 					 (poller_data->error_message[0] ?
 					  errdetail("%s", poller_data->error_message) : 0)));
-		}
-
-		/* Check if the worker process has exited unexpectedly. */
-		status = GetBackgroundWorkerPid(local_handle, &pid);
-		if (status == BGWH_STOPPED)
-		{
-			pfree(local_handle);
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("notifications poller background worker "
-							"exited during initialization"),
-					 errhint("More details may be available in the "
-							 "server log.")));
 		}
 
 		CHECK_FOR_INTERRUPTS();
