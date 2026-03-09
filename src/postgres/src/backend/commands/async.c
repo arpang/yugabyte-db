@@ -633,6 +633,7 @@ static BackgroundWorkerHandle *ybShmemNotifsPollerBgwHandle(bool *found);
 static YbNotifsPollerShmemData *ybShmemNotifsPollerData(bool *found);
 
 /* YB: helper functions for 'notifications poller' bg worker */
+static void ybNotifsPollerInit(void);
 static void ybNotifsPollerLoop(void);
 static void ybNotifsPollerProcessRecord(const YbcPgRowMessage *record);
 static void ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record);
@@ -2922,16 +2923,24 @@ YbNotifsPollerMain(Datum main_arg)
 	BackgroundWorkerUnblockSignals();
 
 	BackgroundWorkerInitializeConnection(YbSystemDbName, "yugabyte", 0);
+
+	ybNotifsPollerInit();
+
 	ybNotifsPollerLoop();
 }
 
+static List *
+ybNotifsPublications()
+{
+ return list_make1(PgYbNotificationsPublicationName);
+}
+
 static void
-ybNotifsPollerLoop(void)
+ybNotifsPollerInit(void)
 {
 	bool		shmem_found;
 	YbNotifsPollerShmemData *poller_data = ybShmemNotifsPollerData(&shmem_found);
 	List	   *publications = NIL;
-	YbVirtualWalRecord *record;
 	MemoryContext caller_context = CurrentMemoryContext;
 
 	PG_TRY();
@@ -2948,9 +2957,10 @@ ybNotifsPollerLoop(void)
 		CheckSlotRequirements();
 		Assert(!MyReplicationSlot);
 		ReplicationSlotAcquire(ybNotifsReplicationSlotName(), /* nowait = */ true);
-		publications = list_make1(PgYbNotificationsPublicationName);
+		publications = ybNotifsPublications();
 
 		YBCInitVirtualWal(publications);
+		pfree(publications);
 	}
 	PG_CATCH();
 	{
@@ -2967,14 +2977,21 @@ ybNotifsPollerLoop(void)
 	PG_END_TRY();
 
 	poller_data->init_status = YB_NOTIFS_POLLER_INIT_SUCCESS;
+}
 
-	/*
-	 * In a loop, poll records from the virtual wal and add them to the central
-	 * queue. When this background process gets terminated, CleanupSessions()
-	 * will destroy the virtual wal. Also, it is okay to not invoke
-	 * ReplicationSlotRelease() because no other process will try to acquire
-	 * this slot.
-	 */
+/*
+ * In a loop, poll records from the virtual wal and add them to the central
+ * queue. When this background process gets terminated, CleanupSessions()
+ * will destroy the virtual wal. Also, it is okay to not invoke
+ * ReplicationSlotRelease() because no other process will try to acquire
+ * this slot.
+ */
+static void
+ybNotifsPollerLoop()
+{
+	YbVirtualWalRecord *record;
+	List	 		   *publications = ybNotifsPublications();
+
 	for (;;)
 	{
 		CHECK_FOR_INTERRUPTS();
