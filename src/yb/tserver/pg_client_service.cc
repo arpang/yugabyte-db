@@ -974,7 +974,7 @@ class PgClientServiceImpl::Impl : public SessionProvider {
 #if defined(__APPLE__)
       auto delay = 250ms;
 #else
-      auto delay = RegularBuildVsSanitizers(50ms, 1000ms);
+      auto delay = RegularBuildVsDebugVsSanitizers(50ms, 1000ms, 1000ms);
 #endif
       messenger_.scheduler().Schedule([this, session_id, pid](const Status& status) {
         if (!status.ok()) {
