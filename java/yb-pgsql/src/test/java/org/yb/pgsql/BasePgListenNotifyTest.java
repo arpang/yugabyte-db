@@ -95,19 +95,6 @@ public class BasePgListenNotifyTest extends BasePgSQLTest {
     return flagMap;
   }
 
-  @Override
-  public void cleanUpAfter() throws Exception {
-    if (connection != null) {
-      try {
-        connection.close();
-      } catch (Exception e) {
-        LOG.info("Ignoring connection close error during cleanup: {}", e.getMessage());
-      }
-      connection = null;
-    }
-    super.cleanUpAfter();
-  }
-
   @Before
   public void waitForNotificationsTable() throws Exception {
     waitForNotificationsTableReady(connection, getConnectionBuilder());
