@@ -123,7 +123,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  public void createStreamDrop() throws Exception {
+  public void createStreamAndDropSlot() throws Exception {
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("CREATE TABLE test_table (a int primary key, b text)");
       stmt.execute("CREATE PUBLICATION test_pub FOR TABLE test_table");
