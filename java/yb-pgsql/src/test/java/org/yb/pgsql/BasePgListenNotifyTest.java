@@ -17,8 +17,6 @@ import java.sql.Statement;
 import java.util.Map;
 
 import org.junit.Before;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.yb.client.TestUtils;
 import org.yb.util.Timeouts;
@@ -34,7 +32,6 @@ import org.yb.util.Timeouts;
  * from this class.
  */
 public class BasePgListenNotifyTest extends BasePgSQLTest {
-  private static final Logger LOG = LoggerFactory.getLogger(BasePgListenNotifyTest.class);
 
   /**
    * Adds the {@code TEST_ysql_yb_enable_listen_notify} flag to the given map.
