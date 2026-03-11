@@ -135,16 +135,16 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   private void setVirtualWalLimit(String value) throws Exception {
-    Set<HostAndPort> tServers = miniCluster.getTabletServers().keySet();
-    for (HostAndPort tServer : tServers) {
-      miniCluster.getClient().setFlag(tServer, "cdc_max_virtual_wal_per_tserver", value);
+    Set<HostAndPort> tservers = miniCluster.getTabletServers().keySet();
+    for (HostAndPort tserver : tservers) {
+      miniCluster.getClient().setFlag(tserver, "cdc_max_virtual_wal_per_tserver", value);
     }
   }
 
   private void setMaxReplicationSlots(String value) throws Exception {
     for (HostAndPort master : miniCluster.getMasters().keySet()) {
       assertTrue("Failed to set max_replication_slots",
-          miniCluster.getClient().setFlag(master, "max_replication_slots", value, true));
+          miniCluster.getClient().setFlag(master, "max_replication_slots", value, /* force = */ true));
     }
   }
 }

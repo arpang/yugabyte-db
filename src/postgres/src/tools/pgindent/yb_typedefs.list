@@ -379,3 +379,5 @@ yb_hdr_iter
 yb_keylen_t
 yb_relopt_oid
 yb_replace_varnos_context
+YbNotifsPollerInitStatus
+YbNotifsPollerShmemData
