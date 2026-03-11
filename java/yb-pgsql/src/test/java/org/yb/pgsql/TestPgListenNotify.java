@@ -144,7 +144,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   private void setMaxReplicationSlots(String value) throws Exception {
     for (HostAndPort master : miniCluster.getMasters().keySet()) {
       assertTrue("Failed to set max_replication_slots",
-          miniCluster.getClient().setFlag(master, "max_replication_slots", value, /* force = */ true));
+          miniCluster.getClient().setFlag(master, "max_replication_slots", value,
+                                          /* force = */ true));
     }
   }
 }
