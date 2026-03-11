@@ -158,6 +158,7 @@
 #include "catalog/pg_namespace_d.h"
 #include "executor/ybModifyTable.h"
 #include "pg_yb_utils.h"
+#include "postmaster/bgworker_internals.h"
 #include "postmaster/interrupt.h"
 #include "replication/slot.h"
 #include "replication/yb_decode.h"
@@ -1333,8 +1334,8 @@ Exec_ListenPreCommit(void)
 	if (ybIsFirstListenerOnNode)
 	{
 		/*
-		 * YB note: The first listener in the node creates the replication and
-		 * starts the 'notifications poller' bg worker.
+		 * YB note: The first listener in the node creates the replication slot
+		 * and starts the 'notifications poller' bg worker.
 		 */
 		ybCreateNotifsReplicationSlot();
 		ybStartNotifsPollerBgWorker();
@@ -1510,6 +1511,66 @@ asyncQueueUnregister(void)
 
 	/* mark ourselves as no longer listed in the global array */
 	amRegisteredListener = false;
+}
+
+void
+YbCleanupListenStateForProc(PGPROC *proc)
+{
+	/* Don't do anything if this is called by anyone other than postmaster. */
+	if (MyProcPid != PostmasterPid)
+		return;
+
+	Assert(proc->backendId);
+
+	BackendId backendId = proc->backendId;
+
+	LWLockAcquire(NotifyQueueLock, LW_SHARED);
+	bool cleanupNeeded = QUEUE_BACKEND_PID(backendId) == proc->pid;
+	LWLockRelease(NotifyQueueLock);
+	if (!cleanupNeeded)
+		return;
+
+	/*
+	 * Need exclusive lock here to manipulate list links.
+	 */
+	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+	/* Mark our entry as invalid */
+	QUEUE_BACKEND_PID(backendId) = InvalidPid;
+	QUEUE_BACKEND_DBOID(backendId) = InvalidOid;
+	/* and remove it from the list */
+	if (QUEUE_FIRST_LISTENER == backendId)
+		QUEUE_FIRST_LISTENER = QUEUE_NEXT_LISTENER(backendId);
+	else
+	{
+		for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
+		{
+			if (QUEUE_NEXT_LISTENER(i) == backendId)
+			{
+				QUEUE_NEXT_LISTENER(i) = QUEUE_NEXT_LISTENER(backendId);
+				break;
+			}
+		}
+	}
+	QUEUE_NEXT_LISTENER(backendId) = InvalidBackendId;
+
+	if (QUEUE_FIRST_LISTENER == InvalidBackendId)
+	{
+		/*
+		 * The last listener in the node terminates the 'notifications
+		 * poller' bg worker. Since this is called from postmaster where pggate
+		 * is not available, it is not possible to drop the replication slot.
+		 */
+
+		bool		found;
+		BackgroundWorkerHandle *shm_handle =
+			ybShmemNotifsPollerBgwHandle(&found);
+
+		Assert(found);
+		TerminateBackgroundWorker(shm_handle);
+		BackgroundWorkerStateChange(false);
+		memset(shm_handle, 0, YbBackgroundWorkerHandleSize());
+	}
+	LWLockRelease(NotifyQueueLock);
 }
 
 /*

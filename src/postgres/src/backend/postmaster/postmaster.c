@@ -142,6 +142,7 @@
 /* YB includes */
 #include "access/xact.h"
 #include "arpa/inet.h"
+#include "commands/async.h"
 #include "common/pg_yb_common.h"
 #include "pg_yb_utils.h"
 #include "replication/slot.h"
@@ -3811,6 +3812,8 @@ CleanupKilledProcess(PGPROC *proc)
 
 		/* From SharedInvalBackendInit */
 		CleanupInvalidationStateForProc(proc);
+
+		YbCleanupListenStateForProc(proc);
 	}
 
 	/* From ProcKill */
