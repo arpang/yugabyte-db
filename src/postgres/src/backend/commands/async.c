@@ -579,18 +579,18 @@ static TransactionId ybNotifsPollerProcessingXid = InvalidTransactionId;
  * Shared memory state used to communicate the initialization status of the
  * 'notifications poller' background worker back to the process that started it.
  */
-typedef enum YbNotifsPollerInitStatus
+typedef enum
 {
 	YB_NOTIFS_POLLER_INIT_NOT_STARTED = 0,
 	YB_NOTIFS_POLLER_INIT_SUCCESS = 1,
 	YB_NOTIFS_POLLER_INIT_FAILED = 2
 } YbNotifsPollerInitStatus;
 
-typedef struct YbNotifsPollerShmemData
+typedef struct
 {
-	volatile	YbNotifsPollerInitStatus init_status;
+	volatile YbNotifsPollerInitStatus init_status;
 	char		error_message[1024];
-}			YbNotifsPollerShmemData;
+} YbNotifsPollerShmemData;
 
 /* local function prototypes */
 static int	asyncQueuePageDiff(int p, int q);
@@ -630,7 +630,7 @@ static void ybInsertPendingNotifiesToTable(void);
 static void ybCreateNotifsReplicationSlot(void);
 static void ybStartNotifsPollerBgWorker(void);
 static BackgroundWorkerHandle *ybShmemNotifsPollerBgwHandle(bool *found);
-static YbNotifsPollerShmemData * ybShmemNotifsPollerData(bool *found);
+static YbNotifsPollerShmemData *ybShmemNotifsPollerData(bool *found);
 
 /* YB: helper functions for 'notifications poller' bg worker */
 static void ybNotifsPollerInit(void);
