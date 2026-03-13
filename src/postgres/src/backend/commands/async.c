@@ -339,7 +339,7 @@ static SlruCtlData NotifyCtlData;
  */
 #define QUEUE_MAX_PAGE			(SLRU_PAGES_PER_SEGMENT * 0x10000 - 1)
 
-bool yb_enable_listen_notify = false;
+bool		yb_enable_listen_notify = false;
 
 /*
  * listenChannels identifies the channels we are actually listening to
