@@ -162,7 +162,6 @@
 #include "replication/slot.h"
 #include "replication/yb_decode.h"
 #include "replication/yb_virtual_wal_client.h"
-#include "yb/yql/pggate/ybc_gflags.h"
 
 
 /*
@@ -339,6 +338,8 @@ static SlruCtlData NotifyCtlData;
  * SLRU_PAGES_PER_SEGMENT, for easier testing of queue-full behaviour.
  */
 #define QUEUE_MAX_PAGE			(SLRU_PAGES_PER_SEGMENT * 0x10000 - 1)
+
+bool yb_enable_listen_notify = false;
 
 /*
  * listenChannels identifies the channels we are actually listening to
@@ -3144,22 +3145,22 @@ ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 static void
 ybListenNotifyPreChecks(void)
 {
-	if (!*YBCGetGFlags()->TEST_ysql_yb_enable_listen_notify)
+	if (!yb_enable_listen_notify)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("listen/notify is disabled. Enable it via runtime "
-						"tserver flag ysql_yb_enable_listen_notify")));
+				 errmsg("LISTEN/NOTIFY is disabled. Enable runtime "
+						"flag ysql_yb_enable_listen_notify on the tserver")));
 
 	if (!OidIsValid(YbSystemDbOid()))
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
+				 errmsg("creating internal objects for LISTEN/NOTIFY, please try after a few seconds"),
 				 errdetail("yb_system database is being created")));
 
 	if (!OidIsValid(ybNotificationsRelId()))
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("creating internal objects for listen/notify, please try after a few seconds"),
+				 errmsg("creating internal objects for LISTEN/NOTIFY, please try after a few seconds"),
 				 errdetail("pg_yb_notifications table is being created")));
 
 	/* TODO(arpan): Add check for publication too. */
