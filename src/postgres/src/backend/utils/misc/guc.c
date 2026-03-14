@@ -3944,7 +3944,7 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"yb_enable_listen_notify", PGC_USERSET, CLIENT_CONN_STATEMENT,
+		{"yb_enable_listen_notify", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Enables LISTEN/NOTIFY"),
 			NULL,
 			GUC_NOT_IN_SAMPLE
