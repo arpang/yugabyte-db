@@ -3063,10 +3063,19 @@ ybNotifsPollerLoop()
 	{
 		CHECK_FOR_INTERRUPTS();
 
+		if (ConfigReloadPending)
+		{
+			ConfigReloadPending = false;
+			ProcessConfigFile(PGC_SIGHUP);
+		}
+
+		if (ShutdownRequestPending)
+			proc_exit(0);
+
 		/*
 		 * YBCReadRecord sleeps using yb_walsender_poll_sleep_duration_*_ms.
-		 * Override them with notifications poller specific values on every
-		 * iteration so that SIGHUP-triggered config reloads are picked up.
+		 * Override them with notifications poller specific values after a
+		 * potential config reload.
 		 */
 		yb_walsender_poll_sleep_duration_nonempty_ms =
 			yb_notifications_poll_sleep_duration_nonempty_ms;
