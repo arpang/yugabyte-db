@@ -341,6 +341,8 @@ static SlruCtlData NotifyCtlData;
 #define QUEUE_MAX_PAGE			(SLRU_PAGES_PER_SEGMENT * 0x10000 - 1)
 
 bool		yb_enable_listen_notify = false;
+int			yb_notifications_poll_sleep_duration_nonempty_ms = 1;
+int			yb_notifications_poll_sleep_duration_empty_ms = 100;
 
 /*
  * listenChannels identifies the channels we are actually listening to
@@ -3060,6 +3062,17 @@ ybNotifsPollerLoop()
 	for (;;)
 	{
 		CHECK_FOR_INTERRUPTS();
+
+		/*
+		 * YBCReadRecord sleeps using yb_walsender_poll_sleep_duration_*_ms.
+		 * Override them with notifications poller specific values on every
+		 * iteration so that SIGHUP-triggered config reloads are picked up.
+		 */
+		yb_walsender_poll_sleep_duration_nonempty_ms =
+			yb_notifications_poll_sleep_duration_nonempty_ms;
+		yb_walsender_poll_sleep_duration_empty_ms =
+			yb_notifications_poll_sleep_duration_empty_ms;
+
 		record = YBCReadRecord(publications);
 		if (record)
 			ybNotifsPollerProcessRecord(record);
