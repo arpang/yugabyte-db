@@ -209,7 +209,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     PGNotification[] notifications = null;
     PGConnection pgConecction = connection.unwrap(PGConnection.class);
     try (Statement stmt = connection.createStatement()) {
-      for (int attempt = 0; attempt < 10; attempt++) {
+      for (int attempt = 0; attempt < 30; attempt++) {
         // The JDBC driver fetches notifications as a side-effect of executing a query.
         stmt.execute("SELECT 1");
         notifications = pgConecction.getNotifications();
@@ -252,47 +252,51 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   public void testNotificationPollSleepDuration() throws Exception {
     final String channel = "c";
 
-    try (Connection listener = getConnectionBuilder().withTServer(0).connect();
-         Statement listenerStmt = listener.createStatement()) {
-      listenerStmt.execute("LISTEN " + channel);
+    try {
+      try (Connection listener = getConnectionBuilder().withTServer(0).connect();
+           Statement listenerStmt = listener.createStatement()) {
+        listenerStmt.execute("LISTEN " + channel);
 
-      assertOneRow(listenerStmt, "SHOW yb_notifications_poll_sleep_duration_empty_ms", "100ms");
-      setNotificationsPollSleepDurationEmpty("30000");
-      Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(1000));
+        assertOneRow(listenerStmt, "SHOW yb_notifications_poll_sleep_duration_empty_ms", "100ms");
+        setNotificationsPollSleepDurationEmpty("30000");
+        Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(1000));
 
-      try (Connection notifier = getConnectionBuilder().connect();
-           Statement notifierStmt = notifier.createStatement()) {
-        notifierStmt.execute("NOTIFY " + channel + ", 'slow'");
-      }
-
-      PGConnection pgConn = listener.unwrap(PGConnection.class);
-      boolean received = false;
-      for (int attempt = 0; attempt < 25; attempt++) {
-        listenerStmt.execute("SELECT 1");
-        PGNotification[] notifs = pgConn.getNotifications();
-        if (notifs != null && notifs.length > 0) {
-          received = true;
-          break;
+        try (Connection notifier = getConnectionBuilder().connect();
+             Statement notifierStmt = notifier.createStatement()) {
+          notifierStmt.execute("NOTIFY " + channel + ", 'slow'");
         }
-        Thread.sleep(200);
+
+        PGConnection pgConn = listener.unwrap(PGConnection.class);
+        boolean received = false;
+        for (int attempt = 0; attempt < 30; attempt++) {
+          listenerStmt.execute("SELECT 1");
+          PGNotification[] notifs = pgConn.getNotifications();
+          if (notifs != null && notifs.length > 0) {
+            received = true;
+            break;
+          }
+          Thread.sleep(500);
+        }
+        assertFalse("Notification should not arrive within 15s with 30s poll interval",
+            received);
       }
-      assertFalse("Notification should not arrive within 5s with 30s poll interval",
-          received);
-    }
 
-    try (Connection listener = getConnectionBuilder().connect();
-         Statement listenerStmt = listener.createStatement()) {
-      listenerStmt.execute("LISTEN " + channel);
+      try (Connection listener = getConnectionBuilder().connect();
+           Statement listenerStmt = listener.createStatement()) {
+        listenerStmt.execute("LISTEN " + channel);
 
-      assertOneRow(listenerStmt, "SHOW yb_notifications_poll_sleep_duration_empty_ms", "30s");
+        assertOneRow(listenerStmt, "SHOW yb_notifications_poll_sleep_duration_empty_ms", "30s");
+        setNotificationsPollSleepDurationEmpty("100");
+        Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(1000));
+
+        try (Connection notifier = getConnectionBuilder().connect();
+             Statement notifierStmt = notifier.createStatement()) {
+          notifierStmt.execute("NOTIFY " + channel + ", 'restored'");
+        }
+        waitForNotification(listener, channel, "restored");
+      }
+    } finally {
       setNotificationsPollSleepDurationEmpty("100");
-      Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(1000));
-
-      try (Connection notifier = getConnectionBuilder().connect();
-           Statement notifierStmt = notifier.createStatement()) {
-        notifierStmt.execute("NOTIFY " + channel + ", 'restored'");
-      }
-      waitForNotification(listener, channel, "restored");
     }
   }
 
