@@ -14,6 +14,7 @@ package org.yb.pgsql;
 
 import static org.yb.AssertionWrappers.assertEquals;
 import static org.yb.AssertionWrappers.assertNotNull;
+import static org.yb.AssertionWrappers.assertNull;
 import static org.yb.AssertionWrappers.assertTrue;
 import static org.yb.AssertionWrappers.fail;
 
@@ -25,13 +26,16 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Map;
 import java.util.Set;
+import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.yb.YBTestRunner;
+import org.yb.client.TestUtils;
 import org.yb.util.ProcessUtil;
 import org.yb.util.Timeouts;
+import org.yb.util.YBBackupUtil;
 
 /**
  * Tests for LISTEN/NOTIFY functionality including error handling during
@@ -195,6 +199,83 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         waitForNotification(conn1, channel, payload);
         waitForNotification(conn3, channel, payload);
       }
+    }
+  }
+
+  /**
+   * Backs up the source database, sends notifications on it, restores to a new database,
+   * then verifies that LISTEN/NOTIFY works on the restored database with no spurious
+   * notifications from the source.
+   */
+  @Test
+  public void testListenNotifyAfterBackupRestore() throws Exception {
+    YBBackupUtil.setTSAddresses(miniCluster.getTabletServers());
+    YBBackupUtil.setMasterAddresses(masterAddresses);
+    YBBackupUtil.setPostgresContactPoint(miniCluster.getPostgresContactPoints().get(0));
+    YBBackupUtil.maybeStartYbControllers(miniCluster);
+
+    final String restoredDb = "restored_db";
+
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute("CREATE TABLE t (id INT PRIMARY KEY, val TEXT)");
+      stmt.execute("INSERT INTO t VALUES (1, 'hello'), (2, 'world')");
+    }
+
+    // Send notifications on the source database before backup.
+    try (Connection notifierConn = getConnectionBuilder().connect();
+         Statement stmt = notifierConn.createStatement()) {
+      stmt.execute("NOTIFY " + CHANNEL + ", 'before_backup'");
+    }
+
+    String backupDir = YBBackupUtil.getTempBackupDir();
+    String output = YBBackupUtil.runYbBackupCreate("--backup_location", backupDir,
+        "--keyspace", "ysql.yugabyte");
+    if (!TestUtils.useYbController()) {
+      backupDir = new JSONObject(output).getString("snapshot_url");
+    }
+
+    // Send more notifications after backup.
+    try (Connection notifierConn = getConnectionBuilder().connect();
+         Statement stmt = notifierConn.createStatement()) {
+      stmt.execute("NOTIFY " + CHANNEL + ", 'after_backup'");
+    }
+
+    YBBackupUtil.runYbBackupRestore(backupDir, "--keyspace", "ysql." + restoredDb);
+
+    // Verify data was restored.
+    try (Connection restoredConn = getConnectionBuilder().withDatabase(restoredDb).connect();
+         Statement stmt = restoredConn.createStatement()) {
+      assertQuery(stmt, "SELECT * FROM t ORDER BY id",
+          new Row(1, "hello"), new Row(2, "world"));
+    }
+
+    // LISTEN on the restored database -- no stale notifications should arrive.
+    try (Connection listenerConn = getConnectionBuilder().withDatabase(restoredDb).connect()) {
+      try (Statement stmt = listenerConn.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+      }
+
+      Thread.sleep(15000);
+      PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
+      try (Statement pollStmt = listenerConn.createStatement()) {
+        pollStmt.execute("SELECT 1");
+      }
+      PGNotification[] stale = pgConn.getNotifications();
+      assertNull("Expected no spurious notifications after restore", stale);
+
+      // Send a new NOTIFY on the restored database and verify delivery.
+      try (Connection notifierConn = getConnectionBuilder().withDatabase(restoredDb).connect();
+           Statement stmt = notifierConn.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'after_restore'");
+      }
+
+      waitForNotification(listenerConn, CHANNEL, "after_restore");
+    }
+
+    try (Statement stmt = connection.createStatement()) {
+      if (isTestRunningWithConnectionManager())
+        waitForStatsToGetUpdated();
+      stmt.execute("DROP DATABASE " + restoredDb);
     }
   }
 
