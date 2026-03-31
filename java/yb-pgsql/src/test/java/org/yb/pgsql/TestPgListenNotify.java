@@ -39,9 +39,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.yb.CommonNet;
 import org.yb.CommonNet.CloudInfoPB;
+import org.yb.CommonTypes;
 import org.yb.YBTestRunner;
+import org.yb.client.ListSnapshotSchedulesResponse;
 import org.yb.client.ModifyClusterConfigLiveReplicas;
 import org.yb.client.ModifyClusterConfigReadReplicas;
+import org.yb.client.SnapshotScheduleInfo;
 import org.yb.client.TestUtils;
 import org.yb.client.YBClient;
 import org.yb.util.ProcessUtil;
@@ -434,6 +437,98 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       LOG.info("Crashed notifier backend PID: {}", notifierPid);
 
       waitForNotification(listenerConn, CHANNEL, "survive_crash");
+    }
+  }
+
+  /**
+   * Tests LISTEN/NOTIFY isolation between a source database and its clone.
+   * Verifies:
+   *   - Fresh LISTEN/NOTIFY works on the cloned database.
+   *   - Notifications sent on the clone are NOT received by source listeners.
+   *   - Notifications sent on the source are NOT received by clone listeners.
+   */
+  @Test
+  public void testListenNotifyWithDbClone() throws Exception {
+    YBClient client = miniCluster.getClient();
+
+    for (HostAndPort master : miniCluster.getMasters().keySet()) {
+      client.setFlag(master, "enable_db_clone", "true");
+    }
+
+    // A snapshot schedule is required for cloning.
+    client.createSnapshotSchedule(
+        CommonTypes.YQLDatabase.YQL_DATABASE_PGSQL, "yugabyte",
+        /* retentionInSecs */ 600, /* timeIntervalInSecs */ 10);
+
+    // Wait for at least one snapshot to be created.
+    TestUtils.waitFor(() -> {
+      ListSnapshotSchedulesResponse resp = client.listSnapshotSchedules(null);
+      for (SnapshotScheduleInfo info : resp.getSnapshotScheduleInfoList()) {
+        if (!info.getSnapshotInfoList().isEmpty()) {
+          return true;
+        }
+      }
+      return false;
+    }, 60000);
+
+    final String cloneDb = "clone_db";
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute("CREATE DATABASE " + cloneDb + " TEMPLATE yugabyte");
+    }
+
+    // Set up listeners on both source and clone databases.
+    try (Connection sourceListener = getConnectionBuilder().connect();
+         Connection cloneListener = getConnectionBuilder().withDatabase(cloneDb).connect()) {
+      try (Statement stmt = sourceListener.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+      }
+      try (Statement stmt = cloneListener.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+      }
+
+      // NOTIFY on clone: clone listener should receive, source should NOT.
+      try (Connection cloneNotifier = getConnectionBuilder().withDatabase(cloneDb).connect();
+           Statement stmt = cloneNotifier.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'from_clone'");
+      }
+      waitForNotification(cloneListener, CHANNEL, "from_clone");
+
+      // Use a sentinel to verify the source listener didn't get the clone's notification.
+      try (Connection sourceNotifier = getConnectionBuilder().connect();
+           Statement stmt = sourceNotifier.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'source_sentinel'");
+      }
+      List<PGNotification> sourceNotifs =
+          waitForNotification(sourceListener, CHANNEL, "source_sentinel");
+      for (PGNotification n : sourceNotifs) {
+        assertTrue("Source should not receive notifications from clone, got: "
+            + n.getParameter(), !n.getParameter().equals("from_clone"));
+      }
+
+      // NOTIFY on source: source listener should receive, clone should NOT.
+      try (Connection sourceNotifier = getConnectionBuilder().connect();
+           Statement stmt = sourceNotifier.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'from_source'");
+      }
+      waitForNotification(sourceListener, CHANNEL, "from_source");
+
+      // Use a sentinel to verify the clone listener didn't get the source's notification.
+      try (Connection cloneNotifier = getConnectionBuilder().withDatabase(cloneDb).connect();
+           Statement stmt = cloneNotifier.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'clone_sentinel'");
+      }
+      List<PGNotification> cloneNotifs =
+          waitForNotification(cloneListener, CHANNEL, "clone_sentinel");
+      for (PGNotification n : cloneNotifs) {
+        assertTrue("Clone should not receive notifications from source, got: "
+            + n.getParameter(), !n.getParameter().equals("from_source"));
+      }
+    }
+
+    try (Statement stmt = connection.createStatement()) {
+      if (isTestRunningWithConnectionManager())
+        waitForStatsToGetUpdated();
+      stmt.execute("DROP DATABASE " + cloneDb);
     }
   }
 
