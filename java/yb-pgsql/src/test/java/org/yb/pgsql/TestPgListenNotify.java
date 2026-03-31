@@ -20,12 +20,15 @@ import static org.yb.AssertionWrappers.assertTrue;
 import static org.yb.AssertionWrappers.fail;
 
 import com.google.common.net.HostAndPort;
+import com.google.protobuf.ByteString;
 import com.yugabyte.PGConnection;
 import com.yugabyte.PGNotification;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,8 +37,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.yb.CommonNet;
+import org.yb.CommonNet.CloudInfoPB;
 import org.yb.YBTestRunner;
+import org.yb.client.ModifyClusterConfigLiveReplicas;
+import org.yb.client.ModifyClusterConfigReadReplicas;
 import org.yb.client.TestUtils;
+import org.yb.client.YBClient;
 import org.yb.util.ProcessUtil;
 import org.yb.util.Timeouts;
 import org.yb.util.YBBackupUtil;
@@ -426,6 +434,119 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       LOG.info("Crashed notifier backend PID: {}", notifierPid);
 
       waitForNotification(listenerConn, CHANNEL, "survive_crash");
+    }
+  }
+
+  /**
+   * Tests LISTEN/NOTIFY with a read replica node:
+   *   1. Both LISTEN and NOTIFY on the read replica node.
+   *   2. LISTEN on read replica, NOTIFY on primary.
+   *   3. LISTEN on primary, NOTIFY on read replica.
+   */
+  @Test
+  public void testListenNotifyWithReadReplica() throws Exception {
+    final String RR_UUID = "readcluster";
+    final String CLOUD = "cloud1";
+    final String REGION = "datacenter1";
+    final String ZONE = "rack1";
+
+    YBClient client = miniCluster.getClient();
+
+    // Start a read replica tserver with LISTEN/NOTIFY enabled.
+    Map<String, String> rrFlags = new HashMap<>(getTServerFlags());
+    rrFlags.put("placement_cloud", CLOUD);
+    rrFlags.put("placement_region", REGION);
+    rrFlags.put("placement_zone", ZONE);
+    rrFlags.put("placement_uuid", RR_UUID);
+    int rrIndex = miniCluster.getNumTServers();
+    miniCluster.startTServer(rrFlags);
+    miniCluster.waitForTabletServers(rrIndex + 1);
+
+    // Configure cluster: live placement (default UUID) + read replica placement.
+    CloudInfoPB cloudInfo = CloudInfoPB.newBuilder()
+        .setPlacementCloud(CLOUD)
+        .setPlacementRegion(REGION)
+        .setPlacementZone(ZONE)
+        .build();
+    CommonNet.PlacementBlockPB placementBlock = CommonNet.PlacementBlockPB.newBuilder()
+        .setCloudInfo(cloudInfo)
+        .setMinNumReplicas(1)
+        .build();
+
+    CommonNet.PlacementInfoPB livePlacement = CommonNet.PlacementInfoPB.newBuilder()
+        .addPlacementBlocks(placementBlock)
+        .setNumReplicas(3)
+        .setPlacementUuid(ByteString.copyFromUtf8(""))
+        .build();
+    CommonNet.PlacementInfoPB rrPlacement = CommonNet.PlacementInfoPB.newBuilder()
+        .addPlacementBlocks(placementBlock)
+        .setNumReplicas(1)
+        .setPlacementUuid(ByteString.copyFromUtf8(RR_UUID))
+        .build();
+
+    new ModifyClusterConfigLiveReplicas(client, livePlacement).doCall();
+    new ModifyClusterConfigReadReplicas(client, Arrays.asList(rrPlacement)).doCall();
+
+    final int LB_WAIT_TIME_MS = 120 * 1000;
+    assertTrue("Load balancer did not become active",
+        client.waitForLoadBalancerActive(LB_WAIT_TIME_MS));
+    assertTrue("Load balancer did not become idle",
+        client.waitForLoadBalancerIdle(LB_WAIT_TIME_MS));
+
+    // Verify the RR tserver is actually a read replica.
+    try (Connection rrConn = getConnectionBuilder().withTServer(rrIndex).connect();
+         Statement stmt = rrConn.createStatement()) {
+      String rrHost = miniCluster.getPostgresContactPoints().get(rrIndex).getHostName();
+      java.sql.ResultSet rs = stmt.executeQuery("SELECT host, node_type FROM yb_servers()");
+      boolean foundRR = false;
+      while (rs.next()) {
+        if (rs.getString("host").trim().equals(rrHost)) {
+          assertEquals("Expected read replica node_type for " + rrHost,
+              "read_replica", rs.getString("node_type").trim());
+          foundRR = true;
+          break;
+        }
+      }
+      assertTrue("RR tserver not found in yb_servers()", foundRR);
+    }
+
+    // Case 1: LISTEN and NOTIFY both on the read replica node.
+    LOG.info("Case 1: LISTEN and NOTIFY both on read replica");
+    try (Connection rrListener = getConnectionBuilder().withTServer(rrIndex).connect();
+         Connection rrNotifier = getConnectionBuilder().withTServer(rrIndex).connect()) {
+      try (Statement stmt = rrListener.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+      }
+      try (Statement stmt = rrNotifier.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'rr_to_rr'");
+      }
+      waitForNotification(rrListener, CHANNEL, "rr_to_rr");
+    }
+
+    // Case 2: LISTEN on read replica, NOTIFY on primary.
+    LOG.info("Case 2: LISTEN on read replica, NOTIFY on primary");
+    try (Connection rrListener = getConnectionBuilder().withTServer(rrIndex).connect();
+         Connection primaryNotifier = getConnectionBuilder().withTServer(0).connect()) {
+      try (Statement stmt = rrListener.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+      }
+      try (Statement stmt = primaryNotifier.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'primary_to_rr'");
+      }
+      waitForNotification(rrListener, CHANNEL, "primary_to_rr");
+    }
+
+    // Case 3: LISTEN on primary, NOTIFY on read replica.
+    LOG.info("Case 3: LISTEN on primary, NOTIFY on read replica");
+    try (Connection primaryListener = getConnectionBuilder().withTServer(0).connect();
+         Connection rrNotifier = getConnectionBuilder().withTServer(rrIndex).connect()) {
+      try (Statement stmt = primaryListener.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+      }
+      try (Statement stmt = rrNotifier.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'rr_to_primary'");
+      }
+      waitForNotification(primaryListener, CHANNEL, "rr_to_primary");
     }
   }
 
