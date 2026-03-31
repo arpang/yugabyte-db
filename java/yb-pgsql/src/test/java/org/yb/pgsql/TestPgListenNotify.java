@@ -319,7 +319,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       }
 
       List<PGNotification> received =
-          waitAndCollectNotifications(listenerConn, CHANNEL, "sentinel");
+          waitForNotification(listenerConn, CHANNEL, "sentinel");
       for (PGNotification n : received) {
         assertTrue("Should not receive notification from rolled-back subtransaction, got: "
             + n.getParameter(), !n.getParameter().equals("subtxn_abort"));
@@ -380,7 +380,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         stmt.execute("COMMIT");
       }
 
-      List<PGNotification> allNotifs = waitAndCollectNotifications(
+      List<PGNotification> allNotifs = waitForNotification(
           listenerConn, CHANNEL, "msg_" + (numNotifications - 1));
       assertEquals("Expected all notifications to be delivered",
           numNotifications, allNotifs.size());
@@ -415,37 +415,12 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
-   * Polls the given connection for notifications by executing "SELECT 1" and
-   * checking for notifications after each attempt. Asserts that a notification
-   * with the expected channel and payload is received within the timeout.
+   * Polls the given connection for notifications by executing "SELECT 1",
+   * collecting all received notifications until one matching the expected
+   * channel and payload is found. Returns the complete list of notifications
+   * received (including the match).
    */
-  private void waitForNotification(Connection connection, String expectedChannel,
-      String expectedPayload) throws Exception {
-    PGNotification[] notifications = null;
-    PGConnection pgConecction = connection.unwrap(PGConnection.class);
-    try (Statement stmt = connection.createStatement()) {
-      for (int attempt = 0; attempt < 30; attempt++) {
-        // The JDBC driver fetches notifications as a side-effect of executing a query.
-        stmt.execute("SELECT 1");
-        notifications = pgConecction.getNotifications();
-        if (notifications != null && notifications.length > 0) {
-          break;
-        }
-        Thread.sleep(500);
-      }
-    }
-    assertNotNull("Expected to receive a notification", notifications);
-    assertTrue("Expected at least one notification", notifications.length > 0);
-    assertEquals(expectedChannel, notifications[0].getName());
-    assertEquals(expectedPayload, notifications[0].getParameter());
-  }
-
-  /**
-   * Polls the given connection for notifications, collecting all received
-   * notifications until one matching the expected channel and payload is found.
-   * Returns the complete list of notifications received (including the match).
-   */
-  private List<PGNotification> waitAndCollectNotifications(Connection connection,
+  private List<PGNotification> waitForNotification(Connection connection,
       String expectedChannel, String expectedPayload) throws Exception {
     List<PGNotification> allNotifications = new ArrayList<>();
     PGConnection pgConn = connection.unwrap(PGConnection.class);
