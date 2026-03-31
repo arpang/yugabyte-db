@@ -388,8 +388,9 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       try (Statement stmt = notifierConn.createStatement()) {
         stmt.execute("BEGIN");
         for (int i = 0; i < numNotifications; i++) {
-          stmt.execute("NOTIFY " + CHANNEL + ", 'msg_" + i + "'");
+          stmt.addBatch("NOTIFY " + CHANNEL + ", 'msg_" + i + "'");
         }
+        stmt.executeBatch();
         stmt.execute("COMMIT");
       }
 
@@ -439,7 +440,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     PGConnection pgConn = connection.unwrap(PGConnection.class);
     boolean found = false;
     try (Statement stmt = connection.createStatement()) {
-      for (int attempt = 0; attempt < 60 && !found; attempt++) {
+      for (int attempt = 0; attempt < 75 && !found; attempt++) {
         stmt.execute("SELECT 1");
         PGNotification[] notifications = pgConn.getNotifications();
         if (notifications != null) {
@@ -451,7 +452,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
             }
           }
         }
-        if (!found) Thread.sleep(500);
+        if (!found) Thread.sleep(200);
       }
     }
     assertTrue("Expected to receive notification on channel '" + expectedChannel
