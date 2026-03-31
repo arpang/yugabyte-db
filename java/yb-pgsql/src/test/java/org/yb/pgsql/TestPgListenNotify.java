@@ -295,6 +295,56 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
+   * Verifies LISTEN behavior inside subtransactions:
+   *   - LISTEN inside a committed subtransaction (RELEASE SAVEPOINT) takes effect
+   *     and the connection receives notifications after COMMIT.
+   *   - LISTEN inside a rolled-back subtransaction (ROLLBACK TO SAVEPOINT) is
+   *     cancelled and the connection does NOT receive notifications after COMMIT.
+   */
+  @Test
+  public void testListenInSubtransaction() throws Exception {
+    // Case 1: LISTEN in a committed subtransaction -- should receive notifications.
+    try (Connection listenerConn = getConnectionBuilder().connect();
+         Connection notifierConn = getConnectionBuilder().connect()) {
+      try (Statement stmt = listenerConn.createStatement()) {
+        stmt.execute("BEGIN");
+        stmt.execute("SAVEPOINT sp1");
+        stmt.execute("LISTEN " + CHANNEL);
+        stmt.execute("RELEASE SAVEPOINT sp1");
+        stmt.execute("COMMIT");
+      }
+      try (Statement stmt = notifierConn.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'subtxn_listen_commit'");
+      }
+      waitForNotification(listenerConn, CHANNEL, "subtxn_listen_commit");
+    }
+
+    // Case 2: LISTEN in a rolled-back subtransaction -- should NOT receive notifications.
+    try (Connection listenerConn = getConnectionBuilder().connect();
+         Connection notifierConn = getConnectionBuilder().connect()) {
+      try (Statement stmt = listenerConn.createStatement()) {
+        stmt.execute("BEGIN");
+        stmt.execute("SAVEPOINT sp2");
+        stmt.execute("LISTEN " + CHANNEL);
+        stmt.execute("ROLLBACK TO SAVEPOINT sp2");
+        stmt.execute("COMMIT");
+      }
+      try (Statement stmt = notifierConn.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'subtxn_listen_abort'");
+      }
+
+      Thread.sleep(15000);
+      PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
+      try (Statement stmt = listenerConn.createStatement()) {
+        stmt.execute("SELECT 1");
+      }
+      PGNotification[] notifs = pgConn.getNotifications();
+      assertTrue("Should not receive notifications when LISTEN was in rolled-back subtransaction",
+          notifs == null || notifs.length == 0);
+    }
+  }
+
+  /**
    * Verifies NOTIFY behavior inside subtransactions:
    *   - A notification sent inside a committed subtransaction (RELEASE SAVEPOINT)
    *     is delivered to the listener.
