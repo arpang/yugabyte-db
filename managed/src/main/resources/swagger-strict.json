@@ -2436,6 +2436,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -2873,7 +2874,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -4044,7 +4047,7 @@
     "BackupScheduleToggleParams" : {
       "properties" : {
         "runImmediateBackupOnResume" : {
-          "description" : "Run a full or incremental backup if required when resuming a stopped schedule. When false (default), the full backup will instead run at its normally scheduled time.",
+          "description" : "Run a full or incremental backup if required when resuming a stopped schedule. When false, the full backup will instead run at its normally scheduled time. When true, the full backup will run immediately, and then the schedule will continue as normal. If not specified, the value is determined by the yb.backup.run_immediate_backup_on_resume runtime config.",
           "type" : "boolean"
         },
         "status" : {
@@ -5304,6 +5307,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -5741,7 +5745,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -8419,6 +8425,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -8856,7 +8863,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -9228,6 +9237,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -9671,7 +9681,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -10756,6 +10768,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -11196,7 +11209,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -11491,6 +11506,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -11928,7 +11944,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -15569,6 +15587,26 @@
         "canRollbackCatalogUpgrade" : {
           "type" : "boolean"
         },
+        "mastersUpgradeCompleted" : {
+          "type" : "boolean"
+        },
+        "primaryClusterAZsCompleted" : {
+          "items" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "readReplicaClusterAZsCompleted" : {
+          "additionalProperties" : {
+            "items" : {
+              "format" : "uuid",
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "type" : "object"
+        },
         "softwareVersion" : {
           "type" : "string"
         },
@@ -15938,6 +15976,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -16375,7 +16414,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -16624,6 +16665,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -17061,7 +17103,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -17660,6 +17704,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -18103,7 +18148,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -18508,6 +18555,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -18945,7 +18993,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -19661,6 +19711,20 @@
       ],
       "type" : "object"
     },
+    "ResumeCanaryUpgradeParams" : {
+      "description" : "Parameters to resume a paused canary software upgrade",
+      "properties" : {
+        "taskUUID" : {
+          "description" : "UUID of the paused upgrade task to resume",
+          "format" : "uuid",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "taskUUID"
+      ],
+      "type" : "object"
+    },
     "Role" : {
       "properties" : {
         "createdOn" : {
@@ -20042,6 +20106,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -20479,7 +20544,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -21143,7 +21210,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -21562,7 +21631,9 @@
               "CheckNodeCommandExecution",
               "CheckNodeDataDirDiskSpace",
               "OperatorImportResource",
-              "UpdateParentTaskParams"
+              "UpdateParentTaskParams",
+              "SaveSoftwareUpgradeProgress",
+              "CheckDuplicateInstance"
             ],
             "type" : "string"
           },
@@ -22130,7 +22201,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -22471,6 +22544,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -22908,7 +22982,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -23629,6 +23705,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -24066,7 +24143,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -24474,7 +24553,8 @@
               "Failure",
               "Unknown",
               "Abort",
-              "Aborted"
+              "Aborted",
+              "Paused"
             ],
             "type" : "string"
           },
@@ -24962,6 +25042,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -25399,7 +25480,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -25647,6 +25730,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -26084,7 +26168,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -26474,6 +26560,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -26911,7 +26998,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -27123,6 +27212,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -27560,7 +27650,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -27772,6 +27864,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -28209,7 +28302,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -28931,6 +29026,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -29368,7 +29464,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -30067,6 +30165,7 @@
             "Upgrading",
             "UpgradeFailed",
             "PreFinalize",
+            "Paused",
             "Finalizing",
             "FinalizeFailed",
             "RollingBack",
@@ -30504,7 +30603,9 @@
             "CheckNodeCommandExecution",
             "CheckNodeDataDirDiskSpace",
             "OperatorImportResource",
-            "UpdateParentTaskParams"
+            "UpdateParentTaskParams",
+            "SaveSoftwareUpgradeProgress",
+            "CheckDuplicateInstance"
           ],
           "type" : "string"
         },
@@ -45391,6 +45492,67 @@
           }
         ],
         "summary" : "Restart Universe",
+        "tags" : [
+          "Universe Upgrades Management"
+        ]
+      }
+    },
+    "/api/v1/customers/{cUUID}/universes/{uniUUID}/upgrade/resume_canary" : {
+      "post" : {
+        "description" : "WARNING: This is a preview API that could change. Resumes a paused canary software upgrade. The request body must contain the task UUID of the paused upgrade.",
+        "operationId" : "resumeCanarySoftwareUpgrade",
+        "parameters" : [
+          {
+            "format" : "uuid",
+            "in" : "path",
+            "name" : "cUUID",
+            "required" : true,
+            "type" : "string"
+          },
+          {
+            "format" : "uuid",
+            "in" : "path",
+            "name" : "uniUUID",
+            "required" : true,
+            "type" : "string"
+          },
+          {
+            "in" : "query",
+            "name" : "request",
+            "required" : false
+          },
+          {
+            "description" : "Resume Canary Upgrade Params",
+            "in" : "body",
+            "name" : "resume_canary_upgrade_params",
+            "required" : true,
+            "schema" : {
+              "$ref" : "#/definitions/ResumeCanaryUpgradeParams"
+            }
+          }
+        ],
+        "responses" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/YBPTask"
+            }
+          }
+        },
+        "responsesObject" : {
+          "200" : {
+            "description" : "successful operation",
+            "schema" : {
+              "$ref" : "#/definitions/YBPTask"
+            }
+          }
+        },
+        "security" : [
+          {
+            "apiKeyAuth" : [ ]
+          }
+        ],
+        "summary" : "Resume canary software upgrade",
         "tags" : [
           "Universe Upgrades Management"
         ]

@@ -15,8 +15,7 @@
 
 #include <cstdint>
 
-#include "opentelemetry/context/context.h"
-#include "opentelemetry/trace/tracer.h"
+#include "yb/util/dist_trace_fwd.h"
 
 namespace yb::dist_trace {
 
@@ -24,6 +23,7 @@ void InitDistTrace(int64_t process_pid, opentelemetry::nostd::string_view node_u
 void CleanupDistTrace();
 opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> GetDistTracer();
 bool IsDistTraceEnabled();
-opentelemetry::context::Context ExtractTraceParent(const char* traceparent);
+opentelemetry::trace::SpanContext GetTraceparentSpanContext(const char* traceparent);
+bool IsSpanContextValidAndRemote(const opentelemetry::trace::SpanContext& span_context);
 
 }  // namespace yb::dist_trace

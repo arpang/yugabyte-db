@@ -607,6 +607,15 @@ YbcStatus YBCPgDmlExecWriteOp(YbcPgStatement handle, int32_t *rows_affected_coun
 // This function returns the tuple id (ybctid) of a Postgres tuple.
 YbcStatus YBCPgBuildYBTupleId(const YbcPgYBTupleIdDescriptor* data, uint64_t *ybctid);
 
+// Decode primary key column values by calling DecodePKColumnsFromBasectid.
+YbcStatus YBCPgDecodePKColumnsFromBasectid(
+    YbcPgOid database_oid,
+    YbcPgOid table_relfilenode_oid,
+    const char *basectid_data,
+    int64_t basectid_len,
+    int num_attrs,
+    YbcPgAttrValueDescriptor *attrs);
+
 // DB Operations: WHERE, ORDER_BY, GROUP_BY, etc.
 // + The following operations are run by DocDB.
 //   - Not yet
@@ -1091,11 +1100,11 @@ YbcStatus YBCQueryAutoAnalyze(
 // PgGlobalViewRead: scan interface for federated YugabyteDB global views.
 // ---------------------------------------------------------------------------
 
-YbcStatus YBCPgNewGlobalViewRead(const char* query, YbcPgGlobalViewRead* handle);
+YbcStatus YBCPgNewGlobalViewRead(YbcPgGlobalViewRead* handle);
 void YBCPgGlobalViewReadResetScan(YbcPgGlobalViewRead handle);
 void YBCPgGlobalViewReadSetParams(
     YbcPgGlobalViewRead handle, int num_params, const char** param_values);
-YbcRemotePgExecResult YBCPgGlobalViewReadExecScan(YbcPgGlobalViewRead handle);
+YbcRemotePgExecResult YBCPgGlobalViewReadExecScan(YbcPgGlobalViewRead handle, const char *query);
 void YBCPgGlobalViewReadDestroy(YbcPgGlobalViewRead handle);
 bool YBCPgGlobalViewReadIsEof(YbcPgGlobalViewRead handle);
 

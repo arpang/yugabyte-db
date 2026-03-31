@@ -534,6 +534,11 @@ class PgApiImpl {
 
   Result<dockv::KeyBytes> BuildTupleId(const YbcPgYBTupleIdDescriptor& descr);
 
+  // Decode primary key column values from a serialized ybctid (DocKey).
+  Status DecodePKColumnsFromBasectid(
+      const PgObjectId& table_id, Slice basectid,
+      int num_attrs, YbcPgAttrValueDescriptor* attrs);
+
   // DB Operations: SET, WHERE, ORDER_BY, GROUP_BY, etc.
   // + The following operations are run by DocDB.
   //   - API for "set_clause" (not yet implemented).
@@ -893,7 +898,8 @@ class PgApiImpl {
 
   Status TriggerRelcacheInitConnection(const std::string& dbname);
 
-  Status NewGlobalViewRead(const char* query, PgGlobalViewRead** handle);
+  Status NewGlobalViewRead(PgGlobalViewRead** handle);
+  YbcRemotePgExecResult Exec(PgGlobalViewRead* handle, std::string_view query);
 
   //----------------------------------------------------------------------------------------------
   // Advisory Locks.

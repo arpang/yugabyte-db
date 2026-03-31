@@ -1807,6 +1807,24 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
           "Time to sleep after upgrading tservers in each AZ",
           ConfDataType.LongType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Integer> sleepAfterMasterRestartMs =
+      new ConfKeyInfo<>(
+          "yb.upgrade.sleep_after_master_restart_ms",
+          ScopeType.UNIVERSE,
+          "Delay between master restarts in rolling operations",
+          "Default delay (ms) between master restarts in rolling operations (Delay Between"
+              + " Servers). Used when task params do not override.",
+          ConfDataType.IntegerType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Integer> sleepAfterTServerRestartMs =
+      new ConfKeyInfo<>(
+          "yb.upgrade.sleep_after_tserver_restart_ms",
+          ScopeType.UNIVERSE,
+          "Delay between tserver restarts in rolling operations",
+          "Default delay (ms) between tserver restarts in rolling operations (Delay Between"
+              + " Servers). Used when task params do not override.",
+          ConfDataType.IntegerType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Boolean> enableNewPerfAdvisorUI =
       new ConfKeyInfo<>(
           "yb.ui.feature_flags.enable_new_perf_advisor_ui",
@@ -1850,5 +1868,16 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
           "Set numer of nodes to move in a given batch during full move. Default is 0 which means"
               + " no batching, i.e. move all pods in a single go",
           ConfDataType.LongType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> runImmediateBackupOnResume =
+      new ConfKeyInfo<>(
+          "yb.backup.run_immediate_backup_on_resume",
+          ScopeType.UNIVERSE,
+          "Run Immediate Backup On Schedule Resume",
+          "When true, resumes a stopped backup schedule by running a full or incremental backup"
+              + " immediately instead of waiting for the next scheduled time. This will only change"
+              + " the default functionality, and which can still be overwritten with an api"
+              + " payload.",
+          ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
 }

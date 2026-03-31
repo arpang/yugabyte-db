@@ -1009,7 +1009,7 @@ runPlatform := {
   Project.extract(newState).runTask(runPlatformTask, newState)
 }
 
-libraryDependencies += "org.yb" % "yb-client" % "0.8.111-SNAPSHOT"
+libraryDependencies += "org.yb" % "yb-client" % "0.8.114-SNAPSHOT"
 libraryDependencies += "org.yb" % "ybc-client" % "2.2.0.4-b2"
 libraryDependencies += "org.yb" % "yb-perf-advisor" % "1.0.0-b35"
 
@@ -1022,6 +1022,7 @@ libraryDependencies ++= Seq(
 
 
 dependencyOverrides += "org.reflections" % "reflections" % "0.10.2"
+dependencyOverrides += "io.netty" % "netty-all" % "4.1.128.Final"
 
 // Following library versions for jersey, jakarta glassfish, jakarta ws.rs and
 // jackson-module-jaxb-annotations are needed by the openapi java client. The

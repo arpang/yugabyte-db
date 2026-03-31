@@ -60,6 +60,8 @@ DECLARE_uint32(ysql_oid_cache_prefetch_size);
 DECLARE_string(ysql_pg_conf_csv);
 DECLARE_int32(ysql_sequence_cache_minval);
 DECLARE_uint64(ysql_cdc_active_replication_slot_window_ms);
+DECLARE_uint32(wait_for_ysql_backends_catalog_version_client_master_rpc_timeout_ms);
+DECLARE_uint64(master_ysql_operation_lease_ttl_ms);
 
 DECLARE_bool(TEST_force_get_checkpoint_from_cdc_state);
 DECLARE_int32(TEST_pause_at_start_of_setup_replication_group_ms);
@@ -1458,6 +1460,11 @@ TEST_F(XClusterDDLReplicationTest, CreateColocatedIndexes) {
 
   // Pause DDL replication to test that we handle the index data correctly.
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_xcluster_ddl_queue_handler_fail_ddl) = true;
+
+  ANNOTATE_UNPROTECTED_WRITE(
+      FLAGS_wait_for_ysql_backends_catalog_version_client_master_rpc_timeout_ms) = 20000;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_master_ysql_operation_lease_ttl_ms) = 10000;
+
   // Create index on column a and insert some more rows.
   ASSERT_OK(producer_conn.ExecuteFormat("CREATE INDEX ON $0(a DESC)", kNewTableName));
   ASSERT_OK(producer_conn.ExecuteFormat(
@@ -2450,8 +2457,53 @@ TEST_F(XClusterDDLReplicationSwitchoverTest, PgCron) {
 
 using XClusterDDLReplicationFailoverTest = XClusterDDLReplicationSwitchoverTest;
 
-TEST_F(XClusterDDLReplicationFailoverTest, FailoverWithPendingAlterDDLs) {
-  // Set up replication from A to B.
+YB_DEFINE_ENUM(FailoverMethod, (kManualWithPITR)(kOnDemandSnapshot));
+
+class XClusterDDLReplicationFailoverParamTest
+    : public XClusterDDLReplicationSwitchoverTest,
+      public testing::WithParamInterface<FailoverMethod> {
+ public:
+  Status MaybeEnablePITR() {
+    if (GetParam() == FailoverMethod::kManualWithPITR) {
+      return EnablePITROnClusters();
+    }
+    return Status::OK();
+  }
+
+  Status PerformFailover() {
+    auto namespace_id_B =
+        VERIFY_RESULT(XClusterTestUtils::GetNamespaceId(*cluster_B_->client_, namespace_name));
+
+    if (GetParam() == FailoverMethod::kOnDemandSnapshot) {
+      LOG(INFO) << "===== Failover via on-demand snapshot";
+      RETURN_NOT_OK(XClusterFailover(kReplicationGroupId));
+      RETURN_NOT_OK(WaitForReadOnlyModeOnAllTServers(
+          namespace_id_B, /*is_read_only=*/false, &consumer_cluster_));
+      return VerifyUniverseReplicationDeleted(
+          consumer_cluster_.mini_cluster_.get(), consumer_client(), kReplicationGroupId,
+          kRpcTimeout * 1000);
+    }
+
+    LOG(INFO) << "===== Failover via manual PITR: pausing replication";
+    RETURN_NOT_OK(ToggleUniverseReplication(
+        consumer_cluster(), consumer_client(), kReplicationGroupId, /*is_enabled=*/false));
+
+    auto safe_time = VERIFY_RESULT(GetXClusterSafeTime());
+    LOG(INFO) << "===== Failover via manual PITR: restoring B to safe time " << safe_time;
+    RETURN_NOT_OK(PerformPITROnConsumerCluster(safe_time));
+
+    LOG(INFO) << "===== Failover via manual PITR: deleting replication";
+    RETURN_NOT_OK(DeleteUniverseReplication(
+        kReplicationGroupId, consumer_client(), consumer_cluster_.mini_cluster_.get()));
+    return WaitForInValidSafeTimeOnAllTServers(namespace_id_B);
+  }
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    FailoverMethod, XClusterDDLReplicationFailoverParamTest,
+    ::testing::Values(FailoverMethod::kManualWithPITR, FailoverMethod::kOnDemandSnapshot));
+
+TEST_P(XClusterDDLReplicationFailoverParamTest, FailoverWithPendingAlterDDLs) {
   ASSERT_OK(SetUpClustersAndReplication());
 
   auto& sync_point = *SyncPoint::GetInstance();
@@ -2459,12 +2511,10 @@ TEST_F(XClusterDDLReplicationFailoverTest, FailoverWithPendingAlterDDLs) {
       {{.predecessor = "XClusterDDLQueueHandler::DDLQueryProcessed",
         .successor = "FailoverWithPendingAlterDDLs::WaitForDDLToExecute"}});
 
-  ASSERT_OK(EnablePITROnClusters());
+  ASSERT_OK(MaybeEnablePITR());
 
   auto ddl_queue_table_A = ASSERT_RESULT(GetYsqlTable(
       cluster_A_, namespace_name, xcluster::kDDLQueuePgSchemaName, xcluster::kDDLQueueTableName));
-  auto ddl_queue_table_B = ASSERT_RESULT(GetYsqlTable(
-      cluster_B_, namespace_name, xcluster::kDDLQueuePgSchemaName, xcluster::kDDLQueueTableName));
 
   LOG(INFO) << "===== Create table and write rows";
   auto conn_A = ASSERT_RESULT(cluster_A_->ConnectToDB(namespace_name));
@@ -2505,30 +2555,9 @@ TEST_F(XClusterDDLReplicationFailoverTest, FailoverWithPendingAlterDDLs) {
   TEST_SYNC_POINT("FailoverWithPendingAlterDDLs::WaitForDDLToExecute");
   sync_point.DisableProcessing();
 
-  const auto initial_safe_time = ASSERT_RESULT(GetXClusterSafeTime());
-  LOG(INFO) << "===== xCluster safe time before pause: " << initial_safe_time;
+  ASSERT_OK(PerformFailover());
 
-  LOG(INFO) << "===== Failover: Pausing Replication";
-  ASSERT_OK(ToggleUniverseReplication(
-      consumer_cluster(), consumer_client(), kReplicationGroupId, /*is_enabled=*/false));
-
-  const auto safe_time = ASSERT_RESULT(GetXClusterSafeTime());
-  LOG(INFO) << "===== xCluster safe time after pause: " << safe_time;
-  // Safe time must be greater since we would have bumped it up to the commit time of the table
-  // rename before pausing the ddl_queue poller.
-  ASSERT_GT(safe_time, initial_safe_time);
-
-  LOG(INFO) << "===== Failover: Restoring B to xCluster safe time";
-  ASSERT_OK(PerformPITROnConsumerCluster(safe_time));
-
-  LOG(INFO) << "===== Failover: Deleting replication from A to B";
-  ASSERT_OK(DeleteUniverseReplication(
-      kReplicationGroupId, consumer_client(), consumer_cluster_.mini_cluster_.get()));
-  auto namespace_id_B =
-      ASSERT_RESULT(XClusterTestUtils::GetNamespaceId(*cluster_B_->client_, namespace_name));
-  ASSERT_OK(WaitForInValidSafeTimeOnAllTServers(namespace_id_B));
-
-  LOG(INFO) << "===== Failover: Verifying table on B";
+  LOG(INFO) << "===== Verifying table on B";
   auto conn_B = ASSERT_RESULT(cluster_B_->ConnectToDB(namespace_name));
 
   ASSERT_NOK_STR_CONTAINS(
@@ -2543,7 +2572,6 @@ TEST_F(XClusterDDLReplicationFailoverTest, ColocatedFailoverWithPendingCreate) {
   auto params = XClusterDDLReplicationTestBase::kDefaultParams;
   params.is_colocated = true;
   ASSERT_OK(SetUpClustersAndReplication(params));
-  ASSERT_OK(EnablePITROnClusters());
 
   // Increase the retention interval to ensure nothing is cleaned up early.
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_timestamp_history_retention_interval_sec) = 100 * 60 * 60;
@@ -2567,22 +2595,20 @@ TEST_F(XClusterDDLReplicationFailoverTest, ColocatedFailoverWithPendingCreate) {
   ASSERT_OK(conn_A.ExecuteFormat("CREATE TABLE $0 (key int primary key)", unreplicated_table_name));
   ASSERT_OK(conn_A.ExecuteFormat(
       "INSERT INTO $0 SELECT i FROM generate_series(1, 200) as i", unreplicated_table_name));
-  const auto initial_data2 = ASSERT_RESULT(
-      conn_A.FetchAllAsString(Format("SELECT * FROM $0 ORDER BY key", unreplicated_table_name)));
   ASSERT_OK(WaitForSafeTimeToAdvanceToNowWithoutDDLQueue());
   ASSERT_NOK_STR_CONTAINS(
       conn_B.FetchAllAsString(Format("SELECT * FROM $0 ORDER BY key", unreplicated_table_name)),
       "does not exist");
 
-  // Failover to B.
-  ASSERT_OK(ToggleUniverseReplication(
-      consumer_cluster(), consumer_client(), kReplicationGroupId, /*is_enabled=*/false));
-  ASSERT_OK(PerformPITROnConsumerCluster(ASSERT_RESULT(GetXClusterSafeTime())));
-  ASSERT_OK(DeleteUniverseReplication(
-      kReplicationGroupId, consumer_client(), consumer_cluster_.mini_cluster_.get()));
+  // Failover to B using xCluster failover API.
   auto namespace_id_B =
       ASSERT_RESULT(XClusterTestUtils::GetNamespaceId(*cluster_B_->client_, namespace_name));
-  ASSERT_OK(WaitForInValidSafeTimeOnAllTServers(namespace_id_B));
+  ASSERT_OK(XClusterFailover(kReplicationGroupId));
+  ASSERT_OK(WaitForReadOnlyModeOnAllTServers(
+      namespace_id_B, /*is_read_only=*/false, &consumer_cluster_));
+  ASSERT_OK(VerifyUniverseReplicationDeleted(
+      consumer_cluster_.mini_cluster_.get(), consumer_client(), kReplicationGroupId,
+      kRpcTimeout * 1000));
 
   // Verify that first table still exists with all its data.
   result = ASSERT_RESULT(conn_B.FetchAllAsString("SELECT * FROM my_table ORDER BY key"));
