@@ -263,7 +263,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         pollStmt.execute("SELECT 1");
       }
       PGNotification[] stale = pgConn.getNotifications();
-      assertNull("Expected no spurious notifications after restore", stale);
+      assertTrue("Expected no spurious notifications after restore",
+          stale == null || stale.length == 0);
 
       // Send a new NOTIFY on the restored database and verify delivery.
       try (Connection notifierConn = getConnectionBuilder().withDatabase(restoredDb).connect();
