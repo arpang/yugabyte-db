@@ -24,6 +24,8 @@ import com.yugabyte.PGNotification;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.json.JSONObject;
@@ -280,6 +282,138 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
+   * Verifies NOTIFY behavior inside subtransactions:
+   *   - A notification sent inside a committed subtransaction (RELEASE SAVEPOINT)
+   *     is delivered to the listener.
+   *   - A notification sent inside a rolled-back subtransaction (ROLLBACK TO SAVEPOINT)
+   *     is NOT delivered to the listener.
+   */
+  @Test
+  public void testNotifyInSubtransaction() throws Exception {
+    try (Connection listenerConn = getConnectionBuilder().connect();
+         Connection notifierConn = getConnectionBuilder().connect()) {
+      try (Statement stmt = listenerConn.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+      }
+
+      // Subtransaction that commits: notification should be delivered.
+      try (Statement stmt = notifierConn.createStatement()) {
+        stmt.execute("BEGIN");
+        stmt.execute("SAVEPOINT sp1");
+        stmt.execute("NOTIFY " + CHANNEL + ", 'subtxn_commit'");
+        stmt.execute("RELEASE SAVEPOINT sp1");
+        stmt.execute("COMMIT");
+      }
+      waitForNotification(listenerConn, CHANNEL, "subtxn_commit");
+
+      // Subtransaction that aborts: notification should NOT be delivered.
+      // A sentinel notification is sent after the rollback to confirm the delivery path.
+      try (Statement stmt = notifierConn.createStatement()) {
+        stmt.execute("BEGIN");
+        stmt.execute("SAVEPOINT sp2");
+        stmt.execute("NOTIFY " + CHANNEL + ", 'subtxn_abort'");
+        stmt.execute("ROLLBACK TO SAVEPOINT sp2");
+        stmt.execute("NOTIFY " + CHANNEL + ", 'sentinel'");
+        stmt.execute("COMMIT");
+      }
+
+      List<PGNotification> received =
+          waitAndCollectNotifications(listenerConn, CHANNEL, "sentinel");
+      for (PGNotification n : received) {
+        assertTrue("Should not receive notification from rolled-back subtransaction, got: "
+            + n.getParameter(), !n.getParameter().equals("subtxn_abort"));
+      }
+    }
+  }
+
+  /**
+   * Verifies that a connection receives its own notifications (self-notify).
+   */
+  @Test
+  public void testSelfNotify() throws Exception {
+    try (Connection conn = getConnectionBuilder().connect()) {
+      try (Statement stmt = conn.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+        stmt.execute("NOTIFY " + CHANNEL + ", 'self_notify'");
+      }
+      waitForNotification(conn, CHANNEL, "self_notify");
+    }
+  }
+
+  /**
+   * Verifies that LISTEN and NOTIFY issued within the same transaction
+   * result in the notification being delivered after COMMIT.
+   */
+  @Test
+  public void testListenAndNotifyInSameTransaction() throws Exception {
+    try (Connection conn = getConnectionBuilder().connect()) {
+      try (Statement stmt = conn.createStatement()) {
+        stmt.execute("BEGIN");
+        stmt.execute("LISTEN " + CHANNEL);
+        stmt.execute("NOTIFY " + CHANNEL + ", 'same_txn'");
+        stmt.execute("COMMIT");
+      }
+      waitForNotification(conn, CHANNEL, "same_txn");
+    }
+  }
+
+  /**
+   * Sends a large number of notifications in a single transaction and verifies
+   * that all are delivered in order to the listener.
+   */
+  @Test
+  public void testLargeNumberOfNotifiesInTransaction() throws Exception {
+    final int numNotifications = 500;
+
+    try (Connection listenerConn = getConnectionBuilder().connect();
+         Connection notifierConn = getConnectionBuilder().connect()) {
+      try (Statement stmt = listenerConn.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+      }
+
+      try (Statement stmt = notifierConn.createStatement()) {
+        stmt.execute("BEGIN");
+        for (int i = 0; i < numNotifications; i++) {
+          stmt.execute("NOTIFY " + CHANNEL + ", 'msg_" + i + "'");
+        }
+        stmt.execute("COMMIT");
+      }
+
+      List<PGNotification> allNotifs = waitAndCollectNotifications(
+          listenerConn, CHANNEL, "msg_" + (numNotifications - 1));
+      assertEquals("Expected all notifications to be delivered",
+          numNotifications, allNotifs.size());
+      for (int i = 0; i < numNotifications; i++) {
+        assertEquals(CHANNEL, allNotifs.get(i).getName());
+        assertEquals("msg_" + i, allNotifs.get(i).getParameter());
+      }
+    }
+  }
+
+  /**
+   * Verifies that a committed notification is still delivered to an active
+   * listener even after the notifier's backend is killed with SIGKILL.
+   */
+  @Test
+  public void testNotifyCommitAndNotifierCrash() throws Exception {
+    try (Connection listenerConn = getConnectionBuilder().connect()) {
+      try (Statement stmt = listenerConn.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+      }
+
+      Connection notifierConn = getConnectionBuilder().connect();
+      int notifierPid = getPgBackendPid(notifierConn);
+      try (Statement stmt = notifierConn.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'survive_crash'");
+      }
+      ProcessUtil.signalProcess(notifierPid, "KILL");
+      LOG.info("Crashed notifier backend PID: {}", notifierPid);
+
+      waitForNotification(listenerConn, CHANNEL, "survive_crash");
+    }
+  }
+
+  /**
    * Polls the given connection for notifications by executing "SELECT 1" and
    * checking for notifications after each attempt. Asserts that a notification
    * with the expected channel and payload is received within the timeout.
@@ -303,6 +437,37 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     assertTrue("Expected at least one notification", notifications.length > 0);
     assertEquals(expectedChannel, notifications[0].getName());
     assertEquals(expectedPayload, notifications[0].getParameter());
+  }
+
+  /**
+   * Polls the given connection for notifications, collecting all received
+   * notifications until one matching the expected channel and payload is found.
+   * Returns the complete list of notifications received (including the match).
+   */
+  private List<PGNotification> waitAndCollectNotifications(Connection connection,
+      String expectedChannel, String expectedPayload) throws Exception {
+    List<PGNotification> allNotifications = new ArrayList<>();
+    PGConnection pgConn = connection.unwrap(PGConnection.class);
+    boolean found = false;
+    try (Statement stmt = connection.createStatement()) {
+      for (int attempt = 0; attempt < 60 && !found; attempt++) {
+        stmt.execute("SELECT 1");
+        PGNotification[] notifications = pgConn.getNotifications();
+        if (notifications != null) {
+          for (PGNotification n : notifications) {
+            allNotifications.add(n);
+            if (n.getName().equals(expectedChannel)
+                && n.getParameter().equals(expectedPayload)) {
+              found = true;
+            }
+          }
+        }
+        if (!found) Thread.sleep(500);
+      }
+    }
+    assertTrue("Expected to receive notification on channel '" + expectedChannel
+        + "' with payload '" + expectedPayload + "'", found);
+    return allNotifications;
   }
 
   /**
