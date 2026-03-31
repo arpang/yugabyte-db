@@ -343,18 +343,31 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
 
   /**
    * Verifies that LISTEN and NOTIFY issued within the same transaction
-   * result in the notification being delivered after COMMIT.
+   * result in the notification being delivered after COMMIT, regardless
+   * of the order of LISTEN and NOTIFY within the transaction.
    */
   @Test
   public void testListenAndNotifyInSameTransaction() throws Exception {
+    // Case 1: LISTEN before NOTIFY.
     try (Connection conn = getConnectionBuilder().connect()) {
       try (Statement stmt = conn.createStatement()) {
         stmt.execute("BEGIN");
         stmt.execute("LISTEN " + CHANNEL);
-        stmt.execute("NOTIFY " + CHANNEL + ", 'same_txn'");
+        stmt.execute("NOTIFY " + CHANNEL + ", 'listen_first'");
         stmt.execute("COMMIT");
       }
-      waitForNotification(conn, CHANNEL, "same_txn");
+      waitForNotification(conn, CHANNEL, "listen_first");
+    }
+
+    // Case 2: NOTIFY before LISTEN.
+    try (Connection conn = getConnectionBuilder().connect()) {
+      try (Statement stmt = conn.createStatement()) {
+        stmt.execute("BEGIN");
+        stmt.execute("NOTIFY " + CHANNEL + ", 'notify_first'");
+        stmt.execute("LISTEN " + CHANNEL);
+        stmt.execute("COMMIT");
+      }
+      waitForNotification(conn, CHANNEL, "notify_first");
     }
   }
 
