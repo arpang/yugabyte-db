@@ -269,7 +269,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         stmt.execute("LISTEN " + CHANNEL);
       }
 
-      Thread.sleep(15000);
+      Thread.sleep(5000);
       PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
       try (Statement pollStmt = listenerConn.createStatement()) {
         pollStmt.execute("SELECT 1");
@@ -333,7 +333,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         stmt.execute("NOTIFY " + CHANNEL + ", 'subtxn_listen_abort'");
       }
 
-      Thread.sleep(15000);
+      Thread.sleep(5000);
       PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
       try (Statement stmt = listenerConn.createStatement()) {
         stmt.execute("SELECT 1");
@@ -642,17 +642,9 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     try (Connection rrConn = getConnectionBuilder().withTServer(rrIndex).connect();
          Statement stmt = rrConn.createStatement()) {
       String rrHost = miniCluster.getPostgresContactPoints().get(rrIndex).getHostName();
-      java.sql.ResultSet rs = stmt.executeQuery("SELECT host, node_type FROM yb_servers()");
-      boolean foundRR = false;
-      while (rs.next()) {
-        if (rs.getString("host").trim().equals(rrHost)) {
-          assertEquals("Expected read replica node_type for " + rrHost,
-              "read_replica", rs.getString("node_type").trim());
-          foundRR = true;
-          break;
-        }
-      }
-      assertTrue("RR tserver not found in yb_servers()", foundRR);
+      getSingleRow(stmt,
+          "SELECT 1 FROM yb_servers() WHERE host = '" + rrHost
+          + "' AND node_type = 'read_replica'");
     }
 
     // Case 1: LISTEN and NOTIFY both on the read replica node.
@@ -719,7 +711,9 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
             }
           }
         }
-        if (!found) Thread.sleep(200);
+        if (!found) {
+          Thread.sleep(200);
+        }
       }
     }
     assertTrue("Expected to receive notification on channel '" + expectedChannel
