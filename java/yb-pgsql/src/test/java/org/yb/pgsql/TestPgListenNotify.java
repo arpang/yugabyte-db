@@ -217,80 +217,46 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
-   * Backs up the source database, sends notifications on it, restores to a new database,
-   * then verifies that LISTEN/NOTIFY works on the restored database with no spurious
-   * notifications from the source.
+   * Verifies that a connection receives its own notifications (self-notify).
    */
   @Test
-  public void testListenNotifyAfterBackupRestore() throws Exception {
-    YBBackupUtil.setTSAddresses(miniCluster.getTabletServers());
-    YBBackupUtil.setMasterAddresses(masterAddresses);
-    YBBackupUtil.setPostgresContactPoint(miniCluster.getPostgresContactPoints().get(0));
-    YBBackupUtil.maybeStartYbControllers(miniCluster);
-
-    final String restoredDb = "restored_db";
-
-    try (Statement stmt = connection.createStatement()) {
-      stmt.execute("CREATE TABLE t (id INT PRIMARY KEY, val TEXT)");
-      stmt.execute("INSERT INTO t VALUES (1, 'hello'), (2, 'world')");
-    }
-
-    // Send notifications on the source database before backup.
-    try (Connection notifierConn = getConnectionBuilder().connect();
-         Statement stmt = notifierConn.createStatement()) {
-      stmt.execute("NOTIFY " + CHANNEL + ", 'before_backup'");
-    }
-
-    String backupDir = YBBackupUtil.getTempBackupDir();
-    String output = YBBackupUtil.runYbBackupCreate("--backup_location", backupDir,
-        "--keyspace", "ysql.yugabyte");
-    if (!TestUtils.useYbController()) {
-      backupDir = new JSONObject(output).getString("snapshot_url");
-    }
-
-    // Send more notifications after backup.
-    try (Connection notifierConn = getConnectionBuilder().connect();
-         Statement stmt = notifierConn.createStatement()) {
-      stmt.execute("NOTIFY " + CHANNEL + ", 'after_backup'");
-    }
-
-    YBBackupUtil.runYbBackupRestore(backupDir, "--keyspace", "ysql." + restoredDb);
-
-    // Verify data was restored.
-    try (Connection restoredConn = getConnectionBuilder().withDatabase(restoredDb).connect();
-         Statement stmt = restoredConn.createStatement()) {
-      assertQuery(stmt, "SELECT * FROM t ORDER BY id",
-          new Row(1, "hello"), new Row(2, "world"));
-    }
-
-    // LISTEN on the restored database -- no stale notifications should arrive.
-    try (Connection listenerConn = getConnectionBuilder().withDatabase(restoredDb).connect()) {
-      try (Statement stmt = listenerConn.createStatement()) {
+  public void testSelfNotify() throws Exception {
+    try (Connection conn = getConnectionBuilder().connect()) {
+      try (Statement stmt = conn.createStatement()) {
         stmt.execute("LISTEN " + CHANNEL);
+        stmt.execute("NOTIFY " + CHANNEL + ", 'self_notify'");
       }
+      waitForNotification(conn, CHANNEL, "self_notify");
+    }
+  }
 
-      Thread.sleep(5000);
-      PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
-      try (Statement pollStmt = listenerConn.createStatement()) {
-        pollStmt.execute("SELECT 1");
+  /**
+   * Verifies that LISTEN and NOTIFY issued within the same transaction
+   * result in the notification being delivered after COMMIT, regardless
+   * of the order of LISTEN and NOTIFY within the transaction.
+   */
+  @Test
+  public void testListenAndNotifyInSameTransaction() throws Exception {
+    // Case 1: LISTEN before NOTIFY.
+    try (Connection conn = getConnectionBuilder().connect()) {
+      try (Statement stmt = conn.createStatement()) {
+        stmt.execute("BEGIN");
+        stmt.execute("LISTEN " + CHANNEL);
+        stmt.execute("NOTIFY " + CHANNEL + ", 'listen_first'");
+        stmt.execute("COMMIT");
       }
-      PGNotification[] stale = pgConn.getNotifications();
-      assertTrue("Expected no spurious notifications after restore",
-          stale == null || stale.length == 0);
-
-      // Send a new NOTIFY on the restored database and verify delivery.
-      try (Connection notifierConn = getConnectionBuilder().withDatabase(restoredDb).connect();
-           Statement stmt = notifierConn.createStatement()) {
-        stmt.execute("NOTIFY " + CHANNEL + ", 'after_restore'");
-      }
-
-      waitForNotification(listenerConn, CHANNEL, "after_restore");
+      waitForNotification(conn, CHANNEL, "listen_first");
     }
 
-    try (Statement stmt = connection.createStatement()) {
-      if (isTestRunningWithConnectionManager())
-        waitForStatsToGetUpdated();
-      stmt.execute("DROP DATABASE " + restoredDb);
+    // Case 2: NOTIFY before LISTEN.
+    try (Connection conn = getConnectionBuilder().connect()) {
+      try (Statement stmt = conn.createStatement()) {
+        stmt.execute("BEGIN");
+        stmt.execute("NOTIFY " + CHANNEL + ", 'notify_first'");
+        stmt.execute("LISTEN " + CHANNEL);
+        stmt.execute("COMMIT");
+      }
+      waitForNotification(conn, CHANNEL, "notify_first");
     }
   }
 
@@ -390,50 +356,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
-   * Verifies that a connection receives its own notifications (self-notify).
-   */
-  @Test
-  public void testSelfNotify() throws Exception {
-    try (Connection conn = getConnectionBuilder().connect()) {
-      try (Statement stmt = conn.createStatement()) {
-        stmt.execute("LISTEN " + CHANNEL);
-        stmt.execute("NOTIFY " + CHANNEL + ", 'self_notify'");
-      }
-      waitForNotification(conn, CHANNEL, "self_notify");
-    }
-  }
-
-  /**
-   * Verifies that LISTEN and NOTIFY issued within the same transaction
-   * result in the notification being delivered after COMMIT, regardless
-   * of the order of LISTEN and NOTIFY within the transaction.
-   */
-  @Test
-  public void testListenAndNotifyInSameTransaction() throws Exception {
-    // Case 1: LISTEN before NOTIFY.
-    try (Connection conn = getConnectionBuilder().connect()) {
-      try (Statement stmt = conn.createStatement()) {
-        stmt.execute("BEGIN");
-        stmt.execute("LISTEN " + CHANNEL);
-        stmt.execute("NOTIFY " + CHANNEL + ", 'listen_first'");
-        stmt.execute("COMMIT");
-      }
-      waitForNotification(conn, CHANNEL, "listen_first");
-    }
-
-    // Case 2: NOTIFY before LISTEN.
-    try (Connection conn = getConnectionBuilder().connect()) {
-      try (Statement stmt = conn.createStatement()) {
-        stmt.execute("BEGIN");
-        stmt.execute("NOTIFY " + CHANNEL + ", 'notify_first'");
-        stmt.execute("LISTEN " + CHANNEL);
-        stmt.execute("COMMIT");
-      }
-      waitForNotification(conn, CHANNEL, "notify_first");
-    }
-  }
-
-  /**
    * Sends a large number of notifications in a single transaction and verifies
    * that all are delivered in order to the listener.
    */
@@ -487,6 +409,84 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       LOG.info("Crashed notifier backend PID: {}", notifierPid);
 
       waitForNotification(listenerConn, CHANNEL, "survive_crash");
+    }
+  }
+
+  /**
+   * Backs up the source database, sends notifications on it, restores to a new database,
+   * then verifies that LISTEN/NOTIFY works on the restored database with no spurious
+   * notifications from the source.
+   */
+  @Test
+  public void testListenNotifyAfterBackupRestore() throws Exception {
+    YBBackupUtil.setTSAddresses(miniCluster.getTabletServers());
+    YBBackupUtil.setMasterAddresses(masterAddresses);
+    YBBackupUtil.setPostgresContactPoint(miniCluster.getPostgresContactPoints().get(0));
+    YBBackupUtil.maybeStartYbControllers(miniCluster);
+
+    final String restoredDb = "restored_db";
+
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute("CREATE TABLE t (id INT PRIMARY KEY, val TEXT)");
+      stmt.execute("INSERT INTO t VALUES (1, 'hello'), (2, 'world')");
+    }
+
+    // Send notifications on the source database before backup.
+    try (Connection notifierConn = getConnectionBuilder().connect();
+         Statement stmt = notifierConn.createStatement()) {
+      stmt.execute("NOTIFY " + CHANNEL + ", 'before_backup'");
+    }
+
+    String backupDir = YBBackupUtil.getTempBackupDir();
+    String output = YBBackupUtil.runYbBackupCreate("--backup_location", backupDir,
+        "--keyspace", "ysql.yugabyte");
+    if (!TestUtils.useYbController()) {
+      backupDir = new JSONObject(output).getString("snapshot_url");
+    }
+
+    // Send more notifications after backup.
+    try (Connection notifierConn = getConnectionBuilder().connect();
+         Statement stmt = notifierConn.createStatement()) {
+      stmt.execute("NOTIFY " + CHANNEL + ", 'after_backup'");
+    }
+
+    YBBackupUtil.runYbBackupRestore(backupDir, "--keyspace", "ysql." + restoredDb);
+
+    // Verify data was restored.
+    try (Connection restoredConn = getConnectionBuilder().withDatabase(restoredDb).connect();
+         Statement stmt = restoredConn.createStatement()) {
+      assertQuery(stmt, "SELECT * FROM t ORDER BY id",
+          new Row(1, "hello"), new Row(2, "world"));
+    }
+
+    // LISTEN on the restored database -- no stale notifications should arrive.
+    try (Connection listenerConn = getConnectionBuilder().withDatabase(restoredDb).connect()) {
+      try (Statement stmt = listenerConn.createStatement()) {
+        stmt.execute("LISTEN " + CHANNEL);
+      }
+
+      Thread.sleep(5000);
+      PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
+      try (Statement pollStmt = listenerConn.createStatement()) {
+        pollStmt.execute("SELECT 1");
+      }
+      PGNotification[] stale = pgConn.getNotifications();
+      assertTrue("Expected no spurious notifications after restore",
+          stale == null || stale.length == 0);
+
+      // Send a new NOTIFY on the restored database and verify delivery.
+      try (Connection notifierConn = getConnectionBuilder().withDatabase(restoredDb).connect();
+           Statement stmt = notifierConn.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'after_restore'");
+      }
+
+      waitForNotification(listenerConn, CHANNEL, "after_restore");
+    }
+
+    try (Statement stmt = connection.createStatement()) {
+      if (isTestRunningWithConnectionManager())
+        waitForStatsToGetUpdated();
+      stmt.execute("DROP DATABASE " + restoredDb);
     }
   }
 
