@@ -265,7 +265,8 @@ const YbcPgGFlagsAccessor* YBCGetGFlags() {
       .TEST_ysql_bypass_auto_analyze_auth_check = &FLAGS_TEST_ysql_bypass_auto_analyze_auth_check,
       .TEST_delay_after_table_analyze_ms = &FLAGS_TEST_delay_after_table_analyze_ms,
       .TEST_enable_obj_tuple_locks = &FLAGS_TEST_enable_obj_tuple_locks,
-      .TEST_ysql_yb_test_fatal_after_notifs_queue_write = &FLAGS_TEST_ysql_yb_test_fatal_after_notifs_queue_write,
+      .TEST_ysql_yb_test_fatal_after_notifs_queue_write =
+          &FLAGS_TEST_ysql_yb_test_fatal_after_notifs_queue_write,
   };
   // clang-format on
   return &accessor;
