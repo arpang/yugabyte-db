@@ -13,7 +13,6 @@
 package org.yb.pgsql;
 
 import static org.yb.AssertionWrappers.assertEquals;
-import static org.yb.AssertionWrappers.assertFalse;
 import static org.yb.AssertionWrappers.assertNotNull;
 import static org.yb.AssertionWrappers.assertNull;
 import static org.yb.AssertionWrappers.assertTrue;
@@ -267,13 +266,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
 
       // Give the restarted poller time to re-stream. If LSN persistence is broken,
       // old notifications would be re-delivered during this window.
-      Thread.sleep(5000);
-
-      PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
-      listenerStmt.execute("SELECT 1");
-      PGNotification[] spurious = pgConn.getNotifications();
-      assertTrue("Old notifications should not be re-delivered after poller restart",
-          spurious == null || spurious.length == 0);
+      waitAndAssertNoNotifications(listenerConn,
+          "Old notifications should not be re-delivered after poller restart");
 
       // Verify that the restarted poller delivers new notifications.
       try (Connection notifierConn = getConnectionBuilder().connect();
@@ -313,6 +307,16 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     }
     fail("Notifications poller did not restart within 30 seconds");
     return -1;
+  }
+
+  private void waitAndAssertNoNotifications(Connection listenConn, String message) throws Exception {
+    Thread.sleep(5000);
+    try (Statement listenerStmt = listenConn.createStatement()) {
+      listenerStmt.execute("SELECT 1");
+      PGConnection pgConn = listenConn.unwrap(PGConnection.class);
+      PGNotification[] n = pgConn.getNotifications();
+      assertTrue(message, n == null || n.length == 0);
+    }
   }
 
   /**
@@ -398,14 +402,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         stmt.execute("NOTIFY " + CHANNEL + ", 'subtxn_listen_abort'");
       }
 
-      Thread.sleep(5000);
-      PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
-      try (Statement stmt = listenerConn.createStatement()) {
-        stmt.execute("SELECT 1");
-      }
-      PGNotification[] notifs = pgConn.getNotifications();
-      assertTrue("Should not receive notifications when LISTEN was in rolled-back subtransaction",
-          notifs == null || notifs.length == 0);
+      waitAndAssertNoNotifications(listenerConn,
+          "Should not receive notifications when LISTEN was in rolled-back subtransaction");
     }
   }
 
@@ -564,14 +562,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         stmt.execute("LISTEN " + CHANNEL);
       }
 
-      Thread.sleep(5000);
-      PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
-      try (Statement pollStmt = listenerConn.createStatement()) {
-        pollStmt.execute("SELECT 1");
-      }
-      PGNotification[] stale = pgConn.getNotifications();
-      assertTrue("Expected no spurious notifications after restore",
-          stale == null || stale.length == 0);
+      waitAndAssertNoNotifications(listenerConn,
+          "Expected no spurious notifications after restore");
 
       // Send a new NOTIFY on the restored database and verify delivery.
       try (Connection notifierConn = getConnectionBuilder().withDatabase(restoredDb).connect();
@@ -861,13 +853,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
           notifierStmt.execute("NOTIFY " + channel + ", 'slow'");
         }
 
-        Thread.sleep(15000);
-
-        listenerStmt.execute("SELECT 1");
-        PGConnection pgConn = listener.unwrap(PGConnection.class);
-        PGNotification[] notifs = pgConn.getNotifications();
-        assertFalse("Notification should not arrive within 15s with 30s poll interval",
-            notifs != null && notifs.length > 0);
+        waitAndAssertNoNotifications(listener,
+            "Notification should not arrive within 5s with 30s poll interval");
       }
 
       try (Connection listener = getConnectionBuilder().connect();
@@ -908,7 +895,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       try (Connection listenerConn = getConnectionBuilder().withTServer(0).connect();
            Connection notifierConn = getConnectionBuilder().withTServer(0).connect();
            Statement listenerStmt = listenerConn.createStatement()) {
-        PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
 
         listenerStmt.execute("LISTEN " + channel);
 
@@ -929,12 +915,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
             1,
             matchCount);
 
-        /* Give any mistaken duplicate delivery time to show up, then drain once. */
-        Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(5000));
-        listenerStmt.execute("SELECT 1");
-        PGNotification[] spurious = pgConn.getNotifications();
-        assertTrue("Old notifications should not be re-delivered after poller restart",
-            spurious == null || spurious.length == 0);
+        waitAndAssertNoNotifications(listenerConn,
+            "Old notifications should not be re-delivered after poller restart");
       }
     } finally {
       setFatalAfterNotifsQueueWriteFlag(false);
