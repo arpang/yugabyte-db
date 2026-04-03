@@ -906,13 +906,14 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(2000));
 
       try (Connection listenerConn = getConnectionBuilder().withTServer(0).connect();
-           Connection notifierConn = getConnectionBuilder().withTServer(0).connect()) {
-        try (Statement stmt = listenerConn.createStatement()) {
-          stmt.execute("LISTEN " + channel);
-        }
+           Connection notifierConn = getConnectionBuilder().withTServer(0).connect();
+           Statement listenerStmt = listenerConn.createStatement()) {
+        PGConnection pgConn = listenerConn.unwrap(PGConnection.class);
 
-        try (Statement stmt = notifierConn.createStatement()) {
-          stmt.execute("NOTIFY " + channel + ", '" + payload + "'");
+        listenerStmt.execute("LISTEN " + channel);
+
+        try (Statement notifierStmt = notifierConn.createStatement()) {
+          notifierStmt.execute("NOTIFY " + channel + ", '" + payload + "'");
         }
 
         List<PGNotification> received =
@@ -928,7 +929,12 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
             1,
             matchCount);
 
-        assertNoMatchingNotificationsAfterDrain(listenerConn, channel, payload);
+        /* Give any mistaken duplicate delivery time to show up, then drain once. */
+        Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(5000));
+        listenerStmt.execute("SELECT 1");
+        PGNotification[] spurious = pgConn.getNotifications();
+        assertTrue("Old notifications should not be re-delivered after poller restart",
+            spurious == null || spurious.length == 0);
       }
     } finally {
       setFatalAfterNotifsQueueWriteFlag(false);
@@ -941,32 +947,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     String v = value ? "true" : "false";
     for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
       setServerFlag(tserver, "TEST_ysql_fatal_after_notifs_queue_write", v);
-    }
-  }
-
-  /**
-   * Polls for a short period to catch a duplicate delivery that would appear after the first
-   * matching NOTIFY.
-   */
-  private void assertNoMatchingNotificationsAfterDrain(
-      Connection conn, String channel, String payload) throws Exception {
-    PGConnection pgConn = conn.unwrap(PGConnection.class);
-    long deadline = System.currentTimeMillis()
-        + Timeouts.adjustTimeoutSecForBuildType(5000);
-    while (System.currentTimeMillis() < deadline) {
-      try (Statement stmt = conn.createStatement()) {
-        stmt.execute("SELECT 1");
-      }
-      PGNotification[] notifications = pgConn.getNotifications();
-      if (notifications != null) {
-        for (PGNotification n : notifications) {
-          if (n.getName().equals(channel) && n.getParameter().equals(payload)) {
-            fail("Unexpected duplicate NOTIFY after dedup (channel="
-                + channel + ", payload=" + payload + ")");
-          }
-        }
-      }
-      Thread.sleep(100);
     }
   }
 
