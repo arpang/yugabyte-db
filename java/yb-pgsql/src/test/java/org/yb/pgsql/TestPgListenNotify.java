@@ -889,6 +889,86 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     }
   }
 
+  /**
+   * When the notifications poller crashes after writing the async queue but before persisting the
+   * CDC ack, virtual WAL replays the same transaction. Duplicate queue entries must not produce
+   * duplicate NOTIFY deliveries (txn-begin markers suppress duplicates on read).
+   */
+  @Test
+  public void testListenNotifyNoDuplicateAfterPollerCrashBeforeAck() throws Exception {
+    final String channel = "dedup_chan";
+    final String payload = "dedup_payload";
+
+    try {
+      setFatalAfterNotifsQueueWriteFlag(true);
+      /* Allow tserver to apply TEST_ gflag before NOTIFY reaches the poller. */
+      Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(2000));
+
+      try (Connection listenerConn = getConnectionBuilder().withTServer(0).connect();
+           Connection notifierConn = getConnectionBuilder().withTServer(0).connect()) {
+        try (Statement stmt = listenerConn.createStatement()) {
+          stmt.execute("LISTEN " + channel);
+        }
+
+        try (Statement stmt = notifierConn.createStatement()) {
+          stmt.execute("NOTIFY " + channel + ", '" + payload + "'");
+        }
+
+        List<PGNotification> received =
+            waitForNotification(listenerConn, channel, payload);
+        int matchCount = 0;
+        for (PGNotification n : received) {
+          if (n.getName().equals(channel) && n.getParameter().equals(payload)) {
+            matchCount++;
+          }
+        }
+        assertEquals(
+            "Expected exactly one NOTIFY for duplicate txn-begin replay suppression",
+            1,
+            matchCount);
+
+        assertNoMatchingNotificationsAfterDrain(listenerConn, channel, payload);
+      }
+    } finally {
+      setFatalAfterNotifsQueueWriteFlag(false);
+    }
+
+    verifyListenNotifyWorks();
+  }
+
+  private void setFatalAfterNotifsQueueWriteFlag(boolean value) throws Exception {
+    String v = value ? "true" : "false";
+    for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
+      setServerFlag(tserver, "TEST_ysql_yb_test_fatal_after_notifs_queue_write", v);
+    }
+  }
+
+  /**
+   * Polls for a short period to catch a duplicate delivery that would appear after the first
+   * matching NOTIFY.
+   */
+  private void assertNoMatchingNotificationsAfterDrain(
+      Connection conn, String channel, String payload) throws Exception {
+    PGConnection pgConn = conn.unwrap(PGConnection.class);
+    long deadline = System.currentTimeMillis()
+        + Timeouts.adjustTimeoutSecForBuildType(5000);
+    while (System.currentTimeMillis() < deadline) {
+      try (Statement stmt = conn.createStatement()) {
+        stmt.execute("SELECT 1");
+      }
+      PGNotification[] notifications = pgConn.getNotifications();
+      if (notifications != null) {
+        for (PGNotification n : notifications) {
+          if (n.getName().equals(channel) && n.getParameter().equals(payload)) {
+            fail("Unexpected duplicate NOTIFY after dedup (channel="
+                + channel + ", payload=" + payload + ")");
+          }
+        }
+      }
+      Thread.sleep(100);
+    }
+  }
+
   private void setNotificationsPollSleepDurationEmpty(String valueMs) throws Exception {
     Set<HostAndPort> tservers = miniCluster.getTabletServers().keySet();
     for (HostAndPort tserver : tservers) {
