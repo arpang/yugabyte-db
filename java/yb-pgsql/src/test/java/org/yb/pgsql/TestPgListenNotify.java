@@ -889,31 +889,24 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
 
     try {
       setFatalAfterNotifsQueueWriteFlag(true);
-      /* Allow tserver to apply TEST_ gflag before NOTIFY reaches the poller. */
-      Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(2000));
+      Thread.sleep(2000);
 
       try (Connection listenerConn = getConnectionBuilder().withTServer(0).connect();
-           Connection notifierConn = getConnectionBuilder().withTServer(0).connect();
-           Statement listenerStmt = listenerConn.createStatement()) {
+           Connection notifierConn = getConnectionBuilder().withTServer(0).connect()) {
 
-        listenerStmt.execute("LISTEN " + channel);
+        try(Statement listenerStmt = listenerConn.createStatement()) {
+          listenerStmt.execute("LISTEN " + channel);
+        }
 
         try (Statement notifierStmt = notifierConn.createStatement()) {
           notifierStmt.execute("NOTIFY " + channel + ", '" + payload + "'");
         }
 
-        List<PGNotification> received =
-            waitForNotification(listenerConn, channel, payload);
-        int matchCount = 0;
-        for (PGNotification n : received) {
-          if (n.getName().equals(channel) && n.getParameter().equals(payload)) {
-            matchCount++;
-          }
-        }
+        List<PGNotification> received = waitForNotification(listenerConn, channel, payload);
         assertEquals(
             "Expected exactly one NOTIFY for duplicate txn-begin replay suppression",
             1,
-            matchCount);
+            received.size());
 
         waitAndAssertNoNotifications(listenerConn,
             "Old notifications should not be re-delivered after poller restart");
