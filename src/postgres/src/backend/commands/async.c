@@ -176,6 +176,17 @@
 #define NOTIFY_PAYLOAD_MAX_LENGTH	(BLCKSZ - NAMEDATALEN - 128)
 
 /*
+ * Payload marker for synthetic queue entries that mark the start of a
+ * replicated transaction (see ybFillBeginAsyncQueueEntry).  Layout is an
+ * empty channel (leading NUL), then this null-terminated string as the
+ * payload.  That differs from SLRU dummy padding (empty channel and empty
+ * payload: two NULs at the start of data).  dboid is InvalidOid;
+ * asyncQueueProcessPageEntries handles duplicate suppression after poller
+ * crash/restart.
+ */
+#define YB_ASYNC_QUEUE_BEGIN_MARKER "__yb_async_queue_txn_begin__"
+
+/*
  * Struct representing an entry in the global notify queue
  *
  * This struct declaration has the maximal length, but in a real queue entry
@@ -580,6 +591,15 @@ static List *ybNotifsPollerPendingEntries = NIL;
 static TransactionId ybNotifsPollerProcessingXid = InvalidTransactionId;
 
 /*
+ * Per-backend state while scanning the queue on YB: detect duplicate txn
+ * batches (same xid) after the notifications poller replays a transaction
+ * that was already partially written to the queue.
+ */
+static TransactionId ybAsyncQueueTxnBeginXid = InvalidTransactionId;
+static int	ybAsyncQueueNotifsSinceBegin = 0;
+static int	ybAsyncQueueSkipRemaining = 0;
+
+/*
  * Shared memory state used to communicate the initialization status of the
  * 'notifications poller' background worker back to the process that started it.
  */
@@ -643,6 +663,9 @@ static void ybNotifsPollerLoop(void);
 static void ybNotifsPollerProcessRecord(const YbcPgRowMessage *record);
 static void ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record);
 static void ybNotifsPollerAddPendingEntriesToQueue(void);
+static void ybFillBeginAsyncQueueEntry(AsyncQueueEntry *qe, TransactionId xid);
+static bool ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe);
+static void ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe);
 static void ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 									  AsyncQueueEntry *qe);
 
@@ -2429,6 +2452,16 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 		 */
 		reachedEndOfPage = asyncQueueAdvance(current, qe->length);
 
+		/*
+		 * YB: txn-begin markers use InvalidOid as dboid; handle them before
+		 * the database filter so every backend can align duplicate detection.
+		 */
+		if (IsYugaByteEnabled() && ybIsAsyncQueueBeginEntry(qe))
+		{
+			ybAsyncQueueHandleBeginEntry(qe);
+			continue;
+		}
+
 		/* Ignore messages destined for other databases */
 		if (qe->dboid == MyDatabaseId)
 		{
@@ -2466,12 +2499,21 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 				/* qe->data is the null-terminated channel name */
 				char	   *channel = qe->data;
 
-				if (IsListeningOn(channel))
+				if (IsYugaByteEnabled() && ybAsyncQueueSkipRemaining > 0)
 				{
-					/* payload follows channel name */
-					char	   *payload = qe->data + strlen(channel) + 1;
+					ybAsyncQueueSkipRemaining--;
+				}
+				else
+				{
+					if (IsListeningOn(channel))
+					{
+						/* payload follows channel name */
+						char	   *payload = qe->data + strlen(channel) + 1;
 
-					NotifyMyFrontEnd(channel, payload, qe->srcPid);
+						NotifyMyFrontEnd(channel, payload, qe->srcPid);
+					}
+					if (IsYugaByteEnabled())
+						ybAsyncQueueNotifsSinceBegin++;
 				}
 			}
 			else
@@ -3110,6 +3152,7 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 			Assert(ybNotifsPollerPendingEntries == NIL);
 			StartTransactionCommand();
 			ybNotifsPollerProcessingXid = record->xid;
+			ybNotifsPollerAddRecordToPendingEntries(record);
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
@@ -3123,14 +3166,6 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 
 		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
 			ybNotifsPollerAddPendingEntriesToQueue();
-			/*
-			 * TODO(arpan): If the worker crashes here (ie, after writing
-			 * to the queue but before sending ack to CDC via
-			 * YBCCalculatePersistAndGetRestartLSN()), on restart the worker
-			 * will receive the current txn's records again. Consequently, the
-			 * queue will have duplicate notifications. Handle it by adding
-			 * BEGIN and COMMIT entries in the queue.
-			 */
 			YBCCalculatePersistAndGetRestartLSN(record->lsn);
 			ybNotifsPollerPendingEntries = NIL;
 			ybNotifsPollerProcessingXid = InvalidTransactionId;
@@ -3157,6 +3192,53 @@ ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record)
 	ybRecordToAsyncQueueEntry(record, qe);
 	ybNotifsPollerPendingEntries = lappend(ybNotifsPollerPendingEntries, qe);
 	MemoryContextSwitchTo(oldcontext);
+}
+
+static void
+ybFillBeginAsyncQueueEntry(AsyncQueueEntry *qe, TransactionId xid)
+{
+	int			payloadlen = strlen(YB_ASYNC_QUEUE_BEGIN_MARKER);
+
+	Assert(payloadlen < NOTIFY_PAYLOAD_MAX_LENGTH);
+
+	qe->xid = xid;
+	qe->dboid = InvalidOid;
+	qe->srcPid = MyProcPid;
+	/* Empty channel, then marker as payload. */
+	qe->data[0] = '\0';
+	memcpy(qe->data + 1, YB_ASYNC_QUEUE_BEGIN_MARKER, payloadlen + 1);
+	int			entryLength = AsyncQueueEntryEmptySize + payloadlen;
+	entryLength = QUEUEALIGN(entryLength);
+	qe->length = entryLength;
+}
+
+static bool
+ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe)
+{
+	if (!IsYugaByteEnabled())
+		return false;
+	if (qe->dboid != InvalidOid)
+		return false;
+	/* Empty channel; payload must be exactly the marker (not dummy empty payload). */
+	if (qe->data[0] != '\0')
+		return false;
+	return (strcmp(qe->data + 1, YB_ASYNC_QUEUE_BEGIN_MARKER) == 0);
+}
+
+static void
+ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
+{
+	Assert(ybIsAsyncQueueBeginEntry(qe));
+
+	if (TransactionIdIsValid(ybAsyncQueueTxnBeginXid) &&
+		ybAsyncQueueTxnBeginXid == qe->xid)
+	{
+		ybAsyncQueueSkipRemaining = ybAsyncQueueNotifsSinceBegin;
+		return;
+	}
+
+	ybAsyncQueueTxnBeginXid = qe->xid;
+	ybAsyncQueueNotifsSinceBegin = 0;
 }
 
 /*
@@ -3197,12 +3279,20 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 
 /*
  * Fill the AsyncQueueEntry at *qe using the record received from the
- * replication slot.
+ * replication slot.  BEGIN rows are synthetic markers (see
+ * ybFillBeginAsyncQueueEntry); INSERT rows are built from the notification
+ * tuple.
  */
 static void
 ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 						  AsyncQueueEntry *qe)
 {
+	if (record->action == YB_PG_ROW_MESSAGE_ACTION_BEGIN)
+	{
+		ybFillBeginAsyncQueueEntry(qe, (TransactionId) record->xid);
+		return;
+	}
+
 	HeapTuple	tuple = YBGetHeapTuplesForRecord(record);
 	TupleDesc	desc =
 		CreateTupleDesc(YB_NOTIFICATIONS_NATTS, YbNotificationsAtts);
@@ -3212,6 +3302,7 @@ ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 
 	Assert(!isnull);
 	qe->srcPid = DatumGetInt32(sender_id);
+	qe->xid = (TransactionId) record->xid;
 
 	Datum		dbid = heap_getattr(tuple, yb_db_oid_att.attnum, desc, &isnull);
 
