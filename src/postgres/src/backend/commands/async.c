@@ -2456,14 +2456,10 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 		 * YB: txn-begin markers use InvalidOid as dboid; handle them before
 		 * the database filter so every backend can align duplicate detection.
 		 */
-		if (IsYugaByteEnabled() && ybIsAsyncQueueBeginEntry(qe))
-		{
+		if (ybIsAsyncQueueBeginEntry(qe))
 			ybAsyncQueueHandleBeginEntry(qe);
-			continue;
-		}
-
 		/* Ignore messages destined for other databases */
-		if (qe->dboid == MyDatabaseId)
+		else if (qe->dboid == MyDatabaseId)
 		{
 			/*
 			 * YB note: In YB, only the committed notifications are streamed
@@ -2502,19 +2498,19 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 				if (IsYugaByteEnabled() && ybAsyncQueueSkipRemaining > 0)
 				{
 					ybAsyncQueueSkipRemaining--;
+					continue;
 				}
-				else
-				{
-					if (IsListeningOn(channel))
-					{
-						/* payload follows channel name */
-						char	   *payload = qe->data + strlen(channel) + 1;
 
-						NotifyMyFrontEnd(channel, payload, qe->srcPid);
-					}
-					if (IsYugaByteEnabled())
-						ybAsyncQueueNotifsSinceBegin++;
+				if (IsListeningOn(channel))
+				{
+					/* payload follows channel name */
+					char *payload = qe->data + strlen(channel) + 1;
+
+					NotifyMyFrontEnd(channel, payload, qe->srcPid);
 				}
+
+				if (IsYugaByteEnabled())
+					ybAsyncQueueNotifsSinceBegin++;
 			}
 			else
 			{
