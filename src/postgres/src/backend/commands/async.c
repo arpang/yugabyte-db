@@ -2458,9 +2458,14 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 		 * the database filter so every backend can align duplicate detection.
 		 */
 		if (ybIsAsyncQueueBeginEntry(qe))
+		{
 			ybAsyncQueueHandleBeginEntry(qe);
+			continue;
+		}
+
+
 		/* Ignore messages destined for other databases */
-		else if (qe->dboid == MyDatabaseId)
+		if (qe->dboid == MyDatabaseId)
 		{
 			/*
 			 * YB note: In YB, only the committed notifications are streamed
@@ -2505,7 +2510,7 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 				if (IsListeningOn(channel))
 				{
 					/* payload follows channel name */
-					char *payload = qe->data + strlen(channel) + 1;
+					char	   *payload = qe->data + strlen(channel) + 1;
 
 					NotifyMyFrontEnd(channel, payload, qe->srcPid);
 				}
@@ -3166,7 +3171,7 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 			if (YBCGetGFlags()->TEST_ysql_yb_test_fatal_after_notifs_queue_write)
 				ereport(FATAL,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-							errmsg("test-only: notifications poller simulated crash "
+						 errmsg("test-only: notifications poller simulated crash "
 								"before CDC ack")));
 			YBCCalculatePersistAndGetRestartLSN(record->lsn);
 			ybNotifsPollerPendingEntries = NIL;
@@ -3210,6 +3215,7 @@ ybFillBeginAsyncQueueEntry(AsyncQueueEntry *qe, TransactionId xid)
 	qe->data[0] = '\0';
 	memcpy(qe->data + 1, YB_ASYNC_QUEUE_BEGIN_MARKER, payloadlen + 1);
 	int			entryLength = AsyncQueueEntryEmptySize + payloadlen;
+
 	entryLength = QUEUEALIGN(entryLength);
 	qe->length = entryLength;
 }
@@ -3221,7 +3227,11 @@ ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe)
 		return false;
 	if (qe->dboid != InvalidOid)
 		return false;
-	/* Empty channel; payload must be exactly the marker (not dummy empty payload). */
+
+	/*
+	 * Empty channel; payload must be exactly the marker (not dummy empty
+	 * payload).
+	 */
 	if (qe->data[0] != '\0')
 		return false;
 	return (strcmp(qe->data + 1, YB_ASYNC_QUEUE_BEGIN_MARKER) == 0);
