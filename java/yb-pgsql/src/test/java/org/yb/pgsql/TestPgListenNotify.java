@@ -890,14 +890,15 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
-   * When the notifications poller crashes after writing the async queue but before persisting the
-   * CDC ack, virtual WAL replays the same transaction. Duplicate queue entries must not produce
-   * duplicate NOTIFY deliveries (txn-begin markers suppress duplicates on read).
+   * When the notifications poller crashes after writing notifications to the queue but before
+   * persisting the CDC ack, virtual WAL replays the same transaction when the poller process
+   * restarts. Test that duplicate queue entries does not produce duplicate NOTIFY deliveries
+   * (txn-begin markers suppress duplicates on read).
    */
   @Test
   public void testListenNotifyNoDuplicateAfterPollerCrashBeforeAck() throws Exception {
-    final String channel = "dedup_chan";
-    final String payload = "dedup_payload";
+    final String channel = "chan";
+    final String payload = "payload";
 
     try {
       setFatalAfterNotifsQueueWriteFlag(true);
@@ -939,7 +940,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   private void setFatalAfterNotifsQueueWriteFlag(boolean value) throws Exception {
     String v = value ? "true" : "false";
     for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
-      setServerFlag(tserver, "TEST_ysql_yb_test_fatal_after_notifs_queue_write", v);
+      setServerFlag(tserver, "TEST_ysql_fatal_after_notifs_queue_write", v);
     }
   }
 

@@ -143,11 +143,7 @@ DEFINE_test_flag(int64, delay_after_table_analyze_ms, 0,
 DEFINE_test_flag(
     bool, enable_obj_tuple_locks, false, "Enable object tuple locks in the lock manager.");
 
-/*
- * Defined here (not only in pg_wrapper.cc) so the FLAGS_ symbol exists in the postgres binary used
- * by initdb subprocesses; pg_wrapper is not linked there.
- */
-DEFINE_test_flag(bool, ysql_yb_test_fatal_after_notifs_queue_write, false,
+DEFINE_test_flag(bool, ysql_fatal_after_notifs_queue_write, false,
     "When true, the notifications poller exits with FATAL after writing NOTIFY entries to the "
     "async queue but before persisting the CDC virtual-WAL ack.");
 
@@ -265,8 +261,7 @@ const YbcPgGFlagsAccessor* YBCGetGFlags() {
       .TEST_ysql_bypass_auto_analyze_auth_check = &FLAGS_TEST_ysql_bypass_auto_analyze_auth_check,
       .TEST_delay_after_table_analyze_ms = &FLAGS_TEST_delay_after_table_analyze_ms,
       .TEST_enable_obj_tuple_locks = &FLAGS_TEST_enable_obj_tuple_locks,
-      .TEST_ysql_yb_test_fatal_after_notifs_queue_write =
-          &FLAGS_TEST_ysql_yb_test_fatal_after_notifs_queue_write,
+      .TEST_ysql_fatal_after_notifs_queue_write = &FLAGS_TEST_ysql_fatal_after_notifs_queue_write,
   };
   // clang-format on
   return &accessor;

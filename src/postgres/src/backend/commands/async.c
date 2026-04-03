@@ -3168,7 +3168,7 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 
 		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
 			ybNotifsPollerAddPendingEntriesToQueue();
-			if (YBCGetGFlags()->TEST_ysql_yb_test_fatal_after_notifs_queue_write)
+			if (YBCGetGFlags()->TEST_ysql_fatal_after_notifs_queue_write)
 				ereport(FATAL,
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("test-only: notifications poller simulated crash "
