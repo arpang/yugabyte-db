@@ -309,13 +309,13 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     return -1;
   }
 
-  private void waitAndAssertNoNotifications(Connection listenConn, String message) throws Exception {
+  private void waitAndAssertNoNotifications(Connection listenConn, String msg) throws Exception {
     Thread.sleep(5000);
     try (Statement listenerStmt = listenConn.createStatement()) {
       listenerStmt.execute("SELECT 1");
       PGConnection pgConn = listenConn.unwrap(PGConnection.class);
       PGNotification[] n = pgConn.getNotifications();
-      assertTrue(message, n == null || n.length == 0);
+      assertTrue(msg, n == null || n.length == 0);
     }
   }
 

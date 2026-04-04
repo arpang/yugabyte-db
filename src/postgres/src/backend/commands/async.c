@@ -2473,9 +2473,10 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 		if (IsYugaByteEnabled())
 		{
 			/*
-			* YB: txn-begin markers use InvalidOid as dboid; handle them before
-			* the database filter so every backend can align duplicate detection.
-			*/
+			 * YB: txn-begin markers use InvalidOid as dboid; handle them before
+			 * the database filter so every backend can align duplicate
+			 * detection.
+			 */
 			if (ybIsAsyncQueueBeginEntry(qe))
 			{
 				ybAsyncQueueHandleBeginEntry(qe);
