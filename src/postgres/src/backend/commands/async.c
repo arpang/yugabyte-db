@@ -592,23 +592,30 @@ static List *ybNotifsPollerPendingEntries = NIL;
 static TransactionId ybNotifsPollerProcessingXid = InvalidTransactionId;
 
 /*
- * Per listener state while scanning the queue on YB. It keeps a track of the
- * current transaction's xid and the notifs count. It also keeps a track of
- * notifs to skip in order to deduplicate duplicate txn batches (same xid)
- * after the notifications poller replays a transaction that was already
- * partially written to the queue.
+ * YB: Per-listener state to keep track of the current transaction being
+ * processed by the listening while scaning the async queue. It keeps track of
+ * the xid and the #notifications sent to frontend belong to the current txn.
+ *
+ * Duplicate notifications are possible when the notifications poller process
+ * crashes after writing notifications to the queue but before sending
+ * acknowledgement to CDC. This is because when the poller process restarts, it
+ * receives the notifications from the unack'd transaction again. In order to
+ * skip such duplicate notifications, it also keeps a track of #notifications to
+ * skip in the current transaction.
  */
-typedef struct YbListenerAsyncQueueScanState
+typedef struct YbListenerQueueScanCurrentXactState
 {
 	TransactionId current_xid;
-	int current_xact_notifs_count;
-	int notifs_to_skip;
-} YbListenerAsyncQueueScanState;
+	int			current_xact_notifs_count;
+	int			notifs_to_skip;
+} YbListenerQueueScanCurrentXactState;
 
-static YbListenerAsyncQueueScanState yb_listener_async_queue_scan_state = {
+static YbListenerQueueScanCurrentXactState ybListenerQueueScanCurrentXactState =
+{
 	.current_xid = InvalidTransactionId,
 	.current_xact_notifs_count = 0,
-	.notifs_to_skip = 0};
+	.notifs_to_skip = 0
+};
 
 /*
  * Shared memory state used to communicate the initialization status of the
@@ -2512,9 +2519,9 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 				char	   *channel = qe->data;
 
 				if (IsYugaByteEnabled() &&
-					yb_listener_async_queue_scan_state.notifs_to_skip > 0)
+					ybListenerQueueScanCurrentXactState.notifs_to_skip > 0)
 				{
-					yb_listener_async_queue_scan_state.notifs_to_skip--;
+					ybListenerQueueScanCurrentXactState.notifs_to_skip--;
 					continue;
 				}
 
@@ -2527,7 +2534,7 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 				}
 
 				if (IsYugaByteEnabled())
-					yb_listener_async_queue_scan_state
+					ybListenerQueueScanCurrentXactState
 						.current_xact_notifs_count++;
 			}
 			else
@@ -3254,16 +3261,16 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
 {
 	Assert(ybIsAsyncQueueBeginEntry(qe));
 
-	if (TransactionIdIsValid(yb_listener_async_queue_scan_state.current_xid) &&
-		yb_listener_async_queue_scan_state.current_xid == qe->xid)
+	if (TransactionIdIsValid(ybListenerQueueScanCurrentXactState.current_xid) &&
+		ybListenerQueueScanCurrentXactState.current_xid == qe->xid)
 	{
-		yb_listener_async_queue_scan_state.notifs_to_skip =
-			yb_listener_async_queue_scan_state.current_xact_notifs_count;
+		ybListenerQueueScanCurrentXactState.notifs_to_skip =
+			ybListenerQueueScanCurrentXactState.current_xact_notifs_count;
 		return;
 	}
 
-	yb_listener_async_queue_scan_state.current_xid = qe->xid;
-	yb_listener_async_queue_scan_state.current_xact_notifs_count = 0;
+	ybListenerQueueScanCurrentXactState.current_xid = qe->xid;
+	ybListenerQueueScanCurrentXactState.current_xact_notifs_count = 0;
 }
 
 /*
