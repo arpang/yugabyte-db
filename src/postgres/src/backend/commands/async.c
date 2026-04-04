@@ -594,7 +594,7 @@ static TransactionId ybNotifsPollerProcessingXid = InvalidTransactionId;
 /*
  * YB: Per-listener state to keep track of the current transaction being
  * processed by the listening while scaning the async queue. It keeps track of
- * the xid and the #notifications sent to frontend belong to the current txn.
+ * the xid and the #notifications scanned the belong to the current txn.
  *
  * Duplicate notifications are possible when the notifications poller process
  * crashes after writing notifications to the queue but before sending
@@ -605,15 +605,15 @@ static TransactionId ybNotifsPollerProcessingXid = InvalidTransactionId;
  */
 typedef struct YbListenerQueueScanCurrentXactState
 {
-	TransactionId current_xid;
-	int			current_xact_notifs_count;
+	TransactionId xid;
+	int			scanned_notifs;
 	int			notifs_to_skip;
 } YbListenerQueueScanCurrentXactState;
 
 static YbListenerQueueScanCurrentXactState ybListenerQueueScanCurrentXactState =
 {
-	.current_xid = InvalidTransactionId,
-	.current_xact_notifs_count = 0,
+	.xid = InvalidTransactionId,
+	.scanned_notifs = 0,
 	.notifs_to_skip = 0
 };
 
@@ -2470,16 +2470,26 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 		 */
 		reachedEndOfPage = asyncQueueAdvance(current, qe->length);
 
-		/*
-		 * YB: txn-begin markers use InvalidOid as dboid; handle them before
-		 * the database filter so every backend can align duplicate detection.
-		 */
-		if (ybIsAsyncQueueBeginEntry(qe))
+		if (IsYugaByteEnabled())
 		{
-			ybAsyncQueueHandleBeginEntry(qe);
-			continue;
-		}
+			/*
+			* YB: txn-begin markers use InvalidOid as dboid; handle them before
+			* the database filter so every backend can align duplicate detection.
+			*/
+			if (ybIsAsyncQueueBeginEntry(qe))
+			{
+				ybAsyncQueueHandleBeginEntry(qe);
+				continue;
+			}
 
+			if (ybListenerQueueScanCurrentXactState.notifs_to_skip > 0)
+			{
+				ybListenerQueueScanCurrentXactState.notifs_to_skip--;
+				continue;
+			}
+
+			ybListenerQueueScanCurrentXactState.scanned_notifs++;
+		}
 
 		/* Ignore messages destined for other databases */
 		if (qe->dboid == MyDatabaseId)
@@ -2518,13 +2528,6 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 				/* qe->data is the null-terminated channel name */
 				char	   *channel = qe->data;
 
-				if (IsYugaByteEnabled() &&
-					ybListenerQueueScanCurrentXactState.notifs_to_skip > 0)
-				{
-					ybListenerQueueScanCurrentXactState.notifs_to_skip--;
-					continue;
-				}
-
 				if (IsListeningOn(channel))
 				{
 					/* payload follows channel name */
@@ -2532,10 +2535,6 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 
 					NotifyMyFrontEnd(channel, payload, qe->srcPid);
 				}
-
-				if (IsYugaByteEnabled())
-					ybListenerQueueScanCurrentXactState
-						.current_xact_notifs_count++;
 			}
 			else
 			{
@@ -3242,8 +3241,7 @@ ybFillBeginAsyncQueueEntry(AsyncQueueEntry *qe, TransactionId xid)
 static bool
 ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe)
 {
-	if (!IsYugaByteEnabled())
-		return false;
+	Assert(IsYugaByteEnabled());
 	if (qe->dboid != InvalidOid)
 		return false;
 
@@ -3261,16 +3259,16 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
 {
 	Assert(ybIsAsyncQueueBeginEntry(qe));
 
-	if (TransactionIdIsValid(ybListenerQueueScanCurrentXactState.current_xid) &&
-		ybListenerQueueScanCurrentXactState.current_xid == qe->xid)
+	if (TransactionIdIsValid(ybListenerQueueScanCurrentXactState.xid) &&
+		ybListenerQueueScanCurrentXactState.xid == qe->xid)
 	{
 		ybListenerQueueScanCurrentXactState.notifs_to_skip =
-			ybListenerQueueScanCurrentXactState.current_xact_notifs_count;
+			ybListenerQueueScanCurrentXactState.scanned_notifs;
 		return;
 	}
 
-	ybListenerQueueScanCurrentXactState.current_xid = qe->xid;
-	ybListenerQueueScanCurrentXactState.current_xact_notifs_count = 0;
+	ybListenerQueueScanCurrentXactState.xid = qe->xid;
+	ybListenerQueueScanCurrentXactState.scanned_notifs = 0;
 }
 
 /*
