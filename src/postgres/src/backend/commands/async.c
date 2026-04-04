@@ -592,13 +592,23 @@ static List *ybNotifsPollerPendingEntries = NIL;
 static TransactionId ybNotifsPollerProcessingXid = InvalidTransactionId;
 
 /*
- * Per-backend state while scanning the queue on YB: detect duplicate txn
- * batches (same xid) after the notifications poller replays a transaction
- * that was already partially written to the queue.
+ * Per listener state while scanning the queue on YB. It keeps a track of the
+ * current transaction's xid and the notifs count. It also keeps a track of
+ * notifs to skip in order to deduplicate duplicate txn batches (same xid)
+ * after the notifications poller replays a transaction that was already
+ * partially written to the queue.
  */
-static TransactionId ybAsyncQueueTxnBeginXid = InvalidTransactionId;
-static int	ybAsyncQueueNotifsSinceBegin = 0;
-static int	ybAsyncQueueSkipRemaining = 0;
+typedef struct YbListenerAsyncQueueScanState
+{
+	TransactionId current_xid;
+	int current_xact_notifs_count;
+	int notifs_to_skip;
+} YbListenerAsyncQueueScanState;
+
+static YbListenerAsyncQueueScanState yb_listener_async_queue_scan_state = {
+	.current_xid = InvalidTransactionId,
+	.current_xact_notifs_count = 0,
+	.notifs_to_skip = 0};
 
 /*
  * Shared memory state used to communicate the initialization status of the
@@ -2501,9 +2511,10 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 				/* qe->data is the null-terminated channel name */
 				char	   *channel = qe->data;
 
-				if (IsYugaByteEnabled() && ybAsyncQueueSkipRemaining > 0)
+				if (IsYugaByteEnabled() &&
+					yb_listener_async_queue_scan_state.notifs_to_skip > 0)
 				{
-					ybAsyncQueueSkipRemaining--;
+					yb_listener_async_queue_scan_state.notifs_to_skip--;
 					continue;
 				}
 
@@ -2516,7 +2527,8 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 				}
 
 				if (IsYugaByteEnabled())
-					ybAsyncQueueNotifsSinceBegin++;
+					yb_listener_async_queue_scan_state
+						.current_xact_notifs_count++;
 			}
 			else
 			{
@@ -3242,15 +3254,16 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
 {
 	Assert(ybIsAsyncQueueBeginEntry(qe));
 
-	if (TransactionIdIsValid(ybAsyncQueueTxnBeginXid) &&
-		ybAsyncQueueTxnBeginXid == qe->xid)
+	if (TransactionIdIsValid(yb_listener_async_queue_scan_state.current_xid) &&
+		yb_listener_async_queue_scan_state.current_xid == qe->xid)
 	{
-		ybAsyncQueueSkipRemaining = ybAsyncQueueNotifsSinceBegin;
+		yb_listener_async_queue_scan_state.notifs_to_skip =
+			yb_listener_async_queue_scan_state.current_xact_notifs_count;
 		return;
 	}
 
-	ybAsyncQueueTxnBeginXid = qe->xid;
-	ybAsyncQueueNotifsSinceBegin = 0;
+	yb_listener_async_queue_scan_state.current_xid = qe->xid;
+	yb_listener_async_queue_scan_state.current_xact_notifs_count = 0;
 }
 
 /*
