@@ -178,11 +178,9 @@
 
 /*
  * Payload marker for synthetic queue entries that mark the start of a
- * replicated transaction (see ybFillBeginAsyncQueueEntry).  Layout is an
- * empty channel (leading NUL), then this null-terminated string as the
- * payload. dboid is InvalidOid;
+ * replicated transaction (see ybFillBeginAsyncQueueEntry).
  */
-#define YB_ASYNC_QUEUE_BEGIN_MARKER "__yb_async_queue_txn_begin__"
+#define YB_ASYNC_QUEUE_BEGIN_MARKER "__yb_begin__"
 
 /*
  * Struct representing an entry in the global notify queue
@@ -3262,6 +3260,11 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
 	if (TransactionIdIsValid(ybListenerQueueScanCurrentXactState.xid) &&
 		ybListenerQueueScanCurrentXactState.xid == qe->xid)
 	{
+		/* found duplicate txn */
+		elog(LOG,
+			 "Listener found duplicate txn BEGIN entry in async queue (xid "
+			 "%d), skipping %d notifications",
+			 qe->xid, ybListenerQueueScanCurrentXactState.scanned_notifs);
 		ybListenerQueueScanCurrentXactState.notifs_to_skip =
 			ybListenerQueueScanCurrentXactState.scanned_notifs;
 		return;
@@ -3309,9 +3312,7 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 
 /*
  * Fill the AsyncQueueEntry at *qe using the record received from the
- * replication slot.  BEGIN rows are synthetic markers (see
- * ybFillBeginAsyncQueueEntry); INSERT rows are built from the notification
- * tuple.
+ * replication slot.
  */
 static void
 ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
