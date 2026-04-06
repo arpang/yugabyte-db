@@ -180,10 +180,7 @@
  * Payload marker for synthetic queue entries that mark the start of a
  * replicated transaction (see ybFillBeginAsyncQueueEntry).  Layout is an
  * empty channel (leading NUL), then this null-terminated string as the
- * payload.  That differs from SLRU dummy padding (empty channel and empty
- * payload: two NULs at the start of data).  dboid is InvalidOid;
- * asyncQueueProcessPageEntries handles duplicate suppression after poller
- * crash/restart.
+ * payload. dboid is InvalidOid;
  */
 #define YB_ASYNC_QUEUE_BEGIN_MARKER "__yb_async_queue_txn_begin__"
 
@@ -592,16 +589,23 @@ static List *ybNotifsPollerPendingEntries = NIL;
 static TransactionId ybNotifsPollerProcessingXid = InvalidTransactionId;
 
 /*
- * YB: Per-listener state to keep track of the current transaction being
- * processed by the listening while scaning the async queue. It keeps track of
- * the xid and the #notifications scanned the belong to the current txn.
+ * The 'notifications poller' process batches the notifications of a transaction
+ * in-memory. On receiving the corresponding COMMIT record from virtual wal, it
+ * writes this batch to the async queue and sends an acknowledgement to CDC.
  *
- * Duplicate notifications are possible when the notifications poller process
- * crashes after writing notifications to the queue but before sending
- * acknowledgement to CDC. This is because when the poller process restarts, it
- * receives the notifications from the unack'd transaction again. In order to
- * skip such duplicate notifications, it also keeps a track of #notifications to
- * skip in the current transaction.
+ * The async queue can have duplicate notifications if the
+ * poller process crashes while/after writing notifications to the async queue
+ * but before sending acknowledgement to CDC. This happens because when the
+ * poller process restarts, it receives the notifications from the unack'd
+ * transaction again (which get written to the async queue again).
+ *
+ * In order to avoid sending these duplicate notifications to the client, we
+ * keep a track of the numbers of notifications scanned so far in the current
+ * txn in scanned_notifs field.
+ *
+ * If a duplicate transaction is found (duplicate txns are always adjancent), we
+ * skip the notifications that have already been scanned ('notifs_to_skip' to
+ * set to 'scanned_notifs' value of the previous transaction).
  */
 typedef struct YbListenerQueueScanCurrentXactState
 {
@@ -3245,11 +3249,6 @@ ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe)
 	Assert(IsYugaByteEnabled());
 	if (qe->dboid != InvalidOid)
 		return false;
-
-	/*
-	 * Empty channel; payload must be exactly the marker (not dummy empty
-	 * payload).
-	 */
 	if (qe->data[0] != '\0')
 		return false;
 	return (strcmp(qe->data + 1, YB_ASYNC_QUEUE_BEGIN_MARKER) == 0);
