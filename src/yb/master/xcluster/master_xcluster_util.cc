@@ -18,6 +18,7 @@
 #include "yb/master/catalog_entity_info.h"
 #include "yb/master/catalog_manager.h"
 #include "yb/master/catalog_manager_util.h"
+#include "yb/master/master_defaults.h"
 #include "yb/master/xcluster/xcluster_manager.h"
 
 DECLARE_uint32(xcluster_ysql_statement_timeout_sec);
@@ -33,12 +34,23 @@ bool IsTableEligibleForXClusterReplication(
     return false;
   }
 
+  LOG(INFO) << "(1) Arpan IsTableEligibleForXClusterReplication namespace: " << table.namespace_name()
+            << " table: " << table.name();
   if (table.GetTableType() != PGSQL_TABLE_TYPE || table.is_system()) {
     // DB Scoped replication Limited to ysql databases.
     // System tables are not replicated. DDLs statements will be replicated and executed on the
     // target universe to handle catalog changes.
     return false;
   }
+
+  LOG(INFO) << "(2) Arpan IsTableEligibleForXClusterReplication namespace: " << table.namespace_name()
+            << " table: " << table.name();
+
+
+  // if (table.namespace_name() == master::kYbSystemDbName &&
+  //     table.name() == master::kPgYbNotificationsTableName) {
+  //   return false;
+  // }
 
   if (table.IsColocationParentTable()) {
     // The colocated parent table needs to be replicated.
