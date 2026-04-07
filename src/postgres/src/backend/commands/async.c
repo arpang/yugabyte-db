@@ -602,19 +602,25 @@ static TransactionId ybNotifsPollerProcessingXid = InvalidTransactionId;
  * txn in scanned_notifs field.
  *
  * If a duplicate transaction is found (duplicate txns are always adjancent), we
- * skip the notifications that have already been scanned ('notifs_to_skip' to
+ * skip the notifications that have already been scanned ('notifs_to_skip' is
  * set to 'scanned_notifs' value of the previous transaction).
+ *
+ * begin_xid is the xid extracted from the last BEGIN marker the listener saw.
+ * It is Invalid until the first BEGIN marker is encountered. While it is
+ * Invalid, we skip all non-BEGIN entries because the listener started scanning
+ * mid-transaction and must not deliver a partial transaction (doing so would
+ * also break duplicate detection if the poller crashes and replays).
  */
 typedef struct YbListenerQueueScanCurrentXactState
 {
-	TransactionId xid;
+	TransactionId begin_xid;
 	int			scanned_notifs;
 	int			notifs_to_skip;
 } YbListenerQueueScanCurrentXactState;
 
 static YbListenerQueueScanCurrentXactState ybListenerQueueScanCurrentXactState =
 {
-	.xid = InvalidTransactionId,
+	.begin_xid = InvalidTransactionId,
 	.scanned_notifs = 0,
 	.notifs_to_skip = 0
 };
@@ -2485,6 +2491,13 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 				continue;
 			}
 
+			/*
+			 * Skip if we haven't seen a BEGIN marker yet (listener started
+			 * scanning mid-transaction).
+			 */
+			if (!TransactionIdIsValid(ybListenerQueueScanCurrentXactState.begin_xid))
+				continue;
+
 			if (ybListenerQueueScanCurrentXactState.notifs_to_skip > 0)
 			{
 				ybListenerQueueScanCurrentXactState.notifs_to_skip--;
@@ -3257,8 +3270,8 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
 {
 	Assert(ybIsAsyncQueueBeginEntry(qe));
 
-	if (TransactionIdIsValid(ybListenerQueueScanCurrentXactState.xid) &&
-		ybListenerQueueScanCurrentXactState.xid == qe->xid)
+	if (TransactionIdIsValid(ybListenerQueueScanCurrentXactState.begin_xid) &&
+		ybListenerQueueScanCurrentXactState.begin_xid == qe->xid)
 	{
 		/* found duplicate txn */
 		elog(LOG,
@@ -3270,7 +3283,7 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
 		return;
 	}
 
-	ybListenerQueueScanCurrentXactState.xid = qe->xid;
+	ybListenerQueueScanCurrentXactState.begin_xid = qe->xid;
 	ybListenerQueueScanCurrentXactState.scanned_notifs = 0;
 }
 
