@@ -879,7 +879,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   /**
    * When the notifications poller crashes after writing notifications to the queue but before
    * persisting the CDC ack, virtual WAL replays the same transaction when the poller process
-   * restarts. Test that duplicate queue entries does not produce duplicate NOTIFY deliveries
+   * restarts. Test that duplicate queue entries do not produce duplicate NOTIFY deliveries
    * (txn-begin markers suppress duplicates on read).
    */
   @Test
@@ -894,7 +894,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       try (Connection listenerConn = getConnectionBuilder().withTServer(0).connect();
            Connection notifierConn = getConnectionBuilder().withTServer(0).connect()) {
 
-        try(Statement listenerStmt = listenerConn.createStatement()) {
+        try (Statement listenerStmt = listenerConn.createStatement()) {
           listenerStmt.execute("LISTEN " + channel);
         }
 
