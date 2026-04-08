@@ -40,6 +40,7 @@
 namespace yb {
 namespace master {
 
+class CatalogManager;
 class MiniMaster;
 
 Status WaitForRunningTabletCount(MiniMaster* mini_master,
@@ -47,6 +48,9 @@ Status WaitForRunningTabletCount(MiniMaster* mini_master,
                                  int expected_count,
                                  GetTableLocationsResponsePB* resp);
 
+// Waits for the yb_system namespace and pg_yb_notifications table to be created by
+// the master background task. Returns the yb_system namespace ID.
+Result<NamespaceId> WaitForNotificationsTable(CatalogManager* catalog_manager);
 
 } // namespace master
 } // namespace yb
