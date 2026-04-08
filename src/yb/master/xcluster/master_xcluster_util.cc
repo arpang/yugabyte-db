@@ -34,8 +34,6 @@ bool IsTableEligibleForXClusterReplication(
     return false;
   }
 
-  LOG(INFO) << "(1) Arpan IsTableEligibleForXClusterReplication namespace: " << table.namespace_name()
-            << " table: " << table.name();
   if (table.GetTableType() != PGSQL_TABLE_TYPE || table.is_system()) {
     // DB Scoped replication Limited to ysql databases.
     // System tables are not replicated. DDLs statements will be replicated and executed on the
@@ -43,14 +41,10 @@ bool IsTableEligibleForXClusterReplication(
     return false;
   }
 
-  LOG(INFO) << "(2) Arpan IsTableEligibleForXClusterReplication namespace: " << table.namespace_name()
-            << " table: " << table.name();
-
-
-  // if (table.namespace_name() == master::kYbSystemDbName &&
-  //     table.name() == master::kPgYbNotificationsTableName) {
-  //   return false;
-  // }
+  if (table.namespace_name() == master::kYbSystemDbName &&
+      table.name() == master::kPgYbNotificationsTableName) {
+    return false;
+  }
 
   if (table.IsColocationParentTable()) {
     // The colocated parent table needs to be replicated.
