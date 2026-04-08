@@ -973,36 +973,43 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       creationFailed = true;
     }
 
-    LOG.info("Arpan creationFailed {}", creationFailed);
-
     if (!creationFailed) {
-      // Creation succeeded — check that pg_yb_notifications is not in the replicated tables.
+      // The create call kicks off an async checkpoint task. We must wait for the namespace
+      // to reach READY state before inspecting the replicated tables list.
       try {
+        TestUtils.waitFor(() -> {
+          GetXClusterOutboundReplicationGroupInfoResponse infoResp =
+              sourceClient.getXClusterOutboundReplicationGroupInfo(replicationGroupId);
+          if (infoResp.hasError()) {
+            LOG.info("getXClusterOutboundReplicationGroupInfo returned error: {}",
+                infoResp.errorMessage());
+            return false;
+          }
+          LOG.info("Waiting for namespace info to become ready, current size: {}",
+              infoResp.getNamespaceInfos().size());
+          return !infoResp.getNamespaceInfos().isEmpty();
+        }, Timeouts.adjustTimeoutSecForBuildType(120 * 1000));
+
+        // Now verify that pg_yb_notifications is not in the replicated tables.
         GetXClusterOutboundReplicationGroupInfoResponse infoResponse =
             sourceClient.getXClusterOutboundReplicationGroupInfo(replicationGroupId);
-        if (infoResponse.hasError()) {
-          LOG.info("getXClusterOutboundReplicationGroupInfo returned error: {}",
-              infoResponse.errorMessage());
-        } else {
-          for (MasterReplicationOuterClass
-              .GetXClusterOutboundReplicationGroupInfoResponsePB.NamespaceInfoPB nsInfo
-              : infoResponse.getNamespaceInfos()) {
-            Map<String, String> tableStreams = nsInfo.getTableStreamsMap();
-            LOG.info("Namespace {}: replicated tables: {}",
-                nsInfo.getNamespaceId(), tableStreams.keySet());
-            assertTrue(
-                "pg_yb_notifications table should NOT be in the replicated tables list",
-                !tableStreams.containsKey(notificationsTableId));
-          }
+        assertFalse("getXClusterOutboundReplicationGroupInfo should not have error",
+            infoResponse.hasError());
+        assertFalse("Namespace infos should not be empty after waiting",
+            infoResponse.getNamespaceInfos().isEmpty());
+        for (MasterReplicationOuterClass
+            .GetXClusterOutboundReplicationGroupInfoResponsePB.NamespaceInfoPB nsInfo
+            : infoResponse.getNamespaceInfos()) {
+          Map<String, String> tableStreams = nsInfo.getTableStreamsMap();
+          LOG.info("Namespace {}: replicated tables: {}",
+              nsInfo.getNamespaceId(), tableStreams.keySet());
+          assertFalse(
+              "pg_yb_notifications table should NOT be in the replicated tables list",
+              tableStreams.containsKey(notificationsTableId));
         }
       } finally {
-        // Clean up the outbound replication group.
         sourceClient.xClusterDeleteOutboundReplicationGroup(replicationGroupId);
       }
-    }
-
-    if (creationFailed) {
-      LOG.info("xcluster correctly prevented replication of yb_system/pg_yb_notifications");
     }
   }
 
