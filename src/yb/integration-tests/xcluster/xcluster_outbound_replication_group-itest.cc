@@ -24,7 +24,9 @@
 
 #include "yb/master/catalog_manager.h"
 #include "yb/master/master_ddl.pb.h"
+#include "yb/master/master_defaults.h"
 #include "yb/master/mini_master.h"
+#include "yb/master/xcluster/master_xcluster_util.h"
 #include "yb/tablet/tablet_peer.h"
 #include "yb/util/backoff_waiter.h"
 
@@ -32,6 +34,7 @@ DECLARE_int32(update_min_cdc_indices_interval_secs);
 DECLARE_uint32(cdc_wal_retention_time_secs);
 DECLARE_uint32(max_xcluster_streams_to_checkpoint_in_parallel);
 DECLARE_bool(TEST_block_xcluster_checkpoint_namespace_task);
+DECLARE_bool(ysql_yb_enable_listen_notify);
 
 namespace yb::master {
 
@@ -762,6 +765,38 @@ TEST_P(XClusterOutboundReplicationGroupParameterized, TestGetStreamByTableId) {
   ASSERT_NOK_STR_CONTAINS(
       GetXClusterStreamsByTableId(kReplicationGroupId, namespace_id_, {"bad_table_id"}),
       "Table bad_table_id not found");
+}
+
+TEST_F(XClusterOutboundReplicationGroupTest, NotificationsTableNotEligibleForXCluster) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_listen_notify) = true;
+
+  // Wait for the yb_system namespace and pg_yb_notifications table to be created asynchronously
+  // by the master bg task.
+  NamespaceId yb_system_ns_id;
+  ASSERT_OK(LoggedWaitFor(
+      [this, &yb_system_ns_id]() -> Result<bool> {
+        auto ns_id = XClusterTestUtils::GetNamespaceId(*client_, kYbSystemDbName);
+        if (!ns_id.ok()) {
+          return false;
+        }
+        yb_system_ns_id = *ns_id;
+        auto tables = VERIFY_RESULT(catalog_manager_->GetTableInfosForNamespace(yb_system_ns_id));
+        for (const auto& table : tables) {
+          if (table->name() == kPgYbNotificationsTableName) {
+            return true;
+          }
+        }
+        return false;
+      },
+      MonoDelta::FromSeconds(120), "Waiting for pg_yb_notifications table to be created"));
+
+  auto eligible_tables = ASSERT_RESULT(
+      GetTablesEligibleForXClusterReplication(*catalog_manager_, yb_system_ns_id, false));
+
+  for (const auto& table : eligible_tables) {
+    ASSERT_NE(table.name(), kPgYbNotificationsTableName)
+        << "pg_yb_notifications should not be eligible for xCluster replication";
+  }
 }
 
 } // namespace yb::master
