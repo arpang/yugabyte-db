@@ -163,7 +163,6 @@
 #include "replication/slot.h"
 #include "replication/yb_decode.h"
 #include "replication/yb_virtual_wal_client.h"
-#include "yb/yql/pggate/ybc_gflags.h"
 
 
 /*
@@ -348,6 +347,7 @@ static SlruCtlData NotifyCtlData;
 #define QUEUE_MAX_PAGE			(SLRU_PAGES_PER_SEGMENT * 0x10000 - 1)
 
 bool		yb_enable_listen_notify = false;
+bool		yb_test_fatal_after_notifs_queue_write = false;
 int			yb_notifications_poll_sleep_duration_nonempty_ms = 1;
 int			yb_notifications_poll_sleep_duration_empty_ms = 100;
 
@@ -3202,7 +3202,7 @@ ybNotifsPollerProcessRecord(const YbcPgRowMessage *record)
 
 		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
 			ybNotifsPollerAddPendingEntriesToQueue();
-			if (*YBCGetGFlags()->TEST_ysql_fatal_after_notifs_queue_write)
+			if (yb_test_fatal_after_notifs_queue_write)
 				ereport(FATAL,
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("test-only: notifications poller simulated crash "

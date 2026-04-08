@@ -921,7 +921,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   private void setFatalAfterNotifsQueueWriteFlag(boolean value) throws Exception {
     String v = value ? "true" : "false";
     for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
-      setServerFlag(tserver, "TEST_ysql_fatal_after_notifs_queue_write", v);
+      setServerFlag(tserver, "ysql_yb_test_fatal_after_notifs_queue_write", v);
     }
   }
 

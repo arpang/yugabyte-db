@@ -143,10 +143,6 @@ DEFINE_test_flag(int64, delay_after_table_analyze_ms, 0,
 DEFINE_test_flag(
     bool, enable_obj_tuple_locks, false, "Enable object tuple locks in the lock manager.");
 
-DEFINE_test_flag(bool, ysql_fatal_after_notifs_queue_write, false,
-    "When true, the notifications poller exits with FATAL after writing NOTIFY entries to the "
-    "async queue but before persisting the CDC virtual-WAL ack.");
-
 DECLARE_bool(ysql_enable_colocated_tables_with_tablespaces);
 DECLARE_bool(TEST_ysql_enable_db_logical_client_version_mode);
 DECLARE_bool(ysql_yb_enable_ddl_savepoint_support);
@@ -261,7 +257,6 @@ const YbcPgGFlagsAccessor* YBCGetGFlags() {
       .TEST_ysql_bypass_auto_analyze_auth_check = &FLAGS_TEST_ysql_bypass_auto_analyze_auth_check,
       .TEST_delay_after_table_analyze_ms = &FLAGS_TEST_delay_after_table_analyze_ms,
       .TEST_enable_obj_tuple_locks = &FLAGS_TEST_enable_obj_tuple_locks,
-      .TEST_ysql_fatal_after_notifs_queue_write = &FLAGS_TEST_ysql_fatal_after_notifs_queue_write,
   };
   // clang-format on
   return &accessor;
