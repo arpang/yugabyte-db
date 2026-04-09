@@ -58,6 +58,7 @@
 #include "yb/master/master_backup.pb.h"
 #include "yb/master/master_client.pb.h"
 #include "yb/master/master_ddl.pb.h"
+#include "yb/master/master_defaults.h"
 #include "yb/master/master_error.h"
 #include "yb/master/master_heartbeat.pb.h"
 #include "yb/master/master_replication.pb.h"
@@ -473,6 +474,13 @@ Result<std::vector<TableDescription>> CatalogManager::CollectTablesAsOfTime(
     if (sys_catalog_table_ids.contains(table_id)) {
       VLOG_WITH_PREFIX_AND_FUNC(2)
           << "Rejected system table: " << table_id << " (name: " << table_pb.name() << ")";
+      return Status::OK();
+    }
+
+    if (namespace_info->name() == kYbSystemDbName &&
+        table_pb.name() == kPgYbNotificationsTableName) {
+      VLOG_WITH_PREFIX_AND_FUNC(2)
+          << "Rejected pg_yb_notifications: " << table_id;
       return Status::OK();
     }
 

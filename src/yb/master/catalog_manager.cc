@@ -13227,6 +13227,11 @@ Result<vector<TableDescription>> CatalogManager::CollectTables(
                 << "Rejected table from other namespace: " << AsString(table);
             continue;
           }
+          if (lock->namespace_name() == kYbSystemDbName &&
+              lock->name() == kPgYbNotificationsTableName) {
+            VLOG_WITH_PREFIX_AND_FUNC(4) << "Rejected pg_yb_notifications: " << AsString(table);
+            continue;
+          }
           VLOG_WITH_PREFIX_AND_FUNC(4) << "Accepted: " << AsString(table);
           table_with_flags.emplace_back(table, ns_collect_flags);
         }

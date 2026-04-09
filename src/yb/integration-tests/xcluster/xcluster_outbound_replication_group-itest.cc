@@ -24,6 +24,8 @@
 
 #include "yb/master/catalog_manager.h"
 #include "yb/master/master_ddl.pb.h"
+#include "yb/master/master_defaults.h"
+#include "yb/master/master-test-util.h"
 #include "yb/master/mini_master.h"
 #include "yb/tablet/tablet_peer.h"
 #include "yb/util/backoff_waiter.h"
@@ -32,6 +34,7 @@ DECLARE_int32(update_min_cdc_indices_interval_secs);
 DECLARE_uint32(cdc_wal_retention_time_secs);
 DECLARE_uint32(max_xcluster_streams_to_checkpoint_in_parallel);
 DECLARE_bool(TEST_block_xcluster_checkpoint_namespace_task);
+DECLARE_bool(ysql_yb_enable_listen_notify);
 
 namespace yb::master {
 
@@ -762,6 +765,24 @@ TEST_P(XClusterOutboundReplicationGroupParameterized, TestGetStreamByTableId) {
   ASSERT_NOK_STR_CONTAINS(
       GetXClusterStreamsByTableId(kReplicationGroupId, namespace_id_, {"bad_table_id"}),
       "Table bad_table_id not found");
+}
+
+TEST_F(XClusterOutboundReplicationGroupTest, NotificationsTableNotEligibleForXCluster) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_listen_notify) = true;
+
+  auto yb_system_ns_id = ASSERT_RESULT(WaitForNotificationsTable(catalog_manager_));
+
+  const xcluster::ReplicationGroupId kYbSystemRgId("yb_system_rg");
+  auto status = CreateOutboundReplicationGroupSync(kYbSystemRgId, {yb_system_ns_id});
+  if (status.ok()) {
+    // Other tables exist in yb_system — verify pg_yb_notifications is not among them.
+    auto resp = ASSERT_RESULT(GetXClusterStreams(kYbSystemRgId, yb_system_ns_id));
+    for (const auto& table_info : resp.table_infos()) {
+      ASSERT_NE(table_info.table_name(), kPgYbNotificationsTableName)
+          << "pg_yb_notifications should not be replicated via xCluster";
+    }
+  }
+  // If creation failed, pg_yb_notifications was correctly excluded (no eligible tables remained).
 }
 
 } // namespace yb::master

@@ -60,6 +60,8 @@
 #include "yb/master/master.h"
 #include "yb/master/master_admin.proxy.h"
 #include "yb/master/master_backup.proxy.h"
+#include "yb/master/master_defaults.h"
+#include "yb/master/master-test-util.h"
 #include "yb/master/master_types.pb.h"
 #include "yb/master/mini_master.h"
 #include "yb/master/sys_catalog.h"
@@ -99,6 +101,7 @@ DECLARE_int32(tserver_heartbeat_metrics_interval_ms);
 DECLARE_int32(yb_client_admin_operation_timeout_sec);
 DECLARE_bool(ysql_enable_auto_analyze);
 DECLARE_bool(ysql_enable_auto_analyze_infra);
+DECLARE_bool(ysql_yb_enable_listen_notify);
 DECLARE_string(ysql_hba_conf_csv);
 DECLARE_int32(ysql_sequence_cache_minval);
 DECLARE_int32(ysql_clone_pg_schema_rpc_timeout_ms);
@@ -1739,6 +1742,38 @@ TEST_F(PgCloneTest, DisallowCloneIntoForwardRestoreGap) {
       t2.ToInt64());
   ASSERT_NOK(status);
   ASSERT_STR_CONTAINS(status.message().ToBuffer(), "Cannot perform a forward restore");
+}
+
+TEST_F(PostgresMiniClusterTest, NotificationsTableExcludedFromSnapshot) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_listen_notify) = true;
+
+  auto& catalog_manager =
+      ASSERT_RESULT(cluster_->GetLeaderMiniMaster())->catalog_manager_impl();
+  ASSERT_OK(WaitForNotificationsTable(&catalog_manager));
+
+  auto messenger = ASSERT_RESULT(rpc::MessengerBuilder("test-msgr").set_num_reactors(1).Build());
+  rpc::ProxyCache proxy_cache(messenger.get());
+  MasterBackupProxy backup_proxy(&proxy_cache, mini_cluster()->mini_master()->bound_rpc_addr());
+
+  auto schedule_id = ASSERT_RESULT(CreateSnapshotSchedule(
+      &backup_proxy, YQL_DATABASE_PGSQL, kYbSystemDbName, kInterval, kRetention, 30s));
+  auto snapshot_info = ASSERT_RESULT(WaitScheduleSnapshot(&backup_proxy, schedule_id, 60s));
+
+  auto snapshot_id = ASSERT_RESULT(FullyDecodeTxnSnapshotId(snapshot_info.id()));
+  ASSERT_OK(WaitForSnapshotComplete(&backup_proxy, snapshot_id));
+
+  auto exported = ASSERT_RESULT(ExportSnapshot(&backup_proxy, snapshot_id));
+  for (const auto& backup_entry : exported.backup_entries()) {
+    if (backup_entry.entry().type() != SysRowEntryType::TABLE) {
+      continue;
+    }
+    SysTablesEntryPB table_entry;
+    ASSERT_TRUE(table_entry.ParseFromString(backup_entry.entry().data()));
+    ASSERT_NE(table_entry.name(), kPgYbNotificationsTableName)
+        << "pg_yb_notifications should not be in the snapshot";
+  }
+
+  messenger->Shutdown();
 }
 
 }  // namespace master

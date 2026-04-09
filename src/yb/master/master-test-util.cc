@@ -21,11 +21,14 @@
 
 #include "yb/common/schema_pbutil.h"
 
+#include "yb/master/catalog_manager.h"
 #include "yb/master/catalog_manager_if.h"
 #include "yb/master/leader_epoch.h"
 #include "yb/master/master_client.pb.h"
+#include "yb/master/master_defaults.h"
 #include "yb/master/mini_master.h"
 
+#include "yb/util/backoff_waiter.h"
 #include "yb/util/status.h"
 #include "yb/util/stopwatch.h"
 
@@ -73,6 +76,28 @@ Status WaitForRunningTabletCount(MiniMaster* mini_master,
   // Unreachable.
   LOG(FATAL) << "Reached unreachable section";
   return STATUS(RuntimeError, "Unreachable statement"); // Suppress compiler warnings.
+}
+
+Result<NamespaceId> WaitForNotificationsTable(CatalogManager* catalog_manager) {
+  NamespaceId yb_system_ns_id;
+  RETURN_NOT_OK(LoggedWaitFor(
+      [&]() -> Result<bool> {
+        auto ns = catalog_manager->FindNamespaceByName(YQL_DATABASE_PGSQL, kYbSystemDbName);
+        if (!ns.ok()) {
+          return false;
+        }
+        yb_system_ns_id = (*ns)->id();
+        auto tables = VERIFY_RESULT(
+            catalog_manager->GetTableInfosForNamespace(yb_system_ns_id));
+        for (const auto& table : tables) {
+          if (table->name() == kPgYbNotificationsTableName) {
+            return true;
+          }
+        }
+        return false;
+      },
+      MonoDelta::FromSeconds(120), "Waiting for pg_yb_notifications table to be created"));
+  return yb_system_ns_id;
 }
 
 } // namespace master
