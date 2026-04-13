@@ -813,6 +813,44 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
+   * With the connection manager, LISTEN should make the connection sticky so
+   * the listening backend is not reassigned to a different client. Verifies
+   * that only the listening session receives notifications and the
+   * non-listening session does not.
+   */
+  @Test
+  public void testListenStickyWithConnectionManager() throws Exception {
+    if (!isTestRunningWithConnectionManager()) {
+      LOG.info("Skipping testListenStickyWithConnectionManager: connection manager not enabled");
+      return;
+    }
+
+    try (Connection listenerConn = getConnectionBuilder().connect();
+         Connection otherConn = getConnectionBuilder().connect()) {
+
+      try (Statement listenerStmt = listenerConn.createStatement();
+           Statement otherStmt = otherConn.createStatement()) {
+        assertOneRow(listenerStmt, "SHOW ysql_conn_mgr_sticky_object_count", "0");
+        assertOneRow(otherStmt, "SHOW ysql_conn_mgr_sticky_object_count", "0");
+
+        listenerStmt.execute("LISTEN " + CHANNEL);
+
+        assertOneRow(listenerStmt, "SHOW ysql_conn_mgr_sticky_object_count", "1");
+        assertOneRow(otherStmt, "SHOW ysql_conn_mgr_sticky_object_count", "0");
+      }
+
+      try (Statement stmt = otherConn.createStatement()) {
+        stmt.execute("NOTIFY " + CHANNEL + ", '" + PAYLOAD + "'");
+      }
+
+      waitForNotification(listenerConn, CHANNEL, PAYLOAD);
+
+      waitAndAssertNoNotifications(otherConn,
+          "Non-listening session should not receive notifications");
+    }
+  }
+
+  /**
    * Verifies that LISTEN succeeds, and that a NOTIFY sent from another
    * connection is delivered to the listener.
    */
