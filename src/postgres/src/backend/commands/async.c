@@ -1453,6 +1453,9 @@ Exec_ListenCommit(const char *channel)
 	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 	listenChannels = lappend(listenChannels, pstrdup(channel));
 	MemoryContextSwitchTo(oldcontext);
+
+	if (YbIsClientYsqlConnMgr())
+		yb_ysql_conn_mgr_sticky_guc = true;
 }
 
 /*
