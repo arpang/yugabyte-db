@@ -1455,7 +1455,11 @@ Exec_ListenCommit(const char *channel)
 	MemoryContextSwitchTo(oldcontext);
 
 	if (YbIsClientYsqlConnMgr())
-		yb_ysql_conn_mgr_sticky_guc = true;
+	{
+		int			change = 1;
+
+		YbIsStickyConnection(&change);
+	}
 }
 
 /*
