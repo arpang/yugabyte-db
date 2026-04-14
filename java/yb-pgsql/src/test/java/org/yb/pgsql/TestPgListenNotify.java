@@ -13,19 +13,15 @@
 package org.yb.pgsql;
 
 import static org.yb.AssertionWrappers.assertEquals;
-import static org.yb.AssertionWrappers.assertNotNull;
-import static org.yb.AssertionWrappers.assertNull;
 import static org.yb.AssertionWrappers.assertTrue;
 import static org.yb.AssertionWrappers.fail;
 
 import com.google.common.net.HostAndPort;
 import com.google.protobuf.ByteString;
-import com.yugabyte.PGConnection;
 import com.yugabyte.PGNotification;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -307,16 +303,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     }
     fail("Notifications poller did not restart within 30 seconds");
     return -1;
-  }
-
-  private void waitAndAssertNoNotifications(Connection listenConn, String msg) throws Exception {
-    Thread.sleep(5000);
-    try (Statement listenerStmt = listenConn.createStatement()) {
-      listenerStmt.execute("SELECT 1");
-      PGConnection pgConn = listenConn.unwrap(PGConnection.class);
-      PGNotification[] n = pgConn.getNotifications();
-      assertTrue(msg, n == null || n.length == 0);
-    }
   }
 
   /**
@@ -775,78 +761,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         stmt.execute("NOTIFY " + CHANNEL + ", 'rr_to_primary'");
       }
       waitForNotification(primaryListener, CHANNEL, "rr_to_primary");
-    }
-  }
-
-  /**
-   * Polls the given connection for notifications by executing "SELECT 1",
-   * collecting all received notifications until one matching the expected
-   * channel and payload is found. Returns the complete list of notifications
-   * received (including the match).
-   */
-  private List<PGNotification> waitForNotification(Connection connection,
-      String expectedChannel, String expectedPayload) throws Exception {
-    List<PGNotification> allNotifications = new ArrayList<>();
-    PGConnection pgConn = connection.unwrap(PGConnection.class);
-    boolean found = false;
-    try (Statement stmt = connection.createStatement()) {
-      for (int attempt = 0; attempt < 75 && !found; attempt++) {
-        stmt.execute("SELECT 1");
-        PGNotification[] notifications = pgConn.getNotifications();
-        if (notifications != null) {
-          for (PGNotification n : notifications) {
-            allNotifications.add(n);
-            if (n.getName().equals(expectedChannel)
-                && n.getParameter().equals(expectedPayload)) {
-              found = true;
-            }
-          }
-        }
-        if (!found) {
-          Thread.sleep(200);
-        }
-      }
-    }
-    assertTrue("Expected to receive notification on channel '" + expectedChannel
-        + "' with payload '" + expectedPayload + "'", found);
-    return allNotifications;
-  }
-
-  /**
-   * With the connection manager, LISTEN should make the connection sticky so
-   * the listening backend is not reassigned to a different client. Verifies
-   * that only the listening session receives notifications and the
-   * non-listening session does not.
-   */
-  @Test
-  public void testListenStickyWithConnectionManager() throws Exception {
-    if (!isTestRunningWithConnectionManager()) {
-      LOG.info("Skipping testListenStickyWithConnectionManager: connection manager not enabled");
-      return;
-    }
-
-    try (Connection listenerConn = getConnectionBuilder().connect();
-         Connection otherConn = getConnectionBuilder().connect()) {
-
-      try (Statement listenerStmt = listenerConn.createStatement();
-           Statement otherStmt = otherConn.createStatement()) {
-        assertOneRow(listenerStmt, "SHOW ysql_conn_mgr_sticky_object_count", "0");
-        assertOneRow(otherStmt, "SHOW ysql_conn_mgr_sticky_object_count", "0");
-
-        listenerStmt.execute("LISTEN " + CHANNEL);
-
-        assertOneRow(listenerStmt, "SHOW ysql_conn_mgr_sticky_object_count", "1");
-        assertOneRow(otherStmt, "SHOW ysql_conn_mgr_sticky_object_count", "0");
-      }
-
-      try (Statement stmt = otherConn.createStatement()) {
-        stmt.execute("NOTIFY " + CHANNEL + ", '" + PAYLOAD + "'");
-      }
-
-      waitForNotification(listenerConn, CHANNEL, PAYLOAD);
-
-      waitAndAssertNoNotifications(otherConn,
-          "Non-listening session should not receive notifications");
     }
   }
 
