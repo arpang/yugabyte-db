@@ -17,17 +17,39 @@ import static org.yb.AssertionWrappers.assertTrue;
 
 import java.sql.Connection;
 import java.sql.Statement;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.yb.minicluster.MiniYBClusterBuilder;
 import org.yb.pgsql.BasePgListenNotifyTest;
 import org.yb.pgsql.ConnectionEndpoint;
 
+/**
+ * LISTEN/NOTIFY through the connection manager. Uses a small per-database pool (two physical
+ * backends, multi-route pool off) so {@link #testListenNotifySurvivesPoolChurn} can force backend
+ * reuse;
+ */
 @RunWith(value = YBTestRunnerYsqlConnMgr.class)
 public class TestConnectionManagerListenNotify extends BaseYsqlConnMgr {
   private static final String CHANNEL = "test_channel";
   private static final String PAYLOAD = "test_payload";
+
+  /**
+   * Short-lived connections opened while the listener stays idle, to compete for pool backends.
+   */
+  private static final int CHURN_ITERATIONS = 10;
+
+  @Override
+  protected void customizeMiniClusterBuilder(MiniYBClusterBuilder builder) {
+    super.customizeMiniClusterBuilder(builder);
+    disableWarmupRandomMode(builder);
+    Map<String, String> poolFlags = new HashMap<>();
+    poolFlags.put("ysql_conn_mgr_max_conns_per_db", "2");
+    poolFlags.put("ysql_conn_mgr_enable_multi_route_pool", "false");
+    builder.addCommonTServerFlags(poolFlags);
+  }
 
   @Override
   protected Map<String, String> getTServerFlags() {
@@ -85,7 +107,7 @@ public class TestConnectionManagerListenNotify extends BaseYsqlConnMgr {
   }
 
   @Test
-  public void testOnlyListenerReceivesNotification() throws Exception {
+  public void testListenNotifySurvivesPoolChurn() throws Exception {
     try (Connection listenerConn = getConnectionBuilder()
             .withConnectionEndpoint(ConnectionEndpoint.YSQL_CONN_MGR)
             .connect();
@@ -95,6 +117,15 @@ public class TestConnectionManagerListenNotify extends BaseYsqlConnMgr {
 
       try (Statement stmt = listenerConn.createStatement()) {
         stmt.execute("LISTEN " + CHANNEL);
+      }
+
+      for (int i = 0; i < CHURN_ITERATIONS; i++) {
+        try (Connection churnConn = getConnectionBuilder()
+                .withConnectionEndpoint(ConnectionEndpoint.YSQL_CONN_MGR)
+                .connect();
+            Statement churnStmt = churnConn.createStatement()) {
+          churnStmt.executeQuery("SELECT 1").close();
+        }
       }
 
       try (Statement stmt = otherConn.createStatement()) {
