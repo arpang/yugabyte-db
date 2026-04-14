@@ -1454,6 +1454,11 @@ Exec_ListenCommit(const char *channel)
 	listenChannels = lappend(listenChannels, pstrdup(channel));
 	MemoryContextSwitchTo(oldcontext);
 
+	/*
+	 * If connection manager is used, mark the connection as sticky. Not doing
+	 * so can cause the listening client to miss notifications, while
+	 * non-listening clients receive spurious notifications.
+	 */
 	if (YbIsClientYsqlConnMgr())
 	{
 		int			change = 1;
