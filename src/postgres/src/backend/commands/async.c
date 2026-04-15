@@ -1461,9 +1461,8 @@ Exec_ListenCommit(const char *channel)
 	 */
 	if (YbIsClientYsqlConnMgr())
 	{
-		int			change = 1;
-
-		YbIsStickyConnection(&change);
+		elog(LOG, "Incrementing sticky object count for LISTEN %s", channel);
+		increment_sticky_object_count();
 	}
 }
 
