@@ -36,8 +36,11 @@ import org.yb.CommonNet;
 import org.yb.CommonNet.CloudInfoPB;
 import org.yb.CommonTypes;
 import org.yb.YBTestRunner;
+import org.yb.client.CDCStreamInfo;
+import org.yb.client.ListCDCStreamsResponse;
 import org.yb.client.ListSnapshotSchedulesResponse;
 import org.yb.client.ModifyClusterConfigLiveReplicas;
+import org.yb.master.MasterReplicationOuterClass;
 import org.yb.client.ModifyClusterConfigReadReplicas;
 import org.yb.client.SnapshotScheduleInfo;
 import org.yb.client.TestUtils;
@@ -874,6 +877,46 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     String v = value ? "true" : "false";
     for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
       setServerFlag(tserver, "ysql_yb_test_fatal_after_notifs_queue_write", v);
+    }
+  }
+
+  /**
+   * Verifies that a user-created CDC stream on the yb_system database does not
+   * include the pg_yb_notifications table. That table is reserved for internal
+   * LISTEN/NOTIFY streams only.
+   */
+  @Test
+  public void testUserCdcStreamExcludesPgYbNotifications() throws Exception {
+    try (Connection ybSystemConn = getConnectionBuilder().withDatabase("yb_system").connect();
+         Statement stmt = ybSystemConn.createStatement()) {
+      stmt.execute("CREATE TABLE test_cdc_table (id INT PRIMARY KEY, val TEXT)");
+      stmt.execute("CREATE PUBLICATION test_pub FOR ALL TABLES");
+      stmt.execute(
+          "SELECT pg_create_logical_replication_slot('test_cdc_slot', 'pgoutput')");
+    }
+
+    YBClient client = miniCluster.getClient();
+    ListCDCStreamsResponse resp =
+        client.listCDCStreams(null, null, MasterReplicationOuterClass.IdTypePB.NAMESPACE_ID);
+    boolean foundStream = false;
+    for (CDCStreamInfo stream : resp.getStreams()) {
+      if ("test_cdc_slot".equals(stream.getCdcsdkYsqlReplicationSlotName())) {
+        foundStream = true;
+        for (String tableId : stream.getTableIds()) {
+          String tableName = client.openTableByUUID(tableId).getName();
+          assertTrue("User CDC stream should not contain pg_yb_notifications, "
+              + "but found table: " + tableName,
+              !tableName.equals("pg_yb_notifications"));
+        }
+      }
+    }
+    assertTrue("CDC stream 'test_cdc_slot' not found", foundStream);
+
+    try (Connection ybSystemConn = getConnectionBuilder().withDatabase("yb_system").connect();
+         Statement stmt = ybSystemConn.createStatement()) {
+      stmt.execute("SELECT pg_drop_replication_slot('test_cdc_slot')");
+      stmt.execute("DROP PUBLICATION test_pub");
+      stmt.execute("DROP TABLE test_cdc_table");
     }
   }
 
