@@ -2458,6 +2458,8 @@ bool CatalogManager::IsTableEligibleForCDCSDKStream(
   }
 
   if (!table_info->IsUserTable(lock)) {
+    // Non-user tables like indexes, system tables etc should not be added as they are not
+    // supported for streaming.
     return false;
   }
 
