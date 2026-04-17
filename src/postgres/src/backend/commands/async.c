@@ -689,7 +689,7 @@ static void ybNotifsPollerInit(void);
 static void ybNotifsPollerLoop(void);
 static void ybNotifsPollerProcessRecord(const YbcPgRowMessage *record);
 static void ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record);
-static int32 ybTerminateSlowestListener(void);
+static void ybTerminateSlowestListener(void);
 static void ybNotifsPollerAddPendingEntriesToQueue(void);
 static void ybFillBeginAsyncQueueEntry(AsyncQueueEntry *qe, TransactionId xid);
 static bool ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe);
@@ -3325,11 +3325,8 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
  * the notifications poller (i.e., this very process).
  *
  * Caller must hold NotifyQueueLock in at least SHARED mode.
- *
- * Returns the PID of the terminated listener, or InvalidPid if no listener
- * could be terminated.
  */
-static int32
+static void
 ybTerminateSlowestListener(void)
 {
 	QueuePosition minPos = QUEUE_HEAD;
@@ -3350,13 +3347,12 @@ ybTerminateSlowestListener(void)
 	}
 
 	if (minPid == InvalidPid || listenerCount <= 1)
-		return InvalidPid;
+		return;
 
 	elog(WARNING,
 		 "NOTIFY queue is full, terminating slowest listener (PID %d)",
 		 minPid);
 	kill(minPid, SIGTERM);
-	return minPid;
 }
 
 /*
@@ -3367,7 +3363,6 @@ static void
 ybNotifsPollerAddPendingEntriesToQueue(void)
 {
 	ListCell   *nextQueueEntry = list_head(ybNotifsPollerPendingEntries);
-	int32		terminatedPid = InvalidPid;
 
 	while (nextQueueEntry != NULL)
 	{
@@ -3376,15 +3371,13 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
 		if (asyncQueueIsFull())
 		{
-			if (terminatedPid == InvalidPid)
-				terminatedPid = ybTerminateSlowestListener();
+			ybTerminateSlowestListener();
 			LWLockRelease(NotifyQueueLock);
 			CHECK_FOR_INTERRUPTS();
 			pg_usleep(10000L);
 			asyncQueueAdvanceTail();
 			continue;
 		}
-		terminatedPid = InvalidPid;
 		nextQueueEntry = asyncQueueAddEntries(nextQueueEntry);
 		LWLockRelease(NotifyQueueLock);
 	}
