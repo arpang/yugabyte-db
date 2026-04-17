@@ -3321,10 +3321,10 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
  * terminate it so the queue tail can advance.
  *
  * Only terminate if some other listener has fully caught up (position ==
- * QUEUE_HEAD).  If every listener still has scanning to do, killing the
- * slowest one would not meaningfully help the others and would just
- * disrupt a session unnecessarily.  This also naturally prevents
- * termination when there is only a single listener.
+ * QUEUE_HEAD). If every listener still has scanning to do, killing the
+ * slowest one would not help the others and would just disrupt a session
+ * unnecessarily. This also naturally prevents termination when there is only a
+ * single listener.
  *
  * Caller must hold NotifyQueueLock in at least SHARED mode.
  */
