@@ -886,10 +886,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       Connection connFast = getConnectionBuilder().connect();
       Connection connNotifier = getConnectionBuilder().connect();
 
-      // Register the slow listener (autocommit so it takes effect), then
-      // BEGIN a transaction to pin its queue position — notifications are
-      // not processed while in a transaction block (ProcessNotifyInterrupt
-      // checks IsTransactionOrTransactionBlock).
+      // Register a listener and make it slow by starting an indefinite transaction (notifications
+      // are not delivered when the backend is inside a transaction).
       try (Statement stmt = connSlow.createStatement()) {
         stmt.execute("LISTEN ch1");
         stmt.execute("BEGIN");

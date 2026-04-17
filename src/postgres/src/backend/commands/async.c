@@ -1701,11 +1701,12 @@ asyncQueueIsFull(void)
 	 */
 	if (yb_test_notify_queue_max_pages > 0)
 	{
-		int		headpage = QUEUE_POS_PAGE(QUEUE_HEAD);
-		int		tailpage = QUEUE_POS_PAGE(QUEUE_TAIL);
-		int		used = (headpage >= tailpage)
-					 ? headpage - tailpage
-					 : (QUEUE_MAX_PAGE + 1 - tailpage) + headpage;
+		int			headpage = QUEUE_POS_PAGE(QUEUE_HEAD);
+		int			tailpage = QUEUE_POS_PAGE(QUEUE_TAIL);
+		int			used = (headpage >= tailpage)
+			? headpage - tailpage
+			: (QUEUE_MAX_PAGE + 1 - tailpage) + headpage;
+
 		if (used >= yb_test_notify_queue_max_pages)
 			return true;
 	}
@@ -3340,6 +3341,7 @@ ybTerminateSlowestListener(void)
 		Assert(QUEUE_BACKEND_PID(i) != InvalidPid);
 		listenerCount++;
 		QueuePosition newMin = QUEUE_POS_MIN(minPos, QUEUE_BACKEND_POS(i));
+
 		if (!QUEUE_POS_EQUAL(newMin, minPos))
 		{
 			minPos = newMin;
