@@ -2433,6 +2433,7 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
           if (StringUtils.isNotEmpty(n.sshUserOverride)) {
             params.sshUser = n.sshUserOverride;
           }
+          params.userIntent = userIntent;
           YNPProvisioning task = createTask(YNPProvisioning.class);
           task.initialize(params);
           subTaskGroup.addSubTask(task);
@@ -4110,7 +4111,7 @@ public abstract class UniverseDefinitionTaskBase extends UniverseTaskBase {
               params.force = true;
               Map<String, String> gflags = new HashMap<>();
               gflags.put(GFlagsUtil.YB_MAJOR_VERSION_UPGRADE_COMPATIBILITY, flagValue);
-              Cluster cluster = Universe.getCluster(universe, node.nodeName);
+              Cluster cluster = universe.getCluster(node.placementUuid);
               Map<String, String> nodeGFlags =
                   GFlagsUtil.getGFlagsForNode(
                       node, serverType, cluster, universe.getUniverseDetails().clusters);
