@@ -348,6 +348,7 @@ static SlruCtlData NotifyCtlData;
 
 bool		yb_enable_listen_notify = false;
 bool		yb_test_fatal_after_notifs_queue_write = false;
+int			yb_test_notify_queue_max_pages = 0;
 int			yb_notifications_poll_sleep_duration_nonempty_ms = 1;
 int			yb_notifications_poll_sleep_duration_empty_ms = 100;
 
@@ -1693,6 +1694,21 @@ asyncQueueIsFull(void)
 {
 	int			nexthead;
 	int			boundary;
+
+	/*
+	 * YB test hook: treat the queue as full once the head has advanced
+	 * yb_test_notify_queue_max_pages pages beyond the tail.
+	 */
+	if (yb_test_notify_queue_max_pages > 0)
+	{
+		int		headpage = QUEUE_POS_PAGE(QUEUE_HEAD);
+		int		tailpage = QUEUE_POS_PAGE(QUEUE_TAIL);
+		int		used = (headpage >= tailpage)
+					 ? headpage - tailpage
+					 : (QUEUE_MAX_PAGE + 1 - tailpage) + headpage;
+		if (used >= yb_test_notify_queue_max_pages)
+			return true;
+	}
 
 	/*
 	 * The queue is full if creating a new head page would create a page that
