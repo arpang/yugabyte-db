@@ -3382,6 +3382,13 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 		{
 			ybTerminateSlowestListener();
 			LWLockRelease(NotifyQueueLock);
+			/*
+			 * The queue can become full in the middle of writing notifications
+			 * of a transaction. Signal the backends so the fast listeners, if
+			 * any, can read till the end of the queue and the slowest listener
+			 * can be terminated in the next call to
+			 * ybTerminateSlowestListener().
+			 */
 			SignalBackends();
 			CHECK_FOR_INTERRUPTS();
 			pg_usleep(10000L);	/* sleep for 10ms */
