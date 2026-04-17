@@ -871,12 +871,12 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
-   * When the NOTIFY queue is full, the notifications poller should terminate
-   * the slowest listener to let the queue tail advance. Verify that the slow
-   * listener is terminated while the fast listener stays alive.
+   * When the NOTIFY queue is full, the notifications poller should terminate the slowest listener
+   * to let the queue tail advance if another listener has caught up to the head. Verify that the
+   * slow listener is terminated while the fast listener stays alive.
    *
-   * Uses yb_test_notify_queue_max_pages to artificially limit the queue so it
-   * fills up with a handful of large-payload notifications.
+   * Uses yb_test_notify_queue_max_pages to artificially limit the queue so it fills up with a
+   * handful of large-payload notifications.
    */
   @Test
   public void testQueueFullTerminatesSlowestListener() throws Exception {
