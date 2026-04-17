@@ -3320,9 +3320,11 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
  * Find the slowest listener (the one furthest behind in the queue) and
  * terminate it so the queue tail can advance.
  *
- * If the slowest listener is the only listener on this node, we must not
- * terminate it: doing so would trigger ybCleanupListenState which terminates
- * the notifications poller (i.e., this very process).
+ * Only terminate if some other listener has fully caught up (position ==
+ * QUEUE_HEAD).  If every listener still has scanning to do, killing the
+ * slowest one would not meaningfully help the others and would just
+ * disrupt a session unnecessarily.  This also naturally prevents
+ * termination when there is only a single listener.
  *
  * Caller must hold NotifyQueueLock in at least SHARED mode.
  */
@@ -3331,14 +3333,20 @@ ybTerminateSlowestListener(void)
 {
 	QueuePosition minPos = QUEUE_HEAD;
 	int32		minPid = InvalidPid;
-	int			listenerCount = 0;
+	bool		hasCaughtUpListener = false;
 
 	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
 	{
 		Assert(QUEUE_BACKEND_PID(i) != InvalidPid);
-		listenerCount++;
-		QueuePosition newMin = QUEUE_POS_MIN(minPos, QUEUE_BACKEND_POS(i));
 
+		if (QUEUE_POS_EQUAL(QUEUE_BACKEND_POS(i), QUEUE_HEAD))
+		{
+			hasCaughtUpListener = true;
+			continue;
+		}
+
+		/* This listener is behind; track the furthest-behind one. */
+		QueuePosition newMin = QUEUE_POS_MIN(minPos, QUEUE_BACKEND_POS(i));
 		if (!QUEUE_POS_EQUAL(newMin, minPos))
 		{
 			minPos = newMin;
@@ -3346,7 +3354,7 @@ ybTerminateSlowestListener(void)
 		}
 	}
 
-	if (minPid == InvalidPid || listenerCount <= 1)
+	if (minPid == InvalidPid || !hasCaughtUpListener)
 		return;
 
 	elog(WARNING,
@@ -3373,6 +3381,7 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 		{
 			ybTerminateSlowestListener();
 			LWLockRelease(NotifyQueueLock);
+			SignalBackends();
 			CHECK_FOR_INTERRUPTS();
 			pg_usleep(10000L);
 			asyncQueueAdvanceTail();
