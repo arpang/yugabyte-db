@@ -3347,6 +3347,7 @@ ybTerminateSlowestListener(void)
 
 		/* This listener is behind; track the furthest-behind one. */
 		QueuePosition newMin = QUEUE_POS_MIN(minPos, QUEUE_BACKEND_POS(i));
+
 		if (!QUEUE_POS_EQUAL(newMin, minPos))
 		{
 			minPos = newMin;
@@ -3383,7 +3384,7 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 			LWLockRelease(NotifyQueueLock);
 			SignalBackends();
 			CHECK_FOR_INTERRUPTS();
-			pg_usleep(10000L);
+			pg_usleep(10000L);	/* sleep for 10ms */
 			asyncQueueAdvanceTail();
 			continue;
 		}
