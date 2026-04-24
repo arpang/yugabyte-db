@@ -689,7 +689,7 @@ static void ybNotifsPollerInit(void);
 static void ybNotifsPollerLoop(void);
 static void ybNotifsPollerProcessRecord(const YbcPgRowMessage *record);
 static void ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record);
-static void ybTerminateSlowestListener(void);
+static bool ybTerminateSlowestListener(void);
 static void ybNotifsPollerAddPendingEntriesToQueue(void);
 static void ybFillBeginAsyncQueueEntry(AsyncQueueEntry *qe, TransactionId xid);
 static bool ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe);
@@ -3326,9 +3326,11 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
  * unnecessarily. This also naturally prevents termination when there is only a
  * single listener.
  *
+ * Returns true if SIGTERM was sent, false otherwise.
+ *
  * Caller must hold NotifyQueueLock in at least SHARED mode.
  */
-static void
+static bool
 ybTerminateSlowestListener(void)
 {
 	QueuePosition minPos = QUEUE_HEAD;
@@ -3356,12 +3358,13 @@ ybTerminateSlowestListener(void)
 	}
 
 	if (minPid == InvalidPid || !hasCaughtUpListener)
-		return;
+		return false;
 
 	elog(WARNING,
 		 "NOTIFY queue is full, terminating slowest listener (PID %d)",
 		 minPid);
 	kill(minPid, SIGTERM);
+	return true;
 }
 
 /*
@@ -3372,6 +3375,7 @@ static void
 ybNotifsPollerAddPendingEntriesToQueue(void)
 {
 	ListCell   *nextQueueEntry = list_head(ybNotifsPollerPendingEntries);
+	bool		sigtermSent = false;
 
 	while (nextQueueEntry != NULL)
 	{
@@ -3380,8 +3384,14 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
 		if (asyncQueueIsFull())
 		{
-			ybTerminateSlowestListener();
+			/*
+			 * After sending SIGTERM, suppress further signals until the queue
+			 * drains.
+			 */
+			if (!sigtermSent)
+				sigtermSent = ybTerminateSlowestListener();
 			LWLockRelease(NotifyQueueLock);
+
 			/*
 			 * The queue can become full in the middle of writing notifications
 			 * of a transaction. Signal the backends so the fast listeners, if
@@ -3389,12 +3399,14 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 			 * can be terminated in the next call to
 			 * ybTerminateSlowestListener().
 			 */
-			SignalBackends();
+			if (!sigtermSent)
+				SignalBackends();
 			CHECK_FOR_INTERRUPTS();
-			pg_usleep(10000L);	/* sleep for 10ms */
+			pg_usleep(sigtermSent ? 500000L : 10000L);
 			asyncQueueAdvanceTail();
 			continue;
 		}
+		sigtermSent = false;
 		nextQueueEntry = asyncQueueAddEntries(nextQueueEntry);
 		LWLockRelease(NotifyQueueLock);
 	}
