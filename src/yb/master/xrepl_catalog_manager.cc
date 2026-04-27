@@ -1046,7 +1046,6 @@ Status CatalogManager::CreateNewCDCStreamForNamespace(
   // TODO(#19211): Validate that if the ns type is PGSQL, it must have the replication slot name in
   // the request. This can only be done after we have ensured that YSQL is the only client
   // requesting to create CDC streams.
-
   std::vector<TableInfoPtr> tables;
   {
     SharedLock lock(mutex_);
