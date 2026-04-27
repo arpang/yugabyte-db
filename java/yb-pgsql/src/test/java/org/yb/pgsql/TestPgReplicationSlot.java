@@ -5487,6 +5487,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
 
   @Test
   public void testCdcStreamOnYbSystemBlocked() throws Exception {
+    // Currently yb_system is only created if LISTEN/NOTIFY is enabled.
     Map<String, String> tserverFlags = super.getTServerFlags();
     tserverFlags.put("ysql_yb_enable_listen_notify", "true");
     Map<String, String> masterFlags = super.getMasterFlags();
