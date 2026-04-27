@@ -1379,7 +1379,7 @@ When enabled, the leader master creates the `yb_system` database and the `yb_sys
 ##### --ysql_yb_notifications_poll_sleep_duration_nonempty_ms
 
 {{% tags/wrap %}}
-
+{{<tags/feature/t-server>}}
 Default: `1`
 {{% /tags/wrap %}}
 
@@ -1388,7 +1388,7 @@ Wait time in milliseconds before the notifications poller polls again when the p
 ##### --ysql_yb_notifications_poll_sleep_duration_empty_ms
 
 {{% tags/wrap %}}
-
+{{<tags/feature/t-server>}}
 Default: `100`
 {{% /tags/wrap %}}
 
