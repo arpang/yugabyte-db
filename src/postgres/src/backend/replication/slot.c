@@ -248,6 +248,18 @@ ReplicationSlotValidateName(const char *name, int elevel)
 			return false;
 		}
 	}
+
+	if (IsYugaByteEnabled() &&
+		strncmp(name, YbNotificationsSlotPrefix, strlen(YbNotificationsSlotPrefix)) == 0)
+	{
+		ereport(elevel,
+				(errcode(ERRCODE_INVALID_NAME),
+				 errmsg("replication slot name \"%s\" is reserved",
+						name),
+				 errhint("Replication slot names starting with \"yb_notifications_\" are reserved for internal use.")));
+		return false;
+	}
+
 	return true;
 }
 
@@ -409,8 +421,6 @@ YbReplicationSlotCreateForDB(const char *name, bool two_phase,
 							 Oid database_oid)
 {
 	int32_t		max_clock_skew;
-
-	Assert(ReplicationSlotValidateName(name, ERROR));
 
 	/* TODO(#24025): This must be removed once we support two_phase. */
 	if (two_phase)
