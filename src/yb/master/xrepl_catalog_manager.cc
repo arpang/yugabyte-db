@@ -1042,27 +1042,22 @@ Status CatalogManager::CreateNewCDCStreamForNamespace(
   // TODO(#19211): Validate that if the ns type is PGSQL, it must have the replication slot name in
   // the request. This can only be done after we have ensured that YSQL is the only client
   // requesting to create CDC streams.
+
   std::vector<TableInfoPtr> tables;
   {
     SharedLock lock(mutex_);
-    // Sanity check this id corresponds to a namespace.
-    VERIFY_RESULT(FindNamespaceByIdUnlocked(namespace_id));
-    tables = FindAllTablesForCDCSDK(namespace_id, allow_tables_without_primary_key);
+    auto ns = VERIFY_RESULT(FindNamespaceByIdUnlocked(namespace_id));
 
-    // pg_yb_notifications is a system table used internally for LISTEN/NOTIFY. It is not a regular
-    // user table and should not be part of user-created CDC streams. Only include it in the
-    // internal notifications streams (identified by the yb_notifications_ slot name prefix).
-    if (req.has_cdcsdk_ysql_replication_slot_name() &&
-        req.cdcsdk_ysql_replication_slot_name().find(kYbNotificationsSlotPrefix) == 0) {
-      for (const auto& table_info : tables_->GetAllTables()) {
-        auto ltm = table_info->LockForRead();
-        if (ltm->visible_to_client() && ltm->namespace_id() == namespace_id &&
-            ltm->name() == kPgYbNotificationsTableName) {
-          tables.push_back(table_info);
-          break;
-        }
-      }
+    // yb_system is an internal database used by LISTEN/NOTIFY. Only the internal notifications
+    // stream (slot name starting with yb_notifications_) is allowed. Block all other CDC streams.
+    if (ns->name() == kYbSystemDbName &&
+        !(req.has_cdcsdk_ysql_replication_slot_name() &&
+          req.cdcsdk_ysql_replication_slot_name().find(kYbNotificationsSlotPrefix) == 0)) {
+      return STATUS(
+          InvalidArgument, "CDC streams are not supported for yb_system database");
     }
+
+    tables = FindAllTablesForCDCSDK(namespace_id, allow_tables_without_primary_key);
   }
 
   std::vector<TableId> table_ids;
@@ -2457,9 +2452,13 @@ bool CatalogManager::IsTableEligibleForCDCSDKStream(
     return false;
   }
 
-  if (!table_info->IsUserTable(lock)) {
+  if (!(table_info->IsUserTable(lock) || (lock->namespace_name() == kYbSystemDbName &&
+                                          lock->name() == kPgYbNotificationsTableName))) {
     // Non-user tables like indexes, system tables etc should not be added as they are not
     // supported for streaming.
+    // System table yb_system.pg_yb_notifications is just like any other user table except that it
+    // is meant for YB's internal use for LISTEN/NOTIFY. Creating CDC streams on it is supported.
+    // Allow this as it is a prerequisite for LISTEN to work.
     return false;
   }
 
