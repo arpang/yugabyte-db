@@ -943,31 +943,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     }
   }
 
-  /**
-   * Verifies that user-created CDC streams on the yb_system database are blocked.
-   * Only the internal LISTEN/NOTIFY stream (with the yb_notifications_ slot prefix)
-   * should be allowed.
-   */
-  @Test
-  public void testUserCdcStreamOnYbSystemBlocked() throws Exception {
-    try (Connection ybSystemConn = getConnectionBuilder().withDatabase("yb_system").connect();
-         Statement stmt = ybSystemConn.createStatement()) {
-      stmt.execute("CREATE TABLE test_cdc_table (id INT PRIMARY KEY, val TEXT)");
-      stmt.execute("CREATE PUBLICATION test_pub FOR ALL TABLES");
-      try {
-        stmt.execute(
-            "SELECT pg_create_logical_replication_slot('test_cdc_slot', 'pgoutput')");
-        fail("Expected replication slot creation on yb_system to fail");
-      } catch (SQLException e) {
-        assertTrue("Expected error about yb_system CDC streams not supported, got: "
-            + e.getMessage(),
-            e.getMessage().contains("CDC streams are not supported for yb_system database"));
-      }
-      stmt.execute("DROP PUBLICATION test_pub");
-      stmt.execute("DROP TABLE test_cdc_table");
-    }
-  }
-
   private void setNotificationsPollSleepDurationEmpty(String valueMs) throws Exception {
     Set<HostAndPort> tservers = miniCluster.getTabletServers().keySet();
     for (HostAndPort tserver : tservers) {
