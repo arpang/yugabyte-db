@@ -1361,6 +1361,39 @@ Default: `4 * 3600` (4 hours)
 
 The time interval, in seconds, to retain history/older versions of the system catalog.
 
+### LISTEN/NOTIFY flags
+
+The following flags control the LISTEN/NOTIFY feature. To learn about LISTEN/NOTIFY, see [LISTEN, NOTIFY, and UNLISTEN](../../../api/ysql/the-sql-language/statements/cmd_listen_notify/).
+
+##### --ysql_yb_enable_listen_notify
+
+{{% tags/wrap %}}
+{{<tags/feature/t-server>}}
+Default: `false`
+{{% /tags/wrap %}}
+
+Enables YSQL LISTEN/NOTIFY. This value must be set on **both** YB-Master and YB-TServer.
+
+When enabled, the leader master creates the `yb_system` database and the `yb_system.pg_yb_notifications` table in the background.
+
+##### --ysql_yb_notifications_poll_sleep_duration_nonempty_ms
+
+{{% tags/wrap %}}
+
+Default: `1`
+{{% /tags/wrap %}}
+
+Wait time in milliseconds before the notifications poller polls again when the previous poll returned data.
+
+##### --ysql_yb_notifications_poll_sleep_duration_empty_ms
+
+{{% tags/wrap %}}
+
+Default: `100`
+{{% /tags/wrap %}}
+
+Wait time in milliseconds before the notifications poller polls again when the previous poll returned no data.
+
 ### File expiration based on TTL flags
 
 ##### --tablet_enable_ttl_file_filter

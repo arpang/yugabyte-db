@@ -1219,6 +1219,21 @@ Default: `true`
 
 Toggle automatic tablet splitting for tables under replication slot. Applicable only to CDC using the [PostgreSQL logical replication protocol](../../../additional-features/change-data-capture/using-logical-replication/).
 
+### LISTEN/NOTIFY flags
+
+The following flag controls the LISTEN/NOTIFY feature on the master. To learn about LISTEN/NOTIFY, see [LISTEN, NOTIFY, and UNLISTEN](../../../api/ysql/the-sql-language/statements/cmd_listen_notify/).
+
+##### --ysql_yb_enable_listen_notify
+
+{{% tags/wrap %}}
+{{<tags/feature/t-server>}}
+Default: `false`
+{{% /tags/wrap %}}
+
+Enables YSQL LISTEN/NOTIFY. This value must be set on **both** YB-Master and YB-TServer.
+
+When enabled, the leader master creates the `yb_system` database and the `yb_system.pg_yb_notifications` table in the background.
+
 ### File expiration based on TTL flags
 
 ##### --tablet_enable_ttl_file_filter
