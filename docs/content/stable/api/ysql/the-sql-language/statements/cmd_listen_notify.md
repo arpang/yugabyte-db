@@ -23,7 +23,7 @@ LISTEN/NOTIFY provides a communication mechanism for a collection of processes a
 YSQL follows the same SQL forms as PostgreSQL. For complete syntax (including `LISTEN`, `NOTIFY`, and `UNLISTEN` variants), refer to the PostgreSQL documentation:
 
 - [NOTIFY](https://www.postgresql.org/docs/15/sql-notify.html)
-- [LISTEN](https://www.postgresql.org/docs/current/sql-listen.html)
+- [LISTEN](https://www.postgresql.org/docs/15/sql-listen.html)
 - [UNLISTEN](https://www.postgresql.org/docs/15/sql-unlisten.html)
 
 Client library interaction (for example, polling for notifications via libpq or JDBC) is the same as in PostgreSQL.
