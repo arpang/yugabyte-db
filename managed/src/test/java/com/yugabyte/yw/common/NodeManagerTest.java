@@ -100,7 +100,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -530,7 +529,6 @@ public class NodeManagerTest extends FakeDBApplication {
     when(runtimeConfigFactory.forProvider(any())).thenReturn(mockConfig);
     when(runtimeConfigFactory.forUniverse(any())).thenReturn(app.config());
     when(runtimeConfigFactory.globalRuntimeConf()).thenReturn(mockConfig);
-    when(nodeAgentClient.maybeGetNodeAgent(any(), any(), any())).thenReturn(Optional.empty());
     createTempFile("node_manager_test_ca.crt", "test-cert");
     when(mockConfGetter.getConfForScope(any(Universe.class), eq(UniverseConfKeys.nfsDirs)))
         .thenReturn("/tmp/nfs,/nfs");
@@ -999,9 +997,8 @@ public class NodeManagerTest extends FakeDBApplication {
           String nodeToNodeString = String.valueOf(configureParams.enableNodeToNodeEncrypt);
           String clientToNodeString = String.valueOf(configureParams.enableClientToNodeEncrypt);
           String allowInsecureString = String.valueOf(configureParams.allowInsecure);
-
-          String ybHomeDir =
-              Provider.getOrBadRequest(UUID.fromString(userIntent.provider)).getYbHome();
+          Provider provider = Util.getSingleProvider(userIntent);
+          String ybHomeDir = provider.getYbHome();
           String certsDir = ybHomeDir + "/yugabyte-tls-config";
           String certsForClientDir = ybHomeDir + "/yugabyte-client-tls-config";
 
@@ -1073,8 +1070,8 @@ public class NodeManagerTest extends FakeDBApplication {
           expectedCommand.add("--yb_process_type");
           expectedCommand.add(processType.toLowerCase());
 
-          String yb_home_dir =
-              Provider.getOrBadRequest(UUID.fromString(userIntent.provider)).getYbHome();
+          Provider provider = Util.getSingleProvider(userIntent);
+          String yb_home_dir = provider.getYbHome();
           String certsNodeDir = yb_home_dir + "/yugabyte-tls-config";
           String certsForClientDir = yb_home_dir + "/yugabyte-client-tls-config";
 

@@ -1650,6 +1650,15 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
               + " minutes)",
           ConfDataType.IntegerType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Integer> supportBundleDefaultPaDumpRange =
+      new ConfKeyInfo<>(
+          "yb.support_bundle.default_pa_dump_range",
+          ScopeType.GLOBAL,
+          "Support bundle perf advisor dump range",
+          "The start-end duration to collect the perf advisor dump inside the support bundle (in"
+              + " minutes)",
+          ConfDataType.IntegerType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Integer> supportBundlePromDumpBatchDurationInMins =
       new ConfKeyInfo<>(
           "yb.support_bundle.batch_duration_prom_dump_mins",
@@ -1795,15 +1804,6 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Node Agent Server Cert Expiry Notice",
           "Duration to start notifying about expiry before node agent server cert actually expires",
           ConfDataType.DurationType,
-          ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Boolean> nodeAgentDisableConfigureServer =
-      new ConfKeyInfo<>(
-          "yb.node_agent.disable_configure_server",
-          ScopeType.GLOBAL,
-          "Disable Node Agent Configure Server",
-          "Disable server configuration RPCs in node agent. Defaults to ansible if it is"
-              + " enabled.",
-          ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Boolean> nodeAgentEnableMessageCompression =
       new ConfKeyInfo<>(

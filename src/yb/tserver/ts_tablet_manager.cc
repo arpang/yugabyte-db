@@ -50,7 +50,9 @@
 #include "yb/client/meta_data_cache.h"
 #include "yb/client/transaction_manager.h"
 
+#include "yb/common/common_flags.h"
 #include "yb/common/constants.h"
+#include "yb/common/entity_ids.h"
 #include "yb/common/snapshot.h"
 #include "yb/common/wire_protocol.h"
 
@@ -107,6 +109,7 @@
 #include "yb/tserver/remote_snapshot_transfer_client.h"
 #include "yb/tserver/tablet_limits.h"
 #include "yb/tserver/tablet_server.h"
+#include "yb/tserver/tserver_cgroup_manager.h"
 #include "yb/tserver/tablet_validator.h"
 #include "yb/tserver/tserver.pb.h"
 #include "yb/tserver/tserver_xcluster_context_if.h"
@@ -334,6 +337,8 @@ DECLARE_bool(lazily_flush_superblock);
 DECLARE_int32(retryable_request_timeout_secs);
 DECLARE_int64(rocksdb_compact_flush_rate_limit_bytes_per_sec);
 DECLARE_string(rocksdb_compact_flush_rate_limit_sharing_mode);
+DECLARE_bool(qos_compaction_per_db_cgroups);
+DECLARE_bool(qos_consensus_per_db_cgroups);
 
 namespace yb::tserver {
 
@@ -662,6 +667,43 @@ Status TSTabletManager::Init() {
                     .set_max_threads(max_bootstrap_threads)
                     .set_metrics(std::move(bootstrap_metrics))
                     .Build(&open_tablet_pool_));
+
+#ifdef __linux__
+  if (auto* cm = server_->cgroup_manager()) {
+    auto* sys_high = cm->SystemHighCgroup();
+    auto* sys_med = cm->SystemMedCgroup();
+
+    const bool consensus_system_mode = !FLAGS_qos_consensus_per_db_cgroups;
+    const bool compaction_system_mode = !FLAGS_qos_compaction_per_db_cgroups;
+
+    if (consensus_system_mode) {
+      // system-high: consensus, WAL, Raft coordination.
+      raft_pool_->SetCgroup(sys_high);
+      raft_notifications_pool_->SetCgroup(sys_high);
+      log_sync_pool_->SetCgroup(sys_high);
+      append_pool_->SetCgroup(sys_high);
+      allocation_pool_->SetCgroup(sys_high);
+      tablet_prepare_pool_->SetCgroup(sys_high);
+      apply_pool_->SetCgroup(sys_high);
+    }
+    // In per_db mode, pool-level cgroups are not set; per-task cgroup switching
+    // is configured per-tablet when tablets are opened (see SetTabletPerDbCgroup).
+
+    if (compaction_system_mode) {
+      // system-med: background work (compaction, flush, maintenance).
+      docdb::GetGlobalPriorityThreadPool()->SetCgroup(sys_med);
+      full_compaction_pool_->SetCgroup(sys_med);
+      admin_triggered_compaction_pool_->SetCgroup(sys_med);
+    }
+
+    // These pools always go to system-med regardless of compaction mode flag,
+    // since they are not per-tablet in nature.
+    open_tablet_pool_->SetCgroup(sys_med);
+    flush_bootstrap_state_pool_->SetCgroup(sys_med);
+    waiting_txn_pool_->SetCgroup(sys_med);
+    read_pool_->SetCgroup(sys_med);
+  }
+#endif
 
   CleanupCheckpoints();
 
@@ -1269,6 +1311,11 @@ Status TSTabletManager::ApplyTabletSplit(
 
     tcmeta.raft_group_metadata->set_tablet_data_state(TABLET_DATA_READY);
     RETURN_NOT_OK(tcmeta.raft_group_metadata->Flush());
+
+    // This can happen if e.g., enable_flush_retryable_requests is off, or the parent does not
+    // have a flushed bootstrap state.
+    WARN_NOT_OK(tablet_peer->CopyBootstrapStateForTabletSplit(dest_wal_dir),
+                "Failed to copy bootstrap state for tablet split");
   }
 
   if (PREDICT_FALSE(FLAGS_TEST_crash_before_source_tablet_mark_split_done)) {
@@ -1985,6 +2032,34 @@ Status TSTabletManager::OpenTabletMeta(const string& tablet_id,
   return Status::OK();
 }
 
+#ifdef __linux__
+namespace {
+
+Status MaybeAssignPerDbCgroups(
+    TabletPeer* tablet_peer, tablet::Tablet* tablet,
+    const RaftGroupMetadata& meta, TServerCgroupManager* cm) {
+  if (!cm) return Status::OK();
+  bool consensus_per_db = FLAGS_qos_consensus_per_db_cgroups;
+  bool compaction_per_db = FLAGS_qos_compaction_per_db_cgroups;
+  if (!consensus_per_db && !compaction_per_db) return Status::OK();
+
+  auto namespace_id = meta.namespace_id();
+  if (namespace_id.empty()) return Status::OK();
+
+  auto db_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(namespace_id));
+  auto& cgroup = VERIFY_RESULT_REF(cm->CgroupForDb(db_oid));
+  if (consensus_per_db) {
+    tablet_peer->SetPerDbCgroup(&cgroup);
+  }
+  if (compaction_per_db) {
+    tablet->SetRocksDbTaskCgroup(&cgroup);
+  }
+  return Status::OK();
+}
+
+} // namespace
+#endif
+
 void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
                                  const scoped_refptr<TransitionInProgressDeleter>& deleter) {
   string tablet_id = meta->raft_group_id();
@@ -2157,6 +2232,14 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
     }
   }
 
+  auto pool_tag = PoolTagForTablet(tablet);
+  auto service_thread_pool = server_->messenger()->TaggedThreadPool(pool_tag);
+  if (!service_thread_pool.ok()) {
+    LOG(ERROR) << kLogPrefix << "Failed to get service thread pool for tag " << pool_tag
+               << ": " << service_thread_pool.status();
+    tablet_peer->SetFailed(service_thread_pool.status());
+    return;
+  }
   MonoTime start(MonoTime::Now());
   LOG_TIMING_PREFIX(INFO, kLogPrefix, "starting tablet") {
     TRACE("Initializing tablet peer");
@@ -2164,6 +2247,7 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
         tablet,
         server_->mem_tracker(),
         server_->messenger(),
+        std::move(*service_thread_pool),
         &server_->proxy_cache(),
         log,
         tablet->GetTableMetricsEntity(),
@@ -2182,6 +2266,13 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
       tablet_peer->SetFailed(s);
       return;
     }
+
+#ifdef __linux__
+    WARN_NOT_OK(
+        MaybeAssignPerDbCgroups(
+            tablet_peer.get(), tablet.get(), *meta, server_->cgroup_manager()),
+        kLogPrefix + "Failed to assign per-db cgroups");
+#endif
 
     // Enable flush retryable requests after the peer is fully initialized.
     tablet_peer->EnableFlushBootstrapState();
@@ -2428,6 +2519,17 @@ void TSTabletManager::CompleteShutdown() {
   if (waiting_txn_registry_) {
     waiting_txn_registry_->CompleteShutdown();
   }
+}
+
+rpc::ThreadPoolTag TSTabletManager::PoolTagForTablet(const tablet::TabletPtr& tablet) {
+  if (FLAGS_enable_qos && tablet->table_type() == TableType::PGSQL_TABLE_TYPE) {
+    auto db_oid = GetPgsqlDatabaseOid(tablet->metadata()->primary_table_info()->table_id);
+    if (db_oid.ok()) {
+      return *db_oid;
+    }
+    LOG(WARNING) << "Failed to determine database oid for pool tag: " << db_oid.status();
+  }
+  return 0;
 }
 
 std::string TSTabletManager::LogPrefix() const {

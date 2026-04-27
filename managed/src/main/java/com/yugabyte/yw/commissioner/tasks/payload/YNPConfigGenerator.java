@@ -63,6 +63,7 @@ public class YNPConfigGenerator {
     private NodeDetails nodeDetails;
     private Universe universe;
     private boolean isYbPrebuiltImage;
+    private UserIntent userIntent;
   }
 
   @Inject
@@ -154,9 +155,12 @@ public class YNPConfigGenerator {
     Universe universe =
         Objects.requireNonNull(
             params.getUniverse(), "Universe must be provided if node details are provided");
-    UserIntent userIntent =
-        Objects.requireNonNull(
-            universe.getCluster(node.placementUuid).userIntent, "User intent must be available");
+    UserIntent userIntent = params.userIntent;
+    if (userIntent == null) {
+      userIntent =
+          Objects.requireNonNull(
+              universe.getCluster(node.placementUuid).userIntent, "User intent must be available");
+    }
     if (node.cloudInfo.private_ip != null) {
       ynpNode.put("node_ip", node.cloudInfo.private_ip);
     }
@@ -174,8 +178,7 @@ public class YNPConfigGenerator {
       }
       extraNode.put("mount_paths", volumePaths.toString());
     }
-    if (node.cloudInfo.cloud.equals(Common.CloudType.azu.toString())
-        && node.cloudInfo.lun_indexes.length > 0) {
+    if (userIntent.providerType == Common.CloudType.azu && node.cloudInfo.lun_indexes.length > 0) {
       StringBuilder sb = new StringBuilder();
       for (int i = 0; i < node.cloudInfo.lun_indexes.length; i++) {
         sb.append(node.cloudInfo.lun_indexes[i]);
@@ -194,7 +197,7 @@ public class YNPConfigGenerator {
       List<String> devicePaths =
           this.queryHelper.getDeviceNames(
               provider,
-              Common.CloudType.valueOf(node.cloudInfo.cloud),
+              userIntent.providerType,
               Integer.toString(deviceInfo.numVolumes),
               storageType,
               node.cloudInfo.region,

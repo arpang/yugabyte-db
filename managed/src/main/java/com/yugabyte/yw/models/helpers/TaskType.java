@@ -5,7 +5,6 @@ package com.yugabyte.yw.models.helpers;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.yugabyte.yw.commissioner.ITask;
-import com.yugabyte.yw.commissioner.tasks.OperatorImportUniverse;
 import com.yugabyte.yw.commissioner.tasks.UpdateOOMServiceState;
 import com.yugabyte.yw.commissioner.tasks.subtasks.CheckClusterConsistency;
 import com.yugabyte.yw.commissioner.tasks.subtasks.CheckLeaderlessTablets;
@@ -732,6 +731,16 @@ public enum TaskType {
       CustomerTask.TaskType.OperatorImport,
       CustomerTask.TargetType.Universe),
 
+  RegisterUniverseWithPACollector(
+      com.yugabyte.yw.commissioner.tasks.RegisterUniverseWithPACollector.class,
+      CustomerTask.TaskType.RegisterWithPACollector,
+      CustomerTask.TargetType.Universe),
+
+  UnregisterUniverseFromPACollector(
+      com.yugabyte.yw.commissioner.tasks.UnregisterUniverseFromPACollector.class,
+      CustomerTask.TaskType.UnregisterFromPACollector,
+      CustomerTask.TargetType.Universe),
+
   /* Subtasks start here */
 
   KubernetesCheckVolumeExpansion(
@@ -927,6 +936,10 @@ public enum TaskType {
 
   WaitForReplicationDrain(
       com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.WaitForReplicationDrain.class),
+
+  XClusterFailoverWithOnDemandSnapshot(
+      com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.XClusterFailoverWithOnDemandSnapshot
+          .class),
 
   ResetXClusterConfigEntry(
       com.yugabyte.yw.commissioner.tasks.subtasks.xcluster.ResetXClusterConfigEntry.class),

@@ -53,7 +53,9 @@ static constexpr auto kOtelBatchScheduleDelayMs = 100;
 
 YB_DEFINE_ENUM(QueryExecMode, (kFetch)(kExecute));
 YB_STRONGLY_TYPED_BOOL(IsUtility);
-YB_DEFINE_ENUM(SpanType, (kRoot)(kParse)(kRewrite)(kExecute)(kPlan)(kCommit)(kAbort));
+YB_DEFINE_ENUM(SpanType,
+    (kRoot)(kParse)(kRewrite)(kExecute)(kPlan)(kCommit)(kAbort)
+    (kExtParse)(kExtBind)(kExtExecute)(kExtSync)(kExtDescribe)(kExtFlush));
 
 struct ExpectedSpan {
   SpanType type;
@@ -253,6 +255,12 @@ class OtlpHttpCollector {
     }
 
     return Status::OK();
+  }
+
+  void ClearTraces() EXCLUDES(mutex_) {
+    SleepFor(kOtelBatchScheduleDelayMs * kTimeMultiplier * 5ms);
+    std::lock_guard lock(mutex_);
+    traces_.clear();
   }
 
   Status VerifyNoTracesEmitted() const EXCLUDES(mutex_) {
@@ -526,6 +534,24 @@ class DistTraceTest : public LibPqTestBase {
           case SpanType::kAbort:
             trace.spans.push_back(GetSpan("abort", trace_id));
             break;
+          case SpanType::kExtParse:
+            trace.spans.push_back(GetSpan("ext.parse", trace_id));
+            break;
+          case SpanType::kExtBind:
+            trace.spans.push_back(GetSpan("ext.bind", trace_id));
+            break;
+          case SpanType::kExtExecute:
+            trace.spans.push_back(GetSpan("ext.execute", trace_id));
+            break;
+          case SpanType::kExtSync:
+            trace.spans.push_back(GetSpan("ext.sync", trace_id));
+            break;
+          case SpanType::kExtDescribe:
+            trace.spans.push_back(GetSpan("ext.describe", trace_id));
+            break;
+          case SpanType::kExtFlush:
+            trace.spans.push_back(GetSpan("ext.flush", trace_id));
+            break;
         }
       }
     }
@@ -726,6 +752,18 @@ TEST_F(DistTraceTest, TestMalformedTraceparentComment) {
     ASSERT_STR_CONTAINS(warnings.back(), "traceparent field doesn't have the correct size");
   }
 
+  // Invalid leading traceparent takes priority over a valid trailing one.
+  // The leading comment is parsed first, fails validation, emits a warning,
+  // and the query runs without tracing; the trailing valid traceparent is ignored.
+  {
+    auto tp_valid = GenerateTraceparent();
+    ASSERT_OK(conn_->FetchFormat(
+        "/*traceparent='$0'*/ SELECT 1 /*traceparent='$1'*/",
+        kTraceparentValueTooShort, tp_valid.full));
+    ASSERT_EQ(warnings.size(), ++num_warnings);
+    ASSERT_STR_CONTAINS(warnings.back(), "traceparent field doesn't have the correct size");
+  }
+
   ASSERT_OK(collector_.VerifyNoTracesEmitted());
 }
 
@@ -917,6 +955,71 @@ TEST_F(DistTraceTest, TestAbortSpan) {
   ASSERT_OK(collector_.VerifyTraceContainsOpName(tp.trace_id, "abort"));
 }
 
+TEST_F(DistTraceTest, TestTraceparentCommentAppended) {
+  std::vector<Trace> expected_traces;
+  std::vector<std::string> untraced_queries;
+
+  const std::vector<ExpectedSpan> kSelectSpans = {
+    {SpanType::kRoot, 1}, {SpanType::kParse, 1}, {SpanType::kRewrite, 1},
+    {SpanType::kExecute, 1}, {SpanType::kPlan, 1}, {SpanType::kCommit, 1},
+  };
+
+  // Trailing comment (after the query body).
+  {
+    auto tp = GenerateTraceparent();
+    auto query = Format("SELECT 1 /*traceparent='$0'*/", tp.full);
+    ASSERT_OK(conn_->Fetch(query));
+    expected_traces.push_back(MakeExpectedTrace(query, tp.trace_id, kSelectSpans));
+  }
+
+  // Trailing comment with surrounding whitespace.
+  {
+    auto tp = GenerateTraceparent();
+    auto query = Format("SELECT 2 /*traceparent='$0'*/  ", tp.full);
+    ASSERT_OK(conn_->Fetch(query));
+    expected_traces.push_back(MakeExpectedTrace(query, tp.trace_id, kSelectSpans));
+  }
+
+  // Leading traceparent comment wins over trailing one.
+  {
+    auto tp1 = GenerateTraceparent();
+    auto tp2 = GenerateTraceparent();
+    auto query = Format(
+        "/*traceparent='$0'*/ SELECT 3 /*traceparent='$1'*/", tp1.full, tp2.full);
+    ASSERT_OK(conn_->Fetch(query));
+    expected_traces.push_back(MakeExpectedTrace(query, tp1.trace_id, kSelectSpans));
+  }
+
+  // Mid-query comment must NOT produce a span (only leading/trailing are supported).
+  {
+    auto tp = GenerateTraceparent();
+    untraced_queries.push_back(Format("SELECT /*traceparent='$0'*/ 4", tp.full));
+    ASSERT_OK(conn_->Fetch(untraced_queries.back()));
+  }
+
+  // Non-traceparent leading comment followed by traceparent in the middle -- not traced.
+  // The first /* */ block has no traceparent field so the leading check falls through,
+  // and the second comment is not at the query end so the trailing check also misses it.
+  {
+    auto tp = GenerateTraceparent();
+    untraced_queries.push_back(Format("/* abc */ /*traceparent='$0'*/ SELECT 5", tp.full));
+    ASSERT_OK(conn_->Fetch(untraced_queries.back()));
+  }
+
+  // Traceparent is not the last comment -- the final /* abc */ has no traceparent field
+  // so the trailing check finds no traceparent and returns NO_COMMENT.
+  {
+    auto tp = GenerateTraceparent();
+    untraced_queries.push_back(Format("SELECT 6 /*traceparent='$0'*/ /* abc */", tp.full));
+    ASSERT_OK(conn_->Fetch(untraced_queries.back()));
+  }
+
+  ASSERT_OK(collector_.VerifyAgainstCollectorTraces(expected_traces));
+  for (const auto& q : untraced_queries) {
+    ASSERT_OK(collector_.VerifyQueryNotTraced(q));
+  }
+}
+
 TEST_F(DistTraceDisabledTest, TestTraceparentWhenDistTraceDisabled) {
   auto tp = GenerateTraceparent();
 
@@ -1030,6 +1133,55 @@ TEST_F(DistTraceTest, TestNodeSpans) {
   ASSERT_OK(conn_->Execute("RESET enable_hashjoin"));
   ASSERT_OK(conn_->Execute("RESET enable_mergejoin"));
   ASSERT_OK(conn_->Execute("RESET enable_material"));
+}
+
+TEST_F(DistTraceTest, TestExtendedQueryProtocolComment) {
+  auto ext_conn = ASSERT_RESULT(Connect(false /* simple_query_protocol */));
+  auto tp = GenerateTraceparent();
+
+  auto query = Format("/*traceparent='$0'*/ SELECT 1", tp.full);
+  ASSERT_OK(ext_conn.Fetch(query));
+
+  ASSERT_OK(collector_.VerifyAgainstCollectorTraces({
+      MakeExpectedTrace(query, tp.trace_id,
+          {{SpanType::kRoot, 1},
+           {SpanType::kExtParse, 1},
+           {SpanType::kParse, 2},
+           {SpanType::kRewrite, 1},
+           {SpanType::kExtBind, 1},
+           {SpanType::kPlan, 1},
+           {SpanType::kExtDescribe, 1},
+           {SpanType::kExtExecute, 1},
+           {SpanType::kExecute, 1},
+           {SpanType::kExtSync, 1},
+           {SpanType::kCommit, 1}}),
+  }));
+}
+
+TEST_F(DistTraceTest, TestExtendedQueryProtocolGuc) {
+  auto ext_conn = ASSERT_RESULT(Connect(false /* simple_query_protocol */));
+  auto tp = GenerateTraceparent();
+
+  ASSERT_OK(ext_conn.Execute(
+      Format("SET yb_dist_tracecontext = 'traceparent=''$0'''", tp.full)));
+
+  auto query = "SELECT 1";
+  ASSERT_OK(ext_conn.Fetch(query));
+
+  ASSERT_OK(collector_.VerifyAgainstCollectorTraces({
+      MakeExpectedTrace(query, tp.trace_id,
+          {{SpanType::kRoot, 1},
+           {SpanType::kExtParse, 1},
+           {SpanType::kParse, 2},
+           {SpanType::kRewrite, 1},
+           {SpanType::kExtBind, 1},
+           {SpanType::kPlan, 1},
+           {SpanType::kExtDescribe, 1},
+           {SpanType::kExtExecute, 1},
+           {SpanType::kExecute, 1},
+           {SpanType::kExtSync, 1},
+           {SpanType::kCommit, 1}}),
+  }));
 }
 
 }  // namespace yb::pgwrapper

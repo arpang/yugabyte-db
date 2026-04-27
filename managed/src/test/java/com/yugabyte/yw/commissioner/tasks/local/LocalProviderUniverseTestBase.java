@@ -183,7 +183,7 @@ public abstract class LocalProviderUniverseTestBase extends CommissionerBaseTest
 
   public Map<String, String> getYbcGFlags(UniverseDefinitionTaskParams.UserIntent userIntent) {
     Map<String, String> ybcGFlags = new HashMap<>();
-    Provider provider = Provider.getOrBadRequest(UUID.fromString(userIntent.provider));
+    Provider provider = Util.getSingleProvider(userIntent);
     LocalCloudInfo cloudInfo = CloudInfoInterface.get(provider);
     String baseBinDir = cloudInfo.getYugabyteBinDir();
     File binDirectory = new File(baseBinDir);
@@ -845,38 +845,39 @@ public abstract class LocalProviderUniverseTestBase extends CommissionerBaseTest
     // Create `yugabyte` keyspace.
     formData.setQuery("CREATE KEYSPACE IF NOT EXISTS yugabyte;");
     formData.setTableType(TableType.YQL_TABLE_TYPE);
-    JsonNode response =
-        ycqlQueryExecutor.executeQuery(
-            universe, formData, authEnabled, Util.DEFAULT_YCQL_USERNAME, password);
-    assertFalse(response.has("error"));
+    executeYcqlQueryWithRetry(universe, formData, authEnabled, password);
 
     // Create table.
     formData.setQuery(
-        "CREATE TABLE yugabyte.some_table (id int, name text, age int, PRIMARY KEY((id, name)));");
-    response =
-        ycqlQueryExecutor.executeQuery(
-            universe, formData, authEnabled, Util.DEFAULT_YCQL_USERNAME, password);
-    assertFalse(response.has("error"));
+        "CREATE TABLE IF NOT EXISTS yugabyte.some_table (id int, name text, age int, PRIMARY"
+            + " KEY((id, name)));");
+    executeYcqlQueryWithRetry(universe, formData, authEnabled, password);
 
     // Insert Data.
     formData.setQuery("INSERT INTO yugabyte.some_table (id, name, age) VALUES (1, 'John', 20);");
-    response =
-        ycqlQueryExecutor.executeQuery(
-            universe, formData, authEnabled, Util.DEFAULT_YCQL_USERNAME, password);
-    assertFalse(response.has("error"));
+    executeYcqlQueryWithRetry(universe, formData, authEnabled, password);
 
     formData.setQuery("INSERT INTO yugabyte.some_table (id, name, age) VALUES (2, 'Mary', 18);");
-    response =
-        ycqlQueryExecutor.executeQuery(
-            universe, formData, authEnabled, Util.DEFAULT_YCQL_USERNAME, password);
-    assertFalse(response.has("error"));
+    executeYcqlQueryWithRetry(universe, formData, authEnabled, password);
 
     formData.setQuery(
         "INSERT INTO yugabyte.some_table (id, name, age) VALUES (10000, 'Stephen', 50);");
-    response =
-        ycqlQueryExecutor.executeQuery(
-            universe, formData, authEnabled, Util.DEFAULT_YCQL_USERNAME, password);
-    assertFalse(response.has("error"));
+    executeYcqlQueryWithRetry(universe, formData, authEnabled, password);
+  }
+
+  private void executeYcqlQueryWithRetry(
+      Universe universe, RunQueryFormData formData, boolean authEnabled, String password) {
+    doWithRetry(
+        Duration.ofSeconds(1),
+        Duration.ofSeconds(60),
+        () -> {
+          JsonNode response =
+              ycqlQueryExecutor.executeQuery(
+                  universe, formData, authEnabled, Util.DEFAULT_YCQL_USERNAME, password);
+          if (response.has("error")) {
+            throw new RuntimeException(response.get("error").asText());
+          }
+        });
   }
 
   protected void verifyYCQL(Universe universe) {
@@ -1431,7 +1432,7 @@ public abstract class LocalProviderUniverseTestBase extends CommissionerBaseTest
 
   private void verifyDNS(Universe universe) {
     UUID providerUUID =
-        UUID.fromString(universe.getUniverseDetails().getPrimaryCluster().userIntent.provider);
+        Util.getSingleProviderUUID(universe.getUniverseDetails().getPrimaryCluster());
     Provider curProvider = Provider.getOrBadRequest(providerUUID);
     if (curProvider.getDetails().getCloudInfo().local.getHostedZoneId() != null) {
       Set<String> dns = localDnsManager.ipsList.getOrDefault(providerUUID, Collections.emptySet());

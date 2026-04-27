@@ -95,6 +95,7 @@ import com.yugabyte.yw.models.ProviderDetails;
 import com.yugabyte.yw.models.Region;
 import com.yugabyte.yw.models.Universe;
 import com.yugabyte.yw.models.helpers.CloudInfoInterface;
+import com.yugabyte.yw.models.helpers.CloudSpecificInfo;
 import com.yugabyte.yw.models.helpers.CommonUtils;
 import com.yugabyte.yw.models.helpers.DeviceInfo;
 import com.yugabyte.yw.models.helpers.NodeDetails;
@@ -425,6 +426,26 @@ public class UniverseCRUDHandler {
       Universe universe = PlacementInfoUtil.getUniverseForParams(taskParams);
       PlacementInfoUtil.updateUniverseDefinition(
           taskParams, universe, customer.getId(), cluster.uuid);
+      if (taskParams.clusterOperation == ClusterOperationType.EDIT) {
+        Cluster universePrimaryCluster = universe.getUniverseDetails().getPrimaryCluster();
+        if (cluster.userIntent.providerType.equals(Common.CloudType.kubernetes)) {
+          cluster.userIntent.setUserIntentOverrides(
+              KubernetesUtil.generateVolumeOverridesForUserIntent(
+                  cluster.userIntent.getUserIntentOverrides(),
+                  cluster.placementInfo.getAllAZUUIDs(),
+                  universePrimaryCluster.userIntent.universeOverrides,
+                  universePrimaryCluster.userIntent.azOverrides,
+                  PlacementInfoUtil.findRetainedAZs(
+                      cluster.placementInfo,
+                      taskParams.currentClusterType == ClusterType.PRIMARY
+                          ? universePrimaryCluster.placementInfo
+                          : universe
+                              .getUniverseDetails()
+                              .getReadOnlyClusters()
+                              .get(0)
+                              .placementInfo)));
+        }
+      }
       try {
         taskParams.updateOptions =
             getUpdateOptions(taskParams, taskParams.clusterOperation, cluster, universe);
@@ -2464,6 +2485,62 @@ public class UniverseCRUDHandler {
     }
   }
 
+  /**
+   * Verifies that each node's persisted {@link CloudSpecificInfo#instance_type} matches the
+   * effective instance type from {@link UserIntent#getInstanceTypeForNode(NodeDetails)} (including
+   * AZ overrides). Drift causes {@link PlacementInfoUtil#shouldReplaceNode} to treat nodes as
+   * needing replacement and can turn a simple expand into a full move.
+   */
+  @VisibleForTesting
+  public static void checkInstanceTypeConsistency(Universe universe) {
+    UniverseDefinitionTaskParams details = universe.getUniverseDetails();
+    if (details == null
+        || details.getPrimaryCluster() == null
+        || details.getPrimaryCluster().userIntent == null) {
+      return;
+    }
+    List<Cluster> clusters = details.clusters;
+    if (clusters == null || clusters.isEmpty()) {
+      return;
+    }
+    List<String> mismatchMessages = new ArrayList<>();
+    for (Cluster cluster : clusters) {
+      if (cluster.userIntent == null) {
+        continue;
+      }
+      if (cluster.userIntent.providerType == Common.CloudType.kubernetes) {
+        continue;
+      }
+      UserIntent userIntent = cluster.userIntent;
+      for (NodeDetails node : details.getNodesInCluster(cluster.uuid)) {
+        if (node.state == NodeState.ToBeAdded || node.state == NodeState.ToBeRemoved) {
+          continue;
+        }
+        if (node.cloudInfo == null || StringUtils.isBlank(node.cloudInfo.instance_type)) {
+          continue;
+        }
+        String expected = userIntent.getInstanceTypeForNode(node);
+        String actual = node.cloudInfo.instance_type;
+        if (!Objects.equals(actual, expected)) {
+          mismatchMessages.add(
+              String.format(
+                  "%s [azUuid=%s, dedicatedTo=%s]: actual=%s, expected=%s",
+                  node.nodeName, node.getAzUuid(), node.dedicatedTo, actual, expected));
+        }
+      }
+    }
+    if (!mismatchMessages.isEmpty()) {
+      throw new PlatformServiceException(
+          BAD_REQUEST,
+          String.format(
+              "Instance type metadata is inconsistent for node(s): %s. "
+                  + "This blocks edits because it would trigger a full move. "
+                  + "Reconcile the universe metadata (e.g. node cloudInfo.instance_type vs "
+                  + "userIntent and overrides) before retrying.",
+              StringUtils.join(mismatchMessages, "; ")));
+    }
+  }
+
   // TODO This is used by calls originating from the UI that are not in swagger APIs. More
   // validations may be needed later like checking the fields of all NodeDetails objects because
   // the existing nodes in the universe are replaced by these nodes in the task params. UI sends
@@ -2472,7 +2549,10 @@ public class UniverseCRUDHandler {
   private void checkTaskParamsForUpdate(
       Universe universe, UniverseDefinitionTaskParams taskParams) {
 
+    checkInstanceTypeConsistency(universe);
+
     UniverseDefinitionTaskParams universeDetails = universe.getUniverseDetails();
+    boolean isK8s = Util.isKubernetesBasedUniverse(universe);
 
     Set<UUID> taskParamClustersUuids =
         taskParams.clusters.stream()
@@ -2525,6 +2605,20 @@ public class UniverseCRUDHandler {
 
     for (Cluster newCluster : taskParams.clusters) {
       Cluster curCluster = universe.getCluster(newCluster.uuid);
+      if (isK8s
+          && !Objects.equals(
+              Util.getSingleProviderUUID(curCluster), Util.getSingleProviderUUID(newCluster))) {
+        String msg =
+            String.format(
+                "Provider can't change during editing of the universe. "
+                    + "Expected provider %s but found %s for cluster type: %s",
+                Util.getSingleProviderUUID(curCluster),
+                Util.getSingleProviderUUID(newCluster),
+                newCluster.clusterType);
+        LOG.error(msg);
+        throw new PlatformServiceException(BAD_REQUEST, msg);
+      }
+
       if (newCluster.placementInfo != null && newCluster.placementInfo.hasRankOrdering()) {
         PlacementInfoUtil.validatePriority(newCluster.placementInfo);
       }

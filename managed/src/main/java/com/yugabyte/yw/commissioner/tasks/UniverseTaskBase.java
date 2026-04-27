@@ -2197,7 +2197,6 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
 
   protected Collection<NodeDetails> filterNodesForInstallNodeAgent(
       Universe universe, Collection<NodeDetails> nodes, boolean includeOnPremManual) {
-    NodeAgentEnabler nodeAgentEnabler = getInstanceOf(NodeAgentEnabler.class);
     Map<UUID, Boolean> clusterSkip = new HashMap<>();
     return nodes.stream()
         .filter(n -> n.cloudInfo != null)
@@ -2209,9 +2208,6 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
                       Cluster cluster = universe.getCluster(n.placementUuid);
                       Provider provider =
                           Provider.getOrBadRequest(UUID.fromString(cluster.userIntent.provider));
-                      if (!nodeAgentEnabler.isNodeAgentServerEnabled(provider, universe)) {
-                        return false;
-                      }
                       if (provider.getCloudCode() == CloudType.onprem) {
                         return !provider.getDetails().skipProvisioning || includeOnPremManual;
                       }
@@ -2263,6 +2259,23 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
                   params.nodeName = n.nodeName;
                   params.nodeName = n.nodeName;
                   params.azUuid = n.azUuid;
+                  task.initialize(params);
+                  subTaskGroup.addSubTask(task);
+                }));
+  }
+
+  public SubTaskGroup createCheckNodeCommandExecutionTasks(Collection<NodeDetails> nodes) {
+    return doInPrecheckSubTaskGroup(
+        "CheckNodeCommandExecution",
+        subTaskGroup ->
+            nodes.forEach(
+                n -> {
+                  CheckNodeCommandExecution.Params params = new CheckNodeCommandExecution.Params();
+                  params.setUniverseUUID(taskParams().getUniverseUUID());
+                  params.nodeName = n.nodeName;
+                  params.azUuid = n.azUuid;
+                  params.timeoutSecs = 10;
+                  CheckNodeCommandExecution task = createTask(CheckNodeCommandExecution.class);
                   task.initialize(params);
                   subTaskGroup.addSubTask(task);
                 }));

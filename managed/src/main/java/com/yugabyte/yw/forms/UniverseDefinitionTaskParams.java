@@ -781,7 +781,7 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
       if (other == null) {
         return;
       }
-      if (other.getDeviceInfo() != null) {
+      if (other.getDeviceInfo() != null && !other.getDeviceInfo().allNull()) {
         this.setDeviceInfo(other.getDeviceInfo());
       }
       if (other.getInstanceType() != null) {
@@ -944,6 +944,14 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
       if (MapUtils.isEmpty(azOverrides)) {
         azOverrides = null;
       }
+    }
+
+    @JsonIgnore
+    public void removeNonRequiredAZs(Set<UUID> usedAZs) {
+      if (MapUtils.isEmpty(azOverrides)) {
+        return;
+      }
+      azOverrides.keySet().retainAll(usedAZs);
     }
 
     @JsonIgnore
@@ -1365,6 +1373,20 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
         return overridenDetails.getCgroupSize();
       }
       return cgroupSize;
+    }
+
+    @JsonIgnore
+    public Collection<UUID> getAllProviderUUIDs() {
+      // For tests to work.
+      if (provider == null) {
+        return Collections.emptySet();
+      }
+      return Collections.singletonList(UUID.fromString(provider));
+    }
+
+    @JsonIgnore
+    public Collection<CloudType> getAllCloudTypes() {
+      return Collections.singletonList(providerType);
     }
 
     @JsonIgnore

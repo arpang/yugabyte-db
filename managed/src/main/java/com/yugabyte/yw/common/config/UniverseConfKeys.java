@@ -889,6 +889,17 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
               + "the xCluster config.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> skipXClusterSnapshotSchedules =
+      new ConfKeyInfo<>(
+          "yb.xcluster.db_scoped.skip_snapshot_schedules",
+          ScopeType.UNIVERSE,
+          "Skip PITR snapshot schedules for DB-scoped xCluster configs",
+          "When enabled, YBA skips creating PITR snapshot schedules during DB-scoped xCluster/DR"
+              + " setup. DR failover then uses the DB-side XClusterFailover RPC which creates"
+              + " on-demand snapshots at failover time instead of relying on continuous PITR"
+              + " snapshot schedules.",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<List> customHealthCheckPorts =
       new ConfKeyInfo<>(
           "yb.universe.network_load_balancer.custom_health_check_ports",
@@ -1189,6 +1200,15 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
               + " fails.",
           ConfDataType.DurationType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Duration> xclusterStreamRunningStatusWaitTimeout =
+      new ConfKeyInfo<>(
+          "yb.xcluster.stream_running_status_wait_timeout",
+          ScopeType.UNIVERSE,
+          "Maximum timeout for xCluster streams to reach Running status",
+          "Maximum timeout to wait for stream statuses associated with xCluster setup tables to "
+              + "reach Running before failing the task.",
+          ConfDataType.DurationType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Duration> xclusterPauseRpcTimeout =
       new ConfKeyInfo<>(
           "yb.xcluster.pause_rpc_timeout",
@@ -1386,14 +1406,6 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
               + " process",
           ConfDataType.DurationType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Boolean> nodeAgentNodeActionUseJavaClient =
-      new ConfKeyInfo<>(
-          "yb.node_agent.node_action.use_java_client",
-          ScopeType.UNIVERSE,
-          "Use Node Agent Java Client for Node Actions",
-          "Use node agent java client to run node actions on the remote nodes",
-          ConfDataType.BooleanType,
-          ImmutableList.of(ConfKeyTags.INTERNAL));
   public static final ConfKeyInfo<Boolean> xClusterSyncOnUniverse =
       new ConfKeyInfo<>(
           "yb.xcluster.xcluster_sync_on_universe",

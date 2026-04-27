@@ -967,7 +967,11 @@
             "CDCSDK_FLUSH_LAG",
             "CDCSDK_EXPIRY",
             "OTEL_LOG_EXPORT_FAILURE",
-            "OTEL_METRIC_EXPORT_FAILURE"
+            "OTEL_METRIC_EXPORT_FAILURE",
+            "PA_COLLECTOR_DOWN",
+            "PA_UNIVERSE_COLLECTION_FAILURE",
+            "PA_UNIVERSE_COLLECTION_STALE",
+            "PA_EMBEDDED_COLLECTOR_ERROR"
           ],
           "type" : "string"
         },
@@ -1152,7 +1156,11 @@
             "CDCSDK_FLUSH_LAG",
             "CDCSDK_EXPIRY",
             "OTEL_LOG_EXPORT_FAILURE",
-            "OTEL_METRIC_EXPORT_FAILURE"
+            "OTEL_METRIC_EXPORT_FAILURE",
+            "PA_COLLECTOR_DOWN",
+            "PA_UNIVERSE_COLLECTION_FAILURE",
+            "PA_UNIVERSE_COLLECTION_STALE",
+            "PA_EMBEDDED_COLLECTOR_ERROR"
           ],
           "type" : "string"
         },
@@ -1433,7 +1441,11 @@
             "CDCSDK_FLUSH_LAG",
             "CDCSDK_EXPIRY",
             "OTEL_LOG_EXPORT_FAILURE",
-            "OTEL_METRIC_EXPORT_FAILURE"
+            "OTEL_METRIC_EXPORT_FAILURE",
+            "PA_COLLECTOR_DOWN",
+            "PA_UNIVERSE_COLLECTION_FAILURE",
+            "PA_UNIVERSE_COLLECTION_STALE",
+            "PA_EMBEDDED_COLLECTOR_ERROR"
           ],
           "type" : "string"
         },
@@ -2675,6 +2687,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -2757,6 +2771,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -5530,6 +5545,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -5612,6 +5629,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -7326,6 +7344,10 @@
           "description" : "Customer task retryable",
           "type" : "boolean"
         },
+        "softwareUpgradeProgress" : {
+          "$ref" : "#/definitions/SoftwareUpgradeProgress",
+          "description" : "Software upgrade progress (canary / per-AZ) when applicable"
+        },
         "status" : {
           "description" : "Customer task status",
           "example" : "Complete",
@@ -7715,6 +7737,7 @@
             "Unconfigured for DR",
             "Bootstrapping",
             "Receiving data, Ready for reads",
+            "Replication paused",
             "Switching to DR primary",
             "Universe marked as DR failed"
           ],
@@ -7771,6 +7794,7 @@
             "Ready to replicate",
             "Waiting for DR",
             "Replicating data",
+            "Replication paused",
             "Preparing for switchover",
             "Switching to DR replica",
             "Universe marked as DR failed"
@@ -7793,6 +7817,7 @@
             "Replicating",
             "Switchover in Progress",
             "Failover in Progress",
+            "Paused",
             "Halted",
             "Updating",
             "Failed"
@@ -8636,6 +8661,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -8718,6 +8745,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -9450,6 +9478,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -9532,6 +9562,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -10974,6 +11005,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -11056,6 +11089,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -11705,6 +11739,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -11787,6 +11823,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -14338,6 +14375,38 @@
       ],
       "type" : "object"
     },
+    "PA Collector registered universe info" : {
+      "properties" : {
+        "advancedObservability" : {
+          "description" : "Whether advanced observability (metrics export) is enabled",
+          "type" : "boolean"
+        },
+        "dataMountPoints" : {
+          "description" : "Data mount points",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "otherMountPoints" : {
+          "description" : "Other mount points",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "universeName" : {
+          "description" : "Universe name (from YBA, or null if universe was deleted)",
+          "type" : "string"
+        },
+        "universeUuid" : {
+          "description" : "Universe UUID",
+          "format" : "uuid",
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
     "PA Collector universe registration status" : {
       "properties" : {
         "advancedObservability" : {
@@ -14408,6 +14477,85 @@
         "paUrl",
         "uuid",
         "ybaUrl"
+      ],
+      "type" : "object"
+    },
+    "PaUniverseApiFilter" : {
+      "properties" : {
+        "universeName" : {
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "universeName"
+      ],
+      "type" : "object"
+    },
+    "PaUniversePagedApiQuery" : {
+      "properties" : {
+        "direction" : {
+          "enum" : [
+            "ASC",
+            "DESC"
+          ],
+          "type" : "string"
+        },
+        "filter" : {
+          "$ref" : "#/definitions/PaUniverseApiFilter"
+        },
+        "limit" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "needTotalCount" : {
+          "type" : "boolean"
+        },
+        "offset" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "sortBy" : {
+          "enum" : [
+            "universeName",
+            "universeUuid"
+          ],
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "direction",
+        "filter",
+        "limit",
+        "needTotalCount",
+        "offset",
+        "sortBy"
+      ],
+      "type" : "object"
+    },
+    "PaUniversePagedApiResponse" : {
+      "properties" : {
+        "entities" : {
+          "items" : {
+            "$ref" : "#/definitions/PA Collector registered universe info"
+          },
+          "type" : "array"
+        },
+        "hasNext" : {
+          "type" : "boolean"
+        },
+        "hasPrev" : {
+          "type" : "boolean"
+        },
+        "totalCount" : {
+          "format" : "int32",
+          "type" : "integer"
+        }
+      },
+      "required" : [
+        "entities",
+        "hasNext",
+        "hasPrev",
+        "totalCount"
       ],
       "type" : "object"
     },
@@ -16176,6 +16324,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -16258,6 +16408,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -16861,6 +17012,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -16943,6 +17096,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -17902,6 +18056,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -17984,6 +18140,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -18743,6 +18900,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -18825,6 +18984,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -20282,6 +20442,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -20364,6 +20526,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -20948,6 +21111,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -21030,6 +21195,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -21369,6 +21535,8 @@
               "MigrateUniverse",
               "KubernetesToggleImmutableYbc",
               "OperatorImportUniverse",
+              "RegisterUniverseWithPACollector",
+              "UnregisterUniverseFromPACollector",
               "KubernetesCheckVolumeExpansion",
               "KubernetesPostExpansionCheckVolume",
               "NodeCertReloadTask",
@@ -21451,6 +21619,7 @@
               "DeleteXClusterTableConfigEntry",
               "DeleteDrConfigEntry",
               "WaitForReplicationDrain",
+              "XClusterFailoverWithOnDemandSnapshot",
               "ResetXClusterConfigEntry",
               "SetReplicationPaused",
               "ChangeXClusterRole",
@@ -21939,6 +22108,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -22021,6 +22192,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -22716,6 +22888,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -22798,6 +22972,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -23010,6 +23185,41 @@
         "upgradeOption",
         "upgradeSystemCatalog",
         "ybSoftwareVersion"
+      ],
+      "type" : "object"
+    },
+    "SoftwareUpgradeProgress" : {
+      "description" : "Software upgrade progress by availability zone",
+      "properties" : {
+        "canaryPauseState" : {
+          "description" : "WARNING: This is a preview API that could change. Current canary pause state, if applicable",
+          "enum" : [
+            "NOT_PAUSED",
+            "PAUSED_AFTER_MASTERS",
+            "PAUSED_AFTER_TSERVERS_AZ"
+          ],
+          "type" : "string"
+        },
+        "canaryUpgrade" : {
+          "type" : "boolean"
+        },
+        "masterAZUpgradeStatesList" : {
+          "description" : "WARNING: This is a preview API that could change. Master upgrade state per availability zone",
+          "items" : {
+            "$ref" : "#/definitions/AZUpgradeState"
+          },
+          "type" : "array"
+        },
+        "tserverAZUpgradeStatesList" : {
+          "description" : "WARNING: This is a preview API that could change. Tserver upgrade state per availability zone",
+          "items" : {
+            "$ref" : "#/definitions/AZUpgradeState"
+          },
+          "type" : "array"
+        }
+      },
+      "required" : [
+        "canaryUpgrade"
       ],
       "type" : "object"
     },
@@ -23873,6 +24083,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -23955,6 +24167,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -24661,7 +24874,9 @@
               "ImportUniverse",
               "MigrateUniverse",
               "KubernetesToggleImmutableYbc",
-              "OperatorImport"
+              "OperatorImport",
+              "RegisterWithPACollector",
+              "UnregisterFromPACollector"
             ],
             "type" : "string"
           },
@@ -25202,6 +25417,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -25284,6 +25501,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -25886,6 +26104,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -25968,6 +26188,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -26708,6 +26929,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -26790,6 +27013,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -27356,6 +27580,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -27438,6 +27664,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -28004,6 +28231,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -28086,6 +28315,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -29162,6 +29392,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -29244,6 +29476,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -30297,6 +30530,8 @@
             "MigrateUniverse",
             "KubernetesToggleImmutableYbc",
             "OperatorImportUniverse",
+            "RegisterUniverseWithPACollector",
+            "UnregisterUniverseFromPACollector",
             "KubernetesCheckVolumeExpansion",
             "KubernetesPostExpansionCheckVolume",
             "NodeCertReloadTask",
@@ -30379,6 +30614,7 @@
             "DeleteXClusterTableConfigEntry",
             "DeleteDrConfigEntry",
             "WaitForReplicationDrain",
+            "XClusterFailoverWithOnDemandSnapshot",
             "ResetXClusterConfigEntry",
             "SetReplicationPaused",
             "ChangeXClusterRole",
@@ -30784,6 +31020,7 @@
             "Ready to replicate",
             "Waiting for DR",
             "Replicating data",
+            "Replication paused",
             "Preparing for switchover",
             "Switching to DR replica",
             "Universe marked as DR failed"
@@ -30842,6 +31079,7 @@
             "Unconfigured for DR",
             "Bootstrapping",
             "Receiving data, Ready for reads",
+            "Replication paused",
             "Switching to DR primary",
             "Universe marked as DR failed"
           ],
@@ -31082,6 +31320,7 @@
             "Ready to replicate",
             "Waiting for DR",
             "Replicating data",
+            "Replication paused",
             "Preparing for switchover",
             "Switching to DR replica",
             "Universe marked as DR failed"
@@ -31140,6 +31379,7 @@
             "Unconfigured for DR",
             "Bootstrapping",
             "Receiving data, Ready for reads",
+            "Replication paused",
             "Switching to DR primary",
             "Universe marked as DR failed"
           ],
