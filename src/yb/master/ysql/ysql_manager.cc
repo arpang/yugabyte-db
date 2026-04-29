@@ -589,6 +589,10 @@ Status YsqlManager::CreateListenNotifyObjects() {
   }
 
   std::vector<std::string> statements;
+  // Prevent catalog version increments from system object creation so that
+  // yb_system's catalog version stays deterministic regardless of bg task timing.
+  statements.emplace_back("SET yb_enable_invalidation_messages = false");
+  statements.emplace_back("SET yb_make_next_ddl_statement_nonincrementing = true");
   statements.emplace_back(Format(
       R"(CREATE TABLE IF NOT EXISTS $0 (
            notif_uuid uuid NOT NULL,
@@ -601,6 +605,7 @@ Status YsqlManager::CreateListenNotifyObjects() {
            CONSTRAINT $0_pkey PRIMARY KEY (notif_uuid HASH)
          ) SPLIT INTO 1 TABLETS)",
       kPgYbNotificationsTableName));
+  statements.emplace_back("SET yb_make_next_ddl_statement_nonincrementing = true");
   statements.emplace_back(Format(
       R"(DO $$$$
         BEGIN
