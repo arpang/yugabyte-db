@@ -3982,7 +3982,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_enable_listen_notify,
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 
