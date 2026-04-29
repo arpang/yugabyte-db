@@ -1379,7 +1379,8 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
       YsqlPassword ysqlPassword = ybUniverse.getSpec().getYsqlPassword();
       if (ysqlPassword != null) {
         Secret ysqlSecret = getSecret(ysqlPassword.getSecretName());
-        resourceTracker.trackDependency(currentReconcileResource, ysqlSecret);
+        resourceTracker.trackDependency(
+            currentReconcileResource, ysqlSecret, currentLocalInstanceUuid);
         log.trace(
             "Tracking secret {} as dependency of {}",
             ysqlSecret.getMetadata().getName(),
@@ -1396,7 +1397,8 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
       YcqlPassword ycqlPassword = ybUniverse.getSpec().getYcqlPassword();
       if (ycqlPassword != null) {
         Secret ycqlSecret = getSecret(ycqlPassword.getSecretName());
-        resourceTracker.trackDependency(currentReconcileResource, ycqlSecret);
+        resourceTracker.trackDependency(
+            currentReconcileResource, ycqlSecret, currentLocalInstanceUuid);
         log.trace(
             "Tracking secret {} as dependency of {}",
             ycqlSecret.getMetadata().getName(),
@@ -1649,6 +1651,9 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
   private static Map<String, PerAZVolumeDto> toPerAZVolumeDtoMapFromTserver(
       Map<String, io.yugabyte.operator.v1alpha1.ybuniversespec.tservervolume.PerAZ> perAZ) {
     Map<String, PerAZVolumeDto> map = new HashMap<>();
+    if (MapUtils.isEmpty(perAZ)) {
+      return map;
+    }
     for (Map.Entry<String, io.yugabyte.operator.v1alpha1.ybuniversespec.tservervolume.PerAZ> e :
         perAZ.entrySet()) {
       map.put(e.getKey(), toPerAZVolumeDtoFromTserver(e.getValue()));
@@ -1670,6 +1675,9 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
   private static Map<String, PerAZVolumeDto> toPerAZVolumeDtoMapFromMaster(
       Map<String, io.yugabyte.operator.v1alpha1.ybuniversespec.mastervolume.PerAZ> perAZ) {
     Map<String, PerAZVolumeDto> map = new HashMap<>();
+    if (MapUtils.isEmpty(perAZ)) {
+      return map;
+    }
     for (Map.Entry<String, io.yugabyte.operator.v1alpha1.ybuniversespec.mastervolume.PerAZ> e :
         perAZ.entrySet()) {
       map.put(e.getKey(), toPerAZVolumeDtoFromMaster(e.getValue()));
@@ -1692,6 +1700,9 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
       Map<String, io.yugabyte.operator.v1alpha1.ybuniversespec.readreplica.tservervolume.PerAZ>
           perAZ) {
     Map<String, PerAZVolumeDto> map = new HashMap<>();
+    if (MapUtils.isEmpty(perAZ)) {
+      return map;
+    }
     for (Map.Entry<
             String, io.yugabyte.operator.v1alpha1.ybuniversespec.readreplica.tservervolume.PerAZ>
         e : perAZ.entrySet()) {
@@ -1854,7 +1865,10 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
 
   private void createAutoProviderCR(YBUniverse ybUniverse, String providerName, UUID customerUUID) {
     List<String> zonesFilter = ybUniverse.getSpec().getZoneFilter();
-    String storageClass = ybUniverse.getSpec().getDeviceInfo().getStorageClass();
+    String storageClass =
+        ybUniverse.getSpec().getDeviceInfo() != null
+            ? ybUniverse.getSpec().getDeviceInfo().getStorageClass()
+            : null;
     String kubeNamespace = ybUniverse.getMetadata().getNamespace();
     String domainName =
         maybeGetKubeDomainFromOverrides(ybUniverse.getSpec().getKubernetesOverrides());

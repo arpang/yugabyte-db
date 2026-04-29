@@ -1,18 +1,15 @@
 import { ChangeEvent } from 'react';
-import { useFormContext, Controller } from 'react-hook-form';
-import { useTranslation } from 'react-i18next';
 import { makeStyles, Typography } from '@material-ui/core';
+import { YBAutoComplete, YBButton } from '@yugabyte-ui-library/core';
+import { Controller, useFormContext } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { useMutation } from 'react-query';
 
-import { YBAutoComplete, YBButton } from '@yugabyte-ui-library/core';
-
-import { DbUpgradeInfoCard } from '@app/redesign/features/universe/universe-actions/software-upgrade/DbUpgradeInfoCard';
-import { DbReleaseAutocompleteOption } from '@app/redesign/features/universe/universe-actions/software-upgrade/DbReleaseAutocompleteOption';
-import type {
-  DBUpgradeFormFields,
-  ReleaseOption
-} from '@app/redesign/features/universe/universe-actions/software-upgrade/types';
 import { startSoftwareUpgrade } from '@app/v2/api/universe/universe';
+import { DbUpgradeInfoCard } from '../DbUpgradeInfoCard';
+import { DbReleaseAutocompleteOption } from '../DbReleaseAutocompleteOption';
+import type { DBUpgradeFormFields, ReleaseOption } from '../types';
+import { useDbUpgradeModalContext } from '../DbUpgradeModalContext';
 
 const TRANSLATION_KEY_PREFIX = 'universeActions.dbUpgrade.upgradeModal.dbVersionStep';
 
@@ -72,23 +69,13 @@ const useStyles = makeStyles((theme) => ({
   }
 }));
 
-interface DbVersionStepProps {
-  currentRelease: string;
-  targetReleaseOptions: ReleaseOption[];
-  currentUniverseUuid: string;
-  onPreCheckSuccess: () => void;
-}
-
 const TEST_ID_PREFIX = 'DbVersionStep';
 
-export const DbVersionStep = ({
-  currentRelease,
-  targetReleaseOptions,
-  currentUniverseUuid,
-  onPreCheckSuccess
-}: DbVersionStepProps) => {
+export const DbVersionStep = () => {
   const { t } = useTranslation('translation', { keyPrefix: TRANSLATION_KEY_PREFIX });
   const classes = useStyles();
+  const { currentUniverseUuid, currentDbVersion, targetReleaseOptions, closeModal } =
+    useDbUpgradeModalContext();
 
   const runDbUpgradePrecheck = useMutation(
     (targetDbVersion: string) =>
@@ -98,7 +85,7 @@ export const DbVersionStep = ({
       }),
     {
       onSuccess: () => {
-        onPreCheckSuccess();
+        closeModal();
       }
     }
   );
@@ -129,7 +116,7 @@ export const DbVersionStep = ({
 
         <div className={classes.fieldRow}>
           <Typography className={classes.fieldLabel}>{t('currentVersion')}</Typography>
-          <Typography variant="body2">{currentRelease}</Typography>
+          <Typography variant="body2">{currentDbVersion}</Typography>
         </div>
 
         <div className={classes.fieldRow}>
@@ -148,7 +135,7 @@ export const DbVersionStep = ({
                     getOptionLabel={(option) =>
                       typeof option === 'string' ? option : (option.label ?? option.version)
                     }
-                    getOptionDisabled={(option) => option.version === currentRelease}
+                    getOptionDisabled={(option) => option.version === currentDbVersion}
                     dataTestId={`${TEST_ID_PREFIX}-VersionSelect`}
                     renderOption={(props, option) => (
                       <li {...props}>
@@ -176,7 +163,7 @@ export const DbVersionStep = ({
           <div className={classes.upgradeInfoCardContainer}>
             <DbUpgradeInfoCard
               currentUniverseUuid={currentUniverseUuid}
-              currentVersion={currentRelease}
+              currentVersion={currentDbVersion}
               targetVersion={selectedVersion}
             />
             <YBButton

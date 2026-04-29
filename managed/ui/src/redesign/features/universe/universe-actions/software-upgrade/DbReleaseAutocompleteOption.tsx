@@ -1,10 +1,10 @@
 import { makeStyles, Typography } from '@material-ui/core';
 import { YBTooltip } from '@yugabyte-ui-library/core';
 
-import { isNonEmptyString } from '../../../../../utils/ObjectUtils';
+import { isNonEmptyString } from '@app/utils/ObjectUtils';
 import { ReleaseOption } from './types';
 
-import InfoIcon from '../../../../assets/info-message.svg?img';
+import InfoIcon from '@app/redesign/assets/info-message.svg';
 
 const MAX_RELEASE_TAG_CHAR = 20;
 
@@ -46,7 +46,9 @@ export const DbReleaseAutocompleteOption = ({
           </Typography>
           {releaseTagExceedsMaxLength && (
             <YBTooltip title={releaseTag}>
-              <img src={InfoIcon} alt="info" />
+              <span>
+                <InfoIcon aria-hidden />
+              </span>
             </YBTooltip>
           )}
         </>

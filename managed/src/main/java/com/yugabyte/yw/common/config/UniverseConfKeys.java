@@ -826,6 +826,14 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
           "Timeout for memory check in secs",
           ConfDataType.LongType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Long> checkCpuCgroupTimeoutSecs =
+      new ConfKeyInfo<>(
+          "yb.checks.cpu_cgroup.timeout",
+          ScopeType.UNIVERSE,
+          "CPU cgroup precheck timeout",
+          "Timeout (in seconds) for the CPU cgroup precheck script executed on each on-prem node",
+          ConfDataType.LongType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Duration> sleepTimeBeforeRestoreXClusterSetup =
       new ConfKeyInfo<>(
           "yb.xcluster.sleep_time_before_restore",
@@ -887,6 +895,17 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
               + "in sync with replication group in DB. If they are not in sync and this is true, "
               + "getting the xCluster object will throw an exception and the user has to resync "
               + "the xCluster config.",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> skipXClusterSnapshotSchedules =
+      new ConfKeyInfo<>(
+          "yb.xcluster.db_scoped.skip_snapshot_schedules",
+          ScopeType.UNIVERSE,
+          "Skip PITR snapshot schedules for DB-scoped xCluster configs",
+          "When enabled, YBA skips creating PITR snapshot schedules during DB-scoped xCluster/DR"
+              + " setup. DR failover then uses the DB-side XClusterFailover RPC which creates"
+              + " on-demand snapshots at failover time instead of relying on continuous PITR"
+              + " snapshot schedules.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<List> customHealthCheckPorts =
@@ -1189,6 +1208,15 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
               + " fails.",
           ConfDataType.DurationType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Duration> xclusterStreamRunningStatusWaitTimeout =
+      new ConfKeyInfo<>(
+          "yb.xcluster.stream_running_status_wait_timeout",
+          ScopeType.UNIVERSE,
+          "Maximum timeout for xCluster streams to reach Running status",
+          "Maximum timeout to wait for stream statuses associated with xCluster setup tables to "
+              + "reach Running before failing the task.",
+          ConfDataType.DurationType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Duration> xclusterPauseRpcTimeout =
       new ConfKeyInfo<>(
           "yb.xcluster.pause_rpc_timeout",
@@ -1386,14 +1414,6 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
               + " process",
           ConfDataType.DurationType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Boolean> nodeAgentNodeActionUseJavaClient =
-      new ConfKeyInfo<>(
-          "yb.node_agent.node_action.use_java_client",
-          ScopeType.UNIVERSE,
-          "Use Node Agent Java Client for Node Actions",
-          "Use node agent java client to run node actions on the remote nodes",
-          ConfDataType.BooleanType,
-          ImmutableList.of(ConfKeyTags.INTERNAL));
   public static final ConfKeyInfo<Boolean> xClusterSyncOnUniverse =
       new ConfKeyInfo<>(
           "yb.xcluster.xcluster_sync_on_universe",
@@ -1567,6 +1587,17 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
           ScopeType.UNIVERSE,
           "Skip OpenTelemetry Operator Check",
           "If true, YBA will skip checking for Opentelemetry operator installation on the cluster.",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> skipCpuCgroupCheck =
+      new ConfKeyInfo<>(
+          "yb.universe.skip_cpu_cgroup_check",
+          ScopeType.UNIVERSE,
+          "Skip CPU Cgroup Precheck",
+          "If true, YBA will skip the on-prem CPU cgroup precheck that verifies the yb-tserver "
+              + "is in the yugabyte-db cgroup and that the yugabyte user can create child "
+              + "cgroups. This precheck runs during ConfigureDBApis when enabling multi-tenancy "
+              + "QoS on an on-prem universe.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Integer> otelCollectorMaxMemory =
@@ -1834,15 +1865,6 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
           "Enables new Performance Monitoring UI via Performance Tab",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Boolean> editUniverseV2UiEnabled =
-      new ConfKeyInfo<>(
-          "yb.ui.feature_flags.edit_universe_v2_ui_enabled",
-          ScopeType.UNIVERSE,
-          "Enable Edit Universe V2 UI",
-          "Enable the new Edit Universe V2 UI for editing/viewing universe configurations",
-          ConfDataType.BooleanType,
-          ImmutableList.of(ConfKeyTags.INTERNAL));
-
   // Node Script API configs (Internal)
   public static final ConfKeyInfo<Boolean> nodeScriptEnabled =
       new ConfKeyInfo<>(

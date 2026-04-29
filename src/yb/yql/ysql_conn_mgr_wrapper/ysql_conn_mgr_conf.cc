@@ -53,9 +53,10 @@ DECLARE_uint32(ysql_conn_mgr_tcp_keepalive_usr_timeout);
 DECLARE_uint32(ysql_conn_mgr_control_connection_pool_size);
 DECLARE_uint32(ysql_conn_mgr_pool_timeout);
 DECLARE_bool(ysql_conn_mgr_optimized_extended_query_protocol);
-DECLARE_bool(ysql_conn_mgr_deallocate_if_invalid_prep_stmt);
+DECLARE_bool(ysql_conn_mgr_enable_prep_stmt_close);
 DECLARE_bool(ysql_conn_mgr_optimized_session_parameters);
 DECLARE_int32(ysql_conn_mgr_max_pools);
+DECLARE_uint32(ysql_conn_mgr_max_prepared_statements);
 DECLARE_uint32(ysql_conn_mgr_jitter_time);
 DECLARE_uint32(ysql_conn_mgr_reserve_internal_conns);
 DECLARE_uint32(TEST_ysql_conn_mgr_auth_delay_ms);
@@ -236,13 +237,14 @@ Result<std::string> YsqlConnMgrConf::CreateYsqlConnMgrConfigAndGetPath() {
     {"{%pool_timeout%}", std::to_string(FLAGS_ysql_conn_mgr_pool_timeout)},
     {"{%yb_optimized_extended_query_protocol%}",
       BoolToString(FLAGS_ysql_conn_mgr_optimized_extended_query_protocol)},
-    {"{%yb_deallocate_if_invalid_prep_stmt%}",
-      BoolToString(FLAGS_ysql_conn_mgr_deallocate_if_invalid_prep_stmt)},
+    {"{%yb_enable_prep_stmt_close%}",
+      BoolToString(FLAGS_ysql_conn_mgr_enable_prep_stmt_close)},
     {"{%yb_enable_multi_route_pool%}", BoolToString(FLAGS_ysql_conn_mgr_enable_multi_route_pool)},
     {"{%yb_ysql_max_connections%}", std::to_string(conf_->ysql_max_connections)},
     {"{%yb_optimized_session_parameters%}",
       BoolToString(FLAGS_ysql_conn_mgr_optimized_session_parameters)},
     {"{%yb_max_pools%}", std::to_string(FLAGS_ysql_conn_mgr_max_pools)},
+    {"{%yb_max_prepared_statements%}", std::to_string(FLAGS_ysql_conn_mgr_max_prepared_statements)},
     {"{%yb_jitter_time%}", std::to_string(FLAGS_ysql_conn_mgr_jitter_time)},
     {"{%TEST_yb_auth_delay_ms%}", std::to_string(FLAGS_TEST_ysql_conn_mgr_auth_delay_ms)},
     {"{%yb_alter_guc_adoption_strategy%}", FLAGS_ysql_conn_mgr_alter_guc_adoption_strategy},

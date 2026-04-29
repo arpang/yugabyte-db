@@ -854,6 +854,7 @@ static char *yb_read_time_string;
 static char *yb_neg_catcache_ids_string;
 static bool yb_conn_mgr_modifying_defaults = false;
 bool		yb_test_skip_binding_scan_keys;
+bool		yb_enable_advanced_index_cond_fold;
 static bool yb_bypass_cond_recheck;
 static bool yb_pushdown_is_not_null;
 static bool yb_pushdown_strict_inequality;
@@ -3084,6 +3085,21 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_enable_advanced_index_cond_fold", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enable advanced folding of same-column index "
+						 "conditions, including tightening inequality "
+						 "bounds across scan keys, intersecting IN "
+						 "arrays, and detecting additional contradictions "
+						 "at bind time."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_enable_advanced_index_cond_fold,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_test_skip_binding_scan_keys", PGC_USERSET, DEVELOPER_OPTIONS,
 			gettext_noop("For YB scans, skip binding scan keys to pggate. "
 						 "ybgin and internal scans are not affected."),
@@ -3104,7 +3120,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_EXPLAIN
 		},
 		&yb_enable_derived_saops,
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 
@@ -3219,7 +3235,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_EXPLAIN
 		},
 		&yb_enable_derived_equalities,
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 
@@ -4010,6 +4026,17 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"yb_conn_mgr_selective_deallocate", PGC_SIGHUP, CUSTOM_OPTIONS,
+			gettext_noop("Enables connection-manager-aware DEALLOCATE behavior."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_conn_mgr_selective_deallocate,
+		true,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
@@ -4209,6 +4236,18 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&yb_walsender_poll_sleep_duration_empty_ms,
 		10, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_test_notify_queue_max_pages", PGC_SIGHUP, DEVELOPER_OPTIONS,
+			gettext_noop("When set to a positive value, artificially limits the "
+						 "NOTIFY queue to this many pages for testing."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_test_notify_queue_max_pages,
+		0, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 
@@ -6042,7 +6081,7 @@ static struct config_int ConfigureNamesInt[] =
 						 "to 0 to disable."),
 		},
 		&yb_max_merge_scan_streams,
-		0, 0, 1024,
+		64, 0, 1024,
 		NULL, NULL, NULL
 	},
 

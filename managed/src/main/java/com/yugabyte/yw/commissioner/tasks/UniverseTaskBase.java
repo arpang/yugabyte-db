@@ -35,6 +35,7 @@ import com.yugabyte.yw.commissioner.tasks.UniverseDefinitionTaskBase.PortType;
 import com.yugabyte.yw.commissioner.tasks.params.NodeTaskParams;
 import com.yugabyte.yw.commissioner.tasks.params.ServerSubTaskParams;
 import com.yugabyte.yw.commissioner.tasks.subtasks.*;
+import com.yugabyte.yw.commissioner.tasks.subtasks.check.CheckCpuCgroup;
 import com.yugabyte.yw.commissioner.tasks.subtasks.check.CheckGlibc;
 import com.yugabyte.yw.commissioner.tasks.subtasks.check.CheckLocale;
 import com.yugabyte.yw.commissioner.tasks.subtasks.check.CheckMemory;
@@ -1976,6 +1977,23 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
         });
   }
 
+  /**
+   * Creates a task to verify that the CPU cgroup required for YugabyteDB is configured on the given
+   * on-prem nodes. No-op for non-onprem providers; the subtask itself also guards on provider type.
+   */
+  public SubTaskGroup createCheckCpuCgroupTask(Collection<NodeDetails> nodes) {
+    return doInPrecheckSubTaskGroup(
+        "CheckCpuCgroup",
+        subTaskGroup -> {
+          CheckCpuCgroup task = createTask(CheckCpuCgroup.class);
+          CheckCpuCgroup.Params params = new CheckCpuCgroup.Params();
+          params.setUniverseUUID(taskParams().getUniverseUUID());
+          params.nodeNames = nodes.stream().map(node -> node.nodeName).collect(Collectors.toSet());
+          task.initialize(params);
+          subTaskGroup.addSubTask(task);
+        });
+  }
+
   /** Create a task to preform pre-check for software upgrade. */
   public void createCheckUpgradeTask(String ybSoftwareVersion) {
     doInPrecheckSubTaskGroup(
@@ -2197,7 +2215,6 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
 
   protected Collection<NodeDetails> filterNodesForInstallNodeAgent(
       Universe universe, Collection<NodeDetails> nodes, boolean includeOnPremManual) {
-    NodeAgentEnabler nodeAgentEnabler = getInstanceOf(NodeAgentEnabler.class);
     Map<UUID, Boolean> clusterSkip = new HashMap<>();
     return nodes.stream()
         .filter(n -> n.cloudInfo != null)
@@ -2209,9 +2226,6 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
                       Cluster cluster = universe.getCluster(n.placementUuid);
                       Provider provider =
                           Provider.getOrBadRequest(UUID.fromString(cluster.userIntent.provider));
-                      if (!nodeAgentEnabler.isNodeAgentServerEnabled(provider, universe)) {
-                        return false;
-                      }
                       if (provider.getCloudCode() == CloudType.onprem) {
                         return !provider.getDetails().skipProvisioning || includeOnPremManual;
                       }
@@ -2263,6 +2277,23 @@ public abstract class UniverseTaskBase extends AbstractTaskBase {
                   params.nodeName = n.nodeName;
                   params.nodeName = n.nodeName;
                   params.azUuid = n.azUuid;
+                  task.initialize(params);
+                  subTaskGroup.addSubTask(task);
+                }));
+  }
+
+  public SubTaskGroup createCheckNodeCommandExecutionTasks(Collection<NodeDetails> nodes) {
+    return doInPrecheckSubTaskGroup(
+        "CheckNodeCommandExecution",
+        subTaskGroup ->
+            nodes.forEach(
+                n -> {
+                  CheckNodeCommandExecution.Params params = new CheckNodeCommandExecution.Params();
+                  params.setUniverseUUID(taskParams().getUniverseUUID());
+                  params.nodeName = n.nodeName;
+                  params.azUuid = n.azUuid;
+                  params.timeoutSecs = 10;
+                  CheckNodeCommandExecution task = createTask(CheckNodeCommandExecution.class);
                   task.initialize(params);
                   subTaskGroup.addSubTask(task);
                 }));

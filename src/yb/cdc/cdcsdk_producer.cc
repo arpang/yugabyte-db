@@ -759,8 +759,11 @@ void FillDDLInfo(
   }
 
   row_message->set_schema_version(schema_version);
-  // SchemaPB::pgschema_name is deprecated. See GHI: #12770.
-  row_message->set_pgschema_name(schema_pb.deprecated_pgschema_name());
+  // TODO(GHI#26196): Revist once the PR for removing deprecated_pg_schema_name is landed.
+  const auto& pgschema_name = current_schema_details.schema->SchemaName();
+  LOG_IF(DFATAL, pgschema_name.empty())
+      << "pgschema_name is empty for table " << table_id << " (" << table_name << ")";
+  row_message->set_pgschema_name(pgschema_name);
   CDCSDKTablePropertiesPB* cdc_sdk_table_properties_pb =
       row_message->mutable_schema()->mutable_tab_info();
 
@@ -3261,8 +3264,9 @@ Status GetChangesForCDCSDK(
                              leader_safe_time, safe_hybrid_time_resp, have_more_messages,
                              consistent_stream_safe_time, snapshot_operation);
 
-  if (!snapshot_operation && !CheckResponseSafeTimeCorrectness(
-                                 last_read_wal_op_record_time, safe_time, is_entire_wal_read)) {
+  if (!snapshot_operation && safe_time != computed_safe_hybrid_time_req &&
+      !CheckResponseSafeTimeCorrectness(
+          last_read_wal_op_record_time, safe_time, is_entire_wal_read)) {
     LOG(DFATAL) << "Stream_id: " << stream_id << ", tablet_id: " << tablet_id
                 << ", response safe time: " << safe_time
                 << " is greater than last read WAL OP's record time: "

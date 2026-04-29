@@ -1,21 +1,29 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { http, HttpResponse } from 'msw';
 
-import { generateDbUpgradeTaskMockResponse } from '@app/mocks/mock-data/taskMocks';
+import { dbUpgradeManagementPanelMswHandlers } from '@app/mocks/mock-data/dbUpgradeManagementPanelMswHandlers';
+import {
+  createDbUpgradePrecheckMetadataMock,
+  createDbUpgradeTaskMock,
+  defaultDbUpgradeSoftwareUpgradeProgress,
+  tserverAzUpgradeStatesListWithSecondLastInProgress
+} from '@app/mocks/mock-data/taskMocks';
 import { generateUniverseMockResponse } from '@app/mocks/mock-data/universeMocks';
-import type { GetPagedCustomerTaskResponse } from '@app/redesign/helpers/api';
-import { DbUpgradeManagementSidePanel } from './DbUpgradeManagementSidePanel';
+import {
+  AZUpgradeStatus,
+  CanaryPauseState,
+  DbUpgradePrecheckStatus,
+  TaskState,
+  type Task
+} from '@app/redesign/features/tasks/dtos';
+import type { UniverseSoftwareUpgradePrecheckResp } from '@app/v2/api/yugabyteDBAnywhereV2APIs.schemas';
 
-const mockDbUpgradeTask = generateDbUpgradeTaskMockResponse();
+import { DbUpgradeManagementSidePanel } from './DbUpgradeManagementSidePanel';
 
 const mockUniverse = generateUniverseMockResponse();
 
-const mockPagedSoftwareUpgradeTasksResponse: GetPagedCustomerTaskResponse = {
-  entities: [mockDbUpgradeTask],
-  hasNext: false,
-  hasPrev: false,
-  totalCount: 1
-};
+const UNIVERSE_UUID = mockUniverse.info?.universe_uuid ?? 'mock-universe-uuid';
+
+const defaultSoftwareUpgradeProgress = defaultDbUpgradeSoftwareUpgradeProgress();
 
 const withCustomerId = (Story: React.ComponentType) => {
   if (typeof window !== 'undefined') {
@@ -32,7 +40,7 @@ const meta = {
   },
   decorators: [withCustomerId],
   args: {
-    universeUuid: mockUniverse.info?.universe_uuid ?? 'mock-universe-uuid',
+    universeUuid: UNIVERSE_UUID,
     modalProps: {
       open: true,
       onClose: () => {}
@@ -43,54 +51,169 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const WithSoftwareUpgradeTask: Story = {
+const storyWithTask = (
+  task: Task,
+  precheckOverrides?: Partial<UniverseSoftwareUpgradePrecheckResp>
+): Story => ({
   parameters: {
     msw: {
       handlers: {
-        dbUpgradeManagementSidePanel: [
-          http.post('http://localhost:9000/api/v1/customers/customer-uuid/tasks_list/page', () =>
-            HttpResponse.json(mockPagedSoftwareUpgradeTasksResponse)
-          ),
-          http.get(
-            'http://localhost:9000/api/v2/customers/customer-uuid/universes/mock-universe-uuid',
-            () => HttpResponse.json(mockUniverse)
-          ),
-          http.post(
-            'http://localhost:9000/api/v2/customers/customer-uuid/universes/mock-universe-uuid/upgrade/software/precheck',
-            () =>
-              HttpResponse.json({
-                ysql_major_version_upgrade: false,
-                finalize_required: false
-              })
-          )
-        ]
+        dbUpgradeManagementSidePanel: dbUpgradeManagementPanelMswHandlers(
+          UNIVERSE_UUID,
+          task,
+          mockUniverse,
+          createDbUpgradePrecheckMetadataMock(precheckOverrides ?? {})
+        )
       }
     }
   }
-};
+});
 
-export const WithYsqlMajorUpgrade: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        dbUpgradeManagementSidePanel: [
-          http.post('http://localhost:9000/api/v1/customers/customer-uuid/tasks_list/page', () =>
-            HttpResponse.json(mockPagedSoftwareUpgradeTasksResponse)
-          ),
-          http.get(
-            'http://localhost:9000/api/v2/customers/customer-uuid/universes/mock-universe-uuid',
-            () => HttpResponse.json(mockUniverse)
-          ),
-          http.post(
-            'http://localhost:9000/api/v2/customers/customer-uuid/universes/mock-universe-uuid/upgrade/software/precheck',
-            () =>
-              HttpResponse.json({
-                ysql_major_version_upgrade: true,
-                finalize_required: true
-              })
-          )
-        ]
-      }
+export const PrecheckRunning: Story = storyWithTask(
+  createDbUpgradeTaskMock({
+    softwareUpgradeProgress: {
+      precheckStatus: DbUpgradePrecheckStatus.RUNNING,
+      masterAZUpgradeStatesList: defaultSoftwareUpgradeProgress.masterAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.NOT_STARTED
+      }))
     }
+  })
+);
+
+export const PrecheckFailed: Story = storyWithTask(
+  createDbUpgradeTaskMock({
+    softwareUpgradeProgress: {
+      precheckStatus: DbUpgradePrecheckStatus.FAILED,
+      masterAZUpgradeStatesList: defaultSoftwareUpgradeProgress.masterAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.NOT_STARTED
+      }))
+    }
+  })
+);
+
+export const MasterUpgradeRunning: Story = storyWithTask(
+  createDbUpgradeTaskMock({
+    softwareUpgradeProgress: {
+      precheckStatus: DbUpgradePrecheckStatus.SUCCESS,
+      masterAZUpgradeStatesList: defaultSoftwareUpgradeProgress.masterAZUpgradeStatesList.map((az, index) => ({
+        ...az,
+        status: index === 0 ? AZUpgradeStatus.IN_PROGRESS : AZUpgradeStatus.COMPLETED
+      }))
+    }
+  })
+);
+
+export const MasterUpgradeFailed: Story = storyWithTask(
+  createDbUpgradeTaskMock({
+    softwareUpgradeProgress: {
+      precheckStatus: DbUpgradePrecheckStatus.SUCCESS,
+      masterAZUpgradeStatesList: defaultSoftwareUpgradeProgress.masterAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.FAILED
+      }))
+    }
+  })
+);
+
+export const MasterUpgradeCompletedAndUpgradePaused: Story = storyWithTask(
+  createDbUpgradeTaskMock({
+    softwareUpgradeProgress: {
+      canaryPauseState: CanaryPauseState.PAUSED_AFTER_MASTERS,
+      precheckStatus: DbUpgradePrecheckStatus.SUCCESS,
+      masterAZUpgradeStatesList: defaultSoftwareUpgradeProgress.masterAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.COMPLETED
+      })),
+      tserverAZUpgradeStatesList: defaultSoftwareUpgradeProgress.tserverAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.NOT_STARTED
+      }))
+    }
+  })
+);
+
+export const UpgradeAzTserversRunning: Story = storyWithTask(
+  createDbUpgradeTaskMock({
+    softwareUpgradeProgress: {
+      precheckStatus: DbUpgradePrecheckStatus.SUCCESS,
+      masterAZUpgradeStatesList: defaultSoftwareUpgradeProgress.masterAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.COMPLETED
+      })),
+      tserverAZUpgradeStatesList: tserverAzUpgradeStatesListWithSecondLastInProgress(
+        defaultSoftwareUpgradeProgress.tserverAZUpgradeStatesList
+      )
+    }
+  })
+);
+
+export const UpgradeAzTserversFailed: Story = storyWithTask(
+  createDbUpgradeTaskMock({
+    softwareUpgradeProgress: {
+      precheckStatus: DbUpgradePrecheckStatus.SUCCESS,
+      masterAZUpgradeStatesList: defaultSoftwareUpgradeProgress.masterAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.COMPLETED
+      })),
+      tserverAZUpgradeStatesList: defaultSoftwareUpgradeProgress.tserverAZUpgradeStatesList.map((az, index) => ({
+        ...az,
+        status: index === 0 ? AZUpgradeStatus.FAILED : AZUpgradeStatus.NOT_STARTED
+      }))
+    }
+  })
+);
+
+export const UpgradeAzTserverCompletedAndUpgradePaused: Story = storyWithTask(
+  createDbUpgradeTaskMock({
+    softwareUpgradeProgress: {
+      canaryPauseState: CanaryPauseState.PAUSED_AFTER_TSERVERS_AZ,
+      precheckStatus: DbUpgradePrecheckStatus.SUCCESS,
+      masterAZUpgradeStatesList: defaultSoftwareUpgradeProgress.masterAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.COMPLETED
+      })),
+      tserverAZUpgradeStatesList: defaultSoftwareUpgradeProgress.tserverAZUpgradeStatesList.map((az, index) => ({
+        ...az,
+        status: index === 0 ? AZUpgradeStatus.COMPLETED : AZUpgradeStatus.NOT_STARTED
+      }))
+    }
+  })
+);
+
+export const UpgradePendingFinalize: Story = storyWithTask(
+  createDbUpgradeTaskMock({
+    status: TaskState.SUCCESS,
+    softwareUpgradeProgress: {
+      precheckStatus: DbUpgradePrecheckStatus.SUCCESS,
+      masterAZUpgradeStatesList: defaultSoftwareUpgradeProgress.masterAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.COMPLETED
+      })),
+      tserverAZUpgradeStatesList: defaultSoftwareUpgradeProgress.tserverAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.COMPLETED
+      }))
+    }
+  })
+);
+
+export const WithYsqlMajorUpgrade: Story = storyWithTask(
+  createDbUpgradeTaskMock({
+    softwareUpgradeProgress: {
+      precheckStatus: DbUpgradePrecheckStatus.SUCCESS,
+      masterAZUpgradeStatesList: defaultSoftwareUpgradeProgress.masterAZUpgradeStatesList.map((az) => ({
+        ...az,
+        status: AZUpgradeStatus.COMPLETED
+      })),
+      tserverAZUpgradeStatesList: tserverAzUpgradeStatesListWithSecondLastInProgress(
+        defaultSoftwareUpgradeProgress.tserverAZUpgradeStatesList
+      )
+    }
+  }),
+  {
+    ysql_major_version_upgrade: true,
+    finalize_required: true
   }
-};
+);

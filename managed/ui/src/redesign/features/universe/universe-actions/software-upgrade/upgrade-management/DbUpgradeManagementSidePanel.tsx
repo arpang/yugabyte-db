@@ -2,7 +2,6 @@ import { makeStyles, Typography } from '@material-ui/core';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from 'react-query';
 
-import { REFETCH_INTERVAL_MS } from '@app/components/ha/hooks/useLoadHAConfiguration';
 import { YBModal, YBModalProps } from '@app/redesign/components';
 import { TaskType } from '@app/redesign/features/tasks/dtos';
 import {
@@ -57,6 +56,8 @@ export const DbUpgradeManagementSidePanel = ({
     keyPrefix: 'universeActions.dbUpgrade.dbUpgradeManagementSidePanel'
   });
 
+  const isPanelOpen = !!modalProps.open;
+
   const getPagedSoftwareUpgradeTasksRequest = {
     direction: SortDirection.DESC,
     filter: {
@@ -67,12 +68,11 @@ export const DbUpgradeManagementSidePanel = ({
   const softwareUpgradeTasksQuery = useQuery(
     taskQueryKey.paged(getPagedSoftwareUpgradeTasksRequest),
     () => api.fetchPagedCustomerTasks(getPagedSoftwareUpgradeTasksRequest),
-    {
-      refetchInterval: REFETCH_INTERVAL_MS
-    }
+    { enabled: isPanelOpen && !!universeUuid }
   );
 
   const latestSoftwareUpgradeTask = softwareUpgradeTasksQuery.data?.entities[0];
+
   const targetDbVersion = latestSoftwareUpgradeTask?.details?.versionNumbers?.ybSoftwareVersion;
   const dbUpgradeMetadataQuery = useQuery(
     dbUpgradeMetadataQueryKey.detail(universeUuid, {
@@ -83,12 +83,16 @@ export const DbUpgradeManagementSidePanel = ({
         yb_software_version: targetDbVersion ?? ''
       }),
     {
-      enabled: !!targetDbVersion
+      enabled: isPanelOpen && !!targetDbVersion
     }
   );
-  const universeDetailsQuery = useQuery(universeQueryKey.detailsV2(universeUuid), () =>
-    getUniverse(universeUuid)
+  const isYsqlMajorUpgrade = dbUpgradeMetadataQuery.data?.ysql_major_version_upgrade ?? false;
+  const universeDetailsQuery = useQuery(
+    universeQueryKey.detailsV2(universeUuid),
+    () => getUniverse(universeUuid),
+    { enabled: isPanelOpen && !!universeUuid }
   );
+
   const universe = universeDetailsQuery.data;
 
   return (
@@ -109,9 +113,7 @@ export const DbUpgradeManagementSidePanel = ({
               )
             })}
           </Typography>
-          {dbUpgradeMetadataQuery.data?.ysql_major_version_upgrade && (
-            <Typography variant="body1">{t('ysqlMajorUpgrade')}</Typography>
-          )}
+          {isYsqlMajorUpgrade && <Typography variant="body1">{t('ysqlMajorUpgrade')}</Typography>}
         </div>
       </div>
       {latestSoftwareUpgradeTask && (
@@ -119,6 +121,7 @@ export const DbUpgradeManagementSidePanel = ({
           dbUpgradeTask={latestSoftwareUpgradeTask}
           universe={universe}
           className={classes.progressPanel}
+          isYsqlMajorUpgrade={isYsqlMajorUpgrade}
         />
       )}
     </YBModal>

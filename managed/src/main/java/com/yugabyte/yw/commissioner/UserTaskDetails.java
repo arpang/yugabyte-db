@@ -292,11 +292,17 @@ public class UserTaskDetails {
     // PITR Restore step during failover
     PITRRestore,
 
+    // xCluster failover with on-demand snapshot
+    XClusterFailover,
+
     // Pause replication
     PauseReplication,
 
     // Persist use clockbound
     PersistUseClockbound,
+
+    // Persist enable multi-tenancy
+    PersistEnableMultiTenancy,
 
     // Support bundle component download
     SupportBundleComponentDownload,
@@ -691,6 +697,10 @@ public class UserTaskDetails {
         title = "PITR Restore";
         description = "Restoring namespaces using PITR to a consistent cut";
         break;
+      case XClusterFailover:
+        title = "xCluster Failover";
+        description = "Running xCluster failover with on-demand snapshots creation and restore";
+        break;
       case PauseReplication:
         title = "Pause Replication";
         description = "Pause replication from source to target universe";
@@ -701,6 +711,10 @@ public class UserTaskDetails {
       case PersistUseClockbound:
         title = "Persist useClockbound";
         description = "Persist useClockbound true/false in userIntent";
+        break;
+      case PersistEnableMultiTenancy:
+        title = "Persist multi-tenancy config";
+        description = "Persist multi-tenancy QoS configuration in userIntent";
         break;
       case PersistYbdbInbuiltYbc:
         title = "Persist useYbdbInbuiltYbc";

@@ -468,6 +468,7 @@ static void AtEOSubXact_cleanup(Relation relation, bool isCommit,
 								SubTransactionId mySubid, SubTransactionId parentSubid);
 static bool load_relcache_init_file(bool shared, bool yb_retry);
 static void write_relcache_init_file(bool shared);
+static void YbResetRelationCacheAfterPreloadFailure(void);
 static void write_item(const void *data, Size len, FILE *fp);
 
 static void formrdesc(const char *relationName, Oid relationReltype,
@@ -1383,6 +1384,7 @@ YbIsNonAlterableRelation(Relation rel)
 typedef struct YbUpdateRelationCacheState
 {
 	bool		sys_relations_update_required;
+	bool		sys_relations_only;
 	bool		has_partitioned_tables;
 	bool		has_relations_with_trigger;
 	bool		has_relations_with_row_security;
@@ -1417,6 +1419,8 @@ YbCleanupUpdateRelationCacheState(YbUpdateRelationCacheState *state)
  *  the second phase. This is because updating the partition information requires attribute
  *  information to be loaded for pg_partitioned_table, pg_type etc.
  *
+ *  If YbUseMinimalCatalogCachePreload is in operation, this will only prepare
+ *  relcache entries for system relations because only those entries are prefetched.
  *  Note: We assume that any error happening here will fatal so as to not end
  *  up with partial information in the cache.
  */
@@ -1439,6 +1443,9 @@ YBLoadRelations(YbUpdateRelationCacheState *state)
 		/* get information from the pg_class_tuple */
 		Form_pg_class relp = (Form_pg_class) GETSTRUCT(pg_class_tuple);
 		Oid			relid = relp->oid;
+
+		if (state->sys_relations_only && !IsSystemClass(relid, relp))
+			continue;
 
 		++num_tuples;
 
@@ -2773,7 +2780,8 @@ YbUpdateRelationCacheImpl(YbUpdateRelationCacheState *state,
 						  YbRunWithPrefetcherContext *ctx)
 {
 	if (yb_debug_log_catcache_events)
-		elog(LOG, "Updating relcache");
+		elog(LOG, "Updating relcache%s",
+			 (state->sys_relations_only || YbUseMinimalCatalogCachesPreload()) ? " (system-only)" : "");
 
 	YBLoadRelations(state);
 
@@ -2819,7 +2827,7 @@ YbUpdateRelationCacheImpl(YbUpdateRelationCacheState *state,
 }
 
 static YbcStatus
-YbUpdateRelationCache(YbRunWithPrefetcherContext *ctx)
+YbUpdateRelationCache(YbRunWithPrefetcherContext *ctx, bool sys_relations_only)
 {
 	MemoryContext own_mem_ctx = AllocSetContextCreate(CurrentMemoryContext,
 													  "UpdateRelationCacheContext",
@@ -2829,6 +2837,7 @@ YbUpdateRelationCache(YbRunWithPrefetcherContext *ctx)
 	YbUpdateRelationCacheState state = {0};
 
 	YbInitUpdateRelationCacheState(&state);
+	state.sys_relations_only = sys_relations_only;
 	YbcStatus	status = YbUpdateRelationCacheImpl(&state, ctx);
 
 	YbCleanupUpdateRelationCacheState(&state);
@@ -3052,9 +3061,50 @@ YbPreloadRelCacheImpl(YbRunWithPrefetcherContext *ctx)
 	YbFillCache(prefetcher, YB_PFETCH_TABLE_PG_ATTRIBUTE);
 	YbFillCaches(prefetcher);
 
-	status = YbUpdateRelationCache(ctx);
-	if (status)
-		return status;
+	{
+		MemoryContext saved_context = CurrentMemoryContext;
+
+		PG_TRY();
+		{
+			status = YbUpdateRelationCache(ctx, false /* sys_relations_only */ );
+		}
+		PG_CATCH();
+		{
+			MemoryContextSwitchTo(saved_context);
+
+			/*
+			 * Only attempt recovery during connection setup (InitProcessing).
+			 * In normal operation (e.g. DDL-triggered relcache refresh),
+			 * propagate the error as-is.
+			 */
+			if (!IsInitProcessingMode())
+				PG_RE_THROW();
+
+			ErrorData  *edata = CopyErrorData();
+
+			if (edata->elevel >= FATAL)
+				PG_RE_THROW();
+
+			FlushErrorState();
+
+			ereport(WARNING,
+					(errcode(edata->sqlerrcode),
+					 errmsg("relcache preload failed, retrying with "
+							"system-only mode: %s",
+							edata->message),
+					 edata->detail ? errdetail("%s", edata->detail) : 0,
+					 edata->context ? errcontext("%s", edata->context) : 0));
+			FreeErrorData(edata);
+
+			YbResetRelationCacheAfterPreloadFailure();
+
+			status = YbUpdateRelationCache(ctx, true /* sys_relations_only */ );
+		}
+		PG_END_TRY();
+
+		if (status)
+			return status;
+	}
 
 	/*
 	 * DB connection is not valid anymore in case:
@@ -3085,6 +3135,7 @@ YbPreloadRelCacheImpl(YbRunWithPrefetcherContext *ctx)
 	get_namespace_oid(GetUserNameFromId(GetUserId(), false), true);
 
 	YbUpdateCatalogCacheVersion(YbGetMasterCatalogVersion());
+	elog(log_level, "Preloading relcache complete");
 	return NULL;
 }
 
@@ -5255,6 +5306,43 @@ YbRelationCacheInvalidate()
 		Assert(!relation->rd_isnailed);
 		/* Delete this entry immediately */
 		RelationClearRelation(relation, false);
+	}
+}
+
+/*
+ * YbResetRelationCacheAfterPreloadFailure — tear down all non-nailed relcache
+ * entries after a failed relcache preload so that a retry can
+ * re-populate with system-only relations.
+ *
+ */
+static void
+YbResetRelationCacheAfterPreloadFailure(void)
+{
+	HASH_SEQ_STATUS status;
+	RelIdCacheEnt *idhentry;
+
+	hash_seq_init(&status, RelationIdCache);
+
+	while ((idhentry = (RelIdCacheEnt *) hash_seq_search(&status)) != NULL)
+	{
+		Relation	relation = idhentry->reldesc;
+
+		if (relation->rd_isnailed)
+		{
+			Assert(relation->rd_refcnt <= 2);
+			if (relation->rd_refcnt == 2)
+				RelationDecrementReferenceCount(relation);
+			continue;
+		}
+
+		RelationCloseSmgr(relation);
+
+		Assert(relation->rd_refcnt <= 1);
+		if (relation->rd_refcnt == 1)
+			RelationDecrementReferenceCount(relation);
+
+		RelationCacheDelete(relation);
+		RelationDestroyRelation(relation, false);
 	}
 }
 

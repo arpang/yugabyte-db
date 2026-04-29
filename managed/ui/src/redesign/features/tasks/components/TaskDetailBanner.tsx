@@ -12,13 +12,23 @@ import moment from 'moment';
 import { useDispatch, useSelector } from 'react-redux';
 import { useLocalStorage } from 'react-use';
 import { noop, values } from 'lodash';
+import { makeStyles } from '@material-ui/core';
+
 import { TaskInProgressBanner } from './bannerComp/TaskInProgressBanner';
 import { TaskSuccessBanner } from './bannerComp/TaskSuccessBanner';
 import { TaskFailedBanner } from './bannerComp/TaskFailedBanner';
 import { TaskFailedSoftwareUpgradeBanner } from './bannerComp/TaskFailedSoftwareUpgradeBanner';
 import { isSoftwareUpgradeFailed, useIsTaskNewUIEnabled } from '../TaskUtils';
 import { hideTaskInDrawer, showTaskInDrawer } from '../../../../actions/tasks';
-import { Task, TaskState } from '../dtos';
+import { Task, TaskState, TaskType } from '../dtos';
+import { DbUpgradeTaskBanner } from './clusterBanner/DbUpgradeTaskBanner';
+
+const useStyles = makeStyles((theme) => ({
+  bannerContainer: {
+    padding: theme.spacing(1, 2.5),
+    backgroundColor: theme.palette.common.white
+  }
+}));
 
 type TaskDetailBannerProps = {
   universeUUID: string;
@@ -27,7 +37,7 @@ type TaskDetailBannerProps = {
 export const TaskDetailBanner: FC<TaskDetailBannerProps> = ({ universeUUID }) => {
   //We use session storage to prevent the states getting reset to defaults incase of re-rendering.
   const dispatch = useDispatch();
-
+  const classes = useStyles();
   const universeData = useSelector((data: any) => data.universe?.currentUniverse?.data);
 
   // we use localStorage to hide the banner for the task, if it is already closed.
@@ -121,5 +131,15 @@ export const TaskDetailBanner: FC<TaskDetailBannerProps> = ({ universeUUID }) =>
   if (universeUUID && task?.targetUUID !== universeUUID) return null;
 
   if (!task) return null;
+
+  const isDbUpgradeTask =
+    task.type === TaskType.SOFTWARE_UPGRADE && task.typeName === 'Software Upgrade';
+  if (isDbUpgradeTask) {
+    return (
+      <div className={classes.bannerContainer}>
+        <DbUpgradeTaskBanner task={task} universeUuid={universeUUID} />
+      </div>
+    );
+  }
   return <>{bannerComp(task)}</>;
 };
