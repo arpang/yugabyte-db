@@ -134,7 +134,8 @@ class PgCatalogVersionTest : public LibPqTestBase {
 
   void RestartClusterWithInvalMessageMode(
       bool mode,
-      const std::vector<string>& extra_tserver_flags = {}) {
+      const std::vector<string>& extra_tserver_flags = {},
+      const std::vector<string>& extra_master_flags = {}) {
     const auto mode_str = mode ? "true" : "false";
     LOG(INFO) << "Restart the cluster with --ysql_yb_enable_invalidation_messages=" << mode_str;
     cluster_->Shutdown();
@@ -142,6 +143,9 @@ class PgCatalogVersionTest : public LibPqTestBase {
       cluster_->master(i)->mutable_flags()->push_back(
           Format("--ysql_yb_enable_invalidation_messages=$0", mode_str));
       cluster_->master(i)->mutable_flags()->push_back("--log_ysql_catalog_versions=true");
+      for (const auto& flag : extra_master_flags) {
+        cluster_->master(i)->mutable_flags()->push_back(flag);
+      }
     }
     for (size_t i = 0; i != cluster_->num_tablet_servers(); ++i) {
       cluster_->tablet_server(i)->mutable_flags()->push_back(
@@ -154,12 +158,14 @@ class PgCatalogVersionTest : public LibPqTestBase {
     ASSERT_OK(cluster_->Restart());
   }
   void RestartClusterWithInvalMessageEnabled(
-      const std::vector<string>& extra_tserver_flags = {}) {
-    RestartClusterWithInvalMessageMode(true /* mode */, extra_tserver_flags);
+      const std::vector<string>& extra_tserver_flags = {},
+      const std::vector<string>& extra_master_flags = {}) {
+    RestartClusterWithInvalMessageMode(true /* mode */, extra_tserver_flags, extra_master_flags);
   }
   void RestartClusterWithInvalMessageDisabled(
-      const std::vector<string>& extra_tserver_flags = {}) {
-    RestartClusterWithInvalMessageMode(false /* mode */, extra_tserver_flags);
+      const std::vector<string>& extra_tserver_flags = {},
+      const std::vector<string>& extra_master_flags = {}) {
+    RestartClusterWithInvalMessageMode(false /* mode */, extra_tserver_flags, extra_master_flags);
   }
 
   // Return a MasterCatalogVersionMap by making a query of the pg_yb_catalog_version table.
@@ -2544,10 +2550,12 @@ ALTER TABLE testtable ADD COLUMN value INT;
 // a different list of invalidation messages and we need to examine that to decide whether
 // we should increment yb_version of one or more types of SharedInvalidationMessage.
 TEST_F(PgCatalogVersionTest, InvalMessageSampleDDLs) {
-  // Disable auto analyze to prevent unexpected invalidation messages.
+  // Disable auto analyze and LISTEN/NOTIFY to prevent unexpected invalidation messages.
   RestartClusterWithInvalMessageEnabled(
       { "--ysql_enable_auto_analyze=false",
-        "--ysql_yb_invalidation_message_expiration_secs=36000" });
+        "--ysql_yb_enable_listen_notify=false",
+        "--ysql_yb_invalidation_message_expiration_secs=36000" },
+      { "--ysql_yb_enable_listen_notify=false" });
   const string sample_ddl_script =
         R"#(
 SET yb_test_inval_message_portability = true;
