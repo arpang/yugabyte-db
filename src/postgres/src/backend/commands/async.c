@@ -3374,7 +3374,8 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 			 * catch up. If the queue still remains full, terminate the slowest
 			 * listener. This way even if a transaction has more notifications
 			 * than what the queue can hold (very rare but possible),
-			 * NOTIFYs would still not fail.
+			 * notification delivery will still work fine (as long as there is
+			 * no slow/stuck listener).
 			 */
 			SignalBackends();
 			CHECK_FOR_INTERRUPTS();
