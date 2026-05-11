@@ -937,9 +937,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
-   * When a single slow listener fills the NOTIFY queue, it should be terminated even though there
-   * is no other caught-up listener. This prevents unbounded WAL/intentsdb growth when the rate of
-   * NOTIFY exceeds the rate of consumption.
+   * When the NOTIFY queue fills up, the slowest listener should be terminated.
    */
   @Test
   public void testQueueFullTerminatesSingleSlowListener() throws Exception {
