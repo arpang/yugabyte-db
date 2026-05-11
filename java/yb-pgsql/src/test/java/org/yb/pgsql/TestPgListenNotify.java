@@ -882,8 +882,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
 
   /**
    * When the NOTIFY queue is full, the notifications poller should terminate the slowest listener
-   * to let the queue tail advance if another listener has caught up to the head. Verify that the
-   * slow listener is terminated while the fast listener stays alive.
+   * to let the queue tail advance. Verify that the slow listener is terminated while the fast
+   * listener stays alive.
    *
    * Uses yb_test_notify_queue_max_pages to artificially limit the queue so it fills up with a
    * handful of large-payload notifications.
@@ -930,6 +930,49 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       waitForNotification(connFast, "ch1", largePayload);
 
       connFast.close();
+      connNotifier.close();
+    } finally {
+      setNotifyQueueMaxPages("0");
+    }
+  }
+
+  /**
+   * When a single slow listener fills the NOTIFY queue, it should be terminated even though there
+   * is no other caught-up listener. This prevents unbounded WAL/intentsdb growth when the rate of
+   * NOTIFY exceeds the rate of consumption.
+   */
+  @Test
+  public void testQueueFullTerminatesSingleSlowListener() throws Exception {
+    setNotifyQueueMaxPages("2");
+    try {
+      Connection connSlow = getConnectionBuilder().connect();
+      Connection connNotifier = getConnectionBuilder().connect();
+
+      // Single listener stuck in a transaction.
+      try (Statement stmt = connSlow.createStatement()) {
+        stmt.execute("LISTEN ch1");
+        stmt.execute("BEGIN");
+      }
+
+      // Fill the queue.
+      char[] chars = new char[7000];
+      Arrays.fill(chars, 'x');
+      String largePayload = new String(chars);
+      try (Statement stmt = connNotifier.createStatement()) {
+        for (int i = 0; i < 10; i++) {
+          stmt.execute("NOTIFY ch1, '" + largePayload + "'");
+        }
+      }
+
+      // The single slow listener should be terminated.
+      Thread.sleep(5000);
+      try (Statement stmt = connSlow.createStatement()) {
+        stmt.execute("SELECT 1");
+        fail("Slow listener should have been terminated");
+      } catch (SQLException e) {
+        LOG.info("Single slow listener error (expected): {}", e.getMessage());
+      }
+
       connNotifier.close();
     } finally {
       setNotifyQueueMaxPages("0");

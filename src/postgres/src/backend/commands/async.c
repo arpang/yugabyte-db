@@ -689,7 +689,7 @@ static void ybNotifsPollerInit(void);
 static void ybNotifsPollerLoop(void);
 static void ybNotifsPollerProcessRecord(const YbcPgRowMessage *record);
 static void ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record);
-static bool ybTerminateSlowestListener(void);
+static void ybTerminateSlowestListener(void);
 static void ybNotifsPollerAddPendingEntriesToQueue(void);
 static void ybFillBeginAsyncQueueEntry(AsyncQueueEntry *qe, TransactionId xid);
 static bool ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe);
@@ -3320,34 +3320,18 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
  * Find the slowest listener (the one furthest behind in the queue) and
  * terminate it so the queue tail can advance.
  *
- * Only terminate if some other listener has fully caught up (position ==
- * QUEUE_HEAD). If every listener still has scanning to do, killing the
- * slowest one would not help the others and would just disrupt a session
- * unnecessarily. This also naturally prevents termination when there is only a
- * single listener.
- *
- * Returns true if SIGTERM was sent, false otherwise.
- *
  * Caller must hold NotifyQueueLock in at least SHARED mode.
  */
-static bool
+static void
 ybTerminateSlowestListener(void)
 {
 	QueuePosition minPos = QUEUE_HEAD;
 	int32		minPid = InvalidPid;
-	bool		hasCaughtUpListener = false;
 
 	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
 	{
 		Assert(QUEUE_BACKEND_PID(i) != InvalidPid);
 
-		if (QUEUE_POS_EQUAL(QUEUE_BACKEND_POS(i), QUEUE_HEAD))
-		{
-			hasCaughtUpListener = true;
-			continue;
-		}
-
-		/* This listener is behind; track the furthest-behind one. */
 		QueuePosition newMin = QUEUE_POS_MIN(minPos, QUEUE_BACKEND_POS(i));
 
 		if (!QUEUE_POS_EQUAL(newMin, minPos))
@@ -3357,14 +3341,13 @@ ybTerminateSlowestListener(void)
 		}
 	}
 
-	if (minPid == InvalidPid || !hasCaughtUpListener)
-		return false;
+	if (minPid == InvalidPid)
+		return;
 
 	elog(WARNING,
 		 "NOTIFY queue is full, terminating slowest listener (PID %d)",
 		 minPid);
 	kill(minPid, SIGTERM);
-	return true;
 }
 
 /*
@@ -3375,7 +3358,6 @@ static void
 ybNotifsPollerAddPendingEntriesToQueue(void)
 {
 	ListCell   *nextQueueEntry = list_head(ybNotifsPollerPendingEntries);
-	bool		sigtermSent = false;
 
 	while (nextQueueEntry != NULL)
 	{
@@ -3384,29 +3366,25 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 		LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
 		if (asyncQueueIsFull())
 		{
-			/*
-			 * After sending SIGTERM, suppress further signals until the queue
-			 * drains.
-			 */
-			if (!sigtermSent)
-				sigtermSent = ybTerminateSlowestListener();
 			LWLockRelease(NotifyQueueLock);
 
 			/*
-			 * The queue can become full in the middle of writing notifications
-			 * of a transaction. Signal the backends so the fast listeners, if
-			 * any, can read till the end of the queue and the slowest listener
-			 * can be terminated in the next call to
-			 * ybTerminateSlowestListener().
+			 * Signal all backends so listeners can catch up, then wait
+			 * before terminating anyone. Listeners that are only
+			 * momentarily behind will advance during the sleep; genuinely
+			 * stuck listeners will not.
 			 */
-			if (!sigtermSent)
-				SignalBackends();
+			SignalBackends();
 			CHECK_FOR_INTERRUPTS();
-			pg_usleep(sigtermSent ? 500000L : 10000L);
+			pg_usleep(500000L);
 			asyncQueueAdvanceTail();
+
+			LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+			if (asyncQueueIsFull())
+				ybTerminateSlowestListener();
+			LWLockRelease(NotifyQueueLock);
 			continue;
 		}
-		sigtermSent = false;
 		nextQueueEntry = asyncQueueAddEntries(nextQueueEntry);
 		LWLockRelease(NotifyQueueLock);
 	}
