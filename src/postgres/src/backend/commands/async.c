@@ -3369,10 +3369,12 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 			LWLockRelease(NotifyQueueLock);
 
 			/*
-			 * Signal all backends so listeners can catch up, then wait
-			 * before terminating anyone. Listeners that are only
-			 * momentarily behind will advance during the sleep; genuinely
-			 * stuck listeners will not.
+			 * The queue can become full in the middle of writing notifications
+			 * of a transaction. Signal the listening backends so that they can
+			 * catch up. If the queue still remains full, terminate the slowest
+			 * listener. This way even if a transaction has more notifications
+			 * than what the queue can hold (very rare but possible),
+			 * NOTIFYs would still not fail.
 			 */
 			SignalBackends();
 			CHECK_FOR_INTERRUPTS();
