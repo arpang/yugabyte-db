@@ -2743,7 +2743,8 @@ ProcessIncomingNotify(bool flush)
 
 		if (poller_data == NULL)
 		{
-			bool	found;
+			bool		found;
+
 			poller_data = ybShmemNotifsPollerData(&found);
 		}
 
