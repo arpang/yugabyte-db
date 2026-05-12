@@ -881,15 +881,16 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
-   * When the NOTIFY queue is full, the notifications poller should terminate the slowest listener
-   * to let the queue tail advance. Verify that the slow listener is terminated while the fast
-   * listener stays alive.
+   * When a single transaction produces more notifications than the queue can hold, the poller
+   * should terminate the slowest listener to make room and continue writing. Verify that the
+   * slow listener is terminated, the fast listener stays alive, and all notifications are
+   * delivered to the fast listener.
    *
    * Uses yb_test_notify_queue_max_pages to artificially limit the queue so it fills up with a
    * handful of large-payload notifications.
    */
   @Test
-  public void testQueueFullTerminatesSlowestListener() throws Exception {
+  public void testQueueFullWithLargeTransaction() throws Exception {
     setNotifyQueueMaxPages("2");
     try {
       Connection connSlow = getConnectionBuilder().connect();
@@ -940,7 +941,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    * When the NOTIFY queue fills up, the slowest listener should be terminated.
    */
   @Test
-  public void testQueueFullTerminatesSingleSlowListener() throws Exception {
+  public void testQueueFullTerminatesStuckListener() throws Exception {
     setNotifyQueueMaxPages("2");
     try {
       Connection connSlow = getConnectionBuilder().connect();
