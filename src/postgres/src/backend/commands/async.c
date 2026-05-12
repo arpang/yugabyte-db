@@ -2132,9 +2132,7 @@ SignalBackends(void)
 /*
  * Signal all listening backends unconditionally via PROCSIG_NOTIFY_INTERRUPT.
  *
- * Unlike SignalBackends(), this does not skip caught-up listeners. Used by the
- * notifications poller to wake all listeners when a runtime error is reported
- * via shared memory (no queue entry is written, so QUEUE_HEAD hasn't moved).
+ * Unlike SignalBackends(), this does not skip caught-up listeners.
  */
 static void
 ybSignalAllListeners(void)
@@ -2153,12 +2151,9 @@ ybSignalAllListeners(void)
 		int32		pid = QUEUE_BACKEND_PID(i);
 
 		Assert(pid != InvalidPid);
-		if (pid != MyProcPid)
-		{
-			pids[count] = pid;
-			ids[count] = i;
-			count++;
-		}
+		pids[count] = pid;
+		ids[count] = i;
+		count++;
 	}
 	LWLockRelease(NotifyQueueLock);
 
@@ -2744,10 +2739,15 @@ ProcessIncomingNotify(bool flush)
 
 	if (IsYugaByteEnabled())
 	{
-		bool		found;
-		YbNotifsPollerShmemData *poller_data = ybShmemNotifsPollerData(&found);
+		static YbNotifsPollerShmemData *poller_data = NULL;
 
-		if (found && poller_data->has_runtime_error)
+		if (poller_data == NULL)
+		{
+			bool	found;
+			poller_data = ybShmemNotifsPollerData(&found);
+		}
+
+		if (poller_data->has_runtime_error)
 			ereport(FATAL,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("notifications poller encountered a fatal error"),
