@@ -689,7 +689,7 @@ static void ybNotifsPollerInit(void);
 static void ybNotifsPollerLoop(void);
 static void ybNotifsPollerProcessRecord(const YbcPgRowMessage *record);
 static void ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record);
-static void ybTerminateSlowestListener(void);
+static bool ybTerminateSlowestListener(void);
 static void ybNotifsPollerAddPendingEntriesToQueue(void);
 static void ybFillBeginAsyncQueueEntry(AsyncQueueEntry *qe, TransactionId xid);
 static bool ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe);
@@ -3321,8 +3321,10 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
  * terminate it so the queue tail can advance.
  *
  * Caller must hold NotifyQueueLock in at least SHARED mode.
+ *
+ * Returns true if a SIGTERM was sent, false if no slow listener was found.
  */
-static void
+static bool
 ybTerminateSlowestListener(void)
 {
 	QueuePosition minPos = QUEUE_HEAD;
@@ -3342,12 +3344,13 @@ ybTerminateSlowestListener(void)
 	}
 
 	if (minPid == InvalidPid)
-		return;
+		return false;
 
 	elog(WARNING,
 		 "NOTIFY queue is full, terminating slowest listener (PID %d)",
 		 minPid);
 	kill(minPid, SIGTERM);
+	return true;
 }
 
 /*
@@ -3358,6 +3361,8 @@ static void
 ybNotifsPollerAddPendingEntriesToQueue(void)
 {
 	ListCell   *nextQueueEntry = list_head(ybNotifsPollerPendingEntries);
+	bool sigtermSent = false;
+	bool signalBeforeSigtermSent = false;
 
 	while (nextQueueEntry != NULL)
 	{
@@ -3370,24 +3375,34 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 
 			/*
 			 * The queue can become full in the middle of writing notifications
-			 * of a transaction. Signal the listening backends so that they can
-			 * catch up. If the queue still remains full, terminate the slowest
-			 * listener. This way even if a transaction has more notifications
-			 * than what the queue can hold (very rare but possible),
-			 * notification delivery will still work fine (as long as there is
-			 * no slow/stuck listener).
+			 * of a transaction. Send PROCSIG_NOTIFY_INTERRUPT signal to the
+			 * listening backends so that they can catch up. If the queue still
+			 * remains full, terminate the slowest listener. This way even if a
+			 * transaction has more notifications than what the queue can hold
+			 * (very rare but possible), notification delivery will still work
+			 * fine (as long as there is no slow/stuck listener).
+			 *
+			 * Note both PROCSIG_NOTIFY_INTERRUPT and SIGTERM are sent once per
+			 * queue full episode.
 			 */
-			SignalBackends();
+			if (!signalBeforeSigtermSent)
+			{
+				SignalBackends();
+				signalBeforeSigtermSent = true;
+			}
 			CHECK_FOR_INTERRUPTS();
 			pg_usleep(500000L);
 			asyncQueueAdvanceTail();
 
 			LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
-			if (asyncQueueIsFull())
-				ybTerminateSlowestListener();
+			if (asyncQueueIsFull() && !sigtermSent)
+				sigtermSent = ybTerminateSlowestListener();
 			LWLockRelease(NotifyQueueLock);
 			continue;
 		}
+
+		sigtermSent = false;
+		signalBeforeSigtermSent = false;
 		nextQueueEntry = asyncQueueAddEntries(nextQueueEntry);
 		LWLockRelease(NotifyQueueLock);
 	}
