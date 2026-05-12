@@ -641,6 +641,7 @@ typedef struct
 {
 	volatile YbNotifsPollerInitStatus init_status;
 	char		error_message[1024];
+	volatile bool has_runtime_error;
 } YbNotifsPollerShmemData;
 
 /* local function prototypes */
@@ -2129,6 +2130,49 @@ SignalBackends(void)
 }
 
 /*
+ * Signal all listening backends unconditionally via PROCSIG_NOTIFY_INTERRUPT.
+ *
+ * Unlike SignalBackends(), this does not skip caught-up listeners. Used by the
+ * notifications poller to wake all listeners when a runtime error is reported
+ * via shared memory (no queue entry is written, so QUEUE_HEAD hasn't moved).
+ */
+static void
+ybSignalAllListeners(void)
+{
+	int32	   *pids;
+	BackendId  *ids;
+	int			count;
+
+	pids = (int32 *) palloc(MaxBackends * sizeof(int32));
+	ids = (BackendId *) palloc(MaxBackends * sizeof(BackendId));
+	count = 0;
+
+	LWLockAcquire(NotifyQueueLock, LW_SHARED);
+	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
+	{
+		int32		pid = QUEUE_BACKEND_PID(i);
+
+		Assert(pid != InvalidPid);
+		if (pid != MyProcPid)
+		{
+			pids[count] = pid;
+			ids[count] = i;
+			count++;
+		}
+	}
+	LWLockRelease(NotifyQueueLock);
+
+	for (int i = 0; i < count; i++)
+	{
+		if (SendProcSignal(pids[i], PROCSIG_NOTIFY_INTERRUPT, ids[i]) < 0)
+			elog(DEBUG3, "could not signal backend with PID %d: %m", pids[i]);
+	}
+
+	pfree(pids);
+	pfree(ids);
+}
+
+/*
  * AtAbort_Notify
  *
  *	This is called at transaction abort.
@@ -2698,6 +2742,18 @@ ProcessIncomingNotify(bool flush)
 	if (listenChannels == NIL)
 		return;
 
+	if (IsYugaByteEnabled())
+	{
+		bool		found;
+		YbNotifsPollerShmemData *poller_data = ybShmemNotifsPollerData(&found);
+
+		if (found && poller_data->has_runtime_error)
+			ereport(FATAL,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("notifications poller encountered a fatal error"),
+					 errdetail("%s", poller_data->error_message)));
+	}
+
 	if (Trace_notify)
 		elog(DEBUG1, "ProcessIncomingNotify");
 
@@ -3012,6 +3068,7 @@ ybStartNotifsPollerBgWorker(void)
 
 	poller_data->init_status = YB_NOTIFS_POLLER_INIT_NOT_STARTED;
 	poller_data->error_message[0] = '\0';
+	poller_data->has_runtime_error = false;
 
 	memset(&worker, 0, sizeof(worker));
 	sprintf(worker.bgw_name, "notifications poller");
@@ -3165,6 +3222,9 @@ ybNotifsPollerLoop()
 {
 	YbVirtualWalRecord *record;
 	List	   *publications = ybNotifsPublications();
+	bool		runtime_error_occurred = false;
+	bool		shmem_found;
+	YbNotifsPollerShmemData *poller_data = ybShmemNotifsPollerData(&shmem_found);
 
 	for (;;)
 	{
@@ -3179,6 +3239,12 @@ ybNotifsPollerLoop()
 		if (ShutdownRequestPending)
 			proc_exit(0);
 
+		if (runtime_error_occurred)
+		{
+			pg_usleep(100000L);
+			continue;
+		}
+
 		/*
 		 * YBCReadRecord sleeps using yb_walsender_poll_sleep_duration_*_ms.
 		 * Override them with notifications poller specific values after a
@@ -3189,9 +3255,29 @@ ybNotifsPollerLoop()
 		yb_walsender_poll_sleep_duration_empty_ms =
 			yb_notifications_poll_sleep_duration_empty_ms;
 
-		record = YBCReadRecord(publications);
-		if (record)
-			ybNotifsPollerProcessRecord(record);
+		PG_TRY();
+		{
+			record = YBCReadRecord(publications);
+			if (record)
+				ybNotifsPollerProcessRecord(record);
+		}
+		PG_CATCH();
+		{
+			MemoryContext error_cxt = MemoryContextSwitchTo(TopMemoryContext);
+			ErrorData  *edata = CopyErrorData();
+
+			strlcpy(poller_data->error_message, edata->message,
+					sizeof(poller_data->error_message));
+			poller_data->has_runtime_error = true;
+
+			FreeErrorData(edata);
+			MemoryContextSwitchTo(error_cxt);
+			FlushErrorState();
+
+			ybSignalAllListeners();
+			runtime_error_occurred = true;
+		}
+		PG_END_TRY();
 	}
 
 	pg_unreachable();
