@@ -936,6 +936,79 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     }
   }
 
+  /**
+   * Validates that a non-retryable CDC runtime error (stream expiry) terminates all listening
+   * backends with a meaningful error, while non-listening sessions survive. Also verifies that the
+   * notifications poller is cleaned up and the replication slot is dropped, and that recovery via
+   * re-LISTEN works.
+   *
+   * Trigger mechanism: set cdc_intent_retention_ms low (2s) and poller sleep high (10s). The
+   * poller's first poll succeeds and updates last_active_time, then it sleeps 10s. On the next
+   * poll, 10s > 2s retention, so CheckStreamActive() returns a non-retryable "stream expired"
+   * error.
+   */
+  @Test
+  public void testCdcRuntimeErrorTerminatesListeners() throws Exception {
+    try {
+      Connection listener1 = getConnectionBuilder().withTServer(0).connect();
+      listener1.createStatement().execute("LISTEN ch1");
+
+      Connection listener2 = getConnectionBuilder().withTServer(0).connect();
+      listener2.createStatement().execute("LISTEN ch2");
+
+      Connection nonListener = getConnectionBuilder().withTServer(0).connect();
+      nonListener.createStatement().execute("SELECT 1");
+
+      try (Statement checkStmt = nonListener.createStatement()) {
+        getPollerPid(checkStmt);
+      }
+
+      setCdcIntentRetentionMs("2000");
+      setNotificationsPollSleepDurationEmpty("10000");
+
+      Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(15000));
+
+      assertConnectionDead(listener1, "listener1");
+      assertConnectionDead(listener2, "listener2");
+
+      nonListener.createStatement().execute("SELECT 1");
+
+      waitForCondition(nonListener,
+          "SELECT CASE WHEN NOT EXISTS ("
+          + "SELECT 1 FROM pg_stat_activity"
+          + " WHERE backend_type = 'notifications poller'"
+          + ") THEN 1 ELSE 0 END");
+
+      waitForCondition(nonListener,
+          "SELECT CASE WHEN NOT EXISTS ("
+          + "SELECT 1 FROM pg_replication_slots"
+          + " WHERE slot_name LIKE 'yb_notifications_%'"
+          + ") THEN 1 ELSE 0 END");
+
+      nonListener.close();
+    } finally {
+      setCdcIntentRetentionMs("28800000");
+      setNotificationsPollSleepDurationEmpty("100");
+    }
+
+    verifyListenNotifyWorks();
+  }
+
+  private void setCdcIntentRetentionMs(String value) throws Exception {
+    for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
+      miniCluster.getClient().setFlag(tserver, "cdc_intent_retention_ms", value);
+    }
+  }
+
+  private void assertConnectionDead(Connection conn, String label) {
+    try {
+      conn.createStatement().execute("SELECT 1");
+      fail(label + " should have been terminated by FATAL");
+    } catch (SQLException e) {
+      LOG.info("{} terminated (expected): {}", label, e.getMessage());
+    }
+  }
+
   private void setFatalAfterNotifsQueueWriteFlag(boolean value) throws Exception {
     String v = value ? "true" : "false";
     for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
