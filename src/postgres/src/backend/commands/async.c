@@ -3361,8 +3361,8 @@ static void
 ybNotifsPollerAddPendingEntriesToQueue(void)
 {
 	ListCell   *nextQueueEntry = list_head(ybNotifsPollerPendingEntries);
-	bool sigtermSent = false;
-	bool signalBeforeSigtermSent = false;
+	bool		sigtermSent = false;
+	bool		signalBeforeSigtermSent = false;
 
 	while (nextQueueEntry != NULL)
 	{
@@ -3400,7 +3400,6 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 			LWLockRelease(NotifyQueueLock);
 			continue;
 		}
-
 		sigtermSent = false;
 		signalBeforeSigtermSent = false;
 		nextQueueEntry = asyncQueueAddEntries(nextQueueEntry);
