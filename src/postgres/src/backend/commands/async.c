@@ -697,6 +697,7 @@ static bool ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe);
 static void ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe);
 static void ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 									  AsyncQueueEntry *qe);
+static void ybSignalAllListeners(void);
 
 /* YB: common helper functions */
 static void ybListenNotifyPreChecks(void);
