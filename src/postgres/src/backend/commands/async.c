@@ -2131,44 +2131,6 @@ SignalBackends(void)
 }
 
 /*
- * Signal all listening backends unconditionally via PROCSIG_NOTIFY_INTERRUPT.
- *
- * Unlike SignalBackends(), this does not skip caught-up listeners.
- */
-static void
-ybSignalAllListeners(void)
-{
-	int32	   *pids;
-	BackendId  *ids;
-	int			count;
-
-	pids = (int32 *) palloc(MaxBackends * sizeof(int32));
-	ids = (BackendId *) palloc(MaxBackends * sizeof(BackendId));
-	count = 0;
-
-	LWLockAcquire(NotifyQueueLock, LW_SHARED);
-	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
-	{
-		int32		pid = QUEUE_BACKEND_PID(i);
-
-		Assert(pid != InvalidPid);
-		pids[count] = pid;
-		ids[count] = i;
-		count++;
-	}
-	LWLockRelease(NotifyQueueLock);
-
-	for (int i = 0; i < count; i++)
-	{
-		if (SendProcSignal(pids[i], PROCSIG_NOTIFY_INTERRUPT, ids[i]) < 0)
-			elog(DEBUG3, "could not signal backend with PID %d: %m", pids[i]);
-	}
-
-	pfree(pids);
-	pfree(ids);
-}
-
-/*
  * AtAbort_Notify
  *
  *	This is called at transaction abort.
@@ -3558,6 +3520,44 @@ ybRecordToAsyncQueueEntry(const YbcPgRowMessage *record,
 
 	pfree(desc);
 	pfree(tuple);
+}
+
+/*
+ * Signal all listening backends unconditionally via PROCSIG_NOTIFY_INTERRUPT.
+ *
+ * Unlike SignalBackends(), this does not skip caught-up listeners.
+ */
+static void
+ybSignalAllListeners(void)
+{
+	int32	   *pids;
+	BackendId  *ids;
+	int			count;
+
+	pids = (int32 *) palloc(MaxBackends * sizeof(int32));
+	ids = (BackendId *) palloc(MaxBackends * sizeof(BackendId));
+	count = 0;
+
+	LWLockAcquire(NotifyQueueLock, LW_SHARED);
+	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
+	{
+		int32		pid = QUEUE_BACKEND_PID(i);
+
+		Assert(pid != InvalidPid);
+		pids[count] = pid;
+		ids[count] = i;
+		count++;
+	}
+	LWLockRelease(NotifyQueueLock);
+
+	for (int i = 0; i < count; i++)
+	{
+		if (SendProcSignal(pids[i], PROCSIG_NOTIFY_INTERRUPT, ids[i]) < 0)
+			elog(DEBUG3, "could not signal backend with PID %d: %m", pids[i]);
+	}
+
+	pfree(pids);
+	pfree(ids);
 }
 
 static void
