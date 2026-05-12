@@ -3230,6 +3230,11 @@ ybNotifsPollerLoop()
 			MemoryContext error_cxt = MemoryContextSwitchTo(TopMemoryContext);
 			ErrorData  *edata = CopyErrorData();
 
+			elog(WARNING,
+				 "notifications poller encountered a non-retryable error: %s, "
+				 "terminating all listening backends in this node",
+				 edata->message);
+
 			strlcpy(poller_data->error_message, edata->message,
 					sizeof(poller_data->error_message));
 			poller_data->has_runtime_error = true;
