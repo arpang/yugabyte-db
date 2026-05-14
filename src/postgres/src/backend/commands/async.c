@@ -329,6 +329,7 @@ static SlruCtlData NotifyCtlData;
 #define NotifyCtl					(&NotifyCtlData)
 #define QUEUE_PAGESIZE				BLCKSZ
 #define QUEUE_FULL_WARN_INTERVAL	5000	/* warn at most once every 5s */
+#define YB_SIGKILL_TIMEOUT_MS		10000	/* escalate SIGTERM to SIGKILL */
 
 /*
  * Use segments 0000 through FFFF.  Each contains SLRU_PAGES_PER_SEGMENT pages
@@ -689,7 +690,10 @@ static void ybNotifsPollerInit(void);
 static void ybNotifsPollerLoop(void);
 static void ybNotifsPollerProcessRecord(const YbcPgRowMessage *record);
 static void ybNotifsPollerAddRecordToPendingEntries(const YbcPgRowMessage *record);
-static bool ybTerminateSlowestListener(void);
+static int32 ybTerminateSlowestListener(void);
+static int32 ybEvictSlowestListener(TimestampTz *sigtermTime);
+static bool ybIsListenerPid(int32 pid);
+static void ybWaitForEviction(int32 *sigtermPid, TimestampTz sigtermTime);
 static void ybNotifsPollerAddPendingEntriesToQueue(void);
 static void ybFillBeginAsyncQueueEntry(AsyncQueueEntry *qe, TransactionId xid);
 static bool ybIsAsyncQueueBeginEntry(const AsyncQueueEntry *qe);
@@ -3322,9 +3326,9 @@ ybAsyncQueueHandleBeginEntry(const AsyncQueueEntry *qe)
  *
  * Caller must hold NotifyQueueLock in at least SHARED mode.
  *
- * Returns true if a SIGTERM was sent, false if no slow listener was found.
+ * Returns the PID that was signaled, or InvalidPid if no slow listener found.
  */
-static bool
+static int32
 ybTerminateSlowestListener(void)
 {
 	QueuePosition minPos = QUEUE_HEAD;
@@ -3344,13 +3348,91 @@ ybTerminateSlowestListener(void)
 	}
 
 	if (minPid == InvalidPid)
-		return false;
+		return InvalidPid;
 
 	elog(WARNING,
 		 "NOTIFY queue is full, terminating slowest listener (PID %d)",
 		 minPid);
 	kill(minPid, SIGTERM);
-	return true;
+	return minPid;
+}
+
+/*
+ * Signal listening backends to catch up and, if the queue is still full,
+ * SIGTERM the slowest listener.
+ *
+ * Called with NotifyQueueLock not held.
+ * Returns the PID that was sent SIGTERM, or InvalidPid.
+ */
+static int32
+ybEvictSlowestListener(TimestampTz *sigtermTime)
+{
+	int32		pid = InvalidPid;
+
+	SignalBackends();
+	CHECK_FOR_INTERRUPTS();
+	pg_usleep(500000L);
+	asyncQueueAdvanceTail();
+
+	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+	if (asyncQueueIsFull())
+	{
+		pid = ybTerminateSlowestListener();
+		if (pid != InvalidPid)
+			*sigtermTime = GetCurrentTimestamp();
+	}
+	LWLockRelease(NotifyQueueLock);
+	return pid;
+}
+
+/* Must be called with NotifyQueueLock held. */
+static bool
+ybIsListenerPid(int32 pid)
+{
+	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
+	{
+		if (QUEUE_BACKEND_PID(i) == pid)
+			return true;
+	}
+	return false;
+}
+
+/*
+ * Wait for a previously SIGTERM'd backend to exit. If it hasn't exited
+ * within YB_SIGKILL_TIMEOUT_MS, escalate to SIGKILL. If the target already
+ * died but the queue is still full (another slow listener), reset *sigtermPid
+ * so the caller can SIGTERM the next slowest.
+ *
+ * Called with NotifyQueueLock not held.
+ * Resets *sigtermPid to InvalidPid when the target is gone or SIGKILL'd.
+ */
+static void
+ybWaitForEviction(int32 *sigtermPid, TimestampTz sigtermTime)
+{
+	CHECK_FOR_INTERRUPTS();
+	pg_usleep(500000L);
+	asyncQueueAdvanceTail();
+
+	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
+	if (!asyncQueueIsFull())
+	{
+		/* Queue has space. */
+	}
+	else if (!ybIsListenerPid(*sigtermPid))
+	{
+		*sigtermPid = InvalidPid;
+	}
+	else if (TimestampDifferenceExceeds(sigtermTime, GetCurrentTimestamp(),
+										YB_SIGKILL_TIMEOUT_MS))
+	{
+		elog(WARNING,
+			 "NOTIFY queue is full, SIGTERM did not terminate "
+			 "PID %d within %d ms, escalating to SIGKILL",
+			 *sigtermPid, YB_SIGKILL_TIMEOUT_MS);
+		kill(*sigtermPid, SIGKILL);
+		*sigtermPid = InvalidPid;
+	}
+	LWLockRelease(NotifyQueueLock);
 }
 
 /*
@@ -3361,8 +3443,8 @@ static void
 ybNotifsPollerAddPendingEntriesToQueue(void)
 {
 	ListCell   *nextQueueEntry = list_head(ybNotifsPollerPendingEntries);
-	bool		sigtermSent = false;
-	bool		signalBeforeSigtermSent = false;
+	int32		sigtermPid = InvalidPid;
+	TimestampTz sigtermTime = 0;
 
 	while (nextQueueEntry != NULL)
 	{
@@ -3372,36 +3454,14 @@ ybNotifsPollerAddPendingEntriesToQueue(void)
 		if (asyncQueueIsFull())
 		{
 			LWLockRelease(NotifyQueueLock);
-
-			/*
-			 * The queue can become full in the middle of writing notifications
-			 * of a transaction. Send PROCSIG_NOTIFY_INTERRUPT signal to the
-			 * listening backends so that they can catch up. If the queue still
-			 * remains full, terminate the slowest listener. This way even if a
-			 * transaction has more notifications than what the queue can hold
-			 * (very rare but possible), notification delivery will still work
-			 * fine (as long as there is no slow/stuck listener).
-			 *
-			 * Note both PROCSIG_NOTIFY_INTERRUPT and SIGTERM are sent once per
-			 * queue full episode.
-			 */
-			if (!signalBeforeSigtermSent)
-			{
-				SignalBackends();
-				signalBeforeSigtermSent = true;
-			}
-			CHECK_FOR_INTERRUPTS();
-			pg_usleep(500000L);
-			asyncQueueAdvanceTail();
-
-			LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
-			if (asyncQueueIsFull() && !sigtermSent)
-				sigtermSent = ybTerminateSlowestListener();
-			LWLockRelease(NotifyQueueLock);
+			if (sigtermPid == InvalidPid)
+				sigtermPid = ybEvictSlowestListener(&sigtermTime);
+			else
+				ybWaitForEviction(&sigtermPid, sigtermTime);
 			continue;
 		}
-		sigtermSent = false;
-		signalBeforeSigtermSent = false;
+
+		sigtermPid = InvalidPid;
 		nextQueueEntry = asyncQueueAddEntries(nextQueueEntry);
 		LWLockRelease(NotifyQueueLock);
 	}
