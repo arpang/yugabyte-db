@@ -887,6 +887,22 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
+   * When the NOTIFY queue fills up, the single slow listener should be terminated.
+   */
+  @Test
+  public void testQueueFullWithOneSlowListener() throws Exception {
+    fillQueueAndAssertSlowListenersTerminated(1);
+  }
+
+  /**
+   * When the NOTIFY queue fills up, both slow listeners should be terminated.
+   */
+  @Test
+  public void testQueueFullWithTwoSlowListeners() throws Exception {
+    fillQueueAndAssertSlowListenersTerminated(2);
+  }
+
+  /**
    * When a single transaction produces more notifications than the queue can hold, the poller
    * should terminate the slowest listener to make room and continue writing. Verify that the
    * slow listener is terminated, the fast listener stays alive, and all notifications are
@@ -904,22 +920,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       fillQueueAndAssertSlowListenersTerminated(1);
       waitForNotification(connFast, "ch1", LARGE_PAYLOAD);
     }
-  }
-
-  /**
-   * When the NOTIFY queue fills up, the slowest listener should be terminated.
-   */
-  @Test
-  public void testQueueFullTerminatesStuckListener() throws Exception {
-    fillQueueAndAssertSlowListenersTerminated(1);
-  }
-
-  /**
-   * Two slow listeners at the same queue position.
-   */
-  @Test
-  public void testQueueFullWithTwoSlowListeners() throws Exception {
-    fillQueueAndAssertSlowListenersTerminated(2);
   }
 
   private Connection createSlowListener(String channel) throws Exception {
