@@ -2964,9 +2964,9 @@ ybInsertPendingNotifiesToTable(void)
 		slot->tts_values[yb_is_listen_att.attnum - 1] = false;
 
 		slot->tts_isnull[yb_data_att.attnum - 1] = false;
-		slot->tts_values[yb_data_att.attnum - 1] =
-			CStringGetDatum(cstring_to_text_with_len(n->data,
-													 n->channel_len + n->payload_len + 2));
+		slot->tts_values[yb_data_att.attnum - 1] = CStringGetDatum(cstring_to_text_with_len(n->data,
+																							n->channel_len + n->payload_len + 2));
+
 
 		slot->tts_isnull[yb_extra_options_att.attnum - 1] = true;
 		ExecStoreVirtualTuple(slot);
