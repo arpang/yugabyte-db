@@ -2928,16 +2928,10 @@ ybInsertPendingNotifiesToTable(void)
 
 	int			num_notifs = list_length(pendingNotifies->events);
 	Datum	   *uuids = (Datum *) palloc(num_notifs * sizeof(Datum));
-	Datum	   *data_values = (Datum *) palloc(num_notifs * sizeof(Datum));
 	int			i = 0;
 	ListCell   *nextNotify;
 
 	YBBeginOperationsBuffering();
-
-	elog(INFO, "1");
-
-	elog(WARNING, "ybInsertPendingNotifiesToTable: num_notifs=%d, txn_setting=%d",
-		 num_notifs, txn_setting);
 
 	/* Phase 1: All INSERTs — bufferable writes batch into fewer RPCs. */
 	nextNotify = list_head(pendingNotifies->events);
@@ -2949,8 +2943,6 @@ ybInsertPendingNotifiesToTable(void)
 		ResetPerTupleExprContext(estate);
 
 		uuids[i] = gen_random_uuid(NULL);
-		data_values[i] = CStringGetDatum(cstring_to_text_with_len(n->data,
-																  n->channel_len + n->payload_len + 2));
 
 		slot->tts_isnull[yb_notif_uuid_att.attnum - 1] = false;
 		slot->tts_values[yb_notif_uuid_att.attnum - 1] = uuids[i];
@@ -2969,7 +2961,9 @@ ybInsertPendingNotifiesToTable(void)
 		slot->tts_values[yb_is_listen_att.attnum - 1] = false;
 
 		slot->tts_isnull[yb_data_att.attnum - 1] = false;
-		slot->tts_values[yb_data_att.attnum - 1] = data_values[i];
+		slot->tts_values[yb_data_att.attnum - 1] =
+			CStringGetDatum(cstring_to_text_with_len(n->data,
+													 n->channel_len + n->payload_len + 2));
 
 		slot->tts_isnull[yb_extra_options_att.attnum - 1] = true;
 		ExecStoreVirtualTuple(slot);
@@ -2981,7 +2975,10 @@ ybInsertPendingNotifiesToTable(void)
 		nextNotify = lnext(pendingNotifies->events, nextNotify);
 	}
 
-	/* Phase 2: All DELETEs — replay saved UUIDs to delete each row. */
+	/*
+	 * Phase 2: All DELETEs — replay saved UUIDs to delete each row.
+	 * Only notif_uuid (the PK) is needed for ybctid computation.
+	 */
 	bool		can_buffer_deletes = (txn_setting == YB_TRANSACTIONAL);
 
 	for (i = 0; i < num_notifs; i++)
@@ -2991,24 +2988,6 @@ ybInsertPendingNotifiesToTable(void)
 
 		slot->tts_isnull[yb_notif_uuid_att.attnum - 1] = false;
 		slot->tts_values[yb_notif_uuid_att.attnum - 1] = uuids[i];
-
-		slot->tts_isnull[yb_sender_node_uuid_att.attnum - 1] = false;
-		slot->tts_values[yb_sender_node_uuid_att.attnum - 1] =
-			CStringGetDatum(YBCGetLocalTserverUuid());
-
-		slot->tts_isnull[yb_sender_pid_att.attnum - 1] = false;
-		slot->tts_values[yb_sender_pid_att.attnum - 1] = Int32GetDatum(MyProcPid);
-
-		slot->tts_isnull[yb_db_oid_att.attnum - 1] = false;
-		slot->tts_values[yb_db_oid_att.attnum - 1] = ObjectIdGetDatum(MyDatabaseId);
-
-		slot->tts_isnull[yb_is_listen_att.attnum - 1] = false;
-		slot->tts_values[yb_is_listen_att.attnum - 1] = false;
-
-		slot->tts_isnull[yb_data_att.attnum - 1] = false;
-		slot->tts_values[yb_data_att.attnum - 1] = data_values[i];
-
-		slot->tts_isnull[yb_extra_options_att.attnum - 1] = true;
 		ExecStoreVirtualTuple(slot);
 
 		if (can_buffer_deletes)
@@ -3027,7 +3006,6 @@ ybInsertPendingNotifiesToTable(void)
 	YBEndOperationsBuffering();
 
 	pfree(uuids);
-	pfree(data_values);
 	FreeExecutorState(estate);
 	ExecDropSingleTupleTableSlot(slot);
 }
