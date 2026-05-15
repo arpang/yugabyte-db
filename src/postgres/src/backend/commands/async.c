@@ -2933,7 +2933,10 @@ ybInsertPendingNotifiesToTable(void)
 
 	YBBeginOperationsBuffering();
 
-	/* Phase 1: All INSERTs — bufferable writes batch into fewer RPCs. */
+	/*
+	 * Phase 1: All INSERTs. This way writes can be buffered and flushed in
+	 * batches.
+	 */
 	nextNotify = list_head(pendingNotifies->events);
 	while (nextNotify)
 	{
@@ -2976,8 +2979,8 @@ ybInsertPendingNotifiesToTable(void)
 	}
 
 	/*
-	 * Phase 2: All DELETEs — replay saved UUIDs to delete each row.
-	 * Only notif_uuid (the PK) is needed for ybctid computation.
+	 * Phase 2: All DELETEs. Only notif_uuid (the PK) is needed for ybctid
+	 * computation.
 	 */
 	bool		can_buffer_deletes = (txn_setting == YB_TRANSACTIONAL);
 

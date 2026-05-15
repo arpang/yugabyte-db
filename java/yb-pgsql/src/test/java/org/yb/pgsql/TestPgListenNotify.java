@@ -937,10 +937,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
-   * Verifies that N notifications in a transaction produce O(1) Perform RPCs
-   * rather than O(N). INSERTs batch into one flush and DELETEs into another;
-   * for small N this is exactly 2, though larger N may split across multiple
-   * flushes due to batch size limits.
+   * Test that NOTIFYs within a transaction are buffered and flushed in batches.
    */
   @Test
   public void testNotifyFlushOptimization() throws Exception {
