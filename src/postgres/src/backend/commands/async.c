@@ -2949,9 +2949,8 @@ ybInsertPendingNotifiesToTable(void)
 		ResetPerTupleExprContext(estate);
 
 		uuids[i] = gen_random_uuid(NULL);
-		data_values[i] = CStringGetDatum(
-			cstring_to_text_with_len(n->data,
-									 n->channel_len + n->payload_len + 2));
+		data_values[i] = CStringGetDatum(cstring_to_text_with_len(n->data,
+																  n->channel_len + n->payload_len + 2));
 
 		slot->tts_isnull[yb_notif_uuid_att.attnum - 1] = false;
 		slot->tts_values[yb_notif_uuid_att.attnum - 1] = uuids[i];
@@ -2984,6 +2983,7 @@ ybInsertPendingNotifiesToTable(void)
 
 	/* Phase 2: All DELETEs — replay saved UUIDs to delete each row. */
 	bool		can_buffer_deletes = (txn_setting == YB_TRANSACTIONAL);
+
 	for (i = 0; i < num_notifs; i++)
 	{
 		ExecClearTuple(slot);
