@@ -940,7 +940,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    * Test that NOTIFYs within a transaction are buffered and flushed in batches.
    */
   @Test
-  public void testNotifyFlushOptimization() throws Exception {
+  public void testTxnNotifysAreBuffered() throws Exception {
     final int N = 50;
 
     try (Connection conn = getConnectionBuilder().connect();
@@ -957,7 +957,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
           getTServerMetric("handler_latency_yb_tserver_PgClientService_Perform").count
           - before;
 
-      LOG.info("NOTIFY flush optimization: {} notifications, {} Perform RPCs", N, delta);
       assertEquals("Perform RPCs for " + N + " notifications", 2, delta);
     }
   }
