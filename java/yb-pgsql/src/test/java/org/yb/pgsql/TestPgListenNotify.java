@@ -936,6 +936,35 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     }
   }
 
+  /**
+   * Verifies that N notifications in a transaction produce O(1) Perform RPCs
+   * rather than O(N). INSERTs batch into one flush and DELETEs into another;
+   * for small N this is exactly 2, though larger N may split across multiple
+   * flushes due to batch size limits.
+   */
+  @Test
+  public void testNotifyFlushOptimization() throws Exception {
+    final int N = 50;
+
+    try (Connection conn = getConnectionBuilder().connect();
+         Statement stmt = conn.createStatement()) {
+      stmt.execute("BEGIN");
+      for (int i = 0; i < N; i++) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'msg_" + i + "'");
+      }
+
+      long before =
+          getTServerMetric("handler_latency_yb_tserver_PgClientService_Perform").count;
+      stmt.execute("COMMIT");
+      long delta =
+          getTServerMetric("handler_latency_yb_tserver_PgClientService_Perform").count
+          - before;
+
+      LOG.info("NOTIFY flush optimization: {} notifications, {} Perform RPCs", N, delta);
+      assertEquals("Perform RPCs for " + N + " notifications", 2, delta);
+    }
+  }
+
   private void setFatalAfterNotifsQueueWriteFlag(boolean value) throws Exception {
     String v = value ? "true" : "false";
     for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
