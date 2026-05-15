@@ -2994,16 +2994,9 @@ ybInsertPendingNotifiesToTable(void)
 		ExecStoreVirtualTuple(slot);
 
 		if (can_buffer_deletes)
-		{
 			TABLETUPLE_YBCTID(slot) = YBCComputeYBTupleIdFromSlot(rel, slot);
-			YBCExecuteDelete(rel, slot, NIL, true /* target_tuple_fetched */ ,
-							 txn_setting, false /* changingPart */ , estate);
-		}
-		else
-		{
-			YBCExecuteDelete(rel, slot, NIL, false /* target_tuple_fetched */ ,
-							 txn_setting, false /* changingPart */ , estate);
-		}
+		YBCExecuteDelete(rel, slot, NIL, can_buffer_deletes /* target_tuple_fetched */ ,
+						 txn_setting, false /* changingPart */ , estate);
 	}
 
 	YBEndOperationsBuffering();
