@@ -22,6 +22,7 @@ import com.yugabyte.PGNotification;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -36,7 +37,9 @@ import org.yb.CommonNet;
 import org.yb.CommonNet.CloudInfoPB;
 import org.yb.CommonTypes;
 import org.yb.YBTestRunner;
+import org.yb.client.GetLoadMovePercentResponse;
 import org.yb.client.ListSnapshotSchedulesResponse;
+import org.yb.client.ModifyMasterClusterConfigBlacklist;
 import org.yb.client.ModifyClusterConfigLiveReplicas;
 import org.yb.client.SnapshotInfo;
 import org.yb.master.CatalogEntityInfo;
@@ -56,6 +59,8 @@ import org.yb.util.YBBackupUtil;
 public class TestPgListenNotify extends BasePgListenNotifyTest {
   private static final Logger LOG = LoggerFactory.getLogger(TestPgListenNotify.class);
 
+  private static final int TSERVER_UNRESPONSIVE_TIMEOUT_MS = 10000;
+
   private static final String CHANNEL = "test_channel";
   private static final String PAYLOAD = "test_payload";
   private static final String LARGE_PAYLOAD;
@@ -63,6 +68,14 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     char[] chars = new char[7000];
     Arrays.fill(chars, 'x');
     LARGE_PAYLOAD = new String(chars);
+  }
+
+  @Override
+  protected Map<String, String> getMasterFlags() {
+    Map<String, String> flagMap = super.getMasterFlags();
+    flagMap.put("tserver_unresponsive_timeout_ms",
+        String.valueOf(TSERVER_UNRESPONSIVE_TIMEOUT_MS));
+    return flagMap;
   }
 
   /**
@@ -1134,6 +1147,100 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       }
       waitForNotification(listener, channel, "after_restart");
       LOG.info("LISTEN/NOTIFY works after tserver restart");
+    }
+  }
+
+  /**
+   * Validates that when a tserver is decommissioned via RemoveTabletServer,
+   * its notifications replication slot is deleted by the master.
+   *
+   * Scenario:
+   *   1. LISTEN on tserver 0 -- creates replication slot.
+   *   2. Blacklist tserver 0 and wait for load to move off.
+   *   3. Kill tserver 0 and wait for it to become unresponsive.
+   *   4. Call RemoveTabletServer for tserver 0.
+   *   5. Verify the slot is gone.
+   */
+  @Test
+  public void testSlotCleanupOnTServerDecommission() throws Exception {
+    final String channel = "decommission_test";
+    YBClient client = miniCluster.getClient();
+
+    // Find tserver 0's RPC HostAndPort and UUID.
+    String ts0Host = getPgHost(0);
+    HostAndPort ts0RpcHostPort = null;
+    for (HostAndPort hp : miniCluster.getTabletServers().keySet()) {
+      if (hp.getHost().equals(ts0Host)) {
+        ts0RpcHostPort = hp;
+        break;
+      }
+    }
+
+    String ts0Uuid = null;
+    for (org.yb.util.ServerInfo si : client.listTabletServers().getTabletServersList()) {
+      if (si.getHost().equals(ts0Host)) {
+        ts0Uuid = si.getUuid();
+        break;
+      }
+    }
+    LOG.info("Tserver 0: host={}, rpc={}, uuid={}", ts0Host, ts0RpcHostPort, ts0Uuid);
+
+    // Add a 4th tserver so tablets can move off tserver 0 (RF=3 with 3
+    // tservers leaves nowhere to place replicas).
+    spawnTServerWithFlags(new HashMap<>());
+    miniCluster.waitForTabletServers(4);
+
+    // Step 1: LISTEN to trigger replication slot creation. Keep the connection
+    // open so PG backend doesn't clean up the slot on graceful close.
+    Connection listenConn = getConnectionBuilder().withTServer(0).connect();
+    Statement listenStmt = listenConn.createStatement();
+    listenStmt.execute("LISTEN " + channel);
+
+    List<Row> slots = getRowList(listenStmt,
+        "SELECT slot_name FROM pg_replication_slots"
+        + " WHERE slot_name LIKE 'yb_notifications_%'");
+    assertEquals("Expected one notifications replication slot", 1, slots.size());
+    LOG.info("Notifications slot before decommission: " + slots.get(0).getString(0));
+
+    // Step 2: Blacklist tserver 0 and wait for load to move off.
+    List<CommonNet.HostPortPB> blacklistHosts = new ArrayList<>();
+    blacklistHosts.add(CommonNet.HostPortPB.newBuilder()
+        .setHost(ts0RpcHostPort.getHost())
+        .setPort(ts0RpcHostPort.getPort())
+        .build());
+    new ModifyMasterClusterConfigBlacklist(client, blacklistHosts, true /* isAdd */).doCall();
+    LOG.info("Blacklisted tserver 0");
+
+    TestUtils.waitFor(() -> {
+      GetLoadMovePercentResponse resp = client.getLoadMoveCompletion();
+      LOG.info("Load move: {}% complete, remaining={}", resp.getPercentCompleted(),
+          resp.getRemaining());
+      return resp.getPercentCompleted() >= 100 && resp.getRemaining() == 0;
+    }, Timeouts.adjustTimeoutSecForBuildType(120 * 1000));
+    LOG.info("Load moved off tserver 0");
+
+    // Step 3: SIGKILL tserver 0 (no graceful PG shutdown, so the slot is NOT
+    // cleaned up by the PG backend) and wait for it to become unresponsive.
+    miniCluster.getTabletServers().get(ts0RpcHostPort).getProcess().destroyForcibly().waitFor();
+    miniCluster.killTabletServerOnHostPort(ts0RpcHostPort);
+    LOG.info("Killed tserver 0, waiting for unresponsive timeout");
+    Thread.sleep(TSERVER_UNRESPONSIVE_TIMEOUT_MS * 2);
+
+    // Step 4: Call RemoveTabletServer via yb-admin.
+    runProcess(TestUtils.findBinary("yb-admin"),
+        "--master_addresses", miniCluster.getMasterAddresses(),
+        "remove_tablet_server", ts0Uuid);
+    LOG.info("RemoveTabletServer succeeded for tserver " + ts0Uuid);
+
+    // Step 5: Verify the slot is gone (connect to a different tserver).
+    try (Connection conn = getConnectionBuilder().withTServer(1).connect();
+         Statement stmt = conn.createStatement()) {
+      List<Row> slotsAfter = getRowList(stmt,
+          "SELECT slot_name FROM pg_replication_slots"
+          + " WHERE slot_name LIKE 'yb_notifications_%'");
+      assertTrue("Notifications replication slot should have been deleted after decommission,"
+          + " but found: " + slotsAfter, slotsAfter.isEmpty());
+      LOG.info("Notifications slot successfully cleaned up after decommission");
     }
   }
 }
