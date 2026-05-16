@@ -1055,4 +1055,85 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
                                           /* force = */ true));
     }
   }
+
+  /**
+   * Validates that when a tserver crashes and restarts, its stale notifications
+   * replication slot is deleted by the master during re-registration, and LISTEN
+   * works on the restarted tserver.
+   *
+   * Scenario:
+   *   1. LISTEN on tserver 0 -- creates replication slot yb_notifications_<uuid>.
+   *   2. Verify the slot exists.
+   *   3. Crash (SIGKILL) tserver 0 and restart it. Masters stay up.
+   *   4. Verify the old slot is gone (master deletes it during heartbeat).
+   *   5. LISTEN on a new connection -- creates a fresh slot and works.
+   */
+  @Test
+  public void testSlotCleanupOnTServerRestart() throws Exception {
+    final String channel = "restart_test";
+
+    // Find the RPC HostAndPort for tserver 0 (same bind IP as PG contact point).
+    String ts0Host = getPgHost(0);
+    HostAndPort ts0RpcHostPort = null;
+    for (HostAndPort hp : miniCluster.getTabletServers().keySet()) {
+      if (hp.getHost().equals(ts0Host)) {
+        ts0RpcHostPort = hp;
+        break;
+      }
+    }
+
+    // Step 1: LISTEN to trigger replication slot creation.
+    Connection listenConn = getConnectionBuilder().withTServer(0).connect();
+    Statement listenStmt = listenConn.createStatement();
+    listenStmt.execute("LISTEN " + channel);
+
+    // Step 2: Verify the notifications replication slot exists.
+    List<Row> slots = getRowList(listenStmt,
+        "SELECT slot_name FROM pg_replication_slots"
+        + " WHERE slot_name LIKE 'yb_notifications_%'");
+    assertEquals("Expected one notifications replication slot", 1, slots.size());
+    String slotName = slots.get(0).getString(0);
+    LOG.info("Notifications replication slot before crash: " + slotName);
+
+    // Step 3: Crash tserver 0 (SIGKILL -- no graceful PG shutdown, so the slot
+    // is NOT cleaned up by the PG backend). Then restart it. Masters stay alive
+    // and retain the slot in the sys catalog.
+    LOG.info("Crashing and restarting tserver 0");
+    miniCluster.crashAndRestartTServer(ts0RpcHostPort);
+    miniCluster.waitForTabletServers(miniCluster.getNumTServers());
+
+    // Step 4: Verify the old slot is gone. The master should have deleted it
+    // during the re-registration heartbeat (seqno increase detected).
+    try (Connection conn = getConnectionBuilder().withTServer(0).connect();
+         Statement stmt = conn.createStatement()) {
+      List<Row> slotsAfter = getRowList(stmt,
+          "SELECT slot_name FROM pg_replication_slots"
+          + " WHERE slot_name LIKE 'yb_notifications_%'");
+      assertTrue("Stale notifications replication slot should have been deleted,"
+          + " but found: " + slotsAfter, slotsAfter.isEmpty());
+
+      // Step 5: LISTEN should work -- creates a new slot.
+      stmt.execute("LISTEN " + channel);
+      LOG.info("LISTEN succeeded after tserver restart");
+
+      slotsAfter = getRowList(stmt,
+          "SELECT slot_name FROM pg_replication_slots"
+          + " WHERE slot_name LIKE 'yb_notifications_%'");
+      assertEquals("Expected a new notifications replication slot", 1, slotsAfter.size());
+      LOG.info("New notifications replication slot: " + slotsAfter.get(0).getString(0));
+    }
+
+    // Verify LISTEN/NOTIFY works end-to-end after restart.
+    try (Connection listener = getConnectionBuilder().withTServer(0).connect();
+         Connection notifier = getConnectionBuilder().connect()) {
+      try (Statement stmt = listener.createStatement()) {
+        stmt.execute("LISTEN " + channel);
+      }
+      try (Statement stmt = notifier.createStatement()) {
+        stmt.execute("NOTIFY " + channel + ", 'after_restart'");
+      }
+      waitForNotification(listener, channel, "after_restart");
+      LOG.info("LISTEN/NOTIFY works after tserver restart");
+    }
+  }
 }
