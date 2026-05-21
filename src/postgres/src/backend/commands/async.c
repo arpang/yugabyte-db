@@ -3230,6 +3230,12 @@ ybNotifsPollerLoop()
 		if (ShutdownRequestPending)
 			proc_exit(0);
 
+		/*
+		 * Wait for SIGTERM from the last listener's cleanup
+		 * (ybCleanupListenState). New listeners are blocked from
+		 * registering by the has_runtime_error check in
+		 * Exec_ListenPreCommit.
+		 */
 		if (runtime_error_occurred)
 		{
 			pg_usleep(100000L);
