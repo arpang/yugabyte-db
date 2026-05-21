@@ -1380,8 +1380,13 @@ Exec_ListenPreCommit(void)
 
 	if (!ybIsFirstListenerOnNode)
 	{
-		bool		found;
-		YbNotifsPollerShmemData *poller_data = ybShmemNotifsPollerData(&found);
+		static YbNotifsPollerShmemData *poller_data = NULL;
+
+		if (poller_data == NULL)
+		{
+			bool	found;
+			poller_data = ybShmemNotifsPollerData(&found);
+		}
 
 		if (poller_data->has_runtime_error)
 		{
@@ -3251,10 +3256,11 @@ ybNotifsPollerLoop()
 			MemoryContext error_cxt = MemoryContextSwitchTo(TopMemoryContext);
 			ErrorData  *edata = CopyErrorData();
 
-			elog(WARNING,
-				 "notifications poller encountered a non-retryable error: %s, "
-				 "terminating all listening backends in this node",
-				 edata->message);
+			ereport(WARNING,
+					(errmsg("notifications poller encountered a non-retryable "
+							"error, terminating all listening backends in "
+							"this node"),
+					 errdetail("%s", edata->message)));
 
 			strlcpy(poller_data->error_message, edata->message,
 					sizeof(poller_data->error_message));
