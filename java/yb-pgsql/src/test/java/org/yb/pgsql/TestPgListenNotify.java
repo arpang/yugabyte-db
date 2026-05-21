@@ -969,15 +969,36 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
   }
 
   /**
+   * Triggers a CDC stream expiry by setting cdc_intent_retention_ms low (2s) and poller sleep
+   * high (10s). The poller's first poll succeeds, then it sleeps 10s. On the next poll,
+   * 10s > 2s retention, so CheckStreamActive() returns a non-retryable "stream expired" error.
+   *
+   * After triggering, waits for the error to occur (~15s adjusted for build type).
+   */
+  private void triggerCdcStreamExpiry() throws Exception {
+    setCdcIntentRetentionMs("2000");
+    setNotificationsPollSleepDurationEmpty("10000");
+    Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(15000));
+  }
+
+  private void waitForPollerAndSlotCleanup(Connection conn) throws Exception {
+    waitForCondition(conn,
+        "SELECT CASE WHEN NOT EXISTS ("
+        + "SELECT 1 FROM pg_stat_activity"
+        + " WHERE backend_type = 'notifications poller'"
+        + ") THEN 1 ELSE 0 END");
+
+    waitForCondition(conn,
+        "SELECT CASE WHEN NOT EXISTS ("
+        + "SELECT 1 FROM pg_replication_slots"
+        + " WHERE slot_name LIKE 'yb_notifications_%'"
+        + ") THEN 1 ELSE 0 END");
+  }
+
+  /**
    * Validates that a non-retryable CDC runtime error (stream expiry) terminates all listening
    * backends with a meaningful error, while non-listening sessions survive. Also verifies that the
-   * notifications poller is cleaned up and the replication slot is dropped, and that recovery via
-   * re-LISTEN works.
-   *
-   * Trigger mechanism: set cdc_intent_retention_ms low (2s) and poller sleep high (10s). The
-   * poller's first poll succeeds and updates last_active_time, then it sleeps 10s. On the next
-   * poll, 10s > 2s retention, so CheckStreamActive() returns a non-retryable "stream expired"
-   * error.
+   * notifications poller is cleaned up, the replication slot is dropped, and recovery works.
    */
   @Test
   public void testCdcRuntimeErrorTerminatesListeners() throws Exception {
@@ -995,28 +1016,74 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         getPollerPid(checkStmt);
       }
 
-      setCdcIntentRetentionMs("2000");
-      setNotificationsPollSleepDurationEmpty("10000");
-
-      Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(15000));
+      triggerCdcStreamExpiry();
 
       assertConnectionDead(listener1, "listener1");
       assertConnectionDead(listener2, "listener2");
 
       nonListener.createStatement().execute("SELECT 1");
 
-      waitForCondition(nonListener,
-          "SELECT CASE WHEN NOT EXISTS ("
-          + "SELECT 1 FROM pg_stat_activity"
-          + " WHERE backend_type = 'notifications poller'"
-          + ") THEN 1 ELSE 0 END");
+      waitForPollerAndSlotCleanup(nonListener);
+      nonListener.close();
+    } finally {
+      setCdcIntentRetentionMs("28800000");
+      setNotificationsPollSleepDurationEmpty("100");
+    }
 
-      waitForCondition(nonListener,
-          "SELECT CASE WHEN NOT EXISTS ("
-          + "SELECT 1 FROM pg_replication_slots"
-          + " WHERE slot_name LIKE 'yb_notifications_%'"
-          + ") THEN 1 ELSE 0 END");
+    verifyListenNotifyWorks();
+  }
 
+  /**
+   * Validates that a new LISTEN fails when the notifications poller receives a non-retryable
+   * error and the existing listeners are being cleaned up.
+   */
+  @Test
+  public void testCdcRuntimeErrorBlocksNewListener() throws Exception {
+    try {
+      Connection listenerA = getConnectionBuilder().withTServer(0).connect();
+      listenerA.createStatement().execute("LISTEN ch1");
+
+      Connection nonListener = getConnectionBuilder().withTServer(0).connect();
+      try (Statement checkStmt = nonListener.createStatement()) {
+        getPollerPid(checkStmt);
+      }
+
+      // Block listenerA's main loop with pg_sleep so it can't process the
+      // FATAL from has_runtime_error. This keeps listenerA registered as a
+      // listener, which keeps the poller alive in error state.
+      Thread sleepThread = new Thread(() -> {
+        try {
+          listenerA.createStatement().execute("SELECT pg_sleep(60)");
+        } catch (SQLException e) {
+          LOG.info("listenerA pg_sleep interrupted (expected): {}", e.getMessage());
+        }
+      });
+      sleepThread.start();
+      Thread.sleep(1000);
+
+      triggerCdcStreamExpiry();
+
+      try (Statement checkStmt = nonListener.createStatement()) {
+        int pollerPid = getPollerPid(checkStmt);
+        LOG.info("Poller still alive with pid {} (listenerA holding it)", pollerPid);
+      }
+
+      // A new LISTEN should fail because the poller is in error state.
+      try (Connection listenerB = getConnectionBuilder().withTServer(0).connect();
+           Statement stmtB = listenerB.createStatement()) {
+        stmtB.execute("LISTEN ch2");
+        fail("LISTEN should have failed because poller has a runtime error");
+      } catch (SQLException e) {
+        LOG.info("listenerB LISTEN failed (expected): {}", e.getMessage());
+        assertTrue("Error should mention non-retryable error",
+            e.getMessage().contains("non-retryable error"));
+      }
+
+      // Wait for listenerA's pg_sleep to finish so it can process FATAL.
+      sleepThread.join(Timeouts.adjustTimeoutSecForBuildType(120000));
+      assertConnectionDead(listenerA, "listenerA");
+
+      waitForPollerAndSlotCleanup(nonListener);
       nonListener.close();
     } finally {
       setCdcIntentRetentionMs("28800000");

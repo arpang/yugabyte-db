@@ -1378,6 +1378,23 @@ Exec_ListenPreCommit(void)
 
 	bool		ybIsFirstListenerOnNode = QUEUE_FIRST_LISTENER == InvalidBackendId;
 
+	if (!ybIsFirstListenerOnNode)
+	{
+		bool		found;
+		YbNotifsPollerShmemData *poller_data = ybShmemNotifsPollerData(&found);
+
+		if (poller_data->has_runtime_error)
+		{
+			LWLockRelease(NotifyQueueLock);
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("notifications poller encountered a non-retryable "
+							"error, LISTEN is unavailable until existing "
+							"listeners terminate. Please re-try in some time"),
+					 errdetail("%s", poller_data->error_message)));
+		}
+	}
+
 	for (BackendId i = QUEUE_FIRST_LISTENER; i > 0; i = QUEUE_NEXT_LISTENER(i))
 	{
 		if (QUEUE_BACKEND_DBOID(i) == MyDatabaseId)
