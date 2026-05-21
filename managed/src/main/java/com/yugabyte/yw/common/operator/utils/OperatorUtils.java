@@ -549,18 +549,29 @@ public class OperatorUtils {
           .forEach(
               azUUID -> {
                 DeviceInfo tsDeviceInfo = curCluster.userIntent.getDeviceInfoForAz(azUUID, false);
+                DeviceInfo newTsDeviceInfo = newIntentClone.getDeviceInfoForAz(azUUID, false);
+                log.debug(
+                    "Comparing tserver device info for AZ {}: old {}, new {}",
+                    azUUID,
+                    Json.toJson(tsDeviceInfo),
+                    Json.toJson(newTsDeviceInfo));
                 deviceInfoChanged.set(
-                    deviceInfoChanged.get()
-                        || !tsDeviceInfo.equals(newIntent.getDeviceInfoForAz(azUUID, false)));
+                    deviceInfoChanged.get() || !tsDeviceInfo.equals(newTsDeviceInfo));
 
                 if (curCluster.clusterType != ClusterType.ASYNC) {
                   DeviceInfo masterDeviceInfo =
                       curCluster.userIntent.getDeviceInfoForAz(azUUID, true);
+                  DeviceInfo newMasterDeviceInfo = newIntentClone.getDeviceInfoForAz(azUUID, true);
+                  log.debug(
+                      "Comparing master device info for AZ {}: old {}, new {}",
+                      azUUID,
+                      Json.toJson(masterDeviceInfo),
+                      Json.toJson(newMasterDeviceInfo));
                   deviceInfoChanged.set(
-                      deviceInfoChanged.get()
-                          || !masterDeviceInfo.equals(newIntent.getDeviceInfoForAz(azUUID, true)));
+                      deviceInfoChanged.get() || !masterDeviceInfo.equals(newMasterDeviceInfo));
                 }
               });
+      log.debug("Device info changed: {}", deviceInfoChanged.get());
       return deviceInfoChanged.get();
     } else {
       boolean tserverSizeChanged =
@@ -1812,7 +1823,7 @@ public class OperatorUtils {
     }
   }
 
-  public void createReleaseCr(
+  public boolean createReleaseCr(
       com.yugabyte.yw.models.Release ybRelease,
       ReleaseArtifact k8sArtifact,
       ReleaseArtifact x86_64Artifact,
@@ -1828,7 +1839,7 @@ public class OperatorUtils {
               .get()
           != null) {
         log.info("Release {} already exists, skipping creation", ybRelease.getVersion());
-        return;
+        return true;
       }
       Release release = new Release();
       release.setMetadata(
@@ -1887,6 +1898,7 @@ public class OperatorUtils {
         downloadConfig.setHttp(http);
       } else {
         log.info("Release {} uses a local file", ybRelease.getVersion());
+        return false;
       }
       config.setDownloadConfig(downloadConfig);
 
@@ -1894,6 +1906,7 @@ public class OperatorUtils {
       release.setSpec(releaseSpec);
 
       kubernetesClient.resources(Release.class).inNamespace(namespace).resource(release).create();
+      return true;
     }
   }
 

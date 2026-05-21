@@ -1046,14 +1046,8 @@ public class UniverseCRUDHandler {
             confGetter
                 .getCustomerConf(customer)
                 .getBoolean(UniverseConfKeys.multitenancySkipYcqlPrecheck.getKey());
-        if (skipYcqlPrecheck && !userIntent.enableYSQL) {
-          throw new PlatformServiceException(
-              BAD_REQUEST, "YSQL API should be enabled to enable multi-tenancy");
-        } else if (!(userIntent.enableYSQL && !userIntent.enableYCQL)) {
-          throw new PlatformServiceException(
-              BAD_REQUEST,
-              "YSQL API should be enabled and YCQL api disabled to enable multi-tenancy");
-        }
+        validateMultiTenancyApiConfig(
+            userIntent.enableYSQL, userIntent.enableYCQL, skipYcqlPrecheck);
         for (Cluster cluster : taskParams.clusters) {
           if (cluster.userIntent.providerType == Common.CloudType.kubernetes) {
             throw new PlatformServiceException(
@@ -1842,6 +1836,18 @@ public class UniverseCRUDHandler {
       readOnlyCluster.userIntent.tserverGFlags = primaryCluster.userIntent.tserverGFlags;
     }
 
+    // Update device info in userIntent for Kubernetes.
+    // For operator-controlled universes, userIntentOverrides (and the universe-overrides
+    // merge into base deviceInfo) are managed entirely by operator.
+    if (readOnlyCluster.userIntent.providerType.equals(Common.CloudType.kubernetes)
+        && !taskParams.isKubernetesOperatorControlled) {
+      KubernetesUtil.applyVolumeChanges(
+          readOnlyCluster.userIntent,
+          readOnlyCluster.placementInfo,
+          primaryCluster.userIntent.universeOverrides,
+          primaryCluster.userIntent.azOverrides);
+    }
+
     TaskType taskType = TaskType.ReadOnlyClusterCreate;
     if (readOnlyCluster.userIntent.providerType.equals(Common.CloudType.kubernetes)) {
       try {
@@ -1908,6 +1914,18 @@ public class UniverseCRUDHandler {
         "Node to node encrypt setting");
     checkEquals(
         c -> c.userIntent.assignPublicIP, primaryCluster, cluster, "Assign public IP setting");
+  }
+
+  static void validateMultiTenancyApiConfig(
+      boolean enableYSQL, boolean enableYCQL, boolean skipYcqlPrecheck) {
+    if (!enableYSQL) {
+      throw new PlatformServiceException(
+          BAD_REQUEST, "YSQL API should be enabled to enable multi-tenancy");
+    }
+    if (!skipYcqlPrecheck && enableYCQL) {
+      throw new PlatformServiceException(
+          BAD_REQUEST, "YCQL API should be disabled to enable multi-tenancy");
+    }
   }
 
   private static void checkEquals(

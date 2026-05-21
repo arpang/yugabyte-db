@@ -12,6 +12,7 @@ package com.yugabyte.yw.common.config;
 
 import com.google.common.collect.ImmutableList;
 import com.yugabyte.yw.common.LdapUtil.TlsProtocol;
+import com.yugabyte.yw.common.YbaOidcCallbackUrlResolver.OidcCallbackMode;
 import com.yugabyte.yw.common.config.ConfKeyInfo.ConfKeyTags;
 import com.yugabyte.yw.forms.RuntimeConfigFormData.ScopedConfig.ScopeType;
 import com.yugabyte.yw.models.Users.Role;
@@ -97,6 +98,15 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Display JWT Token on Login Screen",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.INTERNAL));
+  public static final ConfKeyInfo<OidcCallbackMode> oidcCallbackMode =
+      new ConfKeyInfo<>(
+          "yb.security.oidc_callback_mode",
+          ScopeType.GLOBAL,
+          "OIDC Callback Mode",
+          "Controls whether OIDC callback URLs use the default query parameter style or path"
+              + " parameter style. Possible values are: query, path.",
+          ConfDataType.OidcCallbackModeEnum,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<String> ybClientID =
       new ConfKeyInfo<>(
           "yb.security.clientID",
@@ -1191,6 +1201,17 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           "Timeout for node destroy command before failing.",
           ConfDataType.DurationType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Integer> nodeScriptReachabilityCheckTimeoutSec =
+      new ConfKeyInfo<>(
+          "yb.node_script.reachability_check_timeout_sec",
+          ScopeType.GLOBAL,
+          "Node reachability check timeout",
+          "Timeout in seconds for the pre-check that determines whether a node is reachable for"
+              + " per-node platform APIs such as run-script and file-collections. Unreachable"
+              + " nodes are reported as failed nodes rather than producing per-file/per-command"
+              + " errors.",
+          ConfDataType.IntegerType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<String> ybcCompatibleDbVersion =
       new ConfKeyInfo<>(
           "ybc.compatible_db_version",
@@ -1607,6 +1628,17 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           ScopeType.GLOBAL,
           "Enable RBAC for Groups",
           "Map LDAP/OIDC groups to custom roles defined by RBAC.",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> allowSuperadminUserGroupMapping =
+      new ConfKeyInfo<>(
+          "yb.security.allow_superadmin_user_group_mapping",
+          ScopeType.GLOBAL,
+          "Allow SuperAdmin in LDAP/OIDC group and user role mappings",
+          "When true, a SuperAdmin may assign the SuperAdmin system role"
+              + " via role bindings (including to LDAP/OIDC users) and may"
+              + " include SuperAdmin in LDAP/OIDC group mappings. When false,"
+              + " those operations are rejected.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Duration> autoMasterFailoverPollerInterval =
@@ -2045,14 +2077,6 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
               + " local credentials.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Boolean> disableGolangYnpDriver =
-      new ConfKeyInfo<>(
-          "yb.node_agent.disable_golang_ynp_driver",
-          ScopeType.GLOBAL,
-          "Disable Golang YNP Driver",
-          "Disable golang YNP driver to use python instead",
-          ConfDataType.BooleanType,
-          ImmutableList.of(ConfKeyTags.FEATURE_FLAG));
   public static final ConfKeyInfo<Integer> nodeAgentServerRequestLogLevel =
       new ConfKeyInfo<>(
           "yb.node_agent.server.request_log_level",
@@ -2109,6 +2133,14 @@ public class GlobalConfKeys extends RuntimeConfigKeysModule {
           ScopeType.GLOBAL,
           "Enable Connectivity Metric Collection",
           "Enable connectivity metric collection for all universes",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> enableNonRestartGFlagUpgradeOption =
+      new ConfKeyInfo<>(
+          "yb.ui.feature_flags.enable_non_restart_gflag_upgrade_option",
+          ScopeType.GLOBAL,
+          "Enable Non-Restart GFlag Upgrade Option",
+          "Enable the option to upgrade GFlags without restarting the nodes",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Boolean> allowExistingDuplicateAz =
