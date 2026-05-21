@@ -977,7 +977,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    */
   private void triggerCdcStreamExpiry() throws Exception {
     setCdcIntentRetentionMs("2000");
-    setNotificationsPollSleepDurationEmpty("10000");
+    setNotificationsPollSleepDurationEmpty("5000");
     Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(15000));
   }
 
