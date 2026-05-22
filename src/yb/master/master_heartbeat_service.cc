@@ -1568,11 +1568,8 @@ MasterHeartbeatServiceImpl::RegisterTServerOrRespond(
   }
 
   const auto& ts_uuid = req.common().ts_instance().permanent_uuid();
-  int64_t old_seqno = -1;
   auto old_desc = server_->ts_manager()->LookupTSByUUID(ts_uuid);
-  if (old_desc.ok()) {
-    old_seqno = (*old_desc)->latest_seqno();
-  }
+  int64_t old_seqno = old_desc.ok() ? (*old_desc)->latest_seqno() : -1;
 
   auto desc_result = server_->ts_manager()->RegisterFromHeartbeat(
       req, epoch, server_->MakeCloudInfoPB(), &server_->proxy_cache());
