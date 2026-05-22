@@ -2993,6 +2993,15 @@ ybInsertPendingNotifiesToTable(void)
 
 		if (can_buffer_deletes)
 			TABLETUPLE_YBCTID(slot) = YBCComputeYBTupleIdFromSlot(rel, slot);
+
+		/*
+		 * Buffering of DELETE requires target_tuple_fetched to be true. Hence,
+		 * pass can_buffer_deletes as the target_tuple_fetched argument, even
+		 * though no tuple is fetched irrespective of can_buffer_deletes.
+		 *
+		 * This hack will not be required if we can relax DELETE's buffering
+		 * requirement along the lines of UPDATE's (GHI #31856).
+		 */
 		YBCExecuteDelete(rel, slot, NIL, can_buffer_deletes /* target_tuple_fetched */ ,
 						 txn_setting, false /* changingPart */ , estate);
 	}
