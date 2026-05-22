@@ -1935,7 +1935,8 @@ Status CatalogManager::DeleteNotificationsReplicationSlot(const std::string& tse
   std::vector<CDCStreamInfoPtr> streams;
   {
     SharedLock lock(mutex_);
-    auto stream = VERIFY_RESULT(GetReplicationSlotStreamForDelete(slot_name, /*force_delete=*/true));
+    auto stream =
+        VERIFY_RESULT(GetReplicationSlotStreamForDelete(slot_name, /*force_delete=*/true));
     if (stream) {
       streams.push_back(std::move(*stream));
     }
