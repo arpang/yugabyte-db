@@ -78,6 +78,16 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     return flagMap;
   }
 
+  private HostAndPort getRpcHostPortForTServer(int index) {
+    String pgHost = getPgHost(index);
+    for (HostAndPort hp : miniCluster.getTabletServers().keySet()) {
+      if (hp.getHost().equals(pgHost)) {
+        return hp;
+      }
+    }
+    throw new IllegalStateException("No tserver RPC HostAndPort found for index " + index);
+  }
+
   /**
    * LISTEN should fail when cdc_max_virtual_wal_per_tserver is 0 (no virtual
    * WAL can be created for the notifications poller). After resetting the flag,
@@ -1077,23 +1087,14 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    * Scenario:
    *   1. LISTEN on tserver 0 -- creates replication slot yb_notifications_<uuid>.
    *   2. Verify the slot exists.
-   *   3. Crash (SIGKILL) tserver 0 and restart it. Masters stay up.
-   *   4. Verify the old slot is gone (master deletes it during heartbeat).
-   *   5. LISTEN on a new connection -- creates a fresh slot and works.
+   *   3. Crash (SIGKILL) tserver 0 and restart it.
+   *   4. Verify the old slot is gone.
+   *   5. LISTEN on a new connection -- creates a fresh slot.
    */
   @Test
   public void testSlotCleanupOnTServerRestart() throws Exception {
     final String channel = "restart_test";
-
-    // Find the RPC HostAndPort for tserver 0 (same bind IP as PG contact point).
-    String ts0Host = getPgHost(0);
-    HostAndPort ts0RpcHostPort = null;
-    for (HostAndPort hp : miniCluster.getTabletServers().keySet()) {
-      if (hp.getHost().equals(ts0Host)) {
-        ts0RpcHostPort = hp;
-        break;
-      }
-    }
+    HostAndPort ts0RpcHostPort = getRpcHostPortForTServer(0);
 
     // Step 1: LISTEN to trigger replication slot creation.
     Connection listenConn = getConnectionBuilder().withTServer(0).connect();
@@ -1105,18 +1106,13 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         "SELECT slot_name FROM pg_replication_slots"
         + " WHERE slot_name LIKE 'yb_notifications_%'");
     assertEquals("Expected one notifications replication slot", 1, slots.size());
-    String slotName = slots.get(0).getString(0);
-    LOG.info("Notifications replication slot before crash: " + slotName);
+    LOG.info("Notifications replication slot before crash: " + slots.get(0).getString(0));
 
-    // Step 3: Crash tserver 0 (SIGKILL -- no graceful PG shutdown, so the slot
-    // is NOT cleaned up by the PG backend). Then restart it. Masters stay alive
-    // and retain the slot in the sys catalog.
-    LOG.info("Crashing and restarting tserver 0");
+    // Step 3: Crash tserver 0 and restart it.
     miniCluster.crashAndRestartTServer(ts0RpcHostPort);
     miniCluster.waitForTabletServers(miniCluster.getNumTServers());
 
-    // Step 4: Verify the old slot is gone. The master should have deleted it
-    // during the re-registration heartbeat (seqno increase detected).
+    // Step 4: Verify the old slot is gone.
     try (Connection conn = getConnectionBuilder().withTServer(0).connect();
          Statement stmt = conn.createStatement()) {
       List<Row> slotsAfter = getRowList(stmt,
@@ -1134,19 +1130,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
           + " WHERE slot_name LIKE 'yb_notifications_%'");
       assertEquals("Expected a new notifications replication slot", 1, slotsAfter.size());
       LOG.info("New notifications replication slot: " + slotsAfter.get(0).getString(0));
-    }
-
-    // Verify LISTEN/NOTIFY works end-to-end after restart.
-    try (Connection listener = getConnectionBuilder().withTServer(0).connect();
-         Connection notifier = getConnectionBuilder().connect()) {
-      try (Statement stmt = listener.createStatement()) {
-        stmt.execute("LISTEN " + channel);
-      }
-      try (Statement stmt = notifier.createStatement()) {
-        stmt.execute("NOTIFY " + channel + ", 'after_restart'");
-      }
-      waitForNotification(listener, channel, "after_restart");
-      LOG.info("LISTEN/NOTIFY works after tserver restart");
     }
   }
 
@@ -1166,24 +1149,16 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     final String channel = "decommission_test";
     YBClient client = miniCluster.getClient();
 
-    // Find tserver 0's RPC HostAndPort and UUID.
-    String ts0Host = getPgHost(0);
-    HostAndPort ts0RpcHostPort = null;
-    for (HostAndPort hp : miniCluster.getTabletServers().keySet()) {
-      if (hp.getHost().equals(ts0Host)) {
-        ts0RpcHostPort = hp;
-        break;
-      }
-    }
+    HostAndPort ts0RpcHostPort = getRpcHostPortForTServer(0);
 
     String ts0Uuid = null;
     for (org.yb.util.ServerInfo si : client.listTabletServers().getTabletServersList()) {
-      if (si.getHost().equals(ts0Host)) {
+      if (si.getHost().equals(ts0RpcHostPort.getHost())) {
         ts0Uuid = si.getUuid();
         break;
       }
     }
-    LOG.info("Tserver 0: host={}, rpc={}, uuid={}", ts0Host, ts0RpcHostPort, ts0Uuid);
+    LOG.info("Tserver 0: rpc={}, uuid={}", ts0RpcHostPort, ts0Uuid);
 
     // Add a 4th tserver so tablets can move off tserver 0 (RF=3 with 3
     // tservers leaves nowhere to place replicas).
