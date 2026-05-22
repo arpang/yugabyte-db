@@ -1139,7 +1139,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    *
    * Scenario:
    *   1. LISTEN on tserver 0 -- creates replication slot.
-   *   2. Blacklist tserver 0 and wait for load to move off.
+   *   2. Add a 4th tserver, blacklist tserver 0, and wait for load to move off.
    *   3. Kill tserver 0 and wait for it to become unresponsive.
    *   4. Call RemoveTabletServer for tserver 0.
    *   5. Verify the slot is gone.
@@ -1160,13 +1160,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     }
     LOG.info("Tserver 0: rpc={}, uuid={}", ts0RpcHostPort, ts0Uuid);
 
-    // Add a 4th tserver so tablets can move off tserver 0 (RF=3 with 3
-    // tservers leaves nowhere to place replicas).
-    spawnTServerWithFlags(new HashMap<>());
-    miniCluster.waitForTabletServers(4);
-
-    // Step 1: LISTEN to trigger replication slot creation. Keep the connection
-    // open so PG backend doesn't clean up the slot on graceful close.
+    // Step 1: LISTEN to trigger replication slot creation.
     Connection listenConn = getConnectionBuilder().withTServer(0).connect();
     Statement listenStmt = listenConn.createStatement();
     listenStmt.execute("LISTEN " + channel);
@@ -1177,28 +1171,25 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     assertEquals("Expected one notifications replication slot", 1, slots.size());
     LOG.info("Notifications slot before decommission: " + slots.get(0).getString(0));
 
-    // Step 2: Blacklist tserver 0 and wait for load to move off.
+    // Step 2: Add a 4th tserver, blacklist tserver 0, and wait for load to move off.
+    spawnTServerWithFlags(new HashMap<>());
+    miniCluster.waitForTabletServers(4);
+
     List<CommonNet.HostPortPB> blacklistHosts = new ArrayList<>();
     blacklistHosts.add(CommonNet.HostPortPB.newBuilder()
         .setHost(ts0RpcHostPort.getHost())
         .setPort(ts0RpcHostPort.getPort())
         .build());
     new ModifyMasterClusterConfigBlacklist(client, blacklistHosts, true /* isAdd */).doCall();
-    LOG.info("Blacklisted tserver 0");
 
     TestUtils.waitFor(() -> {
       GetLoadMovePercentResponse resp = client.getLoadMoveCompletion();
-      LOG.info("Load move: {}% complete, remaining={}", resp.getPercentCompleted(),
-          resp.getRemaining());
       return resp.getPercentCompleted() >= 100 && resp.getRemaining() == 0;
     }, Timeouts.adjustTimeoutSecForBuildType(120 * 1000));
-    LOG.info("Load moved off tserver 0");
 
-    // Step 3: SIGKILL tserver 0 (no graceful PG shutdown, so the slot is NOT
-    // cleaned up by the PG backend) and wait for it to become unresponsive.
+    // Step 3: SIGKILL tserver 0 and wait for it to become unresponsive.
     miniCluster.getTabletServers().get(ts0RpcHostPort).getProcess().destroyForcibly().waitFor();
     miniCluster.killTabletServerOnHostPort(ts0RpcHostPort);
-    LOG.info("Killed tserver 0, waiting for unresponsive timeout");
     Thread.sleep(TSERVER_UNRESPONSIVE_TIMEOUT_MS * 2);
 
     // Step 4: Call RemoveTabletServer via yb-admin.
@@ -1207,7 +1198,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         "remove_tablet_server", ts0Uuid);
     LOG.info("RemoveTabletServer succeeded for tserver " + ts0Uuid);
 
-    // Step 5: Verify the slot is gone (connect to a different tserver).
+    // Step 5: Verify the slot is gone.
     try (Connection conn = getConnectionBuilder().withTServer(1).connect();
          Statement stmt = conn.createStatement()) {
       List<Row> slotsAfter = getRowList(stmt,
