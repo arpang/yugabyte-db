@@ -262,10 +262,7 @@ DEFINE_UNKNOWN_int32(read_pool_max_threads, 128,
              "to run multiple read operations, that are part of the same tablet rpc, "
              "in parallel.");
 
-DEFINE_UNKNOWN_int32(read_pool_max_queue_size, 128,
-             "The maximum number of tasks that can be held in the queue for read_pool_. This pool "
-             "is used to run multiple read operations, that are part of the same tablet rpc, "
-             "in parallel.");
+DEPRECATE_FLAG(int32, read_pool_max_queue_size, "05_2026");
 
 DEPRECATE_FLAG(int32, post_split_trigger_compaction_pool_max_threads, "02_2024");
 DEPRECATE_FLAG(int32, post_split_trigger_compaction_pool_max_queue_size, "02_2024");
@@ -276,11 +273,7 @@ DEFINE_NON_RUNTIME_int32(full_compaction_pool_max_threads, 1,
               "or after they have been split and still contain irrelevant data from the tablet "
               "they were sourced from.");
 
-DEFINE_NON_RUNTIME_int32(full_compaction_pool_max_queue_size, 500,
-             "The maximum number of tasks that can be held in the pool for "
-             "full_compaction_pool_. This pool is used to run full compactions on tablets "
-             "on a scheduled basis or after they have been split and still contain irrelevant data "
-             "from the tablet they were sourced from.");
+DEPRECATE_FLAG(int32, full_compaction_pool_max_queue_size, "05_2026");
 
 DEPRECATE_FLAG(int32, scheduled_full_compaction_check_interval_min, "02_2024");
 
@@ -309,8 +302,7 @@ DEFINE_NON_RUNTIME_uint32(deleted_tablet_cache_max_size, 10000,
     "Maximum size for the cache of recently deleted tablet ids. Used to "
     "reject remote bootstrap requests for recently deleted tablets.");
 
-DEFINE_RUNTIME_bool(
-    reject_rbs_for_deleted_tablet, true,
+DEFINE_RUNTIME_bool(reject_rbs_for_deleted_tablet, true,
     "Whether to reject a request to RBS a tablet that the receiving tserver has recently deleted.");
 
 DEFINE_UNKNOWN_int32(flush_bootstrap_state_pool_max_threads, -1,
@@ -576,7 +568,6 @@ TSTabletManager::TSTabletManager(FsManager* fs_manager,
       .run_time_us_stats = METRIC_op_read_run_time.Instantiate(server_->metric_entity())};
   CHECK_OK(ThreadPoolBuilder("read-parallel")
                .set_max_threads(FLAGS_read_pool_max_threads)
-               .set_max_queue_size(FLAGS_read_pool_max_queue_size)
                .set_metrics(std::move(read_metrics))
                .Build(&read_pool_));
   CHECK_OK(ThreadPoolBuilder("admin-compaction")
@@ -586,7 +577,6 @@ TSTabletManager::TSTabletManager(FsManager* fs_manager,
                .Build(&admin_triggered_compaction_pool_));
   CHECK_OK(ThreadPoolBuilder("full-compaction")
               .set_max_threads(FLAGS_full_compaction_pool_max_threads)
-              .set_max_queue_size(FLAGS_full_compaction_pool_max_queue_size)
               .set_metrics(THREAD_POOL_METRICS_INSTANCE(
                   server_->metric_entity(), full_compaction_pool))
               .Build(&full_compaction_pool_));
@@ -2045,9 +2035,6 @@ Status MaybeAssignPerDbCgroups(
     TabletPeer* tablet_peer, tablet::Tablet* tablet,
     const RaftGroupMetadata& meta, TServerCgroupManager* cm) {
   if (!cm) return Status::OK();
-  bool consensus_per_db = FLAGS_qos_consensus_per_db_cgroups;
-  bool compaction_per_db = FLAGS_qos_compaction_per_db_cgroups;
-  if (!consensus_per_db && !compaction_per_db) return Status::OK();
 
   if (meta.table_type() != PGSQL_TABLE_TYPE) return Status::OK();
   auto namespace_id = meta.namespace_id();
@@ -2057,8 +2044,15 @@ Status MaybeAssignPerDbCgroups(
   if (FLAGS_qos_system_dbs_use_shared_pool && IsQosSystemDatabaseOid(db_oid)) {
     return Status::OK();
   }
-  auto& cgroup = VERIFY_RESULT_REF(cm->CgroupForDb(db_oid));
+
+  // Register database name for metrics, regardless of per-DB cgroup flags.
   cm->RegisterDbName(db_oid, meta.namespace_name());
+
+  bool consensus_per_db = FLAGS_qos_consensus_per_db_cgroups;
+  bool compaction_per_db = FLAGS_qos_compaction_per_db_cgroups;
+  if (!consensus_per_db && !compaction_per_db) return Status::OK();
+
+  auto& cgroup = VERIFY_RESULT_REF(cm->CgroupForDb(db_oid));
   if (consensus_per_db) {
     tablet_peer->SetPerDbCgroup(&cgroup);
   }
