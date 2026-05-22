@@ -3213,7 +3213,6 @@ ybNotifsPollerLoop()
 {
 	YbVirtualWalRecord *record;
 	List	   *publications = ybNotifsPublications();
-	bool		runtime_error_occurred = false;
 	bool		shmem_found;
 	YbNotifsPollerShmemData *poller_data = ybShmemNotifsPollerData(&shmem_found);
 
@@ -3229,18 +3228,6 @@ ybNotifsPollerLoop()
 
 		if (ShutdownRequestPending)
 			proc_exit(0);
-
-		/*
-		 * Wait for SIGTERM from the last listener's cleanup
-		 * (ybCleanupListenState). New listeners are blocked from
-		 * registering by the has_runtime_error check in
-		 * Exec_ListenPreCommit.
-		 */
-		if (runtime_error_occurred)
-		{
-			pg_usleep(100000L);
-			continue;
-		}
 
 		/*
 		 * YBCReadRecord sleeps using yb_walsender_poll_sleep_duration_*_ms.
@@ -3278,7 +3265,9 @@ ybNotifsPollerLoop()
 			FlushErrorState();
 
 			ybSignalAllListeners();
-			runtime_error_occurred = true;
+
+			/* Nothing else to do, exit. */
+			proc_exit(0);
 		}
 		PG_END_TRY();
 	}
