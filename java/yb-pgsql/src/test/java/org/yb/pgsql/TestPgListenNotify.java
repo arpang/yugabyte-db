@@ -970,10 +970,9 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
 
   /**
    * Triggers a CDC stream expiry by setting cdc_intent_retention_ms low (2s) and poller sleep
-   * high (10s). The poller's first poll succeeds, then it sleeps 10s. On the next poll,
-   * 10s > 2s retention, so CheckStreamActive() returns a non-retryable "stream expired" error.
+   * high (5s). The poller's first poll succeeds, on the next poll it receives a non-retryable
+   * "stream expired" error.
    *
-   * After triggering, waits for the error to occur (~15s adjusted for build type).
    */
   private void triggerCdcStreamExpiry() throws Exception {
     setCdcIntentRetentionMs("2000");
