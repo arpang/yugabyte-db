@@ -117,8 +117,7 @@ DEFINE_RUNTIME_bool(xcluster_target_manual_override, false,
     "YugabyteDB support before using.");
 TAG_FLAG(xcluster_target_manual_override, hidden);
 
-DEFINE_test_flag(
-    bool, request_unknown_tables_during_perform, false,
+DEFINE_test_flag(bool, request_unknown_tables_during_perform, false,
     "Add several unknown tables while processing perfrom request. "
     "It is expected that opening of such tables will fail");
 
@@ -3437,6 +3436,7 @@ class PgClientSession::Impl {
     }
 
     // If read_point is set to a time ahead of the xcluster safe time then we wait.
+    SCOPED_WAIT_STATUS(XCluster_WaitForSafeTime);
     return WaitFor(
         [&requested_read_time, &namespace_id, this]() -> Result<bool> {
           auto safe_time = VERIFY_RESULT(xcluster_context()->GetSafeTime(namespace_id));
@@ -4317,10 +4317,11 @@ class PgClientSession::Impl {
 };
 
 PgClientSession::PgClientSession(
-    TransactionBuilder&& transaction_builder, SharedThisSource shared_this_source,
-    client::YBClient& client, std::reference_wrapper<const PgClientSessionContext> context,
+    SharedThisSource shared_this_source, rpc::Scheduler& scheduler,
+    TransactionBuilder&& transaction_builder, client::YBClient& client,
+    std::reference_wrapper<const PgClientSessionContext> context,
     uint64_t id, pid_t pid, uint64_t lease_epoch,
-    tserver::TSLocalLockManagerPtr ts_local_lock_manager, rpc::Scheduler& scheduler)
+    tserver::TSLocalLockManagerPtr ts_local_lock_manager)
     : impl_(new Impl(
           std::move(transaction_builder), {std::move(shared_this_source), this}, client, context,
           id, pid, lease_epoch, std::move(ts_local_lock_manager), scheduler)) {}

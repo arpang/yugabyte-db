@@ -152,8 +152,7 @@ using TabletToTabletServerMap = std::unordered_map<TabletId, TabletServerId>;
 
 using TableToTabletInfos = std::unordered_map<TableId, std::vector<TabletInfoPtr>>;
 
-YB_DEFINE_ENUM(
-    CDCSDKStreamCreationState,
+YB_DEFINE_ENUM(CDCSDKStreamCreationState,
     // Stream has been initialized but no in-memory data structures or sys-catalog have been
     // modified.
     (kInitialized)
@@ -188,8 +187,7 @@ YB_DEFINE_ENUM(YsqlDdlSubTransactionRollbackState,
     (kDdlSubTxnRollbackInProgress)
     (kDdlSubTxnRollbackPostProcessingFailed));
 
-YB_DEFINE_ENUM(
-    DeleteYsqlDBTablesType,
+YB_DEFINE_ENUM(DeleteYsqlDBTablesType,
     (kNormal)                // Reglar DB drop. Can we used during both normal operations and major
                              // upgrade.
     (kMajorUpgradeRollback)  // Delete all rows and tables of the current catalog in order to
@@ -551,6 +549,9 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
   // NOTE: This function must only be called when we know that the table is being deleted i.e. it
   // assumes that the table is being deleted.
   bool IsTableDeletionDueToRollbackToSubTxn(const TableInfo* table, TransactionId& txn_id);
+  template <class LockType>
+  bool IsTableDeletionDueToRollbackToSubTxnWithLock(
+      const TableInfo* table, const LockType& l, TransactionId& txn_id);
 
   // Rollback all the DDL state changes made by the YSQL transaction from the end till
   // rollback_till_ddl_state_index of ysql_ddl_txn_verifier_state i.e.
@@ -3296,7 +3297,7 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
     // The table info objects of the tables affected by this rollback to sub-transaction operation.
     std::vector<TableInfoPtr> tables;
     // Set of index tables whose deletion due to rollback to sub-transaction operation was skipped
-    // since its base table.
+    // since its base table is also being deleted.
     std::unordered_set<TableId> indexes_skipped_due_to_base_table_deletion;
   };
 

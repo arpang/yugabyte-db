@@ -3474,7 +3474,16 @@ TEST_F(PgLibPqPgssQtextLeakTest, TestNoMemoryLeakOnCorruptedPgssQtext) {
   constexpr int kNumPopulateQueries = 500;
   constexpr int kPgMaxIdentifierLen = 63;  // NAMEDATALEN - 1
   const int kLeakIterations = RegularBuildVsSanitizers(2000, 500);
-  const int64_t kMaxRssGrowthKb = RegularBuildVsSanitizers(50, 200) * 1024;
+  // The sanitizer threshold is set well above the ASAN baseline overhead (issue #31709):
+  // 500 iterations of the error path accumulate ~200 MB of RSS from ASAN's shadow memory,
+  // redzones, allocator metadata, and per-error ereport/longjmp cleanup state -- not from
+  // the leak this test guards against. Before bumping to 400 MB, runs consistently landed
+  // at ~203 MB and tipped over the previous 200 MB threshold ~28% of the time. A real
+  // regression of the qtext-buffer leak would add file_size * iterations of growth (with
+  // ASAN's per-allocation overhead on top -- empirically ~4x), so a threshold of 400 MB
+  // still detects an unfixed leak comfortably while leaving room for ASAN measurement
+  // noise. The non-sanitizer threshold (50 MB) is unchanged.
+  const int64_t kMaxRssGrowthKb = RegularBuildVsSanitizers(50, 400) * 1024;
   constexpr size_t kCorruptOffset = 500;
 
   auto conn = ASSERT_RESULT(Connect());
@@ -4393,7 +4402,7 @@ TEST_F(PgLibPqTest, CatalogCacheIdMissMetricsTest) {
   }
 }
 
-class PgLibPqAmopNegCacheTest : public PgLibPqTest {
+class PgLibPqNegCacheTest : public PgLibPqTest {
  public:
   enum class NegCacheTestType {
     kPreload,
@@ -4407,31 +4416,37 @@ class PgLibPqAmopNegCacheTest : public PgLibPqTest {
     PgLibPqTest::UpdateMiniClusterOptions(options);
   }
 
-  struct AmopMetrics {
+  struct NegCacheMetrics {
     int64_t total;
     int64_t negative;
   };
 
-  void TestAmopNegCacheMiss(NegCacheTestType test_type) {
+  auto runQueryAndGetMetrics(
+      PGConn& conn,
+      const std::string& query,
+      const std::string& catalog_table
+    ) -> Result<NegCacheMetrics> {
+    auto str = VERIFY_RESULT(
+        conn.FetchAllAsString(query));
+    LOG(INFO) << "output " << str;
+
+    NegCacheMetrics m;
+    m.total = VERIFY_RESULT(GetCatCacheTableMissMetric(catalog_table));
+    m.negative = VERIFY_RESULT(GetCatCacheNegMissMetric(catalog_table));
+    LOG(INFO) << catalog_table << " total misses " << m.total
+              << ", neg misses " << m.negative;
+    return m;
+  }
+
+  void TestProcoidNegCacheMiss(NegCacheTestType test_type) {
     auto conn = ASSERT_RESULT(Connect());
     ASSERT_OK(conn.Execute("CREATE TABLE test(k TEXT PRIMARY KEY)"));
 
     auto conn2 = ASSERT_RESULT(Connect());
-    auto runQueryAndGetMetrics = [&]() -> Result<AmopMetrics> {
-      auto str = VERIFY_RESULT(
-          conn2.FetchAllAsString("EXPLAIN (ANALYZE, DIST) SELECT * FROM test WHERE k <> 'a'"));
-      LOG(INFO) << "output " << str;
 
-      AmopMetrics m;
-      m.total = VERIFY_RESULT(GetCatCacheTableMissMetric("pg_amop"));
-      m.negative = VERIFY_RESULT(GetCatCacheNegMissMetric("pg_amop"));
-      LOG(INFO) << "pg_amop total misses " << m.total
-                << ", neg misses " << m.negative;
-      return m;
-    };
-
-    auto m1 = ASSERT_RESULT(runQueryAndGetMetrics());
-    auto m2 = ASSERT_RESULT(runQueryAndGetMetrics());
+    const std::string query = "SELECT pg_get_functiondef(9999999)";
+    auto m1 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_proc"));
+    auto m2 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_proc"));
 
     switch (test_type) {
       case NegCacheTestType::kNegCache:
@@ -4448,14 +4463,14 @@ class PgLibPqAmopNegCacheTest : public PgLibPqTest {
     LOG(INFO) << "Testing invalid values for yb_neg_catcache_ids";
     ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='52252'"),
       YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
-    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='3.14'"),
+    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='45.14'"),
       YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
-    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids=3.14"),
+    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids=45.14"),
       YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
     LOG(INFO) << "Completed invalid tests";
 
-    ASSERT_OK(conn2.Execute("SET yb_neg_catcache_ids='3'"));
-    auto m3 = ASSERT_RESULT(runQueryAndGetMetrics());
+    ASSERT_OK(conn2.Execute("SET yb_neg_catcache_ids='45'"));
+    auto m3 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_proc"));
 
     switch (test_type) {
       case NegCacheTestType::kNegCache:
@@ -4473,15 +4488,46 @@ class PgLibPqAmopNegCacheTest : public PgLibPqTest {
         ASSERT_GT(m3.total, m2.total);
         ASSERT_GT(m3.negative, m2.negative);
 
-        auto m4 = ASSERT_RESULT(runQueryAndGetMetrics());
+        auto m4 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_proc"));
         ASSERT_EQ(m4.total, m3.total);
         ASSERT_EQ(m4.negative, m3.negative);
         break;
     }
   }
+
+  // With AMOPOPID and AMOPSTRATEGY NegCache whitelisted, cache misses should be the same
+  // regardless of server flags.
+  void TestAmopNegCacheMiss() {
+    auto conn = ASSERT_RESULT(Connect());
+    ASSERT_OK(conn.Execute("CREATE TABLE test(k TEXT PRIMARY KEY)"));
+
+    auto conn2 = ASSERT_RESULT(Connect());
+
+    const std::string query = "EXPLAIN (ANALYZE, DIST) SELECT * FROM test WHERE k <> 'a'";
+    auto m1 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_amop"));
+    auto m2 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_amop"));
+
+    ASSERT_EQ(m2.total, m1.total);
+    ASSERT_EQ(m2.negative, m1.negative);
+
+    LOG(INFO) << "Testing invalid values for yb_neg_catcache_ids";
+    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='52252'"),
+      YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
+    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='3.14'"),
+      YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
+    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids=3.14"),
+      YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
+    LOG(INFO) << "Completed invalid tests";
+
+    ASSERT_OK(conn2.Execute("SET yb_neg_catcache_ids='3'"));
+    auto m3 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_amop"));
+
+    ASSERT_EQ(m3.total, m1.total);
+    ASSERT_EQ(m3.negative, m1.negative);
+  }
 };
 
-class PgLibPqAmopNoPreloadNegCacheTest : public PgLibPqAmopNegCacheTest {
+class PgLibPqNoPreloadNegCacheTest : public PgLibPqNegCacheTest {
  protected:
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     options->extra_tserver_flags.emplace_back(
@@ -4491,31 +4537,35 @@ class PgLibPqAmopNoPreloadNegCacheTest : public PgLibPqAmopNegCacheTest {
   }
 };
 
-class PgLibPqAmopPreloadNegCacheTest : public PgLibPqAmopNegCacheTest {
+class PgLibPqPrecoidPreloadNegCacheTest : public PgLibPqNegCacheTest {
  protected:
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     options->extra_tserver_flags.emplace_back(
         "--ysql_pg_conf_csv=yb_test_make_all_ddl_statements_incrementing=false,"
         "yb_enable_negative_catcache_entries=false");
     options->extra_tserver_flags.emplace_back(
-        "--ysql_catalog_preload_additional_table_list=pg_amop");
-    PgLibPqTest::UpdateMiniClusterOptions(options);
+        "--ysql_catalog_preload_additional_table_list=pg_proc");
   }
 };
 
 // Default behavior: negative caching is enabled.
-TEST_F_EX(PgLibPqTest, PgAmopNegCacheTest, PgLibPqAmopNegCacheTest) {
-  TestAmopNegCacheMiss(NegCacheTestType::kNegCache);
+TEST_F_EX(PgLibPqTest, PgProcoidNegCacheTest, PgLibPqNegCacheTest) {
+  TestProcoidNegCacheMiss(NegCacheTestType::kNegCache);
 }
 
 // Disable negative caching.
-TEST_F_EX(PgLibPqTest, PgAmopNoPreloadCacheTest, PgLibPqAmopNoPreloadNegCacheTest) {
-  TestAmopNegCacheMiss(NegCacheTestType::kNoPreload);
+TEST_F_EX(PgLibPqTest, PgProcoidNoPreloadCacheTest, PgLibPqNoPreloadNegCacheTest) {
+  TestProcoidNegCacheMiss(NegCacheTestType::kNoPreload);
 }
 
 // Disable negative caching and preload pg_amop.
-TEST_F_EX(PgLibPqTest, PgAmopPreloadCacheTest, PgLibPqAmopPreloadNegCacheTest) {
-  TestAmopNegCacheMiss(NegCacheTestType::kPreload);
+TEST_F_EX(PgLibPqTest, PgProcoidPreloadCacheTest, PgLibPqPrecoidPreloadNegCacheTest) {
+  TestProcoidNegCacheMiss(NegCacheTestType::kPreload);
+}
+
+// Whitelisted NegCache should be cached regardless of server flags.
+TEST_F_EX(PgLibPqTest, PgAmopNoPreloadCacheTest, PgLibPqNoPreloadNegCacheTest) {
+  TestAmopNegCacheMiss();
 }
 
 class PgLibPqOperatorCacheLazyListTest : public PgLibPqTest {
@@ -5426,12 +5476,27 @@ class PgLibPqTestTableLocksDisabled : public PgLibPqTest {
   }
 };
 
+// Widens the read-restart uncertainty window and warms PG catalog caches at connect time so
+// the InconsistentUpdateReadNonPrefixKey test is not derailed by sanitizer-amplified per-backend
+// catalog warm-up: under SAN the first DML on a fresh connection pays 100s of ms loading
+// bank_accounts metadata, which would push the conflicting UPDATE past the default 500ms
+// max_clock_skew_usec and leave it outside s_sum's uncertainty window (no read restart fires).
+class PgLibPqInconsistentReadTest : public PgLibPqTest {
+ protected:
+  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
+    options->extra_tserver_flags.emplace_back("--max_clock_skew_usec=10000000");
+    options->extra_master_flags.emplace_back("--max_clock_skew_usec=10000000");
+    options->extra_tserver_flags.emplace_back("--ysql_catalog_preload_additional_tables=true");
+    PgLibPqTest::UpdateMiniClusterOptions(options);
+  }
+};
+
 // Test case for GitHub issue #28628. The IN-list is on a non-prefix range column so the
 // variable bloom filter (which is keyed on the prefix range column) does not bypass scan
 // choices' intermediate seeks, allowing the rollback-of-max_seen_ht bug to surface. A
 // third range column `sub_id` is added so the planner cannot form full ybctids and must
 // exercise HybridScanChoices on the non-prefix `id` column.
-TEST_F(PgLibPqTest, InconsistentUpdateReadNonPrefixKey) {
+TEST_F_EX(PgLibPqTest, InconsistentUpdateReadNonPrefixKey, PgLibPqInconsistentReadTest) {
   auto conn = ASSERT_RESULT(Connect());
 
   ASSERT_OK(conn.Execute(
