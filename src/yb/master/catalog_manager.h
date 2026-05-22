@@ -1499,7 +1499,8 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
       const DeleteCDCStreamRequestPB* req, DeleteCDCStreamResponsePB* resp, rpc::RpcContext* rpc);
 
   // Delete the notifications replication slot for a tserver.
-  Status DeleteNotificationsReplicationSlot(const std::string& tserver_uuid);
+  Status DeleteNotificationsReplicationSlot(
+      const std::string& tserver_uuid, uint64_t tserver_start_time = 0);
 
   // List CDC streams (optionally, for a given table).
   Status ListCDCStreams(

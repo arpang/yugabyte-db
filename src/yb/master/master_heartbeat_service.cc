@@ -1579,7 +1579,8 @@ MasterHeartbeatServiceImpl::RegisterTServerOrRespond(
     if (FLAGS_ysql_yb_enable_listen_notify &&
         old_seqno >= 0 &&
         req.common().ts_instance().instance_seqno() > old_seqno) {
-      auto s = catalog_manager_->DeleteNotificationsReplicationSlot(ts_uuid);
+      auto s = catalog_manager_->DeleteNotificationsReplicationSlot(
+          ts_uuid, req.common().ts_instance().start_time_us());
       WARN_NOT_OK(s, Format(
           "Failed to delete notifications replication slot for restarted tserver $0", ts_uuid));
     }
