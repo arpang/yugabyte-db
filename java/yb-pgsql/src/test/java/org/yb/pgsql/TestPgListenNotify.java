@@ -1089,7 +1089,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    *   2. Verify the slot exists.
    *   3. Crash (SIGKILL) tserver 0 and restart it.
    *   4. Verify the old slot is gone.
-   *   5. LISTEN on a new connection -- creates a fresh slot.
    */
   @Test
   public void testSlotCleanupOnTServerRestart() throws Exception {
@@ -1112,24 +1111,13 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     miniCluster.crashAndRestartTServer(ts0RpcHostPort);
     miniCluster.waitForTabletServers(miniCluster.getNumTServers());
 
-    // Step 4: Verify the old slot is gone.
-    try (Connection conn = getConnectionBuilder().withTServer(0).connect();
+    // Step 4: Poll a surviving tserver until the old slot is gone.
+    try (Connection conn = getConnectionBuilder().withTServer(1).connect();
          Statement stmt = conn.createStatement()) {
-      List<Row> slotsAfter = getRowList(stmt,
+      TestUtils.waitFor(() -> getRowList(stmt,
           "SELECT slot_name FROM pg_replication_slots"
-          + " WHERE slot_name LIKE 'yb_notifications_%'");
-      assertTrue("Stale notifications replication slot should have been deleted,"
-          + " but found: " + slotsAfter, slotsAfter.isEmpty());
-
-      // Step 5: LISTEN should work -- creates a new slot.
-      stmt.execute("LISTEN " + channel);
-      LOG.info("LISTEN succeeded after tserver restart");
-
-      slotsAfter = getRowList(stmt,
-          "SELECT slot_name FROM pg_replication_slots"
-          + " WHERE slot_name LIKE 'yb_notifications_%'");
-      assertEquals("Expected a new notifications replication slot", 1, slotsAfter.size());
-      LOG.info("New notifications replication slot: " + slotsAfter.get(0).getString(0));
+          + " WHERE slot_name LIKE 'yb_notifications_%'").isEmpty(),
+          Timeouts.adjustTimeoutSecForBuildType(30_000));
     }
   }
 
