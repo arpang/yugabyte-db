@@ -2516,6 +2516,9 @@ namespace {
 class PgLibPqTestRF1: public PgLibPqTest {
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     options->replication_factor = 1;
+    // Disable LISTEN/NOTIFY to prevent its background task (catalog warm up,
+    // create table) from sending unexpected master RPCs.
+    options->extra_master_flags.emplace_back("--ysql_yb_enable_listen_notify=false");
   }
 
   int GetNumMasters() const override {
