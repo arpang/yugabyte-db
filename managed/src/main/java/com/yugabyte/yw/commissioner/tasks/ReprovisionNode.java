@@ -91,7 +91,6 @@ public class ReprovisionNode extends UniverseDefinitionTaskBase {
           .setSubTaskGroupType(UserTaskDetails.SubTaskGroupType.Provisioning);
 
       Set<NodeDetails> nodeCollection = Collections.singleton(currentNode);
-
       // Need to reinstall node agent.
       createRemoveNodeAgentTasks(universe, nodeCollection, true /*forceRemove*/);
       if (!userIntent.getAllCloudTypes().contains(CloudType.local)) {

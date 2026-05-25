@@ -279,8 +279,7 @@ public class CreateUniverse extends UniverseDefinitionTaskBase {
 
       // Start ybc process on all the nodes
       if (taskParams().isEnableYbc()) {
-        createStartYbcProcessTasks(
-            taskParams().nodeDetailsSet, taskParams().getPrimaryCluster().userIntent.useSystemd);
+        createStartYbcProcessTasks(taskParams().nodeDetailsSet);
         createUpdateYbcTask(taskParams().getYbcSoftwareVersion())
             .setSubTaskGroupType(SubTaskGroupType.ConfigureUniverse);
       }

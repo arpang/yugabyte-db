@@ -130,8 +130,7 @@ struct TabletOnDiskSizeInfo {
   }
 };
 
-YB_DEFINE_ENUM(
-    TabletObjectState,
+YB_DEFINE_ENUM(TabletObjectState,
     (kUninitialized)
     (kAvailable)
     (kDestroyed));
@@ -259,6 +258,8 @@ class TabletPeer : public std::enable_shared_from_this<TabletPeer>,
 
   // Returns false if it is preferable to don't apply write operation.
   bool ShouldApplyWrite() override;
+
+  bool AreWritesStopped() override;
 
   // Returns valid shared pointer to the consensus. Returns a not OK status if the consensus is not
   // in a valid state or a peer is not running (shutting down or shut down).

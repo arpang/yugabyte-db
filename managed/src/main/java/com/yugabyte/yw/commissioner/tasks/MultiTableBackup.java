@@ -243,15 +243,15 @@ public class MultiTableBackup extends UniverseTaskBase {
         // Clear previous subtasks if any.
         getRunnableTask().reset();
 
-        if (!isK8s) {
-          // Ansible Configure Task for copying xxhsum binaries from
-          // third_party directory to the DB nodes.
-          installThirdPartyPackagesTask(universe)
-              .setSubTaskGroupType(UserTaskDetails.SubTaskGroupType.InstallingThirdPartySoftware);
-        } else {
+        if (isK8s) {
           installThirdPartyPackagesTaskK8s(
                   universe, InstallThirdPartySoftwareK8s.SoftwareUpgradeType.XXHSUM)
               .setSubTaskGroupType(UserTaskDetails.SubTaskGroupType.InstallingThirdPartySoftware);
+        } else {
+          // Skip the backup tools installation as it depends on the removed ansible dependency
+          log.warn(
+              "YB Controller backup is not enabled. Assuming legacy backups tools are already"
+                  + " installed");
         }
 
         if (params().alterLoadBalancer) {

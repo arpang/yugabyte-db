@@ -70,8 +70,7 @@ DECLARE_int32(tserver_unresponsive_timeout_ms);
 DECLARE_bool(cdcsdk_enable_dynamic_tables_disable_option);
 DECLARE_uint64(master_ysql_operation_lease_ttl_ms);
 
-DEFINE_RUNTIME_AUTO_bool(
-    use_parent_table_id_field, kLocalPersisted, false, true,
+DEFINE_RUNTIME_AUTO_bool(use_parent_table_id_field, kLocalPersisted, false, true,
     "Whether to use the new schema for colocated tables based on the parent_table_id field.");
 TAG_FLAG(use_parent_table_id_field, advanced);
 
@@ -1558,6 +1557,12 @@ bool CDCStreamInfo::IsDynamicTableAdditionDisabled() const {
 bool CDCStreamInfo::IsTablesWithoutPrimaryKeyAllowed() const {
   auto l = LockForRead();
   return l->pb.has_allow_tables_without_primary_key() && l->pb.allow_tables_without_primary_key();
+}
+
+bool CDCStreamInfo::DetectPublicationChangesImplicitly() const {
+  auto l = LockForRead();
+  return l->pb.has_detect_publication_changes_implicitly() &&
+         l->pb.detect_publication_changes_implicitly();
 }
 
 std::string CDCStreamInfo::ToString() const {

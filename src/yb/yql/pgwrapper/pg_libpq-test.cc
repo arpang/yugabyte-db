@@ -3346,10 +3346,11 @@ Result<string> PgLibPqTest::GetPostmasterPidViaShell(PGConn* conn) {
 class PgLibPqConcurrentDdlDml : public PgLibPqTest {
  public:
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
-    options->extra_tserver_flags.push_back(Format("--enable_object_locking_for_table_locks=true"));
-    options->extra_tserver_flags.push_back(Format("--ysql_yb_ddl_transaction_block_enabled=true"));
-    options->extra_tserver_flags.push_back(
-        Format("--ysql_pg_conf_csv=yb_enable_concurrent_ddl=true"));
+    options->extra_tserver_flags.push_back("--enable_object_locking_for_table_locks=true");
+    options->extra_tserver_flags.push_back("--ysql_yb_ddl_transaction_block_enabled=true");
+    options->extra_tserver_flags.push_back("--ysql_enable_concurrent_ddl=true");
+    AppendFlagToAllowedPreviewFlagsCsv(
+        options->extra_tserver_flags, "ysql_enable_concurrent_ddl");
     PgLibPqTest::UpdateMiniClusterOptions(options);
   }
 };
@@ -3473,7 +3474,16 @@ TEST_F(PgLibPqPgssQtextLeakTest, TestNoMemoryLeakOnCorruptedPgssQtext) {
   constexpr int kNumPopulateQueries = 500;
   constexpr int kPgMaxIdentifierLen = 63;  // NAMEDATALEN - 1
   const int kLeakIterations = RegularBuildVsSanitizers(2000, 500);
-  const int64_t kMaxRssGrowthKb = RegularBuildVsSanitizers(50, 200) * 1024;
+  // The sanitizer threshold is set well above the ASAN baseline overhead (issue #31709):
+  // 500 iterations of the error path accumulate ~200 MB of RSS from ASAN's shadow memory,
+  // redzones, allocator metadata, and per-error ereport/longjmp cleanup state -- not from
+  // the leak this test guards against. Before bumping to 400 MB, runs consistently landed
+  // at ~203 MB and tipped over the previous 200 MB threshold ~28% of the time. A real
+  // regression of the qtext-buffer leak would add file_size * iterations of growth (with
+  // ASAN's per-allocation overhead on top -- empirically ~4x), so a threshold of 400 MB
+  // still detects an unfixed leak comfortably while leaving room for ASAN measurement
+  // noise. The non-sanitizer threshold (50 MB) is unchanged.
+  const int64_t kMaxRssGrowthKb = RegularBuildVsSanitizers(50, 400) * 1024;
   constexpr size_t kCorruptOffset = 500;
 
   auto conn = ASSERT_RESULT(Connect());
@@ -4392,7 +4402,7 @@ TEST_F(PgLibPqTest, CatalogCacheIdMissMetricsTest) {
   }
 }
 
-class PgLibPqAmopNegCacheTest : public PgLibPqTest {
+class PgLibPqNegCacheTest : public PgLibPqTest {
  public:
   enum class NegCacheTestType {
     kPreload,
@@ -4406,31 +4416,37 @@ class PgLibPqAmopNegCacheTest : public PgLibPqTest {
     PgLibPqTest::UpdateMiniClusterOptions(options);
   }
 
-  struct AmopMetrics {
+  struct NegCacheMetrics {
     int64_t total;
     int64_t negative;
   };
 
-  void TestAmopNegCacheMiss(NegCacheTestType test_type) {
+  auto runQueryAndGetMetrics(
+      PGConn& conn,
+      const std::string& query,
+      const std::string& catalog_table
+    ) -> Result<NegCacheMetrics> {
+    auto str = VERIFY_RESULT(
+        conn.FetchAllAsString(query));
+    LOG(INFO) << "output " << str;
+
+    NegCacheMetrics m;
+    m.total = VERIFY_RESULT(GetCatCacheTableMissMetric(catalog_table));
+    m.negative = VERIFY_RESULT(GetCatCacheNegMissMetric(catalog_table));
+    LOG(INFO) << catalog_table << " total misses " << m.total
+              << ", neg misses " << m.negative;
+    return m;
+  }
+
+  void TestProcoidNegCacheMiss(NegCacheTestType test_type) {
     auto conn = ASSERT_RESULT(Connect());
     ASSERT_OK(conn.Execute("CREATE TABLE test(k TEXT PRIMARY KEY)"));
 
     auto conn2 = ASSERT_RESULT(Connect());
-    auto runQueryAndGetMetrics = [&]() -> Result<AmopMetrics> {
-      auto str = VERIFY_RESULT(
-          conn2.FetchAllAsString("EXPLAIN (ANALYZE, DIST) SELECT * FROM test WHERE k <> 'a'"));
-      LOG(INFO) << "output " << str;
 
-      AmopMetrics m;
-      m.total = VERIFY_RESULT(GetCatCacheTableMissMetric("pg_amop"));
-      m.negative = VERIFY_RESULT(GetCatCacheNegMissMetric("pg_amop"));
-      LOG(INFO) << "pg_amop total misses " << m.total
-                << ", neg misses " << m.negative;
-      return m;
-    };
-
-    auto m1 = ASSERT_RESULT(runQueryAndGetMetrics());
-    auto m2 = ASSERT_RESULT(runQueryAndGetMetrics());
+    const std::string query = "SELECT pg_get_functiondef(9999999)";
+    auto m1 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_proc"));
+    auto m2 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_proc"));
 
     switch (test_type) {
       case NegCacheTestType::kNegCache:
@@ -4447,14 +4463,14 @@ class PgLibPqAmopNegCacheTest : public PgLibPqTest {
     LOG(INFO) << "Testing invalid values for yb_neg_catcache_ids";
     ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='52252'"),
       YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
-    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='3.14'"),
+    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='45.14'"),
       YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
-    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids=3.14"),
+    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids=45.14"),
       YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
     LOG(INFO) << "Completed invalid tests";
 
-    ASSERT_OK(conn2.Execute("SET yb_neg_catcache_ids='3'"));
-    auto m3 = ASSERT_RESULT(runQueryAndGetMetrics());
+    ASSERT_OK(conn2.Execute("SET yb_neg_catcache_ids='45'"));
+    auto m3 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_proc"));
 
     switch (test_type) {
       case NegCacheTestType::kNegCache:
@@ -4472,15 +4488,46 @@ class PgLibPqAmopNegCacheTest : public PgLibPqTest {
         ASSERT_GT(m3.total, m2.total);
         ASSERT_GT(m3.negative, m2.negative);
 
-        auto m4 = ASSERT_RESULT(runQueryAndGetMetrics());
+        auto m4 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_proc"));
         ASSERT_EQ(m4.total, m3.total);
         ASSERT_EQ(m4.negative, m3.negative);
         break;
     }
   }
+
+  // With AMOPOPID and AMOPSTRATEGY NegCache whitelisted, cache misses should be the same
+  // regardless of server flags.
+  void TestAmopNegCacheMiss() {
+    auto conn = ASSERT_RESULT(Connect());
+    ASSERT_OK(conn.Execute("CREATE TABLE test(k TEXT PRIMARY KEY)"));
+
+    auto conn2 = ASSERT_RESULT(Connect());
+
+    const std::string query = "EXPLAIN (ANALYZE, DIST) SELECT * FROM test WHERE k <> 'a'";
+    auto m1 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_amop"));
+    auto m2 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_amop"));
+
+    ASSERT_EQ(m2.total, m1.total);
+    ASSERT_EQ(m2.negative, m1.negative);
+
+    LOG(INFO) << "Testing invalid values for yb_neg_catcache_ids";
+    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='52252'"),
+      YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
+    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids='3.14'"),
+      YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
+    ASSERT_NOK_PG_ERROR_CODE(conn2.Execute("SET yb_neg_catcache_ids=3.14"),
+      YBPgErrorCode::YB_PG_INVALID_PARAMETER_VALUE);
+    LOG(INFO) << "Completed invalid tests";
+
+    ASSERT_OK(conn2.Execute("SET yb_neg_catcache_ids='3'"));
+    auto m3 = ASSERT_RESULT(runQueryAndGetMetrics(conn2, query, "pg_amop"));
+
+    ASSERT_EQ(m3.total, m1.total);
+    ASSERT_EQ(m3.negative, m1.negative);
+  }
 };
 
-class PgLibPqAmopNoPreloadNegCacheTest : public PgLibPqAmopNegCacheTest {
+class PgLibPqNoPreloadNegCacheTest : public PgLibPqNegCacheTest {
  protected:
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     options->extra_tserver_flags.emplace_back(
@@ -4490,31 +4537,35 @@ class PgLibPqAmopNoPreloadNegCacheTest : public PgLibPqAmopNegCacheTest {
   }
 };
 
-class PgLibPqAmopPreloadNegCacheTest : public PgLibPqAmopNegCacheTest {
+class PgLibPqPrecoidPreloadNegCacheTest : public PgLibPqNegCacheTest {
  protected:
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     options->extra_tserver_flags.emplace_back(
         "--ysql_pg_conf_csv=yb_test_make_all_ddl_statements_incrementing=false,"
         "yb_enable_negative_catcache_entries=false");
     options->extra_tserver_flags.emplace_back(
-        "--ysql_catalog_preload_additional_table_list=pg_amop");
-    PgLibPqTest::UpdateMiniClusterOptions(options);
+        "--ysql_catalog_preload_additional_table_list=pg_proc");
   }
 };
 
 // Default behavior: negative caching is enabled.
-TEST_F_EX(PgLibPqTest, PgAmopNegCacheTest, PgLibPqAmopNegCacheTest) {
-  TestAmopNegCacheMiss(NegCacheTestType::kNegCache);
+TEST_F_EX(PgLibPqTest, PgProcoidNegCacheTest, PgLibPqNegCacheTest) {
+  TestProcoidNegCacheMiss(NegCacheTestType::kNegCache);
 }
 
 // Disable negative caching.
-TEST_F_EX(PgLibPqTest, PgAmopNoPreloadCacheTest, PgLibPqAmopNoPreloadNegCacheTest) {
-  TestAmopNegCacheMiss(NegCacheTestType::kNoPreload);
+TEST_F_EX(PgLibPqTest, PgProcoidNoPreloadCacheTest, PgLibPqNoPreloadNegCacheTest) {
+  TestProcoidNegCacheMiss(NegCacheTestType::kNoPreload);
 }
 
 // Disable negative caching and preload pg_amop.
-TEST_F_EX(PgLibPqTest, PgAmopPreloadCacheTest, PgLibPqAmopPreloadNegCacheTest) {
-  TestAmopNegCacheMiss(NegCacheTestType::kPreload);
+TEST_F_EX(PgLibPqTest, PgProcoidPreloadCacheTest, PgLibPqPrecoidPreloadNegCacheTest) {
+  TestProcoidNegCacheMiss(NegCacheTestType::kPreload);
+}
+
+// Whitelisted NegCache should be cached regardless of server flags.
+TEST_F_EX(PgLibPqTest, PgAmopNoPreloadCacheTest, PgLibPqNoPreloadNegCacheTest) {
+  TestAmopNegCacheMiss();
 }
 
 class PgLibPqOperatorCacheLazyListTest : public PgLibPqTest {
@@ -4737,6 +4788,61 @@ TEST_F_EX(PgLibPqTest, PgEnumMinPreloadNegativeCaching, BasePgEnumPreloadMinimal
   // pg_enum is preloaded and the enum values exist, so there should be
   // no neg misses (all lookups find the tuple).
   ASSERT_EQ(neg_after, 0);
+}
+
+// Test fixture with ysql_catalog_preload_additional_tables=true (preloads pg_proc, pg_cast, etc.)
+// and ysql_minimal_catalog_caches_preload=true.
+class PgMinimalPreloadAdditionalTablesTest : public PgLibPqTest {
+ protected:
+  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
+    options->extra_tserver_flags.push_back(
+        "--ysql_catalog_preload_additional_tables=true");
+    options->extra_tserver_flags.push_back(
+        "--ysql_minimal_catalog_caches_preload=true");
+    PgLibPqTest::UpdateMiniClusterOptions(options);
+  }
+};
+
+// Test that user-defined functions whose name collides with a builtin can be
+// resolved correctly when minimal preloading + additional table preload are on.
+// gen_random_uuid is a builtin (pg_catalog) and is commonly also installed in
+// the public schema via the pgcrypto extension.
+TEST_F_EX(PgLibPqTest, PgProcMinPreloadBuiltinNameCollision,
+          PgMinimalPreloadAdditionalTablesTest) {
+  auto conn = ASSERT_RESULT(Connect());
+
+  // Create a user-defined function that shadows a builtin name.
+  ASSERT_OK(conn.Execute(
+      "CREATE OR REPLACE FUNCTION public.gen_random_uuid() "
+      "RETURNS uuid AS $$ SELECT 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid $$ "
+      "LANGUAGE sql"));
+
+  // Open a new connection so catcache lists are freshly loaded from preload.
+  auto conn2 = ASSERT_RESULT(Connect());
+
+  // The direct call goes through FuncnameGetCandidates ->
+  // SearchSysCacheList(PROCNAMEARGSNSP, ...) and should invoke the
+  // user-defined version, not the pg_catalog builtin.
+  auto uuid = ASSERT_RESULT(conn2.FetchRow<std::string>(
+      "SELECT public.gen_random_uuid()::text"));
+  ASSERT_EQ(uuid, "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11");
+}
+
+// Test that a user-defined function with a unique name (no builtin collision)
+// works correctly with minimal preloading + additional table preload.
+TEST_F_EX(PgLibPqTest, PgProcMinPreloadUniqueUserFunc,
+          PgMinimalPreloadAdditionalTablesTest) {
+  auto conn = ASSERT_RESULT(Connect());
+
+  ASSERT_OK(conn.Execute(
+      "CREATE FUNCTION my_custom_add(a int, b int) RETURNS int AS $$ "
+      "SELECT a + b $$ LANGUAGE sql"));
+
+  auto conn2 = ASSERT_RESULT(Connect());
+
+  auto result = ASSERT_RESULT(conn2.FetchRow<int32_t>(
+      "SELECT my_custom_add(3, 4)"));
+  ASSERT_EQ(result, 7);
 }
 
 // Test that preloading pg_range prevents cache misses on the RANGEMULTIRANGE catcache.
@@ -5304,12 +5410,7 @@ CREATE TABLE t1_default PARTITION OF t1 DEFAULT;
   conn = ASSERT_RESULT(ConnectToDB("test_en_us_utf8_db"));
   result = ASSERT_RESULT(conn.FetchAllAsString("SELECT * FROM t1 ORDER BY region"));
   LOG(INFO) << "test_en_us_utf8_db result: " << result;
-  // MacOS and Linux have different sort order of en_US.UTF-8 collation.
-#if defined(__linux__)
   ASSERT_EQ(result, utf8_expected);
-#else
-  ASSERT_EQ(result, c_expected);
-#endif
   conn = ASSERT_RESULT(ConnectToDB("test_en_us_x_icu_db"));
   result = ASSERT_RESULT(conn.FetchAllAsString("SELECT * FROM t1 ORDER BY region"));
   LOG(INFO) << "test_en_us_x_icu_db result: " << result;
@@ -5375,6 +5476,78 @@ class PgLibPqTestTableLocksDisabled : public PgLibPqTest {
   }
 };
 
+// Widens the read-restart uncertainty window and warms PG catalog caches at connect time so
+// the InconsistentUpdateReadNonPrefixKey test is not derailed by sanitizer-amplified per-backend
+// catalog warm-up: under SAN the first DML on a fresh connection pays 100s of ms loading
+// bank_accounts metadata, which would push the conflicting UPDATE past the default 500ms
+// max_clock_skew_usec and leave it outside s_sum's uncertainty window (no read restart fires).
+class PgLibPqInconsistentReadTest : public PgLibPqTest {
+ protected:
+  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
+    options->extra_tserver_flags.emplace_back("--max_clock_skew_usec=10000000");
+    options->extra_master_flags.emplace_back("--max_clock_skew_usec=10000000");
+    options->extra_tserver_flags.emplace_back("--ysql_catalog_preload_additional_tables=true");
+    PgLibPqTest::UpdateMiniClusterOptions(options);
+  }
+};
+
+// Test case for GitHub issue #28628. The IN-list is on a non-prefix range column so the
+// variable bloom filter (which is keyed on the prefix range column) does not bypass scan
+// choices' intermediate seeks, allowing the rollback-of-max_seen_ht bug to surface. A
+// third range column `sub_id` is added so the planner cannot form full ybctids and must
+// exercise HybridScanChoices on the non-prefix `id` column.
+TEST_F_EX(PgLibPqTest, InconsistentUpdateReadNonPrefixKey, PgLibPqInconsistentReadTest) {
+  auto conn = ASSERT_RESULT(Connect());
+
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE bank_accounts (type VARCHAR(50), id INT, sub_id INT, balance INT, "
+      "PRIMARY KEY(type ASC, id ASC, sub_id ASC)) "
+      "SPLIT AT VALUES (('savings', 5, 0))"));
+
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_OK(conn.ExecuteFormat(
+        "INSERT INTO bank_accounts (type, id, sub_id, balance) "
+        "VALUES ('savings', $0, 0, 100)", i));
+  }
+
+  // Verify initial balances of (3, 7, 10): 3 and 7 exist, 10 does not.
+  auto initial_balances = ASSERT_RESULT(conn.FetchRows<int32_t>(
+      "SELECT balance FROM bank_accounts WHERE type = 'savings' AND id IN (3, 7, 10)"));
+  auto initial_sum = std::accumulate(initial_balances.begin(), initial_balances.end(), 0);
+  ASSERT_EQ(initial_sum, 200);
+
+  auto s_sum = ASSERT_RESULT(Connect());
+  auto s_update = ASSERT_RESULT(Connect());
+
+  // s_sum: read from first tablet to set local_limit there only.
+  ASSERT_OK(s_sum.StartTransaction(IsolationLevel::SNAPSHOT_ISOLATION));
+  auto balance3 = ASSERT_RESULT(s_sum.FetchRow<int32_t>(
+      "SELECT balance FROM bank_accounts WHERE type = 'savings' AND id = 3 AND sub_id = 0"));
+  ASSERT_EQ(balance3, 100);
+
+  // s_update: cross-tablet update transferring 10 from id=3 (tablet 1) to id=7 (tablet 2).
+  // Only atomicity is needed -- a default-isolation transaction is sufficient.
+  ASSERT_OK(s_update.Execute("BEGIN"));
+  ASSERT_OK(s_update.Execute(
+      "UPDATE bank_accounts SET balance = balance - 10 "
+      "WHERE type = 'savings' AND id = 3 AND sub_id = 0"));
+  ASSERT_OK(s_update.Execute(
+      "UPDATE bank_accounts SET balance = balance + 10 "
+      "WHERE type = 'savings' AND id = 7 AND sub_id = 0"));
+  ASSERT_OK(s_update.Execute("COMMIT"));
+
+  // Re-read with IN-list on the non-prefix key. The variable bloom filter remains enabled
+  // (prefix `type` is fixed), but the IN-list on `id` still drives scan choices, so the
+  // read must observe the conflicting update and require a restart.
+  ASSERT_OK(s_sum.Execute("SET yb_debug_log_docdb_requests=true"));
+  auto updated_balances_result = s_sum.FetchRows<int32_t>(
+      "SELECT balance FROM bank_accounts WHERE type = 'savings' AND id IN (3, 7, 9)");
+  ASSERT_NOK(updated_balances_result);
+  ASSERT_STR_CONTAINS(updated_balances_result.status().ToString(), "Restart read required");
+
+  ASSERT_OK(s_sum.RollbackTransaction());
+}
+
 // Test aborting concurrent ANALYZEs doesn't cause the connection to FATAL.
 // During execution of ANALYZE, when analyzing each table, CurrentUserId is switched to the table
 // owner's userid and SecurityRestrictionContext is set to indicate security-restricted operations.
@@ -5430,9 +5603,11 @@ TEST_F(PgLibPqTest, DumpTabletData) {
   auto conn = ASSERT_RESULT(cluster_->ConnectToDB(namespace_name));
   const auto table_name = "tbl1";
   ASSERT_OK(conn.ExecuteFormat(
-      "CREATE TABLE $0 (id INT PRIMARY KEY, name TEXT) SPLIT INTO 1 TABLETS", table_name));
+      "CREATE TABLE $0 (id INT PRIMARY KEY, name TEXT, salary NUMERIC(12,2)) SPLIT INTO 1 TABLETS",
+      table_name));
   ASSERT_OK(conn.ExecuteFormat(
-      "INSERT INTO $0 (id, name) SELECT i, 'test' || i FROM generate_series(1, 10) i", table_name));
+      "INSERT INTO $0 (id, name, salary) SELECT i, 'test' || i, i + 0.50 "
+      "FROM generate_series(1, 10) i", table_name));
 
   std::vector<TabletId> tablet_ids;
   auto table_names = ASSERT_RESULT(client_->ListTables(table_name));
@@ -5444,6 +5619,21 @@ TEST_F(PgLibPqTest, DumpTabletData) {
 
   // Wait for rows to get replicated to followers.
   SleepFor(1s * kTimeMultiplier);
+
+  // Dump tablet data with a destination path to exercise the binary -> string conversion path,
+  // which is required to reproduce decoding bugs for types like NUMERIC.
+  const auto dest_path = GetTestPath("dump_tablet_data.out");
+  ASSERT_OK(DumpTabletData(/* tserver_idx */ 0, tablet_id, HybridTime(), dest_path));
+
+  faststring dumped;
+  ASSERT_OK(ReadFileToString(Env::Default(), dest_path, &dumped));
+  const auto dumped_str = dumped.ToString();
+  LOG(INFO) << "Dumped tablet data:\n" << dumped_str;
+  ASSERT_STR_CONTAINS(dumped_str, Format("Tablet ID: $0", tablet_id));
+  ASSERT_STR_CONTAINS(dumped_str, "Row count: 10");
+  for (int i = 1; i <= 10; ++i) {
+    ASSERT_STR_CONTAINS(dumped_str, Format("$0, test$0, $0.5", i));
+  }
 
   ASSERT_OK(ValidateTabletDataAcrossReplicas(tablet_id));
 }

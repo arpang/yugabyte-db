@@ -1449,7 +1449,9 @@ public class PlacementInfoUtil {
             return false;
           }
           AZInfo azInfo = oldAZMap.get(newAZ.uuid);
-          if (!Objects.equals(azInfo, newAZ)) {
+          if (!Objects.equals(
+              azInfo,
+              new AZInfo(newAZ.isAffinitized, newAZ.numNodesInAZ, newAZ.leaderPreference))) {
             return false;
           }
         }

@@ -156,13 +156,6 @@ public class NodeManager extends DevopsBase {
 
   public static final String YUGABYTE_USER = "yugabyte";
 
-  static final String ANSIBLE_STRATEGY = "yb.ansible.strategy";
-  static final String ANSIBLE_TIMEOUT = "yb.ansible.conn_timeout_secs";
-  static final String ANSIBLE_VERBOSITY = "yb.ansible.verbosity";
-  static final String ANSIBLE_DEBUG = "yb.ansible.debug";
-  static final String ANSIBLE_DIFF_ALWAYS = "yb.ansible.diff_always";
-  static final String ANSIBLE_LOCAL_TEMP = "yb.ansible.local_temp";
-
   @Inject Config appConfig;
 
   @Inject RuntimeConfigFactory runtimeConfigFactory;
@@ -301,13 +294,6 @@ public class NodeManager extends DevopsBase {
       command.add("--node_metadata");
       command.add(detailsJson.toString());
     }
-    // Add systemd debugging for any systemctl service management commands.
-    if (confGetter.getGlobalConf(GlobalConfKeys.enableSystemdDebugLogging)) {
-      command.add("--systemd_debug");
-    }
-    if (confGetter.getGlobalConf(GlobalConfKeys.ansibleKeepRemoteFiles)) {
-      command.add("--ansible_keep_remote_files");
-    }
     return command;
   }
 
@@ -409,13 +395,6 @@ public class NodeManager extends DevopsBase {
       String sshUserOverride,
       Integer sshPort) {
     List<String> subCommand = new ArrayList<>();
-
-    if (keyInfo != null && keyInfo.vaultFile != null) {
-      subCommand.add("--vars_file");
-      subCommand.add(keyInfo.vaultFile);
-      subCommand.add("--vault_password_file");
-      subCommand.add(keyInfo.vaultPasswordFile);
-    }
     if (keyInfo != null && keyInfo.privateKey != null) {
       subCommand.add("--private_key_file");
       subCommand.add(keyInfo.privateKey);
@@ -1520,33 +1499,6 @@ public class NodeManager extends DevopsBase {
     return skipHostValidation ? SkipCertValidationType.HOSTNAME : SkipCertValidationType.NONE;
   }
 
-  private Map<String, String> getAnsibleEnvVars(UUID universeUUID) {
-    Map<String, String> envVars = new HashMap<>();
-    Universe universe = Universe.getOrBadRequest(universeUUID);
-
-    envVars.put(
-        "ANSIBLE_STRATEGY", confGetter.getConfForScope(universe, UniverseConfKeys.ansibleStrategy));
-    envVars.put(
-        "ANSIBLE_TIMEOUT",
-        Integer.toString(
-            confGetter.getConfForScope(universe, UniverseConfKeys.ansibleConnectionTimeoutSecs)));
-    envVars.put(
-        "ANSIBLE_VERBOSITY",
-        Integer.toString(confGetter.getConfForScope(universe, UniverseConfKeys.ansibleVerbosity)));
-    if (confGetter.getConfForScope(universe, UniverseConfKeys.ansibleDebug)) {
-      envVars.put("ANSIBLE_DEBUG", "True");
-    }
-    if (confGetter.getConfForScope(universe, UniverseConfKeys.ansibleDiffAlways)) {
-      envVars.put("ANSIBLE_DIFF_ALWAYS", "True");
-    }
-    envVars.put(
-        "ANSIBLE_LOCAL_TEMP",
-        confGetter.getConfForScope(universe, UniverseConfKeys.ansibleLocalTemp));
-
-    log.trace("ansible env vars {}", envVars);
-    return envVars;
-  }
-
   private Map<String, String> getFaultInjectionEnvVars(Provider provider) {
     Map<String, String> envVars = new HashMap<>();
     String faultInjectedPaths =
@@ -1612,7 +1564,6 @@ public class NodeManager extends DevopsBase {
           // Assume node is using systemd if universe metadata does not exist.
           commandArgs.add("--systemd_services");
         }
-        addDefaultAnsibleEnvVars(ansibleEnvVars);
         customTimeout =
             confGetter.getGlobalConf(GlobalConfKeys.destroyServerCommandTimeout).getSeconds();
         break;
@@ -1655,23 +1606,6 @@ public class NodeManager extends DevopsBase {
             .redactedVals(redactedVals)
             .timeoutSecs(customTimeout)
             .build());
-  }
-
-  private void addDefaultAnsibleEnvVars(Map<String, String> ansibleEnvVars) {
-    ansibleEnvVars.put("ANSIBLE_STRATEGY", confGetter.getStaticConf().getString(ANSIBLE_STRATEGY));
-    ansibleEnvVars.put(
-        "ANSIBLE_TIMEOUT", Integer.toString(confGetter.getStaticConf().getInt(ANSIBLE_TIMEOUT)));
-    ansibleEnvVars.put(
-        "ANSIBLE_VERBOSITY",
-        Integer.toString(confGetter.getStaticConf().getInt(ANSIBLE_VERBOSITY)));
-    if (confGetter.getStaticConf().getBoolean(ANSIBLE_DEBUG)) {
-      ansibleEnvVars.put("ANSIBLE_DEBUG", "True");
-    }
-    if (confGetter.getStaticConf().getBoolean(ANSIBLE_DIFF_ALWAYS)) {
-      ansibleEnvVars.put("ANSIBLE_DIFF_ALWAYS", "True");
-    }
-    ansibleEnvVars.put(
-        "ANSIBLE_LOCAL_TEMP", confGetter.getStaticConf().getString(ANSIBLE_LOCAL_TEMP));
   }
 
   private Path addBootscript(
@@ -2169,9 +2103,6 @@ public class NodeManager extends DevopsBase {
               commandArgs.add(StringUtils.join(node.cloudInfo.lun_indexes, ","));
             }
           }
-          if (taskParam.skipAnsiblePlaybook) {
-            commandArgs.add("--skip_ansible_playbook");
-          }
           break;
         }
       case Configure:
@@ -2192,9 +2123,6 @@ public class NodeManager extends DevopsBase {
           }
           if (taskParam.installThirdPartyPackages) {
             commandArgs.add("--install_third_party_packages");
-          }
-          if (taskParam.skipDownloadSoftware) {
-            commandArgs.add("--skip_ansible_configure_playbook");
           }
           UniverseDefinitionTaskParams.Cluster cluster =
               universe.getCluster(nodeTaskParam.placementUuid);
@@ -2527,52 +2455,6 @@ public class NodeManager extends DevopsBase {
           log.info("Verifying access to node {}", nodeTaskParam.nodeName);
           NodeAccessTaskParams taskParams = (NodeAccessTaskParams) nodeTaskParam;
           commandArgs.addAll(getNodeSSHCommand(taskParams));
-          String newPrivateKeyFilePath = taskParams.taskAccessKey.getKeyInfo().privateKey;
-          sensitiveData.put("--new_private_key_file", newPrivateKeyFilePath);
-          break;
-        }
-      case Add_Authorized_Key:
-        {
-          if (!(nodeTaskParam instanceof NodeAccessTaskParams)) {
-            throw new RuntimeException("NodeTaskParams is not NodeAccessTaskParams");
-          }
-          log.info("Adding a new key to authorized keys of node {}", nodeTaskParam.nodeName);
-          NodeAccessTaskParams taskParams = (NodeAccessTaskParams) nodeTaskParam;
-          commandArgs.addAll(getNodeSSHCommand(taskParams));
-          // for uploaded private key case, public  key content is taken from private key file
-          if (taskParams.taskAccessKey.getKeyInfo().publicKey != null) {
-            String pubKeyContent = taskParams.taskAccessKey.getPublicKeyContent();
-            if (pubKeyContent.equals("")) {
-              throw new RuntimeException("Public key content is empty!");
-            }
-            sensitiveData.put("--public_key_content", pubKeyContent);
-          } else {
-            sensitiveData.put("--public_key_content", "");
-          }
-          String newPrivateKeyFilePath = taskParams.taskAccessKey.getKeyInfo().privateKey;
-          sensitiveData.put("--new_private_key_file", newPrivateKeyFilePath);
-          break;
-        }
-      case Remove_Authorized_Key:
-        {
-          if (!(nodeTaskParam instanceof NodeAccessTaskParams)) {
-            throw new RuntimeException("NodeTaskParams is not NodeAccessTaskParams");
-          }
-          log.info("Removing a key from authorized keys of node {}", nodeTaskParam.nodeName);
-          NodeAccessTaskParams taskParams = (NodeAccessTaskParams) nodeTaskParam;
-          commandArgs.addAll(getNodeSSHCommand(taskParams));
-          // for uploaded private key case, public  key content is taken from private key file
-          if (taskParams.taskAccessKey.getKeyInfo().publicKey != null) {
-            String pubKeyContent = taskParams.taskAccessKey.getPublicKeyContent();
-            if (pubKeyContent.equals("")) {
-              throw new RuntimeException("Public key content is empty!");
-            }
-            sensitiveData.put("--public_key_content", pubKeyContent);
-          } else {
-            sensitiveData.put("--public_key_content", "");
-          }
-          String oldPrivateKeyFilePath = taskParams.taskAccessKey.getKeyInfo().privateKey;
-          sensitiveData.put("--old_private_key_file", oldPrivateKeyFilePath);
           break;
         }
       case Reboot:
@@ -2696,10 +2578,7 @@ public class NodeManager extends DevopsBase {
     commandArgs.add(nodeTaskParam.nodeName);
     try {
       Map<String, String> envVars =
-          ImmutableMap.<String, String>builder()
-              .putAll(getAnsibleEnvVars(nodeTaskParam.getUniverseUUID()))
-              .putAll(getFaultInjectionEnvVars(provider))
-              .build();
+          ImmutableMap.<String, String>builder().putAll(getFaultInjectionEnvVars(provider)).build();
       return execCommand(
           DevopsCommand.builder()
               .regionUUID(nodeTaskParam.getRegion().getUuid())
@@ -2952,22 +2831,16 @@ public class NodeManager extends DevopsBase {
     }
   }
 
-  public List<String> getNodeSSHCommand(NodeAccessTaskParams params) {
+  private List<String> getNodeSSHCommand(NodeAccessTaskParams params) {
     KeyInfo keyInfo = params.accessKey.getKeyInfo();
     Provider provider = Provider.getOrBadRequest(params.customerUUID, params.providerUUID);
     Integer sshPort = provider.getDetails().sshPort;
     String sshUser = params.sshUser;
-    String vaultPasswordFile = keyInfo.vaultPasswordFile;
-    String vaultFile = keyInfo.vaultFile;
     List<String> commandArgs = new ArrayList<>();
     commandArgs.add("--ssh_user");
     commandArgs.add(sshUser);
     commandArgs.add("--custom_ssh_port");
     commandArgs.add(sshPort.toString());
-    commandArgs.add("--vault_password_file");
-    commandArgs.add(vaultPasswordFile);
-    commandArgs.add("--vars_file");
-    commandArgs.add(vaultFile);
     String privateKeyFilePath = keyInfo.privateKey;
     if (privateKeyFilePath != null) {
       commandArgs.add("--private_key_file");

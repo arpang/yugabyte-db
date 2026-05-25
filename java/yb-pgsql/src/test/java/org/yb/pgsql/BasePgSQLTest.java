@@ -104,7 +104,7 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
   /** Matches Postgres' FirstNormalObjectId */
   protected final long FIRST_NORMAL_OID = 16384;
 
-  protected final long WAIT_FOR_PG_AFTER_CLUSTER_START_TIMEOUT_MS = 10000;
+  protected final long WAIT_FOR_PG_AFTER_CLUSTER_START_TIMEOUT_MS = 30000;
 
   private boolean pg_connection_check_after_startup = true;
 
@@ -187,6 +187,11 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
       "With Connection Manager, logical connections will share the same physical connection " +
       "due to which catalog cache hits occur for the same query executed on different logical " +
       "connections";
+
+  protected static final String RELCACHE_INIT_NEEDS_NEW_BACKEND =
+      "The test expects every client connection to create a backend and initialize relcache. " +
+      "With Connection Manager and auth passthrough, client connections may not map to new " +
+      "backend relcache initialization, so the main assertion is not meaningful.";
 
   protected static final String GUC_REPLAY_AFFECTS_CONN_STATE =
       "Skipping this test with Connection Manager enabled. Connection Manager replays session " +

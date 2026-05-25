@@ -417,55 +417,6 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
           "If enabled, slow queries data will be stored for universe, once per hour.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<String> ansibleStrategy =
-      new ConfKeyInfo<>(
-          "yb.ansible.strategy",
-          ScopeType.UNIVERSE,
-          "Ansible Strategy",
-          "strategy can be linear, mitogen_linear or debug",
-          ConfDataType.StringType,
-          ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Integer> ansibleConnectionTimeoutSecs =
-      new ConfKeyInfo<>(
-          "yb.ansible.conn_timeout_secs",
-          ScopeType.UNIVERSE,
-          "Ansible Connection Timeout Duration",
-          "This is the default timeout for connection plugins to use.",
-          ConfDataType.IntegerType,
-          ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Integer> ansibleVerbosity =
-      new ConfKeyInfo<>(
-          "yb.ansible.verbosity",
-          ScopeType.UNIVERSE,
-          "Ansible Verbosity Level",
-          "verbosity of ansible logs, 0 to 4 (more verbose)",
-          ConfDataType.IntegerType,
-          ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Boolean> ansibleDebug =
-      new ConfKeyInfo<>(
-          "yb.ansible.debug",
-          ScopeType.UNIVERSE,
-          "Ansible Debug Output",
-          "Debug output (can include secrets in output)",
-          ConfDataType.BooleanType,
-          ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<Boolean> ansibleDiffAlways =
-      new ConfKeyInfo<>(
-          "yb.ansible.diff_always",
-          ScopeType.UNIVERSE,
-          "Ansible Diff Always",
-          "Configuration toggle to tell modules to show differences "
-              + "when in 'changed' status, equivalent to --diff.",
-          ConfDataType.BooleanType,
-          ImmutableList.of(ConfKeyTags.PUBLIC));
-  public static final ConfKeyInfo<String> ansibleLocalTemp =
-      new ConfKeyInfo<>(
-          "yb.ansible.local_temp",
-          ScopeType.UNIVERSE,
-          "Ansible Local Temp Directory",
-          "Temporary directory for Ansible to use on the controller.",
-          ConfDataType.StringType,
-          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Boolean> perfAdvisorEnabled =
       new ConfKeyInfo<>(
           "yb.perf_advisor.enabled",
@@ -1308,6 +1259,16 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.INTERNAL));
 
+  public static final ConfKeyInfo<Duration> comprehensivePrecheckCheckServiceLivenessTimeout =
+      new ConfKeyInfo<>(
+          "yb.checks.comprehensive_prechecks.check_service_liveness_timeout",
+          ScopeType.UNIVERSE,
+          "CheckServiceLiveness timeout for comprehensive prechecks",
+          "Timeout for CheckServiceLiveness subtasks during comprehensive prechecks "
+              + "(universe create/edit and rolling upgrades).",
+          ConfDataType.DurationType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
+
   public static final ConfKeyInfo<Integer> nodesAreSafeToTakeDownParallelism =
       new ConfKeyInfo<>(
           "yb.checks.nodes_safe_to_take_down.parallelism",
@@ -1789,6 +1750,16 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
           "Skip auto flags and YSQL migration files validation",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<String> ysqlMajorUpgradeMinStableDbVersion =
+      new ConfKeyInfo<>(
+          "yb.upgrade.ysql_major_upgrade_min_stable_db_version",
+          ScopeType.UNIVERSE,
+          "YSQL major upgrade minimum stable DB version",
+          "Minimum DB software version required on stable release tracks before a YSQL major"
+              + " version upgrade can proceed. Preview release tracks use a fixed platform"
+              + " minimum. Use a valid YBA DB version string (for example 2024.2.3.0-b1).",
+          ConfDataType.StringType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
   public static final ConfKeyInfo<Long> ybcPerDiskIoRequestSize =
       new ConfKeyInfo<>(
           "ybc.disk_io_request_size_bytes",
@@ -1902,4 +1873,38 @@ public class UniverseConfKeys extends RuntimeConfigKeysModule {
               + " payload.",
           ConfDataType.BooleanType,
           ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> allowMultiTenancy =
+      new ConfKeyInfo<>(
+          "yb.universe.allow_multi_tenancy",
+          ScopeType.UNIVERSE,
+          "Allow users to enable multi-tenancy",
+          "If this flag is enabled, user will be able to enable the multi-tenancy QoS feature on"
+              + " universes.",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Duration> flushTabletsTimeoutOnStopTserver =
+      new ConfKeyInfo<>(
+          "yb.task.flush_tablets_timeout_on_stop_tserver",
+          ScopeType.UNIVERSE,
+          "Flush Tablets Timeout on Stop TServer",
+          "Timeout for flushing tablets when stopping tserver",
+          ConfDataType.DurationType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> multitenancySkipYcqlPrecheck =
+      new ConfKeyInfo<>(
+          "yb.universe.multitenancy_skip_ycql_precheck",
+          ScopeType.UNIVERSE,
+          "Skip YCQL precheck when enabling multi-tenancy",
+          "If this flag is enabled, the precheck that requires YCQL to be disabled is skipped",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.PUBLIC));
+  public static final ConfKeyInfo<Boolean> allowMultiTenancyTestUi =
+      new ConfKeyInfo<>(
+          "yb.universe.allow_multi_tenancy_test_ui",
+          ScopeType.UNIVERSE,
+          "Show multi-tenancy controls in the UI for testing",
+          "When true, YugabyteDB Anywhere shows a test UI for multi-tenancy (QoS). API enablement"
+              + " still requires yb.universe.allow_multi_tenancy.",
+          ConfDataType.BooleanType,
+          ImmutableList.of(ConfKeyTags.INTERNAL));
 }

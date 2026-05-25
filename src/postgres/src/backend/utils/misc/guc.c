@@ -306,8 +306,8 @@ static bool check_yb_enable_advisory_locks(bool *newval, void **extra, GucSource
 static bool check_yb_dist_tracecontext(char **newval, void **extra, GucSource source);
 static void assign_yb_dist_tracecontext(const char *newval, void *extra);
 
-static void assign_yb_silence_advisory_locks_not_supported_error(bool newval, void *extra);
-
+static bool check_yb_silence_advisory_locks_not_supported_error(bool *newval, void **extra,
+																GucSource source);
 static void assign_yb_enable_pg_stat_statements_rpc_stats(bool newval, void *extra);
 
 /* Private functions in guc-file.l that need to be called from guc.c */
@@ -2498,18 +2498,13 @@ static struct config_bool ConfigureNamesBool[] =
 
 	{
 		{"yb_silence_advisory_locks_not_supported_error", PGC_USERSET, LOCK_MANAGEMENT,
-			gettext_noop("Silence the advisory locks error message."),
-			gettext_noop("Enable this with high caution. When enabled, advisory lock requests will silently succeed "
-						 "without actually executing the lock request. It was added to avoid disruption for users who were "
-						 "already using advisory locks but seeing success messages without the lock really being "
-						 "acquired. Such users should take the necessary steps to modify their application to "
-						 "remove usage of advisory locks. See https://github.com/yugabyte/yugabyte-db/issues/3642 "
-						 "for details."),
+			gettext_noop("Deprecated. This is no-op."),
+			NULL,
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_silence_advisory_locks_not_supported_error,
 		false,
-		NULL, assign_yb_silence_advisory_locks_not_supported_error, NULL
+		check_yb_silence_advisory_locks_not_supported_error, NULL, NULL
 	},
 
 	{
@@ -2761,6 +2756,18 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_cdcsdk_allow_dml_without_pk", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("When set to true, allows UPDATE/DELETE on tables under a publication "
+						 "with REPLICA IDENTITY DEFAULT or CHANGE that do not have a primary key."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_cdcsdk_allow_dml_without_pk,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"ysql_upgrade_mode", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Enter a special mode designed specifically for YSQL cluster upgrades. "
 						 "Allows creating new system tables with given relation and type OID. "
@@ -2846,6 +2853,19 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"yb_test_invalidate_relcache_in_planner", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("When set, the relcache entries for every base relation "
+						 "and its indexes will be invalidated after "
+						 "add_base_rels_to_query() in query_planner()."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_test_invalidate_relcache_in_planner,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"yb_test_fail_next_inc_catalog_version", PGC_USERSET, DEVELOPER_OPTIONS,
 			gettext_noop("When set, the next increment catalog version will "
 						 "fail right before it's done. This only works when "
@@ -2880,22 +2900,6 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_test_preload_catalog_tables,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"yb_test_stay_in_global_catalog_version_mode", PGC_SUSET,
-			DEVELOPER_OPTIONS,
-			gettext_noop("When set, this PG backend will stay in global "
-						 "catalog version mode. Used in testing to simulate "
-						 "a lagging PG backend during the finalization phase "
-						 "of cluster upgrade to a new release that has the "
-						 "per-database catalog version mode on by default."),
-			NULL,
-			GUC_NOT_IN_SAMPLE
-		},
-		&yb_test_stay_in_global_catalog_version_mode,
 		false,
 		NULL, NULL, NULL
 	},
@@ -3127,7 +3131,11 @@ static struct config_bool ConfigureNamesBool[] =
 	{
 		{"yb_enable_upsert_mode", PGC_USERSET, CLIENT_CONN_STATEMENT,
 			gettext_noop("Sets the boolean flag to enable or disable upsert mode for writes."),
-			NULL
+			gettext_noop("When the target table has secondary indexes, triggers, "
+						 "or foreign key constraints, upsert mode is automatically "
+						 "disabled to prevent correctness issues. "
+						 "Consider using INSERT ... ON CONFLICT for true upsert "
+						 "semantics instead.")
 		},
 		&yb_enable_upsert_mode,
 		false,
@@ -3432,14 +3440,14 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"yb_enable_index_backfill_column_projection", PGC_USERSET, QUERY_TUNING_OTHER,
-			gettext_noop("Enables index backfill column projection optimization. "
-						 "If true, index build/backfill only reads columns needed for the index, "
-						 "rather than all columns from the base table."),
+		{"yb_enable_index_backfill_scan_optimization", PGC_USERSET, QUERY_TUNING_OTHER,
+			gettext_noop("Enables index backfill scan optimizations. "
+						 "If true, index build/backfill reads only the columns needed for the "
+						 "index and pushes partial index predicates down to the base table scan."),
 			NULL,
 			GUC_NOT_IN_SAMPLE
 		},
-		&yb_enable_index_backfill_column_projection,
+		&yb_enable_index_backfill_scan_optimization,
 		false,
 		NULL, NULL, NULL
 	},
@@ -3451,6 +3459,18 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_enable_fkey_catcache,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_enable_fkey_batched_docdb_lookup_when_types_mismatch", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Enable batched DocDB lookup for foreign key constraint check "
+						 "when types mismatch."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_enable_fkey_batched_docdb_lookup_when_types_mismatch,
 		true,
 		NULL, NULL, NULL
 	},
@@ -3680,7 +3700,7 @@ static struct config_bool ConfigureNamesBool[] =
 						 "which creates database connection for query diagnostics. "
 						 "If this is set to true, ASH and schema details are not dumped"),
 			NULL,
-			GUC_NOT_IN_SAMPLE
+			GUC_NOT_IN_SAMPLE | GUC_NO_SHOW_ALL
 		},
 		&yb_query_diagnostics_disable_database_connection_bgworker,
 		false,
@@ -3708,8 +3728,7 @@ static struct config_bool ConfigureNamesBool[] =
 						 "start of DDLs, causing conflict errors to occur before useful work is done. This "
 						 "flag is only applicable without object locking. If object locking is enabled, it "
 						 "ensures that concurrent DDLs block on each other for serialization. Also, this flag "
-						 "is valid only if ysql_enable_db_catalog_version_mode and "
-						 "yb_enable_invalidation_messages are enabled."),
+						 "is valid only if yb_enable_invalidation_messages is enabled."),
 			NULL,
 			GUC_NOT_IN_SAMPLE
 		},
@@ -3887,27 +3906,6 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
-	/*
-	 * TODOs:
-	 *
-	 * (1) Flush the catalog cache when changing from legacy to the new mode since the legacy mode
-	 * could have stale catalog information but the new mode relies on the fact that no catalog
-	 * information in the cache is stale.
-	 *
-	 * (2) Disallow setting this GUC in the middle of a transaction.
-	 */
-	{
-		{"yb_enable_concurrent_ddl", PGC_USERSET, CUSTOM_OPTIONS,
-			gettext_noop("[This is an advanced flag, avoid using it unless recommened by Yugabyte"
-				"support.] Use this flag to toggle support for concurrent DDLs. If object locking is disabled (i.e., "
-				"the gflag enable_object_locking_for_table_locks is set to false), concurrent DDLs are not supported."),
-			NULL
-		},
-		&yb_enable_concurrent_ddl,
-		false,
-		NULL, NULL, NULL
-	},
-
 	{
 		{"yb_ignore_bool_cond_for_legacy_estimate", PGC_USERSET, COMPAT_OPTIONS_PREVIOUS,
 			gettext_noop("Ignore boolean condition for row count estimate in legacy cost model."),
@@ -4034,6 +4032,29 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&yb_conn_mgr_selective_deallocate,
 		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_enable_mage", PGC_POSTMASTER, DEVELOPER_OPTIONS,
+			gettext_noop("Enable the use of mage extension. "
+						 "NOTE: This is for internal use only."),
+			NULL,
+			GUC_NOT_IN_SAMPLE | GUC_NO_SHOW_ALL
+		},
+		&yb_enable_mage,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"yb_pg_stat_plans_show_max_exec_params", PGC_SUSET, STATS_MONITORING,
+			gettext_noop("Show QPM maximum execution time parameter values."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&yb_qpm_configuration.show_max_exec_params,
+		false,
 		NULL, NULL, NULL
 	},
 
@@ -5990,7 +6011,10 @@ static struct config_int ConfigureNamesInt[] =
 		{"yb_invalidation_message_expiration_secs", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Invalidation messages expiration time in catalog table "
 						 "pg_yb_invalidation_messages."),
-			NULL,
+			gettext_noop("The effective expiration is automatically raised to "
+						 "at least 10 * --heartbeat_interval_ms so that "
+						 "messages survive long enough for every TServer to "
+						 "receive them via heartbeats."),
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_invalidation_message_expiration_secs,
@@ -7958,6 +7982,7 @@ static const char *const map_old_guc_names[] = {
  * yb_db_admin to modify PG_SUSET variables without being a superuser itself.
  */
 static const char *const YbDbAdminVariables[] = {
+	"backtrace_functions",
 	"session_replication_role",
 	"yb_make_next_ddl_statement_nonbreaking",
 	"yb_make_next_ddl_statement_nonincrementing",
@@ -7966,6 +7991,7 @@ static const char *const YbDbAdminVariables[] = {
 	"yb_speculatively_execute_pl_statements",
 	"yb_whitelist_extra_statements_for_pl_speculative_execution",
 	"yb_test_make_all_ddl_statements_incrementing",
+	"yb_pg_stat_plans_show_max_exec_params",
 };
 
 
@@ -9178,7 +9204,7 @@ yb_should_report_guc(struct config_generic *record)
 		/*
 		 * A special case has been added here for auth passthrough mode where we do
 		 * not want to report GUC variables to connection manager in case auth
-		 * passthrough has failed.
+		 * passthrough has failed or during post auth GUC rollback.
 		 * Specifically, we do not want to send back ParameterStatus packets for
 		 * GUCs like session_authorization, client_encoding that are set during the
 		 * authentication phase of Auth Passthrough as this causes certain
@@ -9186,7 +9212,7 @@ yb_should_report_guc(struct config_generic *record)
 		 */
 		shouldReportGUC =
 			shouldReportGUC &&
-			(MyProcPort == NULL || !MyProcPort->yb_has_auth_passthrough_failed);
+			(MyProcPort == NULL || !MyProcPort->yb_has_auth_passthrough_finished);
 	}
 	return shouldReportGUC;
 }
@@ -11147,6 +11173,22 @@ set_config_option_ext(const char *name, const char *value,
 			if (context == PGC_SIGHUP)
 			{
 				/*
+				 * YB: We need to increment local LCV for ConnMgr here since
+				 * this change will only take effect in new backends.
+				 * This will fire even if the variable value in config is not
+				 * changed, which is acceptable since config reloads are rare.
+				 *
+				 * Record PGC_BACKEND change for LCV increment.
+				 * Fires for the postmaster (!IsUnderPostmaster) and for
+				 * CM control backends. Must precede the early return below so
+				 * control backends set the flag before skipping the GUC apply.
+				 */
+				if (YbIsYsqlConnMgrEnabled() &&
+					(!IsUnderPostmaster || yb_conn_mgr_is_auth_passthrough_backend) &&
+					changeVal && !is_reload)
+					yb_conn_mgr_sighup_had_backend_guc_change = true;
+
+				/*
 				 * If a PGC_BACKEND or PGC_SU_BACKEND parameter is changed in
 				 * the config file, we want to accept the new value in the
 				 * postmaster (whence it will propagate to
@@ -11170,16 +11212,6 @@ set_config_option_ext(const char *name, const char *value,
 				 */
 				if (IsUnderPostmaster && changeVal && !is_reload)
 					return -1;
-
-				/*
-				 * YB: We need to increment local LCV for ConnMgr here since
-				 * this change will only take effect in new backends
-				 * This will fire even if the variable value in config is not
-				 * changed, which is acceptable since config reloads are rare
-				 */
-				if (YbIsYsqlConnMgrEnabled() && !IsUnderPostmaster && changeVal &&
-					!is_reload)
-					yb_conn_mgr_sighup_had_backend_guc_change = true;
 			}
 			else if (context != PGC_POSTMASTER &&
 					 context != PGC_BACKEND &&
@@ -11273,7 +11305,8 @@ set_config_option_ext(const char *name, const char *value,
 	/*
 	 * YB: When in Auth Passthrough mode of conn mgr, avoid setting defaults on
 	 * the control backend (auth_passthrough_req == true) when parsing startup
-	 * packet GUC opts (source == PGC_S_CLIENT).
+	 * packet GUC opts (source >= PGC_S_CLIENT) and when applying settings from
+	 * pg_db_role_setting (source >= PGC_S_GLOBAL).
 	 * We do not wish to set defaults in this case as GUCs on the control
 	 * backend need to be reverted to their original defaults in preparation for
 	 * the next authentication attempt. Changes made via makeDefault are
@@ -11281,12 +11314,15 @@ set_config_option_ext(const char *name, const char *value,
 	 * of defaults serves no purpose during authentication either as conn mgr is
 	 * responsible for tracking client session defaults during the deploy phase
 	 * on txn backends.
+	 *
+	 * We use PGC_S_GLOBAL as the threshold because sources below it (e.g.
+	 * PGC_S_DYNAMIC_DEFAULT, PGC_S_FILE) are used in assign hooks and related
+	 * automatic GUC mutations triggered by changing session_authorization and
+	 * we do not want to change their behaviour during auth passthrough.
 	 */
 	if (MyProcPort != NULL && MyProcPort->yb_is_auth_passthrough_req &&
-		source >= PGC_S_CLIENT)
-	{
+		source >= PGC_S_GLOBAL)
 		makeDefault = false;
-	}
 
 	/*
 	 * Ignore attempted set if overridden by previously processed setting.
@@ -17299,16 +17335,14 @@ check_yb_enable_advisory_locks(bool *newval, void **extra, GucSource source)
 	return true;				/* still allow usage, but warn */
 }
 
-static void
-assign_yb_silence_advisory_locks_not_supported_error(bool newval, void *extra)
+static bool
+check_yb_silence_advisory_locks_not_supported_error(bool *newval, void **extra,
+													GucSource source)
 {
-	if (newval)
-	{
-		ereport(WARNING,
-				(errmsg("enable this with high caution. When enabled, advisory lock requests will silently succeed "
-						"without actually executing the lock request. It was added to avoid disruption for users who were "
-						"already using advisory locks but seeing success messages without the lock really being acquired.")));
-	}
+	ereport(WARNING,
+			(errmsg("the parameter \"yb_silence_advisory_locks_not_supported_error\" is "
+					"deprecated and has no effect. ")));
+	return true;
 }
 
 static void
