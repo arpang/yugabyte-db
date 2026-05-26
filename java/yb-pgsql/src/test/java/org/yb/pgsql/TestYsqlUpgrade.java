@@ -204,7 +204,9 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
   private static final String INVALIDATION_MESSAGES_TABLE  = "pg_yb_invalidation_messages";
 
   /** Guaranteed to be greated than any real OID, needed for sorted entities to appear at the end */
-  private static final long PLACEHOLDER_OID = 1234567890L;
+  private static final long PLACEHOLDER_SYS_OID = 1234567890L;
+  private static final long PLACEHOLDER_NORMAL_OID = PLACEHOLDER_SYS_OID - 1;
+
   /** Static in order to persist between tests. */
   private static int LAST_USED_SYS_OID = 9000;
 
@@ -1077,6 +1079,18 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
     recreateWithYsqlVersion(YsqlSnapshotVersion.PG15_12);
     createDbConnections();
 
+    // Wait for the LISTEN/NOTIFY bg task to create yb_system on the migrated
+    // cluster. initdb creates it on fresh clusters.
+    TestUtils.waitFor(() -> {
+      try (Connection c = template1Cb.connect();
+          Statement s = c.createStatement()) {
+        return s.executeQuery(
+            "SELECT 1 FROM pg_database WHERE datname = 'yb_system'").next();
+      } catch (Exception e) {
+        return false;
+      }
+    }, 60000);
+
     boolean snapshot_has_pg_yb_tablegroup = false;
 
     try (Connection conn = template1Cb.connect();
@@ -1435,7 +1449,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
           .map(r -> bootstrapRelation ? excluded(r, "relfrozenxid") : r)
           .map(r -> bootstrapRelation ? excluded(r, "relminmxid") : r)
           .map(r -> (replaceSysGeneratedOid && r.getColumnName(0).equals("oid") &&
-              isSysGeneratedOid(r.getLong(0)) ? replaced(r, r.getLong(0), PLACEHOLDER_OID) : r))
+              isSysGeneratedOid(r.getLong(0)) ? replaced(r, r.getLong(0), PLACEHOLDER_SYS_OID) : r))
           .collect(Collectors.toList());
     };
 
@@ -1463,7 +1477,7 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
             return r;
           })
           .map(r -> (replaceSysGeneratedOid && r.getColumnName(0).equals("oid") &
-              isSysGeneratedOid(r.getLong(0)) ? replaced(r, r.getLong(0), PLACEHOLDER_OID) : r))
+              isSysGeneratedOid(r.getLong(0)) ? replaced(r, r.getLong(0), PLACEHOLDER_SYS_OID) : r))
           .collect(Collectors.toList());
     };
 
@@ -1984,13 +1998,22 @@ public class TestYsqlUpgrade extends BasePgSQLTest {
       snapshot.catalog.forEach((tableName, rows) -> {
         simplifiedCatalog.put(tableName, copyWithResolvedOids(tableName, rows, entityNamesMap));
       });
-      // Replace auto-generated OIDs with placeholders.
+      // Replace auto-generated OIDs with placeholders so that comparison is
+      // not sensitive to the exact OID values.
       simplifiedCatalog.forEach((tableName, rows) -> {
         if (pgClassByNameMap.get(tableName).getBoolean(SysCatalogSnapshot.RELHASOIDS_COL_IDX)) {
           LOG.info("Processing table: {}", tableName);
-          rows.stream()
-              .filter((r) -> isSysGeneratedOid(r.getLong(0)))
-              .forEach((r) -> r.elems.set(0, PLACEHOLDER_OID));
+          rows.forEach((r) -> {
+            long oid = r.getLong(0);
+            // yb_system is a system database but gets a normal OID on
+            // upgraded clusters where the bg task creates it at runtime.
+            boolean isSystemOid = isSysGeneratedOid(oid)
+                || (tableName.equals("pg_database") && "yb_system".equals(r.getString(1)));
+            if (isSystemOid)
+              r.elems.set(0, PLACEHOLDER_SYS_OID);
+            else if (oid >= FIRST_NORMAL_OID)
+              r.elems.set(0, PLACEHOLDER_NORMAL_OID);
+          });
           Collections.sort(rows);
         }
       });
