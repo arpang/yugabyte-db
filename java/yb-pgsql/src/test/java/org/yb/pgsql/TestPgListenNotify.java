@@ -1188,6 +1188,13 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     }
   }
 
+  private void setSharedMemoryFlag(String value) throws Exception {
+    for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
+      miniCluster.getClient().setFlag(tserver, "pg_client_use_shared_memory", value,
+                                      /* force = */ true);
+    }
+  }
+
   private long getPerformCountForTServer(int tserverIndex) throws Exception {
     String host = getPgHost(tserverIndex);
     for (MiniYBDaemon ts : miniCluster.getTabletServers().values()) {
@@ -1207,6 +1214,10 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     final int N = 50;
     final int tserverIndex = 0;
 
+    // The test counts PgClientService Perform RPCs via the handler_latency
+    // histogram, which is only updated on the RPC path. Disable shared memory
+    // so Perform operations go through RPC.
+    setSharedMemoryFlag("false");
     try (Connection conn = getConnectionBuilder().withTServer(tserverIndex).connect();
          Statement stmt = conn.createStatement()) {
       stmt.execute("BEGIN");
@@ -1220,6 +1231,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
 
       LOG.info("NOTIFY flush optimization: {} notifications, {} Perform RPCs", N, delta);
       assertEquals("Perform RPCs for " + N + " notifications", 2, delta);
+    } finally {
+      setSharedMemoryFlag("true");
     }
   }
 }
