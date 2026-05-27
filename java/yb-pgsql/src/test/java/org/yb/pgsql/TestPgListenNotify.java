@@ -26,7 +26,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.json.JSONObject;
 import org.yb.minicluster.Metrics;
 import org.yb.minicluster.MiniYBDaemon;
@@ -74,7 +73,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    */
   @Test
   public void testListenFailsDueToVirtualWalLimit() throws Exception {
-    setVirtualWalLimit("0");
+    setTServerFlag("cdc_max_virtual_wal_per_tserver", "0");
     try {
       try (Connection conn = getConnectionBuilder().connect();
            Statement stmt = conn.createStatement()) {
@@ -87,7 +86,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
           e.getMessage().contains("failed to initialize"));
     }
 
-    setVirtualWalLimit("5");
+    setTServerFlag("cdc_max_virtual_wal_per_tserver", "5");
     verifyListenNotifyWorks();
   }
 
@@ -98,7 +97,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    */
   @Test
   public void testListenFailsDueToReplicationSlotLimit() throws Exception {
-    setMaxReplicationSlots("1");
+    setMasterFlag("max_replication_slots", "1");
 
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("SELECT pg_create_logical_replication_slot('blocker_slot', 'pgoutput')");
@@ -116,7 +115,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
           e.getMessage().contains("all replication slots are in use"));
     }
 
-    setMaxReplicationSlots("5");
+    setMasterFlag("max_replication_slots", "5");
     verifyListenNotifyWorks();
   }
 
@@ -815,7 +814,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         listenerStmt.execute("LISTEN " + channel);
 
         assertOneRow(listenerStmt, "SHOW yb_notifications_poll_sleep_duration_empty_ms", "100ms");
-        setNotificationsPollSleepDurationEmpty("30000");
+        setTServerFlag("ysql_yb_notifications_poll_sleep_duration_empty_ms", "30000");
         Thread.sleep(5000);
 
         try (Connection notifier = getConnectionBuilder().connect();
@@ -832,7 +831,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         listenerStmt.execute("LISTEN " + channel);
 
         assertOneRow(listenerStmt, "SHOW yb_notifications_poll_sleep_duration_empty_ms", "30s");
-        setNotificationsPollSleepDurationEmpty("100");
+        setTServerFlag("ysql_yb_notifications_poll_sleep_duration_empty_ms", "100");
         Thread.sleep(5000);
 
         try (Connection notifier = getConnectionBuilder().connect();
@@ -842,7 +841,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
         waitForNotification(listener, channel, "restored");
       }
     } finally {
-      setNotificationsPollSleepDurationEmpty("100");
+      setTServerFlag("ysql_yb_notifications_poll_sleep_duration_empty_ms", "100");
     }
   }
 
@@ -858,7 +857,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     final String payload = "payload";
 
     try {
-      setFatalAfterNotifsQueueWriteFlag(true);
+      setTServerFlag("ysql_yb_test_fatal_after_notifs_queue_write", "true");
       Thread.sleep(2000);
 
       try (Connection listenerConn = getConnectionBuilder().withTServer(0).connect();
@@ -882,7 +881,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
             "Old notifications should not be re-delivered after poller restart");
       }
     } finally {
-      setFatalAfterNotifsQueueWriteFlag(false);
+      setTServerFlag("ysql_yb_test_fatal_after_notifs_queue_write", "false");
     }
 
     verifyListenNotifyWorks();
@@ -953,7 +952,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    * handful of large-payload notifications.
    */
   private void fillQueueAndAssertSlowListenersTerminated(int numSlowListeners) throws Exception {
-    setNotifyQueueMaxPages("2");
+    setTServerFlag("ysql_yb_test_notify_queue_max_pages", "2");
     try {
       Connection[] slowListeners = new Connection[numSlowListeners];
       for (int i = 0; i < numSlowListeners; i++) {
@@ -966,7 +965,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       }
       connNotifier.close();
     } finally {
-      setNotifyQueueMaxPages("0");
+      setTServerFlag("ysql_yb_test_notify_queue_max_pages", "0");
     }
   }
 
@@ -977,8 +976,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
    *
    */
   private void triggerCdcStreamExpiry() throws Exception {
-    setCdcIntentRetentionMs("2000");
-    setNotificationsPollSleepDurationEmpty("5000");
+    setTServerFlag("cdc_intent_retention_ms", "2000");
+    setTServerFlag("ysql_yb_notifications_poll_sleep_duration_empty_ms", "5000");
     Thread.sleep(Timeouts.adjustTimeoutSecForBuildType(15000));
   }
 
@@ -1019,8 +1018,8 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       waitForPollerAndSlotCleanup(nonListener);
     } finally {
       nonListener.close();
-      setCdcIntentRetentionMs("28800000");
-      setNotificationsPollSleepDurationEmpty("100");
+      setTServerFlag("cdc_intent_retention_ms", "28800000");
+      setTServerFlag("ysql_yb_notifications_poll_sleep_duration_empty_ms", "100");
     }
 
     verifyListenNotifyWorks();
@@ -1085,12 +1084,6 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     });
   }
 
-  private void setCdcIntentRetentionMs(String value) throws Exception {
-    for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
-      miniCluster.getClient().setFlag(tserver, "cdc_intent_retention_ms", value);
-    }
-  }
-
   private void assertConnectionDead(Connection conn, String label) {
     try {
       conn.createStatement().execute("SELECT 1");
@@ -1152,46 +1145,15 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     }
   }
 
-  private void setFatalAfterNotifsQueueWriteFlag(boolean value) throws Exception {
-    String v = value ? "true" : "false";
-    for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
-      setServerFlag(tserver, "ysql_yb_test_fatal_after_notifs_queue_write", v);
-    }
-  }
-
-  private void setNotificationsPollSleepDurationEmpty(String valueMs) throws Exception {
-    Set<HostAndPort> tservers = miniCluster.getTabletServers().keySet();
-    for (HostAndPort tserver : tservers) {
-      setServerFlag(tserver,
-          "ysql_yb_notifications_poll_sleep_duration_empty_ms", valueMs);
-    }
-  }
-
-  private void setVirtualWalLimit(String value) throws Exception {
-    Set<HostAndPort> tservers = miniCluster.getTabletServers().keySet();
-    for (HostAndPort tserver : tservers) {
-      miniCluster.getClient().setFlag(tserver, "cdc_max_virtual_wal_per_tserver", value);
-    }
-  }
-
-  private void setNotifyQueueMaxPages(String value) throws Exception {
-    for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
-      setServerFlag(tserver, "ysql_yb_test_notify_queue_max_pages", value);
-    }
-  }
-
-  private void setMaxReplicationSlots(String value) throws Exception {
+  private void setMasterFlag(String flag, String value) throws Exception {
     for (HostAndPort master : miniCluster.getMasters().keySet()) {
-      assertTrue("Failed to set max_replication_slots",
-          miniCluster.getClient().setFlag(master, "max_replication_slots", value,
-                                          /* force = */ true));
+      miniCluster.getClient().setFlag(master, flag, value);
     }
   }
 
-  private void setSharedMemoryFlag(String value) throws Exception {
+  private void setTServerFlag(String flag, String value) throws Exception {
     for (HostAndPort tserver : miniCluster.getTabletServers().keySet()) {
-      miniCluster.getClient().setFlag(tserver, "pg_client_use_shared_memory", value,
-                                      /* force = */ true);
+      miniCluster.getClient().setFlag(tserver, flag, value);
     }
   }
 
@@ -1217,7 +1179,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     // The test counts PgClientService Perform RPCs via the handler_latency
     // histogram, which is only updated on the RPC path. Disable shared memory
     // so Perform operations go through RPC.
-    setSharedMemoryFlag("false");
+    setTServerFlag("pg_client_use_shared_memory", "false");
     try (Connection conn = getConnectionBuilder().withTServer(tserverIndex).connect();
          Statement stmt = conn.createStatement()) {
       stmt.execute("BEGIN");
@@ -1232,7 +1194,7 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
       LOG.info("NOTIFY flush optimization: {} notifications, {} Perform RPCs", N, delta);
       assertEquals("Perform RPCs for " + N + " notifications", 2, delta);
     } finally {
-      setSharedMemoryFlag("true");
+      setTServerFlag("pg_client_use_shared_memory", "true");
     }
   }
 }
