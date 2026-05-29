@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.json.JSONObject;
+import org.yb.minicluster.Metrics;
+import org.yb.minicluster.MiniYBDaemon;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
@@ -1186,4 +1188,36 @@ public class TestPgListenNotify extends BasePgListenNotifyTest {
     }
   }
 
+  private long getTotalWriteRpcCount() throws Exception {
+    long total = 0;
+    for (MiniYBDaemon ts : miniCluster.getTabletServers().values()) {
+      total += new Metrics(ts.getLocalhostIP(), ts.getWebPort(), "server")
+          .getHistogram("handler_latency_yb_tserver_TabletServerService_Write").totalCount;
+    }
+    return total;
+  }
+
+  /**
+   * Test that NOTIFYs within a transaction are buffered and flushed in batches.
+   */
+  @Test
+  public void testTxnNotifysAreBuffered() throws Exception {
+    final int N = 10;
+    final int tserverIndex = 0;
+
+    try (Connection conn = getConnectionBuilder().withTServer(tserverIndex).connect();
+         Statement stmt = conn.createStatement()) {
+      stmt.execute("BEGIN");
+      for (int i = 0; i < N; i++) {
+        stmt.execute("NOTIFY " + CHANNEL + ", 'msg_" + i + "'");
+      }
+
+      long before = getTotalWriteRpcCount();
+      stmt.execute("COMMIT");
+      long delta = getTotalWriteRpcCount() - before;
+
+      LOG.info("NOTIFY flush optimization: {} notifications, {} Write RPCs", N, delta);
+      assertEquals("Write RPCs for " + N + " notifications", 2, delta);
+    }
+  }
 }
