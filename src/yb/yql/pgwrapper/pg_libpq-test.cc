@@ -76,6 +76,7 @@ DEFINE_NON_RUNTIME_int32(num_iter, yb::RegularBuildVsSanitizers(10000, 1000),
 
 DECLARE_int64(external_mini_cluster_max_log_bytes);
 
+DECLARE_string(vmodule);
 METRIC_DECLARE_entity(tablet);
 METRIC_DECLARE_counter(transaction_not_found);
 
@@ -3031,14 +3032,14 @@ void PgLibPqTest::TestCacheRefreshRetry(const bool is_retry_disabled) {
       //    - trying the SELECT requires getting the table schema, but it will be a cache miss since
       //      the whole cache was invalidated, so we get the up-to-date table schema and succeed
       // 2. tserver doesn't get updated catalog version before SELECT (common)
-      //    - trying the SELECT causes catalog version mismatch
+      //    - trying the SELECT causes schema version mismatch
       if (res.ok()) {
         LOG(WARNING) << "SELECT was ok";
         num_successes++;
         continue;
       }
       auto msg = res.status().message().ToBuffer();
-      ASSERT_TRUE(msg.find("Catalog Version Mismatch") != std::string::npos) << res.status();
+      ASSERT_TRUE(msg.find("schema version mismatch") != std::string::npos) << res.status();
     } else {
       // Ensure that the request is successful (thanks to retry).
       if (!res.ok()) {
@@ -4220,8 +4221,11 @@ TEST_F(PgLibPqTest, TempTableMultiNodeNamespaceConflict) {
 }
 
 TEST_F(PgLibPqTest, CatalogCacheMemoryLeak) {
+  FLAGS_vmodule = "libpq_utils*=1";
   auto conn1 = ASSERT_RESULT(Connect());
   auto conn2 = ASSERT_RESULT(Connect());
+  ASSERT_OK(conn1.Execute("SET log_statement='ALL';"));
+  ASSERT_OK(conn2.Execute("SET log_statement='ALL';"));
   auto query = "SELECT total_bytes, used_bytes FROM "
                "pg_get_backend_memory_contexts() "
                "WHERE name = 'CacheMemoryContext'"s;
@@ -4980,8 +4984,12 @@ class PgBackendsSessionExpireTest : public LibPqTestBase {
         });
   }
 
-  const MonoDelta kHeartbeatTimeout = 1s;
-  const MonoDelta kHeartbeatInterval = 10s;
+  // Sanitizer builds can spend multiple seconds in backend startup/relcache
+  // initialization, so a 1s session lifetime can expire unrelated connection
+  // attempts. Using a conservative 10x multipler in sanitizer builds as a
+  // workaround.
+  const MonoDelta kHeartbeatTimeout = RegularBuildVsSanitizers(1s, 10s);
+  const MonoDelta kHeartbeatInterval = kHeartbeatTimeout * 10;
   static constexpr int kMaxTabletsPerTable = 10;
 };
 
@@ -4991,7 +4999,7 @@ TEST_F(PgBackendsSessionExpireTest, UnknownSessionFatal) {
   constexpr auto query = "SELECT * FROM pg_class LIMIT 1";
   PGConn conn = ASSERT_RESULT(Connect());
 
-  // The backend sends a heartbeat to the tablet server once every 10s by default.
+  // The backend sends a heartbeat to the tablet server every kHeartbeatInterval.
   // This is controlled by the 'pg_client_heartbeat_interval_ms' flag.
   // The flag 'pg_client_session_expiration_ms' controls how often the tserver checks for the
   // expiry of sessions. By reducing the session expiration time to 1s and sleeping for a little
@@ -5477,6 +5485,7 @@ TEST_F(PgLibPqTest, InconsistentIndexRead) {
   // Assert that the balance is always 10k.
   thread_holder.AddThreadFunctor([this, &stop = thread_holder.stop_flag(), initial_sum]() {
     auto reader_conn = ASSERT_RESULT(Connect());
+    ASSERT_OK(reader_conn.Execute("SET yb_parallel_range_rows = 0"));
     while (!stop.load(std::memory_order_acquire)) {
       auto sum_balance = ASSERT_RESULT(reader_conn.FetchRow<int64_t>(
           "/*+ IndexScan(bank) */ SELECT SUM(balance) FROM bank WHERE id >= 0"));
@@ -5728,6 +5737,82 @@ TEST_F(PgLibPqTest, TestGetTableXorHash) {
 
   ASSERT_EQ(colocated_tbl_row_count, 10);
   ASSERT_EQ(colocated_tbl_xor_hash, tbl1_xor_hash);
+}
+
+class PgLibPqTestDropTableIfExistsCascadeRetry : public PgLibPqTest {
+ protected:
+  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
+    PgLibPqTest::UpdateMiniClusterOptions(options);
+
+    // Disable object locking and transactional DDL. If they are enabled, DDL conflicts
+    // are either avoided or DDL statement retries are not supported in READ COMMITTED,
+    // which would prevent us from exercising the DDL retry path.
+    options->extra_master_flags.push_back("--enable_object_locking_for_table_locks=false");
+    options->extra_tserver_flags.push_back("--enable_object_locking_for_table_locks=false");
+    options->extra_master_flags.push_back("--ysql_yb_ddl_transaction_block_enabled=false");
+    options->extra_tserver_flags.push_back("--ysql_yb_ddl_transaction_block_enabled=false");
+
+    // DDL statement retries are only supported in READ COMMITTED isolation.
+    // In debug builds, this flag defaults to false, causing READ COMMITTED to fall back
+    // to REPEATABLE READ, which would prevent the DDL retry.
+    options->extra_master_flags.push_back("--yb_enable_read_committed_isolation=true");
+    options->extra_tserver_flags.push_back("--yb_enable_read_committed_isolation=true");
+  }
+};
+
+// Test for #29871: SMgrRelation hashtable corrupted during DDL retry.
+TEST_F(PgLibPqTestDropTableIfExistsCascadeRetry, DropTableIfExistsCascadeRetry) {
+  auto conn = ASSERT_RESULT(Connect());
+  // Using SERIAL creates a sequence. Dropping a sequence schedules a physical file
+  // deletion via RelationDropStorage, which adds it to the pendingDeletes list.
+  ASSERT_OK(conn.Execute("CREATE TABLE drop_retry_test(a SERIAL PRIMARY KEY)"));
+  ASSERT_OK(conn.Execute("CREATE INDEX drop_retry_test_idx ON drop_retry_test(a)"));
+
+  // Inject a transaction conflict error at the end of the next DDL statement.
+  ASSERT_OK(conn.Execute("SET yb_test_fail_next_ddl = 5"));
+
+  // This should succeed because the DDL retry wrapper will catch the conflict and retry.
+  // The fix ensures that the pendingDeletes list is cleared before the retry,
+  // preventing the "SMgrRelation hashtable corrupted" double-close error.
+  ASSERT_OK(conn.Execute("DROP TABLE IF EXISTS drop_retry_test CASCADE"));
+}
+
+// Test for #31248: NULL-pointer dereference during DDL retry.
+TEST_F(PgLibPqTestDropTableIfExistsCascadeRetry, DropTableIfExistsCascadeRetryCrash) {
+  auto conn = ASSERT_RESULT(Connect());
+
+  // Suppress NOTICE messages (e.g., from CREATE TABLE IF NOT EXISTS).
+  // If any messages are sent to the client before the DDL retry is triggered,
+  // the query layer will refuse to retry, throwing "query layer retry isn't
+  // possible because data was already transferred".
+  ASSERT_OK(conn.Execute("SET client_min_messages = WARNING"));
+
+  // The injected fault causes a transaction conflict, which triggers a DDL retry.
+  // The bug (NULL-pointer dereference) occurs during this retry because the
+  // aborted transaction clears the relcache, causing RelationIdGetRelation
+  // to return NULL on the second attempt.
+  // If the bug is present, this will crash with SIGSEGV.
+  // If the bug is fixed, the retry will gracefully fail with an error because
+  // the relation is already dropped in the relcache.
+  auto status = conn.Execute(
+      "DO $$ \n"
+      "BEGIN \n"
+      "  CREATE TABLE IF NOT EXISTS drop_retry_test_crash(a INT); \n"
+      "  SET yb_test_fail_drop_after_heap_drop = true; \n"
+      "  DROP TABLE IF EXISTS drop_retry_test_crash CASCADE; \n"
+      "END $$;");
+
+  ASSERT_NOK_STR_CONTAINS(status, "could not open relation with OID");
+
+  // Verify that the catalog is NOT corrupted.
+  // Note that this test runs with transactional DDL disabled! This means
+  // that in YB DDL operations (like CREATE TABLE) commit immediately and
+  // are not rolled back even if the surrounding PL/pgSQL DO block aborts.
+  // Because the DROP TABLE failed and aborted the DO block, the CREATE TABLE
+  // from the first attempt remains committed.
+  // The fact that this SELECT succeeds proves that the table exists in BOTH
+  // the PostgreSQL catalog and DocDB (no split-brain corruption).
+  ASSERT_OK(conn.FetchMatrix("SELECT * FROM drop_retry_test_crash", 0, 1));
 }
 
 } // namespace yb::pgwrapper

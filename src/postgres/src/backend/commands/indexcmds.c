@@ -2382,7 +2382,8 @@ YbDefineIndexHelper(Oid relationId,
 	 * YB: Do backfill if this is a separate DocDB table from the main
 	 * table.
 	 */
-	HandleYBStatus(YBCPgBackfillIndex(databaseId, indexRelationId));
+	HandleYBStatus(YBCPgBackfillIndex(databaseId, indexRelationId,
+									  !yb_should_run_in_autonomous_transaction));
 
 	Relation	yb_baserel = table_open(relationId, NoLock);
 
@@ -5315,7 +5316,7 @@ YbWaitForBackendsCatalogVersion()
 
 		if (!s)					/* ok */
 			continue;
-		if (YBCStatusIsTryAgain(s))
+		if (YBCStatusIsTryAgain(s) || YBCStatusIsTimedOut(s))
 		{
 			YBCFreeStatus(s);
 			continue;

@@ -30,11 +30,13 @@ import com.yugabyte.yw.controllers.handlers.CloudProviderHandler;
 import com.yugabyte.yw.controllers.handlers.UniverseActionsHandler;
 import com.yugabyte.yw.controllers.handlers.UniverseCRUDHandler;
 import com.yugabyte.yw.controllers.handlers.UpgradeUniverseHandler;
+import com.yugabyte.yw.forms.CertsRotateParams;
 import com.yugabyte.yw.forms.KubernetesGFlagsUpgradeParams;
 import com.yugabyte.yw.forms.KubernetesOverridesUpgradeParams;
 import com.yugabyte.yw.forms.KubernetesProviderFormData;
 import com.yugabyte.yw.forms.KubernetesToggleImmutableYbcParams;
 import com.yugabyte.yw.forms.PlatformResults.YBPTask;
+import com.yugabyte.yw.forms.RollMaxBatchSize;
 import com.yugabyte.yw.forms.SoftwareUpgradeParams;
 import com.yugabyte.yw.forms.UniverseConfigureTaskParams;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams;
@@ -46,6 +48,8 @@ import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.PerProcessDetails;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.UserIntent;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.UserIntentOverrides;
 import com.yugabyte.yw.forms.UniverseResp;
+import com.yugabyte.yw.forms.UpgradeTaskParams;
+import com.yugabyte.yw.forms.UpgradeTaskParams.UpgradeOption;
 import com.yugabyte.yw.forms.YbcThrottleParametersResponse.ThrottleParamValue;
 import com.yugabyte.yw.models.AvailabilityZone;
 import com.yugabyte.yw.models.CertificateInfo;
@@ -832,6 +836,16 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
                     incomingIntent.specificGFlags,
                     true /* isRerun */);
             break;
+          case CertsRotateKubernetesUpgrade:
+            if (checkAndHandleUniverseLock(
+                ybUniverse, universe, OperatorWorkQueue.ResourceAction.NO_OP)) {
+              return;
+            }
+            log.info("Re-running Certificate rotation with new params");
+            kubernetesStatusUpdater.createYBUniverseEventStatus(
+                universe, k8ResourceDetails, TaskType.CertsRotateKubernetesUpgrade.name());
+            taskUUID = rotateCertsYbUniverse(universeDetails, cust, ybUniverse);
+            break;
           default:
             log.error("Unexpected task, this should not happen!");
             throw new RuntimeException("Unexpected task tried for re-run");
@@ -894,6 +908,17 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
           taskUUID =
               toggleYbcYbUniverse(
                   universeDetails, cust, ybUniverse, ybUniverse.getSpec().getUseYbdbInbuiltYbc());
+          // Handle certificate rotation before any other edit/upgrade operation.
+        } else if (operatorUtils.shouldRotateCerts(universe, ybUniverse, cust.getUuid())) {
+          log.info("Rotating certificates");
+          kubernetesStatusUpdater.createYBUniverseEventStatus(
+              universe, k8ResourceDetails, TaskType.CertsRotateKubernetesUpgrade.name());
+          if (checkAndHandleUniverseLock(
+              ybUniverse, universe, OperatorWorkQueue.ResourceAction.NO_OP)) {
+            return;
+          }
+          kubernetesStatusUpdater.updateUniverseState(k8ResourceDetails, UniverseState.EDITING);
+          taskUUID = rotateCertsYbUniverse(universeDetails, cust, ybUniverse);
           // Case with new edits
         } else if (!HelmUtils.equal(
             incomingIntent.universeOverrides, currentUserIntent.universeOverrides)) {
@@ -1041,6 +1066,50 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
     }
   }
 
+  private static UpgradeOption getUpgradeOption(YBUniverse ybUniverse) {
+    if (ybUniverse.getSpec() == null || ybUniverse.getSpec().getUpgradeOption() == null) {
+      return UpgradeOption.ROLLING_UPGRADE;
+    }
+    switch (ybUniverse.getSpec().getUpgradeOption().getValue()) {
+      case "Non-Rolling":
+        return UpgradeOption.NON_ROLLING_UPGRADE;
+      case "Non-Restart":
+        return UpgradeOption.NON_RESTART_UPGRADE;
+      case "Rolling":
+      default:
+        return UpgradeOption.ROLLING_UPGRADE;
+    }
+  }
+
+  private static void applyUpgradeOptions(UpgradeTaskParams requestParams, YBUniverse ybUniverse) {
+    requestParams.upgradeOption = getUpgradeOption(ybUniverse);
+    if (ybUniverse.getSpec() == null) {
+      return;
+    }
+    io.yugabyte.operator.v1alpha1.YBUniverseSpec spec = ybUniverse.getSpec();
+    io.yugabyte.operator.v1alpha1.ybuniversespec.RollMaxBatchSize specBatchSize =
+        spec.getRollMaxBatchSize();
+    if (requestParams.upgradeOption == UpgradeOption.ROLLING_UPGRADE) {
+      if (specBatchSize != null) {
+        RollMaxBatchSize rollMaxBatchSize = new RollMaxBatchSize();
+        if (specBatchSize.getPrimaryBatchSize() != null) {
+          rollMaxBatchSize.setPrimaryBatchSize(specBatchSize.getPrimaryBatchSize().intValue());
+        }
+        if (specBatchSize.getReadReplicaBatchSize() != null) {
+          rollMaxBatchSize.setReadReplicaBatchSize(
+              specBatchSize.getReadReplicaBatchSize().intValue());
+        }
+        requestParams.rollMaxBatchSize = rollMaxBatchSize;
+      }
+      if (spec.getTserverWaitSeconds() != null) {
+        requestParams.sleepAfterTServerRestartMillis = (int) (spec.getTserverWaitSeconds() * 1000L);
+      }
+      if (spec.getMasterWaitSeconds() != null) {
+        requestParams.sleepAfterMasterRestartMillis = (int) (spec.getMasterWaitSeconds() * 1000L);
+      }
+    }
+  }
+
   private UUID toggleYbcYbUniverse(
       UniverseDefinitionTaskParams taskParams,
       Customer cust,
@@ -1060,6 +1129,7 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
       log.error("Failed at creating toggle immutable YBC params", e);
     }
     requestParams.setUseYbdbInbuiltYbc(useYbdbInbuiltYbc);
+    applyUpgradeOptions(requestParams, ybUniverse);
 
     Universe oldUniverse =
         Universe.maybeGetUniverseByName(cust.getId(), getUniverseName(ybUniverse)).orElse(null);
@@ -1090,6 +1160,7 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
     }
     requestParams.universeOverrides = universeOverrides;
     requestParams.skipNodeChecks = isRerun;
+    applyUpgradeOptions(requestParams, ybUniverse);
 
     Universe oldUniverse =
         Universe.maybeGetUniverseByName(cust.getId(), getUniverseName(ybUniverse)).orElse(null);
@@ -1120,6 +1191,7 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
       log.error("Failed at creating upgrade software params", e);
     }
     requestParams.skipNodeChecks = isRerun;
+    applyUpgradeOptions(requestParams, ybUniverse);
 
     Universe oldUniverse =
         Universe.maybeGetUniverseByName(cust.getId(), getUniverseName(ybUniverse)).orElse(null);
@@ -1146,6 +1218,7 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
     } catch (Exception e) {
       log.error("Failed at creating upgrade software params", e);
     }
+    applyUpgradeOptions(requestParams, ybUniverse);
 
     Universe oldUniverse =
         Universe.maybeGetUniverseByName(cust.getId(), getUniverseName(ybUniverse)).orElse(null);
@@ -1153,6 +1226,51 @@ public class YBUniverseReconciler extends AbstractReconciler<YBUniverse> {
     requestParams.setUniverseUUID(oldUniverse.getUniverseUUID());
     log.info("Upgrading universe with new info now");
     return upgradeUniverseHandler.upgradeSoftware(requestParams, cust, oldUniverse);
+  }
+
+  private UUID rotateCertsYbUniverse(
+      UniverseDefinitionTaskParams taskParams, Customer cust, YBUniverse ybUniverse) {
+    ObjectMapper mapper =
+        Json.mapper()
+            .copy()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            .configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
+    CertsRotateParams requestParams = new CertsRotateParams();
+    try {
+      requestParams =
+          mapper.readValue(mapper.writeValueAsString(taskParams), CertsRotateParams.class);
+    } catch (Exception e) {
+      log.error("Failed at creating certs rotate params", e);
+      throw new RuntimeException("Failed to create certs rotate params", e);
+    }
+    applyUpgradeOptions(requestParams, ybUniverse);
+
+    // Get the rootCA from the spec
+    String rootCAName = ybUniverse.getSpec().getRootCA();
+    if (rootCAName != null && !rootCAName.trim().isEmpty()) {
+      CertificateInfo rootCACert = CertificateInfo.get(cust.getUuid(), rootCAName);
+      if (rootCACert != null) {
+        requestParams.rootCA = rootCACert.getUuid();
+        // For Kubernetes, rootCA and clientRootCA must be the same
+        requestParams.setClientRootCA(rootCACert.getUuid());
+        requestParams.rootAndClientRootCASame = true;
+        log.info(
+            "Setting rootCA and clientRootCA to {} for certificate rotation", rootCACert.getUuid());
+      } else {
+        log.error("RootCA certificate '{}' not found for customer {}", rootCAName, cust.getUuid());
+        throw new RuntimeException("RootCA certificate '" + rootCAName + "' not found");
+      }
+    }
+
+    Universe oldUniverse =
+        Universe.maybeGetUniverseByName(cust.getId(), getUniverseName(ybUniverse)).orElse(null);
+    if (oldUniverse == null) {
+      throw new RuntimeException("Universe not found: " + getUniverseName(ybUniverse));
+    }
+
+    requestParams.setUniverseUUID(oldUniverse.getUniverseUUID());
+    log.info("Rotating certificates for universe {}", oldUniverse.getName());
+    return upgradeUniverseHandler.rotateCerts(requestParams, cust, oldUniverse);
   }
 
   private UUID updateYBUniverse(

@@ -13,13 +13,13 @@ import {
   PlacementRegion
 } from '@app/v2/api/yugabyteDBAnywhereV2APIs.schemas';
 import {
-  countMasterAndTServerNodesByPlacementRegion,
   countRegionsAzsAndNodes,
   countMasterNodesInAz,
   getDedicatedCountsForPlacementRegion,
   getDedicatedTserverMasterDisplayCounts,
   getResilientType,
-  useEditUniverseContext
+  useEditUniverseContext,
+  useIsUniverseReady
 } from '../EditUniverseUtils';
 import { getFlagFromRegion } from '../../create-universe/helpers/RegionToFlagUtils';
 import { RbacValidator } from '@app/redesign/features/rbac/common/RbacApiPermValidator';
@@ -34,6 +34,7 @@ export type ClusterInstanceCardEditMenuItem = {
   showDividerBefore?: boolean;
   destructive?: boolean;
   startIcon?: ReactNode;
+  disabled?: Boolean;
 };
 
 interface ClusterInstanceCardProps {
@@ -80,6 +81,7 @@ export const ClusterInstanceCard: FC<ClusterInstanceCardProps> = ({
 }) => {
   const { t } = useTranslation('translation', { keyPrefix: 'editUniverse.placement' });
   const { universeData } = useEditUniverseContext();
+  const isUniverseReady = useIsUniverseReady();
   if (!universeData) return null;
   const regionStats = countRegionsAzsAndNodes(placement);
   const resilientType = getResilientType(placement, parition?.replication_factor ?? cluster?.replication_factor, t);
@@ -217,6 +219,7 @@ export const ClusterInstanceCard: FC<ClusterInstanceCardProps> = ({
                     alignItems: 'flex-start',
                     color: item.destructive ? '#DA1515' : '#0B1117'
                   }}
+                  disabled={!isUniverseReady}
                 >
                   <Box
                     sx={{
@@ -266,6 +269,7 @@ export const ClusterInstanceCard: FC<ClusterInstanceCardProps> = ({
                   onClick={() => {
                     editResilienceAndRegionsClicked?.();
                   }}
+                  disabled={!isUniverseReady}
                 >
                   {<EditIcon />}
                   {t('editResilienceAndRegions')}
@@ -280,6 +284,7 @@ export const ClusterInstanceCard: FC<ClusterInstanceCardProps> = ({
                   onClick={() => {
                     editPlacementClicked?.();
                   }}
+                  disabled={!isUniverseReady}
                 >
                   {<EditIcon />}
                   {t('editNodesAndAvailabilityZones')}
@@ -294,6 +299,7 @@ export const ClusterInstanceCard: FC<ClusterInstanceCardProps> = ({
                       onClick={() => {
                         editMasterServerNodeAllocationClicked();
                       }}
+                      disabled={!isUniverseReady}
                     >
                       {<EditIcon />}
                       {t('editMasterServerNodeAllocation')}
@@ -309,7 +315,7 @@ export const ClusterInstanceCard: FC<ClusterInstanceCardProps> = ({
           <>
             <div>
               <Typography variant="subtitle1" color="textSecondary">
-                {t('faultTolerance')}
+                {t('resilienceLevel')}
               </Typography>
               <StyledValue>{resilientType}</StyledValue>
             </div>
@@ -352,7 +358,13 @@ export const ClusterInstanceCard: FC<ClusterInstanceCardProps> = ({
               </Box>
             )
           },
-          { accessorKey: 'name', header: t('availabilityZone') },
+          { 
+            accessorKey: 'name', 
+            header: t('availabilityZone'),
+            Cell: ({ cell}: any) => {
+              return cell?.row?.original?.az_list?.length ?? '-';
+            }
+          },
           {
             accessorKey: 'uuid',
             header: t('totalNodes'),

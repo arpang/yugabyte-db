@@ -483,6 +483,10 @@ public class NodeManager extends DevopsBase {
         subCommand.add(computedUser);
       }
     } else if (type == NodeCommandType.Precheck) {
+      String ybUserHomeOverride =
+          confGetter
+              .getConfForScope(params.getProvider(), ProviderConfKeys.ybUserHomeOverride)
+              .trim();
       subCommand.add("--precheck_type");
       if (providerDetails.skipProvisioning) {
         subCommand.add("configure");
@@ -495,6 +499,11 @@ public class NodeManager extends DevopsBase {
       }
       subCommand.add("--yb_home_dir");
       subCommand.add(provider.getYbHome());
+      if (StringUtils.isNotEmpty(ybUserHomeOverride)) {
+        log.info("Using yb_user_home override value from provider config: {}", ybUserHomeOverride);
+        subCommand.add("--yb_user_home");
+        subCommand.add(ybUserHomeOverride);
+      }
       if (providerDetails.setUpChrony) {
         subCommand.add("--skip_ntp_check");
       }
@@ -542,7 +551,8 @@ public class NodeManager extends DevopsBase {
           && !((AnsibleSetupServer.Params) params).useTimeSync
           && (providerType.equals(Common.CloudType.aws)
               || providerType.equals(Common.CloudType.gcp)
-              || providerType.equals(Common.CloudType.azu))) {
+              || providerType.equals(Common.CloudType.azu)
+              || providerType.equals(Common.CloudType.oci))) {
         subCommand.add("--use_chrony");
         List<String> publicServerList =
             Arrays.asList("0.pool.ntp.org", "1.pool.ntp.org", "2.pool.ntp.org", "3.pool.ntp.org");
@@ -1685,7 +1695,7 @@ public class NodeManager extends DevopsBase {
     String nodeIp = null;
     UserIntent userIntent = getUserIntentFromParams(universe, nodeTaskParam);
     if (!NodeAgentClient.isCloudTypeSupported(userIntent.providerType)) {
-      log.debug("Skipping node agent command args for {} provider", userIntent.providerType);
+      log.trace("Skipping node agent command args for {} provider", userIntent.providerType);
       return;
     }
     if (userIntent.providerType.equals(Common.CloudType.onprem)) {
@@ -1729,13 +1739,14 @@ public class NodeManager extends DevopsBase {
       }
       commandArgs.add(
           GFlagsUtil.getCustomTmpDirectory(
+              confGetter,
               universe,
               cluster,
               nodeTaskParam.azUuid,
               nodeTaskParam.isMaster,
               nodeTaskParam.isTserver));
     } else {
-      commandArgs.add(GFlagsUtil.getCustomTmpDirectory(node, universe));
+      commandArgs.add(GFlagsUtil.getCustomTmpDirectory(confGetter, node, universe));
     }
   }
 

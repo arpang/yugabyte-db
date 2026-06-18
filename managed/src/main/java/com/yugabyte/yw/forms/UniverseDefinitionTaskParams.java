@@ -604,6 +604,11 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
             nodes.stream()
                 .filter(n -> n.dedicatedTo == UniverseTaskBase.ServerType.MASTER)
                 .collect(Collectors.toSet()));
+      } else if ((userIntent.masterDeviceInfo != null || userIntent.masterInstanceType != null)
+          && !userIntent.dedicatedNodes) {
+        throw new IllegalStateException(
+            "masterDeviceInfo and masterInstanceType can only be set when dedicated nodes for "
+                + "master and tserver are selected.");
       } else {
         checkStorageType(userIntent.deviceInfo, nodes);
       }
@@ -731,11 +736,18 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
     }
 
     public static Optional<UUID> searchProviderUUIDByAz(UUID azUUID, PlacementInfo placementInfo) {
+      if (placementInfo == null) {
+        return Optional.empty();
+      }
       return placementInfo
           .azInfoStream()
           .filter(az -> az.placementAZ.uuid.equals(azUUID))
           .findFirst()
           .map(az -> az.cloud.uuid);
+    }
+
+    public UUID getProviderUUIDForNode(NodeDetails node) {
+      return UUID.fromString(userIntent.provider);
     }
 
     public CloudType getProviderCloudType(NodeDetails nodeDetails) {
@@ -922,7 +934,8 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
             }
             return v;
           });
-      if (perProcess.containsKey(serverType) && perProcess.get(serverType) == null) {
+      if (perProcess.containsKey(serverType)
+          && (perProcess.get(serverType) == null || perProcess.get(serverType).allNull())) {
         perProcess.remove(serverType);
       }
       if (MapUtils.isEmpty(perProcess)) {
@@ -984,7 +997,8 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
             }
             return v;
           });
-      if (azOverrides.containsKey(azUUID) && azOverrides.get(azUUID) == null) {
+      if (azOverrides.containsKey(azUUID)
+          && (azOverrides.get(azUUID) == null || azOverrides.get(azUUID).allNull())) {
         azOverrides.remove(azUUID);
       }
       if (MapUtils.isEmpty(azOverrides)) {
@@ -1623,7 +1637,7 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
                         azO.updatePerProcess(serverType, perProcessConsumer);
                         azO.setDeviceInfo(deviceInfo);
                       } else {
-                        azO.reset();
+                        azO.updatePerProcess(serverType, perProc -> perProc.reset());
                       }
                     };
                 originalOverridesClone.updateAZOverride(azUUID, applyChangesConsumer);
@@ -1637,6 +1651,11 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
         return overridenDetails.getProxyConfig();
       }
       return proxyConfig;
+    }
+
+    @JsonIgnore
+    public boolean isMulticloudSupport() {
+      return false;
     }
 
     @Override

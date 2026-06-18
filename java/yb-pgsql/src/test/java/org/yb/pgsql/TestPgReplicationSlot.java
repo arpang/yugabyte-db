@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
@@ -792,9 +793,9 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
 
   @Test
   public void testReplicationConnectionConsumptionWithCreateIndex() throws Exception {
-    Map<String, String> tserverFlags = super.getTServerFlags();
-    tserverFlags.put("ysql_yb_wait_for_backends_catalog_version_timeout", "10000");
-    restartClusterWithFlags(Collections.emptyMap(), tserverFlags);
+    Map<String, String> masterFlags = super.getMasterFlags();
+    masterFlags.put("master_ysql_operation_lease_ttl_ms", "10000");
+    restartClusterWithFlags(masterFlags, Collections.emptyMap());
 
     final String slotName = "test_slot";
     final String pluginName = YB_OUTPUT_PLUGIN_NAME;
@@ -995,10 +996,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   public void setFlagsForDynamicTablesTest(Map<String, String> tserverFlags,
       Map<String, String> masterFlags, Boolean usePubRefresh, Boolean streamTablesWithoutPrimaryKey)
       throws Exception {
-    tserverFlags.put(
-        "allowed_preview_flags_csv",
-        "ysql_yb_cdcsdk_stream_tables_without_primary_key,"
-            + "enable_table_rewrite_for_cdcsdk_table");
+    tserverFlags.put("allowed_preview_flags_csv", "enable_table_rewrite_for_cdcsdk_table");
     tserverFlags.put(
         "ysql_yb_enable_implicit_dynamic_tables_logical_replication",
         "" + !usePubRefresh);
@@ -1008,10 +1006,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     tserverFlags.put(
         "enable_table_rewrite_for_cdcsdk_table", "true");
 
-    masterFlags.put(
-        "allowed_preview_flags_csv",
-        "ysql_yb_cdcsdk_stream_tables_without_primary_key,"
-            + "enable_table_rewrite_for_cdcsdk_table");
+    masterFlags.put("allowed_preview_flags_csv", "enable_table_rewrite_for_cdcsdk_table");
     masterFlags.put(
         "ysql_yb_enable_implicit_dynamic_tables_logical_replication",
         "" + !usePubRefresh);
@@ -1225,14 +1220,10 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
 
     for (HostAndPort tServer : miniCluster.getTabletServers().keySet()) {
       miniCluster.getClient().setFlag(
-          tServer, "allowed_preview_flags_csv", "ysql_yb_cdcsdk_stream_tables_without_primary_key");
-      miniCluster.getClient().setFlag(
           tServer, "ysql_yb_cdcsdk_stream_tables_without_primary_key", "true");
     }
 
     for (HostAndPort master : miniCluster.getMasters().keySet()) {
-      miniCluster.getClient().setFlag(
-          master, "allowed_preview_flags_csv", "ysql_yb_cdcsdk_stream_tables_without_primary_key");
       miniCluster.getClient().setFlag(
           master, "ysql_yb_cdcsdk_stream_tables_without_primary_key", "true");
     }
@@ -4977,7 +4968,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
       stmt.execute("SELECT pg_replication_origin_create('" + originId2 + "')");
 
       // Create replication slot
-      createSlot(replConnection, slotName, YB_OUTPUT_PLUGIN_NAME);
+      createSlot(replConnection, slotName, PG_OUTPUT_PLUGIN_NAME);
 
       // Local insert
       stmt.execute("INSERT INTO tbl1 values (2,'b')");
@@ -5054,6 +5045,249 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
       );
 
     List<PgOutputMessage> result = receiveMessage(stream, 22);
+    assertEquals(expectedResult, result);
+
+    stream.close();
+    conn.close();
+  }
+
+  @Test
+  public void testPgoutputWithSharedOriginId() throws Exception {
+    final String slotName = "test_replication_with_shared_origin_id";
+    final String originId1 = "shared_origin1";
+    final String originId2 = "shared_origin2";
+
+    Connection replConn = getConnectionBuilder().withTServer(0).replicationConnect();
+    PGReplicationConnection replConnection =
+        replConn.unwrap(PGConnection.class).getReplicationAPI();
+    Connection conn2 = getConnectionBuilder().withTServer(1).connect();
+
+    try (Statement stmt1 = connection.createStatement();
+         Statement stmt2 = conn2.createStatement()) {
+      stmt1.execute("DROP TABLE IF EXISTS shared_origin_tbl1");
+      stmt1.execute("DROP TABLE IF EXISTS shared_origin_tbl2");
+      stmt1.execute("CREATE TABLE shared_origin_tbl1 (a INT PRIMARY KEY, b TEXT)");
+      stmt1.execute("ALTER TABLE shared_origin_tbl1 REPLICA IDENTITY DEFAULT");
+      stmt1.execute("CREATE TABLE shared_origin_tbl2 (a INT PRIMARY KEY, b TEXT)");
+      stmt1.execute("ALTER TABLE shared_origin_tbl2 REPLICA IDENTITY DEFAULT");
+      stmt1.execute("CREATE PUBLICATION shared_origin_pub FOR ALL TABLES");
+
+      stmt1.execute("SELECT pg_replication_origin_create('" + originId1 + "')");
+      stmt1.execute("SELECT pg_replication_origin_create('" + originId2 + "')");
+      stmt1.execute("CREATE ROLE shared_origin_non_su LOGIN PASSWORD 'pwd'");
+      createSlot(replConnection, slotName, PG_OUTPUT_PLUGIN_NAME);
+
+      try (Connection nonSuConn = getConnectionBuilder()
+               .withUser("shared_origin_non_su").withPassword("pwd").connect();
+           Statement nonSuStmt = nonSuConn.createStatement()) {
+        runInvalidQuery(
+            nonSuStmt,
+            "SELECT yb_replication_origin_session_setup_shared('" + originId1 + "')",
+            "permission denied for function yb_replication_origin_session_setup_shared");
+        runInvalidQuery(
+            nonSuStmt,
+            "SELECT yb_replication_origin_session_reset_shared()",
+            "permission denied for function yb_replication_origin_session_reset_shared");
+      }
+
+      stmt1.execute("SELECT yb_replication_origin_session_setup_shared('" + originId1 + "')");
+      stmt2.execute("SELECT yb_replication_origin_session_setup_shared('" + originId2 + "')");
+
+      runInvalidQuery(
+          stmt1,
+          "SELECT pg_replication_origin_session_setup('" + originId2 + "')",
+          "replication origin session already setup");
+      runInvalidQuery(
+          stmt1,
+          "SELECT yb_replication_origin_session_setup_shared('" + originId2 + "')",
+          "replication origin session already setup");
+
+      stmt1.execute("CREATE TEMP TABLE shared_origin_temp(i int)");
+      stmt1.execute("INSERT INTO shared_origin_temp VALUES (1)");
+      stmt1.execute("DROP TABLE shared_origin_temp");
+      stmt1.execute("INSERT INTO shared_origin_tbl1 values (1, 'from_origin1')");
+      stmt2.execute("INSERT INTO shared_origin_tbl2 values (2, 'from_origin2')");
+
+      stmt1.execute("SELECT yb_replication_origin_session_reset_shared()");
+      stmt2.execute("SELECT yb_replication_origin_session_reset_shared()");
+      stmt1.execute("INSERT INTO shared_origin_tbl1 values (3, 'local_after_reset')");
+
+      stmt1.execute("SELECT pg_replication_origin_session_setup('" + originId1 + "')");
+      runInvalidQuery(
+          stmt1,
+          "SELECT yb_replication_origin_session_setup_shared('" + originId2 + "')",
+          "cannot use shared replication origin session while an exclusive one is active");
+      runInvalidQuery(
+          stmt1,
+          "SELECT yb_replication_origin_session_reset_shared()",
+          "cannot reset shared replication origin session while an exclusive one is active");
+      stmt1.execute("SELECT pg_replication_origin_session_reset()");
+
+    }
+
+    PGReplicationStream stream = replConnection.replicationStream()
+                                     .logical()
+                                     .withSlotName(slotName)
+                                     .withStartPosition(LogSequenceNumber.valueOf(0L))
+                                     .withSlotOption("proto_version", 1)
+                                     .withSlotOption("publication_names", "shared_origin_pub")
+                                     .start();
+
+    List<PgOutputMessage> result = receiveMessage(stream, 13);
+    int originMessages = 0;
+    int origin1Messages = 0;
+    int origin2Messages = 0;
+    for (PgOutputMessage message : result) {
+      if (message.messageType() == PgOutputMessageType.ORIGIN) {
+        originMessages++;
+      }
+      if (message.equals(PgOutputOriginMessage.Create(originId1))) {
+        origin1Messages++;
+      }
+      if (message.equals(PgOutputOriginMessage.Create(originId2))) {
+        origin2Messages++;
+      }
+    }
+    assertEquals(2, originMessages);
+    assertEquals(1, origin1Messages);
+    assertEquals(1, origin2Messages);
+
+    stream.close();
+    conn2.close();
+    replConn.close();
+  }
+
+  @Test
+  public void testSharedOriginIdDisabled() throws Exception {
+    Map<String, String> tserverFlags = getTServerFlags();
+    appendToYsqlPgConf(tserverFlags, "yb_enable_replication_origin_shared=false");
+    restartClusterWithFlags(getMasterFlags(), tserverFlags);
+
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute("SELECT pg_replication_origin_create('disabled_shared_origin')");
+      runInvalidQuery(
+          stmt,
+          "SELECT yb_replication_origin_session_setup_shared('disabled_shared_origin')",
+          "yb_replication_origin_session_setup_shared requires "
+              + "yb_enable_replication_origin_shared to be enabled");
+      runInvalidQuery(
+          stmt,
+          "SELECT yb_replication_origin_session_reset_shared()",
+          "yb_replication_origin_session_reset_shared requires "
+              + "yb_enable_replication_origin_shared to be enabled");
+    }
+  }
+
+  @Test
+  public void testYboutputWithOriginIdCreatedAfterSlot() throws Exception {
+    final String slotName = "test_replication_with_origin_id_post_slot";
+    final String originId1 = "origin1_post";
+    final String originId2 = "origin2_post";
+
+    Connection conn = getConnectionBuilder().withTServer(0).replicationConnect();
+    PGReplicationConnection replConnection = conn.unwrap(PGConnection.class).getReplicationAPI();
+
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute("DROP TABLE IF EXISTS tbl1");
+      stmt.execute("DROP TABLE IF EXISTS tbl2");
+      stmt.execute("CREATE TABLE tbl1 (a INT PRIMARY KEY, b TEXT)");
+      stmt.execute("ALTER TABLE tbl1 REPLICA IDENTITY CHANGE");
+      stmt.execute("CREATE TABLE tbl2 (a TEXT primary key) SPLIT INTO 2 TABLETS");
+      stmt.execute("ALTER TABLE tbl2 REPLICA IDENTITY CHANGE");
+      stmt.execute("INSERT INTO tbl1 values (1,'a')");
+      stmt.execute("CREATE PUBLICATION pub FOR ALL TABLES");
+
+      // Create only origin1 BEFORE the slot.
+      stmt.execute("SELECT pg_replication_origin_create('" + originId1 + "')");
+
+      // Create replication slot. origin2 does not exist yet.
+      createSlot(replConnection, slotName, YB_OUTPUT_PLUGIN_NAME);
+
+      // Create origin2 AFTER the slot exists.
+      stmt.execute("SELECT pg_replication_origin_create('" + originId2 + "')");
+
+      stmt.execute("INSERT INTO tbl1 values (2,'b')");
+
+      // Single tablet non distributed insert from origin 1
+      stmt.execute("SELECT pg_replication_origin_session_setup('" + originId1 + "')");
+      stmt.execute("INSERT INTO tbl2 values ('row1')");
+
+      // Batch update from origin 2.
+      stmt.execute("SELECT pg_replication_origin_session_reset()");
+      stmt.execute("SELECT pg_replication_origin_session_setup('" + originId2 + "')");
+      stmt.execute("BEGIN");
+      stmt.execute("UPDATE tbl1 SET b = 'c' WHERE a = 1");
+      stmt.execute("UPDATE tbl1 SET b = 'd' WHERE a = 2");
+      stmt.execute("COMMIT");
+
+      // Transactional DML from origin 1
+      stmt.execute("SELECT pg_replication_origin_session_reset()");
+      stmt.execute("SELECT pg_replication_origin_session_setup('" + originId1 + "')");
+      stmt.execute("BEGIN");
+      stmt.execute("INSERT INTO tbl2 values ('row2')");
+      stmt.execute("DELETE FROM tbl1 WHERE a = 2");
+      stmt.execute("COMMIT");
+
+      stmt.execute("SELECT pg_replication_origin_session_reset()");
+      stmt.execute("DELETE FROM tbl2 WHERE a = 'row2'");
+    }
+
+    PGReplicationStream stream = replConnection.replicationStream()
+                                     .logical()
+                                     .withSlotName(slotName)
+                                     .withStartPosition(LogSequenceNumber.valueOf(0L))
+                                     .withSlotOption("proto_version", 1)
+                                     .withSlotOption("publication_names", "pub")
+                                     .start();
+
+    List<PgOutputMessage> expectedResult = CreateMessages(
+        // Change 1: Local insert
+        PgOutputBeginMessage.Create("0/4", 2),
+        PgOutputRelationMessage.Create("public", "tbl1", 'c',
+            PgOutputRelationMessageColumn.Create("a", 23),
+            PgOutputRelationMessageColumn.Create("b", 25)),
+        PgOutputInsertMessage.Create("2", "b"),
+        PgOutputCommitMessage.Create("0/4", "0/5"),
+
+        // Change 2: Single tablet non distributed insert from origin 1 (pre-slot origin)
+        PgOutputBeginMessage.Create("0/7", 3),
+        PgOutputOriginMessage.Create(originId1),
+        PgOutputRelationMessage.Create(
+            "public", "tbl2", 'c', PgOutputRelationMessageColumn.Create("a", 25)),
+        PgOutputInsertMessage.Create("row1"),
+        PgOutputCommitMessage.Create("0/7", "0/8"),
+
+        // Change 3: Batch update from origin 2.
+        PgOutputBeginMessage.Create("0/B", 4),
+        PgOutputOriginMessage.Create(originId2),
+        PgOutputUpdateMessage.Create(true, "1", "c"),
+        PgOutputUpdateMessage.Create(true, "2", "d"),
+        PgOutputCommitMessage.Create("0/B", "0/C"),
+
+        // Change 4: Transactional DML from origin 1
+        PgOutputBeginMessage.Create("0/F", 5),
+        PgOutputOriginMessage.Create(originId1),
+        PgOutputInsertMessage.Create("row2"),
+        PgOutputDeleteMessage.Create(true, "2", null),
+        PgOutputCommitMessage.Create("0/F", "0/10"),
+
+        // Change 5: Local delete
+        PgOutputBeginMessage.Create("0/12", 6),
+        PgOutputDeleteMessage.Create(true, "row2"),
+        PgOutputCommitMessage.Create("0/12", "0/13")
+      );
+
+    long deadlineMs = System.currentTimeMillis() + 60_000;
+    List<PgOutputMessage> result = new ArrayList<>();
+    while (result.size() < 22 && System.currentTimeMillis() < deadlineMs) {
+      ByteBuffer buf = stream.readPending();
+      if (buf != null) {
+        result.add(PgOutputMessageDecoder.DecodeBytes(buf));
+      } else {
+        Thread.sleep(50);
+      }
+    }
+    LOG.info("Received {} messages (expected 22)", result.size());
     assertEquals(expectedResult, result);
 
     stream.close();
@@ -5229,6 +5463,8 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     stream.close();
   }
 
+  // TODO(#31908): Re-enable the test once support for colocated rewrite + CDC is added.
+  @Ignore
   @Test
   public void testWithTableRewriteOnColocatedTable() throws Exception {
     setFlagsForDynamicTablesTest(getTServerFlags(), getMasterFlags(),
@@ -5517,6 +5753,8 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     stream.close();
   }
 
+  // TODO(#31908): Re-enable the test once support for colocated rewrite + CDC is added.
+  @Ignore
   @Test
   public void testColocatedDropPkThenDropIndex() throws Exception {
     setFlagsForDynamicTablesTest(getTServerFlags(), getMasterFlags(),

@@ -40,9 +40,11 @@ import api.v2.models.UniverseSoftwareUpgradePrecheckResp;
 import api.v2.models.UniverseSoftwareUpgradeStart;
 import api.v2.models.UniverseSystemdEnableStart;
 import api.v2.models.UniverseThirdPartySoftwareUpgradeStart;
+import api.v2.models.UniverseValidateKubernetesOverrides;
 import api.v2.models.YBATask;
+import api.v2.models.YBAValidationResponse;
+import com.google.inject.Inject;
 import com.yugabyte.yw.models.Audit;
-import jakarta.inject.Inject;
 import java.io.InputStream;
 import java.util.UUID;
 import play.mvc.Http;
@@ -192,6 +194,12 @@ public class UniverseApiControllerImp extends UniverseApiControllerImpInterface 
     return universeUpgradeHandler.editKubernetesOverrides(request, cUUID, uniUUID, spec);
   }
 
+  @Override
+  public YBAValidationResponse validateKubernetesOverrides(
+      Request request, UUID cUUID, UniverseValidateKubernetesOverrides spec) throws Exception {
+    return universeHandler.validateKubernetesOverrides(request, cUUID, spec);
+  }
+
   // Overrode this method to improve response handling in clients - the Content-Disposition lets the
   // client know to handle this response as a downloaded file named "attachDetachSpec.tar.gz". Also,
   // the content type is specified as "application/gzip" to set the MIME type of the response. If we
@@ -262,6 +270,12 @@ public class UniverseApiControllerImp extends UniverseApiControllerImpInterface 
       Request request, UUID cUUID, UUID uniUUID, ExportTelemetryConfigSpec reqBody)
       throws Exception {
     return universeUpgradeHandler.configureExportTelemetryConfig(request, cUUID, uniUUID, reqBody);
+  }
+
+  @Override
+  public api.v2.models.TelemetryConfig getExportTelemetryConfig(
+      Request request, UUID cUUID, UUID uniUUID) throws Exception {
+    return universeUpgradeHandler.getExportTelemetryConfig(cUUID, uniUUID);
   }
 
   @Override

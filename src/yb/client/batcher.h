@@ -369,6 +369,12 @@ class Batcher : public Runnable, public std::enable_shared_from_this<Batcher> {
       const LWOpIdPB& async_write_op_id, const RemoteTablet& tablet,
       const std::shared_ptr<const YBTable>& table);
 
+  // Returns true if the operations in this batcher are configured to skip the intents DB.
+  // Because all operations within a single batch must share the exact same skip_intents
+  // behavior, this is efficiently determined by inspecting the protobuf request of just
+  // the first operation in the buffer.
+  bool SkipIntents() const;
+
   BatcherState state_ = BatcherState::kGatheringOps;
 
   YBClient* const client_;

@@ -975,7 +975,13 @@
             "PA_EMBEDDED_COLLECTOR_ERROR",
             "NODE_MAINTENANCE_SERVICE_FAILED",
             "NODE_MAINTENANCE_SERVICE_NOT_RUN",
-            "NODE_MAINTENANCE_SERVICE_DEFINITION_MISSING"
+            "NODE_MAINTENANCE_SERVICE_DEFINITION_MISSING",
+            "YBA_NODE_CPU_USAGE",
+            "YBA_NODE_MEMORY_USAGE",
+            "YBA_NODE_DISK_USAGE",
+            "YBA_K8S_CPU_USAGE",
+            "YBA_K8S_MEMORY_USAGE",
+            "YBA_K8S_DISK_USAGE"
           ],
           "type" : "string"
         },
@@ -1168,7 +1174,13 @@
             "PA_EMBEDDED_COLLECTOR_ERROR",
             "NODE_MAINTENANCE_SERVICE_FAILED",
             "NODE_MAINTENANCE_SERVICE_NOT_RUN",
-            "NODE_MAINTENANCE_SERVICE_DEFINITION_MISSING"
+            "NODE_MAINTENANCE_SERVICE_DEFINITION_MISSING",
+            "YBA_NODE_CPU_USAGE",
+            "YBA_NODE_MEMORY_USAGE",
+            "YBA_NODE_DISK_USAGE",
+            "YBA_K8S_CPU_USAGE",
+            "YBA_K8S_MEMORY_USAGE",
+            "YBA_K8S_DISK_USAGE"
           ],
           "type" : "string"
         },
@@ -1457,7 +1469,13 @@
             "PA_EMBEDDED_COLLECTOR_ERROR",
             "NODE_MAINTENANCE_SERVICE_FAILED",
             "NODE_MAINTENANCE_SERVICE_NOT_RUN",
-            "NODE_MAINTENANCE_SERVICE_DEFINITION_MISSING"
+            "NODE_MAINTENANCE_SERVICE_DEFINITION_MISSING",
+            "YBA_NODE_CPU_USAGE",
+            "YBA_NODE_MEMORY_USAGE",
+            "YBA_NODE_DISK_USAGE",
+            "YBA_K8S_CPU_USAGE",
+            "YBA_K8S_MEMORY_USAGE",
+            "YBA_K8S_DISK_USAGE"
           ],
           "type" : "string"
         },
@@ -6025,6 +6043,9 @@
         "local" : {
           "$ref" : "#/definitions/LocalCloudInfo"
         },
+        "oci" : {
+          "$ref" : "#/definitions/OCICloudInfo"
+        },
         "onprem" : {
           "$ref" : "#/definitions/OnPremCloudInfo"
         }
@@ -7624,6 +7645,9 @@
             "Premium_LRS",
             "PremiumV2_LRS",
             "UltraSSD_LRS",
+            "OCI_Balanced",
+            "OCI_HigherPerformance",
+            "OCI_LowerCost",
             "Local"
           ],
           "type" : "string"
@@ -10236,6 +10260,7 @@
             "aws",
             "gcp",
             "azu",
+            "oci",
             "docker",
             "onprem",
             "kubernetes",
@@ -13301,6 +13326,7 @@
             "aws",
             "gcp",
             "azu",
+            "oci",
             "docker",
             "onprem",
             "kubernetes",
@@ -14254,6 +14280,49 @@
         "numSelect",
         "numUpdate"
       ],
+      "type" : "object"
+    },
+    "OCICloudInfo" : {
+      "properties" : {
+        "ociCompartmentId" : {
+          "description" : "OCI Compartment OCID",
+          "type" : "string"
+        },
+        "ociFingerprint" : {
+          "description" : "OCI API Key Fingerprint",
+          "type" : "string"
+        },
+        "ociHostedZoneId" : {
+          "description" : "OCI DNS Zone OCID for hosted zone",
+          "type" : "string"
+        },
+        "ociPrivateKeyContent" : {
+          "description" : "OCI API Private Key content (PEM format)",
+          "type" : "string"
+        },
+        "ociRegion" : {
+          "description" : "Default OCI Region",
+          "type" : "string"
+        },
+        "ociTenancyId" : {
+          "description" : "OCI Tenancy OCID",
+          "type" : "string"
+        },
+        "ociUserId" : {
+          "description" : "OCI User OCID",
+          "type" : "string"
+        },
+        "vpcType" : {
+          "description" : "New/Existing VCN for provider creation",
+          "enum" : [
+            "EXISTING",
+            "NEW",
+            "HOSTVPC"
+          ],
+          "readOnly" : true,
+          "type" : "string"
+        }
+      },
       "type" : "object"
     },
     "OTLPConfig" : {
@@ -24937,7 +25006,8 @@
               "KubernetesToggleImmutableYbc",
               "OperatorImport",
               "RegisterWithPACollector",
-              "UnregisterFromPACollector"
+              "UnregisterFromPACollector",
+              "Unknown"
             ],
             "type" : "string"
           },
@@ -29881,6 +29951,7 @@
             "aws",
             "gcp",
             "azu",
+            "oci",
             "docker",
             "onprem",
             "kubernetes",
@@ -31547,6 +31618,7 @@
         }
       },
       "required" : [
+        "bootstrapParams",
         "tables"
       ],
       "type" : "object"
@@ -31882,6 +31954,11 @@
             "ERROR"
           ],
           "type" : "string"
+        },
+        "logRetentionDays" : {
+          "description" : "Number of days to keep gzipped YCQL audit log archives on the node. 0 or unset disables the dedicated audit-log retention pipeline and keeps the default size-based tserver log purge behavior.",
+          "format" : "int32",
+          "type" : "integer"
         }
       },
       "required" : [
@@ -31956,6 +32033,11 @@
         "logRelation" : {
           "description" : "Log relation",
           "type" : "boolean"
+        },
+        "logRetentionDays" : {
+          "description" : "Number of days to keep extracted YSQL audit log archives on the node. 0 or unset disables the dedicated audit-log retention pipeline and keeps the default size-based postgres log purge behavior.",
+          "format" : "int32",
+          "type" : "integer"
         },
         "logRows" : {
           "description" : "Log rows",
@@ -46853,7 +46935,7 @@
     },
     "/api/v1/customers/{cUUID}/users/{uUUID}" : {
       "delete" : {
-        "description" : "Deletes the specified user. Note that you can't delete a customer's primary user.",
+        "description" : "Deletes the specified user. Note that an Admin user can't delete a SuperAdmin user.",
         "operationId" : "deleteUser",
         "parameters" : [
           {
@@ -48483,6 +48565,9 @@
                   "Premium_LRS",
                   "PremiumV2_LRS",
                   "UltraSSD_LRS",
+                  "OCI_Balanced",
+                  "OCI_HigherPerformance",
+                  "OCI_LowerCost",
                   "Local"
                 ],
                 "type" : "string"
@@ -48509,6 +48594,9 @@
                   "Premium_LRS",
                   "PremiumV2_LRS",
                   "UltraSSD_LRS",
+                  "OCI_Balanced",
+                  "OCI_HigherPerformance",
+                  "OCI_LowerCost",
                   "Local"
                 ],
                 "type" : "string"
@@ -48551,6 +48639,9 @@
                   "Premium_LRS",
                   "PremiumV2_LRS",
                   "UltraSSD_LRS",
+                  "OCI_Balanced",
+                  "OCI_HigherPerformance",
+                  "OCI_LowerCost",
                   "Local"
                 ],
                 "type" : "string"
@@ -48577,6 +48668,9 @@
                   "Premium_LRS",
                   "PremiumV2_LRS",
                   "UltraSSD_LRS",
+                  "OCI_Balanced",
+                  "OCI_HigherPerformance",
+                  "OCI_LowerCost",
                   "Local"
                 ],
                 "type" : "string"
@@ -48619,6 +48713,9 @@
                   "Premium_LRS",
                   "PremiumV2_LRS",
                   "UltraSSD_LRS",
+                  "OCI_Balanced",
+                  "OCI_HigherPerformance",
+                  "OCI_LowerCost",
                   "Local"
                 ],
                 "type" : "string"
@@ -48645,6 +48742,9 @@
                   "Premium_LRS",
                   "PremiumV2_LRS",
                   "UltraSSD_LRS",
+                  "OCI_Balanced",
+                  "OCI_HigherPerformance",
+                  "OCI_LowerCost",
                   "Local"
                 ],
                 "type" : "string"

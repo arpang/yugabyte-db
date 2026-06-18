@@ -597,7 +597,7 @@ void MasterPathHandlers::TServerDisplay(
     status = status.CloneAndPrepend("Unable to get preferred zone list");
     LOG(WARNING) << status.ToString();
   }
-  const auto lease_info =
+  const auto lease_infos =
       master_->catalog_manager_impl()->object_lock_info_manager()->GetLeaseInfos();
 
   auto html_table = html_print_helper.CreateTablePrinter(
@@ -672,14 +672,20 @@ void MasterPathHandlers::TServerDisplay(
 
     html_row.AddColumn(counts ? desc->num_live_replicas() : 0);
 
-    const auto& lease = lease_info.at(desc->permanent_uuid());
-    const auto has_live_lease = lease.lease_info.live_lease();
-    html_row.AddColumn(Format(
-        "<font color=\"$0\">$1", has_live_lease ? "Green" : "Red",
-        has_live_lease ? lease.lease_expiry.ToString() : "NO LEASE"));
-    html_row.AddColumn(Format(
-        "<font color=\"$0\">$1", has_live_lease ? "Green" : "Red",
-        has_live_lease ? std::to_string(lease.lease_info.lease_epoch()) : "NO LEASE"));
+    {
+      auto lease_it = lease_infos.find(desc->permanent_uuid());
+      const std::string kLeaseCellTemplate{"<font color=\"$0\">$1"};
+      if (lease_it != lease_infos.end() && lease_it->second.lease_info.live_lease()) {
+        html_row.AddColumn(
+            Format(kLeaseCellTemplate, "Green", lease_it->second.lease_expiry.ToString()));
+        html_row.AddColumn(Format(
+            kLeaseCellTemplate, "Green",
+            std::to_string(lease_it->second.lease_info.lease_epoch())));
+      } else {
+        html_row.AddColumn(Format(kLeaseCellTemplate, "Red", "NO LEASE"));
+        html_row.AddColumn(Format(kLeaseCellTemplate, "Red", "NO LEASE"));
+      }
+    }
   }
   html_table.Print();
 }

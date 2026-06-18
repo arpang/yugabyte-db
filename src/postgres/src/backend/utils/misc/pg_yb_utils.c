@@ -40,6 +40,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "access/genam.h"
 #include "access/heaptoast.h"
 #include "access/htup.h"
 #include "access/htup_details.h"
@@ -71,6 +72,7 @@
 #include "catalog/pg_partitioned_table.h"
 #include "catalog/pg_policy.h"
 #include "catalog/pg_proc.h"
+#include "catalog/pg_publication.h"
 #include "catalog/pg_range_d.h"
 #include "catalog/pg_rewrite.h"
 #include "catalog/pg_statistic_d.h"
@@ -89,11 +91,14 @@
 #include "catalog/yb_type.h"
 #include "commands/dbcommands.h"
 #include "commands/defrem.h"
+#include "commands/trigger.h"
 #include "commands/variable.h"
 #include "commands/yb_cmds.h"
 #include "common/ip.h"
 #include "common/pg_yb_common.h"
 #include "common/pg_yb_param_status_flags.h"
+#include "executor/execdesc.h"
+#include "executor/spi.h"
 #include "executor/ybExpr.h"
 #include "fmgr.h"
 #include "foreign/foreign.h"
@@ -107,6 +112,7 @@
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/pathnodes.h"
+#include "nodes/plannodes.h"
 #include "nodes/readfuncs.h"
 #include "optimizer/cost.h"
 #include "optimizer/plancat.h"
@@ -116,12 +122,15 @@
 #include "pgstat.h"
 #include "postmaster/interrupt.h"
 #include "replication/origin.h"
+#include "replication/slot.h"
 #ifndef HAVE_GETRUSAGE
 #include "rusagestub.h"
 #endif
 #include "storage/ipc.h"
 #include "storage/procarray.h"
+#include "tcop/pquery.h"
 #include "tcop/utility.h"
+#include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/fmgroids.h"
@@ -135,12 +144,14 @@
 #include "utils/snapshot.h"
 #include "utils/spccache.h"
 #include "utils/syscache.h"
+#include "utils/typcache.h"
 #include "utils/uuid.h"
 #include "yb/yql/pggate/util/ybc_util.h"
 #include "yb/yql/pggate/ybc_dist_trace.h"
 #include "yb/yql/pggate/ybc_gflags.h"
 #include "yb/yql/pggate/ybc_pggate.h"
 #include "yb_ash.h"
+#include "yb_internal_conn.h"
 #include "yb_qpm.h"
 #include "yb_query_diagnostics.h"
 
@@ -152,6 +163,14 @@ static uint64_t yb_logical_client_cache_version = YB_CATCACHE_VERSION_UNINITIALI
 static bool yb_need_invalidate_all_table_cache = false;
 
 static Oid	yb_system_db_oid_cache = InvalidOid;
+typedef struct YbSkipIntentsTxnState
+{
+	bool		disabled;
+	bool		has_skipped_write;
+	bool		has_seen_non_top_level;
+} YbSkipIntentsTxnState;
+
+static YbSkipIntentsTxnState skip_intents_txn_state = {0};
 
 static bool YbHasDdlMadeChanges();
 static int YbGetNumCreateFunctionStmts();
@@ -159,6 +178,7 @@ static int YbGetNumRollbackToSavepointStmts();
 static bool YBIsCurrentStmtCreateFunction();
 
 static void yb_maybe_test_fail_ddl(void);
+static bool YbCanSkipIntentsRead(Relation rel);
 
 uint64_t
 YBGetActiveCatalogCacheVersion()
@@ -353,8 +373,10 @@ int			ybc_disable_pg_locking = -1;
 
 /* Forward declarations */
 static void YBCInstallTxnDdlHook();
+static void YbMaybeDisableSkipIntentsForCurrentTxn(Relation rel);
 
 bool		yb_enable_docdb_tracing = false;
+bool		yb_enable_spi_dist_tracing = true;
 bool		yb_read_from_followers = false;
 bool		yb_follower_reads_behavior_before_fixing_20482 = false;
 int32_t		yb_follower_read_staleness_ms = 0;
@@ -585,6 +607,17 @@ YBGetTableFullPrimaryKeyBms(Relation rel)
 	return rel->full_primary_key_bms;
 }
 
+/*
+ * Returns true if the relation has triggers whose firing depends on the
+ * pre-modification (old) tuple of each affected row.
+ *
+ * Despite the name, this also reports true for AFTER-ROW / NEW-table triggers
+ * on UPDATE.  Reason: an UPDATE may not touch every column, and the executor
+ * reconstructs the unmodified columns from the old tuple before passing the
+ * "new" row to the trigger.  For partitioned-table UPDATEs we also consider
+ * DELETE triggers, since cross-partition UPDATEs are executed as
+ * DELETE+INSERT on the underlying leaves.
+ */
 extern bool
 YBRelHasOldRowTriggers(Relation rel, CmdType operation)
 {
@@ -597,7 +630,8 @@ YBRelHasOldRowTriggers(Relation rel, CmdType operation)
 	if (operation == CMD_DELETE)
 	{
 		return trigdesc->trig_delete_after_row ||
-			trigdesc->trig_delete_before_row;
+			trigdesc->trig_delete_before_row ||
+			trigdesc->trig_delete_old_table;
 	}
 	if (operation != CMD_UPDATE)
 	{
@@ -607,7 +641,9 @@ YBRelHasOldRowTriggers(Relation rel, CmdType operation)
 		!rel->rd_rel->relispartition)
 	{
 		return (trigdesc->trig_update_after_row ||
-				trigdesc->trig_update_before_row);
+				trigdesc->trig_update_before_row ||
+				trigdesc->trig_update_old_table ||
+				trigdesc->trig_update_new_table);
 	}
 	/*
 	 * This is an update operation. We look for both update and delete triggers
@@ -616,7 +652,10 @@ YBRelHasOldRowTriggers(Relation rel, CmdType operation)
 	return (trigdesc->trig_update_after_row ||
 			trigdesc->trig_update_before_row ||
 			trigdesc->trig_delete_after_row ||
-			trigdesc->trig_delete_before_row);
+			trigdesc->trig_delete_before_row ||
+			trigdesc->trig_update_old_table ||
+			trigdesc->trig_update_new_table ||
+			trigdesc->trig_delete_old_table);
 }
 
 bool
@@ -2163,7 +2202,8 @@ PowerWithUpperLimit(double base, int exp, double upper_limit)
 }
 
 bool
-YbWholeRowAttrRequired(Relation relation, CmdType operation)
+YbWholeRowAttrRequired(Relation relation, Relation root_relation,
+					   CmdType operation)
 {
 	Assert(IsYBRelation(relation));
 
@@ -2174,14 +2214,43 @@ YbWholeRowAttrRequired(Relation relation, CmdType operation)
 	if (operation == CMD_UPDATE)
 		return true;
 
+	if (operation != CMD_DELETE)
+		return false;
+
 	/*
 	 * For DELETE, wholerow is required for tables with:
-	 * 1. secondary indexes to removing index entries
+	 * 1. secondary indexes to remove index entries.
 	 * 2. row triggers to pass the old row for trigger execution.
 	 */
-	return (operation == CMD_DELETE &&
-			(YBRelHasSecondaryIndices(relation) ||
-			 YBRelHasOldRowTriggers(relation, operation)));
+	if (YBRelHasSecondaryIndices(relation) ||
+		YBRelHasOldRowTriggers(relation, operation))
+		return true;
+
+	/*
+	 * For a leaf in an inheritance/partition hierarchy, the wholerow attribute
+	 * is also needed when the relation explicitly named in the query (PG's
+	 * "root" result relation, mtstate->rootResultRelInfo) has an AFTER DELETE
+	 * transition table.  "Root" here is the query's named target, not the
+	 * topmost ancestor in the hierarchy -- statement-level triggers fire only
+	 * on the relation named in the SQL, so no intermediate parent matters.
+	 * Unlike heap tables (where GetTupleForTrigger can re-fetch the old tuple
+	 * via ctid), YB needs the wholerow junk attribute to supply old tuples
+	 * for that transition-table capture.
+	 *
+	 * The caller passes root_relation only when it is already open; this
+	 * function does not open any relation itself, so callers without it in
+	 * hand should pass NULL (and open the query's target themselves only if
+	 * this function returns false on the basic check).
+	 */
+	if (root_relation != NULL && root_relation != relation)
+	{
+		TriggerDesc *root_trigdesc = root_relation->trigdesc;
+
+		if (root_trigdesc && root_trigdesc->trig_delete_old_table)
+			return true;
+	}
+
+	return false;
 }
 
 /*------------------------------------------------------------------------------
@@ -2202,6 +2271,7 @@ bool		yb_plpgsql_disable_prefetch_in_for_query = false;
 bool		yb_enable_sequence_pushdown = true;
 bool		yb_disable_wait_for_backends_catalog_version = false;
 bool		yb_enable_base_scans_cost_model = false;
+bool		yb_prefetch_column_statistics = true;
 bool		yb_enable_update_reltuples_after_create_index = false;
 bool		yb_enable_index_backfill_scan_optimization = false;
 int			yb_wait_for_backends_catalog_version_timeout = 15 * 60 * 1000;	/* 15 min */
@@ -2211,6 +2281,7 @@ bool		yb_enable_saop_pushdown = true;
 int			yb_toast_catcache_threshold = 2048; /* 2 KB */
 int			yb_catcache_list_from_preloaded_limit = 100000;
 int			yb_parallel_range_size = 1024 * 1024;
+bool		yb_disable_parallel_query_in_ddl = true;
 int			yb_insert_on_conflict_read_batch_size = 1024;
 bool		yb_enable_fkey_catcache = true;
 bool		yb_enable_fkey_batched_docdb_lookup_when_types_mismatch = true;
@@ -2232,6 +2303,8 @@ bool		yb_enable_parallel_scan_system = false;
 bool        yb_test_make_all_ddl_statements_incrementing = false;
 bool		yb_always_increment_catalog_version_on_ddl = true;
 bool		yb_enable_negative_catcache_entries = true;
+bool		yb_enable_new_relation_fastpath_write = true;
+bool		yb_enable_new_relation_fastpath_write_in_txn_blocks = false;
 
 /* DEPRECATED */
 bool		yb_enable_advisory_locks = true;
@@ -2273,13 +2346,25 @@ bool		yb_is_non_atomic_commit_done = false;
 
 bool		yb_enable_retry_after_non_atomic_commit = false;
 
+char	   *yb_extra_commands_to_retry_string = NULL;
+bool	   *yb_extra_commands_to_retry = NULL;
+
+char	   *yb_extra_commands_to_retry_in_proc_string = NULL;
+bool	   *yb_extra_commands_to_retry_in_proc = NULL;
+
 bool		yb_test_system_catalogs_creation = false;
 
+int			yb_test_sleep_before_executor_start_ms = 0;
+
 int			yb_test_fail_next_ddl = 0;
+
+bool		yb_test_fail_drop_after_heap_drop = false;
 
 bool		yb_force_catalog_update_on_next_ddl = false;
 
 bool		yb_test_fail_all_drops = false;
+
+bool		yb_test_analyze_dont_reset_mutations = false;
 
 bool		yb_test_invalidate_relcache_in_planner = false;
 
@@ -2307,6 +2392,7 @@ int			yb_test_delay_after_applying_inval_message_ms = 0;
 int			yb_test_delay_set_local_tserver_inval_message_ms = 0;
 double		yb_test_delay_next_ddl = 0;
 int			yb_test_reset_retry_counts = -1;
+int			yb_test_force_parallel = YB_FORCE_PARALLEL_OFF;
 
 /*
  * These two GUC variables are used together to control whether DDL atomicity
@@ -2315,6 +2401,8 @@ int			yb_test_reset_retry_counts = -1;
  */
 bool		yb_enable_ddl_atomicity_infra = true;
 bool		yb_ddl_rollback_enabled = false;
+
+bool		yb_enable_replication_origin_shared = true;
 
 bool		yb_use_hash_splitting_by_default = true;
 
@@ -2326,7 +2414,7 @@ bool		yb_user_ddls_preempt_auto_analyze = true;
 
 bool		yb_enable_pg_stat_statements_rpc_stats = true;
 
-bool		yb_enable_pg_stat_statements_docdb_metrics = false;
+bool		yb_enable_pg_stat_statements_docdb_metrics = true;
 
 bool		yb_enable_global_views = false;
 
@@ -3521,6 +3609,9 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context,
 	bool		should_run_in_autonomous_transaction = false;
 	bool		is_top_level = (context == PROCESS_UTILITY_TOPLEVEL);
 
+	if (!is_top_level)
+		skip_intents_txn_state.has_seen_non_top_level = true;
+
 	Assert(requires_autonomous_transaction);
 	*requires_autonomous_transaction = false;
 
@@ -4454,13 +4545,6 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 									context, params, queryEnv,
 									dest, qc);
 
-		/*
-		 * YB: Account for stats collected during the execution of utility command
-		 * Only refresh stats at the last level of nesting
-		 */
-		if (YBGetDdlNestingLevel() == 1)
-			YbRefreshSessionStatsDuringExecution();
-
 		if (is_ddl)
 		{
 			CheckAlterDatabaseDdl(pstmt);
@@ -4587,6 +4671,84 @@ void
 YBFlushBufferedOperations(YbcFlushDebugContext debug_context)
 {
 	HandleYBStatus(YBCPgFlushBufferedOperations(&debug_context));
+}
+
+typedef struct YbQueryState
+{
+	unsigned int executor_operation_nesting_level;
+	unsigned int utility_operation_nesting_level;
+} YbQueryState;
+
+static YbQueryState query_state = {0};
+static YbInstrumentation last_utility_yb_instr = {0};
+
+static void
+YBClearLastUtilityStats(void)
+{
+	memset(&last_utility_yb_instr, 0, sizeof(last_utility_yb_instr));
+}
+
+void
+YBOnExecutorOperationBegin()
+{
+	if (query_state.executor_operation_nesting_level == 0 &&
+		query_state.utility_operation_nesting_level == 0)
+		YBClearLastUtilityStats();
+	query_state.executor_operation_nesting_level++;
+}
+
+void
+YBOnExecutorOperationEnd(struct QueryDesc *queryDesc)
+{
+	Assert(query_state.executor_operation_nesting_level > 0);
+	if (IsYugaByteEnabled() &&
+		YBIsTopLevelExecutorOperation() &&
+		!queryDesc->yb_skip_finish_capture)
+		YbUpdateSessionStats(&queryDesc->yb_query_stats->yb_instr);
+
+	query_state.executor_operation_nesting_level--;
+}
+
+bool
+YBIsTopLevelExecutorOperation()
+{
+	return query_state.executor_operation_nesting_level == 1 &&
+		query_state.utility_operation_nesting_level == 0;
+}
+
+void
+YBOnUtilityOperationBegin()
+{
+	if (query_state.utility_operation_nesting_level == 0)
+		YBClearLastUtilityStats();
+	query_state.utility_operation_nesting_level++;
+}
+
+void
+YBOnUtilityOperationEnd()
+{
+	Assert(query_state.utility_operation_nesting_level > 0);
+
+	if (query_state.utility_operation_nesting_level == 1 &&
+		query_state.executor_operation_nesting_level == 0)
+		YbUpdateSessionStats(&last_utility_yb_instr);
+
+	query_state.utility_operation_nesting_level--;
+}
+
+void
+YBResetOperationTracking()
+{
+	memset(&query_state, 0, sizeof(query_state));
+	YBClearLastUtilityStats();
+}
+
+YbInstrumentation *
+YBGetUtilityOperationStats()
+{
+	if (!IsYugaByteEnabled())
+		return NULL;
+	return &last_utility_yb_instr;
 }
 
 bool
@@ -4953,11 +5115,9 @@ YbTryGetTableProperties(Relation rel)
 }
 
 YbTableDistribution
-YbGetTableDistribution(Oid relid)
+YbGetTableDistribution(Relation relation)
 {
 	YbTableDistribution result;
-	Relation	relation = RelationIdGetRelation(relid);
-
 	if (IsSystemRelation(relation))
 		result = YB_SYSTEM;
 	else
@@ -4970,6 +5130,14 @@ YbGetTableDistribution(Oid relid)
 		else
 			result = YB_RANGE_SHARDED;
 	}
+	return result;
+}
+
+YbTableDistribution
+YbGetTableDistributionById(Oid relid)
+{
+	Relation	relation = RelationIdGetRelation(relid);
+	YbTableDistribution result = YbGetTableDistribution(relation);
 	RelationClose(relation);
 	return result;
 }
@@ -6907,6 +7075,22 @@ parse_yb_read_time(const char *value, unsigned long long *result, bool *is_ht_un
 bool
 check_yb_read_time(char **newval, void **extra, GucSource source)
 {
+	/*
+	 * Disallow setting yb_read_time as a persistent default via
+	 * ALTER DATABASE SET, ALTER ROLE SET, or CREATE FUNCTION SET.
+	 * This GUC is inherently a per-session setting; persisting it at the
+	 * database or role level causes MISMATCHED_SCHEMA errors for all
+	 * subsequent connections.
+	 */
+	if (source == PGC_S_TEST)
+	{
+		GUC_check_errmsg("yb_read_time can only be set at the session "
+						 "level using SET, not as a persistent default "
+						 "via ALTER DATABASE, ALTER ROLE, or "
+						 "CREATE FUNCTION");
+		return false;
+	}
+
 	/* Read time should be convertable to unsigned long long */
 	unsigned long long read_time_ull;
 	unsigned long long value_ull;
@@ -8565,6 +8749,12 @@ YbIsAuthBackend()
 	return yb_is_auth_backend;
 }
 
+bool
+YbIsAuthPassthroughControlBackend()
+{
+	return yb_conn_mgr_is_auth_passthrough_backend;
+}
+
 /* Used in YB to check if an attribute is a key column. */
 bool
 YbIsAttrPrimaryKeyColumn(Relation rel, AttrNumber attnum)
@@ -8908,13 +9098,21 @@ YbCatalogPreloadRequired()
 bool
 YbUseMinimalCatalogCachesPreload()
 {
+	YbInternalConnKind kind;
+
 	if (*YBCGetGFlags()->ysql_minimal_catalog_caches_preload)
 		return true;
 	if (YbNeedAdditionalCatalogTables())
 		return false;
-	if (yb_is_internal_connection)
-		return true;
-	return false;
+	/*
+	 * Per-kind preload behavior comes from the registry (yb_internal_conn.h).
+	 * Only kinds whose descriptor sets use_minimal_preload = true (e.g. the
+	 * relcache-init builder) run with minimal preload; the rest preload
+	 * normally even though they are tserver-owned internal connections.
+	 */
+	kind = YbLookupInternalConnKindByBackendType(MyBackendType);
+	return kind != YB_INTERNAL_CONN_KIND_NONE &&
+		YbInternalConnKindDescriptors[kind].use_minimal_preload;
 }
 
 /* Comparison function for sorting strings in a List */
@@ -9196,7 +9394,8 @@ YbNewSample(Relation rel,
 {
 	YbcPgStatement result = NULL;
 	HandleYBStatus(YBCPgNewSample(YBCGetDatabaseOid(rel), YbGetRelfileNodeId(rel),
-								  YbBuildTableLocalityInfo(rel), targrows, rstate_w, rand_state_s0,
+								  YbBuildTableLocalityInfo(rel), YbCanSkipIntentsRead(rel),
+								  targrows, rstate_w, rand_state_s0,
 								  rand_state_s1, &result));
 	return result;
 }
@@ -9204,9 +9403,12 @@ YbNewSample(Relation rel,
 YbcPgStatement
 YbNewSelect(Relation rel, const YbcPgPrepareParameters *prepare_params)
 {
+	if (unlikely(skip_intents_txn_state.has_skipped_write))
+		YbMaybeDisableSkipIntentsForCurrentTxn(rel);
 	YbcPgStatement result = NULL;
 	HandleYBStatus(YBCPgNewSelect(YBCGetDatabaseOid(rel), YbGetRelfileNodeId(rel), prepare_params,
-								  YbBuildTableLocalityInfo(rel), &result));
+								  YbBuildTableLocalityInfo(rel),
+								  YbCanSkipIntentsRead(rel), &result));
 	return result;
 }
 
@@ -9215,7 +9417,8 @@ YbNewUpdateForDb(Oid db_oid, Relation rel, YbcPgTransactionSetting transaction_s
 {
 	YbcPgStatement result = NULL;
 	HandleYBStatus(YBCPgNewUpdate(db_oid, YbGetRelfileNodeId(rel),
-								  YbBuildTableLocalityInfo(rel), transaction_setting, &result));
+								  YbBuildTableLocalityInfo(rel), transaction_setting,
+								  YbCanSkipIntentsWrite(rel), &result));
 	return result;
 }
 
@@ -9230,7 +9433,8 @@ YbNewDelete(Relation rel, YbcPgTransactionSetting transaction_setting)
 {
 	YbcPgStatement result = NULL;
 	HandleYBStatus(YBCPgNewDelete(YBCGetDatabaseOid(rel), YbGetRelfileNodeId(rel),
-								  YbBuildTableLocalityInfo(rel), transaction_setting, &result));
+								  YbBuildTableLocalityInfo(rel), transaction_setting,
+								  YbCanSkipIntentsWrite(rel), &result));
 	return result;
 }
 
@@ -9239,7 +9443,8 @@ YbNewInsertForDb(Oid db_oid, Relation rel, YbcPgTransactionSetting transaction_s
 {
 	YbcPgStatement result = NULL;
 	HandleYBStatus(YBCPgNewInsert(db_oid, YbGetRelfileNodeId(rel),
-								  YbBuildTableLocalityInfo(rel), transaction_setting, &result));
+								  YbBuildTableLocalityInfo(rel), transaction_setting,
+								  YbCanSkipIntentsWrite(rel), &result));
 	return result;
 }
 
@@ -9255,7 +9460,7 @@ YbNewInsertBlock(Relation rel, YbcPgTransactionSetting transaction_setting)
 	YbcPgStatement result = NULL;
 	HandleYBStatus(YBCPgNewInsertBlock(YBCGetDatabaseOid(rel), YbGetRelfileNodeId(rel),
 									   YbBuildTableLocalityInfo(rel), transaction_setting,
-									   &result));
+									   YbCanSkipIntentsWrite(rel), &result));
 	return result;
 }
 
@@ -9318,6 +9523,11 @@ yb_maybe_test_fail_ddl(void)
 				*null_ptr = 0;
 				break;
 			}
+		case 5:
+			ereport(ERROR,
+					(errcode(ERRCODE_YB_TXN_CONFLICT),
+					 errmsg("failed DDL operation with conflict as requested")));
+			break;
 		default:
 			break;
 	}
@@ -9466,4 +9676,368 @@ YbInvalidatePlannerRelcache(PlannerInfo *root)
 			RelationCacheInvalidateEntry(idx->indexoid);
 		}
 	}
+}
+
+void
+YbEnableSkipIntentsForNewTransaction()
+{
+	skip_intents_txn_state = (YbSkipIntentsTxnState){};
+}
+
+bool
+YBHasSkippedIntentsWrite()
+{
+	return skip_intents_txn_state.has_skipped_write;
+}
+
+static bool
+YbCanSkipIntents(Relation rel, bool is_write)
+{
+	if (!yb_enable_new_relation_fastpath_write)
+		return false;
+
+	/*
+	 * 1. rd_createSubid: The logical table was created in this txn.
+	 * 2. rd_newRelfilenodeSubid: The physical storage was swapped/created
+	 * in this txn (typical for ALTER TABLE / REINDEX).
+	 */
+	if (rel->rd_createSubid == InvalidSubTransactionId &&
+		rel->rd_newRelfilenodeSubid == InvalidSubTransactionId)
+	{
+		elog(DEBUG3, "Skip intents not applicable: relation %u was neither created nor swapped in this txn", rel->rd_id);
+		return false;
+	}
+
+	if (skip_intents_txn_state.disabled)
+		return false;
+
+	if (rel->rd_id < FirstNormalObjectId)
+	{
+		elog(DEBUG3, "Skip intents not applicable: relation %u is a system catalog", rel->rd_id);
+		return false;
+	}
+
+	if (YbIsTempRelation(rel))
+	{
+		elog(DEBUG2, "Skip intents not applicable: relation %u is a temporary relation", rel->rd_id);
+		return false;
+	}
+
+	if (YbGetTableDistribution(rel) == YB_COLOCATED)
+	{
+		elog(DEBUG2, "Skip intents not applicable: relation %u is colocated", rel->rd_id);
+		return false;
+	}
+
+	bool is_rc = IsYBReadCommitted();
+	/*
+	 * In non-RC isolation, only do skip intents optimization for top-level DDL.
+	 */
+	bool top_level_only = !yb_enable_new_relation_fastpath_write_in_txn_blocks || !is_rc;
+	bool is_top_level = !IsTransactionBlock() &&
+						GetCurrentTransactionNestLevel() == 1 &&
+						YbGetTriggerDepth() == 0 &&
+						!skip_intents_txn_state.has_seen_non_top_level;
+	if (top_level_only)
+	{
+		if (!is_top_level)
+		{
+			elog(DEBUG1, "Disable skip intents due to non-toplevel ddl, "
+						 "relation %u", rel->rd_id);
+			skip_intents_txn_state.disabled = true;
+			return false;
+		}
+		/*
+		 * Here we assume that a top-level DDL (e.g. CREATE TABLE AS SELECT) never
+		 * needs to read its own newly created table. Otherwise in non-RC isolation
+		 * this optimization will not be valid.
+		 */
+	}
+
+	/*
+	 * In RC isolation, non-top-level requires transactional DDL support.
+	 */
+	bool requires_transactional_ddl = !is_top_level && is_rc;
+	bool fastpath_in_txn_blocks_supported =
+		yb_enable_new_relation_fastpath_write_in_txn_blocks && YBIsDdlTransactionBlockEnabled();
+	if (requires_transactional_ddl && !fastpath_in_txn_blocks_supported)
+	{
+		elog(DEBUG2, "Skip intents not applicable: relation %u requires transactional DDL support", rel->rd_id);
+		return false;
+	}
+
+	/*
+	 * Savepoints (internal/ external) requires the use of intents db: on ROLLBACK
+	 * TO SAVEPOINT sp, all intents in the current transaction that have a
+	 * SubTransactionId >= sp will be marked as aborted.
+	 *
+	 * Since writes to regular db can't be rolled back, so block the optimization if
+	 * we have a sub-transaction.
+	 *
+	 * Note that we can still do the optimization if the only sub-transactions are
+	 * those generated by internal read committed savepoints because statement-level
+	 * retries are blocked if this optimization is active.
+	 */
+	if (GetCurrentSubTransactionId() > TopSubTransactionId &&
+		YBTransactionContainsNonReadCommittedSavepoint())
+	{
+		elog(DEBUG1, "Disable skip intents due to savepoint on relation %u write", rel->rd_id);
+		skip_intents_txn_state.disabled = true;
+		return false;
+	}
+
+	if (is_write)
+		skip_intents_txn_state.has_skipped_write = true;
+	elog(DEBUG2, "Skipping intents db %s for relation %u",
+		 is_write ? "write" : "read", rel->rd_id);
+	return true;
+}
+
+bool
+YbCanSkipIntentsWrite(Relation rel)
+{
+	return YbCanSkipIntents(rel, true /* is_write */ );
+}
+
+void
+YbDisableSkipIntentsIfModifyingCTE(struct QueryDesc *queryDesc)
+{
+	if (skip_intents_txn_state.disabled)
+		return;
+
+	if (queryDesc && queryDesc->plannedstmt && queryDesc->plannedstmt->hasModifyingCTE)
+	{
+		elog(DEBUG1, "Disable skip intents due to modifying CTE");
+		skip_intents_txn_state.disabled = true;
+	}
+}
+
+static bool
+YbCanSkipIntentsRead(Relation rel)
+{
+	return YbCanSkipIntents(rel, false /* is_write */ );
+}
+
+static void
+YbMaybeDisableSkipIntentsForCurrentTxn(Relation rel)
+{
+	/*
+	 * TODO(GH-31588): Track disabling skip intents per table.
+	 * For example, it would be nice if something like below worked:
+	 * begin;
+	 * create table test...;
+	 * create table dummy...;
+	 * insert ... select ... on dummy; ----> This causes disabling the optimization due to halloween problem
+	 * bulk load into table test ----> This should still be able to work.
+	 */
+	if (skip_intents_txn_state.disabled)
+		return;
+
+	if (rel->rd_createSubid == InvalidSubTransactionId)
+		return;
+
+	/* 1. Environment check (functions / triggers only). */
+	int stmt_may_write_reason = 0;
+	if (YbGetSPIStackDepth() > 0)
+		stmt_may_write_reason = 1;
+	else if (YbGetTriggerDepth() > 0)
+		stmt_may_write_reason = 2;
+
+	/*
+	 * 2. Top-level statement shape (Halloween / read-your-writes guard).
+	 * For same-txn-created relations we relax only when we are clearly in a
+	 * plain read-only SELECT (no MERGE/INSERT/...). If portal context is
+	 * missing, stay conservative.
+	 */
+	else
+	{
+		QueryDesc  *qd = ActivePortal ? ActivePortal->queryDesc : NULL;
+
+		if (!qd)
+			stmt_may_write_reason = 3;
+		else if (qd->operation != CMD_SELECT)
+			stmt_may_write_reason = 4;
+	}
+
+	/*
+	 * Unfortunately, we cannot allow skip intents read due to the "Halloween Problem".
+	 * It occurs when a statement's own writes change the result set of its own scan,
+	 * potentially causing an infinite loop or duplicate processing. Here we do not
+	 * have enough context to exactly detect the situation such as
+	 *   INSERT INTO self_insert_test SELECT id + 100 FROM self_insert_test;
+	 * so we simply turn off the optimization entirely once we see a read on a table
+	 * created in the same transaction.
+	 */
+	if (stmt_may_write_reason > 0)
+	{
+		elog(DEBUG1, "Disable skip intents due to relation %u read, reason: %u",
+			 rel->rd_id, stmt_may_write_reason);
+		skip_intents_txn_state.disabled = true;
+	}
+}
+
+/* Session-level cache for YbDatabaseHasPublications(). */
+static bool yb_publications_cache_valid = false;
+static bool yb_database_has_publications = false;
+static bool yb_publication_callback_registered = false;
+
+static void
+YbPublicationCacheCallback(Datum arg, int cacheid, uint32 hashvalue)
+{
+	yb_publications_cache_valid = false;
+}
+
+/*
+ * Check whether pg_publication has any rows, indicating that publication-based
+ * CDCSDK may be active in this database.  The result is cached at the session
+ * level and invalidated via a syscache callback when publications change.
+ */
+static bool
+YbDatabaseHasPublications(void)
+{
+	if (!yb_publication_callback_registered)
+	{
+		CacheRegisterSyscacheCallback(PUBLICATIONOID,
+									  YbPublicationCacheCallback,
+									  (Datum) 0);
+		yb_publication_callback_registered = true;
+	}
+
+	if (!yb_publications_cache_valid)
+	{
+		Relation	rel;
+		SysScanDesc scan;
+
+		rel = table_open(PublicationRelationId, AccessShareLock);
+		scan = systable_beginscan(rel, InvalidOid, false, NULL, 0, NULL);
+		yb_database_has_publications =
+			HeapTupleIsValid(systable_getnext(scan));
+		systable_endscan(scan);
+		table_close(rel, AccessShareLock);
+
+		yb_publications_cache_valid = true;
+	}
+
+	return yb_database_has_publications;
+}
+
+void
+YbMaybeDisableSkipIntentsForCDCSDK(Oid database_oid)
+{
+	if (!yb_enable_new_relation_fastpath_write)
+		return;
+
+	if (skip_intents_txn_state.disabled)
+		return;
+
+	/*
+	 * Fast path: check if any publication exists in this database.  The result
+	 * is session-cached and invalidated via syscache callback, so only the
+	 * first call (or the first after a publication change) pays the scan cost.
+	 *
+	 * TODO(myang): Only disable skip intents if the database has a publication
+	 * that replicates all tables (e.g. FOR ALL TABLES). Currently we disable it
+	 * if *any* publication exists.
+	 *
+	 * TODO(#31768): Re-evaluate this with object locking enabled. We may need
+	 * to take a conflicting object lock in CREATE TABLE and CREATE PUBLICATION
+	 * to prevent race conditions. If object locking is off, we might miss disabling
+	 * the optimization due to cache invalidation delays. We should also add validation
+	 * in the stress test to ensure that no table has missing intents if a publication
+	 * exists concurrently.
+	 *
+	 * The best scenario for both TODOs above is that we enhance CDC to work with
+	 * skip intents optimization.
+	 */
+	if (YbDatabaseHasPublications())
+	{
+		elog(DEBUG1, "Disable skip intents: database %u has publications",
+			 database_oid);
+		skip_intents_txn_state.disabled = true;
+		return;
+	}
+
+	/*
+	 * No publications found.  If old-style namespace-level CDCSDK streams
+	 * (without replication slots) may still exist, fall back to a master RPC.
+	 */
+	if (!*YBCGetGFlags()->ysql_cdcsdk_enable_old_namespace_streams)
+		return;
+
+	bool		is_namespace_part_of_xrepl = false;
+	YbcStatus	status = YBCIsNamespacePartOfCDCSDK(database_oid,
+												   &is_namespace_part_of_xrepl);
+	if (status)
+	{
+		YBC_LOG_WARNING("YBCIsNamespacePartOfCDCSDK failed for database %u: %s. Conservatively disabling skip-intents.",
+						database_oid, YBCMessageAsCString(status));
+		skip_intents_txn_state.disabled = true;
+		YBCFreeStatus(status);
+		return;
+	}
+
+	if (is_namespace_part_of_xrepl)
+	{
+		elog(DEBUG1, "Disable skip intents: database %u has old-style "
+			 "CDCSDK stream", database_oid);
+		skip_intents_txn_state.disabled = true;
+	}
+}
+
+void
+YbHandleConflictError(Relation rel, LockWaitPolicy wait_policy)
+{
+	if (wait_policy == LockWaitError)
+	{
+		/*
+		 * In case the user has specified NOWAIT, the intention is to error out
+		 * immediately. If we raise ERRCODE_YB_TXN_CONFLICT, the statement might
+		 * be retried by our retry logic in yb_attempt_to_restart_on_error().
+		 */
+
+		if (rel)
+			ereport(ERROR,
+					(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+					 errmsg("could not obtain lock on row in relation \"%s\"",
+							RelationGetRelationName(rel))));
+		else
+		{
+			/*
+			 * It is not expected that relation is null. Raise an error wihout
+			 * relation name in release mode.
+			 */
+			Assert(false);
+			ereport(ERROR,
+					(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+					 errmsg("could not obtain lock on row")));
+		}
+	}
+
+	ereport(ERROR,
+			(errcode(ERRCODE_YB_TXN_CONFLICT),
+			 errmsg("could not serialize access due to concurrent update")));
+}
+
+static bool
+YbIsExplicitRowLockConflict(YbcStatus status)
+{
+	Assert(status);
+	const uint32_t err_code = YBCStatusPgsqlError(status);
+
+	return err_code == ERRCODE_YB_TXN_CONFLICT || err_code == ERRCODE_YB_TXN_ABORTED;
+}
+
+void
+HandleExplicitRowLockStatus(YbcPgExplicitRowLockStatus status)
+{
+	if (!(status.error_info.is_initialized && YbIsExplicitRowLockConflict(status.ybc_status)))
+	{
+		HandleYBStatus(status.ybc_status);
+		return;
+	}
+	YBCFreeStatus(status.ybc_status);
+	YbHandleConflictError((OidIsValid(status.error_info.conflicting_table_id) ?
+						   RelationIdGetRelation(status.error_info.conflicting_table_id) :
+						   NULL),
+						   status.error_info.pg_wait_policy);
 }

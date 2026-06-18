@@ -134,6 +134,7 @@
 #include "yb/util/status_log.h"
 #include "yb/util/stopwatch.h"
 #include "yb/util/trace.h"
+#include "yb/util/tsan_util.h"
 
 using namespace std::literals;
 using namespace std::placeholders;
@@ -177,6 +178,11 @@ DEFINE_test_flag(double, fault_crash_after_rb_files_fetched, 0.0,
                  "Fraction of the time when the tablet will crash immediately "
                  "after fetching the files during a remote bootstrap but before "
                  "marking the superblock as TABLET_DATA_READY.");
+
+DEFINE_test_flag(double, fault_crash_after_rb_finish_before_open, 0.0,
+                 "Fraction of the time when the tablet will crash immediately "
+                 "after RemoteBootstrapClient::Finish() has marked the superblock "
+                 "as TABLET_DATA_READY but before OpenTablet() has been called.");
 
 DEFINE_test_flag(double, fault_crash_in_split_after_log_copied, 0.0,
                  "Fraction of the time when the tablet will crash immediately after initiating a "
@@ -690,8 +696,8 @@ Status TSTabletManager::Init() {
       admin_triggered_compaction_pool_->SetCgroup(sys_med);
     }
 
-    // These pools always go to system-med regardless of compaction mode flag,
-    // since they are not per-tablet in nature.
+    // Pool-level fallback: workers land in @system-med when no per-task cgroup is set.
+    // waiting_txn_pool tokens get per-task cgroup wired up per-tablet in MaybeAssignPerDbCgroups.
     open_tablet_pool_->SetCgroup(sys_med);
     flush_bootstrap_state_pool_->SetCgroup(sys_med);
     waiting_txn_pool_->SetCgroup(sys_med);
@@ -1012,7 +1018,7 @@ Result<TabletPeerPtr> TSTabletManager::CreateNewTablet(
   }
 
   // Set the initial opid_index for a RaftConfigPB to -1.
-  config.set_opid_index(consensus::kInvalidOpIdIndex);
+  config.set_committed_op_index(consensus::kInvalidOpIdIndex);
 
   scoped_refptr<TransitionInProgressDeleter> deleter =
       VERIFY_RESULT(StartTabletStateTransitionForCreation(tablet_id));
@@ -1179,7 +1185,24 @@ void TSTabletManager::CreatePeerAndOpenTablet(
   }
   s = open_tablet_pool_->SubmitFunc(std::bind(&TSTabletManager::OpenTablet, this, meta, deleter));
   if (!s.ok()) {
-    LOG(DFATAL) << Format("Failed to schedule opening tablet $0: $1", meta->table_id(), s);
+    s = s.CloneAndPrepend(Format("Failed to schedule opening tablet $0", meta->raft_group_id()));
+    if (s.IsShutdownInProgress()) {
+      // open_tablet_pool_ is shut down by StartShutdown() before the manager state transitions
+      // from MANAGER_STARTED_QUIESCING to MANAGER_QUIESCING, so the deferred apply task that
+      // brought us here (submitted by ApplyTabletSplit / DoApplyCloneTablet onto apply_pool_)
+      // can legitimately land in this branch during tserver shutdown.
+      //
+      // This is safe and not a data-loss path: the new tablet's RaftGroupMetadata was already
+      // flushed in TABLET_DATA_READY state, the parent was flushed in TABLET_DATA_SPLIT_COMPLETED
+      // (for SPLIT_OP), and the SPLIT_OP / CLONE_OP itself was committed via Raft before we got
+      // here. On the next tserver start, the bootstrap path will discover the on-disk metadata
+      // and open the new tablet normally.
+      LOG_WITH_PREFIX(WARNING)
+          << s << "; this can happen during tserver shutdown and is not a data-loss path: "
+                  "the new tablet's metadata is persisted and will be opened on restart.";
+    } else {
+      LOG_WITH_PREFIX(DFATAL) << s;
+    }
     return;
   }
 }
@@ -1389,7 +1412,7 @@ Status TSTabletManager::DoApplyCloneTablet(
   // Set op_id of the raft config to the same as we would for a fresh tablet. This is required
   // because a change config will use the current op id of 0 (since the tablet has no data). If the
   // committed config has a higher op id, the change config fails.
-  committed_raft_config->set_opid_index(consensus::kInvalidOpIdIndex);
+  committed_raft_config->set_committed_op_index(consensus::kInvalidOpIdIndex);
 
   // State transition for clone target could be already registered because it is remote
   // bootstrapping from an existing quorum. We would ideally avoid this by passing
@@ -1441,6 +1464,7 @@ Status TSTabletManager::DoApplyCloneTablet(
       source_table->table_type,
       /* Fixed by restore, but we need it to get partition_schema so might as well set it. */
       target_schema,
+      // TODO(GH31935): this may not be fixed in the case of vector indexes.
       *source_table->index_map, /* fixed by restore */
       std::move(target_table_index_info),
       source_table->schema_version, /* fixed by restore */
@@ -1716,12 +1740,14 @@ Status TSTabletManager::StartRemoteBootstrap(const StartRemoteBootstrapRequestPB
   TEST_PAUSE_IF_FLAG(TEST_pause_before_remote_bootstrap);
 
   // Download and persist the remote superblock in TABLET_DATA_COPYING state.
-  RETURN_NOT_OK(rb_client->Start(bootstrap_peer_uuid,
-                                 &server_->proxy_cache(),
-                                 bootstrap_peer_addr,
-                                 tablet_leader_peer_conn_info,
-                                 &meta,
-                                 this));
+  RETURN_NOT_OK(rb_client->Start(
+      bootstrap_peer_uuid,
+      &server_->proxy_cache(),
+      bootstrap_peer_addr,
+      tablet_leader_peer_conn_info,
+      req.has_pending_config_op_id() ? OpId::FromPB(req.pending_config_op_id()) : OpId(),
+      &meta,
+      this));
 
   // From this point onward, the superblock is persisted in TABLET_DATA_COPYING
   // state, and we need to tombstone the tablet if additional steps prior to
@@ -1766,6 +1792,8 @@ Status TSTabletManager::StartRemoteBootstrap(const StartRemoteBootstrapRequestPB
                    fs_manager_->uuid(),
                    "Remote bootstrap: Failed calling Finish()",
                    this);
+
+  MAYBE_FAULT(FLAGS_TEST_fault_crash_after_rb_finish_before_open);
 
   LOG(INFO) << kLogPrefix << "Remote bootstrap: Opening tablet";
   OpenTablet(meta, nullptr);
@@ -1934,12 +1962,25 @@ Status TSTabletManager::DeleteTablet(
       return consensus_result.status();
     }
     RaftConfigPB committed_config = consensus_result.get()->CommittedConfig();
-    if (committed_config.opid_index() > *cas_config_opid_index_less_or_equal) {
+    if (committed_config.committed_op_index() > *cas_config_opid_index_less_or_equal) {
       *error_code = TabletServerErrorPB::CAS_FAILED;
+      // The master sent DeleteTablet with a stale cas_config_opid_index_less_or_equal: its
+      // in-memory view of this tablet's committed config was behind ours. This happens, for
+      // example, when the master computed the CAS from prev_cstate in its eviction loop but
+      // the target replica had already applied a newer config via WAL replay during remote
+      // bootstrap. Re-mark the tablet dirty so the next heartbeat re-reports our current
+      // consensus state; the master will then re-evaluate eviction with up-to-date data and
+      // (if still warranted) re-issue DeleteTablet with a fresh CAS. Without this, the
+      // master gives up on a single-shot CAS_FAILED and the replica wedges until something
+      // else dirties the tablet.
+      MarkTabletDirty(
+          tablet_id,
+          std::make_shared<consensus::StateChangeContext>(
+              consensus::StateChangeReason::DELETE_TABLET_CAS_FAILED));
       return STATUS(IllegalState, Substitute("Request specified cas_config_opid_index_less_or_equal"
                                              " of $0 but the committed config has opid_index of $1",
                                              *cas_config_opid_index_less_or_equal,
-                                             committed_config.opid_index()));
+                                             committed_config.committed_op_index()));
     }
   }
 
@@ -2039,33 +2080,33 @@ Status TSTabletManager::OpenTabletMeta(const string& tablet_id,
 #ifdef __linux__
 namespace {
 
+// Returns the per-DB Cgroup* for |meta|, or nullptr if QoS is off / not applicable.
+// Also registers the DB name for metrics on first call. Does NOT set any cgroup on tablet
+// components -- callers are responsible for that.
+Result<Cgroup*> GetPerDbCgroup(const RaftGroupMetadata& meta, TServerCgroupManager* cm) {
+  if (!cm) return nullptr;
+  if (meta.table_type() != PGSQL_TABLE_TYPE) return nullptr;
+  auto namespace_id = meta.namespace_id();
+  if (namespace_id.empty()) return nullptr;
+  auto db_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(namespace_id));
+  if (FLAGS_qos_system_dbs_use_shared_pool && IsQosSystemDatabaseOid(db_oid)) {
+    return nullptr;
+  }
+  cm->RegisterDbName(db_oid, meta.namespace_name());
+  return &VERIFY_RESULT_REF(cm->CgroupForDb(db_oid));
+}
+
 Status MaybeAssignPerDbCgroups(
     TabletPeer* tablet_peer, tablet::Tablet* tablet,
     const RaftGroupMetadata& meta, TServerCgroupManager* cm) {
-  if (!cm) return Status::OK();
+  auto* cgroup = VERIFY_RESULT(GetPerDbCgroup(meta, cm));
+  if (!cgroup) return Status::OK();
 
-  if (meta.table_type() != PGSQL_TABLE_TYPE) return Status::OK();
-  auto namespace_id = meta.namespace_id();
-  if (namespace_id.empty()) return Status::OK();
-
-  auto db_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(namespace_id));
-  if (FLAGS_qos_system_dbs_use_shared_pool && IsQosSystemDatabaseOid(db_oid)) {
-    return Status::OK();
+  if (FLAGS_qos_consensus_per_db_cgroups) {
+    tablet_peer->SetPerDbCgroup(cgroup);
   }
-
-  // Register database name for metrics, regardless of per-DB cgroup flags.
-  cm->RegisterDbName(db_oid, meta.namespace_name());
-
-  bool consensus_per_db = FLAGS_qos_consensus_per_db_cgroups;
-  bool compaction_per_db = FLAGS_qos_compaction_per_db_cgroups;
-  if (!consensus_per_db && !compaction_per_db) return Status::OK();
-
-  auto& cgroup = VERIFY_RESULT_REF(cm->CgroupForDb(db_oid));
-  if (consensus_per_db) {
-    tablet_peer->SetPerDbCgroup(&cgroup);
-  }
-  if (compaction_per_db) {
-    tablet->SetRocksDbTaskCgroup(&cgroup);
+  if (FLAGS_qos_compaction_per_db_cgroups) {
+    tablet->SetRocksDbTaskCgroup(cgroup);
   }
   return Status::OK();
 }
@@ -2161,6 +2202,21 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
           allow_compaction_failures_for_tablet_ids_.contains(tablet_id));
     }
 
+    // Compute the per-DB cgroup before constructing the Tablet so the WaitQueue token can be
+    // assigned its cgroup at construction time rather than via a post-construction setter.
+    Cgroup* wait_queue_cgroup = nullptr;
+#ifdef __linux__
+    {
+      auto result = GetPerDbCgroup(*meta, server_->cgroup_manager());
+      if (result.ok()) {
+        wait_queue_cgroup = *result;
+      } else {
+        LOG(WARNING) << kLogPrefix << "Failed to get per-db cgroup for wait-queue: "
+                     << result.status();
+      }
+    }
+#endif
+
     tablet::TabletInitData tablet_init_data = {
         .metadata = meta,
         .client_future = server_->client_future(),
@@ -2192,6 +2248,7 @@ void TSTabletManager::OpenTablet(const RaftGroupMetadataPtr& meta,
         },
         .waiting_txn_registry = waiting_txn_registry_.get(),
         .wait_queue_pool = waiting_txn_pool_.get(),
+        .wait_queue_cgroup = wait_queue_cgroup,
         .full_compaction_pool = full_compaction_pool(),
         .admin_triggered_compaction_pool = admin_triggered_compaction_pool(),
         .post_split_compaction_added = ts_post_split_compaction_added_,
@@ -2929,8 +2986,13 @@ void TSTabletManager::CreateReportedTabletPB(const TabletPeerPtr& tablet_peer,
   // We cannot get consensus state information unless the TabletPeer is running.
   auto consensus_result = tablet_peer->GetConsensus();
   if (consensus_result) {
+    auto consensus = *consensus_result;
     *reported_tablet->mutable_committed_consensus_state() =
-        consensus_result.get()->ConsensusState(consensus::CONSENSUS_CONFIG_COMMITTED);
+        consensus->ConsensusState(consensus::CONSENSUS_CONFIG_COMMITTED);
+    OpId pending_config_op_id = consensus->GetPendingConfigOpId();
+    if (pending_config_op_id.is_valid_not_empty()) {
+      pending_config_op_id.ToPB(reported_tablet->mutable_pending_config_op_id());
+    }
   }
 
   // Set the hide status of the tablet.
@@ -3810,7 +3872,9 @@ rpc::ThreadPool* TSTabletManager::VectorIndexThreadPool(tablet::VectorIndexThrea
         ? FLAGS_vector_index_concurrent_writes : 0,
   };
   if (options.max_workers == 0) {
-    options.max_workers = std::thread::hardware_concurrency();
+    // Auto: use all CPUs, but cap under sanitizers (see SanitizerCappedConcurrency) so the vector
+    // index thread pools do not saturate an instrumented machine.
+    options.max_workers = SanitizerCappedConcurrency();
   }
   LOG(INFO) << "Use " << options.max_workers << " for vector index " << type << " thread pool";
   thread_pool_ptr.reset(result = new rpc::ThreadPool(std::move(options)));

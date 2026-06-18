@@ -77,6 +77,11 @@ METRIC_DEFINE_counter(server, consistent_prefix_failed_reads,
     yb::MetricUnit::kRequests,
     "Number of consistent prefix reads that failed to be served by the closest replica.");
 
+METRIC_DEFINE_counter(server, skip_intents_writes,
+    "Number of writes that have skipped intents db within a transaction.",
+    yb::MetricUnit::kRequests,
+    "Number of writes that have skipped intents db within a transaction.");
+
 DEFINE_RUNTIME_int32(ybclient_print_trace_every_n, 0,
     "Controls the rate at which traces from ybclient are printed. Setting this to 0 "
     "disables printing the collected traces.");
@@ -156,7 +161,8 @@ AsyncRpcMetrics::AsyncRpcMetrics(const scoped_refptr<yb::MetricEntity>& entity)
       time_to_send(METRIC_handler_latency_yb_client_time_to_send.Instantiate(entity)),
       consistent_prefix_successful_reads(
           METRIC_consistent_prefix_successful_reads.Instantiate(entity)),
-      consistent_prefix_failed_reads(METRIC_consistent_prefix_failed_reads.Instantiate(entity)) {
+      consistent_prefix_failed_reads(METRIC_consistent_prefix_failed_reads.Instantiate(entity)),
+      skip_intents_writes(METRIC_skip_intents_writes.Instantiate(entity)) {
 }
 
 AsyncRpc::AsyncRpc(
@@ -437,11 +443,19 @@ AsyncRpcBase<Req, Resp>::AsyncRpcBase(
   }
   const auto& metadata = batcher_->in_flight_ops().metadata;
   if (!metadata.transaction.transaction_id.IsNil()) {
+    DCHECK(!data.skip_intents);
     SetMetadata(metadata, data.need_metadata, &req_);
     bool serializable = metadata.transaction.isolation == IsolationLevel::SERIALIZABLE_ISOLATION;
     LOG_IF(DFATAL, has_read_time && serializable)
         << "Read time should NOT be specified for serializable isolation: "
         << read_point->GetReadTime().ToString();
+  } else if (data.skip_intents) {
+    if constexpr (std::is_same_v<Req, tserver::LWWriteRequestPB>) {
+      IncrementCounter(async_rpc_metrics_->skip_intents_writes);
+    }
+    if (req_.read_time().read_ht() > 0) {
+      req_.clear_read_time();
+    }
   }
 }
 
@@ -948,36 +962,46 @@ void ReadRpc::NotifyBatcher(const Status& status) {
 }
 
 WaitForAsyncWriteRpc::WaitForAsyncWriteRpc(
-    const BatcherPtr& batcher, const TabletId& tablet_id,
+    const BatcherPtr& batcher, TabletId tracking_tablet_id, PartitionKey partition_key,
     const std::shared_ptr<const YBTable>& table, const OpId& op_id)
     : Rpc(batcher->deadline(), batcher->messenger(), &batcher->proxy_cache()),
-      tablet_id_(tablet_id),
+      tracking_tablet_id_(std::move(tracking_tablet_id)),
+      partition_key_(std::move(partition_key)),
       op_id_(op_id),
       batcher_(batcher),
+      table_(table),
       tablet_invoker_(
           /*local_tserver_only=*/false,
-          /*consistent_prefix=*/false,
-          batcher->client_,
-          this,
-          this,
-          /*tablet=*/nullptr,
-          table,
-          mutable_retrier(),
-          trace_.get()) {
+          /*consistent_prefix=*/false, batcher->client_, this, this,
+          /*tablet=*/nullptr, table, mutable_retrier(), trace_.get()) {
   TRACE_TO(trace_, "WaitForAsyncWrite initiated");
-  VTRACE_TO(1, trace_, "Tablet $0, op_id $1", tablet_id_, op_id_.ToString());
+  VTRACE_TO(
+      1, trace_, "Tracking tablet $0, op_id $1, partition_key $2", tracking_tablet_id_,
+      op_id_.ToString(), Slice(partition_key_).ToDebugHexString());
 
-  req_.set_tablet_id(tablet_id_);
   op_id_.ToPB(req_.mutable_op_id());
-
-  VLOG(4) << "Created WaitForAsyncWriteRequest" << ":\n" << req_.ShortDebugString();
 }
 
 void WaitForAsyncWriteRpc::SendRpc() {
   TRACE_TO(trace_, "SendRpc() called.");
-
   retained_self_ = shared_from_this();
-  tablet_invoker_.Execute(tablet_id_, /*leader_only=*/true);
+  tablet_invoker_.Reset();
+  // Always lookup by key to correctly resolve any tablet splits.
+  batcher_->client_->LookupTabletByKey(
+      std::const_pointer_cast<YBTable>(table_), partition_key_, retrier().deadline(),
+      [this](const Result<internal::RemoteTabletPtr>& result) { OnKeyLookup(result); });
+}
+
+void WaitForAsyncWriteRpc::OnKeyLookup(const Result<internal::RemoteTabletPtr>& result) {
+  if (!result.ok()) {
+    FinishOrRetry(Status(result.status()));
+    return;
+  }
+  const TabletId& tablet_id = (*result)->tablet_id();
+  req_.set_tablet_id(tablet_id);
+  VLOG(4) << "WaitForAsyncWriteRpc resolved key " << Slice(partition_key_).ToDebugHexString()
+          << " to tablet " << tablet_id << " (tracking " << tracking_tablet_id_ << ")";
+  tablet_invoker_.Execute(tablet_id, /*leader_only=*/true);
 }
 
 void WaitForAsyncWriteRpc::SendRpcToTserver(int attempt_num) {
@@ -995,16 +1019,31 @@ void WaitForAsyncWriteRpc::Finished(const Status& status) {
     new_status = StatusFromPB(resp_.error().status());
   }
   if (tablet_invoker_.Done(&new_status)) {
-    batcher_->RecordAsyncWriteCompletion(tablet_id_, op_id_, new_status);
-    retained_self_.reset();
+    FinishOrRetry(std::move(new_status));
   }
+}
+
+void WaitForAsyncWriteRpc::FinishOrRetry(Status&& status) {
+  DCHECK(table_);
+  // NotFound (parent GC'd) and TryAgain (TABLET_SPLIT or stale partitions) both mean the key has
+  // moved. Refresh partitions and DelayedRetry (this is bounded by the retrier's deadline).
+  // Other errors (network, etc.) are already handled by TabletInvoker's internal retries.
+  if (!status.ok() && (status.IsNotFound() || status.IsTryAgain())) {
+    const_cast<YBTable&>(*table_).MarkPartitionsAsStale();
+    status = mutable_retrier()->DelayedRetry(this, status);
+    if (status.ok()) {
+      return;
+    }
+  }
+  batcher_->RecordAsyncWriteCompletion(tracking_tablet_id_, op_id_, status);
+  retained_self_.reset();
 }
 
 std::string WaitForAsyncWriteRpc::ToString() const {
   const auto& metadata = batcher_->in_flight_ops().metadata;
   return Format(
       "WaitForAsyncWrite(tablet: $0, op_id: $1, num_attempts: $2, txn: $3, subtxn: $4)",
-      tablet_id_, op_id_, num_attempts(), metadata.transaction.transaction_id,
+      tracking_tablet_id_, op_id_, num_attempts(), metadata.transaction.transaction_id,
       metadata.subtransaction_pb ? AsString(metadata.subtransaction_pb->subtransaction_id())
                                  : "[none]");
 }

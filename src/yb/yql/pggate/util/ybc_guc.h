@@ -13,7 +13,11 @@
 // the License.
 //
 
-#pragma once
+// YB: include guard instead of pragma once: this header is installed into
+// the PostgreSQL server include directory, and pragma once does not
+// deduplicate identical copies of a header visible via two paths.
+#ifndef YB_YQL_PGGATE_UTIL_YBC_GUC_H
+#define YB_YQL_PGGATE_UTIL_YBC_GUC_H
 
 #include <stdbool.h>  // Needed for bool in C.
 #include <stdint.h>
@@ -256,6 +260,7 @@ extern int yb_reorderbuffer_max_changes_in_memory;
  * Allows for customizing the maximum size of a batch of explicit row lock operations.
  */
 extern int yb_explicit_row_locking_batch_size;
+extern int yb_explicit_row_lock_skip_locked_max_read_ahead;
 
 /*
  * Ease transition to YSQL by reducing read restart errors for new apps.
@@ -344,3 +349,5 @@ extern bool yb_use_cluster_config_for_geolocation_costing;
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
+#endif  // YB_YQL_PGGATE_UTIL_YBC_GUC_H

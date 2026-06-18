@@ -484,12 +484,18 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
       case STS_DELETE:
         u = Universe.getOrBadRequest(taskParams().getUniverseUUID());
         newNamingStyle = u.getUniverseDetails().useNewHelmNamingStyle;
-        // Ideally we should have called KubernetesUtil.getHelmFullNameWithSuffix()
         String appType = taskParams().serverType == ServerType.TSERVER ? "yb-tserver" : "yb-master";
-        String appName = (newNamingStyle ? taskParams().helmReleaseName + "-" : "") + appType;
+        // Resolve the actual StatefulSet via release name + app type and delete it. The name can
+        // carry a non-zero STS index suffix (e.g. after a full move), so the manager fetches the
+        // matching StatefulSet(s) and deletes them, ignoring if none are found.
         kubernetesManagerFactory
             .getManager()
-            .deleteStatefulSet(config, taskParams().namespace, appName);
+            .deleteStatefulSet(
+                config,
+                taskParams().namespace,
+                taskParams().helmReleaseName,
+                appType,
+                newNamingStyle);
         break;
       case PVC_EXPAND_SIZE:
         try {
@@ -950,8 +956,12 @@ public class KubernetesCommandExecutor extends UniverseTaskBase {
       if (taskParams().isReadOnlyCluster) {
         overrides.put("replicas", ImmutableMap.of("tserver", numNodes, "master", 0));
       } else {
-        overrides.put(
-            "replicas", ImmutableMap.of("tserver", numNodes, "master", replicationFactor));
+        // When full move is progress, the userIntent.replicationFactor will not reflect the
+        // correct replication factor for master, so we need to use replicationFactorZone for
+        // master replicas in that case.
+        int masterReplicas =
+            taskParams().fullMoveParams != null ? replicationFactorZone : replicationFactor;
+        overrides.put("replicas", ImmutableMap.of("tserver", numNodes, "master", masterReplicas));
       }
     }
 

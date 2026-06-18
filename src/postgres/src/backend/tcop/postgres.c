@@ -84,9 +84,11 @@
 #include "utils/varlena.h"
 
 /* YB includes */
+#include "catalog/storage.h"
 #include "catalog/yb_catalog_version.h"
 #include "commands/portalcmds.h"
 #include "commands/variable.h"
+#include "executor/spi.h"
 #include "libpq/auth.h"
 #include "libpq/yb_pqcomm_extensions.h"
 #include "pg_yb_utils.h"
@@ -4857,17 +4859,7 @@ YBRefreshCacheWrapperImpl(uint64_t catalog_master_version, bool is_retry,
 bool
 YBRefreshCacheUsingInvalMsgs()
 {
-	/*
-	 * We only want to accept invalidation messages at a "safe point". It is not a
-	 * "safe point" if prefetching is started because we want to ensure reading a
-	 * consistent set of catalog tables. If we allowed invalidation messages we may
-	 * see some catalog tuples removed which can cause PANIC error if such tuples
-	 * are considered as critical. Also we do not want the local catalog version to
-	 * change as a result of applying invalidation messages because that can become
-	 * inconsistent with the set of catalog tables just read.
-	 */
-	if (YBCIsSysTablePrefetchingStarted())
-		return false;
+	Assert(!YBCIsSysTablePrefetchingStarted());
 	return YBRefreshCacheWrapperImpl(YB_CATCACHE_VERSION_UNINITIALIZED,
 									 false /* is_retry */ ,
 									 false /* full_refresh_allowed */ );
@@ -4881,7 +4873,17 @@ YBRefreshCacheWrapper(uint64_t catalog_master_version, bool is_retry)
 	 * a "safe point".
 	 */
 	Assert(!YBCIsSysTablePrefetchingStarted());
-	(void) YBRefreshCacheWrapperImpl(catalog_master_version, is_retry, true);
+
+	yb_refresh_cache_in_progress = true;
+	PG_TRY();
+	{
+		(void) YBRefreshCacheWrapperImpl(catalog_master_version, is_retry, true);
+	}
+	PG_FINALLY();
+	{
+		yb_refresh_cache_in_progress = false;
+	}
+	PG_END_TRY();
 }
 
 static bool
@@ -4932,8 +4934,6 @@ YBPrepareCacheRefreshIfNeeded(ErrorData *edata,
 	const bool	is_deadlock_error = edata->sqlerrcode == ERRCODE_YB_DEADLOCK;
 	const bool	is_aborted_error = edata->sqlerrcode == ERRCODE_YB_TXN_ABORTED;
 
-	edata->sqlerrcode = yb_external_errcode(edata->sqlerrcode);
-
 	/*
 	 * Note that 'is_dml' could be set for a Select operation on a pg_catalog
 	 * table. Even if it fails due to conflict, a retry is expected to succeed
@@ -4960,7 +4960,7 @@ YBPrepareCacheRefreshIfNeeded(ErrorData *edata,
 	*/
 	uint64_t	catalog_master_version = YB_CATCACHE_VERSION_UNINITIALIZED;
 
-	if (!yb_non_ddl_txn_for_sys_tables_allowed)
+	if (!yb_non_ddl_txn_for_sys_tables_allowed && YBCIsLegacyModeForCatalogOps())
 	{
 		YbInvalidateCatalogSnapshot();
 		catalog_master_version = YbGetMasterCatalogVersion();
@@ -5070,24 +5070,6 @@ YBPrepareCacheRefreshIfNeeded(ErrorData *edata,
 			if (need_table_cache_refresh || isInvalidCatalogSnapshotError)
 			{
 				edata->sqlerrcode = ERRCODE_T_R_SERIALIZATION_FAILURE;
-			}
-			/*
-			 * Report the original error, but add a context mentioning that a
-			 * possibly-conflicting, concurrent DDL transaction happened.
-			 */
-			if (!(*YBCGetGFlags()->TEST_hide_details_for_pg_regress))
-			{
-				const char *ddl_error_context =
-					"Catalog Version Mismatch: "
-					"A DDL occurred while processing this query. "
-					"Try again.";
-				MemoryContext oldcontext = MemoryContextSwitchTo(edata->assoc_context);
-
-				if (edata->context)
-					edata->context = psprintf("%s; %s", edata->context, ddl_error_context);
-				else
-					edata->context = pstrdup(ddl_error_context);
-				MemoryContextSwitchTo(oldcontext);
 			}
 			ThrowErrorData(edata);
 		}
@@ -5285,7 +5267,24 @@ YBIsDmlCommandTag(CommandTag command_tag)
 			command_tag == CMDTAG_DELETE);
 }
 
-/* Whether we are allowed to restart current query/txn. */
+static bool
+YBIsTransactionControlCommandTag(CommandTag command_tag)
+{
+	return (command_tag == CMDTAG_COMMIT ||
+			command_tag == CMDTAG_ROLLBACK ||
+			command_tag == CMDTAG_COMMIT_PREPARED ||
+			command_tag == CMDTAG_ROLLBACK_PREPARED ||
+			command_tag == CMDTAG_BEGIN ||
+			command_tag == CMDTAG_START_TRANSACTION ||
+			command_tag == CMDTAG_SAVEPOINT ||
+			command_tag == CMDTAG_RELEASE);
+}
+
+/*
+ * Whether we are allowed to restart current query/txn.
+ *
+ * Design/rationale for query-layer retries: see the README in this directory.
+ */
 static bool
 yb_is_retry_possible(ErrorData *edata, int attempt,
 					 const YBQueryRetryData *retry_data)
@@ -5500,6 +5499,17 @@ yb_is_retry_possible(ErrorData *edata, int attempt,
 		return false;
 	}
 
+	if (YBHasSkippedIntentsWrite())
+	{
+		const char *retry_err = ("query layer retry isn't possible because "
+								 "we have skipped intents write");
+
+		edata->message = psprintf("%s (%s)", edata->message, retry_err);
+		if (yb_debug_log_internal_restarts)
+			elog(LOG, "%s", retry_err);
+		return false;
+	}
+
 	if (attempt >= yb_max_query_layer_retries)
 	{
 		const char *retry_err = psprintf("yb_max_query_layer_retries set to %d are exhausted",
@@ -5548,11 +5558,16 @@ yb_is_retry_possible(ErrorData *edata, int attempt,
 		command_tag = prepared_stmt->plansource->commandTag;
 	}
 
+	/*
+	 * NB: command_tag comes from the raw parse tree, so all SELECT variants
+	 * (including FOR UPDATE/SHARE/...) arrive here as plain CMDTAG_SELECT.
+	 */
 	bool		is_read = command_tag == CMDTAG_SELECT;
 	bool		is_dml = YBIsDmlCommandTag(command_tag);
 
 	if (command_tag == CMDTAG_COPY || command_tag == CMDTAG_COPY_FROM ||
-		command_tag == CMDTAG_ANALYZE)
+		command_tag == CMDTAG_ANALYZE ||
+		YBIsTransactionControlCommandTag(command_tag))
 	{
 		const char *retry_err = psprintf("query layer retries not possible for %s commands",
 										 GetCommandTagName(command_tag));
@@ -5565,25 +5580,68 @@ yb_is_retry_possible(ErrorData *edata, int attempt,
 	}
 
 	/*
-	 * pg_client_session rejects read restarts in DDL mode.
-	 * Retrying in that case is not only wasteful but also results in a non-retryable error
-	 * instead of the expected read restart error. For that reason, reject read restarts
-	 * for non DML statements.
-	 * However, allow retries on conflict errors in read committed isolation.
+	 * Supported retries:
+	 *
+	 * 1. READ COMMITTED:
+	 *    a. kConflict/kDeadlock/kAborted: any command tag retried
+	 *       (historical RC behavior).
+	 *    b. kReadRestart: SELECT/INSERT/UPDATE/DELETE, plus CALL/DO whose
+	 *       body ran only the same four statements or nested CALL/DO
+	 *       (extendable via yb_extra_commands_to_retry_in_proc). Other
+	 *       top-level tags are retried only if listed in
+	 *       yb_extra_commands_to_retry.
+	 *
+	 * 2. REPEATABLE READ / SERIALIZABLE:
+	 *    For all error kinds, only SELECT/INSERT/UPDATE/DELETE retry by
+	 *    default. CALL/DO and other tags retry only if listed in
+	 *    yb_extra_commands_to_retry; when CALL/DO is opted in, the
+	 *    proc-retriability gate still applies (body must be safe to
+	 *    re-execute, tracked by SPI as YbProcRetryBlocked()).
 	 */
-	if ((!IsYBReadCommitted() || is_read_restart_error) && !(is_read || is_dml))
+	if (command_tag == CMDTAG_CALL || command_tag == CMDTAG_DO)
 	{
-		/*
-		 * if !read committed, we only support retries with
-		 * SELECT/UPDATE/INSERT/DELETE. There are other statements that might
-		 * result in a kReadRestart/kConflict like CREATE INDEX. We don't retry
-		 * those as of now.
-		 */
-		if (yb_debug_log_internal_restarts)
-			elog(LOG,
-				 "query layer retries not possible because statement isn't one of "
-				 "SELECT/UPDATE/INSERT/DELETE");
-		return false;
+		bool		rc_carveout = (IsYBReadCommitted() && !is_read_restart_error);
+		bool		opted_in = (yb_extra_commands_to_retry != NULL &&
+								yb_extra_commands_to_retry[command_tag]);
+
+		if (!IsYBReadCommitted() && !opted_in)
+		{
+			if (yb_debug_log_internal_restarts)
+				elog(LOG, "query layer retry isn't possible: retry of %s "
+					 "outside READ COMMITTED has not been validated",
+					 GetCommandTagName(command_tag));
+			return false;
+		}
+
+		if (!rc_carveout && YbProcRetryBlocked())
+		{
+			const char *stmt_kind = (command_tag == CMDTAG_CALL ?
+									 "CALL" : "DO block");
+			const char *user_err = psprintf("query layer retry isn't possible because the "
+											"%s executed a statement whose retry behavior "
+											"has not been validated.",
+											stmt_kind);
+
+			edata->message = psprintf("%s (%s)", edata->message, user_err);
+			if (yb_debug_log_internal_restarts)
+				elog(LOG, "%s", user_err);
+			return false;
+		}
+	}
+	else if (!(is_read || is_dml))
+	{
+		bool		rc_carveout = (IsYBReadCommitted() && !is_read_restart_error);
+		bool		opted_in = (yb_extra_commands_to_retry != NULL &&
+								yb_extra_commands_to_retry[command_tag]);
+
+		if (!rc_carveout && !opted_in)
+		{
+			if (yb_debug_log_internal_restarts)
+				elog(LOG, "query layer retry isn't possible: %s is not in "
+					 "the default retriable set",
+					 GetCommandTagName(command_tag));
+			return false;
+		}
 	}
 
 	return true;
@@ -5870,6 +5928,14 @@ yb_restart_transaction(int attempt, bool is_read_restart)
 		elog(LOG, "Restarting transaction");
 
 	/*
+	 * Clean up pending deletes from the failed attempt. Since we are restarting
+	 * the transaction from the beginning, any physical files scheduled for deletion
+	 * (atCommit=true) should be forgotten, and any physical files created
+	 * (atCommit=false) should be deleted.
+	 */
+	smgrDoPendingDeletes(false);
+
+	/*
 	 * The txn might or might not have performed writes. Reset the state in
 	 * either case to avoid checking/tracking if a write could have been
 	 * performed.
@@ -6088,11 +6154,15 @@ yb_exec_query_wrapper_one_attempt(MemoryContext exec_context,
 		YBResetOperationsBuffering();
 		if (IsInParallelMode())
 			YbClearParallelContexts();
+		YBResetOperationTracking();
 		yb_attempt_to_retry_on_error(attempt, retry_data, exec_context);
 	}
 	PG_END_TRY();
 }
 
+/*
+ * The query-layer retry loop. Design/rationale: see the README in this directory.
+ */
 static void
 yb_exec_query_wrapper(MemoryContext exec_context,
 					  const YBQueryRetryData *retry_data,
@@ -6880,11 +6950,8 @@ PostgresMain(const char *dbname, const char *username)
 			ConfigReloadPending = false;
 
 			/*
-			 * YB: Check whether this is a Conn Mgr "Control Backend", in case a
-			 * config reload happens before the first Auth request packet is
-			 * handled by this backend. See the 'A' packet handler below for
-			 * more details.
-			 * Control backends need to update their SIGHUP LCVs in tandem with
+			 * YB: Check whether this is a Conn Mgr "Control Backend", as
+			 * control backends need to update their SIGHUP LCVs in tandem with
 			 * the postmaster process (for this, they need to be identified as
 			 * control backends before calling `ProcessConfigFile`).
 			 * We don't care about the actual GUC setting changed or its value
@@ -6892,12 +6959,10 @@ PostgresMain(const char *dbname, const char *username)
 			 * matching Logical Client Version
 			 * (Final LCV = catalog_table_LCV + SIGHUP_LCV).
 			 */
-			if (firstchar == 'A' && YbIsClientYsqlConnMgr())
-				yb_conn_mgr_is_auth_passthrough_backend = true;
 
 			ProcessConfigFile(PGC_SIGHUP);
 
-			if (yb_conn_mgr_is_auth_passthrough_backend &&
+			if (YbIsAuthPassthroughControlBackend() &&
 				yb_conn_mgr_sighup_had_backend_guc_change)
 			{
 				yb_conn_mgr_sighup_logical_client_version++;
@@ -6996,7 +7061,6 @@ PostgresMain(const char *dbname, const char *username)
 							{
 								errorcontext = MemoryContextSwitchTo(yb_oldcontext);
 								edata = CopyErrorData();
-								edata->sqlerrcode = yb_external_errcode(edata->sqlerrcode);
 								MemoryContextSwitchTo(errorcontext);
 								ThrowErrorData(edata);
 							}
@@ -7274,7 +7338,6 @@ PostgresMain(const char *dbname, const char *username)
 							{
 								errorcontext = MemoryContextSwitchTo(oldcontext);
 								edata = CopyErrorData();
-								edata->sqlerrcode = yb_external_errcode(edata->sqlerrcode);
 								MemoryContextSwitchTo(errorcontext);
 								ThrowErrorData(edata);
 							}
@@ -7342,7 +7405,17 @@ PostgresMain(const char *dbname, const char *username)
 					{
 						case 'S':
 							if (close_target[0] != '\0')
+							{
+								if (YbIsClientYsqlConnMgr())
+								{
+									/*
+									 * YB: Start a transaction, if not already done, to allow catalog
+									 * cache lookup in YbIsCachedQueryValid()
+									 */
+									yb_start_xact_command_internal(false /* yb_skip_read_committed_internal_savepoint */ );
+								}
 								DropPreparedStatement(close_target, false, YbIsClientYsqlConnMgr());
+							}
 							else
 							{
 								/* special-case the unnamed statement */
@@ -7381,6 +7454,10 @@ PostgresMain(const char *dbname, const char *username)
 
 								yb_conn_mgr_selective_deallocate_saved = yb_conn_mgr_selective_deallocate;
 								yb_conn_mgr_selective_deallocate = false;
+								/*
+								 * YB: Force Close does not access catalog cache and hence starting
+								 * a transaction is not required here.
+								 */
 								DropPreparedStatement(close_target, false, false);
 								yb_conn_mgr_selective_deallocate = yb_conn_mgr_selective_deallocate_saved;
 
@@ -7491,7 +7568,6 @@ PostgresMain(const char *dbname, const char *username)
 					MemoryContext errorcontext = MemoryContextSwitchTo(yb_oldcontext);
 					ErrorData  *edata = CopyErrorData();
 
-					edata->sqlerrcode = yb_external_errcode(edata->sqlerrcode);
 					MemoryContextSwitchTo(errorcontext);
 					ThrowErrorData(edata);
 				}
@@ -7565,20 +7641,13 @@ PostgresMain(const char *dbname, const char *username)
 				 * certain fields in the startup (and subsequent) packets. The
 				 * packet types themselves should match the regular pg startup
 				 * wire protocol.
+				 * Only "Control Backends" are supposed to receive 'A'
+				 * authentication request packets (in the Auth Passthrough mode
+				 * of Conn Mgr). Conversely, 'A' packets are supposed to be
+				 * handled by control backends only.
 				 */
-				if (YbIsClientYsqlConnMgr())
+				if (YbIsClientYsqlConnMgr() && YbIsAuthPassthroughControlBackend())
 				{
-					/*
-					 * YB: Only "Control Backends" are supposed to receive 'A'
-					 * authentication request packets (in the Auth Passthrough mode
-					 * of Conn Mgr). Conversely, 'A' packets are supposed to be
-					 * handled by control backends only. So, the receipt of this
-					 * packet with Conn Mgr enabled can be taken as confirmation
-					 * that this is a control backend. This information is required
-					 * to correctly process SIGHUPs involving PGC_BACKEND GUC
-					 * updates.
-					 */
-					yb_conn_mgr_is_auth_passthrough_backend = true;
 					MyProcPort->yb_is_auth_passthrough_req = true;
 					MyProcPort->yb_has_auth_passthrough_finished = false;
 

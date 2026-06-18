@@ -42,7 +42,6 @@
 #include "yb/integration-tests/mini_cluster.h"
 #include "yb/integration-tests/path_handlers_util.h"
 #include "yb/integration-tests/yb_mini_cluster_test_base.h"
-#include "yb/util/logging_test_util.h"
 
 #include "yb/master/catalog_entity_info.h"
 #include "yb/master/catalog_manager_bg_tasks.h"
@@ -75,6 +74,7 @@
 #include "yb/util/random_util.h"
 #include "yb/util/result.h"
 #include "yb/util/status_format.h"
+#include "yb/util/string_util.h"
 #include "yb/util/test_macros.h"
 #include "yb/util/thread.h"
 #include "yb/util/tsan_util.h"
@@ -160,22 +160,27 @@ class MasterPathHandlersBaseItest : public YBMiniClusterTestBase<T> {
       size_t expected_has_lease, size_t expected_no_lease, MonoDelta timeout) {
     return WaitFor(
         [&]() -> Result<bool> {
-          auto cols_ttl =
-              VERIFY_RESULT(GetHtmlTableColumn("/tablet-servers", "_tserver", "Lease Expiry"));
-          size_t has_lease_ttl = 0, no_lease_ttl = 0;
-          for (const auto& cell : cols_ttl) {
-            if (cell.find("Green") != std::string::npos) ++has_lease_ttl;
-            if (cell.find("Red") != std::string::npos) ++no_lease_ttl;
+          auto make_predicate = [](const std::string_view target) {
+            return [target](const std::string& cell) { return cell.contains(target); };
+          };
+          auto green_checker = make_predicate("Green");
+          auto red_checker = make_predicate("Red");
+          for (const auto& col_name : {"Lease Expiry", "Lease Epoch"}) {
+            auto cols =
+                VERIFY_RESULT(GetHtmlTableColumn("/tablet-servers", "[^']*_tserver", col_name));
+            size_t has_lease_count = std::ranges::count_if(cols, green_checker);
+            size_t missing_lease_count = std::ranges::count_if(cols, red_checker);
+            if (has_lease_count != expected_has_lease || missing_lease_count != expected_no_lease) {
+              LOG(INFO) << Format(
+                  "Lease counts from tablet-servers status page not as expected. For column $0, "
+                  "Has lease is $1, "
+                  "expected $2. Missing lease is $3, expected $4",
+                  col_name, has_lease_count, expected_has_lease, missing_lease_count,
+                  expected_no_lease);
+              return false;
+            }
           }
-          auto cols_epoch =
-              VERIFY_RESULT(GetHtmlTableColumn("/tablet-servers", "_tserver", "Lease Epoch"));
-          size_t has_lease_epoch = 0, no_lease_epoch = 0;
-          for (const auto& cell : cols_epoch) {
-            if (cell.find("Green") != std::string::npos) ++has_lease_epoch;
-            if (cell.find("Red") != std::string::npos) ++no_lease_epoch;
-          }
-          return has_lease_ttl == expected_has_lease && no_lease_ttl == expected_no_lease &&
-                 has_lease_epoch == expected_has_lease && no_lease_epoch == expected_no_lease;
+          return true;
         },
         timeout,
         Format("Waiting for $0 HAS LEASE, $1 NO LEASE", expected_has_lease, expected_no_lease));
@@ -2003,7 +2008,7 @@ TEST_F_EX(
 // Validates the UI elements for the Lease Status column function correctly when starting up and
 // after a tserver is shut down
 TEST_F(MasterPathHandlersItest, TestLeaseStatusColumn) {
-  const MonoDelta kWaitTimeoutout = 10s;
+  const MonoDelta kWaitTimeout = 10s;
   const MonoDelta kLeaseTimeoutWaitBufferTime = 2s;
   for (size_t i = 0; i < cluster_->num_tablet_servers(); i++) {
     ASSERT_OK(cluster_->mini_tablet_server(i)->server()->StartYSQLLeaseRefresher());
@@ -2017,9 +2022,9 @@ TEST_F(MasterPathHandlersItest, TestLeaseStatusColumn) {
         }
         return true;
       },
-      kWaitTimeoutout, "Waiting for all tservers to acquire leases"));
+      kWaitTimeout, "Waiting for all tservers to acquire leases"));
 
-  ASSERT_OK(WaitForLeaseStatusCounts(cluster_->num_tablet_servers(), 0, kWaitTimeoutout));
+  ASSERT_OK(WaitForLeaseStatusCounts(cluster_->num_tablet_servers(), 0, kWaitTimeout));
 
   // Shutdown tserver and wait for heartbeat timeout.
   cluster_->mini_tablet_server(0)->Shutdown();
@@ -2036,7 +2041,7 @@ TEST_F(MasterPathHandlersItest, TestLeaseStatusColumn) {
 
   // refresh the lease
   ASSERT_OK(cluster_->mini_tablet_server(0)->server()->StartYSQLLeaseRefresher());
-  ASSERT_OK(WaitForLeaseStatusCounts(cluster_->num_tablet_servers(), 0, kWaitTimeoutout));
+  ASSERT_OK(WaitForLeaseStatusCounts(cluster_->num_tablet_servers(), 0, kWaitTimeout));
 }
 
 }  // namespace yb::integration_tests

@@ -11,7 +11,6 @@
 | "Enable downloading metrics as a PDF" | "yb.ui.metrics.enable_download_pdf" | "CUSTOMER" | "When enabled, the download metrics option is shown on the universe metrics page." | "Boolean" |
 | "Use Redesigned Provider UI" | "yb.ui.feature_flags.provider_redesign" | "CUSTOMER" | "The redesigned provider UI adds a provider list view, a provider details view and improves the provider creation form for AWS, AZU, GCP, and K8s" | "Boolean" |
 | "Enable partial editing of in use providers" | "yb.ui.feature_flags.edit_in_use_provider" | "CUSTOMER" | "A subset of fields from in use providers can be edited. Users can edit in use providers directly through the YBA API. This config is used to enable this functionality through YBA UI as well." | "Boolean" |
-| "Show underlying xCluster configs from DR setup" | "yb.ui.xcluster.dr.show_xcluster_config" | "CUSTOMER" | "YBA creates an underlying transactional xCluster config when setting up an active-active single-master disaster recovery (DR) config. During regular operation you should manage the DR config through the DR UI instead of the xCluster UI. This feature flag serves as a way to expose the underlying xCluster config for troubleshooting." | "Boolean" |
 | "Enable the option to skip creating a full copy for xCluster operations" | "yb.ui.xcluster.enable_skip_bootstrapping" | "CUSTOMER" | "Enabling this runtime config will expose an option in the create xCluster modal and select tables modal to skip creating a full copy for xCluster replication configs." | "Boolean" |
 | "Enforce User Tags" | "yb.universe.user_tags.is_enforced" | "CUSTOMER" | "Prevents universe creation when the enforced tags are not provided." | "Boolean" |
 | "Enforced User Tags List" | "yb.universe.user_tags.enforced_tags" | "CUSTOMER" | "A list of enforced user tag and accepted value pairs during universe creation. Pass '*' to accept all values for a tag. Ex: [\"yb_task:dev\",\"yb_task:test\",\"yb_owner:*\",\"yb_dept:eng\",\"yb_dept:qa\", \"yb_dept:product\", \"yb_dept:sales\"]" | "Key Value SetMultimap" |
@@ -85,6 +84,9 @@
 | "YBC admin operation timeout" | "ybc.timeout.admin_operation_timeout_ms" | "GLOBAL" | "YBC client timeout in milliseconds for admin operations" | "Integer" |
 | "XCluster config DB sync timeout" | "yb.xcluster.db_sync_timeout_ms" | "GLOBAL" | "XCluster config background DB sync timeout in milliseconds" | "Integer" |
 | "XCluster/DR config GET API timeout" | "yb.xcluster.get_api_timeout_ms" | "GLOBAL" | "XCluster/DR config GET API timeout in milliseconds" | "Integer" |
+| "PITR list API snapshot schedules request timeout" | "yb.pitr.list_api.snapshot_schedules.request_timeout_ms" | "GLOBAL" | "YB client admin operation timeout in milliseconds for PITR list APIs that call listSnapshotSchedules" | "Integer" |
+| "PITR list API snapshot schedules cache TTL" | "yb.pitr.list_api.snapshot_schedules.cache.ttl_ms" | "GLOBAL" | "Per-universe cache TTL in milliseconds for listSnapshotSchedules results used by PITR list APIs" | "Integer" |
+| "PITR list API snapshot schedules cache max size" | "yb.pitr.list_api.snapshot_schedules.cache.max_size" | "GLOBAL" | "Maximum number of universes whose listSnapshotSchedules results are cached for PITR list APIs" | "Integer" |
 | "YBC socket read timeout" | "ybc.timeout.socket_read_timeout_ms" | "GLOBAL" | "YBC client socket read timeout in milliseconds" | "Integer" |
 | "YBC operation timeout" | "ybc.timeout.operation_timeout_ms" | "GLOBAL" | "YBC client timeout in milliseconds for operations" | "Integer" |
 | "DNS debug logging threshold" | "yb.client.dns_debug_threshold_ns" | "GLOBAL" | "Threshold in nanoseconds above which DNS lookups are logged at DEBUG level" | "Integer" |
@@ -207,6 +209,7 @@
 | "Allow Duplicates in Existing AZs" | "yb.provider.allow_existing_duplicate_az" | "GLOBAL" | "Allow duplicates in already existing availability zones" | "Boolean" |
 | "Disable YNP Node Preflight Check" | "yb.node_agent.disable_ynp_node_preflight_check" | "GLOBAL" | "Disable preflight check in YNP node agent provision" | "Boolean" |
 | "Enable YNP Version Check" | "yb.node_agent.enable_ynp_version_check" | "GLOBAL" | "Enable YNP version check when adding nodes to a universe. When enabled, the node's YNP major version must match the expected version." | "Boolean" |
+| "Skip PA Collector memory validation" | "yb.pa.skip_memory_validation" | "GLOBAL" | "Skip memory availability validation when enabling Performance Advisor Collection" | "Boolean" |
 | "Clock Skew" | "yb.alert.max_clock_skew_ms" | "UNIVERSE" | "Default threshold for Clock Skew alert" | "Duration" |
 | "Health Log Output" | "yb.health.logOutput" | "UNIVERSE" | "It determines whether to log the output of the node health check script to the console" | "Boolean" |
 | "Node Checkout Time" | "yb.health.nodeCheckTimeoutSec" | "UNIVERSE" | "The timeout (in seconds) for node check operation as part of universe health check" | "Integer" |
@@ -384,6 +387,7 @@
 | "Delay between master restarts in rolling operations" | "yb.upgrade.sleep_after_master_restart_ms" | "UNIVERSE" | "Default delay (ms) between master restarts in rolling operations (Delay Between Servers). Used when task params do not override." | "Integer" |
 | "Delay between tserver restarts in rolling operations" | "yb.upgrade.sleep_after_tserver_restart_ms" | "UNIVERSE" | "Default delay (ms) between tserver restarts in rolling operations (Delay Between Servers). Used when task params do not override." | "Integer" |
 | "Enables new Performance Monitoring UI via Performance Tab if universe is registered with Perf Advisor Service" | "yb.ui.feature_flags.enable_new_perf_advisor_ui" | "UNIVERSE" | "Enables new Performance Monitoring UI via Performance Tab" | "Boolean" |
+| "Enable All Nodes Script APIs" | "yb.node_script.enabled" | "UNIVERSE" | "Enables the all node script APIs for this universe" | "Boolean" |
 | "Enable Canary Upgrade" | "yb.upgrade.enable_canary_upgrade" | "UNIVERSE" | "Enable canary upgrade for the universe" | "Boolean" |
 | "Number of nodes to move in a given batch during full move" | "yb.task.full_move.roll_batch_size" | "UNIVERSE" | "Set numer of nodes to move in a given batch during full move. Default is 0 which means no batching, i.e. move all pods in a single go" | "Long" |
 | "Run Immediate Backup On Schedule Resume" | "yb.backup.run_immediate_backup_on_resume" | "UNIVERSE" | "When true, resumes a stopped backup schedule by running a full or incremental backup immediately instead of waiting for the next scheduled time. This will only change the default functionality, and which can still be overwritten with an api payload." | "Boolean" |
