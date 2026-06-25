@@ -347,7 +347,7 @@ static SlruCtlData NotifyCtlData;
  */
 #define QUEUE_MAX_PAGE			(SLRU_PAGES_PER_SEGMENT * 0x10000 - 1)
 
-bool		yb_enable_listen_notify = false;
+bool		yb_enable_listen_notify = true;
 bool		yb_test_fatal_after_notifs_queue_write = false;
 int			yb_test_notify_queue_max_pages = 0;
 int			yb_notifications_poll_sleep_duration_nonempty_ms = 1;

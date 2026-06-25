@@ -2326,8 +2326,8 @@ DROP TABLE tempTable2;
   auto fingerprint = HashUtil::MurmurHash2_64(result.data(), result.size(), 0 /* seed */);
   LOG(INFO) << "result.size(): " << result.size();
   LOG(INFO) << "fingerprint: " << fingerprint;
-  ASSERT_EQ(result.size(), 80932U);
-  ASSERT_EQ(fingerprint, 148605032842492807UL);
+  ASSERT_EQ(result.size(), 81389U);
+  ASSERT_EQ(fingerprint, 9449517597689319637UL);
 }
 
 // Regression test for https://github.com/yugabyte/yugabyte-db/issues/31431.
@@ -3130,6 +3130,10 @@ class PgCatalogVersionConnManagerTest
     PgCatalogVersionTest::UpdateMiniClusterOptions(options);
     options->extra_tserver_flags.push_back(
         "--ysql_enable_read_request_cache_for_connection_auth=true");
+    // LISTEN/NOTIFY bg task causes master read rpcs, which breaks the expected rpc count in
+    // TestConnectionManagerRpcCount.
+    options->extra_master_flags.push_back("--ysql_yb_enable_listen_notify=false");
+    options->extra_tserver_flags.push_back("--ysql_yb_enable_listen_notify=false");
   }
 };
 

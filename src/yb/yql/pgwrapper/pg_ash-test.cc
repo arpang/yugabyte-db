@@ -568,9 +568,13 @@ TEST_F_EX(PgWaitEventAuxTest, YB_DISABLE_TEST_IN_TSAN(IndexRPCs), PgIndexWaitEve
     ASSERT_OK(conn.Execute("CREATE INDEX CONCURRENTLY idx ON test (k)"));
   });
 
+  // Filter by current database: the LISTEN/NOTIFY bg task's CREATE TABLE
+  // pg_yb_notifications (on yb_system) also hits the postbackfill block and
+  // would add a second row to pg_stat_progress_create_index.
   ASSERT_OK(WaitFor([this]() -> Result<bool> {
     auto rows = VERIFY_RESULT(conn_->FetchRows<std::string>(
-        "SELECT phase FROM pg_stat_progress_create_index"));
+        "SELECT phase FROM pg_stat_progress_create_index"
+        " WHERE datid = (SELECT oid FROM pg_database WHERE datname = current_database())"));
     return rows.size() == 1 && rows[0] == "backfilling";
   }, 30s, "Wait for index progress"));
 

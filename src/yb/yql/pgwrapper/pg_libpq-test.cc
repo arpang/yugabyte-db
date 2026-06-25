@@ -2517,6 +2517,9 @@ namespace {
 class PgLibPqTestRF1: public PgLibPqTest {
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     options->replication_factor = 1;
+    // Disable LISTEN/NOTIFY to prevent its background task (catalog warm up,
+    // create table) from sending unexpected master RPCs.
+    options->extra_master_flags.emplace_back("--ysql_yb_enable_listen_notify=false");
   }
 
   int GetNumMasters() const override {
@@ -3793,6 +3796,14 @@ class PgOidCollisionTestBase : public PgLibPqTest {
     }
     ASSERT_OK(cluster_->Restart());
   }
+
+  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
+    PgLibPqTest::UpdateMiniClusterOptions(options);
+    // Disable LISTEN/NOTIFY as its bg task's DDL (table creation) shifts the global OID counter,
+    // breaking hard-coded expected OID values.
+    options->extra_master_flags.emplace_back("--ysql_yb_enable_listen_notify=false");
+  }
+
   bool ysql_enable_create_database_oid_collision_retry = true;
 };
 
