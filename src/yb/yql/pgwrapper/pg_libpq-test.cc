@@ -3796,6 +3796,14 @@ class PgOidCollisionTestBase : public PgLibPqTest {
     }
     ASSERT_OK(cluster_->Restart());
   }
+
+  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
+    PgLibPqTest::UpdateMiniClusterOptions(options);
+    // Disable LISTEN/NOTIFY as its bg task's DDL (table creation) shifts the global OID counter,
+    // breaking hard-coded expected OID values.
+    options->extra_master_flags.emplace_back("--ysql_yb_enable_listen_notify=false");
+  }
+
   bool ysql_enable_create_database_oid_collision_retry = true;
 };
 
@@ -3904,12 +3912,6 @@ TEST_P(PgOidCollisionTest, YB_RELEASE_ONLY_TEST(MetaCachePgOidCollisionFromTserv
 class PgOidCollisionCreateDatabaseTest
     : public PgOidCollisionTestBase,
     public ::testing::WithParamInterface<std::pair<bool, bool>> {
-  void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
-    PgOidCollisionTestBase::UpdateMiniClusterOptions(options);
-    // Disable LISTEN/NOTIFY as its bg task's DDL (table creation) shifts the global OID counter,
-    // breaking hard-coded expected OID values.
-    options->extra_master_flags.emplace_back("--ysql_yb_enable_listen_notify=false");
-  }
 };
 
 INSTANTIATE_TEST_CASE_P(PgOidCollisionCreateDatabaseTest,
