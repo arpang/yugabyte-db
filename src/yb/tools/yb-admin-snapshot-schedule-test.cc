@@ -3542,6 +3542,10 @@ class YbAdminSnapshotScheduleUpgradeTestWithYsqlBase : public YbAdminSnapshotSch
              "--snapshot_coordinator_poll_interval_ms=500",
              "--enable_automatic_tablet_splitting=true",
              "--enable_transactional_ddl_gc=false",
+             // The old sys catalog snapshot predates yb_system database, so the LISTEN/NOTIFY
+             // background task would create it at runtime; that CREATE DATABASE races the test's
+             // own CREATE DATABASE. Disable it.
+             "--ysql_yb_enable_listen_notify=false",
              "--initial_sys_catalog_snapshot_path=" + initial_sys_catalog_snapshot_full_path };
   }
 };
