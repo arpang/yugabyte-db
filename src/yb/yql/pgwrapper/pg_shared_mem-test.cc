@@ -37,6 +37,7 @@ DECLARE_int32(pg_client_extra_timeout_ms);
 DECLARE_int32(TEST_transactional_read_delay_ms);
 DECLARE_uint64(big_shared_memory_segment_expiration_time_ms);
 DECLARE_uint64(big_shared_memory_segment_session_expiration_time_ms);
+DECLARE_bool(ysql_yb_enable_listen_notify);
 
 
 namespace yb {
@@ -242,6 +243,11 @@ TEST_F_EX(PgSharedMemTest, LongRead, PgSharedMemBigTimeoutTest) {
 }
 
 TEST_F(PgSharedMemTest, ConnectionShutdown) {
+  /*
+   * LISTEN/NOTIFY's bg task interferes with the expected thread count in the test.
+   */
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_listen_notify) = false;
+  ASSERT_OK(RestartCluster());
   {
     auto conn = ASSERT_RESULT(Connect());
 
