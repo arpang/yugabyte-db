@@ -3130,6 +3130,10 @@ class PgCatalogVersionConnManagerTest
     PgCatalogVersionTest::UpdateMiniClusterOptions(options);
     options->extra_tserver_flags.push_back(
         "--ysql_enable_read_request_cache_for_connection_auth=true");
+    // LISTEN/NOTIFY bg task causes master read rpcs, which breaks the expected rpc count in
+    // TestConnectionManagerRpcCount.
+    options->extra_master_flags.push_back("--ysql_yb_enable_listen_notify=false");
+    options->extra_tserver_flags.push_back("--ysql_yb_enable_listen_notify=false");
   }
 };
 
