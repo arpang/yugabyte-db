@@ -39,6 +39,7 @@ DECLARE_uint64(TEST_doc_op_next_result_prefetching_delay_ms);
 DECLARE_uint64(TEST_shared_exchange_big_response_delay_ms);
 DECLARE_uint64(big_shared_memory_segment_expiration_time_ms);
 DECLARE_uint64(big_shared_memory_segment_session_expiration_time_ms);
+DECLARE_bool(ysql_yb_enable_listen_notify);
 
 
 namespace yb {
@@ -57,6 +58,9 @@ class PgSharedMemTest : public PgMiniTestBase {
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_client_read_write_timeout_ms) = GetReadWriteTimeout();
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_big_shared_memory_segment_session_expiration_time_ms) = 1000;
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_big_shared_memory_segment_expiration_time_ms) = 1000;
+    // LISTEN/NOTIFY background task interfers with the assertion on threads count in
+    // ConnectionShutdown test, hence disable it.
+    ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_listen_notify) = false;
     PgMiniTestBase::SetUp();
   }
 

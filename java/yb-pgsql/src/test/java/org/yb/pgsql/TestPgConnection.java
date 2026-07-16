@@ -60,6 +60,18 @@ public class TestPgConnection extends BasePgSQLTest {
   }
 
   @Override
+  protected Map<String, String> getMasterFlags() {
+    Map<String, String> flagMap = super.getMasterFlags();
+    // Both tests in this class count backends via pg_stat_activity, create
+    // exactly that many connections to fill ysql_max_connections, and then
+    // assert no more connections can be opened. The LISTEN/NOTIFY bg task
+    // opens a transient PG backend that can appear or disappear mid-test,
+    // breaking the exact connection-count math.
+    flagMap.put("ysql_yb_enable_listen_notify", "false");
+    return flagMap;
+  }
+
+  @Override
   protected int getReplicationFactor() {
     return 1;
   }

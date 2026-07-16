@@ -36,6 +36,7 @@ class YsqlMajorUpgradeTest : public YsqlMajorUpgradeTestBase {
   constexpr static auto kYugabyte = "yugabyte";
   constexpr static auto kPostgres = "postgres";
   constexpr static auto kSystemPlatform = "system_platform";
+  constexpr static auto kYbSystem = "yb_system";
 
   // Stops the tserver running on the yb-master leader node.
   // The tserver must be restarted before the test completes for it to succeed the shutdown in the
@@ -475,7 +476,7 @@ TEST_F(YsqlMajorUpgradeTest, YB_RELEASE_ONLY_TEST(MultipleDatabases)) {
                                    const std::optional<size_t> ts_id, const int count) {
     int db_number = 0;
     for (const auto& [db_name, db_info] : dbs) {
-      if (db_name.starts_with("template"))
+      if (db_name.starts_with("template") || db_name == kYbSystem)
         continue;
 
       auto conn = ASSERT_RESULT(cluster_->ConnectToDB(db_name, ts_id));
@@ -543,6 +544,15 @@ TEST_F(YsqlMajorUpgradeTest, YB_RELEASE_ONLY_TEST(MultipleDatabases)) {
   ASSERT_NO_FATALS(add_row_check_rows(db_map, kMixedModeTserverPg15, ++inserted_row_count));
 
   ASSERT_OK(FinalizeUpgradeFromMixedMode());
+
+  // The LISTEN/NOTIFY background task creates yb_system, but only after the upgrade
+  // is finalized (it is suppressed during the upgrade), so wait for it to appear.
+  ASSERT_OK(WaitFor([this]() -> Result<bool> {
+    auto conn = VERIFY_RESULT(cluster_->ConnectToDB());
+    return VERIFY_RESULT(conn.FetchRow<bool>(
+        "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = 'yb_system')"));
+  }, 60s * kTimeMultiplier, "yb_system database to be created by the background task"));
+  db_map[kYbSystem] = DbInfo();
 
   ASSERT_NO_FATALS(check_dbs(kAnyTserver));
 

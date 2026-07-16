@@ -105,6 +105,7 @@ DECLARE_bool(ysql_yb_enable_ash);
 DECLARE_bool(ysql_yb_enable_replica_identity);
 DECLARE_bool(ysql_enable_auto_analyze);
 DECLARE_bool(ysql_yb_ddl_transaction_block_enabled);
+DECLARE_bool(ysql_yb_enable_listen_notify);
 DECLARE_bool(enable_object_locking_for_table_locks);
 DECLARE_bool(ysql_enable_concurrent_ddl);
 
@@ -246,6 +247,9 @@ class PgMiniPgClientServiceCleanupTest : public PgMiniTestSingleNode {
   void SetUp() override {
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_pg_client_session_expiration_ms) = 5000;
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_pg_client_heartbeat_interval_ms) = 2000;
+    // LISTEN/NOTIFY background task starts extra pg sessions, which would
+    // throw off the exact session count asserted by VerifyPgClientServiceCleanupQueue test.
+    ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_listen_notify) = false;
     PgMiniTestBase::SetUp();
   }
 };

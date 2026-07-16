@@ -1454,7 +1454,8 @@ dropDBs(PGconn *conn)
 		 */
 		if (strcmp(dbname, "template1") != 0 &&
 			strcmp(dbname, "template0") != 0 &&
-			strcmp(dbname, "postgres") != 0)
+			strcmp(dbname, "postgres") != 0 &&
+			strcmp(dbname, "yb_system") != 0)
 		{
 			fprintf(OPF, "DROP DATABASE %s%s;\n",
 					if_exists ? "IF EXISTS " : "",
@@ -1597,6 +1598,10 @@ dumpDatabases(PGconn *conn, const char *pgdb)
 
 		/* Skip template0, even if it's not marked !datallowconn. */
 		if (strcmp(dbname, "template0") == 0)
+			continue;
+
+		/* Skip yb_system, it is an internal database. */
+		if (strcmp(dbname, "yb_system") == 0)
 			continue;
 
 		/* Skip any explicitly excluded database */

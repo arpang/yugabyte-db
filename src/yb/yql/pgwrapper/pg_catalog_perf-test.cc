@@ -55,6 +55,7 @@ DECLARE_bool(ysql_minimal_catalog_caches_preload);
 DECLARE_bool(ysql_catalog_preload_additional_tables);
 DECLARE_bool(ysql_use_relcache_file);
 DECLARE_bool(ysql_yb_enable_invalidation_messages);
+DECLARE_bool(ysql_yb_enable_listen_notify);
 DECLARE_bool(ysql_enable_read_request_cache_for_connection_auth);
 DECLARE_bool(ysql_enable_auto_analyze);
 DECLARE_string(ysql_catalog_preload_additional_table_list);
@@ -167,6 +168,11 @@ class PgCatalogPerfTestBase : public PgMiniTestBase {
           std::string(config.preload_additional_catalog_list);
     }
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_use_relcache_file) = config.use_relcache_file;
+
+    // Disable LISTEN/NOTIFY to prevent yb_system bg task from introducing
+    // non-deterministic RPCs and catalog changes during perf measurements.
+    ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_listen_notify) = false;
+
     // When invalidation messages are used, this test does not use the tserver response
     // cache for the general catalog preload and the test will timeout if we wait for
     // response cache counters to become greater than 0.

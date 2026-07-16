@@ -931,8 +931,9 @@ SELECT yb_increment_db_catalog_version_with_inval_messages(:db_oid, false, '', 1
  system_platform  |              21 |                    21
  template0        |              21 |                    21
  template1        |              21 |                    21
+ yb_system        |              21 |                    21
  yugabyte         |           10085 |                 10084
-(6 rows)
+(7 rows)
 
  datname  | current_version | messages 
 ----------+-----------------+----------
@@ -953,8 +954,9 @@ SELECT yb_increment_db_catalog_version_with_inval_messages(:db_oid, false, null,
  system_platform  |              21 |                    21
  template0        |              21 |                    21
  template1        |              21 |                    21
+ yb_system        |              21 |                    21
  yugabyte         |           10086 |                 10084
-(6 rows)
+(7 rows)
 
  datname  | current_version | messages 
 ----------+-----------------+----------
@@ -976,8 +978,9 @@ SELECT yb_increment_db_catalog_version_with_inval_messages(:db_oid, true, '', 10
  system_platform  |              21 |                    21
  template0        |              21 |                    21
  template1        |              21 |                    21
+ yb_system        |              21 |                    21
  yugabyte         |           10087 |                 10087
-(6 rows)
+(7 rows)
 
  datname  | current_version | messages 
 ----------+-----------------+----------
@@ -1000,8 +1003,9 @@ SELECT yb_increment_db_catalog_version_with_inval_messages(:db_oid, true, null, 
  system_platform  |              21 |                    21
  template0        |              21 |                    21
  template1        |              21 |                    21
+ yb_system        |              21 |                    21
  yugabyte         |           10088 |                 10088
-(6 rows)
+(7 rows)
 
  datname  | current_version | messages 
 ----------+-----------------+----------
@@ -1032,8 +1036,9 @@ SELECT yb_increment_db_catalog_version_with_inval_messages(:db_oid, false, '', 1
  system_platform  |              21 |                    21
  template0        |              21 |                    21
  template1        |              21 |                    21
+ yb_system        |              21 |                    21
  yugabyte         |           10089 |                 10088
-(6 rows)
+(7 rows)
 
  datname  | current_version | messages 
 ----------+-----------------+----------
@@ -1054,8 +1059,9 @@ SELECT yb_increment_db_catalog_version_with_inval_messages(:db_oid, true, '', 10
  system_platform  |              21 |                    21
  template0        |              21 |                    21
  template1        |              21 |                    21
+ yb_system        |              21 |                    21
  yugabyte         |           10090 |                 10090
-(6 rows)
+(7 rows)
 
  datname  | current_version | messages 
 ----------+-----------------+----------
@@ -1085,8 +1091,9 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, false, 
  system_platform  |              22 |                    21
  template0        |              22 |                    21
  template1        |              22 |                    21
+ yb_system        |              22 |                    21
  yugabyte         |           10091 |                 10090
-(6 rows)
+(7 rows)
 
      datname      | current_version | messages 
 ------------------+-----------------+----------
@@ -1095,8 +1102,9 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, false, 
  system_platform  |              22 | \x
  template0        |              22 | \x
  template1        |              22 | \x
+ yb_system        |              22 | \x
  yugabyte         |           10091 | \x
-(6 rows)
+(7 rows)
 
 SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, false, null, 10);
  yb_increment_all_db_catalog_versions_with_inval_messages 
@@ -1112,8 +1120,9 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, false, 
  system_platform  |              23 |                    21
  template0        |              23 |                    21
  template1        |              23 |                    21
+ yb_system        |              23 |                    21
  yugabyte         |           10092 |                 10090
-(6 rows)
+(7 rows)
 
      datname      | current_version | messages 
 ------------------+-----------------+----------
@@ -1127,9 +1136,11 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, false, 
  template0        |              23 | 
  template1        |              22 | \x
  template1        |              23 | 
+ yb_system        |              22 | \x
+ yb_system        |              23 | 
  yugabyte         |           10092 | 
  yugabyte         |           10091 | \x
-(12 rows)
+(14 rows)
 
 SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, true, '', 10);
  yb_increment_all_db_catalog_versions_with_inval_messages 
@@ -1145,8 +1156,9 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, true, '
  system_platform  |              24 |                    24
  template0        |              24 |                    24
  template1        |              24 |                    24
+ yb_system        |              24 |                    24
  yugabyte         |           10093 |                 10093
-(6 rows)
+(7 rows)
 
      datname      | current_version | messages 
 ------------------+-----------------+----------
@@ -1165,10 +1177,13 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, true, '
  template1        |              22 | \x
  template1        |              23 | 
  template1        |              24 | \x
+ yb_system        |              22 | \x
+ yb_system        |              23 | 
+ yb_system        |              24 | \x
  yugabyte         |           10093 | \x
  yugabyte         |           10092 | 
  yugabyte         |           10091 | \x
-(18 rows)
+(21 rows)
 
 SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, true, null, 10);
  yb_increment_all_db_catalog_versions_with_inval_messages 
@@ -1184,8 +1199,9 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, true, n
  system_platform  |              25 |                    25
  template0        |              25 |                    25
  template1        |              25 |                    25
+ yb_system        |              25 |                    25
  yugabyte         |           10094 |                 10094
-(6 rows)
+(7 rows)
 
      datname      | current_version | messages 
 ------------------+-----------------+----------
@@ -1209,11 +1225,15 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, true, n
  template1        |              23 | 
  template1        |              24 | \x
  template1        |              25 | 
+ yb_system        |              22 | \x
+ yb_system        |              23 | 
+ yb_system        |              24 | \x
+ yb_system        |              25 | 
  yugabyte         |           10094 | 
  yugabyte         |           10093 | \x
  yugabyte         |           10092 | 
  yugabyte         |           10091 | \x
-(24 rows)
+(28 rows)
 
 -- Wait for the old message row to expire.
 SELECT pg_sleep(15);
@@ -1236,8 +1256,9 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, false, 
  system_platform  |              26 |                    25
  template0        |              26 |                    25
  template1        |              26 |                    25
+ yb_system        |              26 |                    25
  yugabyte         |           10095 |                 10094
-(6 rows)
+(7 rows)
 
      datname      | current_version | messages 
 ------------------+-----------------+----------
@@ -1246,8 +1267,9 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, false, 
  system_platform  |              26 | \x
  template0        |              26 | \x
  template1        |              26 | \x
+ yb_system        |              26 | \x
  yugabyte         |           10095 | \x
-(6 rows)
+(7 rows)
 
 SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, true, '', 10);
  yb_increment_all_db_catalog_versions_with_inval_messages 
@@ -1263,8 +1285,9 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, true, '
  system_platform  |              27 |                    27
  template0        |              27 |                    27
  template1        |              27 |                    27
+ yb_system        |              27 |                    27
  yugabyte         |           10096 |                 10096
-(6 rows)
+(7 rows)
 
      datname      | current_version | messages 
 ------------------+-----------------+----------
@@ -1278,9 +1301,11 @@ SELECT yb_increment_all_db_catalog_versions_with_inval_messages(:db_oid, true, '
  template0        |              27 | \x
  template1        |              26 | \x
  template1        |              27 | \x
+ yb_system        |              26 | \x
+ yb_system        |              27 | \x
  yugabyte         |           10096 | \x
  yugabyte         |           10095 | \x
-(12 rows)
+(14 rows)
 
 -- Without specifying tables, ANALYZE update statistics for all tables.
 -- Verify catalog version bumps once for every table.

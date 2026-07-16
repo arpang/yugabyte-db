@@ -48,7 +48,10 @@ public class BasePgListenNotifyTest extends BasePgSQLTest {
 
   /**
    * Waits for the {@code yb_system} database and the
-   * {@code pg_yb_notifications} table to exist.
+   * {@code pg_yb_notifications_publication} publication to exist. The publication
+   * is created (FOR TABLE pg_yb_notifications) only after the table, so its
+   * existence implies the table's; LISTEN cannot start the notifications poller
+   * until the publication exists.
    */
   public static void waitForNotificationsTableReady(
       Connection defaultConn, ConnectionBuilder connBuilder) throws Exception {
@@ -60,10 +63,8 @@ public class BasePgListenNotifyTest extends BasePgSQLTest {
     try {
       waitForCondition(ybSystemConn,
           "SELECT CASE WHEN EXISTS ("
-              + "SELECT 1 FROM pg_class"
-              + " WHERE relname = 'pg_yb_notifications'"
-              + " AND relkind = 'r'"
-              + " AND relnamespace = 2200"
+              + "SELECT 1 FROM pg_publication"
+              + " WHERE pubname = 'pg_yb_notifications_publication'"
               + ") THEN 1 ELSE 0 END");
     } finally {
       ybSystemConn.close();
