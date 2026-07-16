@@ -21,6 +21,8 @@
 #include "yb/dockv/value_packing_v2.h"
 #include "yb/dockv/value_type.h"
 
+#include "yb/util/format.h"
+
 namespace yb::dockv {
 
 namespace {
@@ -60,7 +62,7 @@ EncodedDocVectorValue EncodedDocVectorValue::FromSlice(Slice encoded) {
 
   // The last byte in the encoded value is mandatory. It contains the size of the encoded vector id
   // chunk. Having 0 in encoded vector id size means vector id is not specified.
-  const size_t vector_id_value_size = encoded.consume_byte_back();
+  const auto vector_id_value_size = static_cast<uint8_t>(encoded.consume_byte_back());
   if (vector_id_value_size == 0) {
     return { .data = encoded, .id = {} };
   }
@@ -82,9 +84,6 @@ Result<vector_index::VectorId> EncodedDocVectorValue::DecodeId() const {
 
 template <class Buffer>
 void DocVectorValue::AppendVectorId(Buffer* buffer) const {
-  if (IsNull()) {
-    return;
-  }
   char* out = GrowAtLeast(buffer, kEncodedVectorIdSize);
 
   *out = ValueEntryTypeAsChar::kVectorId;
@@ -94,13 +93,81 @@ void DocVectorValue::AppendVectorId(Buffer* buffer) const {
   *out = kEncodedVectorIdValueSize;
 }
 
-void DocVectorValue::EncodeTo(std::string* buffer) const {
-  AppendEncodedValue(value_, buffer);
+template <class Buffer>
+void DocVectorValue::AppendEncodedVectorValue(Buffer* buffer) const {
+  if (IsNull()) {
+    return AppendEncodedNullValue(buffer);
+  }
+
+  AppendEncodedBinaryValue(value_type_prefix_, value_, buffer);
   AppendVectorId(buffer);
+}
+
+void DocVectorValue::EncodeTo(std::string* buffer) const {
+  AppendEncodedVectorValue(buffer);
+}
+
+char DocVectorValue::ValueTypePrefix(VectorValueFormat format) {
+  return format == VectorValueFormat::kTyped
+      ? ValueEntryTypeAsChar::kVector : ValueEntryTypeAsChar::kString;
 }
 
 Slice DocVectorValue::SanitizeValue(Slice encoded) {
   return EncodedDocVectorValue::FromSlice(encoded).data;
+}
+
+Result<QLValuePB> EncodeVectorSchemaMissingValue(
+    const QLValuePB& raw_pgvector_value, VectorValueFormat format) {
+  QLValuePB result;
+  if (IsNull(raw_pgvector_value)) {
+    return result;
+  }
+  SCHECK_EQ(
+      raw_pgvector_value.value_case(), QLValuePB::kBinaryValue, InvalidArgument,
+      "Value calue should be QLValuePB::kBinaryValue");
+
+  const char prefix = format == VectorValueFormat::kTyped
+      ? ValueEntryTypeAsChar::kVector : ValueEntryTypeAsChar::kString;
+  std::string encoded;
+  AppendEncodedBinaryValue(prefix, raw_pgvector_value, &encoded);
+  encoded.push_back(char{0});
+  result.set_binary_value(std::move(encoded));
+  return result;
+}
+
+Result<QLValuePB> DecodeVectorSchemaMissingValueForPgRow(const QLValuePB& docdb_missing_value) {
+  if (IsNull(docdb_missing_value)) {
+    return docdb_missing_value;
+  }
+  SCHECK_EQ(
+      docdb_missing_value.value_case(), QLValuePB::kBinaryValue, InvalidArgument,
+      Format(
+          "Value case should be QLValuePB::kBinaryValue, instead it is $0",
+          docdb_missing_value.value_case()));
+
+  const auto& encoded = docdb_missing_value.binary_value();
+  if (encoded.empty()) {
+    return docdb_missing_value;
+  }
+
+  const auto value_type = static_cast<ValueEntryType>(encoded[0]);
+  SCHECK_FORMAT(
+      value_type == ValueEntryType::kVector || value_type == ValueEntryType::kString,
+      InvalidArgument, "Value entry type should be kVector or kString, instead it is $0",
+      value_type);
+  if (value_type != ValueEntryType::kVector && value_type != ValueEntryType::kString) {
+    return docdb_missing_value;
+  }
+
+  auto sanitized = DocVectorValue::SanitizeValue(encoded);
+  Slice slice = sanitized;
+  ConsumeValueEntryType(&slice);
+
+  QLValuePB result;
+  std::string pg_row_value(slice.cdata(), slice.size());
+  pg_row_value.push_back(char{0});
+  result.set_binary_value(std::move(pg_row_value));
+  return result;
 }
 
 std::string DocVectorValue::ToString() const {
@@ -120,8 +187,7 @@ size_t DocVectorValue::PackedSizeV1() const {
 }
 
 void DocVectorValue::PackToV1(ValueBuffer* buffer) const {
-  AppendEncodedValue(value_, buffer);
-  AppendVectorId(buffer);
+  AppendEncodedVectorValue(buffer);
 }
 
 size_t DocVectorValue::PackedSizeV2() const {
@@ -130,7 +196,9 @@ size_t DocVectorValue::PackedSizeV2() const {
 
 void DocVectorValue::PackToV2(ValueBuffer* buffer) const {
   PackQLValueV2(value_, DataType::VECTOR, buffer);
-  AppendVectorId(buffer);
+  if (!IsNull()) {
+    AppendVectorId(buffer);
+  }
 }
 
 namespace {

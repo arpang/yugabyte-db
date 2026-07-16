@@ -271,6 +271,13 @@
         },
         "earlyoomEnabled" : {
           "type" : "boolean"
+        },
+        "perProviderConfig" : {
+          "additionalProperties" : {
+            "$ref" : "#/definitions/PerProviderState"
+          },
+          "description" : "Configuration per provider",
+          "type" : "object"
         }
       },
       "type" : "object"
@@ -2549,6 +2556,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -2673,6 +2683,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -3148,6 +3159,26 @@
       },
       "required" : [
         "availabilityZones"
+      ],
+      "type" : "object"
+    },
+    "AzNodesSpec" : {
+      "properties" : {
+        "azCode" : {
+          "type" : "string"
+        },
+        "code" : {
+          "type" : "string"
+        },
+        "masterSpecification" : {
+          "$ref" : "#/definitions/NodeSpec"
+        },
+        "tserverSpecification" : {
+          "$ref" : "#/definitions/NodeSpec"
+        }
+      },
+      "required" : [
+        "code"
       ],
       "type" : "object"
     },
@@ -5421,6 +5452,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -5545,6 +5579,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -8557,6 +8592,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -8681,6 +8719,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -9380,6 +9419,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -9504,6 +9546,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -10910,6 +10953,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -11034,6 +11080,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -11646,6 +11693,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -11770,6 +11820,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -14282,6 +14333,27 @@
       ],
       "type" : "object"
     },
+    "NodeSpec" : {
+      "properties" : {
+        "backupProxyConfig" : {
+          "$ref" : "#/definitions/ProxyConfig"
+        },
+        "cgroupSize" : {
+          "format" : "int32",
+          "type" : "integer"
+        },
+        "deviceInfo" : {
+          "$ref" : "#/definitions/DeviceInfo"
+        },
+        "instanceType" : {
+          "type" : "string"
+        },
+        "k8SNodeResourceSpec" : {
+          "$ref" : "#/definitions/K8SNodeResourceSpec"
+        }
+      },
+      "type" : "object"
+    },
     "OCICloudInfo" : {
       "properties" : {
         "ociCompartmentId" : {
@@ -14320,6 +14392,14 @@
             "HOSTVPC"
           ],
           "readOnly" : true,
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
+    "OCIRegionCloudInfo" : {
+      "properties" : {
+        "vnet" : {
           "type" : "string"
         }
       },
@@ -14967,6 +15047,17 @@
       "required" : [
         "value"
       ],
+      "type" : "object"
+    },
+    "PerProviderState" : {
+      "properties" : {
+        "config" : {
+          "$ref" : "#/definitions/EarlyoomConfig"
+        },
+        "earlyoomEnabled" : {
+          "type" : "boolean"
+        }
+      },
       "type" : "object"
     },
     "PerfAdvisorManualRunStatus" : {
@@ -15894,6 +15985,10 @@
           },
           "type" : "array"
         },
+        "masterPauseCompleted" : {
+          "description" : "WARNING: This is a preview API that could change. True once the canary pauseAfterMasters checkpoint has been reached and resumed, so it is not re-emitted on a subsequent abort+retry of the upgrade.",
+          "type" : "boolean"
+        },
         "softwareVersion" : {
           "type" : "string"
         },
@@ -16087,6 +16182,74 @@
           "type" : "string"
         }
       },
+      "type" : "object"
+    },
+    "ProviderSpecification" : {
+      "properties" : {
+        "accessKeyCode" : {
+          "type" : "string"
+        },
+        "awsInstanceProfile" : {
+          "type" : "string"
+        },
+        "azHelmOverrides" : {
+          "additionalProperties" : {
+            "type" : "string"
+          },
+          "type" : "object"
+        },
+        "enableLoadBalancer" : {
+          "type" : "boolean"
+        },
+        "exposingServiceState" : {
+          "enum" : [
+            "NONE",
+            "EXPOSED",
+            "UNEXPOSED"
+          ],
+          "type" : "string"
+        },
+        "helmOverrides" : {
+          "type" : "string"
+        },
+        "imageBundleUUID" : {
+          "format" : "uuid",
+          "type" : "string"
+        },
+        "instanceTags" : {
+          "additionalProperties" : {
+            "type" : "string"
+          },
+          "type" : "object"
+        },
+        "nodesSpecs" : {
+          "$ref" : "#/definitions/RootNodesSpec"
+        },
+        "providerType" : {
+          "enum" : [
+            "unknown",
+            "aws",
+            "gcp",
+            "azu",
+            "oci",
+            "docker",
+            "onprem",
+            "kubernetes",
+            "local",
+            "other"
+          ],
+          "type" : "string"
+        },
+        "providerUUID" : {
+          "format" : "uuid",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "nodesSpecs",
+        "providerType",
+        "providerUUID"
+      ],
       "type" : "object"
     },
     "ProvisionUniverseNodesParams" : {
@@ -16301,6 +16464,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -16425,6 +16591,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -16991,6 +17158,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -17115,6 +17285,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -17583,6 +17754,9 @@
         },
         "kubernetes" : {
           "$ref" : "#/definitions/KubernetesRegionInfo"
+        },
+        "oci" : {
+          "$ref" : "#/definitions/OCIRegionCloudInfo"
         }
       },
       "type" : "object"
@@ -17702,6 +17876,32 @@
         "latitude",
         "longitude",
         "name"
+      ],
+      "type" : "object"
+    },
+    "RegionNodesSpec" : {
+      "properties" : {
+        "azNodesSpecs" : {
+          "items" : {
+            "$ref" : "#/definitions/AzNodesSpec"
+          },
+          "type" : "array"
+        },
+        "code" : {
+          "type" : "string"
+        },
+        "masterSpecification" : {
+          "$ref" : "#/definitions/NodeSpec"
+        },
+        "regionCode" : {
+          "type" : "string"
+        },
+        "tserverSpecification" : {
+          "$ref" : "#/definitions/NodeSpec"
+        }
+      },
+      "required" : [
+        "code"
       ],
       "type" : "object"
     },
@@ -18037,6 +18237,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -18161,6 +18364,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -18883,6 +19087,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -19007,6 +19214,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -20427,6 +20635,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -20551,6 +20762,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -20889,6 +21101,23 @@
       ],
       "type" : "object"
     },
+    "RootNodesSpec" : {
+      "properties" : {
+        "masterSpecification" : {
+          "$ref" : "#/definitions/NodeSpec"
+        },
+        "regionNodesSpecs" : {
+          "items" : {
+            "$ref" : "#/definitions/RegionNodesSpec"
+          },
+          "type" : "array"
+        },
+        "tserverSpecification" : {
+          "$ref" : "#/definitions/NodeSpec"
+        }
+      },
+      "type" : "object"
+    },
     "RunQueryFormData" : {
       "properties" : {
         "db_name" : {
@@ -21222,6 +21451,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -21648,6 +21878,7 @@
               "ModifyKubernetesQueryLoggingConfig",
               "ModifyMetricsExportConfig",
               "ConfigureExportTelemetryConfig",
+              "KubernetesConfigureExportTelemetryConfig",
               "InstallYbcSoftware",
               "UpgradeUniverseYbc",
               "UpgradeYbcGFlags",
@@ -22223,6 +22454,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -22881,6 +23113,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -23005,6 +23240,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -24043,6 +24279,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -24167,6 +24406,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -25380,6 +25620,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -25504,6 +25747,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -26069,6 +26313,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -26193,6 +26440,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -26899,6 +27147,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -27023,6 +27274,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -27553,6 +27805,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -27677,6 +27932,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -28207,6 +28463,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -28331,6 +28590,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -28802,17 +29062,17 @@
           "type" : "integer"
         },
         "sendBatchMaxSize" : {
-          "description" : "Maximum batch size for query logs exporter",
+          "description" : "Maximum batch size for logs exporter",
           "format" : "int32",
           "type" : "integer"
         },
         "sendBatchSize" : {
-          "description" : "Batch size for query logs exporter",
+          "description" : "Batch size for logs exporter",
           "format" : "int32",
           "type" : "integer"
         },
         "sendBatchTimeoutSeconds" : {
-          "description" : "Maximum batch timeout for query logs exporter in seconds",
+          "description" : "Maximum batch timeout for logs exporter in seconds",
           "format" : "int32",
           "type" : "integer"
         }
@@ -28964,6 +29224,14 @@
           "description" : "Universe version",
           "format" : "int32",
           "type" : "integer"
+        }
+      },
+      "type" : "object"
+    },
+    "UniverseSettings" : {
+      "properties" : {
+        "expertMode" : {
+          "type" : "boolean"
         }
       },
       "type" : "object"
@@ -29369,6 +29637,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -29493,6 +29764,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -29944,6 +30216,12 @@
         },
         "provider" : {
           "type" : "string"
+        },
+        "providerSpecifications" : {
+          "items" : {
+            "$ref" : "#/definitions/ProviderSpecification"
+          },
+          "type" : "array"
         },
         "providerType" : {
           "enum" : [
@@ -30514,6 +30792,9 @@
         "universePaused" : {
           "type" : "boolean"
         },
+        "universeSettings" : {
+          "$ref" : "#/definitions/UniverseSettings"
+        },
         "universeUUID" : {
           "description" : "Associated universe UUID",
           "format" : "uuid",
@@ -30638,6 +30919,7 @@
             "ModifyKubernetesQueryLoggingConfig",
             "ModifyMetricsExportConfig",
             "ConfigureExportTelemetryConfig",
+            "KubernetesConfigureExportTelemetryConfig",
             "InstallYbcSoftware",
             "UpgradeUniverseYbc",
             "UpgradeYbcGFlags",
@@ -31962,14 +32244,7 @@
         }
       },
       "required" : [
-        "enabled",
-        "excludedCategories",
-        "excludedKeyspaces",
-        "excludedUsers",
-        "includedCategories",
-        "includedKeyspaces",
-        "includedUsers",
-        "logLevel"
+        "enabled"
       ],
       "type" : "object"
     },
@@ -32053,13 +32328,10 @@
         }
       },
       "required" : [
-        "classes",
         "enabled",
         "logCatalog",
         "logClient",
-        "logLevel",
         "logParameter",
-        "logParameterMaxSize",
         "logRelation",
         "logRows",
         "logStatement",
@@ -50045,6 +50317,9 @@
     },
     {
       "name" : "Node instances"
+    },
+    {
+      "name" : "PA Proxy"
     },
     {
       "name" : "PITR management"

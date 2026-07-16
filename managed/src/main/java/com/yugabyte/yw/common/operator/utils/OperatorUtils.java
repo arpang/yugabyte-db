@@ -549,8 +549,10 @@ public class OperatorUtils {
           .getAllAZUUIDs()
           .forEach(
               azUUID -> {
-                DeviceInfo tsDeviceInfo = curCluster.userIntent.getDeviceInfoForAz(azUUID, false);
-                DeviceInfo newTsDeviceInfo = newIntentClone.getDeviceInfoForAz(azUUID, false);
+                DeviceInfo tsDeviceInfo =
+                    curCluster.userIntent.getDeviceInfoForAz(azUUID, ServerType.TSERVER);
+                DeviceInfo newTsDeviceInfo =
+                    newIntentClone.getDeviceInfoForAz(azUUID, ServerType.TSERVER);
                 log.debug(
                     "Comparing tserver device info for AZ {}: old {}, new {}",
                     azUUID,
@@ -561,8 +563,9 @@ public class OperatorUtils {
 
                 if (curCluster.clusterType != ClusterType.ASYNC) {
                   DeviceInfo masterDeviceInfo =
-                      curCluster.userIntent.getDeviceInfoForAz(azUUID, true);
-                  DeviceInfo newMasterDeviceInfo = newIntentClone.getDeviceInfoForAz(azUUID, true);
+                      curCluster.userIntent.getDeviceInfoForAz(azUUID, ServerType.MASTER);
+                  DeviceInfo newMasterDeviceInfo =
+                      newIntentClone.getDeviceInfoForAz(azUUID, ServerType.MASTER);
                   log.debug(
                       "Comparing master device info for AZ {}: old {}, new {}",
                       azUUID,
@@ -971,6 +974,8 @@ public class OperatorUtils {
     log.trace("Toggle Immutable YBC mismatch: {}", mismatch);
     mismatch = mismatch || shouldRotateCerts(u, ybUniverse, cust.getUuid());
     log.trace("certificate mismatch: {}", mismatch);
+    mismatch = mismatch || shouldToggleTls(currentUserIntent, ybUniverse);
+    log.trace("tls parameters mismatch: {}", mismatch);
     return mismatch;
   }
 
@@ -1170,6 +1175,23 @@ public class OperatorUtils {
 
     // Check if the certificate UUID differs from the current one
     return !specRootCACert.getUuid().equals(currentRootCA);
+  }
+
+  /*--- TLS toggle helper methods ---*/
+
+  /**
+   * Checks if the encryption-in-transit settings in the spec differ from the universe, requiring a
+   * TLS toggle operation.
+   *
+   * @param currentUserIntent the current primary cluster user intent
+   * @param ybUniverse the YBUniverse spec
+   * @return true if node-to-node or client-to-node encryption settings have changed
+   */
+  public boolean shouldToggleTls(UserIntent currentUserIntent, YBUniverse ybUniverse) {
+    return currentUserIntent.enableNodeToNodeEncrypt
+            != ybUniverse.getSpec().getEnableNodeToNodeEncrypt()
+        || currentUserIntent.enableClientToNodeEncrypt
+            != ybUniverse.getSpec().getEnableClientToNodeEncrypt();
   }
 
   /*--- Backup and Scheduled backup helper methods ---*/

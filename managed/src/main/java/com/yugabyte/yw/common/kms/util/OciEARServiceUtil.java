@@ -13,7 +13,8 @@ package com.yugabyte.yw.common.kms.util;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.oracle.bmc.Region;
-import com.oracle.bmc.auth.AuthenticationDetailsProvider;
+import com.oracle.bmc.auth.AbstractAuthenticationDetailsProvider;
+import com.oracle.bmc.auth.InstancePrincipalsAuthenticationDetailsProvider;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.identity.IdentityClient;
 import com.oracle.bmc.identity.requests.ListRegionsRequest;
@@ -39,15 +40,16 @@ public class OciEARServiceUtil {
   private static final Logger LOG = LoggerFactory.getLogger(OciEARServiceUtil.class);
 
   public enum OciKmsAuthConfigField {
-    TENANCY_OCID("TENANCY_OCID", true, false),
-    USER_OCID("USER_OCID", true, false),
-    FINGERPRINT("FINGERPRINT", true, false),
-    PRIVATE_KEY("PRIVATE_KEY", true, false),
-    OCI_COMPARTMENT_OCID("OCI_COMPARTMENT_OCID", true, false),
-    OCI_VAULT_OCID("OCI_VAULT_OCID", false, false),
-    OCI_REGION("OCI_REGION", false, true),
-    OCI_KEY_NAME("OCI_KEY_NAME", false, true),
-    OCI_KEY_OCID("OCI_KEY_OCID", false, false);
+    ociTenancyId("ociTenancyId", true, false),
+    ociUserId("ociUserId", true, false),
+    ociFingerprint("ociFingerprint", true, false),
+    ociPrivateKeyContent("ociPrivateKeyContent", true, false),
+    ociAuthType("ociAuthType", false, false),
+    ociCompartmentId("ociCompartmentId", true, false),
+    ociVaultId("ociVaultId", false, false),
+    ociRegion("ociRegion", false, true),
+    ociKeyName("ociKeyName", false, true),
+    ociKeyOcid("ociKeyOcid", false, false);
 
     public final String fieldName;
     public final boolean isEditable;
@@ -81,11 +83,35 @@ public class OciEARServiceUtil {
     }
   }
 
+  /** Supported authentication mechanisms for talking to the OCI KMS service. */
+  public enum OciKmsAuthType {
+    // API signing key: tenancy + user + fingerprint + private key.
+    API_KEY,
+    // OCI Instance Principal (YBA host is part of a dynamic group with a KMS policy).
+    INSTANCE_PRINCIPAL;
+  }
+
+  /**
+   * Resolves the configured authentication type, defaulting to API_KEY when the field is absent so
+   * that pre-existing configs keep working.
+   *
+   * @param authConfig the OCI KMS auth config object
+   * @return the resolved authentication type
+   */
+  public OciKmsAuthType getAuthType(ObjectNode authConfig) {
+    String authTypeStr = getSafeText(authConfig, OciKmsAuthConfigField.ociAuthType.fieldName);
+    if (StringUtils.isBlank(authTypeStr)) {
+      return OciKmsAuthType.API_KEY;
+    }
+    return OciKmsAuthType.valueOf(authTypeStr.trim().toUpperCase());
+  }
+
   public SimpleAuthenticationDetailsProvider getCredentials(ObjectNode authConfig) {
-    String tenancyOcid = authConfig.path(OciKmsAuthConfigField.TENANCY_OCID.fieldName).asText();
-    String userOcid = authConfig.path(OciKmsAuthConfigField.USER_OCID.fieldName).asText();
-    String fingerprint = authConfig.path(OciKmsAuthConfigField.FINGERPRINT.fieldName).asText();
-    String privateKey = authConfig.path(OciKmsAuthConfigField.PRIVATE_KEY.fieldName).asText();
+    String tenancyOcid = authConfig.path(OciKmsAuthConfigField.ociTenancyId.fieldName).asText();
+    String userOcid = authConfig.path(OciKmsAuthConfigField.ociUserId.fieldName).asText();
+    String fingerprint = authConfig.path(OciKmsAuthConfigField.ociFingerprint.fieldName).asText();
+    String privateKey =
+        authConfig.path(OciKmsAuthConfigField.ociPrivateKeyContent.fieldName).asText();
 
     if (StringUtils.isAnyBlank(tenancyOcid, userOcid, fingerprint, privateKey)) {
       throw new RuntimeException("Missing required OCI credentials");
@@ -99,30 +125,37 @@ public class OciEARServiceUtil {
         .build();
   }
 
-  public AuthenticationDetailsProvider getAuthenticationProvider(ObjectNode authConfig) {
-    return getCredentials(authConfig);
+  public AbstractAuthenticationDetailsProvider getAuthenticationProvider(ObjectNode authConfig) {
+    OciKmsAuthType authType = getAuthType(authConfig);
+    switch (authType) {
+      case INSTANCE_PRINCIPAL:
+        return InstancePrincipalsAuthenticationDetailsProvider.builder().build();
+      case API_KEY:
+      default:
+        return getCredentials(authConfig);
+    }
   }
 
   public KmsVaultClient getKmsVaultClient(UUID configUUID, ObjectNode authConfig) {
-    AuthenticationDetailsProvider provider = getAuthenticationProvider(authConfig);
+    AbstractAuthenticationDetailsProvider provider = getAuthenticationProvider(authConfig);
     if (provider == null) {
       return null;
     }
 
-    String regionStr = authConfig.path(OciKmsAuthConfigField.OCI_REGION.fieldName).asText();
+    String regionStr = authConfig.path(OciKmsAuthConfigField.ociRegion.fieldName).asText();
     Region region = Region.fromRegionId(regionStr);
 
     return KmsVaultClient.builder().region(region).build(provider);
   }
 
   public KmsManagementClient getKmsManagementClient(UUID configUUID, ObjectNode authConfig) {
-    AuthenticationDetailsProvider provider = getAuthenticationProvider(authConfig);
+    AbstractAuthenticationDetailsProvider provider = getAuthenticationProvider(authConfig);
     if (provider == null) {
       return null;
     }
 
     KmsVaultClient kmsVaultClient = getKmsVaultClient(configUUID, authConfig);
-    String vaultId = authConfig.path(OciKmsAuthConfigField.OCI_VAULT_OCID.fieldName).asText();
+    String vaultId = authConfig.path(OciKmsAuthConfigField.ociVaultId.fieldName).asText();
     Vault vault = getVaultFromId(kmsVaultClient, vaultId);
     KmsManagementClient kmsManagementClient =
         KmsManagementClient.builder().endpoint(vault.getManagementEndpoint()).build(provider);
@@ -130,12 +163,12 @@ public class OciEARServiceUtil {
   }
 
   public KmsCryptoClient getKmsCryptoClient(UUID configUUID, ObjectNode authConfig) {
-    AuthenticationDetailsProvider provider = getAuthenticationProvider(authConfig);
+    AbstractAuthenticationDetailsProvider provider = getAuthenticationProvider(authConfig);
     if (provider == null) {
       return null;
     }
 
-    String vaultOcid = authConfig.path(OciKmsAuthConfigField.OCI_VAULT_OCID.fieldName).asText();
+    String vaultOcid = authConfig.path(OciKmsAuthConfigField.ociVaultId.fieldName).asText();
 
     KmsVaultClient kmsVaultClient = getKmsVaultClient(configUUID, authConfig);
     Vault vault = getVaultFromId(kmsVaultClient, vaultOcid);
@@ -156,12 +189,12 @@ public class OciEARServiceUtil {
    * yet exist, and the resolved OCID is cached back into the supplied auth config.
    */
   public String resolveKeyOcid(UUID configUUID, ObjectNode authConfig) {
-    String keyOcid = getSafeText(authConfig, OciKmsAuthConfigField.OCI_KEY_OCID.fieldName);
+    String keyOcid = getSafeText(authConfig, OciKmsAuthConfigField.ociKeyOcid.fieldName);
     if (StringUtils.isNotBlank(keyOcid)) {
       return keyOcid;
     }
 
-    String keyName = getSafeText(authConfig, OciKmsAuthConfigField.OCI_KEY_NAME.fieldName);
+    String keyName = getSafeText(authConfig, OciKmsAuthConfigField.ociKeyName.fieldName);
     if (StringUtils.isBlank(keyName)) {
       throw new RuntimeException("OCI_KEY_NAME is required to resolve the OCI KMS key.");
     }
@@ -171,7 +204,7 @@ public class OciEARServiceUtil {
       CreateKeyResponse resp = createKey(configUUID, authConfig, keyName);
       foundOcid = resp.getKey().getId();
     }
-    authConfig.put(OciKmsAuthConfigField.OCI_KEY_OCID.fieldName, foundOcid);
+    authConfig.put(OciKmsAuthConfigField.ociKeyOcid.fieldName, foundOcid);
     return foundOcid;
   }
 
@@ -182,7 +215,7 @@ public class OciEARServiceUtil {
     }
 
     String compartmentId =
-        authConfig.path(OciKmsAuthConfigField.OCI_COMPARTMENT_OCID.fieldName).asText();
+        authConfig.path(OciKmsAuthConfigField.ociCompartmentId.fieldName).asText();
     if (StringUtils.isBlank(compartmentId)) {
       throw new RuntimeException("OCI_COMPARTMENT_OCID is required to lookup key by name.");
     }
@@ -335,7 +368,7 @@ public class OciEARServiceUtil {
     }
 
     String compartmentId =
-        authConfig.path(OciKmsAuthConfigField.OCI_COMPARTMENT_OCID.fieldName).asText();
+        authConfig.path(OciKmsAuthConfigField.ociCompartmentId.fieldName).asText();
     if (StringUtils.isBlank(compartmentId)) {
       throw new RuntimeException("OCI_COMPARTMENT_OCID is required to lookup key by name.");
     }
@@ -405,10 +438,9 @@ public class OciEARServiceUtil {
     // Step 1: fail fast on blank fields not already covered by getCredentials().
     // Credential fields (TENANCY_OCID, USER_OCID, FINGERPRINT, PRIVATE_KEY) are checked inside
     // getCredentials() via StringUtils.isAnyBlank, so we only need the three below here.
-    String vaultOcid = getSafeText(formData, OciKmsAuthConfigField.OCI_VAULT_OCID.fieldName);
-    String regionStr = getSafeText(formData, OciKmsAuthConfigField.OCI_REGION.fieldName);
-    String compartmentId =
-        getSafeText(formData, OciKmsAuthConfigField.OCI_COMPARTMENT_OCID.fieldName);
+    String vaultOcid = getSafeText(formData, OciKmsAuthConfigField.ociVaultId.fieldName);
+    String regionStr = getSafeText(formData, OciKmsAuthConfigField.ociRegion.fieldName);
+    String compartmentId = getSafeText(formData, OciKmsAuthConfigField.ociCompartmentId.fieldName);
     if (StringUtils.isBlank(vaultOcid)) throw new RuntimeException("OCI_VAULT_OCID is required");
     if (StringUtils.isBlank(regionStr)) throw new RuntimeException("OCI_REGION is required");
     if (StringUtils.isBlank(compartmentId))
@@ -423,17 +455,22 @@ public class OciEARServiceUtil {
           "Invalid OCI_REGION: '" + regionStr + "' is not a recognized OCI region identifier.", e);
     }
 
-    // Step 3: validate credentials with a live Identity API call (listRegions is cheap and global).
-    // This is the only step that can confirm tenancy/user/fingerprint/private-key are all correct.
-    SimpleAuthenticationDetailsProvider authProvider = getCredentials(formData);
+    // API signing key fields are only required when using API_KEY authentication. For
+    // Instance/Resource Principal modes the credentials come from the host/pod identity.
+    OciKmsAuthType authType = getAuthType(formData);
+    AbstractAuthenticationDetailsProvider authProvider = getAuthenticationProvider(formData);
     try {
       validateCredentialsWithIdentityService(region, authProvider);
     } catch (BmcException e) {
       if (e.getStatusCode() == 401 || e.getStatusCode() == 403) {
-        throw new RuntimeException(
-            "Invalid OCI credentials. Please verify REGION, TENANCY_OCID, USER_OCID, FINGERPRINT,"
-                + " and PRIVATE_KEY.",
-            e);
+        String message =
+            authType == OciKmsAuthType.API_KEY
+                ? "Invalid OCI credentials. Please verify REGION, TENANCY_OCID, USER_OCID, "
+                    + "FINGERPRINT, and PRIVATE_KEY."
+                : "Instance principal authentication failed. Ensure this YugabyteDB Anywhere "
+                    + "host is an OCI compute instance in a dynamic group with IAM policies "
+                    + "granting access to OCI services.";
+        throw new RuntimeException(message, e);
       }
       throw new RuntimeException("OCI credential validation failed: " + e.getMessage(), e);
     } catch (Exception e) {
@@ -473,7 +510,7 @@ public class OciEARServiceUtil {
     // settings (lifecycle state must be Enabled and algorithm must be AES). A non-existent name is
     // allowed here; the key will be created at config-create time. getKeyOcidByName throws if
     // multiple keys share the same display name.
-    String keyName = getSafeText(formData, OciKmsAuthConfigField.OCI_KEY_NAME.fieldName);
+    String keyName = getSafeText(formData, OciKmsAuthConfigField.ociKeyName.fieldName);
     if (StringUtils.isBlank(keyName)) {
       throw new RuntimeException("OCI_KEY_NAME is required");
     }
@@ -491,7 +528,7 @@ public class OciEARServiceUtil {
    * successfully authenticate against OCI. Extracted as a protected method so tests can stub it.
    */
   protected void validateCredentialsWithIdentityService(
-      Region region, SimpleAuthenticationDetailsProvider authProvider) {
+      Region region, AbstractAuthenticationDetailsProvider authProvider) {
     try (IdentityClient identityClient =
         IdentityClient.builder().region(region).build(authProvider)) {
       identityClient.listRegions(ListRegionsRequest.builder().build());

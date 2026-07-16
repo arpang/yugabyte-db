@@ -30,8 +30,8 @@ Voyager then generates a report that includes:
 - **Performance metrics:** Analyzes workload characteristics to recommend optimizations in YugabyteDB.
 - **Performance optimizations:** Identifies schema DDLs that may impact application performance after migrating to YugabyteDB. It highlights potentially inefficient DDLs and provides recommendations to optimize them for better performance.
 - **Migration time estimate:** Provides an estimated time for data import into YugabyteDB based on experimental data.
-- **Unsupported query constructs:** Identifies SQL features and constructs not supported by YugabyteDB, such as advisory locks, system columns, and XML functions, and provides a list of queries containing these constructs.
-- **Unsupported PL/pgSQL objects:** Identifies SQL features and constructs that are not supported by YugabyteDB, such as advisory locks, system columns, and XML functions, within PL/pgSQL objects in the source schema. It reports the individual queries within these objects that are not supported, such as queries in the PL/pgSQL block for functions and procedures, or the select statements in views and materialized views that contain unsupported constructs.
+- **Unsupported query constructs:** Identifies SQL features and constructs not supported by YugabyteDB, such as advisory locks and system columns, and provides a list of queries containing these constructs.
+- **Unsupported PL/pgSQL objects:** Identifies SQL features and constructs that are not supported by YugabyteDB, such as advisory locks and system columns, within PL/pgSQL objects in the source schema. It reports the individual queries within these objects that are not supported, such as queries in the PL/pgSQL block for functions and procedures, or the select statements in views and materialized views that contain unsupported constructs.
 
 When running migration assessment, keep in mind the following:
 
@@ -300,9 +300,9 @@ Depending on the recommendations in the assessment report, do the following when
 1. Proceed with migration with one of the migration workflows:
 
     - [Offline migration](../../migrate/migrate-steps/)
-    - [Live migration](../../migrate/live-migrate/)
-    - [Live migration with fall-forward](../../migrate/live-fall-forward/)
-    - [Live migration with fall-back](../../migrate/live-fall-back/)
+    - [Live migration](../../migrate/live-migrate/) (PostgreSQL only)
+    - [Live migration with fall-forward](../../migrate/live-fall-forward/) (PostgreSQL only)
+    - [Live migration with fall-back](../../migrate/live-fall-back/) (PostgreSQL only)
 
 ## Assess with read replicas (PostgreSQL only)
 

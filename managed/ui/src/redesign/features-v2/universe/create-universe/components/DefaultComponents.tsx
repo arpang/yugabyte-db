@@ -53,6 +53,7 @@ export const StyledInfoRow = styled(Box)(({ theme }) => ({
     display: 'flex',
     flexDirection: 'column',
     gap: '4px',
+    minWidth: '200px',
     '& > .header': {
       color: theme.palette.grey[600],
       textTransform: 'uppercase',
@@ -89,4 +90,19 @@ export const StyledInputWrapper = styled(Box)(({ theme }) => ({
   border: '1px solid #D7DEE4',
   borderRadius: '8px',
   gap: '16px'
+}));
+
+export const StyledEmptyState = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  height: '168px',
+  width: '100%',
+  justifyContent: 'center',
+  alignItems: 'center',
+  backgroundColor: '#F2F6FF',
+  border: '1px dashed #CBDBFF',
+  borderRadius: '8px',
+  color: '#4E5F6D',
+  fontSize: '13px',
+  padding: '24px'
 }));

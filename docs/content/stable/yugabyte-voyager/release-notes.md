@@ -17,6 +17,49 @@ What follows are the release notes for the YugabyteDB Voyager v1 release series.
 
 Voyager releases (starting with v2025.5.2) use the numbering format `YYYY.M.N`, where `YYYY` is the release year, `M` is the month, and `N` is the number of the release in that month.
 
+{{< warning title="Oracle live migration no longer supported" >}}
+
+YugabyteDB Voyager no longer supports [live migration](../migrate/live-migrate/) from Oracle databases, including [live migration with fall-forward](../migrate/live-fall-forward/) and [live migration with fall-back](../migrate/live-fall-back/). Oracle remains supported for [offline migration](../migrate/migrate-steps/).
+
+Contact {{% support-general %}} to discuss alternative tools and approaches.
+
+{{< /warning >}}
+
+## v2026.7.1 - July 7, 2026
+
+{{< note title="Important: Breaking change" >}}
+
+This release includes breaking changes for Voyager migrations. Migrations started with earlier Voyager versions cannot be continued with this version. To proceed, either continue the migration using the same Voyager version you started with, or start a new migration using v2026.7.1.
+
+{{< /note >}}
+
+### Enhancements
+
+- Added `--target-db-type` CLI flag to select the target database engine for offline and basic live migrations from PostgreSQL.
+- Added a guardrail that fails fast with a clear error when a `start-clean` import is attempted after the relevant queue segments have already been archived.
+
+### Bug fixes
+
+- Fixed an issue where unsupported query constructs were not detected during migration assessment when run with `--run-guardrails-checks=false`, even though [pg_stat_statements](../../launch-and-manage/monitor-and-alert/query-tuning/pg-stat-statements/) was installed and enabled.
+- Fixed unique-key conflict detection for multi-column unique indexes during live migration.
+- Fixed live migration reporting false unique-key conflicts for tables using the table CDC partitioning strategy.
+- Fixed a validation issue where `--use-partition-root` incorrectly evaluated the target engine instead of the source database, ensuring non-PostgreSQL sources are properly rejected.
+
+## v2026.6.2 - June 24, 2026
+
+### Enhancements
+
+- Added a warning to [export data from target](../reference/data-migration/export-data/) when the target YugabyteDB server version is newer than the bundled [YugabyteDB logical replication connector](../../additional-features/change-data-capture/using-logical-replication/).
+- Improved [assess-migration](../reference/assess-migration/) and [analyze-schema](../reference/schema-migration/analyze-schema/) reports to show Tech Preview and Early Access maturity details, including required feature flags for supported YugabyteDB features.
+- Improved fatal error output so interactive console errors stand out, while keeping logs and redirected stderr as plain text.
+
+### Bug fixes
+
+- Fixed an issue that allowed equivalent commands, such as `export data` and `export data from source` to run concurrently for the same migration.
+- Fixed an issue where failures before logging initialization could print duplicate errors or send errors to stdout.
+- Fixed an issue where `assess-migration` and `analyze-schema` incorrectly reported PL/pgSQL %TYPE declarations as unsupported.
+- Fixed an issue where import schema could fail for PL/pgSQL functions using unqualified %TYPE references.
+
 ## v2026.6.1 - June 9, 2026
 
 ### Enhancement

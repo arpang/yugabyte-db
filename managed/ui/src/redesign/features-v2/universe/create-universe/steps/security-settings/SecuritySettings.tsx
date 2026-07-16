@@ -17,6 +17,7 @@ import {
   StepsRef
 } from '../../CreateUniverseContext';
 import { CloudType } from '@app/redesign/features/universe/universe-form/utils/dto';
+import { isCloudVendorCloudType } from '@app/components/configRedesign/providerRedesign/utils';
 import { SecuritySettingsProps } from './dtos';
 import { useUpdateEffect } from 'react-use';
 import {
@@ -83,19 +84,21 @@ export const SecuritySettings = forwardRef<StepsRef>((_, forwardRef) => {
   return (
     <FormProvider {...methods}>
       <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%', gap: '24px' }}>
-        <StyledPanel>
-          <StyledHeader>{t('networkAcessTitle')}</StyledHeader>
-          <StyledContent sx={{ gap: '16px' }}>
-            {provider && [CloudType.aws, CloudType.gcp, CloudType.azu].includes(provider?.code) && (
-              <AssignPublicIPField
-                disabled={false}
-                providerCode={generalSettings?.providerConfiguration?.code ?? ''}
-              />
-            )}
-            {provider?.code === CloudType.kubernetes && <IPV6Field disabled={false} />}
-            {provider?.code === CloudType.kubernetes && <NetworkAcessField disabled={false} />}
-          </StyledContent>
-        </StyledPanel>
+        {provider?.code !== CloudType.onprem && (
+          <StyledPanel>
+            <StyledHeader>{t('networkAcessTitle')}</StyledHeader>
+            <StyledContent sx={{ gap: '16px' }}>
+              {provider && isCloudVendorCloudType(provider?.code) && (
+                  <AssignPublicIPField
+                    disabled={false}
+                    providerCode={generalSettings?.providerConfiguration?.code ?? ''}
+                  />
+                )}
+              {provider?.code === CloudType.kubernetes && <IPV6Field disabled={false} />}
+              {provider?.code === CloudType.kubernetes && <NetworkAcessField disabled={false} />}
+            </StyledContent>
+          </StyledPanel>
+        )}
         <StyledPanel>
           <StyledHeader>{t('eitTitle')}</StyledHeader>
           <StyledContent>
